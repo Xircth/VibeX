@@ -288,7 +288,7 @@ export function ProviderCatalogPicker({
             <div
               ref={menuRef}
               id={menuId}
-              className="agent-model-provider-catalog-menu product-context-menu border border-border bg-white font-sans text-[13px] leading-5 text-popover-foreground shadow-none dark:bg-popover"
+              className="agent-model-provider-catalog-menu product-context-menu border border-border bg-popover font-sans text-[13px] leading-5 text-popover-foreground shadow-none"
               style={{
                 top: position.top,
                 left: position.left,

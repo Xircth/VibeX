@@ -25,10 +25,18 @@ const WorkflowInspector = lazyNamed(
   () => import('@/pages/workflows/WorkflowInspector'),
   'WorkflowInspector'
 );
+const UnifiedShellPrototype = lazyNamed(
+  () => import('@/pages/UnifiedShellPrototype'),
+  'UnifiedShellPrototype'
+);
 
 export function MainAppRoutes() {
   return (
     <Routes>
+      <Route
+        path="/prototype/unified-shell"
+        element={<UnifiedShellPrototype />}
+      />
       <Route
         path="/local-projects/:projectId/workspaces/:workspaceId/full"
         element={

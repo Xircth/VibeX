@@ -1,5 +1,8 @@
 import type { ITheme } from '@xterm/xterm';
 
+import { withAlpha } from '@/lib/theme/colorMath';
+import { getAccentColor } from '@/lib/uiAccent';
+
 function toHex(value: number): string {
   const clamped = Math.max(0, Math.min(255, Math.round(value)));
   return clamped.toString(16).padStart(2, '0');
@@ -110,15 +113,20 @@ export function getTerminalTheme(): ITheme {
     isDark ? '#f87171' : '#e33636'
   );
 
-  // Define ANSI palette based on light/dark mode
-  // These are carefully chosen to be readable on the respective backgrounds
+  const selection = withAlpha(
+    getAccentColor(isDark ? 'dark' : 'light'),
+    isDark ? 0.3 : 0.2
+  );
+
+  // The ANSI palette is per scheme, tuned for legibility; themes recolor the
+  // canvas, ink, status hues, and selection above.
   if (isDark) {
     return {
       background: bgHex,
       foreground: fgHex,
       cursor: fgHex,
       cursorAccent: bgHex,
-      selectionBackground: '#E7EBEF4D',
+      selectionBackground: selection,
       selectionForeground: fgHex,
       black: '#1a1a1a',
       red: redHex,
@@ -144,8 +152,8 @@ export function getTerminalTheme(): ITheme {
       foreground: fgHex,
       cursor: fgHex,
       cursorAccent: bgHex,
-      selectionBackground: '#accef7',
-      selectionForeground: '#1a1a1a',
+      selectionBackground: selection,
+      selectionForeground: fgHex,
       black: '#1a1a1a',
       red: redHex,
       green: greenHex,

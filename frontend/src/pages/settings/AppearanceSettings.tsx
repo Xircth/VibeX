@@ -1,4 +1,10 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+} from 'react';
 import { SelectableCard } from '@astryxdesign/core/SelectableCard';
 import {
   SegmentedControl,
@@ -59,7 +65,10 @@ import {
 import { DEFAULT_COLLAPSE_PREFERENCES } from '@/lib/conversationCollapsePreferences';
 import { useEditorSettingsStore } from '@/stores/useEditorSettingsStore';
 import { type MarkdownPreviewMode } from '@/utils/markdownPreviewMode';
+import { resolveThemeColors } from '@/lib/theme/compileTheme';
+import { useColorThemes } from '@/lib/theme/useColorThemes';
 import { AccentColorField } from './AccentColorField';
+import { ColorThemeSettings } from './ColorThemeSettings';
 import { SettingsSection } from './SettingsUi';
 import { useLiveSettingsCommit } from './useLiveSettingsCommit';
 import {
@@ -95,8 +104,22 @@ const THEME_CHOICES: {
 ];
 
 function ThemePreviewCanvas({ mode }: { mode: 'light' | 'dark' }) {
+  const { active, preview } = useColorThemes();
+  const colors = resolveThemeColors(
+    preview?.scheme === mode ? preview : active[mode].theme
+  );
   return (
-    <div className="settings-theme-preview__canvas" data-mode={mode}>
+    <div
+      className="settings-theme-preview__canvas"
+      data-mode={mode}
+      style={
+        {
+          '--theme-preview-paper': colors.background,
+          '--theme-preview-surface': colors.surface,
+          '--theme-preview-ink': colors.foreground,
+        } as CSSProperties
+      }
+    >
       <div className="settings-theme-preview__header">
         <span className="settings-theme-preview__bar is-wide" />
         <span className="settings-theme-preview__bar" />
@@ -282,6 +305,7 @@ export function AppearanceSettings() {
               onChange={updateTheme}
             />
           </div>
+          <ColorThemeSettings />
         </SettingsSection>
 
         <SettingsSection

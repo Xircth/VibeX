@@ -1,10 +1,60 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ArrowUpRight } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import type { ConversationRelationView } from 'shared/types';
 
 import { conversationApi } from '@/features/conversation/conversationApi';
+import { listenToConversationEvents } from '@/features/conversation/events';
 import { cn } from '@/lib/utils';
+
+const inFlightRelationsByConversation = new Map<
+  string,
+  Promise<ConversationRelationView[]>
+>();
+
+function fetchConversationRelationsDeduplicated(
+  conversationId: string
+): Promise<ConversationRelationView[]> {
+  const existing = inFlightRelationsByConversation.get(conversationId);
+  if (existing) return existing;
+  const request = conversationApi
+    .listRelations(conversationId)
+    .finally(() => {
+      if (inFlightRelationsByConversation.get(conversationId) === request) {
+        inFlightRelationsByConversation.delete(conversationId);
+      }
+    });
+  inFlightRelationsByConversation.set(conversationId, request);
+  return request;
+}
+
+export function areConversationRelationsEqual(
+  left: ConversationRelationView[],
+  right: ConversationRelationView[]
+): boolean {
+  if (left === right) return true;
+  if (left.length !== right.length) return false;
+  for (let index = 0; index < left.length; index += 1) {
+    const a = left[index];
+    const b = right[index];
+    if (
+      a.id !== b.id ||
+      a.parentConversationId !== b.parentConversationId ||
+      a.childConversationId !== b.childConversationId ||
+      a.kind !== b.kind ||
+      a.visibility !== b.visibility ||
+      a.child.workspaceId !== b.child.workspaceId ||
+      a.child.title !== b.child.title ||
+      a.child.status !== b.child.status ||
+      a.child.activeTurnStatus !== b.child.activeTurnStatus ||
+      a.child.queuedInputCount !== b.child.queuedInputCount ||
+      a.child.messageCount !== b.child.messageCount
+    ) {
+      return false;
+    }
+  }
+  return true;
+}
 
 type DelegationBudgetSummary = {
   callsUsed: number;
@@ -84,27 +134,72 @@ export function ConversationChildrenSummary({
   const { t } = useTranslation('conversation');
   const [relations, setRelations] = useState<ConversationRelationView[]>([]);
 
+  const load = useCallback(
+    (isMounted: () => boolean) =>
+      fetchConversationRelationsDeduplicated(conversationId)
+        .then((next) => {
+          if (!isMounted()) return;
+          setRelations((prev) =>
+            areConversationRelationsEqual(prev, next) ? prev : next
+          );
+        })
+        .catch(() => undefined),
+    [conversationId]
+  );
+
   useEffect(() => {
     let active = true;
-    const load = () =>
-      conversationApi
-        .listRelations(conversationId)
-        .then((next) => {
-          if (active) setRelations(next);
-        })
-        .catch(() => undefined);
-    void load();
-    const interval = window.setInterval(() => void load(), 5_000);
+    const isMounted = () => active;
+    void load(isMounted);
+
+    let unlisten: (() => void) | undefined;
+    listenToConversationEvents((batch) => {
+      if (!active || batch.conversation_id !== conversationId) return;
+      const ops = Array.isArray(batch.ops) ? batch.ops : [];
+      if (ops.length > 0 && ops.every((op) => op.op === 'append_text')) {
+        return;
+      }
+      void load(isMounted);
+    }, conversationId)
+      .then((unsubscribe) => {
+        if (!active) {
+          unsubscribe();
+          return;
+        }
+        unlisten = unsubscribe;
+      })
+      .catch(() => undefined);
+
     return () => {
       active = false;
-      window.clearInterval(interval);
+      unlisten?.();
     };
-  }, [conversationId]);
+  }, [conversationId, load]);
 
   const { children, activeCount, waitingCount, budget } = useMemo(
     () => summarizeConversationChildren(relations),
     [relations]
   );
+
+  useEffect(() => {
+    if (activeCount <= 0) return;
+    let active = true;
+    const isMounted = () => active;
+    const interval = window.setInterval(() => {
+      if (
+        typeof document !== 'undefined' &&
+        document.visibilityState === 'hidden'
+      ) {
+        return;
+      }
+      void load(isMounted);
+    }, 5_000);
+    return () => {
+      active = false;
+      window.clearInterval(interval);
+    };
+  }, [activeCount, load]);
+
   if (children.length === 0) return null;
 
   return (

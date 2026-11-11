@@ -296,7 +296,7 @@ export function WebServiceSettings({
             <span className="inline-flex items-center rounded-full border border-primary/25 bg-primary/10 px-2 py-0.5 text-[11px] font-semibold leading-none tracking-wide text-primary">
               Beta
             </span>
-            <span className="inline-flex items-center rounded-full border border-emerald-500/25 bg-emerald-500/10 px-2 py-0.5 text-[11px] font-medium leading-none text-emerald-600 dark:text-emerald-400">
+            <span className="inline-flex items-center rounded-full border border-success/25 bg-success/10 px-2 py-0.5 text-[11px] font-medium leading-none text-success">
               端到端加密
             </span>
           </h2>

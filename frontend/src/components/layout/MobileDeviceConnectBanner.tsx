@@ -209,11 +209,11 @@ export function MobileDeviceConnectBanner() {
       <div
         role="region"
         aria-label="可用移动设备连接请求"
-        className="pointer-events-auto inline-flex min-h-11 max-w-full items-center gap-3 rounded-full border border-border bg-secondary/95 px-4 py-2 text-sm text-high shadow-lg backdrop-blur-md transition-all duration-150"
+        className="pointer-events-auto inline-flex min-h-11 max-w-full items-center gap-3 rounded-full border border-border bg-secondary/95 px-4 py-2 text-sm text-foreground shadow-lg backdrop-blur-md transition-all duration-150"
       >
         {connectedDeviceName && !active ? (
           <>
-            <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-emerald-500/15 text-emerald-600 dark:text-emerald-400">
+            <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-success/15 text-success">
               <Check className="h-4 w-4" />
             </span>
             <span className="truncate font-semibold">
@@ -223,23 +223,23 @@ export function MobileDeviceConnectBanner() {
         ) : active ? (
           <>
             <span className="relative flex h-2.5 w-2.5 shrink-0">
-              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />
-              <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-emerald-500" />
+              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-success opacity-75" />
+              <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-success" />
             </span>
-            <span className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-brand/10 text-brand">
+            <span className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
               <Smartphone className="h-4 w-4" />
             </span>
-            <span className="truncate text-sm font-semibold text-high">
+            <span className="truncate text-sm font-semibold text-foreground">
               发现可用移动设备「{active.device_name}」
             </span>
             <span
-              className="shrink-0 rounded-md border border-border/70 bg-panel px-2.5 py-1 font-mono text-xs font-semibold tabular-nums text-high"
+              className="shrink-0 rounded-md border border-border/70 bg-card px-2.5 py-1 font-mono text-xs font-semibold tabular-nums text-foreground"
               title="请核对手机端显示的 4 位安全码"
             >
               核对码 {active.sas_code}
             </span>
             {requests.length > 1 ? (
-              <span className="shrink-0 text-xs font-medium tabular-nums text-low">
+              <span className="shrink-0 text-xs font-medium tabular-nums text-muted-foreground">
                 +{requests.length - 1}
               </span>
             ) : null}
@@ -248,7 +248,7 @@ export function MobileDeviceConnectBanner() {
                 type="button"
                 disabled={busyId === active.request_id}
                 onClick={() => void handleRespond(active, true)}
-                className="inline-flex h-8 items-center gap-1.5 rounded-full bg-brand px-4 text-xs font-semibold text-white shadow-xs transition-colors hover:bg-brand/90 disabled:opacity-50"
+                className="inline-flex h-8 items-center gap-1.5 rounded-full bg-primary px-4 text-xs font-semibold text-primary-foreground shadow-xs transition-colors hover:bg-primary/90 disabled:opacity-50"
               >
                 连接
               </button>
@@ -257,7 +257,7 @@ export function MobileDeviceConnectBanner() {
                 disabled={busyId === active.request_id}
                 onClick={() => void handleRespond(active, false)}
                 aria-label="忽略连接请求"
-                className="inline-flex h-8 items-center rounded-full px-3 text-xs font-medium text-low transition-colors hover:bg-panel hover:text-high disabled:opacity-50"
+                className="inline-flex h-8 items-center rounded-full px-3 text-xs font-medium text-muted-foreground transition-colors hover:bg-[var(--surface-control-hover)] hover:text-foreground disabled:opacity-50"
               >
                 <X className="h-3.5 w-3.5" />
                 <span className="ml-1">忽略</span>
@@ -266,10 +266,10 @@ export function MobileDeviceConnectBanner() {
           </>
         ) : primaryPairedMobile ? (
           <>
-            <span className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-brand/10 text-brand">
+            <span className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
               <Smartphone className="h-4 w-4" />
             </span>
-            <span className="truncate text-sm font-medium text-high">
+            <span className="truncate text-sm font-medium text-foreground">
               已配对手机「{primaryPairedMobile.device_name}」尚未连接
             </span>
             <div className="ml-1 flex items-center gap-1.5">
@@ -279,7 +279,7 @@ export function MobileDeviceConnectBanner() {
                   setIdleReminderDismissed(true);
                   void settingsWindowApi.open('/settings/web-service');
                 }}
-                className="inline-flex h-8 items-center gap-1.5 rounded-full bg-brand px-3.5 text-xs font-semibold text-white shadow-xs transition-colors hover:bg-brand/90"
+                className="inline-flex h-8 items-center gap-1.5 rounded-full bg-primary px-3.5 text-xs font-semibold text-primary-foreground shadow-xs transition-colors hover:bg-primary/90"
               >
                 查看连接
               </button>
@@ -287,7 +287,7 @@ export function MobileDeviceConnectBanner() {
                 type="button"
                 onClick={() => setIdleReminderDismissed(true)}
                 aria-label="忽略未连接提醒"
-                className="inline-flex h-8 items-center rounded-full px-2.5 text-xs font-medium text-low transition-colors hover:bg-panel hover:text-high"
+                className="inline-flex h-8 items-center rounded-full px-2.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-[var(--surface-control-hover)] hover:text-foreground"
               >
                 <X className="h-3.5 w-3.5" />
                 <span className="ml-1">忽略</span>

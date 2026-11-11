@@ -6,6 +6,7 @@ import {
   serviceContainer,
   setDefaultHostCallTransport,
   setDefaultWorkerInvokeTransport,
+  type ThemeDefinition,
 } from '@vibex/plugin-sdk';
 import * as MonacopilotModule from 'monacopilot';
 import * as ReactModule from 'react';
@@ -640,12 +641,7 @@ export interface DeclarativePluginSpec {
     argumentHint?: string;
     execute?: (args: string) => void | string | Promise<void | string>;
   }>;
-  themes?: Array<{
-    id: string;
-    label: string;
-    scheme: 'light' | 'dark';
-    cssVariables: Record<string, string>;
-  }>;
+  themes?: ThemeDefinition[];
   css?: string;
 }
 
@@ -1005,12 +1001,11 @@ export function applyDeclarativePlugin(
   }
 
   for (const theme of spec.themes ?? []) {
-    ctx.registerTheme({
-      id: theme.id,
-      label: theme.label,
-      scheme: theme.scheme,
-      cssVariables: theme.cssVariables,
-    });
+    try {
+      ctx.registerTheme(theme);
+    } catch (error) {
+      console.error(`[plugins] Skipped theme ${theme.id}`, error);
+    }
   }
 
   const dispose = () => {

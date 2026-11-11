@@ -1,0 +1,76 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512" fill="none">
+  <defs>
+    <!-- Clip path for the entire G-frame (with rounded caps and inner/outer radii) -->
+    <clipPath id="g-frame-clip">
+      <path
+        d="
+          M 164 73
+          H 316
+          A 39 39 0 0 1 355 112
+          A 39 39 0 0 1 316 151
+          H 171
+          A 36 36 0 0 0 135 187
+          V 325
+          A 36 36 0 0 0 171 361
+          H 268
+          A 101 101 0 0 0 369 260
+          C 369 242 365 227 359 213
+          A 38.5 38.5 0 0 1 430 183
+          C 441 207 447 233 447 260
+          A 179 179 0 0 1 268 439
+          H 164
+          A 102 102 0 0 1 62 337
+          V 175
+          A 102 102 0 0 1 164 73
+          Z
+        "
+      />
+    </clipPath>
+
+    <!-- Soft Gaussian blur to blend the prism mesh inside the G-frame -->
+    <filter id="prism-mesh-blur" x="-30%" y="-30%" width="160%" height="160%" color-interpolation-filters="sRGB">
+      <feGaussianBlur stdDeviation="36" />
+    </filter>
+  </defs>
+
+  <!-- 1. Main G-Frame: Black Left Base + Clean Iridescent Prism Right Half (No background rect) -->
+  <g clip-path="url(#g-frame-clip)">
+    <!-- Pure black base -->
+    <rect x="40" y="50" width="430" height="410" fill="#000000" />
+
+    <!-- Full-coverage prism blooms on the right so edges stay clean and vibrant without dark rims -->
+    <g filter="url(#prism-mesh-blur)">
+      <ellipse cx="286" cy="96" rx="88" ry="76" fill="#7AB3EF" />
+      <ellipse cx="378" cy="112" rx="96" ry="84" fill="#8E84E6" />
+      <ellipse cx="420" cy="196" rx="92" ry="82" fill="#A586DF" />
+      <ellipse cx="438" cy="288" rx="98" ry="92" fill="#74CFA2" />
+      <ellipse cx="396" cy="368" rx="92" ry="82" fill="#CED082" />
+      <ellipse cx="318" cy="418" rx="98" ry="78" fill="#EB9486" />
+      <ellipse cx="258" cy="418" rx="72" ry="64" fill="#E09AA8" />
+      <rect x="40" y="50" width="182" height="410" fill="#000000" />
+    </g>
+  </g>
+
+  <!-- 2. Interior Right-Pointing Rounded Chevron '>' -->
+  <path
+    d="
+      M 181 220.5
+      L 223 246.2
+      Q 230.5 250.8 230.5 255.0
+      Q 230.5 259.2 223 263.8
+      L 181 289.5
+      Q 173.5 294.0 171.2 290.2
+      Q 169.0 286.5 174.5 280.8
+      L 196.2 259.5
+      Q 200.5 255.0 196.2 250.5
+      L 174.5 229.2
+      Q 169.0 223.5 171.2 219.8
+      Q 173.5 216.0 181 220.5
+      Z
+    "
+    fill="#000000"
+  />
+
+  <!-- 3. Interior Solid Black Circle -->
+  <circle cx="301" cy="253" r="35.5" fill="#000000" />
+</svg>

@@ -119,7 +119,7 @@ export function PluginFilePreview({ filePath }: { filePath: string }) {
           src={previewUrl}
           sandbox="allow-scripts allow-same-origin allow-popups allow-forms"
           referrerPolicy="no-referrer"
-          className="absolute inset-0 h-full w-full border-0 bg-white"
+          className="absolute inset-0 h-full w-full border-0 bg-[var(--document-paper)]"
         />
       )}
     </div>

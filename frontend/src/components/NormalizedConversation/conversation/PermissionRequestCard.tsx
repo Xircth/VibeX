@@ -509,15 +509,15 @@ function DiffPane({
 }) {
   return (
     <div>
-      <div className="mb-0.5 text-[10px] uppercase tracking-wide text-amber-700/70 dark:text-amber-200/60">
+      <div className="mb-0.5 text-[10px] uppercase tracking-wide text-warning/70">
         {label}
       </div>
       <pre
         className={cn(
           'max-h-64 overflow-auto whitespace-pre-wrap rounded border px-2 py-1 font-mono text-[11px]',
           tone === 'del'
-            ? 'border-red-300/40 bg-red-50/60 text-red-900 dark:border-red-500/25 dark:bg-red-950/25 dark:text-red-100'
-            : 'border-emerald-300/40 bg-emerald-50/60 text-emerald-900 dark:border-emerald-500/25 dark:bg-emerald-950/25 dark:text-emerald-100'
+            ? 'border-destructive/25 bg-destructive/5 text-destructive'
+            : 'border-success/25 bg-success/5 text-success'
         )}
       >
         {text}

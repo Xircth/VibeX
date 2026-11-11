@@ -49,7 +49,13 @@ const UserMessage = ({
   const { activeRetryProcessId, setActiveRetryProcessId, isProcessGreyed } =
     useRetryUi();
   const { isAttemptRunning } = useAttemptExecution(taskAttempt?.id);
-  const { data: branchStatus } = useBranchStatus(taskAttempt?.id);
+  const { data: branchStatus, refetch: refetchBranchStatus } = useBranchStatus(
+    taskAttempt?.id,
+    {
+      enabled: false,
+      poll: false,
+    }
+  );
   const continuityCopy = getContinuityActionCopy(
     getExecutorContinuityMode(taskAttempt?.session?.executor ?? null)
   );
@@ -131,11 +137,16 @@ const UserMessage = ({
 
     setIsRollingBack(true);
     try {
+      const resolvedBranchStatus =
+        branchStatus ??
+        (taskAttempt?.id && refetchBranchStatus
+          ? (await refetchBranchStatus()).data
+          : undefined);
       let modalResult;
       try {
         modalResult = await RestoreLogsDialog.show({
           executionProcessId,
-          branchStatus,
+          branchStatus: resolvedBranchStatus,
           processes: [],
           mode: 'reset',
         });
@@ -155,7 +166,7 @@ const UserMessage = ({
     } finally {
       setIsRollingBack(false);
     }
-  }, [branchStatus, executionProcessId, taskAttempt]);
+  }, [branchStatus, executionProcessId, refetchBranchStatus, taskAttempt]);
 
   if (showRetryEditor && taskAttempt) {
     return (

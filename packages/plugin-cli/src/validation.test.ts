@@ -346,7 +346,7 @@ describe('validatePlugin product package', () => {
           id: 'ocean',
           label: 'Ocean',
           scheme: 'dark',
-          cssVariables: { '--background': '210 35% 9%' },
+          colors: { background: '#0e1a24', foreground: '#d6e2ec' },
         },
       ],
       slashCommands: [
@@ -363,6 +363,32 @@ describe('validatePlugin product package', () => {
     const result = await validatePlugin(root);
 
     expect(result).toMatchObject({ valid: true, diagnostics: [] });
+  });
+
+  it('reports every theme problem with the Host rules', async () => {
+    const root = await fixture({
+      integrations: [],
+      themes: [
+        {
+          id: 'ocean',
+          label: 'Ocean',
+          scheme: 'dark',
+          cssVariables: { '--background': '210 35% 9%' },
+        },
+      ],
+    });
+
+    const result = await validatePlugin(root);
+
+    expect(result.valid).toBe(false);
+    expect(
+      result.diagnostics
+        .filter((diagnostic) => diagnostic.code === 'theme_invalid')
+        .map((diagnostic) => diagnostic.message)
+    ).toEqual([
+      'themes[0].cssVariables is not a theme field',
+      'themes[0].colors must be an object',
+    ]);
   });
 
   it('still requires integrations when a v4 package has no app or declarative fields', async () => {

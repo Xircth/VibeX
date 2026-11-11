@@ -43,8 +43,8 @@ test("Windows installer logo BMPs exist for every DPI bucket at integer sizes", 
       assert.equal(bmp.width, size, `${name} width`);
       assert.equal(bmp.height, size, `${name} height`);
       assert.deepEqual(bmp.getRgb(0, 0), theme.bg, `${name} corner = window background`);
-      // A point inside the squircle near its edge: light-on-dark for the dark theme.
-      const [r, g, b] = bmp.getRgb(Math.round(size * 0.2), Math.round(size / 2));
+      // A point inside the squircle near its top rim: light-on-dark for the dark theme.
+      const [r, g, b] = bmp.getRgb(Math.round(size / 2), Math.round(size * 0.14));
       const luma = (r + g + b) / 3;
       if (theme.squircleLight) {
         assert.ok(luma > 180, `${name} dark-theme logo must be light (got ${luma})`);

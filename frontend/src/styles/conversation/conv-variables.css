@@ -5,13 +5,13 @@
 
 :root,
 .legacy-design {
-  --conv-user-bg: #f1f1f1;
+  --conv-user-bg: var(--surface-topbar);
   --conv-user-text: var(--text-strong);
-  --conv-user-code-bg: rgb(0 0 0 / 0.06);
-  --conv-user-code-border: rgb(0 0 0 / 0.1);
+  --conv-user-code-bg: var(--surface-control);
+  --conv-user-code-border: var(--border-subtle);
   --conv-user-bubble-radius: var(--radius);
 
-  --conv-thinking-border: hsl(var(--primary, 0 0% 10.59%) / 0.42);
+  --conv-thinking-border: hsl(var(--primary) / 0.42);
   --conv-thinking-bg: var(--surface-control);
 
   --conv-tool-success: hsl(var(--success));
@@ -26,11 +26,11 @@
   --conv-text-primary: var(--text-strong);
   --conv-text-secondary: var(--text-muted);
   --conv-text-tertiary: var(--text-faint);
-  --conv-tool-icon: hsl(var(--primary, 0 0% 10.59%));
+  --conv-tool-icon: hsl(var(--primary));
 
-  --conv-shimmer-from: hsl(var(--primary, 0 0% 10.59%) / 0.14);
-  --conv-shimmer-via: hsl(var(--primary, 0 0% 10.59%) / 0.38);
-  --conv-shimmer-to: hsl(var(--primary, 0 0% 10.59%) / 0.14);
+  --conv-shimmer-from: hsl(var(--primary) / 0.14);
+  --conv-shimmer-via: hsl(var(--primary) / 0.38);
+  --conv-shimmer-to: hsl(var(--primary) / 0.14);
 
   --conv-code-bg: var(--surface-control);
   --conv-code-text: var(--text-strong);
@@ -38,16 +38,10 @@
   --conv-terminal-text: hsl(var(--console-foreground));
 }
 
+/* The night topbar is the page color, so the bubble moves to the raised
+   surface to stay distinct from the page. */
 .dark,
 .legacy-design.dark,
 .dark .legacy-design {
   --conv-user-bg: var(--surface-raised-control);
-  --conv-user-text: var(--text-strong);
-  --conv-user-code-bg: rgb(231 235 239 / 0.08);
-  --conv-user-code-border: rgb(231 235 239 / 0.14);
-  --conv-thinking-border: hsl(var(--primary, 210 20% 92%) / 0.44);
-  --conv-tool-icon: hsl(var(--primary, 210 20% 92%));
-  --conv-shimmer-from: hsl(var(--primary, 210 20% 92%) / 0.12);
-  --conv-shimmer-via: hsl(var(--primary, 210 20% 92%) / 0.32);
-  --conv-shimmer-to: hsl(var(--primary, 210 20% 92%) / 0.12);
 }

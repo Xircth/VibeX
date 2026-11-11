@@ -104,6 +104,91 @@
       "label": "App theme",
       "hint": "Dark mode (Ayu Mirage) is tuned for code-dense sessions."
     },
+    "colorTheme": {
+      "light": "Light colors",
+      "dark": "Dark colors",
+      "picker": "Choose {{scheme}}",
+      "source": {
+        "builtin": "Built-in",
+        "user": "Custom",
+        "plugin": "Plugin"
+      },
+      "edit": "Edit",
+      "duplicate": "Duplicate and edit",
+      "export": "Export",
+      "import": "Import theme",
+      "importedOne": "Imported {{label}}",
+      "importedMany": "Imported {{count}} themes",
+      "importFailed": "Could not import the theme",
+      "exportFailed": "Could not export the theme",
+      "copyLabel": "{{label}} copy",
+      "editor": {
+        "titleNew": "New theme",
+        "titleEdit": "Edit theme",
+        "name": "Name",
+        "scheme": "Appearance",
+        "schemeLight": "Light",
+        "schemeDark": "Dark",
+        "auto": "Auto",
+        "reset": "Reset to auto",
+        "hex": "{{role}} hex",
+        "swatch": "Choose {{role}}",
+        "preview": "Preview",
+        "sample": {
+          "title": "Session",
+          "body": "Secondary text",
+          "action": "Primary"
+        },
+        "contrast": "Contrast",
+        "contrastOk": "All text meets contrast targets",
+        "contrastIssue": "{{foreground}} / {{background}}: {{ratio}}:1, needs {{minimum}}:1",
+        "contrastBlocked": "Fix the items in red to save",
+        "save": "Save and use",
+        "cancel": "Cancel",
+        "delete": "Delete",
+        "groups": {
+          "base": "Base",
+          "text": "Text",
+          "controls": "Borders and controls",
+          "status": "Accent and status",
+          "terminal": "Terminal",
+          "syntax": "Code syntax"
+        }
+      },
+      "roles": {
+        "background": "Background",
+        "foreground": "Text",
+        "chrome": "Toolbar and sidebar",
+        "surface": "Content panel",
+        "popover": "Popover",
+        "mutedForeground": "Secondary text",
+        "subtleForeground": "Subtle text",
+        "faintForeground": "Placeholder text",
+        "border": "Border",
+        "borderSubtle": "Divider",
+        "control": "Control",
+        "controlHover": "Control hover",
+        "raisedControl": "Raised control",
+        "raisedControlHover": "Raised control hover",
+        "track": "Track",
+        "accent": "Accent",
+        "success": "Success",
+        "warning": "Warning",
+        "danger": "Danger",
+        "info": "Info",
+        "terminalBackground": "Terminal background",
+        "terminalForeground": "Terminal text",
+        "syntaxKeyword": "Keyword",
+        "syntaxFunction": "Function",
+        "syntaxConstant": "Constant",
+        "syntaxString": "String",
+        "syntaxVariable": "Variable",
+        "syntaxComment": "Comment",
+        "syntaxTag": "Tag and type",
+        "syntaxPunctuation": "Punctuation",
+        "syntaxDeleted": "Deleted"
+      }
+    },
     "basics": {
       "title": "Basic appearance",
       "description": "Accent color, interface zoom, monospace font, display language, and floating settings menu."
@@ -114,7 +199,8 @@
       "label": "Accent color",
       "hex": "Hex",
       "picker": "Choose accent color",
-      "hue": "Hue"
+      "hue": "Hue",
+      "followTheme": "Follow theme"
     },
     "zoom": {
       "title": "Interface zoom",
@@ -3325,7 +3411,6 @@
       "actionFailed": "Profile operation failed"
     }
   },
-
   "pluginsUi": {
     "badges": {
       "telemetryAria": "Plugin telemetry and security",

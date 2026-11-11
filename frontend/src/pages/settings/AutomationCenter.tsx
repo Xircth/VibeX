@@ -158,7 +158,7 @@ export function AutomationCenter() {
         <div className="flex min-h-[520px] items-start gap-3">
           <div className="settings-surface min-w-0 flex-1 overflow-hidden">
             {!engineActive ? (
-              <div className="border-b bg-amber-500/[0.07] px-4 py-2.5 text-xs text-amber-800 dark:text-amber-300">
+              <div className="border-b bg-warning/[0.07] px-4 py-2.5 text-xs text-warning-foreground">
                 {t('automations.nonOwnerDescription')}
               </div>
             ) : null}

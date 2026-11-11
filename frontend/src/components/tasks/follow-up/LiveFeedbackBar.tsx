@@ -38,10 +38,7 @@ export function LiveFeedbackNotes({
               title={note.text}
             >
               {delivered ? (
-                <Check
-                  className="h-3 w-3 shrink-0 text-emerald-500"
-                  aria-hidden
-                />
+                <Check className="h-3 w-3 shrink-0 text-success" aria-hidden />
               ) : (
                 <Clock
                   className="h-3 w-3 shrink-0 text-muted-foreground/70"

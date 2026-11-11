@@ -175,8 +175,8 @@ function assertSquirclePixels(rgba, width, height, expectedSize, label) {
     Math.floor(width / 2),
     Math.floor(height / 2)
   );
-  assert.notDeepEqual(center.slice(0, 3), [0, 0, 0]);
   assert.equal(center[3], 255);
+  markBbox(rgba, width, height);
 
   const rim = Math.round(width * 0.18);
   const rimPixel = pixel(rgba, width, Math.floor(width / 2), rim);
@@ -330,8 +330,8 @@ function assertWindowsSquircleBuffer(data, expectedSize, label) {
     Math.floor(width / 2),
     Math.floor(height / 2)
   );
-  assert.notDeepEqual(center.slice(0, 3), [0, 0, 0]);
   assert.equal(center[3], 255);
+  markBbox(rgba, width, height);
 }
 
 test('Windows ICO frames are inset squircles with fuller mark fill', () => {
@@ -476,8 +476,8 @@ test('macOS ICNS bakes the squircle so Dock folders do not show a square', () =>
   assert.equal(pixel(rgba, width, 512, 256)[3], 255);
   assert.equal(pixel(rgba, width, 256, 512)[3], 255);
   const center = pixel(rgba, width, 512, 512);
-  assert.notDeepEqual(center.slice(0, 3), [0, 0, 0]);
   assert.equal(center[3], 255);
+  markBbox(rgba, width, height);
   const rim = pixel(rgba, width, 512, 133);
   assert.equal(rim[3], 255);
   assert.ok(rim[0] + rim[1] + rim[2] < 40, 'ic10 mark must not crowd the rim');

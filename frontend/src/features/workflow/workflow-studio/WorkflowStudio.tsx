@@ -109,7 +109,7 @@ export function WorkflowStudio(props: WorkflowStudioProps) {
           maxZoom={1.65}
           colorMode="system"
         >
-          <Background gap={22} size={1} color="var(--border)" />
+          <Background gap={22} size={1} color="var(--border-strong)" />
           <Controls
             showInteractive={false}
             fitViewOptions={{ padding: 0.24, maxZoom: 1.1 }}

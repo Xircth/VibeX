@@ -7,12 +7,14 @@ import {
   readCachedResolvedTheme,
   RESOLVED_THEME_KEY,
 } from './resolvedTheme';
+import { ACCENT_COLOR_KEY } from './uiAccent';
 
 describe('resolvedTheme', () => {
   afterEach(() => {
     window.localStorage.clear();
     clearLocalStorageCache();
     document.documentElement.classList.remove('light', 'dark');
+    document.documentElement.removeAttribute('style');
   });
 
   it('persists and reads the last resolved theme', () => {
@@ -28,7 +30,15 @@ describe('resolvedTheme', () => {
     expect(document.documentElement.classList.contains('light')).toBe(false);
   });
 
-  it('reapplies the theme-resolved accent when the class changes', () => {
+  it('leaves the accent to the active theme without an override', () => {
+    applyResolvedThemeClass('dark');
+    expect(
+      document.documentElement.style.getPropertyValue('--accent-hsl')
+    ).toBe('');
+  });
+
+  it('reapplies the theme-resolved accent override when the class changes', () => {
+    window.localStorage.setItem(ACCENT_COLOR_KEY, '#1b1b1b');
     applyResolvedThemeClass('light');
     expect(
       document.documentElement.style.getPropertyValue('--accent-hsl')

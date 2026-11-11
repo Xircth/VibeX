@@ -80,7 +80,7 @@ function IssueRow({ issue }: { issue: GitHubIssueInfo }) {
               {labels.map((label) => (
                 <span
                   key={label.name}
-                  className="text-[9px] px-1.5 py-0.5 rounded-full font-medium"
+                  className="text-[10px] px-1.5 py-0.5 rounded-full font-medium"
                   style={{
                     backgroundColor: `#${label.color}20`,
                     color: `#${label.color}`,

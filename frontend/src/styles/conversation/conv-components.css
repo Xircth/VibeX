@@ -188,7 +188,7 @@
 
 .conv-feedback-card {
   background: var(--conv-surface-control);
-  border: 1px solid rgba(239, 68, 68, 0.35);
+  border: 1px solid hsl(var(--destructive) / 0.35);
   border-radius: var(--radius);
   padding: 10px 14px;
   font-size: 13px;

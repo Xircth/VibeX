@@ -27,7 +27,7 @@ const EMPTY_FILES: GitFileStatusEntry[] = [];
 function getPollInterval(mode: PollMode, fileCount: number): number | false {
   if (mode === 'paused') return false;
   const isLarge = fileCount >= 120;
-  if (mode === 'active') return isLarge ? 30000 : 15000;
+  if (mode === 'active') return isLarge ? 45000 : 30000;
   return isLarge ? 120000 : 60000;
 }
 
@@ -54,9 +54,10 @@ export function useGitStatus({
         : await repoApi.getGitStatus(repoId!);
     },
     enabled: !!repoId,
-    staleTime: 10_000,
+    staleTime: 15_000,
     placeholderData: (previousData) => previousData,
     refetchOnWindowFocus: true,
+    refetchIntervalInBackground: false,
     refetchInterval: (query) => {
       const data = query.state.data;
       const fileCount =

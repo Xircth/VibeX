@@ -10,21 +10,15 @@
 
 :root,
 .legacy-design {
-  --conv-user-action-button-color: rgba(15, 23, 42, 0.58);
-  --conv-user-action-button-bg: rgba(100, 116, 139, 0.16);
-  --conv-user-action-button-border: rgba(100, 116, 139, 0.28);
-  --conv-user-action-button-hover-color: rgba(15, 23, 42, 0.88);
-  --conv-user-action-button-hover-bg: rgba(100, 116, 139, 0.24);
-}
-
-.dark,
-.legacy-design.dark,
-.dark .legacy-design {
-  --conv-user-action-button-color: hsl(210 30% 80% / 0.72);
-  --conv-user-action-button-bg: hsl(210 30% 80% / 0.1);
-  --conv-user-action-button-border: hsl(210 30% 80% / 0.18);
-  --conv-user-action-button-hover-color: hsl(210 20% 92% / 0.96);
-  --conv-user-action-button-hover-bg: hsl(210 30% 80% / 0.14);
+  --conv-user-action-button-color: var(--text-muted);
+  --conv-user-action-button-bg: var(--surface-control-hover);
+  --conv-user-action-button-border: var(--border-strong);
+  --conv-user-action-button-hover-color: var(--text-strong);
+  --conv-user-action-button-hover-bg: color-mix(
+    in srgb,
+    var(--text-strong) 14%,
+    transparent
+  );
 }
 
 /* Right-aligned user turn: the bubble hugs the right edge and shrinks to its

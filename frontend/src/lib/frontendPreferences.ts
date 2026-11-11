@@ -8,6 +8,9 @@ export const SETTINGS_CHANGED_EVENT = 'vibex://settings-file-changed';
 const STORAGE_KEYS = {
   'vibex:ui-zoom': 'ui_zoom',
   'vibex:accent-color': 'accent_color',
+  'vibex:color-theme-light': 'color_theme_light',
+  'vibex:color-theme-dark': 'color_theme_dark',
+  'vibex:user-color-themes': 'user_color_themes',
   'vibex:mono-font': 'mono_font',
   'vibex:ui-language': 'language',
   'vibex:app-icon-style': 'app_icon_style',
@@ -69,7 +72,25 @@ function collectLocalPreferences(): Record<string, JsonValue> {
   return preferences;
 }
 
-function applyPreferences(preferences: Record<string, JsonValue>): void {
+const SELF_TRIGGERED_SETTINGS_SUPPRESSION_MS = 1_000;
+let inFlightPreferenceWrites = 0;
+let lastLocalPreferenceWriteAt = 0;
+
+export function isSelfTriggeredSettingsChange(now = Date.now()): boolean {
+  return (
+    inFlightPreferenceWrites > 0 ||
+    (lastLocalPreferenceWriteAt > 0 &&
+      now - lastLocalPreferenceWriteAt < SELF_TRIGGERED_SETTINGS_SUPPRESSION_MS)
+  );
+}
+
+export function resetSelfTriggeredSettingsStateForTests(): void {
+  inFlightPreferenceWrites = 0;
+  lastLocalPreferenceWriteAt = 0;
+}
+
+function applyPreferences(preferences: Record<string, JsonValue>): boolean {
+  let changed = false;
   for (const [storageKey, preferenceKey] of Object.entries(STORAGE_KEYS)) {
     if (!(preferenceKey in preferences)) continue;
     const normalized = normalizePreferenceValue(
@@ -78,6 +99,7 @@ function applyPreferences(preferences: Record<string, JsonValue>): void {
     );
     const raw = encodeStoredValue(normalized);
     if (localStorage.getItem(storageKey) === raw) continue;
+    changed = true;
     localStorage.setItem(storageKey, raw);
     window.dispatchEvent(
       new StorageEvent('storage', {
@@ -86,6 +108,7 @@ function applyPreferences(preferences: Record<string, JsonValue>): void {
       })
     );
   }
+  return changed;
 }
 
 export async function syncFrontendPreferences(
@@ -93,8 +116,8 @@ export async function syncFrontendPreferences(
     typeof frontendPreferencesApi,
     'get' | 'update'
   > = frontendPreferencesApi
-): Promise<void> {
-  if (configuredBackendTransport.environment === 'web') return;
+): Promise<boolean> {
+  if (configuredBackendTransport.environment === 'web') return false;
   const remote = await api.get();
   const local = collectLocalPreferences();
   const updates: Record<string, JsonValue> = Object.fromEntries(
@@ -103,9 +126,18 @@ export async function syncFrontendPreferences(
   if (remote.kanban_board_style === 'fixed') {
     updates.kanban_board_style = 'canvas';
   }
-  const effective =
-    Object.keys(updates).length > 0 ? await api.update(updates) : remote;
-  applyPreferences(effective);
+  let effective = remote;
+  if (Object.keys(updates).length > 0) {
+    inFlightPreferenceWrites += 1;
+    lastLocalPreferenceWriteAt = Date.now();
+    try {
+      effective = await api.update(updates);
+    } finally {
+      inFlightPreferenceWrites = Math.max(0, inFlightPreferenceWrites - 1);
+      lastLocalPreferenceWriteAt = Date.now();
+    }
+  }
+  return applyPreferences(effective);
 }
 
 export function persistFrontendPreference(
@@ -114,9 +146,15 @@ export function persistFrontendPreference(
 ): void {
   if (configuredBackendTransport.environment === 'web') return;
   const preferenceKey = STORAGE_KEYS[storageKey];
+  inFlightPreferenceWrites += 1;
+  lastLocalPreferenceWriteAt = Date.now();
   void frontendPreferencesApi
     .update({ [preferenceKey]: value })
     .catch((error) =>
       console.error('Failed to save frontend preference', error)
-    );
+    )
+    .finally(() => {
+      inFlightPreferenceWrites = Math.max(0, inFlightPreferenceWrites - 1);
+      lastLocalPreferenceWriteAt = Date.now();
+    });
 }

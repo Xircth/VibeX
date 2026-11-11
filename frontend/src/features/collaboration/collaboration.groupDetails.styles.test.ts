@@ -79,17 +79,29 @@ describe('collaboration group and assistant details width', () => {
     expect(value['text-overflow']?.value).toBe('ellipsis');
   });
 
-  it('stacks collection notes under the label so long notes wrap', () => {
+  it('renders collection notes on a single inline row and prevents cards from flex-shrinking', () => {
+    const card = declarationsFor('.collaboration-collection-card');
+    expect(card['flex-shrink']?.value).toBe('0');
+
     const note = declarationsFor('.collaboration-collection-note');
     expect(note.display?.value).toBe('flex');
-    expect(note['flex-direction']?.value).toBe('column');
-    expect(note['align-items']?.value).toBe('stretch');
+    expect(note['flex-direction']?.value).toBe('row');
+    expect(note['align-items']?.value).toBe('center');
 
     const display = declarationsFor('.collaboration-collection-note-display');
     expect(display.display?.value).toBe('flex');
     expect(display.width?.value).toBe('100%');
-    expect(display['white-space']?.value).toBe('pre-wrap');
-    expect(display['word-break']?.value).toBe('break-word');
+    expect(display['white-space']?.value).toBe('nowrap');
+    expect(display['text-overflow']?.value).toBe('ellipsis');
+
+    const cardDelete = declarationsFor(
+      '.collaboration-collection-card .collaboration-collection-delete-btn'
+    );
+    expect(cardDelete.opacity?.value).toBe('0');
+
+    const assetsSegmented = declarationsFor('.collaboration-assets-segmented');
+    expect(assetsSegmented.height?.value).toBe('1.625rem');
+    expect(assetsSegmented['min-height']?.value).toBe('1.625rem');
   });
 
   it('keeps collection open-tab, copy, and delete icon buttons backgroundless', () => {

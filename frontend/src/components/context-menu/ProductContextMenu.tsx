@@ -184,7 +184,7 @@ export function ProductContextMenu({
       role="menu"
       aria-label={ariaLabel}
       data-floating-layer="popover"
-      className="product-context-menu fixed z-[10050] min-w-44 overflow-visible rounded-md border border-border bg-white p-1 font-sans text-[13px] leading-5 text-popover-foreground shadow-none animate-in fade-in-0 zoom-in-95 duration-100 dark:bg-popover"
+      className="product-context-menu fixed z-[10050] min-w-44 overflow-visible rounded-md border border-border bg-popover p-1 font-sans text-[13px] leading-5 text-popover-foreground shadow-none animate-in fade-in-0 zoom-in-95 duration-100"
       style={{ left: pos.x, top: pos.y, fontFamily: 'var(--font-ui)' }}
       onClick={(event) => event.stopPropagation()}
       onPointerDown={(event) => event.stopPropagation()}
@@ -550,7 +550,7 @@ function SubmenuItem({
           onMouseEnter={onOpen}
         >
           <div
-            className="product-context-menu min-w-44 overflow-visible rounded-md border border-border bg-white p-1 font-sans text-[13px] leading-5 text-popover-foreground shadow-none animate-in fade-in-0 zoom-in-95 duration-100 dark:bg-popover"
+            className="product-context-menu min-w-44 overflow-visible rounded-md border border-border bg-popover p-1 font-sans text-[13px] leading-5 text-popover-foreground shadow-none animate-in fade-in-0 zoom-in-95 duration-100"
             style={{ fontFamily: 'var(--font-ui)' }}
             role="menu"
           >

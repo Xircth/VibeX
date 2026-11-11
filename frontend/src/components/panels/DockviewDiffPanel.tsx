@@ -6,9 +6,9 @@ import { useFileTreeStore } from '@/stores/useFileTreeStore';
 import { useFileContent, useFileAtHead } from '@/hooks/useFileContent';
 import { useTheme } from '@/components/ThemeProvider';
 import {
-  defineAyuMonacoThemes,
-  MONACO_THEME_AYU_DARK,
-  MONACO_THEME_AYU_LIGHT,
+  defineColorThemeMonacoThemes,
+  MONACO_THEME_DARK,
+  MONACO_THEME_LIGHT,
 } from '@/utils/monacoThemes';
 import {
   getFilePreviewKind,
@@ -77,7 +77,7 @@ function DockviewDiffPanel() {
   const diffEditorRef = useRef<monacoEditor.IStandaloneDiffEditor | null>(null);
 
   const handleDiffBeforeMount: BeforeMount = useCallback((monaco) => {
-    defineAyuMonacoThemes(monaco);
+    defineColorThemeMonacoThemes(monaco);
   }, []);
 
   const handleDiffMount = useCallback(
@@ -132,7 +132,7 @@ function DockviewDiffPanel() {
   return (
     <div className="flex h-full min-h-0 w-full flex-col" data-panel="diffs">
       {/* Header */}
-      <div className="flex items-center gap-2 px-2 py-1 border-b border-white/10 text-xs text-muted-foreground shrink-0">
+      <div className="flex items-center gap-2 px-2 py-1 border-b border-[var(--border-subtle)] text-xs text-muted-foreground shrink-0">
         <GitCompare className="w-3 h-3 shrink-0" />
         <span className="truncate" title={diffFilePath}>
           {fileName}
@@ -191,9 +191,7 @@ function DockviewDiffPanel() {
             modified={modifiedContent}
             language={language}
             theme={
-              resolvedTheme === 'dark'
-                ? MONACO_THEME_AYU_DARK
-                : MONACO_THEME_AYU_LIGHT
+              resolvedTheme === 'dark' ? MONACO_THEME_DARK : MONACO_THEME_LIGHT
             }
             beforeMount={handleDiffBeforeMount}
             onMount={handleDiffMount}

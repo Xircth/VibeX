@@ -104,6 +104,91 @@
       "label": "应用主题",
       "hint": "深色模式（Ayu Mirage）针对代码密集会话优化。"
     },
+    "colorTheme": {
+      "light": "浅色配色",
+      "dark": "深色配色",
+      "picker": "选择{{scheme}}",
+      "source": {
+        "builtin": "内置",
+        "user": "自定义",
+        "plugin": "插件"
+      },
+      "edit": "编辑",
+      "duplicate": "复制并编辑",
+      "export": "导出",
+      "import": "导入主题",
+      "importedOne": "已导入 {{label}}",
+      "importedMany": "已导入 {{count}} 个主题",
+      "importFailed": "无法导入主题",
+      "exportFailed": "无法导出主题",
+      "copyLabel": "{{label}} 副本",
+      "editor": {
+        "titleNew": "新建主题",
+        "titleEdit": "编辑主题",
+        "name": "名称",
+        "scheme": "外观",
+        "schemeLight": "浅色",
+        "schemeDark": "深色",
+        "auto": "自动",
+        "reset": "恢复自动",
+        "hex": "{{role}} 色值",
+        "swatch": "选择{{role}}",
+        "preview": "预览",
+        "sample": {
+          "title": "会话",
+          "body": "次要说明文字",
+          "action": "主按钮"
+        },
+        "contrast": "对比度",
+        "contrastOk": "文字对比度均达标",
+        "contrastIssue": "{{foreground}} / {{background}}：{{ratio}}:1，需 {{minimum}}:1",
+        "contrastBlocked": "修正标红项后才能保存",
+        "save": "保存并使用",
+        "cancel": "取消",
+        "delete": "删除",
+        "groups": {
+          "base": "基础",
+          "text": "文字",
+          "controls": "边框与控件",
+          "status": "强调与状态",
+          "terminal": "终端",
+          "syntax": "代码语法"
+        }
+      },
+      "roles": {
+        "background": "背景",
+        "foreground": "文字",
+        "chrome": "顶栏与侧栏",
+        "surface": "内容面板",
+        "popover": "弹出层",
+        "mutedForeground": "次要文字",
+        "subtleForeground": "弱化文字",
+        "faintForeground": "占位文字",
+        "border": "边框",
+        "borderSubtle": "分隔线",
+        "control": "控件",
+        "controlHover": "控件悬停",
+        "raisedControl": "凸起控件",
+        "raisedControlHover": "凸起控件悬停",
+        "track": "轨道",
+        "accent": "强调色",
+        "success": "成功",
+        "warning": "警告",
+        "danger": "危险",
+        "info": "信息",
+        "terminalBackground": "终端背景",
+        "terminalForeground": "终端文字",
+        "syntaxKeyword": "关键字",
+        "syntaxFunction": "函数",
+        "syntaxConstant": "常量",
+        "syntaxString": "字符串",
+        "syntaxVariable": "变量",
+        "syntaxComment": "注释",
+        "syntaxTag": "标签与类型",
+        "syntaxPunctuation": "标点",
+        "syntaxDeleted": "删除内容"
+      }
+    },
     "basics": {
       "title": "基础外观",
       "description": "强调色、界面缩放、等宽字体、显示语言与设置菜单悬浮。"
@@ -114,7 +199,8 @@
       "label": "强调色",
       "hex": "色值",
       "picker": "选择强调色",
-      "hue": "色相"
+      "hue": "色相",
+      "followTheme": "跟随主题"
     },
     "zoom": {
       "title": "界面缩放",
@@ -3325,7 +3411,6 @@
       "actionFailed": "配置文件操作失败"
     }
   },
-
   "pluginsUi": {
     "badges": {
       "telemetryAria": "插件遥测与安全信息",

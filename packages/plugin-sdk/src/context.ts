@@ -45,6 +45,7 @@ import {
   type ServiceKey,
   type WaterfallInterceptor,
 } from './services.js';
+import { parseThemeDefinition } from './theme.js';
 import {
   getPluginVolatileConfig,
   notifyPluginConfigUpdated,
@@ -658,8 +659,20 @@ export function createPluginContext(
 
   const registerTheme = (
     contribution: Omit<ThemeContribution, 'pluginId'>
-  ): Disposer =>
-    track(themeRegistry.register({ ...contribution, pluginId }, pluginId));
+  ): Disposer => {
+    const { order, ...definition } = contribution;
+    const parsed = parseThemeDefinition(definition);
+    if (!parsed.theme) {
+      throw new TypeError(
+        `Invalid theme from ${pluginId}: ${parsed.issues
+          .map((issue) => `${issue.path} ${issue.message}`)
+          .join('; ')}`
+      );
+    }
+    return track(
+      themeRegistry.register({ ...parsed.theme, order, pluginId }, pluginId)
+    );
+  };
 
   const registerInternalMessageCapture = (
     contribution: Omit<InternalMessageCaptureContribution, 'pluginId'>

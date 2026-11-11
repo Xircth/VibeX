@@ -1,4 +1,5 @@
 import {
+  replaceEqualDeep,
   useQuery,
   useQueryClient,
   type QueryClient,
@@ -49,9 +50,11 @@ export function setQueryDataValue<T>(
 ): void {
   queryClient.setQueryData<T>(queryKey, (current) => {
     const prev = current === undefined ? fallback : current;
-    return typeof updater === 'function'
-      ? (updater as (current: T) => T)(prev)
-      : updater;
+    const next =
+      typeof updater === 'function'
+        ? (updater as (current: T) => T)(prev)
+        : updater;
+    return replaceEqualDeep(prev, next);
   });
 }
 

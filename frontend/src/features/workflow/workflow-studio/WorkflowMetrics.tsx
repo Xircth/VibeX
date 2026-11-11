@@ -35,7 +35,7 @@ export function WorkflowMetrics({
       ) : null}
       {dirty ? (
         <span
-          className="size-1.5 rounded-full bg-amber-500"
+          className="size-1.5 rounded-full bg-warning"
           title={t('studio.unsaved')}
         />
       ) : null}

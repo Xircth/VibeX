@@ -209,20 +209,20 @@ function SkillActivitySparkline({ points }: { points: number[] }) {
   return (
     <svg
       viewBox={`0 0 ${width} ${height}`}
-      className="h-6 w-[88px] overflow-visible"
+      className="h-6 w-[88px] overflow-visible text-success"
       aria-hidden="true"
     >
       <defs>
         <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor="#22c55e" stopOpacity="0.28" />
-          <stop offset="100%" stopColor="#22c55e" stopOpacity="0.0" />
+          <stop offset="0%" stopColor="currentColor" stopOpacity="0.28" />
+          <stop offset="100%" stopColor="currentColor" stopOpacity="0.0" />
         </linearGradient>
       </defs>
       <path d={areaPath} fill={`url(#${gradientId})`} />
       <path
         d={linePath}
         fill="none"
-        stroke="#22c55e"
+        stroke="currentColor"
         strokeWidth="1.75"
         strokeLinecap="round"
         strokeLinejoin="round"

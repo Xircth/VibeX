@@ -88,12 +88,13 @@ function createTabDragGhost(
   ghost.style.fontFamily = computed.fontFamily;
   ghost.style.fontSize = computed.fontSize;
   ghost.style.color = computed.color || 'var(--text-strong)';
-  ghost.style.backgroundColor =
-    'var(--surface-dialog, var(--surface-card-strong, #1f2430))';
+  ghost.style.backgroundColor = 'var(--surface-dialog)';
   ghost.style.borderRadius = 'var(--radius, 6px)';
-  ghost.style.boxShadow = '0 8px 24px rgba(0, 0, 0, 0.28)';
+  ghost.style.boxShadow = '0 8px 24px hsl(var(--shadow-ink) / 0.28)';
 
-  document.body.appendChild(ghost);
+  // Design tokens are scoped to `.legacy-design`, so the ghost must mount
+  // inside that scope for its token colors to resolve.
+  (tabElement.closest('.legacy-design') ?? document.body).appendChild(ghost);
   return ghost;
 }
 

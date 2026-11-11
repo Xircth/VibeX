@@ -15,7 +15,7 @@ export function DraggableMiniMap() {
       style={{ transform: `translate(${offset.x}px, ${offset.y}px)` }}
     >
       <div
-        className="mb-1 flex h-5 cursor-grab items-center justify-center rounded-md bg-card/90 text-[9px] text-muted-foreground active:cursor-grabbing"
+        className="mb-1 flex h-5 cursor-grab items-center justify-center rounded-md bg-card/90 text-[10px] text-muted-foreground active:cursor-grabbing"
         onPointerDown={(event) => {
           event.preventDefault();
           drag.current = {

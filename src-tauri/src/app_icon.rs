@@ -5,6 +5,10 @@ const WINDOWS_CAPTION_SIZE: u32 = 32;
 // 2px pad on a 32px slot is ~85% glyph fill (was 4px → ~75% / 70-relative).
 #[cfg(any(target_os = "windows", test))]
 const WINDOWS_CAPTION_PAD: u32 = 2;
+#[cfg(target_os = "windows")]
+const WINDOWS_TASKBAR_SIZE: u32 = 256;
+#[cfg(target_os = "windows")]
+const WINDOWS_TASKBAR_PAD: u32 = 0;
 
 #[cfg(target_os = "windows")]
 pub(crate) fn windows_caption_icon(bytes: &[u8]) -> Result<Image<'static>, String> {
@@ -16,6 +20,176 @@ pub(crate) fn windows_caption_icon(bytes: &[u8]) -> Result<Image<'static>, Strin
         WINDOWS_CAPTION_SIZE,
         WINDOWS_CAPTION_PAD,
     ))
+}
+
+#[cfg(target_os = "windows")]
+const PKEY_APPUSERMODEL_ID: windows::Win32::Foundation::PROPERTYKEY =
+    windows::Win32::Foundation::PROPERTYKEY {
+        fmtid: windows::core::GUID::from_u128(0x9f4c2855_9f79_4b39_a8d0_e1d42de1d5f3),
+        pid: 5,
+    };
+
+#[cfg(target_os = "windows")]
+const PKEY_APPUSERMODEL_RELAUNCH_COMMAND: windows::Win32::Foundation::PROPERTYKEY =
+    windows::Win32::Foundation::PROPERTYKEY {
+        fmtid: windows::core::GUID::from_u128(0x9f4c2855_9f79_4b39_a8d0_e1d42de1d5f3),
+        pid: 2,
+    };
+
+#[cfg(target_os = "windows")]
+const PKEY_APPUSERMODEL_RELAUNCH_ICON_RESOURCE: windows::Win32::Foundation::PROPERTYKEY =
+    windows::Win32::Foundation::PROPERTYKEY {
+        fmtid: windows::core::GUID::from_u128(0x9f4c2855_9f79_4b39_a8d0_e1d42de1d5f3),
+        pid: 3,
+    };
+
+#[cfg(target_os = "windows")]
+const PKEY_APPUSERMODEL_RELAUNCH_DISPLAY_NAME_RESOURCE: windows::Win32::Foundation::PROPERTYKEY =
+    windows::Win32::Foundation::PROPERTYKEY {
+        fmtid: windows::core::GUID::from_u128(0x9f4c2855_9f79_4b39_a8d0_e1d42de1d5f3),
+        pid: 4,
+    };
+
+#[cfg(target_os = "windows")]
+fn write_single_png_ico(png_bytes: &[u8]) -> Result<std::path::PathBuf, String> {
+    use sha2::{Digest, Sha256};
+
+    let digest = Sha256::digest(png_bytes);
+    let mut hash_hex = String::with_capacity(16);
+    for byte in &digest[..8] {
+        use std::fmt::Write;
+        let _ = write!(&mut hash_hex, "{byte:02x}");
+    }
+
+    let dir = utils::assets::asset_dir().join("taskbar-icons");
+    std::fs::create_dir_all(&dir).map_err(|error| error.to_string())?;
+    let ico_path = dir.join(format!("app-icon-{hash_hex}.ico"));
+    if !ico_path.is_file() {
+        let len = png_bytes.len() as u32;
+        let mut ico = Vec::with_capacity(22 + png_bytes.len());
+        // ICONDIR: Reserved=0, Type=1 (ICO), Count=1
+        ico.extend_from_slice(&0u16.to_le_bytes());
+        ico.extend_from_slice(&1u16.to_le_bytes());
+        ico.extend_from_slice(&1u16.to_le_bytes());
+        // ICONDIRENTRY: 256x256 (0, 0), ColorCount=0, Reserved=0, Planes=1, BitCount=32, BytesInRes, ImageOffset=22
+        ico.push(0);
+        ico.push(0);
+        ico.push(0);
+        ico.push(0);
+        ico.extend_from_slice(&1u16.to_le_bytes());
+        ico.extend_from_slice(&32u16.to_le_bytes());
+        ico.extend_from_slice(&len.to_le_bytes());
+        ico.extend_from_slice(&22u32.to_le_bytes());
+        ico.extend_from_slice(png_bytes);
+        std::fs::write(&ico_path, ico).map_err(|error| error.to_string())?;
+    }
+    Ok(ico_path)
+}
+
+#[cfg(target_os = "windows")]
+pub(crate) fn apply_windows_taskbar_icon(
+    window: &tauri::WebviewWindow,
+    bytes: &[u8],
+) -> Result<(), String> {
+    use tauri::Manager;
+    use windows::Win32::{
+        Foundation::{LPARAM, WPARAM},
+        System::Com::StructuredStorage::PROPVARIANT,
+        UI::{
+            Shell::{
+                PropertiesSystem::{IPropertyStore, SHGetPropertyStoreForWindow},
+                SHCNE_ASSOCCHANGED, SHCNF_IDLIST, SHChangeNotify,
+            },
+            WindowsAndMessaging::{
+                CreateIcon, DestroyIcon, GCLP_HICON, HICON, ICON_BIG, SendMessageW,
+                SetClassLongPtrW, WM_SETICON,
+            },
+        },
+    };
+
+    let source = Image::from_bytes(bytes).map_err(|error| error.to_string())?;
+    let icon = fit_opaque_content(
+        source.rgba(),
+        source.width(),
+        source.height(),
+        WINDOWS_TASKBAR_SIZE,
+        WINDOWS_TASKBAR_PAD,
+    );
+    let width = icon.width();
+    let height = icon.height();
+    let mut bgra = icon.rgba().to_vec();
+    let pixel_count = bgra.len() / 4;
+    let mut and_mask = Vec::with_capacity(pixel_count);
+    for px in bgra.chunks_exact_mut(4) {
+        px.swap(0, 2);
+        and_mask.push(px[3].wrapping_sub(u8::MAX));
+    }
+
+    let ico_path = write_single_png_ico(bytes)?;
+    let icon_resource = format!("{},0", ico_path.display());
+    let app_id = format!(
+        "{}.{}",
+        window.app_handle().config().identifier,
+        ico_path
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("icon")
+    );
+    let display_name = window
+        .app_handle()
+        .config()
+        .product_name
+        .clone()
+        .unwrap_or_else(|| "VibeX".to_string());
+    let exe_command = std::env::current_exe()
+        .map(|p| p.to_string_lossy().into_owned())
+        .unwrap_or_default();
+
+    let hwnd = window.hwnd().map_err(|error| error.to_string())?;
+    unsafe {
+        if let Ok(store) = SHGetPropertyStoreForWindow::<IPropertyStore>(hwnd) {
+            let _ = store.SetValue(&PKEY_APPUSERMODEL_ID, &PROPVARIANT::from(app_id.as_str()));
+            if !exe_command.is_empty() {
+                let _ = store.SetValue(
+                    &PKEY_APPUSERMODEL_RELAUNCH_COMMAND,
+                    &PROPVARIANT::from(exe_command.as_str()),
+                );
+            }
+            let _ = store.SetValue(
+                &PKEY_APPUSERMODEL_RELAUNCH_DISPLAY_NAME_RESOURCE,
+                &PROPVARIANT::from(display_name.as_str()),
+            );
+            let _ = store.SetValue(
+                &PKEY_APPUSERMODEL_RELAUNCH_ICON_RESOURCE,
+                &PROPVARIANT::from(icon_resource.as_str()),
+            );
+            let _ = store.Commit();
+        }
+
+        let hicon = CreateIcon(
+            None,
+            width as i32,
+            height as i32,
+            1,
+            32,
+            and_mask.as_ptr(),
+            bgra.as_ptr(),
+        )
+        .map_err(|error| error.to_string())?;
+
+        let prev = SendMessageW(
+            hwnd,
+            WM_SETICON,
+            Some(WPARAM(ICON_BIG as usize)),
+            Some(LPARAM(hicon.0 as isize)),
+        );
+        SetClassLongPtrW(hwnd, GCLP_HICON, hicon.0 as isize);
+        if prev.0 != 0 && prev.0 != hicon.0 as isize {
+            let _ = DestroyIcon(HICON(prev.0 as *mut core::ffi::c_void));
+        }
+        SHChangeNotify(SHCNE_ASSOCCHANGED, SHCNF_IDLIST, None, None);
+    }
+    Ok(())
 }
 
 pub(crate) fn icon_from_png_bytes(bytes: &[u8]) -> Result<Image<'static>, String> {

@@ -289,6 +289,25 @@ describe('CollaborationSpaceCollectionDockviewPanel (Assets: Memory / Topics / C
       { displayPath: 'api-spec.md' }
     );
 
+    const cardEl = screen.getByTestId('collection-item-col-1');
+    expect(cardEl).toHaveTextContent('65B');
+    expect(cardEl).not.toHaveTextContent('chars');
+
+    const timeEl = screen.getByTestId('collection-item-time-col-1');
+    expect(cardEl.contains(timeEl)).toBe(false);
+
+    const sourcePill = screen.getByTestId('collection-item-source-pill-col-1');
+    expect(sourcePill).toHaveTextContent('MD');
+    expect(sourcePill).toHaveTextContent('api-spec.md');
+
+    expect(
+      screen.queryByTestId('collection-item-select-col-1')
+    ).not.toBeInTheDocument();
+    await user.click(screen.getByTestId('collaboration-collection-delete-btn'));
+    const selectCheckbox = screen.getByTestId('collection-item-select-col-1');
+    const creatorEl = screen.getByTestId('collection-item-creator-col-1');
+    expect(selectCheckbox.nextElementSibling).toBe(creatorEl);
+
     const indexToggle = screen.getByTestId(
       'collection-item-index-toggle-col-1'
     );

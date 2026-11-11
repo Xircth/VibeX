@@ -107,6 +107,7 @@ export function AgentModelProviderManager({
           {vm.surface === 'list' ? (
             <ProviderToolbar
               t={vm.t}
+              agentId={agentId}
               busy={vm.busy}
               importOpen={vm.importOpen}
               setImportOpen={vm.setImportOpen}
@@ -114,6 +115,7 @@ export function AgentModelProviderManager({
               openCreate={vm.openCreate}
               loadImport={vm.loadImport}
               loadPluginImport={vm.loadPluginImport}
+              applyModelRouter={vm.applyModelRouter}
             />
           ) : null}
         </div>

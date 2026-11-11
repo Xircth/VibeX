@@ -324,6 +324,7 @@ _Avoid_: 统一供应商, 全量配置快照, 本地代理供应商
 - **Native Model Provider（原生供应商）** — 只存在于 Agent 原生配置中的连接，不是 VibeX 预设。列表中可复制、可测连。Codex 外部 `model_catalog_json` 属于可启用的原生通道：启用即恢复当时的 `config.toml` 与该外部 catalog 文件，不生成 sidecar、不要求官方 bundled catalog。其它 Agent 的原生项不能启用、编辑或删除；收成预设必须走外部供应商导入。
 - **Provider connection probe（供应商连接探测）** — 用已存凭据对该端点做一次模型目录请求，返回成功或失败与耗时；密钥不出前端。
 - **External provider import（外部供应商导入）** — 一次性把另一处已认识的连接意图收成 Model Provider preset。来源只有当前 Agent 的原生配置，或本机 CC Switch 数据库中对应该 Agent 的条目。导入不绑定、不改 Runtime，也不让 CC Switch 成为配置权威；无法投影的项被跳过。Codex 外部 catalog 不是导入源，不 diff 进 sidecar。无密钥的预置目录模板不是导入候选项；导入仍是收成已有连接。见 [ADR-0063](docs/adr/0063-model-provider-presets-not-cc-switch.md)。
+- **ModelRouter** — 产品站点运营的模型网关。桌面端在 Provider 工具栏提供入口：用 VibeX 账号登录后选模型，写入一条名为「VibeX ModelRouter」的普通 Model Provider preset 并启用。账号令牌只在网页层，Host 不认识 VibeX 账号。见 [ADR-0085](docs/adr/0085-modelrouter-is-a-webview-side-provider-source.md)。
 _Avoid_: 与 CC Switch 同步, 接管 CC Switch, 直接覆盖当前绑定
 - **Provider catalog template（供应商预置目录模板）** — 插件向供应商鉴权模式新建表单贡献的无密钥填表模板。点选只填充该表面草稿；用户保存之前它不是 Model Provider preset，也不是外部供应商导入。它不是 OpenCode Provider catalog，也不是对已填端点的模型探测。官方目录以独立市场插件交付、默认禁用，不是能力等价插件。见 [ADR-0079](docs/adr/0079-provider-catalog-templates-are-not-import-sources.md)。
 _Avoid_: 导入源, CC Switch, 已保存连接, 能力等价插件

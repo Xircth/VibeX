@@ -5,7 +5,7 @@ import type { DockviewApi } from 'dockview-react';
 import type { ReactNode } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { resetTerminalShelfForTests } from '@/lib/terminalShelf';
-import { PANEL_IDS } from '@/stores/useLayoutStore';
+import { PANEL_IDS, useLayoutStore } from '@/stores/useLayoutStore';
 import { syncDockviewGroupRegistry } from '@/utils/dockviewHelpers';
 import { isEditorGroup } from '@/utils/dockviewGroupPolicy';
 import { resolveImagePreviewSource } from '@/lib/imagePreviewRegistry';
@@ -763,6 +763,59 @@ describe('PanelActionsContext editor placement', () => {
       'ai-chat:session-1',
       'ai-chat:session-4',
     ]);
+
+    api.dispose();
+    container.remove();
+  });
+
+  it('opens session tabs directly in Zone B editor group without spawning a right session dock on 2-column A/B layouts', () => {
+    useLayoutStore.getState().resetLayout();
+    const container = document.createElement('div');
+    container.style.width = '1200px';
+    container.style.height = '600px';
+    document.body.appendChild(container);
+    const api = createDockview(container, {
+      createComponent: () => ({
+        element: document.createElement('div'),
+        init: () => {},
+        dispose: () => {},
+      }),
+    });
+    api.layout(1200, 600, true);
+    const welcome = api.addPanel({
+      id: PANEL_IDS.WELCOME,
+      component: PANEL_IDS.WELCOME,
+      title: 'Welcome',
+    });
+    const editorGroup = welcome.group;
+    (editorGroup as { id: string }).id = 'group-editor-1';
+    syncDockviewGroupRegistry(api);
+
+    let actions: PanelActions | undefined;
+    function Probe() {
+      actions = usePanelActionsContext();
+      return null;
+    }
+    renderWithQueryClient(
+      <PanelActionsProvider>
+        <Probe />
+      </PanelActionsProvider>
+    );
+    act(() => actions?.setDockviewApi(api as unknown as DockviewApi));
+
+    act(() => {
+      actions?.openSessionTab({
+        sessionId: 'session-ab-1',
+        workspaceId: 'ws-1',
+        title: 'Stage Session',
+      });
+    });
+
+    expect(editorGroup.panels.map((p) => p.id)).toEqual([
+      'ai-chat:session-ab-1',
+    ]);
+    expect(api.getGroup('group-right')).toBeUndefined();
+    expect(useLayoutStore.getState().isRightPanelVisible).toBe(false);
 
     api.dispose();
     container.remove();

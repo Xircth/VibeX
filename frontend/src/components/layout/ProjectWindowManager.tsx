@@ -377,6 +377,9 @@ export function ProjectWindowManager() {
     (state) => state.openProjectIds
   );
   const railVisible = useWindowProjectsStore((state) => state.railVisible);
+  const removedProjectIds = useWindowProjectsStore(
+    (state) => state.removedProjectIds
+  );
   const pruneProjectState = useWindowProjectsStore(
     (state) => state.pruneProjectState
   );
@@ -386,7 +389,11 @@ export function ProjectWindowManager() {
   const shouldManageProjectWindows = !isAppManagementRoute;
 
   useEffect(() => {
-    if (!shouldManageProjectWindows || !projectId) {
+    if (
+      !shouldManageProjectWindows ||
+      !projectId ||
+      removedProjectIds[projectId]
+    ) {
       return;
     }
 
@@ -402,6 +409,7 @@ export function ProjectWindowManager() {
     location.search,
     projectId,
     rememberProjectRoute,
+    removedProjectIds,
     shouldManageProjectWindows,
   ]);
 

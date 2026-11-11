@@ -475,10 +475,7 @@ export function AgentDetail({
                       </p>
                     ) : null}
                     {specifiedCompatibilityWarning ? (
-                      <p
-                        role="status"
-                        className="mt-1.5 text-xs text-amber-700 dark:text-amber-400"
-                      >
+                      <p role="status" className="mt-1.5 text-xs text-warning">
                         {specifiedCompatibilityWarning}
                       </p>
                     ) : null}

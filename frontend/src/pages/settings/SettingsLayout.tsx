@@ -32,12 +32,15 @@ import {
   Settings,
   SlidersHorizontal,
   Sun,
+  User,
 } from 'lucide-react';
 
+import { AccountStatusMenu } from '@/components/layout/AccountStatusMenu';
 import { HomeLogoMenu } from '@/components/layout/HomeLogoMenu';
 import { SurfaceLoading } from '@/components/layout/SurfaceLoading';
 import { AppTitleBar } from '@/components/settings/AppTitleBar';
 import { Button } from '@/components/ui/button';
+import { useAccountToken } from '@/features/model-router';
 import { usePreviousPath } from '@/hooks/usePreviousPath';
 import { useTauriClient } from '@/lib/desktopShell';
 import { useSettingsNavFloat } from '@/lib/settingsNavFloat';
@@ -84,6 +87,11 @@ export const SETTINGS_NAV_GROUPS: Omit<SettingsNavGroup, 'id'>[] = [
   {
     title: 'For Human',
     items: [
+      {
+        path: '/settings/account',
+        labelKey: 'account',
+        icon: User,
+      },
       {
         path: '/settings/general',
         labelKey: 'general',
@@ -288,6 +296,7 @@ export function SettingsLayout() {
   const { t, i18n } = useTranslation('settings');
   const { capabilities, supports } = useBackendCapabilities();
   const isTauri = useTauriClient();
+  const isVibeXSignedIn = Boolean(useAccountToken());
   const returnToMainPage = usePreviousPath();
   const settingsNavFloat = useSettingsNavFloat();
   const logoLeads = logoLeadsWindowChrome();
@@ -431,6 +440,7 @@ export function SettingsLayout() {
             query={searchQuery}
             onQueryChange={setSearchQuery}
             supports={supports}
+            isSignedIn={isVibeXSignedIn}
             onSelect={jumpToSetting}
           />
           {searching ? null : (
@@ -477,6 +487,9 @@ export function SettingsLayout() {
               ))}
             </nav>
           )}
+          <div className="mt-auto flex shrink-0 items-center pt-2">
+            <AccountStatusMenu />
+          </div>
         </aside>
 
         <section

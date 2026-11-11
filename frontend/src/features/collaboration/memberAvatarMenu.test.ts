@@ -49,7 +49,11 @@ describe('member avatar menu', () => {
         'labelStyle' in mention &&
         mention.labelStyle
     ).toEqual(memberMentionLabelStyle(color));
-    if (mention.type !== 'separator' && mention.type !== 'emoji-row') {
+    if (
+      mention.type !== 'separator' &&
+      mention.type !== 'emoji-row' &&
+      'onSelect' in mention
+    ) {
       mention.onSelect?.();
     }
     expect(onMention).toHaveBeenCalledOnce();

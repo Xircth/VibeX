@@ -28,10 +28,9 @@ test('manifest contributes browser panel, dedicated browser settings page, and r
   assert.equal(settingsPage.title, '浏览器');
   assert.equal(settingsPage.handler, 'surface.createSession');
   assert.deepEqual(settingsPage.allowedMethods, ['browser.dispatch']);
-  assert.deepEqual(settingsPage.remote, {
-    name: 'vibex_browser',
-    entry: 'dist/remoteEntry.js',
-    module: './view',
+  assert.deepEqual(manifest.entrypoints.app, {
+    entry: 'app/main.js',
+    protocol: '2.0',
   });
 
   const rail = manifest.integrations.find(
@@ -53,13 +52,17 @@ test('manifest contributes browser panel, dedicated browser settings page, and r
   assert.match(skillDoc, /browser_snapshot/);
   assert.match(skillDoc, /browser_console_messages/);
   assert.match(skillDoc, /browser_screenshot/);
+  assert.match(skillDoc, /browser_prefer/);
+  assert.match(skillDoc, /overMs/);
+  assert.match(skillDoc, /everyMs/);
+  assert.match(skillDoc, /reducedMotion/);
   assert.match(skillDoc, /browser_hover/);
   assert.match(skillDoc, /browser_press_key/);
   assert.match(skillDoc, /browser_select_option/);
   assert.match(skillDoc, /vibex-browser-browser-tools/);
 });
 
-test('MCP resource advertises all 13 tools that the stdio server implements', async () => {
+test('MCP resource advertises all 14 tools that the stdio server implements', async () => {
   const spec = JSON.parse(
     await readFile(join(root, 'contents/mcps/browser.json'), 'utf8')
   );
@@ -73,6 +76,7 @@ test('MCP resource advertises all 13 tools that the stdio server implements', as
     'browser_snapshot',
     'browser_console_messages',
     'browser_screenshot',
+    'browser_prefer',
     'browser_click',
     'browser_hover',
     'browser_type',
@@ -201,7 +205,7 @@ test('MCP server answers NDJSON initialize without closing', async () => {
     });
     assert.equal(listed.error, undefined);
     assert.ok(Array.isArray(listed.result.tools));
-    assert.equal(listed.result.tools.length, 13);
+    assert.equal(listed.result.tools.length, 14);
     assert.ok(
       listed.result.tools.some((tool) => tool.name === 'browser_list_tabs')
     );
@@ -212,6 +216,9 @@ test('MCP server answers NDJSON initialize without closing', async () => {
     );
     assert.ok(
       listed.result.tools.some((tool) => tool.name === 'browser_screenshot')
+    );
+    assert.ok(
+      listed.result.tools.some((tool) => tool.name === 'browser_prefer')
     );
   } finally {
     child.kill();
@@ -367,66 +374,238 @@ test('MCP server answers Content-Length initialize without closing', async () =>
   }
 });
 
-test('browser-settings ships both Module Federation remoteEntry.js and bundled app/index.html', async () => {
+test('browser-settings ships v2 app/main.js entrypoint and settings view', async () => {
   const manifest = JSON.parse(
     await readFile(join(root, '.vibex-plugin/plugin.json'), 'utf8')
   );
   const settingsPage = manifest.integrations.find(
     (item) => item.kind === 'app.settings.page'
   );
-  assert.deepEqual(settingsPage.remote, {
-    name: 'vibex_browser',
-    entry: 'dist/remoteEntry.js',
-    module: './view',
+  assert.ok(settingsPage, 'expected app.settings.page integration');
+  assert.deepEqual(manifest.entrypoints.app, {
+    entry: 'app/main.js',
+    protocol: '2.0',
   });
 
-  const remoteEntry = await readFile(join(root, 'dist/remoteEntry.js'), 'utf8');
-  assert.ok(remoteEntry.length > 500, 'dist/remoteEntry.js must be bundled');
-  assert.match(remoteEntry, /vibex_browser/);
+  const appMain = await readFile(join(root, 'app/main.js'), 'utf8');
+  assert.match(appMain, /apiVersion:\s*['"]2\.0['"]/);
+  assert.match(appMain, /id:\s*['"]vibex\.browser['"]/);
+  assert.match(appMain, /\.\.\/src\/views\/view/);
 
-  const assetsDir = join(root, 'dist/assets');
-  const assetFiles = readdirSync(assetsDir);
-  const exposeName = remoteEntry.match(/virtualExposes-[A-Za-z0-9_-]+\.js/)?.[0];
-  assert.ok(exposeName, 'remoteEntry must point at virtualExposes');
-  const exposeBundle = await readFile(join(assetsDir, exposeName), 'utf8');
-  const viewFile = exposeBundle.match(/view-[A-Za-z0-9_-]+\.js/)?.[0];
-  assert.ok(viewFile, 'expected the settings view chunk referenced by virtualExposes');
-  const viewBundle = await readFile(join(assetsDir, viewFile), 'utf8');
-  assert.match(viewBundle, /export\{[A-Za-z0-9_$]+ as default\}/);
-  assert.doesNotMatch(viewBundle, /as mount\b/);
-  assert.match(viewBundle, /astryx-select/);
-  assert.match(viewBundle, /astryx-button/);
-  assert.match(viewBundle, /data-variant/);
-  assert.match(viewBundle, /12px/);
-  assert.match(viewBundle, /无痕/);
-  assert.match(viewBundle, /启用或修改Agent的Browser Use（浏览器控制）功能/);
-  assert.doesNotMatch(viewBundle, /配置内置工作区浏览器的基础策略/);
-  assert.doesNotMatch(
-    viewBundle,
-    /管理链接默认打开方式、WebView 开发者工具/
-  );
-  assert.match(viewBundle, /settings-page/);
-  assert.match(viewBundle, /settings-sections/);
-
-  const loadShareReactFile = assetFiles.find(
-    (file) =>
-      file.includes('__loadShare__react__loadShare__.js-') &&
-      !file.includes('commonjs-proxy')
-  );
-  assert.ok(loadShareReactFile, 'expected loadShare react chunk');
-  const loadShareReactBundle = await readFile(
-    join(assetsDir, loadShareReactFile),
-    'utf8'
-  );
-  assert.match(loadShareReactBundle, /canonical:"default:react"/);
-  assert.match(loadShareReactBundle, /\.useState/);
-  assert.match(loadShareReactBundle, /\.useEffect/);
-  assert.doesNotMatch(loadShareReactBundle, /react\.production\.js/);
-
-  const appHtml = await readFile(join(root, 'dist/app/index.html'), 'utf8');
-  assert.match(appHtml, /BrowserSettingsRemoteView/);
-  assert.match(appHtml, /vibex:host-browser-prefs:v1/);
-  assert.match(appHtml, /browser\.dispatch/);
-  assert.match(appHtml, /settings-sections/);
+  const viewSource = await readFile(join(root, 'src/views/view.tsx'), 'utf8');
+  assert.match(viewSource, /browser\.dispatch/);
+  assert.match(viewSource, /启用或修改Agent的Browser Use（浏览器控制）功能/);
 });
+
+test('browser_prefer and browser_screenshot support contact-sheet burst, reducedMotion, and eval.run fallback', async () => {
+  const { createServer } = await import('node:http');
+  const calls = [];
+  let preferUnimplemented = false;
+
+  const server = createServer((req, res) => {
+    const chunks = [];
+    req.on('data', (c) => chunks.push(c));
+    req.on('end', () => {
+      const payload = JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}');
+      calls.push(payload);
+      res.setHeader('content-type', 'application/json');
+
+      if (payload.operation === 'prefer') {
+        if (preferUnimplemented) {
+          res.statusCode = 501;
+          res.end(
+            JSON.stringify({
+              code: 'capability_unimplemented',
+              message: 'prefer is not implemented',
+            })
+          );
+          return;
+        }
+        res.end(
+          JSON.stringify({
+            ok: true,
+            tabId: payload.input?.tabId || 'tab-1',
+            url: 'https://example.com/app',
+            reducedMotion: Boolean(payload.input?.reducedMotion),
+            colorScheme: payload.input?.colorScheme || 'no-preference',
+            settled: payload.input?.settle !== false,
+          })
+        );
+        return;
+      }
+
+      if (payload.operation === 'tab.list') {
+        res.end(
+          JSON.stringify({
+            tabs: [
+              {
+                tabId: 'tab-1',
+                url: 'https://example.com/app',
+                title: 'App',
+                grant: { level: 'control' },
+              },
+            ],
+          })
+        );
+        return;
+      }
+
+      if (payload.operation === 'eval.run') {
+        res.end(
+          JSON.stringify({
+            tabId: payload.input?.tabId || 'tab-1',
+            value: JSON.stringify({
+              ok: true,
+              url: 'https://example.com/app',
+              reducedMotion: true,
+              colorScheme: 'dark',
+              settled: true,
+            }),
+          })
+        );
+        return;
+      }
+
+      if (payload.operation === 'screenshot') {
+        res.end(
+          JSON.stringify({
+            tabId: payload.input?.tabId || 'tab-1',
+            url: 'https://example.com/app',
+            mime: 'image/png',
+            data: 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==',
+            width: 1280,
+            height: 720,
+            framesCount: 6,
+            overMs: payload.input?.overMs ?? 500,
+            everyMs: payload.input?.everyMs ?? 100,
+            timestampsMs: [0, 100, 200, 300, 400, 500],
+            columns: 3,
+            rows: 2,
+          })
+        );
+        return;
+      }
+
+      res.end(JSON.stringify({ ok: true }));
+    });
+  });
+
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const address = server.address();
+  const hostUrl = `http://127.0.0.1:${address.port}/host-call`;
+
+  const child = spawn(process.execPath, [join(root, 'runtime/mcp-server.mjs')], {
+    env: {
+      ...process.env,
+      VIBEX_HOST_CALL_URL: hostUrl,
+      VIBEX_HOST_CALL_TOKEN: 'test-token',
+    },
+    stdio: ['pipe', 'pipe', 'pipe'],
+  });
+
+  const stdout = [];
+  child.stdout.on('data', (chunk) => stdout.push(chunk));
+
+  const callRpc = (id, method, params) => {
+    child.stdin.write(
+      `${JSON.stringify({ jsonrpc: '2.0', id, method, params })}\n`
+    );
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(
+        () => reject(new Error(`RPC ${id} timed out`)),
+        3000
+      );
+      const check = () => {
+        const lines = Buffer.concat(stdout)
+          .toString('utf8')
+          .split('\n')
+          .map((line) => line.trim())
+          .filter(Boolean);
+        for (const line of lines) {
+          try {
+            const parsed = JSON.parse(line);
+            if (parsed.id === id) {
+              clearTimeout(timer);
+              child.stdout.off('data', check);
+              resolve(parsed);
+              return;
+            }
+          } catch {
+            // ignore partial line
+          }
+        }
+      };
+      child.stdout.on('data', check);
+      check();
+    });
+  };
+
+  try {
+    // 1. Direct host prefer call
+    const preferReply = await callRpc(10, 'tools/call', {
+      name: 'browser_prefer',
+      arguments: {
+        tabId: 'tab-1',
+        reducedMotion: true,
+        colorScheme: 'dark',
+      },
+    });
+    assert.equal(preferReply.error, undefined);
+    assert.equal(preferReply.result.isError, undefined);
+    assert.match(
+      preferReply.result.content[0].text,
+      /Browser preferences applied/
+    );
+    assert.match(preferReply.result.content[0].text, /Reduced motion: `true`/);
+    assert.match(preferReply.result.content[0].text, /Color scheme: `dark`/);
+    assert.equal(calls.at(-1).operation, 'prefer');
+    assert.equal(calls.at(-1).input.settle, true);
+
+    // 2. Fallback to eval.run when host returns capability_unimplemented
+    preferUnimplemented = true;
+    const fallbackReply = await callRpc(11, 'tools/call', {
+      name: 'browser_prefer',
+      arguments: {
+        reducedMotion: true,
+        colorScheme: 'dark',
+        settle: false,
+      },
+    });
+    assert.equal(fallbackReply.error, undefined);
+    assert.equal(fallbackReply.result.isError, undefined);
+    const evalCall = calls.find((item) => item.operation === 'eval.run');
+    assert.ok(evalCall, 'expected eval.run fallback call for browser_prefer');
+    assert.match(evalCall.input.code, /__vibex_prefer_reduced_motion/);
+    assert.match(evalCall.input.code, /prefers-reduced-motion/);
+
+    // 3. Contact-sheet burst screenshot with overMs, everyMs, reducedMotion, colorScheme
+    const shotReply = await callRpc(12, 'tools/call', {
+      name: 'browser_screenshot',
+      arguments: {
+        tabId: 'tab-1',
+        overMs: 500,
+        everyMs: 100,
+        reducedMotion: true,
+        colorScheme: 'dark',
+      },
+    });
+    assert.equal(shotReply.error, undefined);
+    assert.equal(shotReply.result.isError, undefined);
+    const shotCall = calls.find((item) => item.operation === 'screenshot');
+    assert.ok(shotCall, 'expected host screenshot call');
+    assert.equal(shotCall.input.overMs, 500);
+    assert.equal(shotCall.input.everyMs, 100);
+    assert.equal(shotCall.input.reducedMotion, true);
+    assert.equal(shotCall.input.colorScheme, 'dark');
+    assert.match(
+      shotReply.result.content[0].text,
+      /frames=6, over=500ms, every=100ms, timestamps=\[0ms, 100ms, 200ms, 300ms, 400ms, 500ms\]/
+    );
+    assert.equal(shotReply.result.content[1].type, 'image');
+  } finally {
+    child.kill();
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
+
 

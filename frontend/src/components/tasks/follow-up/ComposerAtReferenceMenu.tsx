@@ -162,7 +162,7 @@ export function ComposerAtReferenceMenu({
                   ) : (
                     <span
                       aria-hidden="true"
-                      className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-blue-500/10 text-blue-600 dark:text-blue-300"
+                      className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-info/10 text-info"
                     >
                       <Icon className="h-3.5 w-3.5" />
                     </span>

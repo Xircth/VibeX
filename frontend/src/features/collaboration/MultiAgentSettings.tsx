@@ -138,7 +138,7 @@ export function CustomRoleSessionControls({
 
   if (!agentId.trim()) {
     return (
-      <div className="custom-role-session-fallback flex h-8 items-center rounded-[var(--radius)] border border-[var(--border-subtle)] bg-white px-2.5 text-xs text-muted-foreground dark:bg-[var(--surface-control-solid)]">
+      <div className="custom-role-session-fallback flex h-8 items-center rounded-[var(--radius)] border border-[var(--border-subtle)] bg-[var(--surface-control-solid)] px-2.5 text-xs text-muted-foreground">
         {i18n.t('panels:ui.multiAgent.chooseAnAgentFirst')}
       </div>
     );
@@ -155,7 +155,7 @@ export function CustomRoleSessionControls({
 
   if (!catalog) {
     return (
-      <div className="custom-role-session-fallback flex h-8 items-center rounded-[var(--radius)] border border-[var(--border-subtle)] bg-white px-2.5 text-xs text-muted-foreground dark:bg-[var(--surface-control-solid)]">
+      <div className="custom-role-session-fallback flex h-8 items-center rounded-[var(--radius)] border border-[var(--border-subtle)] bg-[var(--surface-control-solid)] px-2.5 text-xs text-muted-foreground">
         {i18n.t('panels:ui.multiAgent.defaultSessionSettings')}
       </div>
     );
@@ -165,7 +165,7 @@ export function CustomRoleSessionControls({
   const hasOptions = (catalog.config_options ?? []).length > 0;
   if (!hasModes && !hasOptions) {
     return (
-      <div className="custom-role-session-fallback flex h-8 items-center rounded-[var(--radius)] border border-[var(--border-subtle)] bg-white px-2.5 text-xs text-muted-foreground dark:bg-[var(--surface-control-solid)]">
+      <div className="custom-role-session-fallback flex h-8 items-center rounded-[var(--radius)] border border-[var(--border-subtle)] bg-[var(--surface-control-solid)] px-2.5 text-xs text-muted-foreground">
         {i18n.t('panels:ui.multiAgent.defaultSessionSettings')}
       </div>
     );

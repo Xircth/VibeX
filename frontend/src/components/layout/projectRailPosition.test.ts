@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   clampProjectRailPosition,
   defaultProjectRailPosition,
+  PROJECT_RAIL_BOTTOM_OFFSET,
   PROJECT_RAIL_DEFAULT_LEFT,
   PROJECT_RAIL_EDGE_MARGIN,
   projectRailHoverPopoverPosition,
@@ -39,17 +40,17 @@ describe('clampProjectRailPosition', () => {
 });
 
 describe('defaultProjectRailPosition', () => {
-  it('places the rail on the left, vertically centered', () => {
+  it('anchors the selector menu at the bottom-left above the status bar', () => {
     expect(defaultProjectRailPosition(220, 280, 1280, 800)).toEqual({
       x: PROJECT_RAIL_DEFAULT_LEFT,
-      y: (800 - 280) / 2,
+      y: 800 - 280 - PROJECT_RAIL_BOTTOM_OFFSET,
     });
   });
 
   it('does not pin the rail to the origin when the viewport is not ready', () => {
     expect(defaultProjectRailPosition(220, 280, 0, 0)).toEqual({
       x: PROJECT_RAIL_DEFAULT_LEFT,
-      y: (800 - 280) / 2,
+      y: 800 - 280 - PROJECT_RAIL_BOTTOM_OFFSET,
     });
   });
 });

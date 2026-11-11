@@ -186,7 +186,7 @@ function DisplayConversationEntry({
           <AstryxMarkdown
             value={entry.content}
             taskAttemptId={taskAttempt?.id}
-            className="whitespace-pre-wrap break-words flex flex-col gap-1 font-light"
+            className="whitespace-pre-wrap break-words flex flex-col gap-1"
           />
         </div>
       </div>

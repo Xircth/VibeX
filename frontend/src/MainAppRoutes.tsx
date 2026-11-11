@@ -4,7 +4,6 @@ import { Navigate, Route, Routes } from 'react-router-dom';
 import { MainLegacyScope } from '@/app/MainLegacyScope';
 import { IDEWorkspaceRoute } from '@/components/layout/IDEWorkspaceRoute';
 import { NormalLayout } from '@/components/layout/NormalLayout';
-import { Projects } from '@/pages/Projects';
 
 function lazyNamed<
   T extends Record<Name, ComponentType>,
@@ -40,11 +39,14 @@ export function MainAppRoutes() {
 
       <Route
         element={
-          <MainLegacyScope showProjectRail pageSuspense={false}>
+          <MainLegacyScope pageSuspense={false}>
             <IDEWorkspaceRoute />
           </MainLegacyScope>
         }
       >
+        <Route path="/" element={null} />
+        <Route path="/local-projects" element={null} />
+        <Route path="/local-projects/:projectId" element={null} />
         <Route
           path="/local-projects/:projectId/sessions"
           element={<ProjectTasks />}
@@ -61,28 +63,26 @@ export function MainAppRoutes() {
 
       <Route
         element={
-          <MainLegacyScope showProjectRail>
+          <MainLegacyScope>
             <NormalLayout />
           </MainLegacyScope>
         }
       >
-        <Route path="/" element={<Projects />} />
-        <Route path="/local-projects" element={<Projects />} />
-        <Route path="/local-projects/:projectId" element={<Projects />} />
         <Route path="/workflows/:runId" element={<WorkflowInspector />} />
-        <Route
-          path="/mcp-servers"
-          element={<Navigate to="/settings/mcp" replace />}
-        />
-        <Route
-          path="/workspaces/*"
-          element={<Navigate to="/local-projects" replace />}
-        />
-        <Route
-          path="/projects/*"
-          element={<Navigate to="/local-projects" replace />}
-        />
       </Route>
+
+      <Route
+        path="/mcp-servers"
+        element={<Navigate to="/settings/mcp" replace />}
+      />
+      <Route
+        path="/workspaces/*"
+        element={<Navigate to="/local-projects" replace />}
+      />
+      <Route
+        path="/projects/*"
+        element={<Navigate to="/local-projects" replace />}
+      />
     </Routes>
   );
 }

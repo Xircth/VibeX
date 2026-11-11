@@ -102,3 +102,30 @@ export function filterVisibleBotSessions<
   if (!hideBotSessions) return sessions as T[];
   return sessions.filter((session) => !session.collaboration);
 }
+
+const COLLABORATION_BOOTSTRAP_MARKERS = [
+  '<vibex-private-bootstrap>',
+  '[协作空间',
+  '[Space 身份与协作规则]',
+] as const;
+
+export function isCollaborationBootstrapPrompt(
+  prompt: string | null | undefined
+): boolean {
+  if (!prompt) return false;
+  return COLLABORATION_BOOTSTRAP_MARKERS.some((marker) =>
+    prompt.includes(marker)
+  );
+}
+
+export function isBotCollaborationSession(input: {
+  collaboration?: unknown | null;
+  initial_prompt?: string | null;
+  first_prompt?: string | null;
+}): boolean {
+  if (input.collaboration != null) return true;
+  return (
+    isCollaborationBootstrapPrompt(input.initial_prompt) ||
+    isCollaborationBootstrapPrompt(input.first_prompt)
+  );
+}

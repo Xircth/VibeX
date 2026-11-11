@@ -9,8 +9,8 @@ import { dateTimestamp } from '@/utils/date';
 export const CARD_WIDTH = 196;
 export const CARD_HEIGHT = 72;
 
-export const DETAIL_CARD_WIDTH = 364;
-export const DETAIL_CARD_HEIGHT = 627;
+export const DETAIL_CARD_WIDTH = 960;
+export const DETAIL_CARD_HEIGHT = 720;
 export const DETAIL_MIN_WIDTH = 360;
 export const DETAIL_MIN_HEIGHT = 320;
 
@@ -32,6 +32,24 @@ export const ARCHIVED_STATUS = 'archived';
 
 export type CanvasNodeKind = 'session' | 'group';
 
+export type CanvasHandleSide = 'top' | 'right' | 'bottom' | 'left';
+
+export const CANVAS_HANDLE_SIDES: readonly CanvasHandleSide[] = [
+  'top',
+  'right',
+  'bottom',
+  'left',
+] as const;
+
+export function isCanvasHandleSide(value: unknown): value is CanvasHandleSide {
+  return (
+    value === 'top' ||
+    value === 'right' ||
+    value === 'bottom' ||
+    value === 'left'
+  );
+}
+
 export interface SessionCanvasNode {
   id: string;
   kind: CanvasNodeKind;
@@ -49,7 +67,20 @@ export interface SessionCanvasNode {
   height: number;
   expanded: boolean;
   openedFromId?: string | null;
+  panelId?: string;
+  panelComponent?: string;
+  panelTitle?: string;
+  panelParams?: Record<string, unknown>;
 }
+
+export function isPanelCanvasNode(node: SessionCanvasNode): boolean {
+  return (
+    node.kind !== 'group' &&
+    typeof node.panelComponent === 'string' &&
+    node.panelComponent.length > 0
+  );
+}
+
 
 export interface CanvasRect {
   id: string;
@@ -204,16 +235,95 @@ export function createCanvasNode(
   };
 }
 
+export interface CreateCanvasPanelNodeOptions {
+  panelId: string;
+  panelComponent: string;
+  panelTitle: string;
+  panelParams?: Record<string, unknown>;
+  position: { x: number; y: number };
+  expanded?: boolean;
+  id?: string;
+  size?: { width?: number; height?: number };
+  openedFromId?: string | null;
+}
+
+export function createCanvasPanelNode(
+  options: CreateCanvasPanelNodeOptions
+): SessionCanvasNode {
+  const expanded = options.expanded ?? true;
+  const id = options.id ?? createCanvasInstanceId();
+  const defaultSize = expanded
+    ? defaultExpandedSize()
+    : collapsedSessionCardSize(options.size?.width);
+  const width =
+    typeof options.size?.width === 'number' &&
+    Number.isFinite(options.size.width) &&
+    options.size.width > 0
+      ? options.size.width
+      : defaultSize.width;
+  const height =
+    typeof options.size?.height === 'number' &&
+    Number.isFinite(options.size.height) &&
+    options.size.height > 0
+      ? options.size.height
+      : defaultSize.height;
+  return {
+    id,
+    kind: 'session',
+    sessionId: '',
+    parentId: null,
+    name: options.panelTitle,
+    createdAt: Date.now(),
+    showAll: false,
+    x: options.position.x,
+    y: options.position.y,
+    width,
+    height,
+    expanded,
+    openedFromId: options.openedFromId ?? null,
+    panelId: options.panelId,
+    panelComponent: options.panelComponent,
+    panelTitle: options.panelTitle,
+    panelParams: options.panelParams ? { ...options.panelParams } : undefined,
+  };
+}
+
 export interface SessionCanvasLink {
   id: string;
   sourceId: string;
   targetId: string;
+  sourceHandle?: CanvasHandleSide;
+  targetHandle?: CanvasHandleSide;
 }
 
-function pushLink(links: SessionCanvasLink[], fromId: string, toId: string) {
+export function handleAnchor(
+  rect: { x: number; y: number; width: number; height: number },
+  side: CanvasHandleSide
+): { x: number; y: number } {
+  switch (side) {
+    case 'top':
+      return { x: rect.x + rect.width / 2, y: rect.y };
+    case 'right':
+      return { x: rect.x + rect.width, y: rect.y + rect.height / 2 };
+    case 'bottom':
+      return { x: rect.x + rect.width / 2, y: rect.y + rect.height };
+    case 'left':
+      return { x: rect.x, y: rect.y + rect.height / 2 };
+  }
+}
+
+function pushLink(
+  links: SessionCanvasLink[],
+  seen: Set<string>,
+  fromId: string,
+  toId: string
+) {
   if (fromId === toId) return;
+  const id = `same-${fromId}-${toId}`;
+  if (seen.has(id)) return;
+  seen.add(id);
   links.push({
-    id: `same-${fromId}-${toId}`,
+    id,
     sourceId: fromId,
     targetId: toId,
   });
@@ -228,9 +338,15 @@ export function sameSessionLinks(
 ): SessionCanvasLink[] {
   const copies = new Map<string, SessionCanvasNode[]>();
   const links: SessionCanvasLink[] = [];
+  const seen = new Set<string>();
+  const byId = new Set(nodes.map((node) => node.id));
 
   for (const node of nodes) {
-    if (!node.sessionId || node.kind === 'group') continue;
+    if (node.kind === 'group') continue;
+    if (node.openedFromId && byId.has(node.openedFromId)) {
+      pushLink(links, seen, node.openedFromId, node.id);
+    }
+    if (!node.sessionId) continue;
     const group = copies.get(node.sessionId);
     if (group) group.push(node);
     else copies.set(node.sessionId, [node]);
@@ -242,7 +358,7 @@ export function sameSessionLinks(
     const windowNode = windows[0];
     if (windowNode) {
       for (const card of cards) {
-        pushLink(links, card.id, windowNode.id);
+        pushLink(links, seen, card.id, windowNode.id);
       }
       continue;
     }
@@ -250,7 +366,7 @@ export function sameSessionLinks(
       const from = cards[index - 1];
       const to = cards[index];
       if (!from || !to) continue;
-      pushLink(links, from.id, to.id);
+      pushLink(links, seen, from.id, to.id);
     }
   }
   return links;
@@ -589,7 +705,10 @@ export function pruneMissingSessions(
   liveIds: ReadonlySet<string>
 ): SessionCanvasNode[] {
   const kept = nodes.filter(
-    (node) => node.kind === 'group' || liveIds.has(node.sessionId)
+    (node) =>
+      node.kind === 'group' ||
+      isPanelCanvasNode(node) ||
+      liveIds.has(node.sessionId)
   );
   return kept.length === nodes.length ? (nodes as SessionCanvasNode[]) : kept;
 }

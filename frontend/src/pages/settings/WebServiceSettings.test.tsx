@@ -536,4 +536,25 @@ describe('WebServiceSettings', () => {
     await waitFor(() => expect(webServiceApiMock.getConfig).toHaveBeenCalled());
     expect(screen.getByRole('switch', { name: '云服务' })).toBe(tunnel);
   });
+
+  it('syncs the displayed port when starting the service falls back from 17891 to 17892', async () => {
+    const user = userEvent.setup();
+    webServiceApiMock.start.mockResolvedValueOnce({
+      ...runningStatus,
+      port: 17892,
+      address: 'http://127.0.0.1:17892',
+      addresses: ['http://127.0.0.1:17892'],
+    });
+
+    renderSettings();
+
+    await user.click(await screen.findByRole('switch', { name: '启动' }));
+
+    const portInput = await screen.findByRole('spinbutton', {
+      name: '监听端口',
+    });
+    expect(portInput).toHaveValue(17892);
+    expect(screen.getByText('http://127.0.0.1:17892')).toBeVisible();
+  });
 });
+

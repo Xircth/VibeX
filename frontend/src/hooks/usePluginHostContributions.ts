@@ -16,6 +16,7 @@ import { toast } from '@/components/ui/toast';
 
 import type { PluginRuntimeSource } from '@/features/plugins/PluginRuntimeLoader';
 import { backendListen } from '@/lib/backendTransport';
+import { setPluginColorThemes } from '@/lib/theme/colorThemeStore';
 import {
   createPluginControlApi,
   type PluginContributionCatalogItem,
@@ -42,7 +43,8 @@ const EMPTY: PluginContributionCatalogItem[] = [];
  */
 export function usePluginContributionCatalogSync() {
   const queryClient = useQueryClient();
-  const items = usePluginHostContributions();
+  const catalogItems = useContributionCatalogItems();
+  const items = catalogItems ?? EMPTY;
   const pluginThemes = useThemes();
   const knownHostPluginIdsRef = useRef<Set<string>>(new Set());
   const loadedGenerationByPluginRef = useRef<Map<string, number>>(new Map());
@@ -57,41 +59,14 @@ export function usePluginContributionCatalogSync() {
     });
   }, []);
 
+  const activePluginIds = useMemo(
+    () =>
+      catalogItems ? new Set(catalogItems.map((item) => item.pluginId)) : null,
+    [catalogItems]
+  );
   useEffect(() => {
-    if (typeof document === 'undefined' || !document.head) return;
-    const styleId = 'vibex-plugin-theme-variables';
-    let styleEl = document.head.querySelector<HTMLStyleElement>(
-      `style[data-vibex-plugin-themes="${styleId}"]`
-    );
-    if (pluginThemes.length === 0) {
-      styleEl?.remove();
-      return;
-    }
-    const rules: string[] = [];
-    for (const theme of pluginThemes) {
-      const entries = Object.entries(theme.cssVariables ?? {}).filter(
-        ([k, v]) => typeof k === 'string' && k.trim() && typeof v === 'string'
-      );
-      if (entries.length === 0) continue;
-      const body = entries
-        .map(([k, v]) => {
-          const prop = k.startsWith('--') ? k : `--${k}`;
-          return `  ${prop}: ${v};`;
-        })
-        .join('\n');
-      rules.push(`:root, [data-plugin-theme="${theme.id}"] {\n${body}\n}`);
-    }
-    if (rules.length === 0) {
-      styleEl?.remove();
-      return;
-    }
-    if (!styleEl) {
-      styleEl = document.createElement('style');
-      styleEl.setAttribute('data-vibex-plugin-themes', styleId);
-      document.head.appendChild(styleEl);
-    }
-    styleEl.textContent = rules.join('\n');
-  }, [pluginThemes]);
+    setPluginColorThemes(pluginThemes, activePluginIds);
+  }, [pluginThemes, activePluginIds]);
 
   useEffect(() => {
     let disposed = false;
@@ -273,9 +248,10 @@ export function usePluginContributionCatalogSync() {
   }, [items]);
 }
 
-export function usePluginHostContributions(
-  kind?: PluginContributionCatalogItem['kind']
-) {
+/** Catalog items, or undefined until the first catalog has loaded. */
+function useContributionCatalogItems():
+  | PluginContributionCatalogItem[]
+  | undefined {
   const transport = useBackendTransport();
   const api = useMemo(() => createPluginControlApi(transport), [transport]);
   const { data } = useQuery({
@@ -284,8 +260,13 @@ export function usePluginHostContributions(
     staleTime: 30_000,
     retry: false,
   });
+  return data?.items;
+}
 
-  const items = data?.items ?? EMPTY;
+export function usePluginHostContributions(
+  kind?: PluginContributionCatalogItem['kind']
+) {
+  const items = useContributionCatalogItems() ?? EMPTY;
   return useMemo(
     () => (kind ? items.filter((item) => item.kind === kind) : items),
     [items, kind]

@@ -8,8 +8,8 @@ colors:
   primary: "#1B1B1B"
   primary-foreground: "#ffffff"
   primary-control-foreground: "#ffffff"
-  switch-checked-track: "#1d2530"
-  switch-checked-thumb: "#ffffff"
+  switch-checked-track: "var(--text-strong)"
+  switch-checked-thumb: "var(--surface-raised-control)"
   dark-switch-checked-track: "hsl(var(--primary))"
   dark-switch-checked-thumb: "hsl(var(--primary-foreground))"
   # Astryx neutral surfaces. Opaque, and the same hex on macOS and Windows.
@@ -71,11 +71,29 @@ typography:
     fontWeight: 400
     lineHeight: 1.43
     letterSpacing: "0"
+  callout:
+    fontFamily: "var(--font-ui)"
+    fontSize: "0.8125rem"
+    fontWeight: 400
+    lineHeight: 1.38
+    letterSpacing: "0"
   label:
     fontFamily: "var(--font-ui)"
     fontSize: "0.75rem"
     fontWeight: 500
     lineHeight: 1.33
+    letterSpacing: "0"
+  caption:
+    fontFamily: "var(--font-ui)"
+    fontSize: "0.6875rem"
+    fontWeight: 400
+    lineHeight: 1.27
+    letterSpacing: "0"
+  micro:
+    fontFamily: "var(--font-ui)"
+    fontSize: "0.625rem"
+    fontWeight: 500
+    lineHeight: 1.4
     letterSpacing: "0"
   mono:
     fontFamily: "IBM Plex Mono, Noto Emoji, monospace"
@@ -249,7 +267,19 @@ Page surfaces use the Astryx neutral ramp. The same hex is used on macOS and Win
 
 The user accent stays separate from this ramp. Light default remains Ink `#1B1B1B`; dark default remains Pearl Ink `#E7EBEF`.
 
-## 6. Radius, Elevation, And Motion
+### Color themes
+
+The neutrals above are the built-in **VibeX** theme. Settings → Appearance picks one color theme for light and one for dark. Built-in, user, and plugin themes are equal choices.
+
+- **Role contract.** A theme is `{ id, label, scheme, colors }`. `colors` is keyed by the 31 roles in `THEME_COLOR_ROLES` (`packages/plugin-sdk/src/theme.ts`). Only `background` and `foreground` are required; every other role is derived from them (`frontend/src/lib/theme/compileTheme.ts`). The Host, the plugin CLI, and the editor validate the same contract.
+- **Roles, not tokens.** A theme sets roles; the compiler writes the public tokens (`--surface-*`, `--text-*`, `--border-*`, `--_*` triplets, `--_syntax-*`, terminal colors). Components keep reading tokens and never branch on the active theme.
+- **One stylesheet.** The active non-built-in themes compile into a single `<style data-vibex-color-theme>` scoped to `.legacy-design`, split by scheme, with a `prefers-contrast: more` block. Built-in themes emit nothing, so the token blocks in `index.css` stay the source of the defaults.
+- **Accent is an override.** A theme carries its own accent. The Appearance accent, when set, overrides it in both schemes; "Follow theme" clears the override.
+- **Contrast gate.** Body and secondary text below 4.5:1 on any page surface, or terminal text below 4.5:1, blocks saving. Faint text, the accent, and status text below their targets show as warnings.
+- **Theme-invariant colors.** Some colors are deliberately the same in every theme: `--qr-paper`, `--document-paper` (white page under rendered user HTML), `--media-letterbox`, and the effort well (`--effort-well*`). They live in the token blocks next to the themeable tokens, not in components.
+- **Export = plugin entry.** An exported theme file is exactly one plugin `themes[]` entry, so a user theme becomes a plugin theme by pasting it into `plugin.json`.
+
+**The Tokens-Only Rule.** Literal colors live only in the token blocks of `src/styles/legacy/index.css`. Brand marks, avatar art, annotation pens, and the terminal ANSI palette are the named exceptions, listed in `src/styles/colorLiterals.test.ts`.
 
 **The State-Only Accent Rule.** The accent means selected, focused, primary, or live. It is never a decorative fill.
 
@@ -261,26 +291,44 @@ The user accent stays separate from this ramp. Light default remains Ink `#1B1B1
 
 VibeX uses native SF Pro on macOS. Windows and Linux use bundled Inter
 Variable for Latin UI, because Segoe UI and typical Linux system sans render
-poorly in WebView2/Chromium with antialiased smoothing. Chinese follows
-PingFang SC on macOS, and bundled Noto Sans SC Variable (Source Han Sans /
-思源黑体) on Windows and Linux — not Microsoft YaHei. Monospace content
-remains governed separately by the user-configurable code-font setting.
+poorly in WebView2/Chromium with antialiased smoothing. Chinese follows the
+system face: PingFang SC on macOS, Microsoft YaHei on Windows, Noto Sans CJK
+on Linux. No CJK font is bundled; the slices cost too much renderer memory,
+and `check-bundle-budget.mjs` rejects them. Monospace content remains governed
+separately by the user-configurable code-font setting.
 
-- **Display** (600 / 1.125rem): app titles, welcome and dense page headers only.
-- **Headline** (600 / 1rem): panel titles, major settings sections, top-level status.
-- **Title** (600 / 0.875rem): card titles, list-item titles, dialog headings, toolbar group labels.
-- **Body** (400 / 0.875rem): UI copy, list content, settings descriptions. Cap prose at 65–75ch.
-- **Label** (500 / 0.75rem): metadata, chips, compact controls, timestamps, helper text.
-- **Mono** (400 / 0.75rem): paths, terminal output, code references, branch names, structured logs.
+The ramp is seven steps. Each is a `--type-*` token in
+`frontend/src/styles/fonts.css`, and the Tailwind `text-*` utilities resolve
+through those tokens.
 
-Trigger and suggestion menus default to the compact label scale: item labels
-use `0.75rem / 1rem` and supporting descriptions use `0.625rem / 0.875rem`.
-Library menu primitives must override their body-text default at the menu root
-so custom and fallback rows inherit the same density.
+| Role | Size | Token | Utility | Use |
+| --- | --- | --- | --- | --- |
+| Display | 600 / 1.125rem | `--type-display` | `text-xl` | App titles, welcome and dense page headers only. |
+| Headline | 600 / 1rem | `--type-headline` | `text-lg` | Panel titles, major settings sections, top-level status. |
+| Title | 600 / 0.875rem | `--type-body` | `text-base` | Card titles, list-item titles, dialog headings. |
+| Body | 400 / 0.875rem | `--type-body` | `text-base` | Prose: conversation text, README and document content. Cap at 65–75ch; Chinese prose runs at 1.7 line height. |
+| Callout | 400 / 0.8125rem | `--type-callout` | `text-md` | Menus, tables, code blocks, quoted message text. |
+| Label | 500 / 0.75rem | `--type-label` | `text-sm` | Controls, UI copy, list content, settings descriptions. |
+| Caption | 400 / 0.6875rem | `--type-caption` | `text-xs` | Metadata, timestamps, helper text, menu descriptions. |
+| Micro | 500 / 0.625rem | `--type-micro` | `text-2xs` | Counters and badges inside fixed-size chrome. Never sentences. |
+| Mono | 400 / 0.75rem | `--font-mono` | `font-mono` | Paths, terminal output, code references, branch names, structured logs. |
+
+Trigger and suggestion menus default to the compact scale: item labels use
+Label at `0.75rem / 1rem` and supporting descriptions use Caption at
+`0.6875rem / 0.875rem`. Library menu primitives must override their body-text
+default at the menu root so custom and fallback rows inherit the same density.
+
+Numeric readouts and first-run headings may step above Display at `1.25rem`,
+`1.5rem`, or `2rem`. Collaboration contact and message names are `15px / 600`,
+the one off-ramp size, pinned by the collaboration style tests.
 
 ### Named Rules
 
 **The Compact Scale Rule.** Product UI uses a fixed compact scale. No viewport-scaled type in panels, sidebars, dialogs, or dashboards.
+
+**The One-Ramp Rule.** A font size is a ramp step, never a fraction between two. Text stops at `0.625rem`; only glyphs inside a fixed 14px dot or the miniature project rail go smaller. Weights are `400`, `500`, `600`, and `700`.
+
+**The System-CJK Weight Rule.** Microsoft YaHei ships Regular and Bold only, and `font-synthesis` is off, so Chinese at `500` renders Regular and at `600` renders Bold. Never separate two roles by `400` versus `500` alone; pair the weight with a size or tone step.
 
 **The Tight-Display Rule.** Display and headline tiers carry `-0.01em` tracking for a crisper, more system-like setting; body and below stay at `0`. Never tighter than `-0.02em`.
 

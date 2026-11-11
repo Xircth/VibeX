@@ -14,6 +14,7 @@ Use the `computer_*` MCP tools to inspect and interact with desktop application 
 2. **Read Before Acting**:
    - Prefer `computer_snapshot` to read the accessibility tree. It returns numbered element references `[N]` and a `generation` token (e.g. `"1.2"`).
    - Use `computer_screenshot` when visual layout or canvas content is needed, or when targeting `"screen"`. It also returns a `generation` token.
+   - **Contact-Sheet Burst (`overMs` + `everyMs`)**: Pass `overMs` (up to `10000` ms) and `everyMs` (minimum `50` ms, e.g. `{ "targetId": "w1", "overMs": 500, "everyMs": 100 }`) to `computer_screenshot` to sample multiple window frames across a time window and composite them into a single contact sheet with timestamps.
 3. **Act with Fresh References**:
    - Pass `targetId`, `ref` (or `coordinate`), and the exact `generation` from the latest snapshot/screenshot to `computer_click`, `computer_type`, `computer_press_key`, `computer_set_value`, `computer_scroll`, or `computer_drag`.
    - Actions are delivered in the background by default. If an application ignores background input and `foregroundAllowed` is true, pass `delivery: "foreground"`.

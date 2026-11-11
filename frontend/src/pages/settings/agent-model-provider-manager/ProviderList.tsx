@@ -9,6 +9,10 @@ import type {
 
 import { contributionIconComponent } from '@/components/plugins/contributionIcon';
 import { Button } from '@/components/ui/button';
+import {
+  ModelRouterEntry,
+  type RouterProvision,
+} from '@/features/model-router';
 import { contributionMetadata } from '@/hooks/usePluginHostContributions';
 import type { PluginContributionCatalogItem } from '@/lib/api/plugins';
 
@@ -18,6 +22,7 @@ import type { ImportPreviewModel } from './types';
 
 export function ProviderToolbar({
   t,
+  agentId,
   busy,
   importOpen,
   setImportOpen,
@@ -25,8 +30,10 @@ export function ProviderToolbar({
   openCreate,
   loadImport,
   loadPluginImport,
+  applyModelRouter,
 }: {
   t: TFunction;
+  agentId: string;
   busy: boolean;
   importOpen: boolean;
   setImportOpen: Dispatch<SetStateAction<boolean>>;
@@ -34,9 +41,15 @@ export function ProviderToolbar({
   openCreate: () => void;
   loadImport: (source: AgentModelProviderImportSource) => Promise<void>;
   loadPluginImport: (item: PluginContributionCatalogItem) => Promise<void>;
+  applyModelRouter: (provision: RouterProvision) => Promise<void>;
 }) {
   return (
     <div className="agent-model-provider-toolbar">
+      <ModelRouterEntry
+        agentId={agentId}
+        disabled={busy}
+        onApply={applyModelRouter}
+      />
       <Button size="sm" className="h-8" disabled={busy} onClick={openCreate}>
         <Plus aria-hidden="true" className="mr-1.5 h-3.5 w-3.5" />
         {t('settings:agents.providerCreateButton')}

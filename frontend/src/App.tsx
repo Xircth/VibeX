@@ -47,6 +47,10 @@ import { useRemoteHostReleaseUpdateToast } from '@/hooks/useRemoteHostReleaseUpd
 import { usePluginContributionCatalogSync } from '@/hooks/usePluginHostContributions';
 import { useProviderBindConfirmations } from '@/hooks/useProviderBindConfirmations';
 import {
+  AccountHostConfigSyncBridge,
+  AccountSavedHostsSyncBridge,
+} from '@/features/model-router';
+import {
   SequenceIndicator,
   SequenceTrackerProvider,
   SHORTCUT_ACTION_EVENT,
@@ -365,7 +369,12 @@ function GlobalShortcutActionBridge() {
 function PluginContributionBridge() {
   usePluginContributionCatalogSync();
   useProviderBindConfirmations();
-  return null;
+  return (
+    <>
+      <AccountHostConfigSyncBridge />
+      <AccountSavedHostsSyncBridge />
+    </>
+  );
 }
 
 function App() {

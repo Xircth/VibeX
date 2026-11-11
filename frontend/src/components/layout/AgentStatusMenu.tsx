@@ -144,7 +144,7 @@ export function AgentStatusMenu({
 
       {menuOpen && (
         <div className="absolute bottom-full right-0 z-50 pb-1.5">
-          <div className="product-context-menu w-max max-h-[min(24rem,calc(100vh-3rem))] min-w-72 max-w-[min(40rem,calc(100vw-1.5rem))] overflow-y-auto rounded-md border border-border bg-white p-1 font-sans text-[13px] leading-5 text-popover-foreground shadow-none dark:bg-popover animate-in fade-in-0 slide-in-from-bottom-1 motion-reduce:animate-none">
+          <div className="product-context-menu w-max max-h-[min(24rem,calc(100vh-3rem))] min-w-72 max-w-[min(40rem,calc(100vw-1.5rem))] overflow-y-auto rounded-md border border-border bg-popover p-1 font-sans text-[13px] leading-5 text-popover-foreground shadow-none animate-in fade-in-0 slide-in-from-bottom-1 motion-reduce:animate-none">
             <div
               id={menuId}
               role="list"

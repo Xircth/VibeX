@@ -149,7 +149,7 @@ export function WorkflowStepNode({ data }: NodeProps<StudioNode>) {
             </span>
           </span>
           {data.stepRun?.status === 'completed' ? (
-            <Check className="mt-1 size-3.5 text-emerald-600" />
+            <Check className="mt-1 size-3.5 text-success" />
           ) : null}
         </span>
       </button>

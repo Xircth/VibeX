@@ -22,6 +22,15 @@ pub mod tunnel;
 pub mod version;
 
 pub const DEFAULT_SITE_ORIGIN: &str = "https://vibex.xforever.xin";
+pub const DEFAULT_DEV_SITE_ORIGIN: &str = "http://localhost:3100";
+
+fn default_site_origin() -> &'static str {
+    if cfg!(all(debug_assertions, not(test))) {
+        DEFAULT_DEV_SITE_ORIGIN
+    } else {
+        DEFAULT_SITE_ORIGIN
+    }
+}
 
 pub fn site_origin() -> String {
     std::env::var("VIBEX_SITE_URL")
@@ -29,7 +38,7 @@ pub fn site_origin() -> String {
         .or_else(|| option_env!("VIBEX_SITE_URL").map(str::to_owned))
         .map(|value| value.trim().trim_end_matches('/').to_owned())
         .filter(|value| !value.is_empty())
-        .unwrap_or_else(|| DEFAULT_SITE_ORIGIN.to_owned())
+        .unwrap_or_else(|| default_site_origin().to_owned())
 }
 
 /// Cache for WSL2 detection result

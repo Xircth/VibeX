@@ -788,11 +788,30 @@ export interface ProviderContribution extends RegistryEntry {
   readonly metadata?: Record<string, unknown>;
 }
 
-export interface ThemeContribution extends RegistryEntry {
+export type ThemeScheme = 'light' | 'dark';
+
+/** Every role is a hex color; only background and foreground are required. */
+export type ThemeColors = {
+  readonly background: string;
+  readonly foreground: string;
+} & { readonly [Role in ThemeColorRole]?: string };
+
+export interface ThemeDefinition {
+  readonly id: string;
   readonly label: string;
-  readonly scheme: 'light' | 'dark';
-  readonly cssVariables: Readonly<Record<string, string>>;
+  readonly scheme: ThemeScheme;
+  readonly colors: ThemeColors;
 }
+
+/** The same object as a manifest `themes[]` entry and an exported theme file. */
+export interface ThemeContribution extends RegistryEntry, ThemeDefinition {}
+
+export const THEME_COLOR_ROLES: readonly ThemeColorRole[];
+export function validateThemeDefinition(value: unknown, path?: string): ThemeIssue[];
+export function validateThemeContributions(value: unknown, path?: string): ThemeIssue[];
+export function parseThemeDefinition(
+  value: unknown
+): { theme: ThemeDefinition } | { issues: readonly ThemeIssue[] };
 
 export interface CapturedInternalMessage {
   readonly pluginId?: string;

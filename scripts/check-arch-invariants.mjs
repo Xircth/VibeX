@@ -8,6 +8,16 @@
 //                   (ADR-0069)
 //   I4 反向依赖   — crates/db must not depend on upper layers (ADR-0033)
 //
+// Gate Governance (maiden-skill / Anti-Bloat Rules):
+//   1. Exhaustive reporting (No Fail-Fast): every rule and file scan must
+//      collect and report all violations in a single pass; never exit on the
+//      first violation.
+//   2. Check replacement budget: blocking gate checks are capped at <= 6 checks
+//      (total <= 65s). Adding a new blocking check requires merging or retiring
+//      an existing check.
+//   3. Asymmetric apparatus rule: redundant helpers/wrappers may be deleted
+//      freely; new governance scripts or wrappers require explicit human approval.
+//
 // Exit codes: 0 pass (warnings allowed), 1 violations, 2 environment error.
 //
 // Usage:

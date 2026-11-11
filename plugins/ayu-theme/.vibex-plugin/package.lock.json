@@ -1,0 +1,30 @@
+{
+  "lockVersion": 1,
+  "packageDigest": "0e0a9bca5eb9518c3926c10f723026b4f630fffa4a167c863ff6b28790505725",
+  "files": [
+    {
+      "path": ".vibex-plugin/content.index.json",
+      "size": 40,
+      "sha256": "0e5e19436438b496cb29a0243523d31a7369bd1228b84cc6779d8ca88eaeec17"
+    },
+    {
+      "path": ".vibex-plugin/plugin.json",
+      "size": 3390,
+      "sha256": "8baf19d674fe31478f3a4a673501d43369b417e26a78ec29084b689e5dd8156a"
+    },
+    {
+      "path": "README.md",
+      "size": 1785,
+      "sha256": "293f8f1019aae4ccefe5b06f548ffffceb14f92fe46a8288228e561a22d39853"
+    },
+    {
+      "path": "assets/icon.svg",
+      "size": 366,
+      "sha256": "2827d8bc0d359d28215331e47e0442fdd3b3af6472a3979d02b2ed53bf974cda"
+    }
+  ],
+  "build": {
+    "cliVersion": "1.0.0",
+    "reproducible": true
+  }
+}

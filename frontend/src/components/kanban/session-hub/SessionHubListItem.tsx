@@ -63,6 +63,7 @@ interface SessionHubListItemProps {
   displayMode?: 'default' | 'kanban-board' | 'canvas';
   dragging?: boolean;
   isOpening?: boolean;
+  onContextMenuOverride?: (event: React.MouseEvent<HTMLDivElement>) => void;
 }
 
 export function SessionHubListItem({
@@ -80,6 +81,7 @@ export function SessionHubListItem({
   displayMode = 'default',
   dragging = false,
   isOpening = false,
+  onContextMenuOverride,
 }: SessionHubListItemProps) {
   const { t } = useTranslation(['tasks', 'common']);
   const kanbanSessions = useOptionalKanbanSessionContext();
@@ -431,6 +433,10 @@ export function SessionHubListItem({
       data-session-id={session.id}
       onClick={onClick}
       onContextMenu={(event) => {
+        if (onContextMenuOverride) {
+          onContextMenuOverride(event);
+          return;
+        }
         event.preventDefault();
         event.stopPropagation();
         setContextMenu({ x: event.clientX, y: event.clientY });
@@ -451,7 +457,8 @@ export function SessionHubListItem({
     >
       <div
         className={cn(
-          'absolute inset-y-2 left-0 w-1 rounded-r-full',
+          'absolute left-0 rounded-r-full',
+          isCanvasMode ? 'inset-y-3 w-[3px]' : 'inset-y-2 w-1',
           marker?.hue ? marker.bar : (marker?.bar ?? 'bg-muted-foreground/35')
         )}
         style={

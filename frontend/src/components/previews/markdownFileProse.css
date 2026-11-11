@@ -103,7 +103,7 @@
   ) {
   color: var(--conv-text-primary, var(--text-strong));
   font-size: 1em;
-  font-weight: 650;
+  font-weight: 700;
   letter-spacing: 0.01em;
   line-height: 1.7;
 }
@@ -135,7 +135,7 @@
 }
 
 .markdown-file-prose a:not(#\#):not(#\#):not(#\#):not(#\#) {
-  color: var(--conv-tool-icon, hsl(var(--primary, 0 0% 10.59%)));
+  color: var(--conv-tool-icon);
   text-decoration: underline;
   text-underline-offset: 2px;
 }

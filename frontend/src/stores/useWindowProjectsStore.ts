@@ -58,6 +58,7 @@ interface WindowProjectsState {
   projectSnapshots: Record<string, ProjectActivitySnapshot>;
   projectAlerts: Record<string, ProjectActivityAlert | undefined>;
   focusRequests: Record<string, ProjectFocusRequest | undefined>;
+  removedProjectIds: Record<string, true>;
   setRailVisible: (visible: boolean) => void;
   setRailPosition: (position: ProjectRailPosition) => void;
   toggleRailVisible: () => void;
@@ -69,6 +70,7 @@ interface WindowProjectsState {
   ) => void;
   setProjectAlert: (alert: ProjectActivityAlert) => void;
   markProjectAlertRead: (projectId: string) => void;
+  removeProjectState: (projectId: string) => void;
   pruneProjectState: (validProjectIds: string[]) => void;
   resetProjectWindowState: () => void;
   requestProjectFocus: (
@@ -171,6 +173,7 @@ export const useWindowProjectsStore = create<WindowProjectsState>()(
       projectSnapshots: {},
       projectAlerts: {},
       focusRequests: {},
+      removedProjectIds: {},
       setRailVisible: (visible) =>
         set((state) =>
           state.railVisible === visible
@@ -201,10 +204,19 @@ export const useWindowProjectsStore = create<WindowProjectsState>()(
             projectId,
             ...state.openProjectIds.filter((id) => id !== projectId),
           ].slice(0, 6);
-
-          return arraysEqual(state.openProjectIds, nextOpenProjectIds)
-            ? state
-            : { openProjectIds: nextOpenProjectIds };
+          const wasRemoved = Boolean(state.removedProjectIds[projectId]);
+          if (
+            !wasRemoved &&
+            arraysEqual(state.openProjectIds, nextOpenProjectIds)
+          ) {
+            return state;
+          }
+          const nextRemovedProjectIds = { ...state.removedProjectIds };
+          delete nextRemovedProjectIds[projectId];
+          return {
+            openProjectIds: nextOpenProjectIds,
+            removedProjectIds: nextRemovedProjectIds,
+          };
         }),
       rememberProjectRoute: (projectId, route) =>
         set((state) =>
@@ -270,6 +282,32 @@ export const useWindowProjectsStore = create<WindowProjectsState>()(
             },
           };
         }),
+      removeProjectState: (projectId) =>
+        set((state) => {
+          const nextOpenProjectIds = state.openProjectIds.filter(
+            (id) => id !== projectId
+          );
+          const nextLastRouteByProject = { ...state.lastRouteByProject };
+          delete nextLastRouteByProject[projectId];
+          const nextProjectSnapshots = { ...state.projectSnapshots };
+          delete nextProjectSnapshots[projectId];
+          const nextProjectAlerts = { ...state.projectAlerts };
+          delete nextProjectAlerts[projectId];
+          const nextFocusRequests = { ...state.focusRequests };
+          delete nextFocusRequests[projectId];
+
+          return {
+            openProjectIds: nextOpenProjectIds,
+            lastRouteByProject: nextLastRouteByProject,
+            projectSnapshots: nextProjectSnapshots,
+            projectAlerts: nextProjectAlerts,
+            focusRequests: nextFocusRequests,
+            removedProjectIds: {
+              ...state.removedProjectIds,
+              [projectId]: true,
+            },
+          };
+        }),
       pruneProjectState: (validProjectIds) =>
         set((state) => {
           if (
@@ -332,6 +370,7 @@ export const useWindowProjectsStore = create<WindowProjectsState>()(
           projectSnapshots: {},
           projectAlerts: {},
           focusRequests: {},
+          removedProjectIds: {},
         }),
       requestProjectFocus: (projectId, focusRequest) =>
         set((state) => ({
@@ -376,6 +415,7 @@ export const useWindowProjectsStore = create<WindowProjectsState>()(
           projectSnapshots: state.projectSnapshots ?? {},
           projectAlerts: state.projectAlerts ?? {},
           focusRequests: {},
+          removedProjectIds: {},
         };
       },
       partialize: (state) => ({

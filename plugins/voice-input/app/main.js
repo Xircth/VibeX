@@ -455,6 +455,7 @@ export class VoiceSessionController {
         this.notify();
       }
     }, 200);
+    this._durationTimer?.unref?.();
 
     // 1. Start Web Speech API live captioning when protocol is hybrid or browser-speech
     if (
@@ -614,6 +615,7 @@ export class VoiceSessionController {
         });
         this.notify();
       }, 80);
+      this._analyserTimer?.unref?.();
     } catch {
       // Fallback animated pulse levels
     }
@@ -1572,7 +1574,98 @@ export default {
     }
 
     // 3. Compact Translucent Frosted Glass Capsule HUD in DOM
+    const VOICE_HUD_POSITION_STORAGE_KEY = 'vibex.voice-input.hud-position';
+    const loadPersistedHudPosition = () => {
+      try {
+        if (typeof localStorage !== 'undefined') {
+          const raw = localStorage.getItem(VOICE_HUD_POSITION_STORAGE_KEY);
+          if (raw) {
+            const parsed = JSON.parse(raw);
+            if (
+              parsed &&
+              typeof parsed.left === 'number' &&
+              Number.isFinite(parsed.left) &&
+              typeof parsed.top === 'number' &&
+              Number.isFinite(parsed.top)
+            ) {
+              return { left: parsed.left, top: parsed.top };
+            }
+          }
+        }
+      } catch {
+        // ignore
+      }
+      return null;
+    };
+    const savePersistedHudPosition = (pos) => {
+      try {
+        if (
+          typeof localStorage !== 'undefined' &&
+          pos &&
+          typeof pos.left === 'number' &&
+          typeof pos.top === 'number'
+        ) {
+          localStorage.setItem(
+            VOICE_HUD_POSITION_STORAGE_KEY,
+            JSON.stringify({
+              left: Math.round(pos.left),
+              top: Math.round(pos.top),
+            }),
+          );
+        }
+      } catch {
+        // ignore
+      }
+    };
+    const clampHudPosition = (left, top, width = 148, height = 34) => {
+      const vw =
+        typeof window !== 'undefined' && window.innerWidth > 0
+          ? window.innerWidth
+          : 1280;
+      const vh =
+        typeof window !== 'undefined' && window.innerHeight > 0
+          ? window.innerHeight
+          : 800;
+      const margin = 8;
+      return {
+        left: Math.max(margin, Math.min(vw - width - margin, left)),
+        top: Math.max(margin, Math.min(vh - height - margin, top)),
+      };
+    };
+
     let hudRoot = null;
+    let hudCancelBtn = null;
+    let hudWaveContainer = null;
+    let hudWaveBars = [];
+    let hudConfirmBtn = null;
+    let hudDragCleanup = null;
+
+    const applyHudPositionStyle = (el) => {
+      if (!el) return;
+      const saved = loadPersistedHudPosition();
+      if (saved) {
+        const rect =
+          typeof el.getBoundingClientRect === 'function'
+            ? el.getBoundingClientRect()
+            : { width: 148, height: 34 };
+        const clamped = clampHudPosition(
+          saved.left,
+          saved.top,
+          rect.width || 148,
+          rect.height || 34,
+        );
+        el.style.left = `${clamped.left}px`;
+        el.style.top = `${clamped.top}px`;
+        el.style.bottom = 'auto';
+        el.style.transform = 'none';
+      } else {
+        el.style.left = '50%';
+        el.style.top = 'auto';
+        el.style.bottom = '72px';
+        el.style.transform = 'translateX(-50%)';
+      }
+    };
+
     const renderDomHud = (snap) => {
       if (typeof document === 'undefined' || !document.body) return;
       const shouldShow =
@@ -1583,14 +1676,29 @@ export default {
           snap.state === 'preview');
 
       if (!shouldShow) {
+        if (hudDragCleanup) {
+          hudDragCleanup();
+          hudDragCleanup = null;
+        }
         if (hudRoot) {
           hudRoot.remove();
           hudRoot = null;
+          hudCancelBtn = null;
+          hudWaveContainer = null;
+          hudWaveBars = [];
+          hudConfirmBtn = null;
+        }
+        if (typeof document.querySelectorAll === 'function') {
+          document
+            .querySelectorAll('[data-vibex-voice-hud]')
+            .forEach((node) => node.remove());
         }
         return;
       }
 
       const accentColor = 'var(--color-accent, hsl(var(--primary)))';
+      const onAccentColor =
+        'var(--color-on-accent, hsl(var(--primary-foreground, 0 0% 100%)))';
 
       if (!hudRoot) {
         hudRoot = document.createElement('div');
@@ -1615,105 +1723,223 @@ export default {
           'backdrop-filter:blur(16px) saturate(160%)',
           '-webkit-backdrop-filter:blur(16px) saturate(160%)',
           'user-select:none',
+          'touch-action:none',
+          'cursor:grab',
         ].join(';');
+        applyHudPositionStyle(hudRoot);
+
+        // Left button: X (Cancel)
+        hudCancelBtn = document.createElement('button');
+        hudCancelBtn.type = 'button';
+        hudCancelBtn.setAttribute('aria-label', '取消语音输入');
+        hudCancelBtn.setAttribute('data-testid', 'voice-hud-cancel');
+        hudCancelBtn.style.cssText = [
+          'width:22px',
+          'height:22px',
+          'border-radius:999px',
+          'border:none',
+          'background:color-mix(in srgb, var(--text-strong, #fafafa) 10%, transparent)',
+          'color:var(--text-muted, rgba(161,161,170,0.95))',
+          'display:inline-flex',
+          'align-items:center',
+          'justify-content:center',
+          'cursor:pointer',
+          'padding:0',
+          'flex-shrink:0',
+          'transition:background 0.15s ease, color 0.15s ease',
+        ].join(';');
+        hudCancelBtn.innerHTML =
+          '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>';
+        hudCancelBtn.onpointerdown = (ev) => {
+          ev.stopPropagation();
+        };
+        hudCancelBtn.onclick = (ev) => {
+          ev.preventDefault();
+          ev.stopPropagation();
+          controller.cancelRecording();
+        };
+
+        // Middle: Audio waveform bars in user accent color
+        hudWaveContainer = document.createElement('div');
+        hudWaveContainer.setAttribute('data-testid', 'voice-hud-waveform');
+        hudWaveContainer.style.cssText = [
+          'display:inline-flex',
+          'align-items:center',
+          'justify-content:center',
+          'gap:2.5px',
+          'height:18px',
+          'padding:0 4px',
+          'cursor:grab',
+        ].join(';');
+
+        hudWaveBars = Array.from({ length: 10 }, () => {
+          const bar = document.createElement('span');
+          bar.style.cssText = [
+            'width:2.5px',
+            'height:4px',
+            'border-radius:999px',
+            `background:${accentColor}`,
+            'transition:height 75ms ease',
+            'pointer-events:none',
+          ].join(';');
+          hudWaveContainer.appendChild(bar);
+          return bar;
+        });
+
+        // Right button: Checkmark (Confirm / Complete)
+        hudConfirmBtn = document.createElement('button');
+        hudConfirmBtn.type = 'button';
+        hudConfirmBtn.setAttribute('aria-label', '完成语音输入');
+        hudConfirmBtn.setAttribute('data-testid', 'voice-hud-confirm');
+        hudConfirmBtn.style.cssText = [
+          'width:22px',
+          'height:22px',
+          'border-radius:999px',
+          'border:none',
+          `background:${accentColor}`,
+          `color:${onAccentColor}`,
+          'display:inline-flex',
+          'align-items:center',
+          'justify-content:center',
+          'cursor:pointer',
+          'padding:0',
+          'flex-shrink:0',
+          'transition:opacity 0.15s ease, transform 0.15s ease',
+        ].join(';');
+        hudConfirmBtn.innerHTML =
+          '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>';
+        hudConfirmBtn.onpointerdown = (ev) => {
+          ev.stopPropagation();
+        };
+        hudConfirmBtn.onclick = (ev) => {
+          ev.preventDefault();
+          ev.stopPropagation();
+          if (controller.state === 'recording') {
+            void controller.stopRecording();
+          } else if (controller.state === 'preview') {
+            void controller.commitPreview(false);
+          }
+        };
+
+        // Drag-to-move support on capsule body & waveform area
+        let dragState = null;
+        const onPointerMove = (ev) => {
+          if (!dragState || !hudRoot) return;
+          const dx = ev.clientX - dragState.startX;
+          const dy = ev.clientY - dragState.startY;
+          if (!dragState.moved && Math.hypot(dx, dy) < 3) return;
+          dragState.moved = true;
+          const clamped = clampHudPosition(
+            dragState.initialLeft + dx,
+            dragState.initialTop + dy,
+            dragState.width,
+            dragState.height,
+          );
+          dragState.currentLeft = clamped.left;
+          dragState.currentTop = clamped.top;
+          hudRoot.style.left = `${clamped.left}px`;
+          hudRoot.style.top = `${clamped.top}px`;
+          hudRoot.style.bottom = 'auto';
+          hudRoot.style.transform = 'none';
+        };
+        const stopDrag = () => {
+          if (!dragState) return;
+          const finished = dragState;
+          dragState = null;
+          if (hudRoot) {
+            hudRoot.style.cursor = 'grab';
+          }
+          if (hudWaveContainer) {
+            hudWaveContainer.style.cursor = 'grab';
+          }
+          if (typeof window !== 'undefined' && typeof window.removeEventListener === 'function') {
+            window.removeEventListener('pointermove', onPointerMove);
+            window.removeEventListener('pointerup', stopDrag);
+            window.removeEventListener('pointercancel', stopDrag);
+          }
+          if (finished.moved) {
+            savePersistedHudPosition({
+              left: finished.currentLeft,
+              top: finished.currentTop,
+            });
+          }
+        };
+        hudDragCleanup = stopDrag;
+
+        hudRoot.onpointerdown = (ev) => {
+          if (ev.button !== undefined && ev.button !== 0) return;
+          const target = ev.target;
+          if (
+            target &&
+            typeof target.closest === 'function' &&
+            target.closest('button')
+          ) {
+            return;
+          }
+          ev.preventDefault();
+          const rect =
+            typeof hudRoot.getBoundingClientRect === 'function'
+              ? hudRoot.getBoundingClientRect()
+              : {
+                  left: parseFloat(hudRoot.style.left) || 200,
+                  top: parseFloat(hudRoot.style.top) || 500,
+                  width: 148,
+                  height: 34,
+                };
+          const initialLeft = Number.isFinite(rect.left) ? rect.left : 200;
+          const initialTop = Number.isFinite(rect.top) ? rect.top : 500;
+          dragState = {
+            startX: ev.clientX,
+            startY: ev.clientY,
+            initialLeft,
+            initialTop,
+            currentLeft: initialLeft,
+            currentTop: initialTop,
+            width: rect.width || 148,
+            height: rect.height || 34,
+            moved: false,
+          };
+          hudRoot.style.cursor = 'grabbing';
+          if (hudWaveContainer) {
+            hudWaveContainer.style.cursor = 'grabbing';
+          }
+          if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
+            window.addEventListener('pointermove', onPointerMove);
+            window.addEventListener('pointerup', stopDrag);
+            window.addEventListener('pointercancel', stopDrag);
+          }
+        };
+
+        hudRoot.append(hudCancelBtn, hudWaveContainer, hudConfirmBtn);
         document.body.appendChild(hudRoot);
       }
 
-      hudRoot.innerHTML = '';
-
-      // Left button: X (Cancel)
-      const cancelBtn = document.createElement('button');
-      cancelBtn.type = 'button';
-      cancelBtn.setAttribute('aria-label', '取消语音输入');
-      cancelBtn.setAttribute('data-testid', 'voice-hud-cancel');
-      cancelBtn.style.cssText = [
-        'width:22px',
-        'height:22px',
-        'border-radius:999px',
-        'border:none',
-        'background:rgba(255,255,255,0.08)',
-        'color:var(--text-muted, rgba(255,255,255,0.75))',
-        'display:inline-flex',
-        'align-items:center',
-        'justify-content:center',
-        'cursor:pointer',
-        'padding:0',
-        'flex-shrink:0',
-        'transition:background 0.15s ease, color 0.15s ease',
-      ].join(';');
-      cancelBtn.innerHTML =
-        '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>';
-      cancelBtn.onclick = () => {
-        controller.cancelRecording();
-      };
-
-      // Middle: Audio waveform bars in user accent color
-      const waveContainer = document.createElement('div');
-      waveContainer.setAttribute('data-testid', 'voice-hud-waveform');
-      waveContainer.style.cssText = [
-        'display:inline-flex',
-        'align-items:center',
-        'justify-content:center',
-        'gap:2.5px',
-        'height:18px',
-        'padding:0 4px',
-      ].join(';');
-
+      // Update dynamic waveform bar heights & confirm button state in place without destroying DOM nodes
       const levels =
         Array.isArray(snap.audioLevels) && snap.audioLevels.length > 0
           ? snap.audioLevels
           : [0.18, 0.28, 0.4, 0.55, 0.35, 0.25, 0.45, 0.3, 0.2, 0.16];
-      levels.forEach((lvl, idx) => {
-        const bar = document.createElement('span');
+      hudWaveBars.forEach((bar, idx) => {
+        const lvl = levels[idx] ?? 0.2;
         const effectiveLvl =
           snap.state === 'transcribing'
-            ? 0.25 + 0.35 * Math.abs(Math.sin((Date.now() / 180) + idx * 0.6))
+            ? 0.25 + 0.35 * Math.abs(Math.sin(Date.now() / 180 + idx * 0.6))
             : snap.state === 'preview'
               ? 0.45
               : lvl;
-        const heightPx = Math.max(3, Math.min(16, Math.round(effectiveLvl * 16)));
-        bar.style.cssText = [
-          'width:2.5px',
-          `height:${heightPx}px`,
-          'border-radius:999px',
-          `background:${accentColor}`,
-          'transition:height 75ms ease',
-        ].join(';');
-        waveContainer.appendChild(bar);
+        const heightPx = Math.max(
+          3,
+          Math.min(16, Math.round(effectiveLvl * 16)),
+        );
+        bar.style.height = `${heightPx}px`;
       });
 
-      // Right button: Checkmark (Confirm / Complete)
-      const confirmBtn = document.createElement('button');
-      confirmBtn.type = 'button';
-      confirmBtn.setAttribute('aria-label', '完成语音输入');
-      confirmBtn.setAttribute('data-testid', 'voice-hud-confirm');
-      confirmBtn.disabled = snap.state === 'transcribing';
-      confirmBtn.style.cssText = [
-        'width:22px',
-        'height:22px',
-        'border-radius:999px',
-        'border:none',
-        `background:${accentColor}`,
-        'color:var(--primary-foreground, #ffffff)',
-        'display:inline-flex',
-        'align-items:center',
-        'justify-content:center',
-        snap.state === 'transcribing' ? 'cursor:wait;opacity:0.6' : 'cursor:pointer',
-        'padding:0',
-        'flex-shrink:0',
-        'transition:opacity 0.15s ease, transform 0.15s ease',
-      ].join(';');
-      confirmBtn.innerHTML =
-        '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>';
-      confirmBtn.onclick = () => {
-        if (snap.state === 'recording') {
-          void controller.stopRecording();
-        } else if (snap.state === 'preview') {
-          void controller.commitPreview(false);
-        }
-      };
-
-      hudRoot.append(cancelBtn, waveContainer, confirmBtn);
+      if (hudConfirmBtn) {
+        const isBusy = snap.state === 'transcribing';
+        hudConfirmBtn.disabled = isBusy;
+        hudConfirmBtn.style.cursor = isBusy ? 'wait' : 'pointer';
+        hudConfirmBtn.style.opacity = isBusy ? '0.6' : '1';
+      }
     };
 
     disposers.push(controller.subscribe(renderDomHud));
@@ -1863,9 +2089,17 @@ export default {
         window.removeEventListener('keyup', onWindowKeyUp, true);
         window.removeEventListener('vibex:plugin-config-updated', onWindowConfigUpdated);
       }
+      if (hudDragCleanup) {
+        hudDragCleanup();
+        hudDragCleanup = null;
+      }
       if (hudRoot) {
         hudRoot.remove();
         hudRoot = null;
+        hudCancelBtn = null;
+        hudWaveContainer = null;
+        hudWaveBars = [];
+        hudConfirmBtn = null;
       }
       for (const d of disposers.splice(0)) {
         try {

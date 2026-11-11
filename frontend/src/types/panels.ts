@@ -45,6 +45,8 @@ export interface TerminalPanelParams {
   tabId?: string;
   /** Shell chosen when the tab was created. The panel shell list owns the values. */
   shell?: string;
+  /** Initial working directory for the terminal session (e.g. when duplicating a terminal tab). */
+  cwd?: string;
   /** Marks the tab that was opened into the terminal shelf group. */
   terminalShelf?: boolean;
 }

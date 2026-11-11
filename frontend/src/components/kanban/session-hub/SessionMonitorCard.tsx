@@ -1,4 +1,4 @@
-import { type CSSProperties } from 'react';
+import { type CSSProperties, type MouseEvent } from 'react';
 import { AlertCircle, ArrowRight, Scaling, X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Badge } from '@/components/ui/badge';
@@ -25,6 +25,7 @@ interface SessionMonitorCardProps {
   onMoveToExecution?: (session: KanbanProjectSessionRecord) => void;
   onZoom?: (session: KanbanProjectSessionRecord) => void;
   onClose: (session: KanbanProjectSessionRecord) => void;
+  onHeaderContextMenu?: (event: MouseEvent<HTMLDivElement>) => void;
 }
 
 export function SessionMonitorCard({
@@ -36,6 +37,7 @@ export function SessionMonitorCard({
   onMoveToExecution,
   onZoom,
   onClose,
+  onHeaderContextMenu,
 }: SessionMonitorCardProps) {
   const { t } = useTranslation(['tasks', 'common']);
   const isCanvas = variant === 'canvas';
@@ -90,10 +92,12 @@ export function SessionMonitorCard({
       }
     >
       <div
+        data-testid={isCanvas ? 'canvas-node-header' : undefined}
         className={cn(
           'flex h-8 shrink-0 items-center justify-between gap-2 px-2.5',
           isCanvas && `${DRAG_HANDLE_CLASS} cursor-grab active:cursor-grabbing`
         )}
+        onContextMenu={onHeaderContextMenu}
         onDoubleClick={(event) => {
           if (!isCanvas) return;
           event.stopPropagation();

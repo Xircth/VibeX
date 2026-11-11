@@ -113,6 +113,16 @@ export type ThreadMessagesPage = {
   cards?: SpaceCardRecord[];
 };
 
+export interface SpaceInitialTarget {
+  targetType: 'direct' | 'group';
+  spaceId?: string;
+  spaceName?: string;
+  threadId?: string;
+  conversationId?: string;
+  memberId?: string;
+  memberNickname?: string;
+}
+
 export type SidebarDragPayload =
   | {
       kind: 'member';
@@ -122,7 +132,7 @@ export type SidebarDragPayload =
       memberId?: string;
       threadId?: string;
     }
-  | { kind: 'thread'; threadId: string; name: string };
+  | { kind: 'thread'; threadId: string; spaceId?: string; name: string };
 
 export type SidebarDropTarget =
   | { kind: 'space'; spaceId: string }

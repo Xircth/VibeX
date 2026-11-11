@@ -9,6 +9,11 @@ import {
   useRef,
   startTransition,
 } from 'react';
+import { Icon } from '@astryxdesign/core/Icon';
+import {
+  SegmentedControl,
+  SegmentedControlItem,
+} from '@astryxdesign/core/SegmentedControl';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
@@ -21,10 +26,7 @@ import {
   Plus,
   PanelLeft,
   PanelRight,
-  Terminal,
   RotateCcw,
-  FolderTree,
-  Code2,
   GitBranch,
   ArrowDown,
   ArrowUp,
@@ -35,7 +37,6 @@ import {
   MessagesSquare,
   Monitor,
   Puzzle,
-  Users,
 } from 'lucide-react';
 import {
   Tooltip,
@@ -59,7 +60,7 @@ import { useLocalDesktopHost } from '@/lib/desktopShell';
 import { useProjectRepos } from '@/hooks';
 import { useProjectWorktrees } from '@/hooks/useProjectWorktrees';
 import { useShallow } from 'zustand/react/shallow';
-import { PANEL_IDS, useLayoutStore } from '@/stores/useLayoutStore';
+import { useLayoutStore } from '@/stores/useLayoutStore';
 import { useWindowProjectsStore } from '@/stores/useWindowProjectsStore';
 import type { WorkspaceTab } from '@/stores/useLayoutStore';
 import {
@@ -80,14 +81,14 @@ import {
   toggleKanbanCanvasListVisible,
   useKanbanCanvasListVisible,
 } from '@/lib/kanbanCanvasListVisible';
-import { cn } from '@/lib/utils';
 import { useRepoBranches } from '@/hooks/useRepoBranches';
 import { useWorkspaceBranchStatus } from '@/hooks/useWorkspaceBranchStatus';
 import {
   resolveDefaultProjectWorkspace,
   shouldBindDefaultGitWorkspace,
 } from '@/lib/workspaceDefault';
-import { WorktreeSelector } from '@/components/layout/WorktreeSelector';
+import { HostSelector } from '@/components/layout/HostSelector';
+import { ProjectQuickSwitcher } from '@/components/layout/ProjectQuickSwitcher';
 import { useSlotContributions, useViews } from '@vibex/plugin-sdk';
 import { collectPluginToolbarTabs } from './toolbarTabs';
 import {
@@ -368,105 +369,55 @@ export function CollaborationLayoutToggles() {
 
 export function WorkspaceLayoutToggles() {
   const { t } = useTranslation('panels');
+  const resetLayout = useLayoutStore((state) => state.resetLayout);
   const {
-    toggleRightPanel,
-    isRightPanelVisible,
-    resetLayout,
-    isEditorAreaVisible,
-    toggleEditorArea,
-  } = useLayoutStore(
-    useShallow((state) => ({
-      toggleRightPanel: state.toggleRightPanel,
-      isRightPanelVisible: state.isRightPanelVisible,
-      resetLayout: state.resetLayout,
-      isEditorAreaVisible: state.isEditorAreaVisible,
-      toggleEditorArea: state.toggleEditorArea,
-    }))
-  );
-  const { toggleFileTree, openNewTerminal, isPanelOpen } = usePanelActions();
-  const isTerminalOpen = isPanelOpen(PANEL_IDS.TERMINAL);
+    openWelcomeTab,
+    hasRightSidebarPanels,
+    isRightSidebarVisible,
+    toggleRightSidebar,
+  } = usePanelActions();
+  const showRightSidebarToggle = hasRightSidebarPanels();
+  const rightSidebarVisible = isRightSidebarVisible();
+  const toggleRightSidebarLabel = t('toolbar.toggleRightSidebar', '切换侧边栏');
+  const newTabLabel = t('tabCreation.newTab', '新建标签页');
 
   return (
     <div className="flex items-center gap-0.5">
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <Button
-            variant="ghost"
-            size="icon"
-            className="workspace-toolbar-button h-7 w-7"
-            onClick={toggleFileTree}
-            aria-label={t('toolbar.toggleFileTree')}
-          >
-            <FolderTree className="h-3.5 w-3.5" />
-          </Button>
-        </TooltipTrigger>
-        <TooltipContent side="bottom">
-          {t('toolbar.toggleFileTree')}
-        </TooltipContent>
-      </Tooltip>
-
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <Button
-            variant="ghost"
-            size="icon"
-            className="workspace-toolbar-button h-7 w-7"
-            onClick={toggleEditorArea}
-            aria-label={
-              isEditorAreaVisible
-                ? t('toolbar.hideEditorAndTerminal')
-                : t('toolbar.showEditorAndTerminal')
-            }
-            aria-pressed={isEditorAreaVisible}
-          >
-            <Code2 className="h-3.5 w-3.5" />
-          </Button>
-        </TooltipTrigger>
-        <TooltipContent side="bottom">
-          {isEditorAreaVisible
-            ? t('toolbar.hideEditorAndTerminal')
-            : t('toolbar.showEditorAndTerminal')}
-        </TooltipContent>
-      </Tooltip>
-
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <Button
-            variant="ghost"
-            size="icon"
-            className="workspace-toolbar-button h-7 w-7"
-            onClick={openNewTerminal}
-            aria-label={t('toolbar.toggleTerminal')}
-            aria-pressed={isTerminalOpen}
-          >
-            <Terminal className="h-3.5 w-3.5" />
-          </Button>
-        </TooltipTrigger>
-        <TooltipContent side="bottom">
-          {t('toolbar.toggleTerminal')}
-        </TooltipContent>
-      </Tooltip>
-
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <Button
-            variant="ghost"
-            size="icon"
-            className="workspace-toolbar-button h-7 w-7"
-            aria-pressed={isRightPanelVisible}
-            onClick={toggleRightPanel}
-            aria-label={t('toolbar.toggleAiPanel')}
-          >
-            {isRightPanelVisible ? (
+      {showRightSidebarToggle ? (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              variant="ghost"
+              size="icon"
+              data-testid="toolbar-toggle-right-sidebar"
+              className="workspace-toolbar-button h-7 w-7"
+              aria-pressed={rightSidebarVisible}
+              onClick={toggleRightSidebar}
+              aria-label={toggleRightSidebarLabel}
+            >
               <PanelRight className="h-3.5 w-3.5" />
-            ) : (
-              <PanelLeft className="h-3.5 w-3.5" />
-            )}
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent side="bottom">
+            {toggleRightSidebarLabel}
+          </TooltipContent>
+        </Tooltip>
+      ) : null}
+
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Button
+            variant="ghost"
+            size="icon"
+            data-testid="toolbar-new-tab-button"
+            className="workspace-toolbar-button h-7 w-7"
+            onClick={openWelcomeTab}
+            aria-label={newTabLabel}
+          >
+            <Plus className="h-3.5 w-3.5" />
           </Button>
         </TooltipTrigger>
-        <TooltipContent side="bottom">
-          {t('toolbar.toggleAiPanel')}
-        </TooltipContent>
+        <TooltipContent side="bottom">{newTabLabel}</TooltipContent>
       </Tooltip>
 
       <Tooltip>
@@ -560,36 +511,76 @@ export function BranchStatusBadge({ workspaceId }: { workspaceId: string }) {
   );
 }
 
+function LeftSidebarToggleButton() {
+  const { t } = useTranslation('panels');
+  const { toggleLeftSidebar, isLeftSidebarVisible } = usePanelActions();
+  const visible = isLeftSidebarVisible();
+  const label = t('toolbar.toggleLeftSidebar', '切换侧边栏');
+
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Button
+          variant="ghost"
+          size="icon"
+          data-testid="toolbar-toggle-left-sidebar"
+          className="workspace-toolbar-button h-7 w-7"
+          aria-label={label}
+          aria-pressed={visible}
+          onClick={toggleLeftSidebar}
+        >
+          <PanelLeft className="h-3.5 w-3.5" />
+        </Button>
+      </TooltipTrigger>
+      <TooltipContent side="bottom">{label}</TooltipContent>
+    </Tooltip>
+  );
+}
+
 export function WorkspaceBranchControls({
   isWorkspaceTab,
-  workspaceId,
+  isCollaborationTab = false,
+  hasProject,
 }: {
   isWorkspaceTab: boolean;
+  isCollaborationTab?: boolean;
+  hasProject?: boolean;
   workspaceId?: string;
 }) {
-  const { project } = useProject();
+  const { projectId } = useProject();
+  const resolvedHasProject = hasProject ?? Boolean(projectId);
   const boardStyle = useKanbanBoardStyle();
-  const showCanvasListToggle = !isWorkspaceTab && boardStyle === 'canvas';
-  const isGitProject = Boolean(project?.is_git);
+  const showCanvasListToggle =
+    resolvedHasProject &&
+    !isWorkspaceTab &&
+    !isCollaborationTab &&
+    boardStyle === 'canvas';
 
   return (
     <div
-      className="flex min-w-0 shrink-0 items-center gap-2"
+      className="flex min-w-0 shrink-0 items-center gap-1"
       role="group"
       aria-label={i18n.t('panels:shellA11y.workspaceBranches', {
-        defaultValue: 'Workspace and target branches',
+        defaultValue: 'Host and workspace controls',
       })}
     >
-      {showCanvasListToggle ? <CanvasSessionListToggleButton /> : null}
-      {isWorkspaceTab && isGitProject ? <WorktreeSelector /> : null}
-      {workspaceId && isGitProject ? (
-        <BranchStatusBadge workspaceId={workspaceId} />
+      <HostSelector />
+      <span
+        aria-hidden="true"
+        className="select-none px-0.5 text-xs text-muted-foreground/45"
+      >
+        /
+      </span>
+      <ProjectQuickSwitcher />
+      {resolvedHasProject && isWorkspaceTab ? (
+        <LeftSidebarToggleButton />
       ) : null}
+      {showCanvasListToggle ? <CanvasSessionListToggleButton /> : null}
     </div>
   );
 }
 
-function WorkspaceTabSwitcher() {
+export function WorkspaceTabSwitcher() {
   const { t } = useTranslation('panels');
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
@@ -616,8 +607,6 @@ function WorkspaceTabSwitcher() {
       setActiveTab: state.setActiveTab,
     }))
   );
-  const { config } = useUserSystem();
-  const collaborationEnabled = Boolean(config?.multi_agent_enabled);
   const { setChromeOccluded, waitForOverlayReady } = useWorkspaceOverlay();
   const pluginTabs = usePluginHostContributions('app_tab');
   const sdkViews = useViews();
@@ -650,6 +639,11 @@ function WorkspaceTabSwitcher() {
       ),
     }));
     return [
+      {
+        key: 'workspace' as WorkspaceTab,
+        label: t('toolbar.workspace'),
+        icon: Monitor,
+      },
       ...(kanbanViews.length > 0
         ? [
             {
@@ -659,23 +653,9 @@ function WorkspaceTabSwitcher() {
             },
           ]
         : []),
-      {
-        key: 'workspace' as WorkspaceTab,
-        label: t('toolbar.workspace'),
-        icon: Monitor,
-      },
-      ...(collaborationEnabled
-        ? [
-            {
-              key: COLLABORATION_WORKSPACE_TAB,
-              label: t('toolbar.collaboration'),
-              icon: Users,
-            },
-          ]
-        : []),
       ...pluginTabItems,
     ];
-  }, [collaborationEnabled, kanbanViews.length, pluginTabs, sdkViews, t]);
+  }, [kanbanViews.length, pluginTabs, sdkViews, t]);
   const availableTabKeys = tabs.map((tab) => tab.key);
   const resolvedActiveTab = fallbackWorkspaceTab(activeTab, availableTabKeys);
   useEffect(() => {
@@ -686,7 +666,7 @@ function WorkspaceTabSwitcher() {
   const effectiveActiveTab = effectiveWorkspaceTab(
     routeTab,
     availableTabKeys.includes(activeTab) ? activeTab : resolvedActiveTab,
-    { collaborationEnabled }
+    { collaborationEnabled: false }
   );
   const preferredWorkspaceBranch = useMemo(() => {
     const repoBranch =
@@ -800,6 +780,9 @@ function WorkspaceTabSwitcher() {
 
   const defaultGitWorkspaceBindRef = useRef<string | null>(null);
   useEffect(() => {
+    if (!projectId) {
+      return;
+    }
     if (
       !shouldBindDefaultGitWorkspace({
         isWorkspaceSurface: effectiveActiveTab === 'workspace',
@@ -915,32 +898,30 @@ function WorkspaceTabSwitcher() {
   );
 
   return (
-    <div className="workspace-tab-switcher flex h-7 items-center gap-0.5 rounded-md p-0.5">
-      {tabs.map((tab) => {
-        const Icon = tab.icon;
-        const isActive = effectiveActiveTab === tab.key;
-        return (
-          <button
-            key={tab.key}
-            onClick={() => handleTabSelect(tab.key)}
-            data-basic-guide={
-              tab.key === 'kanban'
-                ? 'toolbar-kanban'
-                : tab.key === 'workspace'
-                  ? 'toolbar-workspace'
-                  : undefined
-            }
-            className={cn(
-              'workspace-tab-button flex h-6 items-center gap-1.5 rounded px-2.5 text-xs font-bold transition-colors',
-              isActive && 'is-active'
-            )}
-          >
-            <Icon className="h-3 w-3" />
-            {tab.label}
-          </button>
-        );
-      })}
-    </div>
+    <SegmentedControl
+      className="shrink-0"
+      value={effectiveActiveTab}
+      onChange={(nextValue) => handleTabSelect(nextValue as WorkspaceTab)}
+      label={`${t('toolbar.workspace')} / ${t('toolbar.kanban')}`}
+      size="sm"
+      layout="hug"
+    >
+      {tabs.map((tab) => (
+        <SegmentedControlItem
+          key={tab.key}
+          value={tab.key}
+          label={tab.label}
+          icon={<Icon icon={tab.icon} size="sm" />}
+          data-basic-guide={
+            tab.key === 'kanban'
+              ? 'toolbar-kanban'
+              : tab.key === 'workspace'
+                ? 'toolbar-workspace'
+                : undefined
+          }
+        />
+      ))}
+    </SegmentedControl>
   );
 }
 
@@ -965,10 +946,11 @@ export function Toolbar() {
   const isWorkspaceTab = effectiveActiveTab === 'workspace';
   const isCollaborationTab = effectiveActiveTab === COLLABORATION_WORKSPACE_TAB;
   const boardStyle = useKanbanBoardStyle();
-  const hasLeadingControls =
-    isWorkspaceTab || (!isCollaborationTab && boardStyle === 'canvas');
+  const hasProject = Boolean(projectId);
+  const hasLeadingControls = true;
   const showLayoutToggles =
-    isWorkspaceTab || isCollaborationTab || boardStyle !== 'canvas';
+    isCollaborationTab ||
+    (hasProject && (isWorkspaceTab || boardStyle !== 'canvas'));
   const logoLeads = logoLeadsWindowChrome();
 
   const toolbarItems = usePluginHostContributions('toolbar');
@@ -1043,32 +1025,36 @@ export function Toolbar() {
     <TooltipProvider delayDuration={300}>
       <div className="workspace-topbar window-chrome relative w-full px-1.5">
         <div data-tauri-drag-region className="absolute inset-0" />
-        <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center">
-          <div className="pointer-events-auto">
-            <WorkspaceTabSwitcher />
+        {hasProject || isCollaborationTab ? (
+          <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center">
+            <div className="pointer-events-auto">
+              <WorkspaceTabSwitcher />
+            </div>
           </div>
-        </div>
+        ) : null}
         <div
           data-tauri-drag-region
           className="relative z-10 flex h-9 items-center gap-0.5"
         >
           {logoLeads ? <HomeLogoMenu align="start" /> : null}
           {hasLeadingControls ? <WindowChromeLeadingRule /> : null}
-          {!isCollaborationTab ? (
-            <WorkspaceBranchControls
-              isWorkspaceTab={isWorkspaceTab}
-              workspaceId={workspaceId}
-            />
-          ) : null}
+          <WorkspaceBranchControls
+            isWorkspaceTab={isWorkspaceTab}
+            isCollaborationTab={isCollaborationTab}
+            hasProject={hasProject}
+            workspaceId={workspaceId}
+          />
 
           <div className="ml-auto flex items-center shrink-0 gap-0.5">
-            {isWorkspaceTab ? (
-              <WorkspaceLayoutToggles />
-            ) : isCollaborationTab ? (
+            {isCollaborationTab ? (
               <CollaborationLayoutToggles />
-            ) : (
-              <KanbanLayoutToggles />
-            )}
+            ) : hasProject ? (
+              isWorkspaceTab ? (
+                <WorkspaceLayoutToggles />
+              ) : (
+                <KanbanLayoutToggles />
+              )
+            ) : null}
             {showLayoutToggles ? <ToolbarDivider /> : null}
             <Slot name="toolbar.actions" />
             {visibleToolbar.map((item) => {
@@ -1122,31 +1108,36 @@ export function Toolbar() {
 
             {projectId && (
               <>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="workspace-toolbar-button h-7 w-7"
-                      onClick={handleCreateSession}
-                      aria-label={t(
-                        'workspaceSessionList.newSession',
-                        'New session'
-                      )}
-                      data-basic-guide="toolbar-new-session"
-                    >
-                      <Plus className="h-3.5 w-3.5" />
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent side="bottom">New Session</TooltipContent>
-                </Tooltip>
+                {!isWorkspaceTab ? (
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="workspace-toolbar-button h-7 w-7"
+                        onClick={handleCreateSession}
+                        aria-label={t(
+                          'workspaceSessionList.newSession',
+                          'New session'
+                        )}
+                        data-basic-guide="toolbar-new-session"
+                      >
+                        <Plus className="h-3.5 w-3.5" />
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent side="bottom">New Session</TooltipContent>
+                  </Tooltip>
+                ) : null}
                 {isSingleRepoProject && localDesktopHost ? (
                   <OpenInIdeButton
                     onClick={handleOpenInIDE}
                     className="workspace-toolbar-button h-7 w-7"
                   />
                 ) : null}
-                <ToolbarDivider />
+                {(!isWorkspaceTab ||
+                  (isSingleRepoProject && localDesktopHost)) && (
+                  <ToolbarDivider />
+                )}
               </>
             )}
 

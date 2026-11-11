@@ -39,6 +39,11 @@ import {
   agentManagementApi,
   agentManagementErrorMessage as errorMessage,
 } from '@/features/agent-management';
+import {
+  ModelRouterEntry,
+  openCodeConnectRequest,
+  type RouterProvision,
+} from '@/features/model-router';
 
 import type { ProviderCatalogTemplateView } from './providerCatalogTypes';
 import { useProviderCatalogList } from './useProviderCatalogList';
@@ -540,8 +545,25 @@ export function OpenCodeProviderConnections({
 
   const busy = saving || disconnecting !== null || toggling !== null;
 
+  const applyModelRouter = async (provision: RouterProvision) => {
+    setView(
+      await agentManagementApi.connectOpenCodeProvider(
+        openCodeConnectRequest(provision),
+        agentId
+      )
+    );
+    await onChanged?.();
+  };
+
   const toolbar = (
     <div className="agent-model-provider-toolbar">
+      {allowImport ? (
+        <ModelRouterEntry
+          agentId={agentId}
+          disabled={busy}
+          onApply={applyModelRouter}
+        />
+      ) : null}
       {allowCreate ? (
         <Button size="sm" className="h-8" disabled={busy} onClick={openCreate}>
           <Plus aria-hidden="true" className="mr-1.5 h-3.5 w-3.5" />
@@ -908,7 +930,7 @@ export function OpenCodeProviderConnections({
         ? createPortal(
             <div
               ref={catalogMenuRef}
-              className="agent-model-provider-catalog-menu product-context-menu opencode-provider-catalog-menu border border-border bg-white font-sans text-[13px] leading-5 text-popover-foreground shadow-none dark:bg-popover"
+              className="agent-model-provider-catalog-menu product-context-menu opencode-provider-catalog-menu border border-border bg-popover font-sans text-[13px] leading-5 text-popover-foreground shadow-none"
               style={{
                 top: catalogMenuPosition.top,
                 left: catalogMenuPosition.left,

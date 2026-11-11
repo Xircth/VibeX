@@ -1,4 +1,5 @@
 import { serviceContainer } from './services.js';
+import type { ThemeDefinition } from './theme.js';
 
 export type Disposer = () => void;
 
@@ -360,11 +361,7 @@ export interface ProviderContribution extends RegistryEntry {
   readonly metadata?: Record<string, unknown>;
 }
 
-export interface ThemeContribution extends RegistryEntry {
-  readonly label: string;
-  readonly scheme: 'light' | 'dark';
-  readonly cssVariables: Readonly<Record<string, string>>;
-}
+export interface ThemeContribution extends RegistryEntry, ThemeDefinition {}
 
 export interface CapturedInternalMessage {
   readonly pluginId?: string;

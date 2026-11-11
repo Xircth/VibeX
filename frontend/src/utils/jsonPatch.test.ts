@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Operation } from 'rfc6902';
-import { applyUpsertPatch } from './jsonPatch';
+import { applyUpsertPatch, cloneAndApplyUpsertPatch } from './jsonPatch';
 
 describe('applyUpsertPatch', () => {
   it('treats add on an existing array index as replace', () => {
@@ -64,4 +64,46 @@ describe('applyUpsertPatch', () => {
     expect(shared.entries[0]).toBe(a);
     expect(snapshot.entries).toEqual([a, b]);
   });
+
+  it('cloneAndApplyUpsertPatch clones only touched ancestor containers and preserves untouched sibling references', () => {
+    const untouchedDiff = {
+      type: 'DIFF',
+      content: { oldContent: 'old-a', newContent: 'new-a' },
+    };
+    const touchedDiff = {
+      type: 'DIFF',
+      content: { oldContent: 'old-b', newContent: 'new-b' },
+    };
+    const snapshot = {
+      entries: {
+        'a.ts': untouchedDiff,
+        'b.ts': touchedDiff,
+      } as Record<string, typeof untouchedDiff>,
+    };
+
+    const next = cloneAndApplyUpsertPatch(snapshot, [
+      {
+        op: 'replace',
+        path: '/entries/b.ts/content/newContent',
+        value: 'updated-b',
+      },
+      {
+        op: 'add',
+        path: '/entries/c.ts',
+        value: {
+          type: 'DIFF',
+          content: { oldContent: '', newContent: 'new-c' },
+        },
+      },
+    ]);
+
+    expect(next).not.toBe(snapshot);
+    expect(next.entries).not.toBe(snapshot.entries);
+    expect(next.entries['a.ts']).toBe(untouchedDiff);
+    expect(next.entries['b.ts']).not.toBe(touchedDiff);
+    expect(next.entries['b.ts']?.content.newContent).toBe('updated-b');
+    expect(snapshot.entries['b.ts']?.content.newContent).toBe('new-b');
+    expect(next.entries['c.ts']?.content.newContent).toBe('new-c');
+  });
 });
+

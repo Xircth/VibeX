@@ -1,11 +1,11 @@
 {
   "lockVersion": 1,
-  "packageDigest": "3e8d68aeabffdd792f1be031d73208350a97b55f6914346e0cdf522e657eda62",
+  "packageDigest": "44a326c8fdf55ade3dc909b26067d9bcc151b7e15a96dbc995fab17c40f657ee",
   "files": [
     {
       "path": ".vibex-plugin/content.index.json",
       "size": 1583,
-      "sha256": "f965aea1ea573282ad9923ef407e7e6e6d331d3cc7f78110799a5431c03d41cf"
+      "sha256": "3d3f192c7dc88befdc2f86beea33f075cfe992a6e07cdc133e4a091370337504"
     },
     {
       "path": ".vibex-plugin/plugin.json",
@@ -14,28 +14,28 @@
     },
     {
       "path": "README.md",
-      "size": 4129,
-      "sha256": "32c066d88c474ce92f22a7a7ab7039ab44f2166f5c9402a2925c265b382a7e8a"
+      "size": 4041,
+      "sha256": "02c5c440f439138e97ddd75b0c58d56483d1bc25f53163055d4ad0dc53ed84da"
     },
     {
       "path": "app/main.d.ts",
-      "size": 130,
-      "sha256": "48762e05d934c7e29b41cc20da19d486e84cb778aff7ef2d79c349273bf9255d"
+      "size": 127,
+      "sha256": "2ca6c2fd5dc69ea2ecf940ddb6b9dab2809a2dcc8af2beb47dabc4c5dd3e19a8"
     },
     {
       "path": "app/main.js",
-      "size": 1186,
-      "sha256": "36c96bc0463bb438c0e2dca5c1ffb5366d367395314bcd11230132fa719773cf"
+      "size": 1149,
+      "sha256": "aca68a49a7b29cd071b57a3c82dfcbe98e64319084fde3059ba0d0ab1c57fa1d"
     },
     {
       "path": "assets/icon.svg",
-      "size": 794,
-      "sha256": "357d69329fa7e089686589fe12024c36a652861f8097fee778a7c7e11cb079f5"
+      "size": 781,
+      "sha256": "385b298c5da0edc5d36d58a3a4321980d3a30cd77bdae943adbd0a091ad31eeb"
     },
     {
       "path": "contents/skills/vibex-plugin-creator/SKILL.md",
-      "size": 13494,
-      "sha256": "b878acecebd064e7e5c3ae0ed676c108f2658ffc4a1ac42e26ba5549fe1926e9"
+      "size": 14629,
+      "sha256": "a4b0cf08753e4d1e40d19cb1eeef136c643fff6d861c8f3e3d2c4378d35d4c11"
     },
     {
       "path": "contents/skills/vibex-plugin-development/SKILL.md",
@@ -49,8 +49,8 @@
     },
     {
       "path": "contents/skills/vibex-plugin-development/references/link.md",
-      "size": 2991,
-      "sha256": "ead00528af3632b2f7241494d88189e2800a35ca44f14b8a9fce2d4cca873c31"
+      "size": 2927,
+      "sha256": "afcd5442a5e62bf27867f75a1e7866cd0019a3b16e01c501d867d79de117fbbc"
     },
     {
       "path": "contents/skills/vibex-plugin-development/references/runtime.md",
@@ -61,11 +61,6 @@
       "path": "contents/skills/vibex-plugin-development/references/templates.md",
       "size": 3245,
       "sha256": "2828d8dc90744e5513cbb7183b86d59f809709757687213a4163c6ad533e90fe"
-    },
-    {
-      "path": "package.json",
-      "size": 407,
-      "sha256": "2337d3eb46245c69ddfd98550842f3b850a1929dfaba95c0f0319734fe5cdbdb"
     }
   ],
   "build": {

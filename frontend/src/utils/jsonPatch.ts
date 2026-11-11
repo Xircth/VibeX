@@ -80,3 +80,73 @@ export function applyUpsertPatch(target: object, ops: Operation[]): void {
     }
   });
 }
+
+function shallowCloneContainer<T>(value: T): T {
+  if (Array.isArray(value)) {
+    return value.slice() as unknown as T;
+  }
+  if (typeof value === 'object' && value !== null) {
+    return { ...(value as Record<string, unknown>) } as T;
+  }
+  return value;
+}
+
+function ensureClonedPath(
+  root: object,
+  pointer: string,
+  clonedSet: WeakSet<object>
+): void {
+  const segments = pointer.split('/').slice(1).map(decodePointerSegment);
+  let current: unknown = root;
+  for (let i = 0; i < segments.length - 1; i += 1) {
+    const segment = segments[i]!;
+    if (Array.isArray(current)) {
+      const index = Number(segment);
+      if (!Number.isInteger(index) || index < 0 || index >= current.length) {
+        return;
+      }
+      const child = current[index];
+      if (typeof child !== 'object' || child === null) return;
+      if (!clonedSet.has(child)) {
+        const clonedChild = shallowCloneContainer(child);
+        current[index] = clonedChild;
+        clonedSet.add(clonedChild);
+      }
+      current = current[index];
+      continue;
+    }
+    if (typeof current !== 'object' || current === null) {
+      return;
+    }
+    const record = current as Record<string, unknown>;
+    const child = record[segment];
+    if (typeof child !== 'object' || child === null) return;
+    if (!clonedSet.has(child)) {
+      const clonedChild = shallowCloneContainer(child);
+      record[segment] = clonedChild;
+      clonedSet.add(clonedChild);
+    }
+    current = record[segment];
+  }
+}
+
+export function cloneAndApplyUpsertPatch<T extends object>(
+  target: T,
+  ops: Operation[]
+): T {
+  const rootClone = shallowCloneContainer(target);
+  const clonedSet = new WeakSet<object>([rootClone]);
+  for (const op of ops) {
+    ensureClonedPath(rootClone, op.path, clonedSet);
+    if ('from' in op && typeof op.from === 'string') {
+      ensureClonedPath(rootClone, op.from, clonedSet);
+    }
+    const normalizedOp = normalizeAddOperation(rootClone, op);
+    const [error] = applyPatch(rootClone, [normalizedOp]);
+    if (normalizedOp.op === 'replace' && error?.name === 'MissingError') {
+      applyPatch(rootClone, [{ ...normalizedOp, op: 'add' }]);
+    }
+  }
+  return rootClone;
+}
+

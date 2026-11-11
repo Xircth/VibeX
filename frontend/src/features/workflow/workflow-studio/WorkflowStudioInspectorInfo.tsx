@@ -239,7 +239,7 @@ export function WorkflowStudioInspectorInfo({
       ) : null}
       {selectedStep.kind === 'approval' &&
       selectedRun?.status === 'waiting_approval' ? (
-        <div className="space-y-2 rounded-lg border border-amber-500/35 bg-amber-500/[0.06] p-3">
+        <div className="space-y-2 rounded-lg border border-warning/35 bg-warning/[0.06] p-3">
           <Label htmlFor="workflow-approval-decision">
             {t('studio.decisionJson')}
           </Label>
@@ -272,7 +272,7 @@ export function WorkflowStudioInspectorInfo({
       ) : null}
       {selectedRun?.status === 'needs_review' &&
       selectedStep.kind === 'agent' ? (
-        <div className="grid grid-cols-3 gap-2 rounded-lg border border-amber-500/35 bg-amber-500/[0.06] p-3">
+        <div className="grid grid-cols-3 gap-2 rounded-lg border border-warning/35 bg-warning/[0.06] p-3">
           <Button
             size="sm"
             onClick={() =>

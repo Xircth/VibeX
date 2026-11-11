@@ -12,11 +12,13 @@ export function SessionCanvasHistoryDock({
   canRedo,
   onUndo,
   onRedo,
+  orientation = 'horizontal',
 }: {
   canUndo: boolean;
   canRedo: boolean;
   onUndo: () => void;
   onRedo: () => void;
+  orientation?: 'horizontal' | 'vertical';
 }) {
   const { t } = useTranslation(['tasks']);
 
@@ -24,9 +26,11 @@ export function SessionCanvasHistoryDock({
     <div
       className={cn(
         'flex items-center gap-0.5 rounded-full border border-border',
+        orientation === 'vertical' ? 'flex-col' : 'flex-row',
         'bg-[var(--surface-card-strong)] p-1 shadow-[var(--shadow-popover)]'
       )}
       role="toolbar"
+      aria-orientation={orientation}
       aria-label={t('hubCanvas.historyDock')}
     >
       <button

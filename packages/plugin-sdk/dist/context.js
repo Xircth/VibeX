@@ -1,5 +1,6 @@
 import { commandRegistry, conversationModeRegistry, disposePluginRegistrations, internalMessageCaptureRegistry, kanbanViewRegistry, markdownRegistry, overlayRegistry, panelRegistry, promptContextRegistry, providerRegistry, settingRegistry, settingsPageRegistry, slashCommandRegistry, slotRegistry, themeRegistry, viewRegistry, } from './registry.js';
 import { EffectScope, serviceContainer, } from './services.js';
+import { parseThemeDefinition } from './theme.js';
 import { getPluginVolatileConfig, notifyPluginConfigUpdated, } from './volatile.js';
 let defaultHostCallTransport = null;
 let defaultWorkerInvokeTransport = null;
@@ -63,7 +64,16 @@ export function createPluginContext(options) {
     }, pluginId));
     const registerPromptContext = (contribution) => track(promptContextRegistry.register({ ...contribution, pluginId }, pluginId));
     const registerProvider = (contribution) => track(providerRegistry.register({ ...contribution, pluginId }, pluginId));
-    const registerTheme = (contribution) => track(themeRegistry.register({ ...contribution, pluginId }, pluginId));
+    const registerTheme = (contribution) => {
+        const { order, ...definition } = contribution;
+        const parsed = parseThemeDefinition(definition);
+        if (!parsed.theme) {
+            throw new TypeError(`Invalid theme from ${pluginId}: ${parsed.issues
+                .map((issue) => `${issue.path} ${issue.message}`)
+                .join('; ')}`);
+        }
+        return track(themeRegistry.register({ ...parsed.theme, order, pluginId }, pluginId));
+    };
     const registerInternalMessageCapture = (contribution) => track(internalMessageCaptureRegistry.register({ ...contribution, pluginId }, pluginId));
     const kvClient = {
         async get(key) {

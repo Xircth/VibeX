@@ -7,6 +7,7 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from '@/components/ui/popover';
+import { Slot } from '@/components/plugins/Slot';
 import { ActionBarUtilityButtons } from '@/components/tasks/follow-up/ActionBarUtilityButtons';
 import { ComposerPrimaryActionButton } from '@/components/tasks/follow-up/ComposerPrimaryActionButton';
 import { MessageQueueIndicator } from '@/components/tasks/follow-up/MessageQueueIndicator';
@@ -15,13 +16,21 @@ import {
   SessionComposerAttachmentDrawer,
   SessionComposerInput,
 } from '@/components/tasks/follow-up/SessionComposerInput';
+import { insertPreviewElementToken } from '@/components/tasks/follow-up/sessionComposerStructuredTokens';
 import i18n from '@/i18n';
+import { backendListen } from '@/lib/backendTransport';
+import {
+  type ComposerDraftTargetHandle,
+  type ComposerDraftToken,
+  getActiveComposerDraftTargetId,
+  registerComposerDraftTarget,
+} from '@/lib/composerDraftTargets';
 import { COPY, displayName } from '../spaceModel';
 import { MemberBotAvatar, deriveMemberBotAvatar } from '../MemberBotAvatar';
 import { GroupAvatar } from '../GroupAvatar';
 import { CollaborationReplyCapsule } from '../CollaborationReplyCapsule';
 
-import { memo } from 'react';
+import { memo, useCallback, useEffect, useRef } from 'react';
 import { useCollaborationSpacePick } from './SpaceContext';
 
 const COMPOSER_DOCK_PICK_KEYS = [
@@ -118,6 +127,104 @@ export const ComposerDock = memo(function ComposerDock() {
     isPrivateChatActive && isBotSessionLoading
   );
   const composerDisabled = sending || showBotSessionLoadingNotice;
+  const isEditable = Boolean(selected) && !composerDisabled;
+
+  const draftRef = useRef(draft);
+  draftRef.current = draft;
+  const setDraftRef = useRef(setDraft);
+  setDraftRef.current = setDraft;
+  const isEditableRef = useRef(isEditable);
+  isEditableRef.current = isEditable;
+  const draftTargetHandleRef = useRef<ComposerDraftTargetHandle | null>(null);
+
+  const applyDraftInsertion = useCallback(
+    (nextValue: string) => {
+      draftRef.current = nextValue;
+      if (replaceDraftRef.current) {
+        replaceDraftRef.current(nextValue);
+      } else {
+        setDraftRef.current(nextValue);
+      }
+    },
+    [replaceDraftRef]
+  );
+
+  const insertDraftToken = useCallback(
+    (token: ComposerDraftToken) => {
+      const currentMessage = draftRef.current;
+      const plainText = token.text?.trim() ?? '';
+      if (plainText && !token.label?.trim()) {
+        const needsSpace =
+          currentMessage.length > 0 &&
+          !/[\s\u3000-\u303f\uff00-\uffef]$/.test(currentMessage) &&
+          !/^[\s\u3000-\u303f\uff00-\uffef]/.test(plainText);
+        const nextValue = `${currentMessage}${needsSpace ? ' ' : ''}${plainText}`;
+        applyDraftInsertion(nextValue);
+        return;
+      }
+      const next = insertPreviewElementToken({
+        value: currentMessage,
+        selectionStart: currentMessage.length,
+        selectionEnd: currentMessage.length,
+        componentName: token.label,
+        filePath: '',
+        fullMarkdown: token.markdown,
+      });
+      applyDraftInsertion(next.value);
+    },
+    [applyDraftInsertion]
+  );
+
+  useEffect(() => {
+    if (!isEditable) return undefined;
+    const handle = registerComposerDraftTarget({
+      isEditable: () => isEditableRef.current,
+      insert: insertDraftToken,
+    });
+    draftTargetHandleRef.current = handle;
+    return () => {
+      handle.dispose();
+      if (draftTargetHandleRef.current === handle) {
+        draftTargetHandleRef.current = null;
+      }
+    };
+  }, [isEditable, insertDraftToken]);
+
+  useEffect(() => {
+    if (!isEditable) return undefined;
+    let disposed = false;
+    let unlisten: (() => void) | undefined;
+    void backendListen(
+      'plugin-conversation-draft-insert',
+      (payload: {
+        text?: string;
+        token?: { label?: string; markdown?: string; text?: string };
+      }) => {
+        const label = payload.token?.label?.trim() ?? '';
+        const markdown = payload.token?.markdown?.trim() ?? '';
+        const text = payload.token?.text?.trim() ?? payload.text?.trim() ?? '';
+        if ((!label || !markdown) && !text) return;
+        const handle = draftTargetHandleRef.current;
+        if (!handle || getActiveComposerDraftTargetId() !== handle.id) return;
+        insertDraftToken({
+          label,
+          markdown,
+          ...(text ? { text } : {}),
+        });
+      }
+    ).then((dispose) => {
+      if (disposed) dispose();
+      else unlisten = dispose;
+    });
+    return () => {
+      disposed = true;
+      unlisten?.();
+    };
+  }, [isEditable, insertDraftToken]);
+
+  const markDraftTargetFocused = useCallback(() => {
+    draftTargetHandleRef.current?.markFocused();
+  }, []);
 
   return (
     <>
@@ -140,6 +247,7 @@ export const ComposerDock = memo(function ComposerDock() {
             }
           />
           <SessionComposerFrame
+            onFocus={markDraftTargetFocused}
             status={
               showBotSessionLoadingNotice ? (
                 <div
@@ -354,6 +462,13 @@ export const ComposerDock = memo(function ComposerDock() {
               >
                 <Paperclip className="h-3.5 w-3.5" aria-hidden="true" />
               </Button>
+              <Slot
+                name="composer.toolbar"
+                slotProps={{
+                  isEditable: !composerDisabled,
+                  isAttemptRunning: sending,
+                }}
+              />
               <ActionBarUtilityButtons
                 compactContextEnabled={false}
                 canCompactContext={false}

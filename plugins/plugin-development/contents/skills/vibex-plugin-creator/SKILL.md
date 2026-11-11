@@ -122,15 +122,23 @@ Ensure `README.md` (with `summary` frontmatter), `config.json` (`{}`), and `.vib
       "id": "ocean-dark",
       "label": "Ocean Dark",
       "scheme": "dark",
-      "cssVariables": {
-        "--background": "210 35% 9%",
-        "--foreground": "200 20% 96%",
-        "--primary": "192 90% 48%"
+      "colors": {
+        "background": "#0f1a24",
+        "foreground": "#eef4f7",
+        "accent": "#16b8e0"
       }
     }
   ]
 }
 ```
+
+Each `themes[]` entry is a color theme `{ id, label, scheme, colors }`:
+
+- `colors` maps the roles in `THEME_COLOR_ROLES` (`@vibex/plugin-sdk`) to `#rgb`, `#rrggbb`, or `#rrggbbaa`. Only `background` and `foreground` are required; omitted roles are derived from them. `background`, `foreground`, `chrome`, `surface`, `popover`, `accent`, and `terminalBackground` must be opaque.
+- Roles: `background`, `foreground`, `chrome`, `surface`, `popover`, `mutedForeground`, `subtleForeground`, `faintForeground`, `border`, `borderSubtle`, `control`, `controlHover`, `raisedControl`, `raisedControlHover`, `track`, `accent`, `success`, `warning`, `danger`, `info`, `terminalBackground`, `terminalForeground`, and the `syntax*` roles `syntaxKeyword`, `syntaxFunction`, `syntaxConstant`, `syntaxString`, `syntaxVariable`, `syntaxComment`, `syntaxTag`, `syntaxPunctuation`, `syntaxDeleted`.
+- Users pick plugin themes per scheme in Settings → Appearance, next to the built-in and their own themes. A theme exported from the Appearance editor is exactly one entry, so it can be pasted into `themes[]` unchanged.
+- `vibex-plugin validate` and the Host apply the same rules and list every problem at once: unknown fields or roles, bad colors, translucent opaque roles, duplicate ids. Raw CSS variables are not a theme field; put them in `style.css`.
+- Check readability in the Appearance editor before shipping: it blocks body and terminal text below 4.5:1.
 
 ### 5.2 Tier 1: In-Host UI + `beforeTurn` Implicit Context + `InternalMessageCapture` (`app/main.js`)
 

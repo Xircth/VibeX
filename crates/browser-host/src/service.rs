@@ -1156,6 +1156,10 @@ pub async fn dispatch(
             service.ensure_tools()?;
             screenshot(service, &input).await
         }
+        "prefer" | "tab.prefer" => {
+            service.ensure_tools()?;
+            prefer(service, &input).await
+        }
         "eval.request" => {
             service.ensure_eval()?;
             let tab_id = service.resolve_tab_id(input.get("tabId").and_then(Value::as_str))?;
@@ -1528,6 +1532,143 @@ fn console_push(service: &BrowserService, input: &Value) -> Result<Value, Browse
     Ok(json!({ "ok": true }))
 }
 
+fn parse_optional_preferences(
+    input: &Value,
+) -> Result<(Option<bool>, Option<String>), BrowserHostError> {
+    let reduced_motion = match input.get("reducedMotion") {
+        None | Some(Value::Null) => None,
+        Some(Value::Bool(b)) => Some(*b),
+        Some(other) => {
+            return Err(BrowserHostError::new(
+                "browser_invalid",
+                format!("reducedMotion must be a boolean, not {other}"),
+            ));
+        }
+    };
+    let color_scheme = match input.get("colorScheme") {
+        None | Some(Value::Null) => None,
+        Some(Value::String(s)) => {
+            let trimmed = s.trim().to_ascii_lowercase();
+            if !matches!(trimmed.as_str(), "light" | "dark" | "no-preference") {
+                return Err(BrowserHostError::new(
+                    "browser_invalid",
+                    format!(
+                        "colorScheme must be \"light\", \"dark\", or \"no-preference\", not {s:?}"
+                    ),
+                ));
+            }
+            Some(trimmed)
+        }
+        Some(other) => {
+            return Err(BrowserHostError::new(
+                "browser_invalid",
+                format!("colorScheme must be a string, not {other}"),
+            ));
+        }
+    };
+    Ok((reduced_motion, color_scheme))
+}
+
+async fn apply_preferences(
+    service: &BrowserService,
+    tab_id: &str,
+    reduced_motion: Option<bool>,
+    color_scheme: Option<&str>,
+) -> Result<(), BrowserHostError> {
+    if reduced_motion.is_none() && color_scheme.is_none() {
+        return Ok(());
+    }
+    let rm_json = match reduced_motion {
+        Some(b) => b.to_string(),
+        None => "null".to_string(),
+    };
+    let cs_json = match color_scheme {
+        Some(cs) => serde_json::to_string(cs).unwrap_or_else(|_| "null".to_string()),
+        None => "null".to_string(),
+    };
+    let script = format!(
+        r#"(function(rm, cs) {{
+  try {{
+    var state = window.__vibexPreferState = window.__vibexPreferState || {{}};
+    if (rm !== null) state.reducedMotion = !!rm;
+    if (cs !== null) state.colorScheme = cs;
+    var styleId = "__vibex_prefer_reduced_motion__";
+    var styleEl = document.getElementById(styleId);
+    if (rm === true) {{
+      if (!styleEl) {{
+        styleEl = document.createElement("style");
+        styleEl.id = styleId;
+        styleEl.textContent = "*, *::before, *::after {{ transition-duration: 0s !important; transition-delay: 0s !important; animation-duration: 0s !important; animation-delay: 0s !important; scroll-behavior: auto !important; }}";
+        (document.head || document.documentElement).appendChild(styleEl);
+      }}
+      if (typeof document.getAnimations === "function") {{
+        var anims = document.getAnimations();
+        for (var i = 0; i < anims.length; i++) {{
+          try {{ anims[i].finish(); }} catch (e) {{}}
+        }}
+      }}
+    }} else if (rm === false && styleEl && styleEl.parentNode) {{
+      styleEl.parentNode.removeChild(styleEl);
+    }}
+    if (cs !== null && document.documentElement) {{
+      if (cs === "no-preference") {{
+        document.documentElement.style.colorScheme = "";
+        document.documentElement.removeAttribute("data-theme");
+      }} else {{
+        document.documentElement.style.colorScheme = cs;
+        document.documentElement.setAttribute("data-theme", cs);
+      }}
+    }}
+    if (!window.__vibexOrigMatchMedia && typeof window.matchMedia === "function") {{
+      window.__vibexOrigMatchMedia = window.matchMedia.bind(window);
+      window.matchMedia = function(query) {{
+        var q = String(query || "");
+        var mql = window.__vibexOrigMatchMedia(q);
+        var st = window.__vibexPreferState || {{}};
+        if (st.reducedMotion !== undefined && q.indexOf("prefers-reduced-motion") !== -1) {{
+          var wantReduce = q.indexOf("reduce") !== -1 && q.indexOf("no-preference") === -1;
+          var matches = st.reducedMotion ? wantReduce : !wantReduce;
+          return Object.assign({{}}, mql, {{ matches: matches, media: q }});
+        }}
+        if (st.colorScheme && q.indexOf("prefers-color-scheme") !== -1) {{
+          var matchesCs = st.colorScheme !== "no-preference" && q.indexOf(st.colorScheme) !== -1;
+          return Object.assign({{}}, mql, {{ matches: matchesCs, media: q }});
+        }}
+        return mql;
+      }};
+    }}
+    return JSON.stringify({{ ok: true, reducedMotion: state.reducedMotion, colorScheme: state.colorScheme }});
+  }} catch (err) {{
+    return JSON.stringify({{ ok: false, error: String(err) }});
+  }}
+}})({rm_json}, {cs_json})"#
+    );
+    let _ = service.native.eval(tab_id, &script).await?;
+    tokio::time::sleep(Duration::from_millis(20)).await;
+    Ok(())
+}
+
+async fn prefer(service: &BrowserService, input: &Value) -> Result<Value, BrowserHostError> {
+    let tab_id = service.resolve_tab_id(input.get("tabId").and_then(Value::as_str))?;
+    let tab = service.tab(&tab_id)?;
+    service.require_grant(&tab, GrantLevel::Control, "prefer")?;
+    let (reduced_motion, color_scheme) = parse_optional_preferences(input)?;
+    if reduced_motion.is_none() && color_scheme.is_none() {
+        return Err(BrowserHostError::new(
+            "browser_invalid",
+            "prefer requires at least one of reducedMotion or colorScheme",
+        ));
+    }
+    apply_preferences(service, &tab_id, reduced_motion, color_scheme.as_deref()).await?;
+    service.note_activity(&tab_id, "prefer", "done");
+    Ok(json!({
+        "ok": true,
+        "tabId": tab_id,
+        "reducedMotion": reduced_motion,
+        "colorScheme": color_scheme,
+    }))
+}
+
 async fn screenshot(service: &BrowserService, input: &Value) -> Result<Value, BrowserHostError> {
     let tab_id = service.resolve_tab_id(input.get("tabId").and_then(Value::as_str))?;
     let tab = service.tab(&tab_id)?;
@@ -1568,11 +1709,68 @@ async fn screenshot(service: &BrowserService, input: &Value) -> Result<Value, Br
         })?,
         None => CaptureFormat::Png,
     };
+    let over_ms = match input.get("overMs") {
+        None | Some(Value::Null) => None,
+        Some(v) => {
+            let n = v
+                .as_u64()
+                .and_then(|n| u32::try_from(n).ok())
+                .filter(|n| *n > 0 && *n <= capture::MAX_BURST_OVER_MS)
+                .ok_or_else(|| {
+                    BrowserHostError::new(
+                        "browser_invalid",
+                        format!(
+                            "overMs must be between 1 and {}",
+                            capture::MAX_BURST_OVER_MS
+                        ),
+                    )
+                })?;
+            Some(n)
+        }
+    };
+    let every_ms = match input.get("everyMs") {
+        None | Some(Value::Null) => None,
+        Some(v) => {
+            let n = v
+                .as_u64()
+                .and_then(|n| u32::try_from(n).ok())
+                .filter(|n| *n >= capture::MIN_BURST_EVERY_MS)
+                .ok_or_else(|| {
+                    BrowserHostError::new(
+                        "browser_invalid",
+                        format!("everyMs must be at least {}", capture::MIN_BURST_EVERY_MS),
+                    )
+                })?;
+            Some(n)
+        }
+    };
+    if over_ms.is_some() != every_ms.is_some() {
+        return Err(BrowserHostError::new(
+            "browser_invalid",
+            "burst contact-sheet screenshot requires both overMs and everyMs",
+        ));
+    }
+    if let (Some(over), Some(every)) = (over_ms, every_ms)
+        && over < every
+    {
+        return Err(BrowserHostError::new(
+            "browser_invalid",
+            "overMs must be greater than or equal to everyMs",
+        ));
+    }
+    let (reduced_motion, color_scheme) = parse_optional_preferences(input)?;
+    if reduced_motion.is_some() || color_scheme.is_some() {
+        apply_preferences(service, &tab_id, reduced_motion, color_scheme.as_deref()).await?;
+    }
     let request = CaptureRequest {
         generation: generation.clone(),
         target: target.clone(),
         max_width,
         format,
+        over_ms,
+        every_ms,
+        reduced_motion,
+        color_scheme,
     };
     let (url, viewport, region) = if let (Some(gen_token), Some(r)) = (&generation, &target) {
         let current_epoch = {
@@ -1626,9 +1824,25 @@ async fn screenshot(service: &BrowserService, input: &Value) -> Result<Value, Br
         };
         (vp.0, vp.1, None)
     };
-    let png_bytes = service.native.capture_png(&tab_id).await?;
-    let captured = capture::finish_capture(&png_bytes, url, &viewport, region, &request)
-        .map_err(|error| BrowserHostError::new("browser_read_failed", error))?;
+    let captured = if let (Some(over), Some(every)) = (over_ms, every_ms) {
+        let mut frames = Vec::new();
+        let mut ts = 0u32;
+        while ts <= over {
+            let png_bytes = service.native.capture_png(&tab_id).await?;
+            frames.push((ts, png_bytes));
+            if ts + every > over {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(u64::from(every))).await;
+            ts += every;
+        }
+        capture::compose_contact_sheet(&frames, url, &viewport, region, &request, over, every)
+            .map_err(|error| BrowserHostError::new("browser_read_failed", error))?
+    } else {
+        let png_bytes = service.native.capture_png(&tab_id).await?;
+        capture::finish_capture(&png_bytes, url, &viewport, region, &request)
+            .map_err(|error| BrowserHostError::new("browser_read_failed", error))?
+    };
     service.note_activity(&tab_id, "read", "done");
     serde_json::to_value(captured)
         .map_err(|error| BrowserHostError::new("browser_invalid", error.to_string()))
@@ -2621,5 +2835,138 @@ mod tests {
         .await
         .expect("read after nav");
         assert_eq!(after_nav["entries"].as_array().unwrap().len(), 0);
+    }
+
+    struct CaptureNative {
+        evals: Mutex<Vec<String>>,
+    }
+
+    impl CaptureNative {
+        fn sample_png_bytes() -> Vec<u8> {
+            let img = image::RgbaImage::from_pixel(120, 80, image::Rgba([40, 120, 220, 255]));
+            let mut out = Vec::new();
+            image::DynamicImage::ImageRgba8(img)
+                .write_to(&mut std::io::Cursor::new(&mut out), image::ImageFormat::Png)
+                .expect("encode png");
+            out
+        }
+    }
+
+    #[async_trait]
+    impl NativeTabs for CaptureNative {
+        async fn open(
+            &self,
+            _tab_id: &str,
+            _url: &str,
+            _bounds: &BrowserBounds,
+            _profile_id: &str,
+        ) -> Result<(), BrowserHostError> {
+            Ok(())
+        }
+        async fn navigate(&self, _tab_id: &str, _url: &str) -> Result<(), BrowserHostError> {
+            Ok(())
+        }
+        async fn close(&self, _tab_id: &str) -> Result<(), BrowserHostError> {
+            Ok(())
+        }
+        async fn set_bounds(
+            &self,
+            _tab_id: &str,
+            _bounds: &BrowserBounds,
+        ) -> Result<(), BrowserHostError> {
+            Ok(())
+        }
+        async fn eval(&self, _tab_id: &str, expression: &str) -> Result<String, BrowserHostError> {
+            self.evals.lock().expect("evals").push(expression.to_owned());
+            Ok(
+                r#"{"url":"https://example.test/","viewport":{"width":120,"height":80,"dpr":1}}"#
+                    .into(),
+            )
+        }
+        async fn current_url(&self, _tab_id: &str) -> Result<String, BrowserHostError> {
+            Ok("https://example.test/".into())
+        }
+        async fn go_back(&self, _tab_id: &str) -> Result<(), BrowserHostError> {
+            Ok(())
+        }
+        async fn go_forward(&self, _tab_id: &str) -> Result<(), BrowserHostError> {
+            Ok(())
+        }
+        async fn reload(&self, _tab_id: &str) -> Result<(), BrowserHostError> {
+            Ok(())
+        }
+        async fn set_zoom(&self, _tab_id: &str, _factor: f64) -> Result<(), BrowserHostError> {
+            Ok(())
+        }
+        async fn open_devtools(&self, _tab_id: &str) -> Result<(), BrowserHostError> {
+            Ok(())
+        }
+        async fn set_device(&self, _tab_id: &str, _device: &str) -> Result<(), BrowserHostError> {
+            Ok(())
+        }
+        async fn inject(&self, _tab_id: &str, _script: &str) -> Result<(), BrowserHostError> {
+            Ok(())
+        }
+        async fn capture_png(&self, _tab_id: &str) -> Result<Vec<u8>, BrowserHostError> {
+            Ok(Self::sample_png_bytes())
+        }
+    }
+
+    #[tokio::test]
+    async fn prefer_and_burst_contact_sheet_screenshot_work() {
+        let native = Arc::new(CaptureNative {
+            evals: Mutex::new(Vec::new()),
+        });
+        let service = BrowserService::new(native.clone(), true);
+        let tab = dispatch(
+            &service,
+            "vibex.browser",
+            "tab.create",
+            json!({ "url": "https://example.test/" }),
+        )
+        .await
+        .expect("open");
+        let tab_id = tab["tabId"].as_str().unwrap();
+
+        let pref = dispatch(
+            &service,
+            "vibex.browser",
+            "prefer",
+            json!({
+                "tabId": tab_id,
+                "reducedMotion": true,
+                "colorScheme": "dark"
+            }),
+        )
+        .await
+        .expect("prefer");
+        assert_eq!(pref["ok"], true);
+        assert_eq!(pref["reducedMotion"], true);
+        assert_eq!(pref["colorScheme"], "dark");
+
+        let burst = dispatch(
+            &service,
+            "vibex.browser",
+            "screenshot",
+            json!({
+                "tabId": tab_id,
+                "overMs": 100,
+                "everyMs": 50,
+                "reducedMotion": true,
+                "colorScheme": "light"
+            }),
+        )
+        .await
+        .expect("burst screenshot");
+        assert_eq!(burst["framesCount"], 3);
+        assert_eq!(burst["overMs"], 100);
+        assert_eq!(burst["everyMs"], 50);
+        assert_eq!(burst["timestampsMs"], json!([0, 50, 100]));
+        assert_eq!(burst["columns"], 2);
+        assert_eq!(burst["rows"], 2);
+        assert!(burst["data"].as_str().is_some_and(|s| !s.is_empty()));
+
+        let evals = native.evals.lock().expect("evals");
+        assert!(evals.iter().any(|e| e.contains("__vibexPreferState")));
     }
 }

@@ -17,6 +17,7 @@ mod error;
 mod events;
 mod host_bus;
 mod host_client;
+mod host_client_sync;
 mod host_windows;
 mod logging;
 mod managed_artifacts;
@@ -282,8 +283,12 @@ pub(crate) fn load_app_icon() -> Result<Image<'static>, String> {
 }
 
 pub(crate) fn apply_app_icon(window: &tauri::WebviewWindow) -> Result<(), String> {
-    let icon = load_app_icon()?;
-    window.set_icon(icon).map_err(|error| error.to_string())
+    let bytes = native_app_icon_bytes("default", "light").expect("default app icon exists");
+    let icon = app_icon::icon_from_png_bytes(bytes)?;
+    window.set_icon(icon).map_err(|error| error.to_string())?;
+    #[cfg(target_os = "windows")]
+    app_icon::apply_windows_taskbar_icon(window, bytes)?;
+    Ok(())
 }
 
 #[tauri::command]
@@ -296,9 +301,18 @@ async fn set_app_icon(
     let bytes = native_app_icon_bytes(&style, &theme)?;
     let window_icon = app_icon::icon_from_png_bytes(bytes)?;
     window
-        .set_icon(window_icon)
+        .set_icon(window_icon.clone())
         .map_err(|error| error.to_string())?;
+    #[cfg(target_os = "windows")]
+    app_icon::apply_windows_taskbar_icon(&window, bytes)?;
     if host_windows::is_local_desktop_window(window.label()) {
+        for (label, target) in app.webview_windows() {
+            if label != window.label() && host_windows::is_local_desktop_window(&label) {
+                let _ = target.set_icon(window_icon.clone());
+                #[cfg(target_os = "windows")]
+                let _ = app_icon::apply_windows_taskbar_icon(&target, bytes);
+            }
+        }
         let tray_icon = Image::from_bytes(bytes)
             .map(|icon| icon.to_owned())
             .map_err(|error| error.to_string())?;
@@ -763,6 +777,11 @@ pub fn run() {
         commands::host_client::host_client_connect,
         commands::host_client::host_client_disconnect,
         commands::host_client::host_client_delete,
+        commands::host_client::host_client_set_sync_account,
+        commands::host_client::host_client_export_sync_profiles,
+        commands::host_client::host_client_merge_sync_profiles,
+        commands::host_client::host_client_mark_sync_pushed,
+        commands::host_client::host_client_ack_sync_deletes,
         commands::settings_window::open_settings_window,
         commands::app_window::open_app_window,
         plugin_dev_server::plugin_dev_connection,

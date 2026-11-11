@@ -793,7 +793,7 @@ export function AutomationsSettings({
           <div
             role="status"
             aria-label={t('automations.nonOwnerStatus')}
-            className="m-3 flex items-start gap-2 rounded-md border border-amber-500/35 bg-amber-500/10 px-3 py-2 text-xs"
+            className="m-3 flex items-start gap-2 rounded-md border border-warning/35 bg-warning/10 px-3 py-2 text-xs"
           >
             <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
             <span>{t('automations.nonOwnerDescription')}</span>

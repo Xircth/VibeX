@@ -9,6 +9,7 @@ import type {
 } from '@/lib/api';
 import type { Session, SessionContinuityMode } from 'shared/types';
 import { getContinuityActionCopy } from '@/utils/sessionContinuity';
+import { isBotCollaborationSession } from '@/lib/hideBotSessions';
 import type { QueueStatus } from '@/components/tasks/follow-up/sessionComposerQueue';
 
 interface UseWorkspaceSessionsOptions {
@@ -34,6 +35,7 @@ function reuseExistingSelection(
 export function reconcileWorkspaceSessionSelection(input: {
   prev: SessionSelection | undefined;
   sessionIds: readonly string[];
+  autoSelectSessionIds?: readonly string[];
   initialSessionId?: string;
   pendingSessionId: string | null;
   autoSelectFirstSession: boolean;
@@ -90,12 +92,13 @@ export function reconcileWorkspaceSessionSelection(input: {
     };
   }
 
-  if (!input.autoSelectFirstSession) {
+  const autoSelectIds = input.autoSelectSessionIds ?? input.sessionIds;
+  if (!input.autoSelectFirstSession || autoSelectIds.length === 0) {
     return { selection: undefined, pendingSessionId: null };
   }
 
   return {
-    selection: reuseExistingSelection(input.prev, input.sessionIds[0]),
+    selection: reuseExistingSelection(input.prev, autoSelectIds[0]),
     pendingSessionId: null,
   };
 }
@@ -255,6 +258,14 @@ export function useWorkspaceSessions(
     [sessionSummaries, t]
   );
 
+  const defaultSelectableSessionIds = useMemo(
+    () =>
+      sessionSummaries
+        .filter((session) => !isBotCollaborationSession(session))
+        .map((session) => session.id),
+    [sessionSummaries]
+  );
+
   useEffect(() => {
     const workspaceChanged = previousWorkspaceIdRef.current !== workspaceId;
     previousWorkspaceIdRef.current = workspaceId;
@@ -267,6 +278,7 @@ export function useWorkspaceSessions(
       const next = reconcileWorkspaceSessionSelection({
         prev,
         sessionIds: sessions.map((session) => session.id),
+        autoSelectSessionIds: defaultSelectableSessionIds,
         initialSessionId,
         pendingSessionId: pendingSessionIdRef.current,
         autoSelectFirstSession,
@@ -275,7 +287,13 @@ export function useWorkspaceSessions(
       pendingSessionIdRef.current = next.pendingSessionId;
       return next.selection;
     });
-  }, [autoSelectFirstSession, workspaceId, sessions, initialSessionId]);
+  }, [
+    autoSelectFirstSession,
+    defaultSelectableSessionIds,
+    workspaceId,
+    sessions,
+    initialSessionId,
+  ]);
 
   const isNewSessionMode = selection?.mode === 'new';
   const selectedSessionId =
@@ -293,12 +311,13 @@ export function useWorkspaceSessions(
   }, []);
 
   const selectLatestSession = useCallback(() => {
-    if (sessions.length > 0) {
+    const targetId = defaultSelectableSessionIds[0] ?? sessions[0]?.id;
+    if (targetId) {
       pendingSessionIdRef.current = null;
       setIsPendingNewSessionMode(false);
-      setSelection({ mode: 'existing', sessionId: sessions[0].id });
+      setSelection({ mode: 'existing', sessionId: targetId });
     }
-  }, [sessions]);
+  }, [defaultSelectableSessionIds, sessions]);
 
   const startNewSession = useCallback(() => {
     pendingSessionIdRef.current = null;

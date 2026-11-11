@@ -97,6 +97,12 @@ describe('collapsed card size', () => {
       height: CARD_HEIGHT,
     });
   });
+
+  it('sizes expanded detail nodes at a 4:3 aspect ratio with +15% default height', () => {
+    expect(DETAIL_CARD_HEIGHT).toBe(720);
+    expect(DETAIL_CARD_WIDTH).toBe(960);
+    expect(DETAIL_CARD_WIDTH / DETAIL_CARD_HEIGHT).toBeCloseTo(4 / 3, 5);
+  });
 });
 
 describe('flowNodeBox', () => {

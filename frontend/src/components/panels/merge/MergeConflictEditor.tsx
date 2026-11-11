@@ -13,9 +13,9 @@ import { useTheme } from '@/components/ThemeProvider';
 import { Button } from '@/components/ui/button';
 import { GitConflictResolutionDialog } from '@/components/dialogs/tasks/GitConflictResolutionDialog';
 import {
-  defineAyuMonacoThemes,
-  MONACO_THEME_AYU_DARK,
-  MONACO_THEME_AYU_LIGHT,
+  defineColorThemeMonacoThemes,
+  MONACO_THEME_DARK,
+  MONACO_THEME_LIGHT,
 } from '@/utils/monacoThemes';
 import { preloadMonacoEditor } from '@/lib/monacoPreload';
 import type {
@@ -70,7 +70,7 @@ export function MergeConflictEditor({
   const panelRef = useRef<HTMLDivElement>(null);
   const queryClient = useQueryClient();
   const monacoTheme =
-    resolvedTheme === 'dark' ? MONACO_THEME_AYU_DARK : MONACO_THEME_AYU_LIGHT;
+    resolvedTheme === 'dark' ? MONACO_THEME_DARK : MONACO_THEME_LIGHT;
   const language = languageFromPath(filePath);
   const [result, setResult] = useState('');
   const [savedResult, setSavedResult] = useState('');
@@ -118,7 +118,7 @@ export function MergeConflictEditor({
   }, [dirty, onDirtyChange]);
 
   const handleBeforeMount: BeforeMount = useCallback((monaco) => {
-    defineAyuMonacoThemes(monaco);
+    defineColorThemeMonacoThemes(monaco);
   }, []);
 
   const handleResultEditorMount: OnMount = useCallback((editor) => {

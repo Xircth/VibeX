@@ -219,3 +219,60 @@ test("checkHostIdBranches 白名单外的数据面引用仍被报告", () => {
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+test("runChecks：遵循 No Fail-Fast，单个插件 manifest 损坏或缺 id 时仍一次性报告全部插件与宿主违规", () => {
+  const { root, pluginDir } = buildFixtureRepo();
+  try {
+    // 1. 损坏的 plugin A（缺少 id + package.json 语法错误 + 越权导入）
+    const brokenDir = join(root, "assets", "plugins", "a-broken");
+    mkdirSync(join(brokenDir, ".vibex-plugin"), { recursive: true });
+    mkdirSync(join(brokenDir, "runtime"), { recursive: true });
+    writeFileSync(
+      join(brokenDir, ".vibex-plugin", "plugin.json"),
+      JSON.stringify({ publisher: "vibex" })
+    );
+    writeFileSync(join(brokenDir, "package.json"), "{ invalid json");
+    writeFileSync(
+      join(brokenDir, "runtime", "worker.mjs"),
+      "import '@vibex/plugin-contract';\n"
+    );
+
+    // 2. 第二个插件 demo 的越权导入
+    writeFileSync(
+      join(pluginDir, "runtime", "worker.mjs"),
+      "import 'undeclared-pkg';\n"
+    );
+
+    // 3. 宿主代码中的官方插件 ID 特判
+    writeFileSync(
+      join(root, "frontend", "src", "gate.ts"),
+      "export const special = pluginId === 'vibex.demo';\n"
+    );
+
+    const { violations } = runChecks(root);
+    assert.ok(
+      violations.some((v) => v.reason.includes("插件 manifest 缺少 id")),
+      "应报告缺少 id 的 manifest"
+    );
+    assert.ok(
+      violations.some((v) => v.reason.includes("插件 package.json 不是合法 JSON")),
+      "应报告损坏的 package.json"
+    );
+    assert.ok(
+      violations.some((v) => v.reason.includes("公开 SDK 之外")),
+      "应继续扫描损坏插件的代码并报告越权导入"
+    );
+    assert.ok(
+      violations.some((v) => v.reason.includes("未在插件 package.json 声明")),
+      "应继续扫描后续插件并报告未声明依赖"
+    );
+    assert.ok(
+      violations.some((v) => v.rule === "B" && v.file === "frontend/src/gate.ts"),
+      "应继续扫描宿主代码并报告 ID 分支"
+    );
+    assert.equal(violations.length, 5);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+

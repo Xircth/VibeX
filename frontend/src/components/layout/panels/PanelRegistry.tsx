@@ -217,6 +217,27 @@ const BASE_PANEL_COMPONENTS: Record<string, React.FC<IDockviewPanelProps>> = {
   [PLUGIN_PANEL_COMPONENT]: lazyPanel(
     () => import('@/components/layout/panels/PluginDockviewPanel')
   ),
+  'space-collection': lazyPanel(() =>
+    import('@/features/collaboration/CollaborationSpaceCollectionPanel').then(
+      (module) => ({
+        default: module.CollaborationSpaceCollectionDockviewPanel,
+      })
+    )
+  ),
+  'member-session': lazyPanel(() =>
+    import('@/features/collaboration/CollaborationPreviewDockview').then(
+      (module) => ({
+        default: module.CollaborationMemberSessionDockviewPanel,
+      })
+    )
+  ),
+  'file-preview': lazyPanel(() =>
+    import('@/features/collaboration/CollaborationPreviewDockview').then(
+      (module) => ({
+        default: module.CollaborationFileDockviewPanel,
+      })
+    )
+  ),
 };
 
 const dynamicPanelWrappers = new Map<string, React.FC<IDockviewPanelProps>>();

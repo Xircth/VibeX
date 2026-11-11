@@ -56,6 +56,19 @@
     'IBM Plex Mono', 'Noto Emoji', ui-monospace, SFMono-Regular, Menlo, Monaco,
     Consolas, 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei UI',
     'Microsoft YaHei', 'Noto Sans CJK SC', 'Source Han Sans SC', monospace;
+
+  /*
+   * Type ramp. One step per role; Tailwind's text-* utilities resolve through
+   * these, so a role is retuned here and nowhere else. In rem so the web
+   * runtime's root-scaled UI zoom reaches every step.
+   */
+  --type-micro: 0.625rem; /* 10px: counters and badges in fixed-size chrome */
+  --type-caption: 0.6875rem; /* 11px: metadata, timestamps, helper text */
+  --type-label: 0.75rem; /* 12px: controls and UI copy */
+  --type-callout: 0.8125rem; /* 13px: menus, tables, code blocks */
+  --type-body: 0.875rem; /* 14px: prose and titles */
+  --type-headline: 1rem; /* 16px */
+  --type-display: 1.125rem; /* 18px */
 }
 
 html[data-host-platform='windows'],

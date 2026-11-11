@@ -131,9 +131,9 @@ function levelClass(level: string): string {
     case 'ERROR':
       return 'text-destructive';
     case 'WARN':
-      return 'text-amber-500';
+      return 'text-warning';
     case 'INFO':
-      return 'text-primary';
+      return 'text-info';
     default:
       return 'text-muted-foreground';
   }
@@ -391,7 +391,7 @@ export function LogsSettings() {
             </div>
           </div>
           {envLocked ? (
-            <p className="settings-row__description text-amber-500">
+            <p className="settings-row__description text-warning">
               {t('logs.envLocked')}
             </p>
           ) : null}

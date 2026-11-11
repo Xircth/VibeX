@@ -1,4 +1,4 @@
-import { usePanels } from '@vibex/plugin-sdk';
+import { usePanels, useSlotContributions } from '@vibex/plugin-sdk';
 import type { IDockviewHeaderActionsProps } from 'dockview-react';
 import {
   Activity,
@@ -42,6 +42,7 @@ import {
   getTerminalShellOptions,
   getTerminalWorkspaceKey,
 } from '@/lib/terminalPreferences';
+import { extractSessionIdFromPanelId } from '@/lib/workspaceSessionTabSlots';
 import { PANEL_IDS } from '@/stores/useLayoutStore';
 import { isEditorGroup, isSessionGroup } from '@/utils/dockviewGroupPolicy';
 import { terminalHostPlatform } from '@/utils/platform';
@@ -61,6 +62,8 @@ export function WorkspaceTabAddMenu({
     runInEditorGroup,
   } = usePanelActionsContext();
   const pluginPanels = usePluginHostContributions('app_panel');
+  const railSections = usePluginHostContributions('app_rail_section');
+  const sdkRailSlots = useSlotContributions('rail.sections');
   const sdkPanels = usePanels();
   const canOpenNotes =
     sdkPanels.length === 0 ||
@@ -94,6 +97,140 @@ export function WorkspaceTabAddMenu({
     system?.config,
     system?.environment?.os_type
   );
+
+  const combinedPluginItems = useMemo(() => {
+    const seen = new Set<string>();
+    const items: Array<{
+      key: string;
+      label: string;
+      icon: ReturnType<typeof contributionIconComponent>;
+      onSelect: () => void;
+    }> = [];
+
+    for (const item of pluginPanels) {
+      const metadata = contributionMetadata(item);
+      const icon = typeof metadata.icon === 'string' ? metadata.icon : null;
+      const key = `${item.pluginId}:${item.id}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      items.push({
+        key,
+        label: item.label,
+        icon: contributionIconComponent(icon, Puzzle),
+        onSelect: () =>
+          openPluginPanel({
+            title: item.label,
+            pluginId: item.pluginId,
+            contributionId: item.id,
+            icon,
+            multiInstance: metadata.multiInstance === true,
+            instance: metadata.multiInstance === true ? 'new' : 'focus',
+          }),
+      });
+    }
+
+    for (const slotItem of sdkRailSlots) {
+      if (slotItem.component || slotItem.render) continue;
+      const pluginId = slotItem.pluginId ?? 'plugin';
+      const rawId = slotItem.id.startsWith(`${pluginId}:`)
+        ? slotItem.id.slice(pluginId.length + 1)
+        : slotItem.id;
+      const key = `${pluginId}:${rawId}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      const label = slotItem.label ?? slotItem.tooltip ?? rawId;
+      const iconName = slotItem.icon ?? null;
+      const opens =
+        slotItem.metadata?.opens &&
+        typeof slotItem.metadata.opens === 'object' &&
+        !Array.isArray(slotItem.metadata.opens)
+          ? (slotItem.metadata.opens as { id?: string; instance?: string })
+          : null;
+      const contributionId = typeof opens?.id === 'string' ? opens.id : rawId;
+      items.push({
+        key,
+        label,
+        icon: contributionIconComponent(iconName, Puzzle),
+        onSelect: () => {
+          if (slotItem.onActivate) {
+            void Promise.resolve(slotItem.onActivate()).catch(() => undefined);
+            return;
+          }
+          openPluginPanel({
+            title: label,
+            pluginId,
+            contributionId,
+            icon: iconName,
+            multiInstance: true,
+            instance: opens?.instance === 'new' ? 'new' : 'focus',
+          });
+        },
+      });
+    }
+
+    for (const panel of sdkPanels) {
+      if (panel.builtin || panel.zone === 'left') continue;
+      const pluginId = panel.pluginId ?? 'plugin';
+      const rawId = panel.id.startsWith(`${pluginId}:`)
+        ? panel.id.slice(pluginId.length + 1)
+        : panel.id;
+      const key = `${pluginId}:${rawId}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      const iconName = panel.icon ?? null;
+      items.push({
+        key,
+        label: panel.title,
+        icon: contributionIconComponent(iconName, Puzzle),
+        onSelect: () =>
+          openPluginPanel({
+            title: panel.title,
+            pluginId,
+            contributionId: rawId,
+            icon: iconName,
+            multiInstance: panel.multiInstance !== false,
+            instance: 'focus',
+          }),
+      });
+    }
+
+    for (const item of railSections) {
+      const metadata = contributionMetadata(item);
+      const icon = typeof metadata.icon === 'string' ? metadata.icon : null;
+      const opens =
+        metadata.opens &&
+        typeof metadata.opens === 'object' &&
+        !Array.isArray(metadata.opens)
+          ? (metadata.opens as {
+              kind?: string;
+              id?: string;
+              instance?: string;
+            })
+          : null;
+      const contributionId = typeof opens?.id === 'string' ? opens.id : item.id;
+      const key = `${item.pluginId}:${item.id}`;
+      if (seen.has(key) || seen.has(`${item.pluginId}:${contributionId}`)) {
+        continue;
+      }
+      seen.add(key);
+      items.push({
+        key,
+        label: item.label,
+        icon: contributionIconComponent(icon, Puzzle),
+        onSelect: () =>
+          openPluginPanel({
+            title: item.label,
+            pluginId: item.pluginId,
+            contributionId,
+            icon,
+            multiInstance: true,
+            instance: opens?.instance === 'new' ? 'new' : 'focus',
+          }),
+      });
+    }
+
+    return items;
+  }, [openPluginPanel, pluginPanels, railSections, sdkPanels, sdkRailSlots]);
 
   if (!isEditorGroup(group) && !isSessionGroup(group)) {
     return null;
@@ -153,12 +290,28 @@ export function WorkspaceTabAddMenu({
         </DropdownMenuItem>
         <DropdownMenuItem
           onSelect={() =>
-            runInThisGroup(() =>
+            runInThisGroup(() => {
+              const activePanel = group.activePanel;
+              const activeParams = (activePanel?.params ?? {}) as {
+                sessionId?: string | null;
+                workspaceId?: string | null;
+              };
+              const targetSessionId =
+                activeParams.sessionId?.trim() ||
+                (activePanel ? extractSessionIdFromPanelId(activePanel.id) : null);
+              const targetWorkspaceId =
+                activeParams.workspaceId?.trim() ||
+                worktree?.activeWorktreeId ||
+                null;
               openOrFocusPanel(
                 PANEL_IDS.SESSION_DETAILS,
-                t('tabCreation.sessionDetails')
-              )
-            )
+                t('tabCreation.sessionDetails'),
+                {
+                  sessionId: targetSessionId ?? null,
+                  workspaceId: targetWorkspaceId,
+                }
+              );
+            })
           }
         >
           <Info />
@@ -229,25 +382,12 @@ export function WorkspaceTabAddMenu({
             ))}
           </DropdownMenuSubContent>
         </DropdownMenuSub>
-        {pluginPanels.map((item) => {
-          const metadata = contributionMetadata(item);
-          const icon = typeof metadata.icon === 'string' ? metadata.icon : null;
-          const Icon = contributionIconComponent(icon, Puzzle);
+        {combinedPluginItems.map((item) => {
+          const Icon = item.icon;
           return (
             <DropdownMenuItem
-              key={`${item.pluginId}:${item.id}`}
-              onSelect={() =>
-                runInThisGroup(() =>
-                  openPluginPanel({
-                    title: item.label,
-                    pluginId: item.pluginId,
-                    contributionId: item.id,
-                    icon,
-                    multiInstance: metadata.multiInstance === true,
-                    instance: metadata.multiInstance === true ? 'new' : 'focus',
-                  })
-                )
-              }
+              key={item.key}
+              onSelect={() => runInThisGroup(item.onSelect)}
             >
               <Icon />
               {item.label}

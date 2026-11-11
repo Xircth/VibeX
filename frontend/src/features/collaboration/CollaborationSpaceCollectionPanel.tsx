@@ -32,6 +32,10 @@ import { AstryxMarkdown } from '@/components/NormalizedConversation/AstryxMarkdo
 import { AttachmentFileCard } from '@/components/NormalizedConversation/attachments/AttachmentFileCard';
 import '@/components/previews/markdownFileProse.css';
 import { Button } from '@/components/ui/button';
+import {
+  ContextCardSourcePill,
+  resolveContextCardSourceMeta,
+} from '@/components/ui/context-cards';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { useOptionalPanelActionsContext } from '@/contexts/PanelActionsContext';
@@ -399,6 +403,11 @@ export function CollaborationSpaceCollectionDockviewPanel(
     null
   );
   const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
+  const [batchDeleteMode, setBatchDeleteMode] = useState(false);
+  const [selectedItemIds, setSelectedItemIds] = useState<Set<string>>(
+    () => new Set()
+  );
+  const [spaceMembers, setSpaceMembers] = useState<SpaceMember[]>([]);
   const [editingNoteDraft, setEditingNoteDraft] = useState('');
   const [savingNoteItemId, setSavingNoteItemId] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -467,9 +476,15 @@ export function CollaborationSpaceCollectionDockviewPanel(
         'space.listMembers',
         { spaceId }
       );
+      const roster = agentRoster(page.members ?? []);
+      setSpaceMembers(roster);
       setLiveSpaceAvatars(
-        agentRoster(page.members ?? []).map((member) =>
-          getAvatar(member.conversation_id ?? undefined, displayName(member))
+        roster.map((member) =>
+          getAvatar(
+            member.conversation_id ?? undefined,
+            displayName(member),
+            member.identity_member_id
+          )
         )
       );
     } catch {
@@ -689,6 +704,18 @@ export function CollaborationSpaceCollectionDockviewPanel(
     []
   );
 
+  const toggleItemSelected = useCallback((itemId: string) => {
+    setSelectedItemIds((current) => {
+      const next = new Set(current);
+      if (next.has(itemId)) {
+        next.delete(itemId);
+      } else {
+        next.add(itemId);
+      }
+      return next;
+    });
+  }, []);
+
   const handleDeleteItem = useCallback(
     async (itemId: string) => {
       if (!spaceId || !itemId || submitting) return;
@@ -701,6 +728,12 @@ export function CollaborationSpaceCollectionDockviewPanel(
         });
         setItems((current) => current.filter((entry) => entry.id !== itemId));
         setSelectedItemId((current) => (current === itemId ? null : current));
+        setSelectedItemIds((current) => {
+          if (!current.has(itemId)) return current;
+          const next = new Set(current);
+          next.delete(itemId);
+          return next;
+        });
         await loadMemory();
       } catch (cause) {
         setError(surfaceErrorCopy(cause));
@@ -710,6 +743,35 @@ export function CollaborationSpaceCollectionDockviewPanel(
     },
     [loadMemory, spaceId, submitting]
   );
+
+  const handleDeleteSelectedItems = useCallback(async () => {
+    if (!spaceId || submitting || selectedItemIds.size === 0) return;
+    const idsToDelete = Array.from(selectedItemIds);
+    setSubmitting(true);
+    setError('');
+    try {
+      for (const itemId of idsToDelete) {
+        await collaborationCall('collaboration', 'space.removeCollectionItem', {
+          spaceId,
+          itemId,
+        });
+      }
+      const deletedSet = new Set(idsToDelete);
+      setItems((current) =>
+        current.filter((entry) => !deletedSet.has(entry.id))
+      );
+      setSelectedItemIds(new Set());
+      setSelectedItemId((current) =>
+        current && deletedSet.has(current) ? null : current
+      );
+      setBatchDeleteMode(false);
+      await loadMemory();
+    } catch (cause) {
+      setError(surfaceErrorCopy(cause));
+    } finally {
+      setSubmitting(false);
+    }
+  }, [loadMemory, selectedItemIds, spaceId, submitting]);
 
   const handleAddTextSubmit = async () => {
     const trimmed = textContent.trim();
@@ -1229,14 +1291,23 @@ export function CollaborationSpaceCollectionDockviewPanel(
                   </Button>
                   <button
                     type="button"
-                    className="collaboration-collection-delete-btn"
+                    className={cn(
+                      'collaboration-collection-delete-btn',
+                      batchDeleteMode && 'is-active'
+                    )}
                     data-testid="collaboration-collection-delete-btn"
                     aria-label={i18n.t('panels:ui.collection.deleteSavedItem')}
-                    disabled={submitting || !selectedItemId}
+                    disabled={submitting || items.length === 0}
                     onClick={(event) => {
                       event.stopPropagation();
-                      if (selectedItemId) {
-                        void handleDeleteItem(selectedItemId);
+                      if (!batchDeleteMode) {
+                        setBatchDeleteMode(true);
+                        return;
+                      }
+                      if (selectedItemIds.size > 0) {
+                        void handleDeleteSelectedItems();
+                      } else {
+                        setBatchDeleteMode(false);
                       }
                     }}
                   >
@@ -1790,13 +1861,14 @@ export function CollaborationSpaceCollectionDockviewPanel(
                 </span>
               </div>
             ) : (
-              items.map((item) => {
+              items.map((item, itemIndex) => {
                 const isCollapsed = collapsedItemIds.has(item.id);
                 const isReadsExpanded = expandedReadItemIds.has(item.id);
                 const isEditingNote = editingNoteItemId === item.id;
                 const isIndexedInMemory = !excludedCollectionIds.includes(
                   item.id
                 );
+                const isItemSelected = selectedItemIds.has(item.id);
                 const itemKind = item.item_kind ?? item.kind ?? 'file';
                 const itemName = item.file_name ?? item.name ?? '';
                 const itemReads = item.read_receipts ?? item.reads ?? [];
@@ -1814,373 +1886,484 @@ export function CollaborationSpaceCollectionDockviewPanel(
                     : itemKind === 'file'
                       ? i18n.t('panels:ui.collection.file')
                       : i18n.t('panels:ui.collection.text');
-                const creatorIsPerson = isHumanPersonLabel(
-                  item.creator_nickname
+                const rawCreatorNickname = (item.creator_nickname ?? '').trim();
+                const rawCreatorConvId = (
+                  item.creator_conversation_id ?? ''
+                ).trim();
+                const matchedCreatorMember = spaceMembers.find(
+                  (member) =>
+                    (rawCreatorConvId &&
+                      String(member.conversation_id ?? '').trim() ===
+                        rawCreatorConvId) ||
+                    (rawCreatorNickname &&
+                      (displayName(member) === rawCreatorNickname ||
+                        String(member.nickname ?? '').trim() ===
+                          rawCreatorNickname))
                 );
-                const creatorDisplay = creatorIsPerson
-                  ? COPY.you
-                  : item.creator_nickname;
-                const creatorAvatarSeed = creatorIsPerson
-                  ? 'Person'
-                  : item.creator_nickname;
+                const creatorIsHuman =
+                  isHumanPersonLabel(rawCreatorNickname) ||
+                  (!rawCreatorNickname &&
+                    !rawCreatorConvId &&
+                    !matchedCreatorMember);
+                const creatorDisplay = creatorIsHuman
+                  ? 'User'
+                  : rawCreatorNickname ||
+                    (matchedCreatorMember
+                      ? displayName(matchedCreatorMember)
+                      : 'User');
+                const sourceMeta = resolveContextCardSourceMeta({
+                  itemKind,
+                  fileName: itemName,
+                  textContent: itemKind === 'text' ? itemTextPreview : '',
+                  byteSize: item.byte_size,
+                });
                 return (
-                  <article
+                  <div
                     key={item.id}
-                    className={cn(
-                      'collaboration-collection-card',
-                      isCollapsed && 'is-collapsed'
-                    )}
-                    data-testid={`collection-item-${item.id}`}
-                    data-collapsed={isCollapsed ? 'true' : 'false'}
-                    data-selected={
-                      selectedItemId === item.id ? 'true' : 'false'
-                    }
+                    className="collaboration-collection-item-entry"
+                    style={{
+                      animation: `fade-up 400ms cubic-bezier(0.23,1,0.32,1) ${Math.min(itemIndex, 6) * 50}ms both`,
+                    }}
                   >
-                    <div
-                      className="collaboration-collection-card-header"
-                      onClick={() => {
-                        setSelectedItemId(item.id);
-                        toggleItemCollapsed(item.id);
-                      }}
+                    <article
+                      className={cn(
+                        'collaboration-collection-card',
+                        isCollapsed && 'is-collapsed'
+                      )}
+                      data-testid={`collection-item-${item.id}`}
+                      data-collapsed={isCollapsed ? 'true' : 'false'}
+                      data-selected={
+                        isItemSelected || selectedItemId === item.id
+                          ? 'true'
+                          : 'false'
+                      }
                     >
                       <div
-                        className="collaboration-collection-creator"
-                        data-testid={`collection-item-creator-${item.id}`}
+                        className="collaboration-collection-card-header"
+                        onClick={() => {
+                          setSelectedItemId(item.id);
+                          if (batchDeleteMode) {
+                            toggleItemSelected(item.id);
+                            return;
+                          }
+                          toggleItemCollapsed(item.id);
+                        }}
                       >
-                        <MemberBotAvatar
-                          config={getAvatar(
-                            item.creator_conversation_id,
-                            creatorAvatarSeed
-                          )}
-                          className="h-4 w-4 shrink-0"
-                        />
-                        <span className="truncate">{creatorDisplay}</span>
-                      </div>
-                      <div className="collaboration-collection-card-header-right">
-                        <span
-                          className="collaboration-collection-kind-badge"
-                          data-testid={`collection-item-kind-${item.id}`}
-                        >
-                          {kindLabel}
-                        </span>
-                        {itemKind === 'text' && item.file_path ? (
+                        <div className="collaboration-collection-card-header-left">
+                          {batchDeleteMode ? (
+                            <button
+                              type="button"
+                              role="checkbox"
+                              aria-checked={isItemSelected}
+                              aria-label={`选择 ${itemName || creatorDisplay}`}
+                              data-testid={`collection-item-select-${item.id}`}
+                              className={cn(
+                                'collaboration-collection-select-checkbox',
+                                isItemSelected && 'is-checked'
+                              )}
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                toggleItemSelected(item.id);
+                              }}
+                            >
+                              {isItemSelected ? (
+                                <Check
+                                  className="h-2.5 w-2.5 stroke-[3]"
+                                  aria-hidden="true"
+                                />
+                              ) : null}
+                            </button>
+                          ) : null}
+                          <div
+                            className="collaboration-collection-creator"
+                            data-testid={`collection-item-creator-${item.id}`}
+                          >
+                            {!creatorIsHuman ? (
+                              <MemberBotAvatar
+                                config={getAvatar(
+                                  matchedCreatorMember?.conversation_id ??
+                                    item.creator_conversation_id,
+                                  creatorDisplay,
+                                  matchedCreatorMember?.identity_member_id
+                                )}
+                                className="h-4 w-4 shrink-0"
+                              />
+                            ) : null}
+                            <span className="truncate">{creatorDisplay}</span>
+                          </div>
+                        </div>
+                        <div className="collaboration-collection-card-header-right">
+                          {sourceMeta.metricLabel ? (
+                            <span className="collaboration-collection-metric tabular-nums">
+                              {sourceMeta.metricLabel}
+                            </span>
+                          ) : null}
+                          <span
+                            className="collaboration-collection-kind-badge"
+                            data-testid={`collection-item-kind-${item.id}`}
+                          >
+                            {kindLabel}
+                          </span>
+                          {itemKind === 'text' && item.file_path ? (
+                            <button
+                              type="button"
+                              className="collaboration-collection-open-tab-btn"
+                              data-testid={`collection-item-open-tab-${item.id}`}
+                              aria-label={i18n.t(
+                                'panels:ui.collection.openInTab'
+                              )}
+                              title={i18n.t('panels:ui.collection.openInTab')}
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                panelActions?.openFilePreview(item.file_path, {
+                                  displayPath: itemName || undefined,
+                                });
+                              }}
+                            >
+                              <ExternalLink
+                                className="h-3.5 w-3.5"
+                                aria-hidden="true"
+                              />
+                            </button>
+                          ) : null}
+                          {itemKind === 'text' || itemKind === 'image' ? (
+                            <button
+                              type="button"
+                              className="collaboration-collection-copy-btn"
+                              data-testid={`collection-item-copy-${item.id}`}
+                              aria-label={i18n.t(
+                                'panels:ui.collection.copySavedItem'
+                              )}
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                void handleCopyItem(item);
+                              }}
+                            >
+                              <Copy
+                                className="h-3.5 w-3.5"
+                                aria-hidden="true"
+                              />
+                            </button>
+                          ) : null}
                           <button
                             type="button"
-                            className="collaboration-collection-open-tab-btn"
-                            data-testid={`collection-item-open-tab-${item.id}`}
+                            className="collaboration-collection-delete-btn"
+                            data-testid={`collection-item-delete-${item.id}`}
                             aria-label={i18n.t(
-                              'panels:ui.collection.openInTab'
+                              'panels:ui.collection.deleteSavedItem'
                             )}
-                            title={i18n.t('panels:ui.collection.openInTab')}
+                            disabled={submitting}
                             onClick={(event) => {
                               event.stopPropagation();
-                              panelActions?.openFilePreview(item.file_path, {
-                                displayPath: itemName || undefined,
-                              });
+                              void handleDeleteItem(item.id);
                             }}
                           >
-                            <ExternalLink
+                            <Trash2
                               className="h-3.5 w-3.5"
                               aria-hidden="true"
                             />
                           </button>
-                        ) : null}
-                        {itemKind === 'text' || itemKind === 'image' ? (
                           <button
                             type="button"
-                            className="collaboration-collection-copy-btn"
-                            data-testid={`collection-item-copy-${item.id}`}
-                            aria-label={i18n.t(
-                              'panels:ui.collection.copySavedItem'
-                            )}
+                            className="collaboration-collection-collapse-btn"
+                            data-testid={`collection-item-collapse-toggle-${item.id}`}
+                            aria-expanded={!isCollapsed}
+                            aria-label={
+                              isCollapsed
+                                ? i18n.t('panels:ui.collection.expandSavedItem')
+                                : i18n.t(
+                                    'panels:ui.collection.collapseSavedItem'
+                                  )
+                            }
                             onClick={(event) => {
                               event.stopPropagation();
-                              void handleCopyItem(item);
+                              toggleItemCollapsed(item.id);
                             }}
                           >
-                            <Copy className="h-3.5 w-3.5" aria-hidden="true" />
+                            <ChevronDown
+                              className={cn(
+                                'h-3.5 w-3.5 transition-transform',
+                                isCollapsed && '-rotate-90'
+                              )}
+                              aria-hidden="true"
+                            />
                           </button>
-                        ) : null}
-                        <button
-                          type="button"
-                          className="collaboration-collection-delete-btn"
-                          data-testid={`collection-item-delete-${item.id}`}
-                          aria-label={i18n.t(
-                            'panels:ui.collection.deleteSavedItem'
-                          )}
-                          disabled={submitting}
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            void handleDeleteItem(item.id);
-                          }}
-                        >
-                          <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
-                        </button>
-                        <button
-                          type="button"
-                          className="collaboration-collection-collapse-btn"
-                          data-testid={`collection-item-collapse-toggle-${item.id}`}
-                          aria-expanded={!isCollapsed}
-                          aria-label={
-                            isCollapsed
-                              ? i18n.t('panels:ui.collection.expandSavedItem')
-                              : i18n.t('panels:ui.collection.collapseSavedItem')
-                          }
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            toggleItemCollapsed(item.id);
-                          }}
-                        >
-                          <ChevronDown
-                            className={cn(
-                              'h-3.5 w-3.5 transition-transform',
-                              isCollapsed && '-rotate-90'
-                            )}
-                            aria-hidden="true"
-                          />
-                        </button>
-                      </div>
-                    </div>
-
-                    {!isCollapsed ? (
-                      <>
-                        <div
-                          className="collaboration-collection-card-content"
-                          data-testid={`collection-item-content-${item.id}`}
-                        >
-                          {itemKind === 'text' ? (
-                            <div
-                              className="collaboration-collection-text-content collaboration-collection-markdown-preview"
-                              data-testid={`collection-item-markdown-preview-${item.id}`}
-                            >
-                              <AstryxMarkdown
-                                className="markdown-file-prose"
-                                value={itemTextPreview}
-                                workspacePath={workspacePath}
-                              />
-                            </div>
-                          ) : itemKind === 'image' ? (
-                            <SpaceCollectionImagePreview
-                              filePath={item.file_path}
-                              name={itemName}
-                            />
-                          ) : (
-                            <AttachmentFileCard
-                              name={itemName}
-                              sizeBytes={item.byte_size}
-                              modifiedAt={item.created_at}
-                              onClick={() =>
-                                panelActions?.openFilePreview(item.file_path)
-                              }
-                            />
-                          )}
                         </div>
+                      </div>
 
-                        <div
-                          className="collaboration-collection-note"
-                          data-testid={`collection-item-note-${item.id}`}
-                        >
-                          <span className="collaboration-collection-meta-label">
-                            {i18n.t('panels:ui.collection.note')}
-                          </span>
-                          {isEditingNote ? (
-                            <div className="collaboration-collection-note-editor">
-                              <Input
-                                aria-label={i18n.t(
-                                  'panels:ui.collection.editSavedItemNote'
-                                )}
-                                data-testid={`collection-item-note-input-${item.id}`}
-                                value={editingNoteDraft}
-                                disabled={savingNoteItemId === item.id}
-                                autoFocus
-                                placeholder={i18n.t(
-                                  'panels:ui.collection.enterANote'
-                                )}
-                                className="h-6 flex-1 px-2 text-xs"
-                                onChange={(event) =>
-                                  setEditingNoteDraft(event.target.value)
+                      {!isCollapsed ? (
+                        <>
+                          <div
+                            className="collaboration-collection-card-content"
+                            data-testid={`collection-item-content-${item.id}`}
+                          >
+                            {itemKind === 'text' ? (
+                              <div
+                                className="collaboration-collection-text-content collaboration-collection-markdown-preview"
+                                data-testid={`collection-item-markdown-preview-${item.id}`}
+                              >
+                                <AstryxMarkdown
+                                  className="markdown-file-prose"
+                                  value={itemTextPreview}
+                                  workspacePath={workspacePath}
+                                />
+                              </div>
+                            ) : itemKind === 'image' ? (
+                              <SpaceCollectionImagePreview
+                                filePath={item.file_path}
+                                name={itemName}
+                              />
+                            ) : (
+                              <AttachmentFileCard
+                                name={itemName}
+                                sizeBytes={item.byte_size}
+                                modifiedAt={item.created_at}
+                                onClick={() =>
+                                  panelActions?.openFilePreview(item.file_path)
                                 }
-                                onKeyDown={(event) => {
-                                  if (event.key === 'Enter') {
-                                    event.preventDefault();
+                              />
+                            )}
+                          </div>
+
+                          <div
+                            className="collaboration-collection-note"
+                            data-testid={`collection-item-note-${item.id}`}
+                          >
+                            <span className="collaboration-collection-meta-label">
+                              {i18n.t('panels:ui.collection.note')}
+                            </span>
+                            {isEditingNote ? (
+                              <div className="collaboration-collection-note-editor">
+                                <Input
+                                  aria-label={i18n.t(
+                                    'panels:ui.collection.editSavedItemNote'
+                                  )}
+                                  data-testid={`collection-item-note-input-${item.id}`}
+                                  value={editingNoteDraft}
+                                  disabled={savingNoteItemId === item.id}
+                                  autoFocus
+                                  placeholder={i18n.t(
+                                    'panels:ui.collection.enterANote'
+                                  )}
+                                  className="h-6 flex-1 px-2 text-xs"
+                                  onChange={(event) =>
+                                    setEditingNoteDraft(event.target.value)
+                                  }
+                                  onKeyDown={(event) => {
+                                    if (event.key === 'Enter') {
+                                      event.preventDefault();
+                                      void handleSaveNote(
+                                        item.id,
+                                        editingNoteDraft
+                                      );
+                                    } else if (event.key === 'Escape') {
+                                      event.preventDefault();
+                                      setEditingNoteItemId(null);
+                                    }
+                                  }}
+                                />
+                                <Button
+                                  type="button"
+                                  variant="ghost"
+                                  size="icon"
+                                  className="h-6 w-6 shrink-0"
+                                  aria-label={i18n.t(
+                                    'panels:ui.collection.saveNote'
+                                  )}
+                                  data-testid={`collection-item-note-save-${item.id}`}
+                                  disabled={savingNoteItemId === item.id}
+                                  onClick={() => {
                                     void handleSaveNote(
                                       item.id,
                                       editingNoteDraft
                                     );
-                                  } else if (event.key === 'Escape') {
-                                    event.preventDefault();
-                                    setEditingNoteItemId(null);
-                                  }
-                                }}
-                              />
-                              <Button
+                                  }}
+                                >
+                                  <Check
+                                    className="h-3.5 w-3.5"
+                                    aria-hidden="true"
+                                  />
+                                </Button>
+                                <Button
+                                  type="button"
+                                  variant="ghost"
+                                  size="icon"
+                                  className="h-6 w-6 shrink-0"
+                                  aria-label={i18n.t(
+                                    'panels:ui.collection.cancelNoteEdit'
+                                  )}
+                                  data-testid={`collection-item-note-cancel-${item.id}`}
+                                  disabled={savingNoteItemId === item.id}
+                                  onClick={() => setEditingNoteItemId(null)}
+                                >
+                                  <X
+                                    className="h-3.5 w-3.5"
+                                    aria-hidden="true"
+                                  />
+                                </Button>
+                              </div>
+                            ) : (
+                              <button
                                 type="button"
-                                variant="ghost"
-                                size="icon"
-                                className="h-6 w-6 shrink-0"
+                                className="collaboration-collection-note-display"
+                                data-testid={`collection-item-note-edit-${item.id}`}
                                 aria-label={i18n.t(
-                                  'panels:ui.collection.saveNote'
+                                  'panels:ui.collection.editNote'
                                 )}
-                                data-testid={`collection-item-note-save-${item.id}`}
-                                disabled={savingNoteItemId === item.id}
+                                title={i18n.t(
+                                  'panels:ui.collection.clickToEditNote'
+                                )}
                                 onClick={() => {
-                                  void handleSaveNote(
-                                    item.id,
-                                    editingNoteDraft
-                                  );
+                                  setEditingNoteItemId(item.id);
+                                  setEditingNoteDraft(item.note || '');
                                 }}
                               >
-                                <Check
-                                  className="h-3.5 w-3.5"
+                                <span className="truncate">
+                                  {item.note ||
+                                    i18n.t('panels:ui.collection.none')}
+                                </span>
+                                <Pencil
+                                  className="collaboration-collection-note-edit-icon h-3 w-3 shrink-0"
                                   aria-hidden="true"
                                 />
-                              </Button>
-                              <Button
-                                type="button"
-                                variant="ghost"
-                                size="icon"
-                                className="h-6 w-6 shrink-0"
-                                aria-label={i18n.t(
-                                  'panels:ui.collection.cancelNoteEdit'
-                                )}
-                                data-testid={`collection-item-note-cancel-${item.id}`}
-                                disabled={savingNoteItemId === item.id}
-                                onClick={() => setEditingNoteItemId(null)}
-                              >
-                                <X className="h-3.5 w-3.5" aria-hidden="true" />
-                              </Button>
-                            </div>
-                          ) : (
-                            <button
-                              type="button"
-                              className="collaboration-collection-note-display"
-                              data-testid={`collection-item-note-edit-${item.id}`}
-                              aria-label={i18n.t(
-                                'panels:ui.collection.editNote'
-                              )}
-                              title={i18n.t(
-                                'panels:ui.collection.clickToEditNote'
-                              )}
-                              onClick={() => {
-                                setEditingNoteItemId(item.id);
-                                setEditingNoteDraft(item.note || '');
-                              }}
-                            >
-                              <span>
-                                {item.note ||
-                                  i18n.t('panels:ui.collection.none')}
-                              </span>
-                              <Pencil
-                                className="collaboration-collection-note-edit-icon h-3 w-3 shrink-0"
-                                aria-hidden="true"
-                              />
-                            </button>
-                          )}
-                        </div>
-
-                        <div className="collaboration-collection-card-footer">
-                          <span data-testid={`collection-item-time-${item.id}`}>
-                            {formatCollectionTime(item.created_at)}
-                          </span>
-                          <div className="flex items-center gap-1.5">
-                            <button
-                              type="button"
-                              className={cn(
-                                'collaboration-memory-index-toggle',
-                                isIndexedInMemory && 'is-indexed'
-                              )}
-                              data-testid={`collection-item-index-toggle-${item.id}`}
-                              title={
-                                isIndexedInMemory
-                                  ? '已同步至记忆索引，点击取消'
-                                  : '点击加入记忆索引'
-                              }
-                              onClick={() => {
-                                void handleToggleCollectionIndexed(item.id);
-                              }}
-                            >
-                              <Link2
-                                className="h-3 w-3 shrink-0"
-                                aria-hidden="true"
-                              />
-                              <span>
-                                {isIndexedInMemory ? '已索引' : '索引'}
-                              </span>
-                            </button>
-                            <button
-                              type="button"
-                              className="collaboration-collection-reads-toggle"
-                              data-testid={`collection-item-reads-toggle-${item.id}`}
-                              aria-expanded={isReadsExpanded}
-                              onClick={() => toggleReadLog(item.id)}
-                            >
-                              <span>
-                                {i18n.t('panels:ui.collection.readsCount', {
-                                  count: itemReads.length,
-                                })}
-                              </span>
-                              <ChevronDown
-                                className={cn(
-                                  'h-3 w-3 transition-transform',
-                                  isReadsExpanded && 'rotate-180'
-                                )}
-                                aria-hidden="true"
-                              />
-                            </button>
-                          </div>
-                        </div>
-
-                        {isReadsExpanded ? (
-                          <div
-                            className="collaboration-collection-reads-panel"
-                            data-testid={`collection-item-reads-list-${item.id}`}
-                          >
-                            {itemReads.length === 0 ? (
-                              <p className="collaboration-collection-reads-empty">
-                                {i18n.t('panels:ui.collection.noBotReadsYet')}
-                              </p>
-                            ) : (
-                              <ul className="collaboration-collection-reads-list">
-                                {itemReads.map((read, readIndex) => (
-                                  <li
-                                    key={
-                                      read.reader_key ??
-                                      read.reader_conversation_id ??
-                                      `${item.id}-${readIndex}`
-                                    }
-                                    className="collaboration-collection-read-row"
-                                  >
-                                    <span className="collaboration-collection-read-member">
-                                      <MemberBotAvatar
-                                        config={getAvatar(
-                                          read.reader_conversation_id,
-                                          read.reader_nickname
-                                        )}
-                                        className="h-3.5 w-3.5 shrink-0"
-                                      />
-                                      <span className="truncate">
-                                        {read.reader_nickname}
-                                      </span>
-                                    </span>
-                                    <span className="collaboration-collection-read-meta">
-                                      {i18n.t(
-                                        'panels:ui.collection.readTimes',
-                                        { count: read.read_count ?? 1 }
-                                      )}{' '}
-                                      ·{' '}
-                                      {formatCollectionTime(
-                                        read.last_read_at ?? read.read_at ?? ''
-                                      )}
-                                    </span>
-                                  </li>
-                                ))}
-                              </ul>
+                              </button>
                             )}
                           </div>
-                        ) : null}
-                      </>
+
+                          <div className="collaboration-collection-card-footer">
+                            <div className="min-w-0 flex-1">
+                              {sourceMeta.sourceLabel ? (
+                                <ContextCardSourcePill
+                                  badge={sourceMeta.badge}
+                                  tone={sourceMeta.tone}
+                                  source={sourceMeta.sourceLabel}
+                                  interactive={Boolean(
+                                    item.file_path && panelActions
+                                  )}
+                                  data-testid={`collection-item-source-pill-${item.id}`}
+                                  onClick={() => {
+                                    if (item.file_path) {
+                                      panelActions?.openFilePreview(
+                                        item.file_path,
+                                        {
+                                          displayPath: itemName || undefined,
+                                        }
+                                      );
+                                    }
+                                  }}
+                                />
+                              ) : null}
+                            </div>
+                            <div className="flex shrink-0 items-center gap-1.5">
+                              <button
+                                type="button"
+                                className={cn(
+                                  'collaboration-memory-index-toggle',
+                                  isIndexedInMemory && 'is-indexed'
+                                )}
+                                data-testid={`collection-item-index-toggle-${item.id}`}
+                                title={
+                                  isIndexedInMemory
+                                    ? '已同步至记忆索引，点击取消'
+                                    : '点击加入记忆索引'
+                                }
+                                onClick={() => {
+                                  void handleToggleCollectionIndexed(item.id);
+                                }}
+                              >
+                                <Link2
+                                  className="h-3 w-3 shrink-0"
+                                  aria-hidden="true"
+                                />
+                                <span>
+                                  {isIndexedInMemory ? '已索引' : '索引'}
+                                </span>
+                              </button>
+                              <button
+                                type="button"
+                                className="collaboration-collection-reads-toggle"
+                                data-testid={`collection-item-reads-toggle-${item.id}`}
+                                aria-expanded={isReadsExpanded}
+                                onClick={() => toggleReadLog(item.id)}
+                              >
+                                <span>
+                                  {i18n.t('panels:ui.collection.readsCount', {
+                                    count: itemReads.length,
+                                  })}
+                                </span>
+                                <ChevronDown
+                                  className={cn(
+                                    'h-3 w-3 transition-transform',
+                                    isReadsExpanded && 'rotate-180'
+                                  )}
+                                  aria-hidden="true"
+                                />
+                              </button>
+                            </div>
+                          </div>
+
+                          {isReadsExpanded ? (
+                            <div
+                              className="collaboration-collection-reads-panel"
+                              data-testid={`collection-item-reads-list-${item.id}`}
+                            >
+                              {itemReads.length === 0 ? (
+                                <p className="collaboration-collection-reads-empty">
+                                  {i18n.t('panels:ui.collection.noBotReadsYet')}
+                                </p>
+                              ) : (
+                                <ul className="collaboration-collection-reads-list">
+                                  {itemReads.map((read, readIndex) => (
+                                    <li
+                                      key={
+                                        read.reader_key ??
+                                        read.reader_conversation_id ??
+                                        `${item.id}-${readIndex}`
+                                      }
+                                      className="collaboration-collection-read-row"
+                                    >
+                                      <span className="collaboration-collection-read-member">
+                                        <MemberBotAvatar
+                                          config={getAvatar(
+                                            read.reader_conversation_id,
+                                            read.reader_nickname
+                                          )}
+                                          className="h-3.5 w-3.5 shrink-0"
+                                        />
+                                        <span className="truncate">
+                                          {read.reader_nickname}
+                                        </span>
+                                      </span>
+                                      <span className="collaboration-collection-read-meta">
+                                        {i18n.t(
+                                          'panels:ui.collection.readTimes',
+                                          { count: read.read_count ?? 1 }
+                                        )}{' '}
+                                        ·{' '}
+                                        {formatCollectionTime(
+                                          read.last_read_at ??
+                                            read.read_at ??
+                                            ''
+                                        )}
+                                      </span>
+                                    </li>
+                                  ))}
+                                </ul>
+                              )}
+                            </div>
+                          ) : null}
+                        </>
+                      ) : null}
+                    </article>
+
+                    {!isCollapsed ? (
+                      <div className="collaboration-collection-outer-time">
+                        <span data-testid={`collection-item-time-${item.id}`}>
+                          {formatCollectionTime(item.created_at)}
+                        </span>
+                      </div>
                     ) : null}
-                  </article>
+                  </div>
                 );
               })
             )}

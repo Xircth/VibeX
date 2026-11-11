@@ -1,4 +1,12 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import {
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
+import { UNSAFE_LocationContext } from 'react-router-dom';
 import {
   SegmentedControl,
   SegmentedControlItem,
@@ -67,6 +75,20 @@ export function WebServiceSettings({
 } = {}) {
   const contextTransport = useBackendTransport();
   const transport = transportOverride ?? contextTransport;
+  const locationContext = useContext(UNSAFE_LocationContext);
+  const rawSearch =
+    locationContext?.location.search ??
+    (typeof window !== 'undefined' ? window.location.search : '');
+  const searchParams = useMemo(
+    () => new URLSearchParams(rawSearch),
+    [rawSearch]
+  );
+  const requestedRole = searchParams.get('role');
+  const requestedAction = searchParams.get('action');
+  const prefersClientTab =
+    requestedRole === 'client' ||
+    requestedAction === 'connect' ||
+    requestedAction === 'ssh';
   const { t } = useTranslation(['settings', 'common']);
   const [draft, setDraft] = useState<WebServiceConfig>(DEFAULT_CONFIG);
   const draftRef = useRef(draft);
@@ -84,8 +106,13 @@ export function WebServiceSettings({
   const hostConsole = isTauriClient(transport.environment);
   const boundToRemote = transport.environment === 'remote-desktop';
   const [role, setRole] = useState<RemoteRoleTab>(() =>
-    hostConsole && boundToRemote ? 'client' : 'server'
+    hostConsole && (boundToRemote || prefersClientTab) ? 'client' : 'server'
   );
+  useEffect(() => {
+    if (hostConsole && prefersClientTab) {
+      setRole('client');
+    }
+  }, [hostConsole, prefersClientTab]);
   const serviceRunning = Boolean(status?.running);
   const { writeNow, writeSettled, flush, holdingRef } = useLiveSettingsCommit(
     async (next: WebServiceConfig) => {
@@ -142,10 +169,6 @@ export function WebServiceSettings({
         if (tunnelStatus) {
           setTunnelEnabled(Boolean(tunnelStatus.enabled));
         }
-        if (!holdingRef.current) {
-          draftRef.current = savedConfig;
-          setDraft(savedConfig);
-        }
         const lanMissing =
           currentStatus.running &&
           savedConfig.allow_lan &&
@@ -153,7 +176,18 @@ export function WebServiceSettings({
             (address) =>
               !address.includes('127.0.0.1') && !address.includes('localhost')
           );
-        setStatus(lanMissing ? await webServiceApi.start() : currentStatus);
+        const nextStatus = lanMissing
+          ? await webServiceApi.start()
+          : currentStatus;
+        const effectiveConfig =
+          nextStatus.running && validPort(nextStatus.port)
+            ? { ...savedConfig, port: nextStatus.port }
+            : savedConfig;
+        if (!holdingRef.current) {
+          draftRef.current = effectiveConfig;
+          setDraft(effectiveConfig);
+        }
+        setStatus(nextStatus);
       } catch (error) {
         toast.error(getErrorMessage(error, t('webService.configLoadFailed')));
       } finally {
@@ -227,9 +261,13 @@ export function WebServiceSettings({
     try {
       const next = await webServiceApi.start();
       const saved = await webServiceApi.getConfig();
+      const effectiveConfig =
+        next.running && validPort(next.port)
+          ? { ...saved, port: next.port }
+          : saved;
       if (!holdingRef.current) {
-        draftRef.current = saved;
-        setDraft(saved);
+        draftRef.current = effectiveConfig;
+        setDraft(effectiveConfig);
       }
       setStatus(next);
       setProbe(null);
@@ -296,7 +334,7 @@ export function WebServiceSettings({
             <span className="inline-flex items-center rounded-full border border-primary/25 bg-primary/10 px-2 py-0.5 text-[11px] font-semibold leading-none tracking-wide text-primary">
               Beta
             </span>
-            <span className="inline-flex items-center rounded-full border border-emerald-500/25 bg-emerald-500/10 px-2 py-0.5 text-[11px] font-medium leading-none text-emerald-600 dark:text-emerald-400">
+            <span className="inline-flex items-center rounded-full border border-success/25 bg-success/10 px-2 py-0.5 text-[11px] font-medium leading-none text-success">
               端到端加密
             </span>
           </h2>

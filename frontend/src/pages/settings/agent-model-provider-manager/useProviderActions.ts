@@ -11,6 +11,11 @@ import {
   agentManagementApi,
   agentManagementErrorMessage as errorMessage,
 } from '@/features/agent-management';
+import {
+  ROUTER_PROVIDER_NAME,
+  providerSaveRequest,
+  type RouterProvision,
+} from '@/features/model-router';
 import { contributionMetadata } from '@/hooks/usePluginHostContributions';
 import type { PluginContributionCatalogItem } from '@/lib/api/plugins';
 
@@ -282,8 +287,46 @@ export function useProviderActions(
     }
   };
 
+  /**
+   * Writes the ModelRouter preset and switches the agent onto it. Failures
+   * propagate so the ModelRouter dialog can show them next to the action.
+   */
+  const applyModelRouter = async (provision: RouterProvision) => {
+    const existing = view?.providers.find(
+      (provider) => provider.name === ROUTER_PROVIDER_NAME
+    );
+    if (signedIn && !existing?.bound) {
+      const result = await ConfirmDialog.show({
+        title: t('settings:agents.authEnableProviderSignsOutTitle'),
+        message: t('settings:agents.authEnableProviderSignsOutMessage'),
+        confirmText: t('settings:agents.authEnableProviderSignsOutConfirm'),
+        cancelText: t('common:cancel'),
+        variant: 'destructive',
+      });
+      if (result !== 'confirmed') {
+        throw new Error(t('settings:agents.modelRouterNotEnabled'));
+      }
+    }
+    setSaving(true);
+    try {
+      const saved = await agentManagementApi.saveModelProvider(
+        providerSaveRequest(provision, existing?.id ?? null)
+      );
+      setView(saved);
+      const preset = saved.providers.find(
+        (provider) => provider.name === ROUTER_PROVIDER_NAME
+      );
+      if (!preset) throw new Error(t('settings:agents.providerActionFailed'));
+      setView(await agentManagementApi.bindModelProvider(agentId, preset.id));
+      await onChanged?.();
+    } finally {
+      setSaving(false);
+    }
+  };
+
   return {
     bind,
+    applyModelRouter,
     remove,
     copyConfig,
     testConnection,

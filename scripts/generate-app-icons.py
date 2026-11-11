@@ -126,10 +126,36 @@ def scales_for(
     return squircle, content
 
 
+def has_transparent_corners(image: Image.Image) -> bool:
+    image = image.convert("RGBA")
+    width, height = image.size
+    corners = (
+        (0, 0),
+        (width - 1, 0),
+        (0, height - 1),
+        (width - 1, height - 1),
+    )
+    return all(image.getpixel(pt)[3] == 0 for pt in corners)
+
+
 def render_desktop_icon(
     source: Image.Image, size: int, content_scale: float = CONTENT_SCALE
 ) -> Image.Image:
     squircle, content = scales_for(size, content_scale)
+    if has_transparent_corners(source):
+        # Source already has its own exact rounded-rectangle background and
+        # internal mark proportions (e.g. logo-recreated.png). Scale it directly
+        # into the inset slot without re-masking with a superellipse squircle.
+        scale_factor = content_scale / CONTENT_SCALE
+        body_scale = squircle if size <= 24 else min(0.92, squircle * scale_factor)
+        canvas = Image.new("RGBA", (MASTER_SIZE, MASTER_SIZE), (0, 0, 0, 0))
+        body_size = max(1, round(MASTER_SIZE * body_scale))
+        body = source.convert("RGBA").resize(
+            (body_size, body_size), Image.Resampling.LANCZOS
+        )
+        offset = (MASTER_SIZE - body_size) // 2
+        canvas.paste(body, (offset, offset), body)
+        return resize(canvas, size)
     square = place_content(source, MASTER_SIZE, content)
     return resize(apply_squircle(square, squircle), size)
 
@@ -201,9 +227,29 @@ def write_iconset(master: Image.Image, iconset: Path) -> None:
         resize(master, size).save(iconset / name, format="PNG")
 
 
+def write_icns_png_chunks(master: Image.Image, path: Path) -> None:
+    chunks = bytearray()
+    icns_slots = (
+        ("ic11", 32),
+        ("ic12", 64),
+        ("ic07", 128),
+        ("ic08", 256),
+        ("ic13", 256),
+        ("ic09", 512),
+        ("ic14", 512),
+        ("ic10", 1024),
+    )
+    for ostype, size in icns_slots:
+        buffer = io.BytesIO()
+        resize(master, size).save(buffer, format="PNG")
+        payload = buffer.getvalue()
+        chunks += ostype.encode("ascii") + struct.pack(">I", 8 + len(payload)) + payload
+    path.write_bytes(b"icns" + struct.pack(">I", 8 + len(chunks)) + chunks)
+
+
 def write_icns(master: Image.Image) -> None:
     if sys.platform != "darwin":
-        print("skipping ICNS: iconutil is macOS-only")
+        write_icns_png_chunks(master, ICONS / "icon.icns")
         return
     with tempfile.TemporaryDirectory() as temp:
         iconset = Path(temp) / "AppIcon.iconset"
@@ -215,7 +261,8 @@ def write_icns(master: Image.Image) -> None:
 
 
 def write_ios_android(master_path: Path) -> None:
-    tauri = ROOT / "node_modules" / ".bin" / "tauri"
+    bin_name = "tauri.cmd" if sys.platform == "win32" else "tauri"
+    tauri = ROOT / "node_modules" / ".bin" / bin_name
     if not tauri.exists():
         print("skipping tauri ios/android icons: @tauri-apps/cli is not installed")
         return
@@ -260,7 +307,7 @@ def main() -> int:
     if source.size[0] != source.size[1]:
         raise SystemExit(f"{SOURCE} must be square, got {source.size}")
     square = place_content(source, MASTER_SIZE, CONTENT_SCALE)
-    desktop = apply_squircle(square)
+    desktop = render_desktop_icon(source, MASTER_SIZE, CONTENT_SCALE)
     with tempfile.TemporaryDirectory() as temp:
         master_path = Path(temp) / "app-icon.png"
         square.save(master_path, format="PNG")

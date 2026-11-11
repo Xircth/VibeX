@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
@@ -8,28 +9,48 @@ vi.mock('@xyflow/react', () => ({
   Panel: ({ children }: { children: ReactNode }) => <div>{children}</div>,
 }));
 
+vi.mock('@/hooks/usePluginHostContributions', () => ({
+  usePluginHostContributions: () => [],
+  contributionMetadata: () => ({}),
+}));
+
+vi.mock('@/features/agents/useSelectableAgents', () => ({
+  useSelectableAgents: () => [],
+}));
+
 function renderDock({
   onCreateGroup = vi.fn(),
   onCreateSession = vi.fn(),
+  orientation = 'horizontal' as 'horizontal' | 'vertical',
+  menuSide,
 }: {
   onCreateGroup?: ReturnType<typeof vi.fn>;
   onCreateSession?: ReturnType<typeof vi.fn>;
+  orientation?: 'horizontal' | 'vertical';
+  menuSide?: 'top' | 'left' | 'right';
 } = {}) {
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
   render(
-    <SessionCanvasDock
-      selectedCount={0}
-      selectedExpanded={false}
-      onCreateGroup={onCreateGroup}
-      onCreateSession={onCreateSession}
-      onImportByProject={vi.fn()}
-      onImportByRecent={vi.fn()}
-      onImportByAgent={vi.fn()}
-      onFitView={vi.fn()}
-      onAutoArrange={vi.fn()}
-      onExpandSelection={vi.fn()}
-      onCollapseSelection={vi.fn()}
-      onDeleteSelection={vi.fn()}
-    />
+    <QueryClientProvider client={queryClient}>
+      <SessionCanvasDock
+        selectedCount={0}
+        selectedExpanded={false}
+        orientation={orientation}
+        menuSide={menuSide}
+        onCreateGroup={onCreateGroup}
+        onCreateSession={onCreateSession}
+        onImportByProject={vi.fn()}
+        onImportByRecent={vi.fn()}
+        onImportByAgent={vi.fn()}
+        onFitView={vi.fn()}
+        onAutoArrange={vi.fn()}
+        onExpandSelection={vi.fn()}
+        onCollapseSelection={vi.fn()}
+        onDeleteSelection={vi.fn()}
+      />
+    </QueryClientProvider>
   );
   return { onCreateGroup, onCreateSession };
 }
@@ -59,5 +80,18 @@ describe('SessionCanvasDock', () => {
     expect(project.querySelector('svg')).toBeTruthy();
     expect(recent.querySelector('svg')).toBeTruthy();
     expect(agent.querySelector('svg')).toBeTruthy();
+  });
+
+  it('supports vertical orientation and custom menu side for left/right dock placement', async () => {
+    const user = userEvent.setup();
+    renderDock({ orientation: 'vertical', menuSide: 'left' });
+
+    const toolbar = screen.getByRole('toolbar', { name: '画布工具' });
+    expect(toolbar).toHaveAttribute('aria-orientation', 'vertical');
+    expect(toolbar.className).toContain('flex-col');
+
+    await user.click(screen.getByRole('button', { name: '新建' }));
+    const createMenu = await screen.findByRole('menu');
+    expect(createMenu).toHaveAttribute('data-side', 'left');
   });
 });

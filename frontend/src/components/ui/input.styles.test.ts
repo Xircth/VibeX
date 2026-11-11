@@ -300,16 +300,19 @@ describe('text control caret clearance', () => {
       }
     });
 
-    expect(lightTokens['--surface-control-solid']).toBe('#ffffff');
-    expect(lightTokens['--surface-control-solid-hover']).toBe('#f5f5f5');
-    expect(lightTokens['--surface-raised']).toBe(
-      'var(--surface-raised-control)'
-    );
-    expect(darkTokens['--surface-control-solid']).toBe('#262626');
-    expect(darkTokens['--surface-control-solid-hover']).toBe('#404040');
-    expect(darkTokens['--surface-raised']).toBe(
-      'var(--surface-raised-control)'
-    );
+    for (const tokens of [lightTokens, darkTokens]) {
+      expect(tokens['--surface-control-solid']).toBe(
+        'var(--surface-raised-control)'
+      );
+      expect(tokens['--surface-control-solid-hover']).toBe(
+        'var(--surface-raised-control-hover)'
+      );
+      expect(tokens['--surface-raised']).toBe('var(--surface-raised-control)');
+    }
+    expect(lightTokens['--surface-raised-control']).toBe('#ffffff');
+    expect(lightTokens['--surface-raised-control-hover']).toBe('#f5f5f5');
+    expect(darkTokens['--surface-raised-control']).toBe('#262626');
+    expect(darkTokens['--surface-raised-control-hover']).toBe('#404040');
     expect(settingsInputFills).toContain('var(--surface-control-solid)');
   });
 });

@@ -1,8 +1,10 @@
 import { useCallback } from 'react';
 import type { IDockviewPanelProps } from 'dockview-react';
 import { useTranslation } from 'react-i18next';
+import { ShellNavPanelDragHandle } from '@/components/layout/ShellNavPanelDragHandle';
 import { useFileTreeStore } from '@/stores/useFileTreeStore';
 import { usePanelActionsContext } from '@/contexts/PanelActionsContext';
+import { PANEL_IDS } from '@/stores/useLayoutStore';
 import {
   useWorkspaceTextSearch,
   WorkspaceFileSearchField,
@@ -37,8 +39,11 @@ function DockviewSearchPanel(_props: IDockviewPanelProps) {
       className="flex h-full w-full flex-col overflow-hidden bg-background"
       data-panel="search"
     >
-      <div className="shrink-0 px-2 pb-1 pt-2">
-        <WorkspaceFileSearchField search={search} autoFocus />
+      <div className="flex shrink-0 items-center gap-1 px-2 pb-1 pt-2">
+        <div className="min-w-0 flex-1">
+          <WorkspaceFileSearchField search={search} autoFocus />
+        </div>
+        <ShellNavPanelDragHandle panelId={PANEL_IDS.SEARCH} />
       </div>
       {rootPath ? (
         <WorkspaceFileSearchResults

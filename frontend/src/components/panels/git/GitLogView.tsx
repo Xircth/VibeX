@@ -129,7 +129,7 @@ const LogEntry = memo(function LogEntry({
             {entry.refs.map((ref) => (
               <span
                 key={ref}
-                className={`inline-flex items-center gap-0.5 px-1.5 py-0 rounded text-[9px] font-medium border ${getRefBadgeStyle(ref)}`}
+                className={`inline-flex items-center gap-0.5 px-1.5 py-0 rounded text-[10px] font-medium border ${getRefBadgeStyle(ref)}`}
               >
                 {ref.startsWith('origin/') || ref.startsWith('upstream/') ? (
                   <span className="opacity-60">{'~'}</span>
@@ -584,7 +584,7 @@ export const GitLogView = memo(function GitLogView(props: GitLogViewProps) {
                 <span className="text-muted-foreground/60">({item.count})</span>
               )}
               {item.extra && (
-                <span className="ml-1 text-[9px] font-normal normal-case text-muted-foreground">
+                <span className="ml-1 text-[10px] font-normal normal-case text-muted-foreground">
                   {item.extra}
                 </span>
               )}

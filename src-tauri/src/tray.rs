@@ -116,8 +116,11 @@ pub fn install_tray_icon(app: &AppHandle) -> tauri::Result<()> {
         // of the OS consuming it to pop the menu (notably macOS, tauri#11413).
         .show_menu_on_left_click(false);
 
-    if let Some(icon) = app.default_window_icon() {
-        builder = builder.icon(icon.clone());
+    if let Some(icon) = crate::load_app_icon()
+        .ok()
+        .or_else(|| app.default_window_icon().cloned())
+    {
+        builder = builder.icon(icon);
     }
 
     builder

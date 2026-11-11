@@ -1,3 +1,6 @@
+const statusText = (status) =>
+  `color-mix(in srgb, var(--status-${status}-text) calc(<alpha-value> * 100%), transparent)`;
+
 /** @type {import('tailwindcss').Config} */
 module.exports = {
   darkMode: ['class'],
@@ -42,12 +45,16 @@ module.exports = {
         DEFAULT: 'hsl(var(--primary))', // e.g. Tailwind's blue-500
       },
       fontSize: {
-        // These are downshifted by 1
-        xs: ['0.625rem', { lineHeight: '0.875rem' }], // 10px / 14px
-        sm: ['0.75rem', { lineHeight: '1rem' }], // 12px / 16px
-        base: ['0.875rem', { lineHeight: '1.25rem' }], // 14px / 20px
-        lg: ['1rem', { lineHeight: '1.5rem' }], // 16px / 24px
-        xl: ['1.125rem', { lineHeight: '1.75rem' }], // 18px / 28px
+        // Compact product ramp (DESIGN.md §4), sized by the --type-* tokens in
+        // src/styles/fonts.css. Keys stay t-shirt sizes so tailwind-merge
+        // keeps treating them as font sizes rather than text colors.
+        '2xs': ['var(--type-micro)', { lineHeight: '0.875rem' }], // 10 / 14
+        xs: ['var(--type-caption)', { lineHeight: '0.875rem' }], // 11 / 14
+        sm: ['var(--type-label)', { lineHeight: '1rem' }], // 12 / 16
+        md: ['var(--type-callout)', { lineHeight: '1.125rem' }], // 13 / 18
+        base: ['var(--type-body)', { lineHeight: '1.25rem' }], // 14 / 20
+        lg: ['var(--type-headline)', { lineHeight: '1.5rem' }], // 16 / 24
+        xl: ['var(--type-display)', { lineHeight: '1.75rem' }], // 18 / 28
       },
       colors: {
         border: 'hsl(var(--border))',
@@ -117,6 +124,15 @@ module.exports = {
           success: 'hsl(var(--console-success))',
           error: 'hsl(var(--console-error))',
         },
+        scrim: 'var(--surface-scrim)',
+      },
+      // Status fills are indicator-strength; as text they resolve to the
+      // contrast-safe --status-*-text mixes so `text-success` stays readable.
+      textColor: {
+        success: { DEFAULT: statusText('success') },
+        warning: { DEFAULT: statusText('warning') },
+        destructive: { DEFAULT: statusText('danger') },
+        info: { DEFAULT: statusText('info') },
       },
       borderRadius: {
         none: 'var(--radius-none, 0.25rem)',
@@ -134,7 +150,6 @@ module.exports = {
         // Route every `font-mono` utility through the --font-mono token so the
         // AppearanceSettings font picker (P3-2) governs all of them at once.
         mono: ['var(--font-mono)', '"Noto Emoji"', 'monospace'],
-        'chivo-mono': ['Chivo Mono', 'Noto Emoji', 'monospace'],
       },
       keyframes: {
         'accordion-down': {

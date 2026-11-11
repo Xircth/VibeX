@@ -312,6 +312,65 @@ describe('SettingsLayout search', () => {
     expect(screen.getByRole('searchbox', { name: '搜索设置' })).toHaveValue('');
     expect(screen.getByRole('navigation')).toBeInTheDocument();
   });
+
+  it('hides Subscription & Usage search entries when signed out and shows them under Account when signed in', async () => {
+    const { ACCOUNT_TOKEN_STORAGE_KEY } = await import(
+      '@/features/model-router/account'
+    );
+    const transport: BackendTransport = {
+      environment: 'desktop',
+      call: vi.fn(),
+    };
+    await i18n.changeLanguage('zh-CN');
+    window.localStorage.removeItem(ACCOUNT_TOKEN_STORAGE_KEY);
+
+    const user = userEvent.setup();
+    const { unmount } = render(
+      <BackendTransportProvider transport={transport}>
+        <MemoryRouter initialEntries={['/settings/general']}>
+          <Routes>
+            <Route path="/settings" element={<SettingsLayout />}>
+              <Route path="general" element={<div>General</div>} />
+              <Route path="account" element={<div>Account</div>} />
+            </Route>
+          </Routes>
+        </MemoryRouter>
+      </BackendTransportProvider>
+    );
+
+    await user.type(
+      screen.getByRole('searchbox', { name: '搜索设置' }),
+      '订阅与用量'
+    );
+    expect(screen.getByText('没有匹配的设置')).toBeInTheDocument();
+    unmount();
+
+    window.localStorage.setItem(ACCOUNT_TOKEN_STORAGE_KEY, 'vbx_tok_search');
+    try {
+      render(
+        <BackendTransportProvider transport={transport}>
+          <MemoryRouter initialEntries={['/settings/general']}>
+            <Routes>
+              <Route path="/settings" element={<SettingsLayout />}>
+                <Route path="general" element={<div>General</div>} />
+                <Route path="account" element={<div>Account</div>} />
+              </Route>
+            </Routes>
+          </MemoryRouter>
+        </BackendTransportProvider>
+      );
+
+      await user.type(
+        screen.getByRole('searchbox', { name: '搜索设置' }),
+        '订阅与用量'
+      );
+      expect(
+        screen.getByRole('button', { name: '订阅与用量, 账号' })
+      ).toBeInTheDocument();
+    } finally {
+      window.localStorage.removeItem(ACCOUNT_TOKEN_STORAGE_KEY);
+    }
+  });
 });
 
 describe('SettingsLayout chrome', () => {
@@ -347,7 +406,7 @@ describe('SettingsLayout chrome', () => {
       '-translate-x-1/2'
     );
     expect(
-      screen.getByRole('button', { name: '返回首页或打开已导入项目' })
+      screen.getByRole('button', { name: '应用菜单与最近项目' })
     ).toBeInTheDocument();
     expect(
       screen.getByRole('img', { name: /VibeX logo/i })
@@ -391,13 +450,13 @@ describe('SettingsLayout chrome', () => {
     );
 
     await user.click(
-      screen.getByRole('button', { name: '返回首页或打开已导入项目' })
+      screen.getByRole('button', { name: '应用菜单与最近项目' })
     );
     expect(
       await screen.findByRole('menuitem', { name: '新建应用窗口' })
     ).toBeInTheDocument();
     expect(
-      screen.getByRole('menuitem', { name: '回到首页' })
+      screen.getByRole('menuitem', { name: '切换项目…' })
     ).toBeInTheDocument();
     expect(screen.getByText('已导入项目')).toBeInTheDocument();
     expect(screen.getByRole('menuitem', { name: 'VibeX' })).toBeInTheDocument();
@@ -596,7 +655,15 @@ describe('SettingsLayout window title', () => {
         Array.from(humanGroup.querySelectorAll('button')).map((b) =>
           b.textContent?.trim()
         )
-      ).toEqual(['常规', '外观', '快捷指令', '交互', '版本管理', '工作树']);
+      ).toEqual([
+        '账号',
+        '常规',
+        '外观',
+        '快捷指令',
+        '交互',
+        '版本管理',
+        '工作树',
+      ]);
 
       expect(
         Array.from(systemGroup.querySelectorAll('button')).map((b) =>

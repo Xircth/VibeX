@@ -118,7 +118,7 @@ describe('BasicGuideSpotlight', () => {
     expect(svg).toBeInTheDocument();
     const path = svg?.querySelector('path');
     expect(path?.getAttribute('d')).toMatch(/^M /);
-    expect(path?.getAttribute('stroke')).toBe('#111');
+    expect(path).toHaveClass('stroke-foreground');
   });
 
   it('does not render copy when the matching box is not on this page', () => {

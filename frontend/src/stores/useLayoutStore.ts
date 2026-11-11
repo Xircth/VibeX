@@ -23,6 +23,8 @@ export const PANEL_IDS = {
   PROCESSES: 'processes',
   SEARCH: 'search',
   SESSION_LIST: 'session-list',
+  BOTS: 'bots',
+  COLLABORATION_SPACE: 'collaboration-space',
   EXTERNAL_DIRECTORY: 'external-directory',
 } as const;
 
@@ -130,7 +132,7 @@ const DEFAULT_LAYOUT_SNAPSHOT: LayoutSnapshot = {
   isFileTreeVisible: true,
   rightPanelWidth: DEFAULT_RIGHT_PANEL_WIDTH,
   kanbanSessionWidth: DEFAULT_KANBAN_SESSION_WIDTH,
-  isRightPanelVisible: true,
+  isRightPanelVisible: false,
   isEditorAreaVisible: true,
   isKanbanListVisible: true,
   isKanbanMonitorVisible: true,
@@ -245,6 +247,16 @@ export interface MigratedLayoutState extends LayoutSnapshot {
   projectLayouts: Record<string, LayoutSnapshot>;
 }
 
+const DEFAULT_STARTUP_PANEL_IDS: ReadonlySet<string> = new Set([
+  PANEL_IDS.AI_CHAT,
+  PANEL_IDS.WELCOME,
+  PANEL_IDS.FILE_TREE,
+  PANEL_IDS.GIT,
+  PANEL_IDS.SEARCH,
+  PANEL_IDS.SESSION_LIST,
+  PANEL_IDS.BOTS,
+]);
+
 /**
  * Upgrade persisted per-project layout snapshots.
  *
@@ -261,7 +273,8 @@ export function migratePersistedLayoutState(
     serializedLayout: null,
     isFileTreeVisible: state.isFileTreeVisible,
     rightPanelWidth: state.rightPanelWidth,
-    isRightPanelVisible: state.isRightPanelVisible,
+    isRightPanelVisible:
+      version < 29 ? false : state.isRightPanelVisible,
     isEditorAreaVisible: state.isEditorAreaVisible,
     activeTab: state.activeTab,
   });
@@ -294,6 +307,29 @@ export function migratePersistedLayoutState(
       accumulator[projectKey].serializedLayout = dropRetiredWebPreviewPanels(
         accumulator[projectKey].serializedLayout
       );
+    }
+    // v29: Unified A/B Zone shell no longer auto-spawns a legacy right AI Chat
+    // column on startup. Heal untouched startup snapshots that only hold the
+    // unbound default AI_CHAT panel without bound session tabs.
+    if (version < 29) {
+      const layout = accumulator[projectKey].serializedLayout as
+        | (SerializedDockview & { panels?: Record<string, unknown> })
+        | null;
+      const panelIds = layout?.panels ? Object.keys(layout.panels) : [];
+      const hasBoundSessionTabs = panelIds.some((id) =>
+        id.startsWith(`${PANEL_IDS.AI_CHAT}:`)
+      );
+      if (!hasBoundSessionTabs) {
+        if (!layout || panelIds.includes(PANEL_IDS.AI_CHAT)) {
+          accumulator[projectKey].isRightPanelVisible = false;
+        }
+        if (
+          panelIds.includes(PANEL_IDS.AI_CHAT) &&
+          panelIds.every((id) => DEFAULT_STARTUP_PANEL_IDS.has(id))
+        ) {
+          accumulator[projectKey].serializedLayout = null;
+        }
+      }
     }
     return accumulator;
   }, {});
@@ -629,7 +665,7 @@ export const useLayoutStore = create<LayoutState>()(
     }),
     {
       name: 'vibex-ide-layout',
-      version: 28,
+      version: 29,
       migrate: migratePersistedLayoutState,
       partialize: (state) => ({
         currentProjectKey: state.currentProjectKey,

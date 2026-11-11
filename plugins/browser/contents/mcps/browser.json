@@ -13,6 +13,7 @@
     { "name": "browser_snapshot", "group": "browser" },
     { "name": "browser_console_messages", "group": "browser" },
     { "name": "browser_screenshot", "group": "browser" },
+    { "name": "browser_prefer", "group": "browser" },
     { "name": "browser_click", "group": "browser" },
     { "name": "browser_hover", "group": "browser" },
     { "name": "browser_type", "group": "browser" },

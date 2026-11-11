@@ -1,6 +1,5 @@
 import { Suspense, type ReactNode } from 'react';
 
-import { ProjectRail } from '@/components/layout/ProjectRail';
 import { LegacyDesignScope } from '@/components/legacy-design/LegacyDesignScope';
 import { Loader } from '@/components/ui/loader';
 
@@ -15,17 +14,14 @@ export function RouteFallback() {
 export function MainLegacyScope({
   children,
   className,
-  showProjectRail = false,
   pageSuspense = true,
 }: {
   children: ReactNode;
   className?: string;
-  showProjectRail?: boolean;
   pageSuspense?: boolean;
 }) {
   return (
     <LegacyDesignScope className={className}>
-      {showProjectRail ? <ProjectRail /> : null}
       {pageSuspense ? (
         <Suspense fallback={<RouteFallback />}>{children}</Suspense>
       ) : (

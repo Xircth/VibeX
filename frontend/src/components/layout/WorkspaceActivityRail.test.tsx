@@ -5,6 +5,7 @@ import {
   getDefaultActivityRailPanelId,
   resetActivityRailOrder,
 } from '@/lib/activityRailOrder';
+import { ShellNavPanelDragHandle } from './ShellNavPanelDragHandle';
 import { WorkspaceActivityRail } from './WorkspaceActivityRail';
 
 const mocks = vi.hoisted(() => ({
@@ -12,6 +13,11 @@ const mocks = vi.hoisted(() => ({
   toggleGitPanel: vi.fn(),
   toggleSearchPanel: vi.fn(),
   toggleSessionList: vi.fn(),
+  toggleBotsPanel: vi.fn(),
+  placeLeftDockPanel: vi.fn(),
+  swapLeftDockPanels: vi.fn(),
+  resolveShellNavDropTarget: vi.fn(),
+  measureShellNavPanels: vi.fn(),
   persistFrontendPreference: vi.fn(),
 }));
 
@@ -25,7 +31,11 @@ vi.mock('@/contexts/PanelActionsContext', () => ({
     toggleGitPanel: mocks.toggleGitPanel,
     toggleSearchPanel: mocks.toggleSearchPanel,
     toggleSessionList: mocks.toggleSessionList,
-    placeLeftDockPanel: vi.fn(),
+    toggleBotsPanel: mocks.toggleBotsPanel,
+    placeLeftDockPanel: mocks.placeLeftDockPanel,
+    swapLeftDockPanels: mocks.swapLeftDockPanels,
+    resolveShellNavDropTarget: mocks.resolveShellNavDropTarget,
+    measureShellNavPanels: mocks.measureShellNavPanels,
     measureLeftDock: () => null,
     isLeftDockSplit: () => false,
     unsplitLeftDock: vi.fn(),
@@ -40,6 +50,13 @@ describe('WorkspaceActivityRail', () => {
     mocks.toggleGitPanel.mockReset();
     mocks.toggleSearchPanel.mockReset();
     mocks.toggleSessionList.mockReset();
+    mocks.toggleBotsPanel.mockReset();
+    mocks.placeLeftDockPanel.mockReset();
+    mocks.swapLeftDockPanels.mockReset();
+    mocks.resolveShellNavDropTarget.mockReset();
+    mocks.measureShellNavPanels.mockReset();
+    mocks.measureShellNavPanels.mockReturnValue([]);
+    mocks.resolveShellNavDropTarget.mockReturnValue(null);
     mocks.persistFrontendPreference.mockReset();
   });
 
@@ -54,7 +71,7 @@ describe('WorkspaceActivityRail', () => {
         .getAllByRole('button')
         .filter((button) => button.getAttribute('aria-label'))
         .map((button) => button.getAttribute('aria-label'))
-    ).toEqual(['文件', 'Git', '会话列表']);
+    ).toEqual(['会话列表', 'Bot 助手', '文件', 'Git']);
     expect(
       screen.queryByRole('button', { name: '取消分割' })
     ).not.toBeInTheDocument();
@@ -74,15 +91,11 @@ describe('WorkspaceActivityRail', () => {
       <WorkspaceActivityRail isEditorAreaVisible onToggleEditorArea={vi.fn()} />
     );
 
-    fireEvent.keyDown(screen.getByRole('button', { name: '会话列表' }), {
+    fireEvent.keyDown(screen.getByRole('button', { name: '文件' }), {
       key: 'ArrowUp',
       altKey: true,
     });
-    fireEvent.keyDown(screen.getByRole('button', { name: '会话列表' }), {
-      key: 'ArrowUp',
-      altKey: true,
-    });
-    fireEvent.keyDown(screen.getByRole('button', { name: '会话列表' }), {
+    fireEvent.keyDown(screen.getByRole('button', { name: '文件' }), {
       key: 'ArrowUp',
       altKey: true,
     });
@@ -92,7 +105,60 @@ describe('WorkspaceActivityRail', () => {
         .getAllByRole('button')
         .filter((button) => button.getAttribute('aria-label'))
         .map((button) => button.getAttribute('aria-label'))
-    ).toEqual(['会话列表', '文件', 'Git']);
-    expect(getDefaultActivityRailPanelId()).toBe(PANEL_IDS.SESSION_LIST);
+    ).toEqual(['文件', '会话列表', 'Bot 助手', 'Git']);
+    expect(getDefaultActivityRailPanelId()).toBe(PANEL_IDS.FILE_TREE);
+  });
+
+  it('renders only the usage view switcher when mode is kanban', () => {
+    render(
+      <WorkspaceActivityRail
+        isEditorAreaVisible={false}
+        onToggleEditorArea={vi.fn()}
+        mode="kanban"
+      />
+    );
+
+    expect(
+      screen
+        .getAllByRole('button')
+        .filter((button) => button.getAttribute('aria-label'))
+        .map((button) => button.getAttribute('aria-label'))
+    ).toEqual(['计量统计']);
+  });
+
+  it('drags a Zone A panel handle with floating + ghost preview and auto-swaps on >50% overlap', () => {
+    const fileTreeBox = { x: 40, y: 80, width: 200, height: 600 };
+    const sessionListBox = { x: 240, y: 80, width: 280, height: 600 };
+    mocks.measureShellNavPanels.mockReturnValue([
+      { panelId: PANEL_IDS.FILE_TREE, side: 'left', box: fileTreeBox },
+      { panelId: PANEL_IDS.SESSION_LIST, side: 'left', box: sessionListBox },
+    ]);
+    mocks.swapLeftDockPanels.mockReturnValue(true);
+
+    render(<ShellNavPanelDragHandle panelId={PANEL_IDS.FILE_TREE} />);
+
+    const handle = screen.getByTestId(
+      `shell-nav-drag-handle-${PANEL_IDS.FILE_TREE}`
+    );
+    fireEvent.pointerDown(handle, { button: 0, clientX: 220, clientY: 95 });
+
+    // Move 60px right (30% overlap -> shows swap ghost preview, no auto-swap yet)
+    fireEvent.pointerMove(window, { clientX: 280, clientY: 95 });
+    expect(
+      screen.getByTestId(`shell-nav-floating-preview-${PANEL_IDS.FILE_TREE}`)
+    ).toBeInTheDocument();
+    expect(screen.getByTestId('shell-nav-drop-ghost')).toBeInTheDocument();
+    expect(mocks.swapLeftDockPanels).not.toHaveBeenCalled();
+
+    // Move 120px right (60% width & 100% height overlap -> triggers automatic swap)
+    fireEvent.pointerMove(window, { clientX: 340, clientY: 95 });
+    expect(mocks.swapLeftDockPanels).toHaveBeenCalledWith(
+      PANEL_IDS.FILE_TREE,
+      PANEL_IDS.SESSION_LIST
+    );
+
+    fireEvent.pointerUp(window);
+    expect(mocks.placeLeftDockPanel).not.toHaveBeenCalled();
   });
 });
+

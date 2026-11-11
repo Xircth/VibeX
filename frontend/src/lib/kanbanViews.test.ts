@@ -35,12 +35,14 @@ const views = [
 ];
 
 describe('kanbanViews', () => {
-  it('migrates the old three-page plus canvas style model', () => {
-    expect(migrateKanbanViewId('board')).toBe('builtin:columns');
-    expect(migrateKanbanViewId('sessionHub')).toBe('builtin:canvas');
-    expect(migrateKanbanViewId('sessionHub', 'fixed')).toBe('builtin:sessions');
+  it('migrates legacy kanban views to the single builtin usage view while preserving plugin views', () => {
+    expect(migrateKanbanViewId('board')).toBe('builtin:usage');
+    expect(migrateKanbanViewId('sessionHub')).toBe('builtin:usage');
+    expect(migrateKanbanViewId('sessionHub', 'fixed')).toBe('builtin:usage');
     expect(migrateKanbanViewId('usageDashboard')).toBe('builtin:usage');
-    expect(migrateKanbanViewId('sessionHub', 'canvas')).toBe('builtin:canvas');
+    expect(migrateKanbanViewId('plugin:sample/view')).toBe(
+      'plugin:sample/view'
+    );
   });
 
   it('keeps a remembered view when it is still enabled', () => {

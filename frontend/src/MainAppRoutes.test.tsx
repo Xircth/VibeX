@@ -50,10 +50,6 @@ vi.mock('@/components/layout/IDEWorkspaceRoute', async () => {
   };
 });
 
-vi.mock('@/components/layout/ProjectRail', () => ({
-  ProjectRail: () => <aside data-testid="project-rail" />,
-}));
-
 vi.mock('@/pages/settings/SettingsLayout', async () => {
   const React = await vi.importActual<typeof import('react')>('react');
   const { Outlet } =
@@ -126,16 +122,16 @@ vi.mock('@/pages/settings/WebServiceSettings', () => ({
   WebServiceSettings: () => <div data-testid="settings-web-service" />,
 }));
 
-vi.mock('@/pages/Projects', () => ({
-  Projects: () => <div data-testid="projects-page" />,
-}));
-
 vi.mock('@/pages/ProjectTasks', () => ({
   ProjectTasks: () => <div data-testid="project-tasks-page" />,
 }));
 
 vi.mock('@/pages/FullAttemptLogs', () => ({
   FullAttemptLogsPage: () => <div data-testid="full-attempt-logs-page" />,
+}));
+
+vi.mock('@/pages/workflows/WorkflowInspector', () => ({
+  WorkflowInspector: () => <div data-testid="workflow-inspector-page" />,
 }));
 
 vi.mock('@/pages/Plugins', () => ({
@@ -167,38 +163,29 @@ function renderAt(pathname: string) {
 
 describe('MainAppRoutes', () => {
   it.each([
+    '/',
+    '/local-projects',
     '/local-projects/project-1',
+    '/local-projects/project-1/sessions',
     '/local-projects/project-1/workspaces/workspace-1/sessions/session-1',
-  ])('mounts one shared project rail on %s', async (pathname) => {
+  ])('renders %s inside the unified IDE workspace shell', async (pathname) => {
     renderAt(pathname);
 
-    expect(screen.getAllByTestId('project-rail')).toHaveLength(1);
+    expect(screen.getByTestId('ide-layout')).toBeInTheDocument();
+    expect(screen.queryByTestId('normal-layout')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('route-fallback')).not.toBeInTheDocument();
     if (pathname.includes('/workspaces/')) {
       await screen.findByTestId('project-tasks-page');
     }
   });
 
-  it('renders project routes through the standard legacy layout', () => {
-    renderAt('/local-projects/project-1');
+  it('keeps workflow inspector inside NormalLayout', async () => {
+    renderAt('/workflows/run-1');
 
-    expect(screen.getByTestId('normal-layout')).toBeInTheDocument();
-    expect(screen.getByTestId('projects-page')).toBeInTheDocument();
-  });
-
-  it('renders workspace session routes through the IDE layout', async () => {
-    renderAt(
-      '/local-projects/project-1/workspaces/workspace-1/sessions/session-1'
-    );
-
-    expect(await screen.findByTestId('ide-layout')).toBeInTheDocument();
-    expect(screen.getByTestId('project-tasks-page')).toBeInTheDocument();
-  });
-
-  it('paints the kanban workspace shell without a full-page route spinner', () => {
-    renderAt('/local-projects/project-1/sessions');
-
-    expect(screen.getByTestId('ide-layout')).toBeInTheDocument();
-    expect(screen.queryByTestId('route-fallback')).not.toBeInTheDocument();
+    expect(await screen.findByTestId('normal-layout')).toBeInTheDocument();
+    expect(
+      await screen.findByTestId('workflow-inspector-page')
+    ).toBeInTheDocument();
   });
 
   it('keeps full attempt logs outside the standard and IDE layout groups', async () => {
@@ -216,7 +203,6 @@ describe('MainAppRoutes', () => {
 
     expect(await screen.findByTestId('settings-general')).toBeInTheDocument();
     expect(screen.getByTestId('settings-layout')).toBeInTheDocument();
-    expect(screen.queryByTestId('project-rail')).not.toBeInTheDocument();
   });
 
   it('redirects the standalone devices page to remote connection', async () => {
@@ -233,7 +219,6 @@ describe('MainAppRoutes', () => {
 
     expect(await screen.findByTestId('plugins-page')).toBeInTheDocument();
     expect(screen.getByTestId('settings-layout')).toBeInTheDocument();
-    expect(screen.queryByTestId('project-rail')).not.toBeInTheDocument();
   });
 
   it('keeps the settings layout around an independent plugin detail page', async () => {
@@ -241,7 +226,6 @@ describe('MainAppRoutes', () => {
 
     expect(await screen.findByTestId('plugin-detail-page')).toBeInTheDocument();
     expect(screen.getByTestId('settings-layout')).toBeInTheDocument();
-    expect(screen.queryByTestId('project-rail')).not.toBeInTheDocument();
   });
 
   it('keeps the settings layout around a marketplace plugin detail page', async () => {
@@ -276,10 +260,10 @@ describe('MainAppRoutes', () => {
     expect(screen.getByTestId('settings-layout')).toBeInTheDocument();
   });
 
-  it('redirects disabled new UI route families to local projects', async () => {
+  it('redirects disabled new UI route families into the unified workspace shell', async () => {
     renderAt('/workspaces/workspace-1');
 
-    expect(await screen.findByTestId('projects-page')).toBeInTheDocument();
-    expect(screen.getByTestId('normal-layout')).toBeInTheDocument();
+    expect(await screen.findByTestId('ide-layout')).toBeInTheDocument();
+    expect(screen.queryByTestId('normal-layout')).not.toBeInTheDocument();
   });
 });

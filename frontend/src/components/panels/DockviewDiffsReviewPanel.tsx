@@ -16,7 +16,6 @@ import { useTranslation } from 'react-i18next';
 import { useWorktree } from '@/contexts/WorktreeContext';
 import { useAttempt } from '@/hooks/useAttempt';
 import { useDiffStream } from '@/hooks/useDiffStream';
-import { useDiffSummary } from '@/hooks/useDiffSummary';
 import DiffCard from '@/components/DiffCard';
 import DiffViewSwitch, {
   DIFF_VIEW_BUTTON_COUNT,
@@ -151,24 +150,25 @@ function DockviewDiffsReviewPanel() {
     diffs: worktreeDiffs,
     error,
     isInitialized,
-  } = useDiffStream(attemptId, true);
-  const {
-    fileCount: wtFileCount,
-    added: wtAdded,
-    deleted: wtDeleted,
-  } = useDiffSummary(attemptId);
+  } = useDiffStream(attemptId, !isCommitMode);
 
   // Select data source based on mode
   const diffs = isCommitMode ? commitDiffs : worktreeDiffs;
 
-  // Compute stats for commit mode
-  const fileCount = isCommitMode ? commitDiffs.length : wtFileCount;
-  const added = isCommitMode
-    ? commitDiffs.reduce((sum, d) => sum + (d.additions ?? 0), 0)
-    : wtAdded;
-  const deleted = isCommitMode
-    ? commitDiffs.reduce((sum, d) => sum + (d.deletions ?? 0), 0)
-    : wtDeleted;
+  // Compute stats from active diffs without opening a second diff stream
+  const { fileCount, added, deleted } = useMemo(() => {
+    let totalAdded = 0;
+    let totalDeleted = 0;
+    for (const d of diffs) {
+      totalAdded += d.additions ?? 0;
+      totalDeleted += d.deletions ?? 0;
+    }
+    return {
+      fileCount: diffs.length,
+      added: totalAdded,
+      deleted: totalDeleted,
+    };
+  }, [diffs]);
 
   const [collapsedIds, setCollapsedIds] = useState<Set<string>>(new Set());
   const [processedIds, setProcessedIds] = useState<Set<string>>(new Set());

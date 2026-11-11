@@ -21,7 +21,6 @@ import {
 } from '@/hooks/useKanbanProjectSessions';
 import { ConfirmDialog } from '@/components/dialogs/shared/ConfirmDialog';
 import { sessionsApi } from '@/lib/api';
-import { conversationApi } from '@/features/conversation/conversationApi';
 import { getSessionUiErrorMessage } from '@/lib/sessionUiErrors';
 import { useNavigateWithSearch } from '@/hooks/useNavigateWithSearch';
 import { paths } from '@/lib/paths';
@@ -30,9 +29,11 @@ import { useAppContextMenu } from '@/components/context-menu';
 import { buildSessionListBlankMenu } from '@/components/context-menu/sessionListBlankMenu';
 import { exportProjectConversationPack } from '@/lib/exportProjectConversationPack';
 import {
-  filterVisibleBotSessions,
+  filterSessionListPreferences,
   useHideBotSessions,
-} from '@/lib/hideBotSessions';
+  useHideDefaultWorkspace,
+  useHideInactiveSessions,
+} from '@/lib/sessionListFilters';
 import { removeSessionsFromWorkspaceCaches } from '@/lib/sessionQueryCache';
 import { useKanbanSessionMutations } from '@/components/kanban/session-hub/useKanbanSessionMutations';
 import {
@@ -40,13 +41,17 @@ import {
   sessionListAgentKey,
   toggleStringValue,
 } from '@/components/kanban/session-hub/utils';
+import {
+  setKanbanSessionListView,
+  useKanbanSessionListView,
+} from '@/lib/kanbanSessionListView';
 import { useWorkspaceOpenSessionIds } from '@/lib/workspaceSessionTabSlots';
+import { SessionPowerSearchDialog } from './SessionPowerSearchDialog';
 import { WorkspaceSessionList } from './WorkspaceSessionList';
 import { WorkspaceSessionListToolbar } from './WorkspaceSessionListToolbar';
 import {
   resolveWorkspaceListActiveSessionId,
   sessionListTitle,
-  sessionMatchesQuery,
   toggleSessionListSort,
   type SessionListSortSpec,
 } from './workspaceSessionListModel';
@@ -93,10 +98,17 @@ function WorkspaceSessionListPanel(_props: IDockviewPanelProps) {
   const queryClient = useQueryClient();
   const [searchParams, setSearchParams] = useSearchParams();
   const { sessions, isLoading } = useKanbanProjectSessions(projectId);
+  const hideDefaultWorkspace = useHideDefaultWorkspace();
   const hideBotSessions = useHideBotSessions();
+  const hideInactiveSessions = useHideInactiveSessions();
   const listSessions = useMemo(
-    () => filterVisibleBotSessions(sessions, hideBotSessions),
-    [hideBotSessions, sessions]
+    () =>
+      filterSessionListPreferences(sessions, {
+        hideDefaultWorkspace,
+        hideBotSessions,
+        hideInactiveSessions,
+      }),
+    [hideBotSessions, hideDefaultWorkspace, hideInactiveSessions, sessions]
   );
   const activeSessionId = resolveWorkspaceListActiveSessionId(
     visibleRightSession?.sessionId,
@@ -119,9 +131,8 @@ function WorkspaceSessionListPanel(_props: IDockviewPanelProps) {
   const [isDeleteMode, setIsDeleteMode] = useState(false);
   const [selectedSessionIds, setSelectedSessionIds] = useState<string[]>([]);
   const [isDeletingSessions, setIsDeletingSessions] = useState(false);
-  const [searchQuery, setSearchQuery] = useState('');
+  const [isSearchDialogOpen, setIsSearchDialogOpen] = useState(false);
   const [sortSpecs, setSortSpecs] = useState<SessionListSortSpec[]>([]);
-  const [searchHitIds, setSearchHitIds] = useState<Set<string> | null>(null);
 
   useEffect(() => {
     setSelectedSessionIds((current) => {
@@ -130,35 +141,6 @@ function WorkspaceSessionListPanel(_props: IDockviewPanelProps) {
       return next.length === current.length ? current : next;
     });
   }, [listSessions]);
-
-  useEffect(() => {
-    const trimmed = searchQuery.trim();
-    if (!trimmed) {
-      setSearchHitIds(null);
-      return;
-    }
-
-    let cancelled = false;
-    const timer = window.setTimeout(() => {
-      conversationApi
-        .search(trimmed, null, 80)
-        .then((hits) => {
-          if (!cancelled) {
-            setSearchHitIds(new Set(hits.map((hit) => hit.conversation_id)));
-          }
-        })
-        .catch(() => {
-          if (!cancelled) {
-            setSearchHitIds(new Set());
-          }
-        });
-    }, 200);
-
-    return () => {
-      cancelled = true;
-      window.clearTimeout(timer);
-    };
-  }, [searchQuery]);
 
   const { renameSessionMutation } = useKanbanSessionMutations({
     projectId,
@@ -174,18 +156,7 @@ function WorkspaceSessionListPanel(_props: IDockviewPanelProps) {
     () => new Set(selectedSessionIds),
     [selectedSessionIds]
   );
-  const sourceSessions = isArchiveView ? archivedSessions : activeSessions;
-  const visibleSessions = useMemo(() => {
-    const query = searchQuery.trim();
-    if (!query) {
-      return sourceSessions;
-    }
-    return sourceSessions.filter(
-      (session) =>
-        sessionMatchesQuery(session, query) ||
-        Boolean(searchHitIds?.has(session.id))
-    );
-  }, [searchHitIds, searchQuery, sourceSessions]);
+  const visibleSessions = isArchiveView ? archivedSessions : activeSessions;
 
   const openSession = useCallback(
     (session: KanbanProjectSessionRecord) => {
@@ -435,11 +406,10 @@ function WorkspaceSessionListPanel(_props: IDockviewPanelProps) {
     );
   };
 
-  const emptyMessage = searchQuery.trim()
-    ? t('workspaceSessionList.searchEmpty')
-    : isArchiveView
-      ? t('workspaceSessionList.archiveEmpty')
-      : undefined;
+  const listView = useKanbanSessionListView();
+  const emptyMessage = isArchiveView
+    ? t('workspaceSessionList.archiveEmpty')
+    : undefined;
 
   return (
     <TooltipProvider delayDuration={120}>
@@ -452,8 +422,8 @@ function WorkspaceSessionListPanel(_props: IDockviewPanelProps) {
           isDeleteMode={isDeleteMode}
           selectedCount={selectedSessionIdSet.size}
           isDeletingSessions={isDeletingSessions}
-          searchQuery={searchQuery}
           sortSpecs={sortSpecs}
+          viewMode={listView}
           onArchiveViewChange={handleArchiveViewChange}
           onToggleDeleteMode={handleToggleDeleteMode}
           onCancelDeleteMode={handleCancelDeleteMode}
@@ -461,11 +431,16 @@ function WorkspaceSessionListPanel(_props: IDockviewPanelProps) {
             void handleDeleteSelectedSessions();
           }}
           onCreateSession={handleCreateSession}
-          onSearchQueryChange={setSearchQuery}
+          onOpenSearch={() => setIsSearchDialogOpen(true)}
           onToggleSortKey={(key) => {
             setSortSpecs((current) => toggleSessionListSort(current, key));
           }}
           onClearSort={() => setSortSpecs([])}
+          onToggleViewMode={() => {
+            setKanbanSessionListView(
+              listView === 'workspace' ? 'status' : 'workspace'
+            );
+          }}
         />
         <div
           className="min-h-0 flex-1 overflow-y-auto px-0 pb-2 pt-0.5"
@@ -479,6 +454,7 @@ function WorkspaceSessionListPanel(_props: IDockviewPanelProps) {
             <WorkspaceSessionList
               sessions={visibleSessions}
               sortSpecs={sortSpecs}
+              viewMode={listView}
               isLoading={isLoading}
               activeSessionId={activeSessionId}
               activeWorkspaceId={activeWorktreeId}
@@ -523,6 +499,13 @@ function WorkspaceSessionListPanel(_props: IDockviewPanelProps) {
             />
           )}
         </div>
+        <SessionPowerSearchDialog
+          open={isSearchDialogOpen}
+          onOpenChange={setIsSearchDialogOpen}
+          sessions={sessions}
+          activeSessionId={activeSessionId}
+          onSelectSession={openSession}
+        />
       </section>
     </TooltipProvider>
   );

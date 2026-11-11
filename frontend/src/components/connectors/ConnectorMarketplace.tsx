@@ -634,8 +634,8 @@ export function ConnectorBrandIcon({
       style={bgStyle}
       className={cn(
         sizeClasses,
-        'flex shrink-0 items-center justify-center font-semibold text-white shadow-2xs',
-        !entry.brandColor && 'bg-slate-700 dark:bg-slate-600'
+        'flex shrink-0 items-center justify-center font-semibold shadow-2xs',
+        entry.brandColor ? 'text-white' : 'bg-accent text-foreground'
       )}
     >
       {initials || entry.name.charAt(0).toUpperCase() || 'M'}
@@ -1295,7 +1295,7 @@ export function ConnectorMarketplace({
               }
             }}
             aria-label={`${entry.name} ${t('mcp.marketplace.statusConnected', '已连接')}`}
-            className="!my-0 inline-flex !h-auto !min-h-0 shrink-0 items-center gap-1 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-3 py-1 text-xs font-medium text-emerald-600 transition-colors hover:bg-emerald-500/20 dark:text-emerald-400"
+            className="!my-0 inline-flex !h-auto !min-h-0 shrink-0 items-center gap-1 rounded-full border border-success/30 bg-success/10 px-3 py-1 text-xs font-medium text-success transition-colors hover:bg-success/20"
           >
             <Check className="h-3 w-3" />
             <span>{t('mcp.marketplace.statusConnected', '已连接')}</span>

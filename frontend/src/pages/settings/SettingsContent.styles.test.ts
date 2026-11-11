@@ -435,14 +435,22 @@ describe('settings page alignment', () => {
     expect(settingsPage.get('--surface-sidebar')).toBeUndefined();
     expect(settingsPage.get('--surface-wash')).toBeUndefined();
     expect(settingsPage.get('background-color')).toBe('var(--surface-shell)');
-    expect(settingsPage.get('--surface-content')).toBe('#f1f1f1');
-    expect(settingsPage.get('--surface-card')).toBe('#f1f1f1');
-    expect(settingsPage.get('--surface-card-strong')).toBe('#f1f1f1');
+    for (const surface of [
+      '--surface-content',
+      '--surface-card',
+      '--surface-card-strong',
+    ]) {
+      expect(settingsPage.get(surface)).toBe('var(--surface-settings-item)');
+    }
     expect(declarationsFor('.settings-titlebar').get('background')).toBe(
       'var(--surface-shell)'
     );
-    expect(settingsPage.get('--settings-button-primary-bg')).toBe('#1b1b1b');
-    expect(settingsPage.get('--settings-button-secondary-bg')).toBe('#e5e5e5');
+    expect(settingsPage.get('--settings-button-primary-bg')).toBe(
+      'hsl(var(--primary))'
+    );
+    expect(settingsPage.get('--settings-button-secondary-bg')).toBe(
+      'var(--surface-track)'
+    );
     expect(quickToggle.get('background')).toBe('var(--surface-control)');
     expect(quickToggle.get('height')).toBe('40px');
     expect(quickToggle.get('max-height')).toBe('40px');

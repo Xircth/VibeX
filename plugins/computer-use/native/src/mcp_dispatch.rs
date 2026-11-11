@@ -107,9 +107,59 @@ pub async fn call_computer_tool(
         }
         "computer_screenshot" => {
             let (target_id, max_dimension) = computer_capture_request(arguments)?;
-            let outcome = computer.agent_capture(&target_id, max_dimension).await;
-            let val = serde_json::to_value(outcome).map_err(|e| e.to_string())?;
-            Ok(render_computer_capture_result(&val))
+            if let Some((over_ms, every_ms)) = computer_capture_burst_params(arguments)? {
+                let mut frames: Vec<(u32, Vec<u8>)> = Vec::new();
+                let mut last_val = Value::Null;
+                let mut ts = 0u32;
+                while ts <= over_ms {
+                    let outcome = computer.agent_capture(&target_id, max_dimension).await;
+                    let val = serde_json::to_value(outcome).map_err(|e| e.to_string())?;
+                    let Some(b64) = val
+                        .get("capture")
+                        .and_then(|c| c.get("data"))
+                        .and_then(Value::as_str)
+                    else {
+                        return Ok(render_computer_capture_result(&val));
+                    };
+                    let bytes = base64::Engine::decode(
+                        &base64::engine::general_purpose::STANDARD,
+                        b64.trim(),
+                    )
+                    .map_err(|e| format!("computer_screenshot: cannot decode frame: {e}"))?;
+                    frames.push((ts, bytes));
+                    last_val = val;
+                    if ts + every_ms > over_ms {
+                        break;
+                    }
+                    tokio::time::sleep(std::time::Duration::from_millis(u64::from(every_ms))).await;
+                    ts += every_ms;
+                }
+                let stitched = compose_computer_contact_sheet(
+                    &frames,
+                    max_dimension.unwrap_or(1568),
+                    over_ms,
+                    every_ms,
+                )?;
+                if let Some(capture_obj) =
+                    last_val.get_mut("capture").and_then(Value::as_object_mut)
+                {
+                    capture_obj.insert("data".to_string(), Value::String(stitched.data));
+                    capture_obj.insert("mime".to_string(), Value::String("image/png".to_string()));
+                    capture_obj.insert("width".to_string(), json!(stitched.width));
+                    capture_obj.insert("height".to_string(), json!(stitched.height));
+                    capture_obj.insert("framesCount".to_string(), json!(stitched.frames_count));
+                    capture_obj.insert("overMs".to_string(), json!(over_ms));
+                    capture_obj.insert("everyMs".to_string(), json!(every_ms));
+                    capture_obj.insert("timestampsMs".to_string(), json!(stitched.timestamps_ms));
+                    capture_obj.insert("columns".to_string(), json!(stitched.columns));
+                    capture_obj.insert("rows".to_string(), json!(stitched.rows));
+                }
+                Ok(render_computer_capture_result(&last_val))
+            } else {
+                let outcome = computer.agent_capture(&target_id, max_dimension).await;
+                let val = serde_json::to_value(outcome).map_err(|e| e.to_string())?;
+                Ok(render_computer_capture_result(&val))
+            }
         }
         "computer_snapshot" => {
             let (target_id, request) = computer_snapshot_request(arguments)?;
@@ -184,7 +234,151 @@ pub fn computer_capture_request(arguments: &Value) -> Result<(String, Option<u32
                 .to_string(),
         );
     }
+    let _ = computer_capture_burst_params(arguments)?;
     Ok((target_id, max))
+}
+
+pub fn computer_capture_burst_params(arguments: &Value) -> Result<Option<(u32, u32)>, String> {
+    let tool = "computer_screenshot";
+    let over_ms = computer_optional_u32(arguments, tool, "overMs")?;
+    let every_ms = computer_optional_u32(arguments, tool, "everyMs")?;
+    match (over_ms, every_ms) {
+        (None, None) => Ok(None),
+        (Some(_), None) | (None, Some(_)) => Err(format!(
+            "{tool}: `overMs` and `everyMs` must be provided together for burst contact-sheet capture"
+        )),
+        (Some(over), Some(every)) => {
+            if !(50..=10_000).contains(&over) {
+                return Err(format!("{tool}: `overMs` must be from 50 to 10000, not {over}"));
+            }
+            if !(50..=10_000).contains(&every) {
+                return Err(format!("{tool}: `everyMs` must be from 50 to 10000, not {every}"));
+            }
+            if over < every {
+                return Err(format!(
+                    "{tool}: `overMs` ({over}) must be at least `everyMs` ({every})"
+                ));
+            }
+            Ok(Some((over, every)))
+        }
+    }
+}
+
+pub struct ComputerContactSheet {
+    pub data: String,
+    pub width: u32,
+    pub height: u32,
+    pub frames_count: u32,
+    pub timestamps_ms: Vec<u32>,
+    pub columns: u32,
+    pub rows: u32,
+}
+
+pub fn compose_computer_contact_sheet(
+    frames: &[(u32, Vec<u8>)],
+    max_width: u32,
+    over_ms: u32,
+    _every_ms: u32,
+) -> Result<ComputerContactSheet, String> {
+    use image::{imageops::FilterType, DynamicImage, GenericImageView, ImageFormat};
+    use std::io::Cursor;
+
+    if frames.is_empty() {
+        return Err("no frames captured for contact sheet".to_string());
+    }
+    let count = frames.len() as u32;
+    let columns = if count <= 1 {
+        1
+    } else if count <= 4 {
+        2
+    } else if count <= 9 {
+        3
+    } else {
+        4
+    };
+    let rows = count.div_ceil(columns);
+    let total_max_w = max_width.clamp(64, 4096);
+    let border: u32 = 2;
+    let header_h: u32 = 6;
+    let cell_max_w = ((total_max_w.saturating_sub(border * (columns + 1))) / columns).max(16);
+
+    let mut prepared = Vec::with_capacity(frames.len());
+    let mut timestamps_ms = Vec::with_capacity(frames.len());
+
+    for (idx, (ts, bytes)) in frames.iter().enumerate() {
+        let decoded = image::load_from_memory(bytes)
+            .map_err(|e| format!("cannot decode screenshot frame {idx}: {e}"))?;
+        let (w, h) = decoded.dimensions();
+        if w == 0 || h == 0 {
+            return Err(format!("screenshot frame {idx} has zero size"));
+        }
+        let scaled = if w > cell_max_w {
+            let next_h =
+                ((u64::from(h) * u64::from(cell_max_w) + u64::from(w) / 2) / u64::from(w)).max(1)
+                    as u32;
+            decoded.resize_exact(cell_max_w, next_h, FilterType::Triangle)
+        } else {
+            decoded
+        };
+        prepared.push(scaled.to_rgba8());
+        timestamps_ms.push(*ts);
+    }
+
+    let cell_w = prepared.iter().map(|i| i.width()).max().unwrap_or(1).max(1);
+    let cell_h = prepared.iter().map(|i| i.height()).max().unwrap_or(1).max(1);
+    let sheet_w = columns * cell_w + (columns + 1) * border;
+    let sheet_h = rows * (cell_h + header_h) + (rows + 1) * border;
+
+    let bg_color = image::Rgba([24, 24, 27, 255]);
+    let bar_bg = image::Rgba([39, 39, 42, 255]);
+    let bar_fg = image::Rgba([59, 130, 246, 255]);
+    let mut canvas = image::RgbaImage::from_pixel(sheet_w, sheet_h, bg_color);
+    let denom_ts = over_ms.max(*timestamps_ms.last().unwrap_or(&1)).max(1);
+
+    for (idx, frame_img) in prepared.iter().enumerate() {
+        let col = (idx as u32) % columns;
+        let row = (idx as u32) / columns;
+        let x0 = border + col * (cell_w + border);
+        let y0 = border + row * (cell_h + header_h + border);
+        let ts = timestamps_ms[idx];
+        let progress_w = if count == 1 {
+            cell_w
+        } else {
+            ((u64::from(ts.min(denom_ts)) * u64::from(cell_w)) / u64::from(denom_ts))
+                .clamp(2, u64::from(cell_w)) as u32
+        };
+        for py in 0..header_h {
+            for px in 0..cell_w {
+                canvas.put_pixel(
+                    x0 + px,
+                    y0 + py,
+                    if px < progress_w { bar_fg } else { bar_bg },
+                );
+            }
+        }
+        let img_y0 = y0 + header_h;
+        for py in 0..frame_img.height() {
+            for px in 0..frame_img.width() {
+                canvas.put_pixel(x0 + px, img_y0 + py, *frame_img.get_pixel(px, py));
+            }
+        }
+    }
+
+    let mut out = Vec::new();
+    DynamicImage::ImageRgba8(canvas)
+        .write_to(&mut Cursor::new(&mut out), ImageFormat::Png)
+        .map_err(|e| format!("cannot encode contact sheet: {e}"))?;
+    let data = base64::Engine::encode(&base64::engine::general_purpose::STANDARD, &out);
+
+    Ok(ComputerContactSheet {
+        data,
+        width: sheet_w,
+        height: sheet_h,
+        frames_count: count,
+        timestamps_ms,
+        columns,
+        rows,
+    })
 }
 
 pub fn computer_snapshot_request(
@@ -1303,10 +1497,33 @@ mod tests {
             computer_capture_request(&json!({ "targetId": " w3 ", "maxDimension": 800 })).unwrap(),
             ("w3".to_string(), Some(800))
         );
+        assert_eq!(
+            computer_capture_burst_params(&json!({ "targetId": "w3", "overMs": 300, "everyMs": 100 }))
+                .unwrap(),
+            Some((300, 100))
+        );
+        assert!(computer_capture_burst_params(&json!({ "targetId": "w3", "overMs": 300 })).is_err());
+        assert!(computer_capture_burst_params(&json!({ "targetId": "w3", "overMs": 50, "everyMs": 100 })).is_err());
         assert!(computer_act_request(
             "computer_click",
             &json!({ "targetId": "w1", "ref": 1, "generation": "1.1", "unknown": true })
         )
         .is_err());
+    }
+
+    #[test]
+    fn compose_computer_contact_sheet_builds_grid() {
+        let img = image::RgbaImage::from_pixel(160, 120, image::Rgba([20, 40, 80, 255]));
+        let mut png = Vec::new();
+        image::DynamicImage::ImageRgba8(img)
+            .write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)
+            .expect("encode png");
+        let frames = vec![(0, png.clone()), (100, png.clone()), (200, png)];
+        let sheet = compose_computer_contact_sheet(&frames, 640, 200, 100).expect("sheet");
+        assert_eq!(sheet.frames_count, 3);
+        assert_eq!(sheet.columns, 2);
+        assert_eq!(sheet.rows, 2);
+        assert_eq!(sheet.timestamps_ms, vec![0, 100, 200]);
+        assert!(!sheet.data.is_empty());
     }
 }

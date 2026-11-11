@@ -147,7 +147,7 @@ describe('WorkspaceTabAddMenu', () => {
     expect(screen.getByRole('menuitem', { name: '终端' })).toBeVisible();
 
     const menu = screen.getByRole('menu');
-    expect(menu).toHaveClass('product-context-menu', 'bg-white');
+    expect(menu).toHaveClass('product-context-menu', 'bg-popover');
     expect(menu).not.toHaveClass('tahoe-popover');
     expect(screen.getByRole('menuitem', { name: '审阅' })).toHaveClass(
       'hover:bg-accent'

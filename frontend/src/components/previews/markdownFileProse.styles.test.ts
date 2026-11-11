@@ -55,7 +55,7 @@ describe('markdown file prose chrome', () => {
       ':is(h1, h2, h3, h4, h5, h6)'
     );
     expect(headings.decls['font-size']).toBe('1em');
-    expect(headings.decls['font-weight']).toBe('650');
+    expect(headings.decls['font-weight']).toBe('700');
     expect(headings.decls['line-height']).toBe('1.7');
   });
 

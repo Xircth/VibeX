@@ -80,14 +80,19 @@ import {
   isEditorGroup,
   isLeftGroup,
   isPlaceholderPanelId,
+  isRightShellNavGroup,
   isSessionGroup,
   isSplittableEditorPanel,
+  LEFT_GROUP_PREFIX,
   LEFT_PANEL_IDS,
   listLeftDockGroups,
+  listLeftShellNavGroups,
+  listRightShellNavGroups,
   listSessionGroups,
   RIGHT_GROUP_PREFIX,
   sessionPanelId,
 } from '@/utils/dockviewGroupPolicy';
+import { builtinPanelTitle } from '@/lib/builtinPanelTitles';
 import { getLayoutArrangement } from '@/lib/layoutArrangement';
 import { useFileTreeStore } from '@/stores/useFileTreeStore';
 import {
@@ -103,13 +108,20 @@ import {
   applyLeftDockSplitSizes,
   isLeftDockSplit as readLeftDockSplit,
   measureLeftDockBox,
+  measureShellNavPanels as readShellNavPanels,
+  resolveShellNavDropTarget as readShellNavDropTarget,
+  swapLeftDockPanels as performSwapLeftDockPanels,
   syncLeftDockSplitFromLayout,
   unsplitLeftDockKeepLeading,
+  type ShellNavDropTarget,
+  type ShellNavPanelMeasurement,
 } from '@/lib/leftDockPlacement';
+import { settleDockviewGroupWidths } from '@/utils/dockviewStartupSizing';
 import {
   dropZoneToDirection,
   isRowSplit,
   type LeftPanelDropZone,
+  type Point,
 } from '@/lib/leftPanelSplit';
 import {
   ensureWelcomeEditorGroup,
@@ -118,6 +130,7 @@ import {
   revealEditorColumnForTerminal,
   setColumnVisible,
   setLeftDockVisible,
+  setRightShellNavVisible,
 } from '@/utils/dockviewEditorGroup';
 import {
   clearImagePreviewSources,
@@ -135,6 +148,7 @@ import {
   rememberTerminalShelfFromApi,
 } from '@/utils/terminalZoneRelease';
 import { syncWorkspaceOpenSessionIdsFromDockview } from '@/lib/workspaceSessionTabSlots';
+import { getCanvasWorkspaceController } from '@/components/kanban/canvas/canvasWorkspaceBridge';
 
 const DIFF_PREVIEW_PANEL_ID_PREFIX = 'diff:';
 const MAX_OPEN_DIFF_PREVIEW_PANELS = 5;
@@ -201,7 +215,11 @@ export interface OpenSessionTabOptions {
 }
 
 export interface PanelActions {
-  openOrFocusPanel: (panelId: string, title: string) => void;
+  openOrFocusPanel: (
+    panelId: string,
+    title: string,
+    params?: Record<string, unknown>
+  ) => void;
   openSessionTab: (options: OpenSessionTabOptions) => void;
   openFilePreview: (
     filePath: string,
@@ -230,7 +248,10 @@ export interface PanelActions {
   }) => void;
   openCommitDiff: () => void;
   openNewTerminal: () => void;
-  openTerminalEditorTab: (shell?: string) => void;
+  openTerminalEditorTab: (
+    shell?: string,
+    options?: { cwd?: string | null }
+  ) => void;
   showTerminal: () => void;
   toggleEditorArea: () => void;
   runInEditorGroup: (groupId: string, action: () => void) => void;
@@ -249,10 +270,30 @@ export interface PanelActions {
   toggleGitPanel: () => void;
   toggleSearchPanel: () => void;
   toggleSessionList: () => void;
+  toggleBotsPanel: () => void;
+  openWelcomeTab: () => void;
+  toggleLeftSidebar: () => void;
+  isLeftSidebarVisible: () => boolean;
+  toggleRightSidebar: () => void;
+  isRightSidebarVisible: () => boolean;
+  hasRightSidebarPanels: () => boolean;
   placeLeftDockPanel: (
     panelId: ActivityRailItemId,
-    zone: LeftPanelDropZone
+    zone: LeftPanelDropZone,
+    options?: {
+      side?: 'left' | 'right';
+      targetPanelId?: ActivityRailItemId;
+    }
   ) => void;
+  swapLeftDockPanels: (
+    panelA: ActivityRailItemId,
+    panelB: ActivityRailItemId
+  ) => boolean;
+  resolveShellNavDropTarget: (
+    point: Point,
+    sourcePanelId?: ActivityRailItemId
+  ) => ShellNavDropTarget | null;
+  measureShellNavPanels: () => ShellNavPanelMeasurement[];
   measureLeftDock: () => {
     x: number;
     y: number;
@@ -325,12 +366,22 @@ export const NOOP_PANEL_ACTIONS: PanelActions = {
   toggleGitPanel: noopPanelAction,
   toggleSearchPanel: noopPanelAction,
   toggleSessionList: noopPanelAction,
+  toggleBotsPanel: noopPanelAction,
+  openWelcomeTab: noopPanelAction,
+  toggleLeftSidebar: noopPanelAction,
+  isLeftSidebarVisible: noopFalsePanelAction,
+  toggleRightSidebar: noopPanelAction,
+  isRightSidebarVisible: noopFalsePanelAction,
+  hasRightSidebarPanels: noopFalsePanelAction,
   placeLeftDockPanel: noopPanelAction,
+  swapLeftDockPanels: noopFalsePanelAction,
+  resolveShellNavDropTarget: () => null,
+  measureShellNavPanels: () => [],
   measureLeftDock: () => null,
   isLeftDockSplit: noopFalsePanelAction,
   unsplitLeftDock: noopPanelAction,
   isPanelOpen: noopFalsePanelAction,
-  focusKanban: noopPanelAction,
+  focusKanban: () => {},
   openLogs: noopPanelAction,
   openNotes: noopPanelAction,
   openPluginPanel: noopPanelAction,
@@ -341,6 +392,7 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
   const queryClient = useQueryClient();
   const apiRef = useRef<DockviewApi | null>(null);
   const [dockviewEpoch, setDockviewEpoch] = useState(0);
+  const [shellNavRevision, setShellNavRevision] = useState(0);
   const offeredPluginPanelsRef = useRef(new Set<string>());
   const pendingBrowserOpensRef = useRef<
     Array<{ url?: string | null; nativeTabId?: string | null }>
@@ -406,10 +458,12 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
       releaseImagePreviewSource(panel.id);
       closeRemovedEditorTerminal(panel.id);
       syncWorkspaceOpenSessionIdsFromDockview(api);
+      setShellNavRevision((rev) => rev + 1);
     });
     const removeGroupDisposable = api.onDidRemoveGroup((group) => {
       clearTerminalShelf(group.id);
       syncWorkspaceOpenSessionIdsFromDockview(api);
+      setShellNavRevision((rev) => rev + 1);
     });
 
     let frame = 0;
@@ -426,6 +480,8 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
     };
     const layoutDisposable = api.onDidLayoutChange(() => {
       syncWorkspaceOpenSessionIdsFromDockview(api);
+      applyLeftGroupHeaderHiding(api);
+      setShellNavRevision((rev) => rev + 1);
       if (applyingLeftSplitRef.current) return;
       if (frame) return;
       frame = requestAnimationFrame(syncSplit);
@@ -452,6 +508,11 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
   const getLeftGroup = useCallback((dockviewApi: DockviewApi) => {
     return (
       dockviewApi.getGroup(GROUP_IDS.LEFT) ??
+      dockviewApi.groups.find(
+        (group) =>
+          isLeftGroup(group) &&
+          group.element?.getAttribute('data-shell-nav-side') !== 'right'
+      ) ??
       dockviewApi.groups.find((group) => isLeftGroup(group))
     );
   }, []);
@@ -471,8 +532,35 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
 
   const normalizeEditorGroupIds = useCallback((dockviewApi: DockviewApi) => {
     const leftGroups = listLeftDockGroups(dockviewApi.groups);
-    if (leftGroups.length === 1) {
-      (leftGroups[0] as { id: string }).id = GROUP_IDS.LEFT;
+    if (leftGroups.length > 0) {
+      const primary =
+        leftGroups.find(
+          (group) =>
+            group.id === GROUP_IDS.LEFT &&
+            group.element?.getAttribute('data-shell-nav-side') !== 'right'
+        ) ??
+        leftGroups.find(
+          (group) =>
+            group.element?.getAttribute('data-shell-nav-side') !== 'right'
+        ) ??
+        leftGroups[0];
+      if (
+        primary &&
+        primary.element?.getAttribute('data-shell-nav-side') !== 'right'
+      ) {
+        (primary as { id: string }).id = GROUP_IDS.LEFT;
+      }
+      for (const group of leftGroups) {
+        if (
+          group === primary &&
+          group.element?.getAttribute('data-shell-nav-side') !== 'right'
+        ) {
+          continue;
+        }
+        if (!group.id.startsWith(LEFT_GROUP_PREFIX)) {
+          (group as { id: string }).id = getNextLeftGroupId(dockviewApi);
+        }
+      }
     }
 
     releaseLegacyTerminalZones(dockviewApi);
@@ -656,8 +744,9 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
       options?: OpenFilePreviewOptions
     ): OpenFilePreviewResult => {
       void preloadMonacoEditor();
+      const canvasController = getCanvasWorkspaceController();
       const dockviewApi = apiRef.current;
-      if (!dockviewApi) return 'unavailable';
+      if (!dockviewApi && !canvasController) return 'unavailable';
 
       // Absent an explicit choice, opening a file is the user asking for it.
       const activate = options?.activate ?? true;
@@ -679,6 +768,17 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
       const fileName = filePath.split(/[/\\]/).pop() || filePath;
       const title = options?.title ?? options?.displayPath ?? fileName;
       const params = buildPreviewPanelParams(filePath, options);
+
+      if (canvasController) {
+        canvasController.openOrFocusPanel({
+          id: basePanelId,
+          component: PANEL_IDS.PREVIEW,
+          title,
+          params: params as unknown as Record<string, unknown>,
+        });
+        return 'opened';
+      }
+      if (!dockviewApi) return 'unavailable';
 
       const existingPanel = dockviewApi.panels.find(
         (panel) =>
@@ -720,8 +820,9 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
 
   const openDirectoryExplorer = useCallback(
     (dirPath: string, options?: OpenDirectoryExplorerOptions) => {
+      const canvasController = getCanvasWorkspaceController();
       const dockviewApi = apiRef.current;
-      if (!dockviewApi) return;
+      if (!dockviewApi && !canvasController) return;
 
       const normalizedRoot = dirPath.replace(/[\\/]+$/, '') || dirPath;
       const activate = options?.activate ?? true;
@@ -731,6 +832,17 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
         normalizedRoot.split(/[/\\]/).filter(Boolean).pop() || normalizedRoot;
       const title = options?.title?.trim() || folderName;
       const params = buildExternalDirectoryPanelParams(normalizedRoot, options);
+
+      if (canvasController) {
+        canvasController.openOrFocusPanel({
+          id: basePanelId,
+          component: PANEL_IDS.EXTERNAL_DIRECTORY,
+          title,
+          params: params as unknown as Record<string, unknown>,
+        });
+        return;
+      }
+      if (!dockviewApi) return;
 
       const existingPanel = dockviewApi.panels.find(
         (panel) =>
@@ -822,8 +934,9 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
 
   const openImagePreview = useCallback(
     (imageUrl: string, options?: { title?: string | null }) => {
+      const canvasController = getCanvasWorkspaceController();
       const dockviewApi = apiRef.current;
-      if (!dockviewApi) return;
+      if (!dockviewApi && !canvasController) return;
 
       const panelId = buildImagePreviewPanelId(imageUrl);
       const title = options?.title?.trim() || 'Image';
@@ -838,6 +951,17 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
         location: null,
         imagePreviewId: panelId,
       };
+
+      if (canvasController) {
+        canvasController.openOrFocusPanel({
+          id: panelId,
+          component: PANEL_IDS.PREVIEW,
+          title,
+          params,
+        });
+        return;
+      }
+      if (!dockviewApi) return;
 
       const existingPanel = dockviewApi.getPanel(panelId);
       if (existingPanel) {
@@ -968,6 +1092,20 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
 
   const setTerminalVisibility = useCallback(
     (toggleExisting: boolean) => {
+      const canvasController = getCanvasWorkspaceController();
+      if (canvasController) {
+        const tabId = generateTerminalTabId();
+        canvasController.openOrFocusPanel({
+          id: editorTerminalPanelId(tabId),
+          component: PANEL_IDS.TERMINAL,
+          title: 'Terminal',
+          params: {
+            surface: 'editor',
+            tabId,
+          },
+        });
+        return;
+      }
       const dockviewApi = apiRef.current;
       if (!dockviewApi) return;
 
@@ -1081,8 +1219,24 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
   );
 
   const openTerminalEditorTab = useCallback(
-    (shell?: string) => {
+    (shell?: string, options?: { cwd?: string | null }) => {
       const tabId = generateTerminalTabId();
+      const cwd = options?.cwd?.trim() || undefined;
+      const canvasController = getCanvasWorkspaceController();
+      if (canvasController) {
+        canvasController.openOrFocusPanel({
+          id: editorTerminalPanelId(tabId),
+          component: PANEL_IDS.TERMINAL,
+          title: shell || 'Terminal',
+          params: {
+            surface: 'editor',
+            tabId,
+            ...(shell ? { shell } : {}),
+            ...(cwd ? { cwd } : {}),
+          },
+        });
+        return;
+      }
       const panel = addPanelToActiveEditorGroup(
         {
           id: editorTerminalPanelId(tabId),
@@ -1092,6 +1246,7 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
             surface: 'editor',
             tabId,
             ...(shell ? { shell } : {}),
+            ...(cwd ? { cwd } : {}),
           },
         },
         'active'
@@ -1345,23 +1500,233 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
         });
       }
       normalizeEditorGroupIds(dockviewApi);
+      setShellNavRevision((rev) => rev + 1);
     },
     [normalizeEditorGroupIds]
   );
 
+  const ensureRightShellNavGroup = useCallback(() => {
+    const dockviewApi = apiRef.current;
+    if (!dockviewApi) return null;
+
+    const existingRight = listLeftDockGroups(dockviewApi.groups).find(
+      (group) => group.element?.getAttribute('data-shell-nav-side') === 'right'
+    );
+    if (existingRight) {
+      existingRight.api.setVisible(true);
+      return existingRight;
+    }
+
+    const stageGroups = [
+      ...getEditorGroups(dockviewApi),
+      ...listSessionGroups(dockviewApi.groups),
+    ].filter((group) => group.api.isVisible && group.panels.length > 0);
+    const rightmostStage =
+      stageGroups.sort((a, b) => {
+        const aRight = a.element?.getBoundingClientRect().right ?? 0;
+        const bRight = b.element?.getBoundingClientRect().right ?? 0;
+        return bRight - aRight;
+      })[0] ??
+      getEditorGroups(dockviewApi)[0] ??
+      recreateWelcomeEditorGroup();
+
+    const referencePanel = rightmostStage?.panels[0];
+    if (!referencePanel) return null;
+
+    const rightShellGroup = dockviewApi.addGroup({
+      id: getNextLeftGroupId(dockviewApi),
+      referencePanel,
+      direction: 'right',
+      hideHeader: true,
+      constraints: { minimumWidth: MIN_LEFT_PANEL_WIDTH },
+      initialWidth: 220,
+    });
+    rightShellGroup.element?.setAttribute('data-left-dock', 'true');
+    rightShellGroup.element?.setAttribute('data-shell-nav-side', 'right');
+    rightShellGroup.api.setVisible(true);
+    try {
+      rightShellGroup.api.setSize({ width: 220 });
+    } catch {
+      // Ignore early resize failures.
+    }
+    return rightShellGroup;
+  }, [getEditorGroups, recreateWelcomeEditorGroup]);
+
   const placeLeftDockPanel = useCallback(
-    (panelId: ActivityRailItemId, zone: LeftPanelDropZone) => {
+    (
+      panelId: ActivityRailItemId,
+      zone: LeftPanelDropZone,
+      options?: {
+        side?: 'left' | 'right';
+        targetPanelId?: ActivityRailItemId;
+      }
+    ) => {
       const dockviewApi = apiRef.current;
       if (!dockviewApi) return;
 
+      const side = options?.side ?? 'left';
       const title = ACTIVITY_RAIL_PANEL_TITLES[panelId];
       const existing = dockviewApi.getPanel(panelId);
-      const others = ACTIVITY_RAIL_ITEMS.filter((id) => id !== panelId)
+      const othersOnSide = ACTIVITY_RAIL_ITEMS.filter((id) => id !== panelId)
         .map((id) => dockviewApi.getPanel(id))
-        .filter((panel): panel is NonNullable<typeof panel> => Boolean(panel));
+        .filter((panel): panel is NonNullable<typeof panel> => {
+          if (!panel) return false;
+          const panelSide =
+            panel.group.element?.getAttribute('data-shell-nav-side') === 'right'
+              ? 'right'
+              : 'left';
+          return panelSide === side;
+        });
 
-      if (existing && others.length === 0) {
-        const leftGroup = existing.group;
+      const targetPanel =
+        options?.targetPanelId && options.targetPanelId !== panelId
+          ? dockviewApi.getPanel(options.targetPanelId)
+          : undefined;
+
+      if (existing && othersOnSide.length === 0 && !targetPanel) {
+        const existingSide =
+          existing.group.element?.getAttribute('data-shell-nav-side') ===
+          'right'
+            ? 'right'
+            : 'left';
+        if (existingSide === side) {
+          const leftGroup = existing.group;
+          if (leftGroup) {
+            setColumnVisible(
+              dockviewApi,
+              getLayoutArrangement(),
+              leftGroup,
+              true
+            );
+          }
+          finishLeftDockChange();
+          return;
+        }
+      }
+
+      const measureGroupWidth = (group: {
+        api: { width: number };
+        element?: HTMLElement;
+      }) => {
+        const raw =
+          group.api.width ||
+          group.element?.getBoundingClientRect().width ||
+          0;
+        return raw > 0
+          ? Math.max(MIN_LEFT_PANEL_WIDTH, Math.round(raw))
+          : 0;
+      };
+      const measureGroupHeight = (group: {
+        api: { height: number };
+        element?: HTMLElement;
+      }) => {
+        const raw =
+          group.api.height ||
+          group.element?.getBoundingClientRect().height ||
+          0;
+        return raw > 0 ? Math.round(raw) : 0;
+      };
+
+      const existingGroupWidthsOnSide = othersOnSide
+        .map((panel) => measureGroupWidth(panel.group))
+        .filter((w) => w > 0);
+      if (existingGroupWidthsOnSide.length === 0 && existing) {
+        const w = measureGroupWidth(existing.group);
+        if (w > 0) existingGroupWidthsOnSide.push(w);
+      }
+      const minExistingWidth =
+        existingGroupWidthsOnSide.length > 0
+          ? Math.max(MIN_LEFT_PANEL_WIDTH, Math.min(...existingGroupWidthsOnSide))
+          : MIN_LEFT_PANEL_WIDTH;
+
+      const previousGroup = existing?.group;
+      if (existing) {
+        dockviewApi.removePanel(existing);
+        if (
+          previousGroup &&
+          previousGroup.panels.length === 0 &&
+          dockviewApi.groups.includes(previousGroup)
+        ) {
+          if (previousGroup.id === GROUP_IDS.LEFT && side === 'right') {
+            setColumnVisible(
+              dockviewApi,
+              getLayoutArrangement(),
+              previousGroup,
+              false
+            );
+          } else if (previousGroup.id !== GROUP_IDS.LEFT) {
+            try {
+              dockviewApi.removeGroup(previousGroup);
+            } catch {
+              // Ignore group removal failures.
+            }
+          }
+        }
+      }
+
+      const reference =
+        (targetPanel && dockviewApi.getPanel(targetPanel.id)) ??
+        othersOnSide
+          .map((panel) => dockviewApi.getPanel(panel.id))
+          .find((panel): panel is NonNullable<typeof panel> => Boolean(panel));
+
+      if (!reference) {
+        const hostGroup =
+          side === 'right' ? ensureRightShellNavGroup() : ensureLeftDockGroup();
+        if (!hostGroup) return;
+
+        const hostGroupElement = (hostGroup as { element?: HTMLElement })
+          .element;
+        hostGroupElement?.setAttribute('data-left-dock', 'true');
+        hostGroupElement?.setAttribute('data-shell-nav-side', side);
+
+        const created = dockviewApi.addPanel({
+          id: panelId,
+          component: panelId,
+          title,
+          position: { referenceGroup: hostGroup.id, direction: 'within' },
+        });
+        created.group.element?.setAttribute('data-left-dock', 'true');
+        created.group.element?.setAttribute('data-shell-nav-side', side);
+
+        if (side === 'left') {
+          setColumnVisible(
+            dockviewApi,
+            getLayoutArrangement(),
+            hostGroup,
+            true
+          );
+        } else {
+          hostGroup.api.setVisible(true);
+        }
+        finishLeftDockChange();
+        return;
+      }
+
+      const survivingGroups = Array.from(
+        new Set(
+          othersOnSide
+            .map((panel) => dockviewApi.getPanel(panel.id)?.group)
+            .filter(
+              (group): group is NonNullable<typeof group> =>
+                Boolean(group && dockviewApi.groups.includes(group))
+            )
+        )
+      );
+      const survivingSnapshots = survivingGroups.map((group) => ({
+        group,
+        width: measureGroupWidth(group) || minExistingWidth,
+        height: measureGroupHeight(group),
+      }));
+
+      const referenceGroup = reference.group;
+      const refWidth = measureGroupWidth(referenceGroup) || minExistingWidth;
+      const refHeight = measureGroupHeight(referenceGroup);
+      const horizontalPlacement = isRowSplit(zone);
+      const targetNewWidth = horizontalPlacement ? minExistingWidth : refWidth;
+
+      if (side === 'left') {
+        const leftGroup = ensureLeftDockGroup();
         if (leftGroup) {
           setColumnVisible(
             dockviewApi,
@@ -1370,47 +1735,112 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
             true
           );
         }
-        finishLeftDockChange();
-        return;
       }
 
-      if (existing) {
-        existing.api.moveTo({
-          group: others[0].group,
-          position: zone,
-        });
-        finishLeftDockChange(zone);
-        return;
+      const created = dockviewApi.addPanel({
+        id: panelId,
+        component: panelId,
+        title,
+        initialWidth: targetNewWidth,
+        ...(!horizontalPlacement && refHeight > 0
+          ? { initialHeight: Math.round(refHeight / 2) }
+          : {}),
+        position: {
+          referencePanel: reference,
+          direction: dropZoneToDirection(zone),
+        },
+      });
+      created.group.element?.setAttribute('data-left-dock', 'true');
+      created.group.element?.setAttribute('data-shell-nav-side', side);
+      if (
+        !created.group.id.startsWith(LEFT_GROUP_PREFIX) &&
+        created.group.id !== GROUP_IDS.LEFT
+      ) {
+        (created.group as { id: string }).id = getNextLeftGroupId(dockviewApi);
       }
 
-      const leftGroup = ensureLeftDockGroup();
-      if (!leftGroup) return;
+      finishLeftDockChange();
 
-      const reference = others[0];
-      if (!reference) {
-        dockviewApi.addPanel({
-          id: panelId,
-          component: panelId,
-          title,
-          position: { referenceGroup: leftGroup.id, direction: 'within' },
-        });
-      } else {
-        dockviewApi.addPanel({
-          id: panelId,
-          component: panelId,
-          title,
-          position: {
-            referencePanel: reference,
-            direction: dropZoneToDirection(zone),
-          },
-        });
-      }
+      applyingLeftSplitRef.current = true;
+      const applyPlacementSizes = () => {
+        if (horizontalPlacement) {
+          settleDockviewGroupWidths([
+            ...survivingSnapshots.map((snapshot) => ({
+              group: snapshot.group,
+              width: snapshot.width,
+            })),
+            { group: created.group, width: minExistingWidth },
+          ]);
+        } else {
+          settleDockviewGroupWidths([
+            ...survivingSnapshots.map((snapshot) => ({
+              group: snapshot.group,
+              width:
+                snapshot.group === referenceGroup ? refWidth : snapshot.width,
+            })),
+            { group: created.group, width: refWidth },
+          ]);
+          const totalHeight =
+            refHeight ||
+            measureGroupHeight(referenceGroup) +
+              measureGroupHeight(created.group);
+          if (totalHeight > 0) {
+            const halfHeight = Math.max(80, Math.round(totalHeight / 2));
+            try {
+              referenceGroup.api.setSize({ height: halfHeight });
+              created.group.api.setSize({
+                height: Math.max(80, totalHeight - halfHeight),
+              });
+            } catch {
+              // Ignore height sizing errors in test doubles.
+            }
+          } else if (side === 'left') {
+            applyLeftDockSplitSizes(dockviewApi, 'stack');
+          }
+        }
+        applyLeftGroupHeaderHiding(dockviewApi);
+      };
 
-      setColumnVisible(dockviewApi, getLayoutArrangement(), leftGroup, true);
-      finishLeftDockChange(others.length > 0 ? zone : undefined);
+      applyPlacementSizes();
+      requestAnimationFrame(() => {
+        applyPlacementSizes();
+        applyingLeftSplitRef.current = false;
+      });
     },
-    [ensureLeftDockGroup, finishLeftDockChange]
+    [ensureLeftDockGroup, ensureRightShellNavGroup, finishLeftDockChange]
   );
+
+  const swapLeftDockPanels = useCallback(
+    (panelA: ActivityRailItemId, panelB: ActivityRailItemId) => {
+      const dockviewApi = apiRef.current;
+      if (!dockviewApi) return false;
+      applyingLeftSplitRef.current = true;
+      const swapped = performSwapLeftDockPanels(dockviewApi, panelA, panelB);
+      if (swapped) {
+        finishLeftDockChange();
+      }
+      requestAnimationFrame(() => {
+        applyingLeftSplitRef.current = false;
+      });
+      return swapped;
+    },
+    [finishLeftDockChange]
+  );
+
+  const resolveShellNavDropTarget = useCallback(
+    (point: Point, sourcePanelId?: ActivityRailItemId) => {
+      const dockviewApi = apiRef.current;
+      if (!dockviewApi) return null;
+      return readShellNavDropTarget(dockviewApi, point, sourcePanelId);
+    },
+    []
+  );
+
+  const measureShellNavPanels = useCallback(() => {
+    const dockviewApi = apiRef.current;
+    if (!dockviewApi) return [];
+    return readShellNavPanels(dockviewApi);
+  }, []);
 
   const measureLeftDock = useCallback(() => {
     const dockviewApi = apiRef.current;
@@ -1441,6 +1871,23 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
       const leftGroup = ensureLeftDockGroup();
       if (!leftGroup) return;
 
+      if (existing && isRightShellNavGroup(existing.group)) {
+        const rightGroup = existing.group;
+        dockviewApi.removePanel(existing);
+        if (
+          rightGroup.panels.length === 0 &&
+          dockviewApi.groups.includes(rightGroup) &&
+          rightGroup.id !== GROUP_IDS.LEFT
+        ) {
+          try {
+            dockviewApi.removeGroup(rightGroup);
+          } catch {
+            // Ignore cleanup failure.
+          }
+        }
+        existing = undefined;
+      }
+
       if (!existing) {
         dockviewApi.addPanel({
           id: panelId,
@@ -1454,7 +1901,9 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
       for (const otherId of ACTIVITY_RAIL_ITEMS) {
         if (otherId === panelId) continue;
         const other = dockviewApi.getPanel(otherId);
-        if (other) dockviewApi.removePanel(other);
+        if (other && !isRightShellNavGroup(other.group)) {
+          dockviewApi.removePanel(other);
+        }
       }
 
       const panel = dockviewApi.getPanel(panelId);
@@ -1478,10 +1927,25 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
       if (!dockviewApi) return;
 
       const existing = dockviewApi.getPanel(panelId);
+      if (existing && isRightShellNavGroup(existing.group)) {
+        const nextVisible = !existing.group.api.isVisible;
+        setRightShellNavVisible(
+          dockviewApi,
+          getLayoutArrangement(),
+          nextVisible
+        );
+        finishLeftDockChange();
+        return;
+      }
+
       const othersVisible = ACTIVITY_RAIL_ITEMS.some((id) => {
         if (id === panelId) return false;
         const panel = dockviewApi.getPanel(id);
-        return Boolean(panel?.group.api.isVisible);
+        return Boolean(
+          panel &&
+            !isRightShellNavGroup(panel.group) &&
+            panel.group.api.isVisible
+        );
       });
 
       if (existing?.group.api.isVisible && !othersVisible) {
@@ -1494,6 +1958,141 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
     },
     [finishLeftDockChange, showOnlyLeftDockPanel]
   );
+
+  const isLeftSidebarVisible = useCallback(() => {
+    void shellNavRevision;
+    const dockviewApi = apiRef.current;
+    if (!dockviewApi) return false;
+    const leftGroups = listLeftShellNavGroups(dockviewApi.groups).filter(
+      (group) => group.panels.length > 0
+    );
+    return leftGroups.some((group) => group.api.isVisible);
+  }, [shellNavRevision]);
+
+  const toggleLeftSidebar = useCallback(() => {
+    const dockviewApi = apiRef.current;
+    if (!dockviewApi) return;
+    const leftGroups = listLeftShellNavGroups(dockviewApi.groups).filter(
+      (group) => group.panels.length > 0
+    );
+    if (leftGroups.length === 0) {
+      showOnlyLeftDockPanel(PANEL_IDS.FILE_TREE);
+      return;
+    }
+    const currentlyVisible = leftGroups.some((group) => group.api.isVisible);
+    setLeftDockVisible(
+      dockviewApi,
+      getLayoutArrangement(),
+      !currentlyVisible
+    );
+    setFileTreeVisible(!currentlyVisible);
+    finishLeftDockChange();
+  }, [finishLeftDockChange, setFileTreeVisible, showOnlyLeftDockPanel]);
+
+  const hasRightSidebarPanels = useCallback(() => {
+    void shellNavRevision;
+    const dockviewApi = apiRef.current;
+    if (!dockviewApi) return false;
+    return listRightShellNavGroups(dockviewApi.groups).some(
+      (group) => group.panels.length > 0
+    );
+  }, [shellNavRevision]);
+
+  const isRightSidebarVisible = useCallback(() => {
+    void shellNavRevision;
+    const dockviewApi = apiRef.current;
+    if (!dockviewApi) return false;
+    const rightGroups = listRightShellNavGroups(dockviewApi.groups).filter(
+      (group) => group.panels.length > 0
+    );
+    return rightGroups.some((group) => group.api.isVisible);
+  }, [shellNavRevision]);
+
+  const toggleRightSidebar = useCallback(() => {
+    const dockviewApi = apiRef.current;
+    if (!dockviewApi) return;
+    const rightGroups = listRightShellNavGroups(dockviewApi.groups).filter(
+      (group) => group.panels.length > 0
+    );
+    if (rightGroups.length === 0) return;
+    const currentlyVisible = rightGroups.some((group) => group.api.isVisible);
+    setRightShellNavVisible(
+      dockviewApi,
+      getLayoutArrangement(),
+      !currentlyVisible
+    );
+    finishLeftDockChange();
+  }, [finishLeftDockChange]);
+
+  const openWelcomeTab = useCallback(() => {
+    const dockviewApi = apiRef.current;
+    if (!dockviewApi) return;
+
+    const existingWelcome = dockviewApi.getPanel(PANEL_IDS.WELCOME);
+    if (existingWelcome) {
+      setColumnVisible(
+        dockviewApi,
+        getLayoutArrangement(),
+        existingWelcome.group,
+        true
+      );
+      if (isEditorColumnCrushed(dockviewApi)) {
+        restoreFlexibleEditorColumn(
+          dockviewApi,
+          getLayoutArrangement(),
+          useLayoutStore.getState().rightPanelWidth
+        );
+      }
+      existingWelcome.api.setActive();
+      return;
+    }
+
+    const activeEditorGroup =
+      (dockviewApi.activeGroup && isEditorGroup(dockviewApi.activeGroup)
+        ? dockviewApi.activeGroup
+        : undefined) ??
+      getEditorGroups(dockviewApi).find((group) => group.api.isVisible) ??
+      getEditorGroups(dockviewApi)[0];
+
+    if (activeEditorGroup) {
+      setColumnVisible(
+        dockviewApi,
+        getLayoutArrangement(),
+        activeEditorGroup,
+        true
+      );
+      if (isEditorColumnCrushed(dockviewApi)) {
+        restoreFlexibleEditorColumn(
+          dockviewApi,
+          getLayoutArrangement(),
+          useLayoutStore.getState().rightPanelWidth
+        );
+      }
+      const panel = dockviewApi.addPanel({
+        id: PANEL_IDS.WELCOME,
+        component: PANEL_IDS.WELCOME,
+        title: builtinPanelTitle(PANEL_IDS.WELCOME),
+        position: {
+          referenceGroup: activeEditorGroup.id,
+          direction: 'within',
+        },
+      });
+      panel.api.setActive();
+      normalizeEditorGroupIds(dockviewApi);
+      return;
+    }
+
+    const group = recreateWelcomeEditorGroup();
+    if (group) {
+      setColumnVisible(dockviewApi, getLayoutArrangement(), group, true);
+      restoreFlexibleEditorColumn(
+        dockviewApi,
+        getLayoutArrangement(),
+        useLayoutStore.getState().rightPanelWidth
+      );
+    }
+    dockviewApi.getPanel(PANEL_IDS.WELCOME)?.api.setActive();
+  }, [getEditorGroups, normalizeEditorGroupIds, recreateWelcomeEditorGroup]);
 
   const toggleFileTree = useCallback(() => {
     toggleLeftDockPanel(PANEL_IDS.FILE_TREE);
@@ -1509,6 +2108,10 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
 
   const toggleSessionList = useCallback(() => {
     toggleLeftDockPanel(PANEL_IDS.SESSION_LIST);
+  }, [toggleLeftDockPanel]);
+
+  const toggleBotsPanel = useCallback(() => {
+    toggleLeftDockPanel(PANEL_IDS.BOTS);
   }, [toggleLeftDockPanel]);
 
   const showFileTree = useCallback(() => {
@@ -1548,9 +2151,10 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
   );
 
   const openOrFocusPanel = useCallback(
-    (panelId: string, title: string) => {
+    (panelId: string, title: string, params?: Record<string, unknown>) => {
+      const canvasController = getCanvasWorkspaceController();
       const dockviewApi = apiRef.current;
-      if (!dockviewApi) return;
+      if (!dockviewApi && !canvasController) return;
 
       if (panelId === PANEL_IDS.TERMINAL) {
         openNewTerminal();
@@ -1577,10 +2181,38 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
           toggleSessionList();
           return;
         }
+
+        if (panelId === PANEL_IDS.BOTS) {
+          toggleBotsPanel();
+          return;
+        }
       }
+
+      const component =
+        typeof params?.__component === 'string' &&
+        params.__component.trim().length > 0
+          ? params.__component.trim()
+          : panelId;
+
+      if (canvasController) {
+        canvasController.openOrFocusPanel({
+          id: panelId,
+          component,
+          title,
+          params,
+        });
+        return;
+      }
+      if (!dockviewApi) return;
 
       const existingPanel = dockviewApi.getPanel(panelId);
       if (existingPanel) {
+        if (params) {
+          existingPanel.api.updateParameters({
+            ...(existingPanel.params as Record<string, unknown> | undefined),
+            ...params,
+          });
+        }
         if (existingPanel.title !== title) {
           existingPanel.api.setTitle(title);
         }
@@ -1603,8 +2235,9 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
 
       const panel = addPanelToActiveEditorGroup({
         id: panelId,
-        component: panelId,
+        component,
         title,
+        ...(params ? { params } : {}),
       });
 
       panel?.api.setActive();
@@ -1612,6 +2245,7 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
     [
       addPanelToActiveEditorGroup,
       openNewTerminal,
+      toggleBotsPanel,
       toggleFileTree,
       toggleGitPanel,
       toggleSearchPanel,
@@ -1621,8 +2255,17 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
 
   const openSessionTab = useCallback(
     (options: OpenSessionTabOptions) => {
+      if (!options.sessionId || !options.workspaceId) return;
+      const canvasController = getCanvasWorkspaceController();
+      if (canvasController) {
+        canvasController.openOrFocusSession({
+          sessionId: options.sessionId,
+          expanded: true,
+        });
+        return;
+      }
       const dockviewApi = apiRef.current;
-      if (!dockviewApi || !options.sessionId || !options.workspaceId) return;
+      if (!dockviewApi) return;
 
       const activate = options.activate ?? true;
       const panelId = sessionPanelId(options.sessionId);
@@ -1638,9 +2281,10 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
         agentId: options.agentId ?? existingAgentId ?? null,
       };
 
-      useLayoutStore.getState().setRightPanelVisible(true);
-
       if (existingPanel) {
+        if (isSessionGroup(existingPanel.group)) {
+          useLayoutStore.getState().setRightPanelVisible(true);
+        }
         existingPanel.api.updateParameters(params);
         if (options.title?.trim() && existingPanel.title !== title) {
           existingPanel.api.setTitle(title);
@@ -1698,6 +2342,11 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
       }
 
       if (!targetGroup) {
+        targetGroup =
+          getActiveEditorGroup() ?? getEditorGroups(dockviewApi)[0];
+      }
+
+      if (!targetGroup) {
         const fallbackReference =
           getEditorGroups(dockviewApi)[0]?.panels[0] ??
           getLeftGroup(dockviewApi)?.panels[0] ??
@@ -1717,6 +2366,9 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
         ).element?.setAttribute('data-session-dock', 'true');
       }
 
+      if (isSessionGroup(targetGroup)) {
+        useLayoutStore.getState().setRightPanelVisible(true);
+      }
       setColumnVisible(dockviewApi, getLayoutArrangement(), targetGroup, true);
 
       const unboundPlaceholders = targetGroup.panels.filter(
@@ -1752,15 +2404,32 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
       }
       normalizeEditorGroupIds(dockviewApi);
     },
-    [getEditorGroups, getLeftGroup, getRightGroup, normalizeEditorGroupIds]
+    [
+      getActiveEditorGroup,
+      getEditorGroups,
+      getLeftGroup,
+      getRightGroup,
+      normalizeEditorGroupIds,
+    ]
   );
 
   const openMergePanel = useCallback(
     (params: { workspaceId: string; repoId: string; filePath: string }) => {
+      const canvasController = getCanvasWorkspaceController();
       const dockviewApi = apiRef.current;
-      if (!dockviewApi) return;
+      if (!dockviewApi && !canvasController) return;
       const panelId = `merge:${params.filePath}`;
       const title = params.filePath.split(/[/\\]/).pop() || params.filePath;
+      if (canvasController) {
+        canvasController.openOrFocusPanel({
+          id: panelId,
+          component: PANEL_IDS.MERGE,
+          title,
+          params,
+        });
+        return;
+      }
+      if (!dockviewApi) return;
       const existingPanel = dockviewApi.getPanel(panelId);
       if (existingPanel) {
         existingPanel.api.updateParameters(params);
@@ -1787,8 +2456,9 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
 
   const openDiffPreviewAtPath = useCallback(
     (path: string, options?: OpenFilePreviewOptions & { title?: string }) => {
+      const canvasController = getCanvasWorkspaceController();
       const dockviewApi = apiRef.current;
-      if (!dockviewApi) return;
+      if (!dockviewApi && !canvasController) return;
 
       clearCommitDiff();
       clearGitDiffTargetPath();
@@ -1801,6 +2471,17 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
         modifiedContent: options?.modifiedContent,
         originalContent: options?.originalContent,
       });
+
+      if (canvasController) {
+        canvasController.openOrFocusPanel({
+          id: panelId,
+          component: PANEL_IDS.PREVIEW,
+          title: fileName,
+          params: params as unknown as Record<string, unknown>,
+        });
+        return;
+      }
+      if (!dockviewApi) return;
       const existingPanel = dockviewApi.getPanel(panelId);
 
       if (existingPanel) {
@@ -1891,8 +2572,9 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
       requestedUrl?: string | null;
       nativeTabId?: string | null;
     }) => {
+      const canvasController = getCanvasWorkspaceController();
       const dockviewApi = apiRef.current;
-      if (!dockviewApi) return;
+      if (!dockviewApi && !canvasController) return;
       const activate = options.activate !== false;
       const prefix = pluginSurfaceId(options.pluginId, options.contributionId);
       const mode =
@@ -1901,12 +2583,16 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
       if (!panelId) {
         if (options.multiInstance && mode === 'new') {
           let next = 1;
-          while (dockviewApi.getPanel(`${prefix}:${next}`)) next += 1;
-          panelId = `${prefix}:${next}`;
+          while (dockviewApi?.getPanel(`${prefix}:${next}`)) next += 1;
+          panelId = canvasController
+            ? `${prefix}:${Date.now().toString(36)}`
+            : `${prefix}:${next}`;
         } else if (options.multiInstance && mode === 'focus') {
-          const matches = dockviewApi.panels.filter(
-            (panel) => panel.id === prefix || panel.id.startsWith(`${prefix}:`)
-          );
+          const matches =
+            dockviewApi?.panels.filter(
+              (panel) =>
+                panel.id === prefix || panel.id.startsWith(`${prefix}:`)
+            ) ?? [];
           panelId = matches[matches.length - 1]?.id ?? `${prefix}:1`;
         } else {
           panelId = prefix;
@@ -1919,6 +2605,16 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
         requestedUrl: options.requestedUrl ?? null,
         nativeTabId: options.nativeTabId ?? null,
       };
+      if (canvasController) {
+        canvasController.openOrFocusPanel({
+          id: panelId,
+          component: 'plugin-panel',
+          title: options.title,
+          params,
+        });
+        return;
+      }
+      if (!dockviewApi) return;
       const existing = dockviewApi.getPanel(panelId);
       if (existing) {
         existing.api.setTitle(options.title);
@@ -1975,7 +2671,7 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     const dockviewApi = apiRef.current;
-    if (!dockviewApi) return;
+    if (!dockviewApi || getCanvasWorkspaceController()) return;
     const liveIds = new Set(
       pluginPanels.map((item) => pluginSurfaceId(item.pluginId, item.id))
     );
@@ -2128,7 +2824,17 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
       toggleGitPanel,
       toggleSearchPanel,
       toggleSessionList,
+      toggleBotsPanel,
+      openWelcomeTab,
+      toggleLeftSidebar,
+      isLeftSidebarVisible,
+      toggleRightSidebar,
+      isRightSidebarVisible,
+      hasRightSidebarPanels,
       placeLeftDockPanel,
+      swapLeftDockPanels,
+      resolveShellNavDropTarget,
+      measureShellNavPanels,
       measureLeftDock,
       isLeftDockSplit,
       unsplitLeftDock,
@@ -2175,7 +2881,17 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
     toggleGitPanel,
     toggleSearchPanel,
     toggleSessionList,
+    toggleBotsPanel,
+    openWelcomeTab,
+    toggleLeftSidebar,
+    isLeftSidebarVisible,
+    toggleRightSidebar,
+    isRightSidebarVisible,
+    hasRightSidebarPanels,
     placeLeftDockPanel,
+    swapLeftDockPanels,
+    resolveShellNavDropTarget,
+    measureShellNavPanels,
     measureLeftDock,
     isLeftDockSplit,
     unsplitLeftDock,

@@ -1,5 +1,5 @@
-import { useEffect, type ReactNode } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { useProject } from '@/contexts/ProjectContext';
 import { WorktreeProvider } from '@/contexts/WorktreeContext';
 import {
@@ -10,11 +10,15 @@ import { PanelActionsProvider } from '@/contexts/PanelActionsContext';
 import { TerminalProvider } from '@/contexts/TerminalContext';
 import { ReviewProvider } from '@/contexts/ReviewProvider';
 import { IDELayout } from '@/components/layout/IDELayout';
+import { pickDefaultProjectTarget } from '@/components/layout/projectRailProjects';
 import { KanbanSessionConversationPlacementProvider } from '@/components/kanban/KanbanSessionConversationView';
+import { useOptionalBasicGuide } from '@/features/basic-guide/BasicGuideContext';
+import { useProjects } from '@/hooks/useProjects';
 import { useWindowProjectsStore } from '@/stores/useWindowProjectsStore';
 import { useLayoutStore } from '@/stores/useLayoutStore';
 import { attemptsApi } from '@/lib/api';
 import { useKanbanBoardStyle } from '@/lib/kanbanBoardStyle';
+import { normalizeProjectRoute, paths } from '@/lib/paths';
 import {
   resolveFocusDispatch,
   type FocusSurface,
@@ -26,6 +30,148 @@ interface WorkspaceLayoutProps {
   rightPanelContent?: ReactNode;
   /** Content for the toolbar area */
   toolbarContent?: ReactNode;
+}
+
+function WorkspaceProjectEntryGuard() {
+  const { pathname } = useLocation();
+  const navigate = useNavigate();
+  const { projectId: routeProjectId } = useParams<{ projectId?: string }>();
+  const { projectId: contextProjectId, isError: isProjectError } = useProject();
+  const {
+    projects,
+    isLoading: isProjectsLoading,
+    error: projectsError,
+  } = useProjects();
+  const basicGuide = useOptionalBasicGuide();
+
+  const openProjectIds = useWindowProjectsStore(
+    (state) => state.openProjectIds
+  );
+  const lastRouteByProject = useWindowProjectsStore(
+    (state) => state.lastRouteByProject
+  );
+  const removedProjectIds = useWindowProjectsStore(
+    (state) => state.removedProjectIds
+  );
+
+  const [hasStoreHydrated, setHasStoreHydrated] = useState(() =>
+    useWindowProjectsStore.persist.hasHydrated()
+  );
+
+  useEffect(() => {
+    if (hasStoreHydrated) {
+      return;
+    }
+    return useWindowProjectsStore.persist.onFinishHydration(() => {
+      setHasStoreHydrated(true);
+    });
+  }, [hasStoreHydrated]);
+
+  const visibleProjects = useMemo(
+    () => projects.filter((project) => !removedProjectIds[project.id]),
+    [projects, removedProjectIds]
+  );
+  const visibleProjectsById = useMemo(
+    () =>
+      Object.fromEntries(
+        visibleProjects.map((project) => [project.id, project])
+      ),
+    [visibleProjects]
+  );
+
+  const resolveSafeProjectRoute = useCallback(
+    (targetProjectId: string) => {
+      const remembered = lastRouteByProject[targetProjectId]
+        ? normalizeProjectRoute(lastRouteByProject[targetProjectId])
+        : null;
+      const barePath = `${paths.projects()}/${targetProjectId}`;
+      return remembered && remembered !== barePath
+        ? remembered
+        : paths.projectSessions(targetProjectId);
+    },
+    [lastRouteByProject]
+  );
+
+  const activeProjectId = contextProjectId ?? routeProjectId;
+  const isBasicGuideStep0 =
+    basicGuide?.state.phase === 'active' && basicGuide.state.reachedStep === 0;
+  const normalizedPathname =
+    pathname.length > 1 && pathname.endsWith('/')
+      ? pathname.slice(0, -1)
+      : pathname;
+
+  useEffect(() => {
+    if (!hasStoreHydrated) {
+      return;
+    }
+
+    if (!activeProjectId) {
+      if (isBasicGuideStep0) {
+        if (normalizedPathname === '/') {
+          navigate(paths.projects(), { replace: true });
+        }
+        return;
+      }
+
+      if (isProjectsLoading || projectsError) {
+        return;
+      }
+
+      const defaultProjectId = pickDefaultProjectTarget({
+        projects: visibleProjects,
+        projectsById: visibleProjectsById,
+        openProjectIds,
+      });
+
+      if (defaultProjectId) {
+        navigate(resolveSafeProjectRoute(defaultProjectId), { replace: true });
+      }
+      return;
+    }
+
+    const isRemovedOrMissing =
+      Boolean(removedProjectIds[activeProjectId]) ||
+      (!isProjectsLoading &&
+        !projectsError &&
+        isProjectError &&
+        !visibleProjectsById[activeProjectId]);
+
+    if (isRemovedOrMissing) {
+      const fallbackProjectId = pickDefaultProjectTarget({
+        projects: visibleProjects,
+        projectsById: visibleProjectsById,
+        openProjectIds,
+        excludeProjectId: activeProjectId,
+      });
+      if (fallbackProjectId) {
+        navigate(resolveSafeProjectRoute(fallbackProjectId), { replace: true });
+      } else {
+        navigate(paths.projects(), { replace: true });
+      }
+      return;
+    }
+
+    const bareProjectPath = `${paths.projects()}/${activeProjectId}`;
+    if (normalizedPathname === bareProjectPath) {
+      navigate(resolveSafeProjectRoute(activeProjectId), { replace: true });
+    }
+  }, [
+    activeProjectId,
+    hasStoreHydrated,
+    isBasicGuideStep0,
+    isProjectError,
+    isProjectsLoading,
+    navigate,
+    normalizedPathname,
+    openProjectIds,
+    projectsError,
+    removedProjectIds,
+    resolveSafeProjectRoute,
+    visibleProjects,
+    visibleProjectsById,
+  ]);
+
+  return null;
 }
 
 function PendingProjectFocusBridge() {
@@ -137,6 +283,7 @@ export function WorkspaceLayout({
   return (
     <WorktreeProvider>
       <KanbanSessionProvider>
+        <WorkspaceProjectEntryGuard />
         <PendingProjectFocusBridge />
         <ReviewProvider>
           <TerminalProvider>

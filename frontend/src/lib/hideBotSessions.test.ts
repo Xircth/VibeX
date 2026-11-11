@@ -11,6 +11,7 @@ import {
   HIDE_BOT_SESSIONS_KEY,
   filterVisibleBotSessions,
   getHideBotSessions,
+  isBotCollaborationSession,
   resetHideBotSessions,
   setHideBotSessions,
   subscribeHideBotSessions,
@@ -63,5 +64,25 @@ describe('hideBotSessions', () => {
     expect(filterVisibleBotSessions([userSession, botSession], true)).toEqual([
       userSession,
     ]);
+  });
+
+  it('identifies background Bot collaboration sessions by metadata or bootstrap prompt', () => {
+    expect(
+      isBotCollaborationSession({
+        collaboration: { member_id: 'master', member_name: 'Master' },
+      })
+    ).toBe(true);
+    expect(
+      isBotCollaborationSession({
+        collaboration: null,
+        initial_prompt: '<vibex-private-bootstrap>\n你刚被设为用户的总管 Bot。',
+      })
+    ).toBe(true);
+    expect(
+      isBotCollaborationSession({
+        collaboration: null,
+        initial_prompt: 'Fix workspace layout bug',
+      })
+    ).toBe(false);
   });
 });

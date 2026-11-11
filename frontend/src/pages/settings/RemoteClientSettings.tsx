@@ -1,4 +1,12 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import {
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
+import { UNSAFE_LocationContext } from 'react-router-dom';
 import { listen } from '@tauri-apps/api/event';
 import {
   ChevronDown,
@@ -36,6 +44,7 @@ import { createPluginControlApi } from '@/lib/api/plugins';
 import { tauriBackendTransport } from '@/lib/transport';
 import {
   localProvisionerSurfaces,
+  prefillProvisionerSettings,
   provisionedHostPayload,
   provisionerForKind,
   type LocalProvisionerSurface,
@@ -132,6 +141,7 @@ function hostKey(host: { origin: string; host_id?: string | null }): string {
 function useLocalProvisioners() {
   const [panels, setPanels] = useState<LocalProvisionerSurface[]>([]);
   const [openId, setOpenId] = useState<string | null>(null);
+  const [surfaceReloadKey, setSurfaceReloadKey] = useState(0);
   const api = useMemo(() => createPluginControlApi(tauriBackendTransport), []);
   const surfaceTransport = useMemo(
     () => createBackendAppSurfaceTransport(tauriBackendTransport),
@@ -173,11 +183,39 @@ function useLocalProvisioners() {
     [api, reload]
   );
 
-  return { panels, openId, open, surfaceTransport, api };
+  const ensureOpen = useCallback(
+    async (panel: LocalProvisionerSurface) => {
+      if (!panel.plugin.enabled) {
+        await api.setEnabled(panel.plugin.id, true).catch(() => undefined);
+        await reload().catch(() => undefined);
+      }
+      setSurfaceReloadKey((current) => current + 1);
+      setOpenId(panel.plugin.id);
+    },
+    [api, reload]
+  );
+
+  return {
+    panels,
+    openId,
+    surfaceReloadKey,
+    open,
+    ensureOpen,
+    surfaceTransport,
+    api,
+  };
 }
 
 export function RemoteClientSettings() {
   const { t } = useTranslation(['settings', 'common']);
+  const locationContext = useContext(UNSAFE_LocationContext);
+  const rawSearch =
+    locationContext?.location.search ??
+    (typeof window !== 'undefined' ? window.location.search : '');
+  const requestedAction = useMemo(
+    () => new URLSearchParams(rawSearch).get('action'),
+    [rawSearch]
+  );
   const provisioners = useLocalProvisioners();
   const [profiles, setProfiles] = useState<HostClientProfile[]>([]);
   const [discovered, setDiscovered] = useState<DiscoveredHost[]>([]);
@@ -187,11 +225,34 @@ export function RemoteClientSettings() {
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [tokenFor, setTokenFor] = useState<string | null>(null);
   const [token, setToken] = useState('');
-  const [manualOpen, setManualOpen] = useState(false);
+  const [manualOpen, setManualOpen] = useState(
+    () => requestedAction === 'connect'
+  );
   const [manualOrigin, setManualOrigin] = useState('');
   const [manualCode, setManualCode] = useState('');
   const [hostUpdates, setHostUpdates] = useState<SavedHostUpdateView[]>([]);
   const [updatingId, setUpdatingId] = useState<string | null>(null);
+  const autoOpenedSshRef = useRef(false);
+
+  useEffect(() => {
+    if (requestedAction === 'connect') {
+      setManualOpen(true);
+    }
+  }, [requestedAction]);
+
+  useEffect(() => {
+    if (requestedAction !== 'ssh') {
+      autoOpenedSshRef.current = false;
+      return;
+    }
+    if (autoOpenedSshRef.current) return;
+    const sshPanel = provisioners.panels.find((panel) => panel.kind === 'ssh');
+    if (!sshPanel) return;
+    autoOpenedSshRef.current = true;
+    if (provisioners.openId !== sshPanel.plugin.id) {
+      provisioners.open(sshPanel);
+    }
+  }, [provisioners, requestedAction]);
 
   const connected = profiles.find((profile) => profile.connected) ?? null;
 
@@ -396,6 +457,14 @@ export function RemoteClientSettings() {
           }
           origin = ensuredOrigin;
         } catch (error) {
+          if (source === 'ssh') {
+            await prefillProvisionerSettings(
+              provisioners.api,
+              provisioner.plugin.id,
+              profile
+            );
+            await provisioners.ensureOpen(provisioner);
+          }
           toast.error(
             connectErrorMessage(
               error,
@@ -407,7 +476,11 @@ export function RemoteClientSettings() {
           return;
         }
       }
-      if (profile.has_credential && tokenFor !== profile.id) {
+      if (
+        profile.has_credential &&
+        !profile.needs_token &&
+        tokenFor !== profile.id
+      ) {
         await connect({
           profile_id: profile.id,
           origin,
@@ -427,7 +500,13 @@ export function RemoteClientSettings() {
         key: profile.id,
       });
     },
-    [connect, provisioners.api, provisioners.panels, t, token, tokenFor]
+    [
+      connect,
+      provisioners,
+      t,
+      token,
+      tokenFor,
+    ]
   );
 
   const connectManual = useCallback(async () => {
@@ -720,7 +799,7 @@ export function RemoteClientSettings() {
         <SettingsSection icon={Laptop} title={openProvisioner.label}>
           {openProvisioner.surfaces.map((surface) => (
             <AppSurfaceHost
-              key={`${surface.surfaceId}:${surface.generation}`}
+              key={`${surface.surfaceId}:${surface.generation}:${provisioners.surfaceReloadKey}`}
               descriptor={surface}
               enabled
               transport={provisioners.surfaceTransport}

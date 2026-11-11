@@ -13,6 +13,7 @@ mod control_plane;
 mod conversation_host;
 mod digest;
 mod error;
+pub mod grants;
 mod host_call;
 mod host_capability_broker;
 mod host_service;
@@ -35,6 +36,7 @@ mod remote_profiles;
 mod resolver;
 mod runtime;
 mod service;
+mod theme;
 mod worker_host;
 mod worker_http;
 
@@ -83,6 +85,12 @@ pub use conversation_host::{
     PluginConversationTurn, PluginConversationView, UnavailablePluginConversationHost,
 };
 pub use error::PluginError;
+pub use grants::{
+    GrantCapability, PermissionManifest, build_isolated_env_snapshot, collect_allowed_env_vars,
+    collect_network_grant_patterns, contains_parent_dir_component, is_blocked_ssrf_host,
+    is_blocked_ssrf_ip, path_has_component_prefix, url_matches_grant_pattern, validate_network_url,
+    validate_no_parent_dir_str,
+};
 pub use host_call::{
     HOST_CALL_PLUGIN_ID_ENV, HOST_CALL_TOKEN_ENV, HOST_CALL_URL_ENV, PluginHostCall,
     PluginHostCallContext, attach_host_call_env, bind_packaged_stdio_paths,

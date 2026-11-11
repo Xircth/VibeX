@@ -77,7 +77,7 @@ describe('ModelRouterDialog', () => {
     }
   });
 
-  it('shows the device code and opens the browser when signing in', async () => {
+  it('opens the browser and waits for sign-in completion', async () => {
     api.startLogin.mockResolvedValue({
       requestId: 'req',
       verifier: 'ver',
@@ -92,7 +92,9 @@ describe('ModelRouterDialog', () => {
       await screen.findByRole('button', { name: '登录 VibeX 账号' })
     );
 
-    expect(await screen.findByText('ABCD-1234')).toBeInTheDocument();
+    expect(
+      await screen.findByText('请在打开的浏览器页面中完成登录。')
+    ).toBeInTheDocument();
     expect(openExternal).toHaveBeenCalledWith(
       'https://site.test/desktop/authorize?request=req'
     );

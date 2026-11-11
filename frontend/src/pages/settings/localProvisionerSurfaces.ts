@@ -55,6 +55,57 @@ export function provisionedHostPayload(profile: {
   };
 }
 
+export function extractSshProvisionerSettings(profile: {
+  name: string;
+  provision?: Record<string, unknown> | null;
+}): Record<string, unknown> | null {
+  const provision = profile.provision;
+  if (!provision || typeof provision !== 'object') return null;
+  const host = typeof provision.host === 'string' ? provision.host.trim() : '';
+  const user = typeof provision.user === 'string' ? provision.user.trim() : '';
+  if (!host && !user) return null;
+  const rawPort = Number(provision.port);
+  const port =
+    Number.isInteger(rawPort) && rawPort >= 1 && rawPort <= 65535
+      ? rawPort
+      : 22;
+  const jump = typeof provision.jump === 'string' ? provision.jump.trim() : '';
+  return {
+    name: profile.name?.trim() || host,
+    host,
+    port,
+    user,
+    jump,
+    dataDir: '',
+  };
+}
+
+export async function prefillProvisionerSettings(
+  api: {
+    hostCall?: <T = unknown>(
+      pluginId: string,
+      capability: string,
+      operation: string,
+      input?: unknown
+    ) => Promise<T>;
+  },
+  pluginId: string,
+  profile: {
+    name: string;
+    provision?: Record<string, unknown> | null;
+  }
+): Promise<boolean> {
+  if (typeof api.hostCall !== 'function') return false;
+  const settings = extractSshProvisionerSettings(profile);
+  if (!settings) return false;
+  try {
+    await api.hostCall(pluginId, 'storage', 'settings.put', settings);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export function localProvisionerSurfaces(
   catalog: PluginControlCatalog,
   contributions: PluginContributionCatalog

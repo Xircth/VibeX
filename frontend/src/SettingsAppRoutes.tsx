@@ -3,6 +3,7 @@ import { Navigate, Route, Routes } from 'react-router-dom';
 
 import { MainLegacyScope } from '@/app/MainLegacyScope';
 import {
+  loadAccountSettings,
   loadAgentSettings,
   loadAppearanceSettings,
   loadAutomationCenter,
@@ -38,6 +39,7 @@ const MarketplacePluginDetailPage = lazyNamed(
   loadPluginDetailPage,
   'MarketplacePluginDetailPage'
 );
+const AccountSettings = lazyNamed(loadAccountSettings, 'AccountSettings');
 const AgentSettings = lazyNamed(loadAgentSettings, 'AgentSettings');
 const AppearanceSettings = lazyNamed(
   loadAppearanceSettings,
@@ -93,6 +95,15 @@ export function SettingsAppRoutes() {
       >
         <Route path="/settings/*">
           <Route index element={<Navigate to="general" replace />} />
+          <Route path="account" element={<AccountSettings />} />
+          <Route
+            path="subscription"
+            element={<Navigate to="/settings/account" replace />}
+          />
+          <Route
+            path="usage"
+            element={<Navigate to="/settings/account" replace />}
+          />
           <Route path="agents" element={<AgentSettings />} />
           <Route path="appearance" element={<AppearanceSettings />} />
           <Route path="general" element={<GeneralSettings />} />
@@ -123,6 +134,12 @@ export function SettingsAppRoutes() {
           />
           <Route path="plugins" element={<Navigate to="/plugins" replace />} />
           <Route path="web-service" element={<WebServiceSettings />} />
+          <Route
+            path="remote-client"
+            element={
+              <Navigate to="/settings/web-service?role=client" replace />
+            }
+          />
           <Route
             path="devices"
             element={<Navigate to="/settings/web-service" replace />}

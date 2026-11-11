@@ -53,9 +53,17 @@ import {
   type KanbanSessionListView,
 } from '@/lib/kanbanSessionListView';
 import {
+  CANVAS_DOCK_POSITIONS,
+  CANVAS_VIEWPORT_POSITIONS,
   WORKSPACE_STAGE_STYLES,
+  setCanvasDockPosition,
+  setCanvasViewportPosition,
   setWorkspaceStageStyle,
+  useCanvasDockPosition,
+  useCanvasViewportPosition,
   useWorkspaceStageStyle,
+  type CanvasDockPosition,
+  type CanvasViewportPosition,
   type WorkspaceStageStyle,
 } from '@/lib/workspaceStageStyle';
 import {
@@ -223,6 +231,8 @@ export function AppearanceSettings() {
   const [kanbanSessionListView, setKanbanSessionListViewState] =
     useState<KanbanSessionListView>(() => getKanbanSessionListView());
   const workspaceStageStyle = useWorkspaceStageStyle();
+  const canvasDockPosition = useCanvasDockPosition();
+  const canvasViewportPosition = useCanvasViewportPosition();
   const [settingsNavFloat, setSettingsNavFloatState] = useState<boolean>(() =>
     getSettingsNavFloat()
   );
@@ -440,6 +450,78 @@ export function AppearanceSettings() {
                 </SelectContent>
               </Select>
             </div>
+
+            {workspaceStageStyle === 'canvas' ? (
+              <div className="ml-3 space-y-3 border-l-2 border-border pl-4">
+                <div className="settings-row">
+                  <div>
+                    <Label>
+                      {t('appearance.workspaceStageStyle.dockPosition.label')}
+                    </Label>
+                  </div>
+                  <Select
+                    value={canvasDockPosition}
+                    onValueChange={(value) => {
+                      setCanvasDockPosition(value as CanvasDockPosition);
+                    }}
+                  >
+                    <SelectTrigger
+                      className="w-56"
+                      aria-label={t(
+                        'appearance.workspaceStageStyle.dockPosition.label'
+                      )}
+                    >
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent align="start">
+                      {CANVAS_DOCK_POSITIONS.map((position) => (
+                        <SelectItem key={position} value={position}>
+                          {t(
+                            `appearance.workspaceStageStyle.dockPosition.${position}`
+                          )}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="settings-row">
+                  <div>
+                    <Label>
+                      {t(
+                        'appearance.workspaceStageStyle.viewportPosition.label'
+                      )}
+                    </Label>
+                  </div>
+                  <Select
+                    value={canvasViewportPosition}
+                    onValueChange={(value) => {
+                      setCanvasViewportPosition(
+                        value as CanvasViewportPosition
+                      );
+                    }}
+                  >
+                    <SelectTrigger
+                      className="w-56"
+                      aria-label={t(
+                        'appearance.workspaceStageStyle.viewportPosition.label'
+                      )}
+                    >
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent align="start">
+                      {CANVAS_VIEWPORT_POSITIONS.map((position) => (
+                        <SelectItem key={position} value={position}>
+                          {t(
+                            `appearance.workspaceStageStyle.viewportPosition.${position}`
+                          )}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+            ) : null}
 
             <div className="settings-row">
               <div>

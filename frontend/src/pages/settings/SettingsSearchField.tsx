@@ -9,6 +9,7 @@ type SettingsSearchProps = {
   query: string;
   onQueryChange: (query: string) => void;
   supports: (capability: string) => boolean;
+  isSignedIn?: boolean;
   onSelect: (path: string, id: string) => void;
 };
 
@@ -16,11 +17,13 @@ export function SettingsSearch({
   query,
   onQueryChange,
   supports,
+  isSignedIn = false,
   onSelect,
 }: SettingsSearchProps) {
   const { t } = useTranslation('settings');
   const results = useMemo(() => {
     const visible = SETTINGS_SEARCH_ENTRIES.filter((entry) => {
+      if (entry.requiresVibeXAccount && !isSignedIn) return false;
       if (entry.anyOf) return entry.anyOf.some((cap) => supports(cap));
       return !entry.capability || supports(entry.capability);
     }).map((entry) => ({
@@ -29,7 +32,7 @@ export function SettingsSearch({
       group: t(`nav.${entry.groupKey}`),
     }));
     return matchSettingsSearch(visible, query);
-  }, [query, supports, t]);
+  }, [isSignedIn, query, supports, t]);
 
   return (
     <div

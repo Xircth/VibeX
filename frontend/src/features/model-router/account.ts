@@ -1,11 +1,21 @@
 import { getSiteUrl } from '@/lib/branding';
+import type { SyncableHostProfile } from '@/lib/api';
+
+export type SavedHostDeleteSelector = {
+  syncKey?: string;
+  hostId?: string;
+  profileId?: string;
+  origin?: string;
+  sshTarget?: string;
+};
 
 /**
  * The VibeX account lives on the product site. The desktop talks to it
  * straight from the webview with a device token, so the local Host stays
  * account-free and works unchanged offline or signed out.
  */
-const TOKEN_KEY = 'vibex.account.token';
+export const ACCOUNT_TOKEN_STORAGE_KEY = 'vibex.account.token';
+const TOKEN_KEY = ACCOUNT_TOKEN_STORAGE_KEY;
 
 export type RouterModel = {
   id: string;
@@ -33,9 +43,60 @@ export type RouterTask = {
   modelId: string;
 };
 
+export type AccountTier =
+  | 'regular'
+  | 'sponsor'
+  | 'subscriber'
+  | 'beta'
+  | 'admin';
+
+export type RouterGrantSource = 'order' | 'promo' | 'admin';
+
+export type RouterCreditGrant = {
+  id: string;
+  source: RouterGrantSource;
+  orderNo: string;
+  note: string;
+  amountMicro: number;
+  remainingMicro: number;
+  createdAt: string;
+  expiresAt: string;
+  voided: boolean;
+};
+
+export type RouterModelUsage = {
+  modelId: string;
+  costMicro: number;
+  requests: number;
+  tokens: number;
+};
+
+export type RouterDailyUsage = {
+  day: string;
+  costMicro: number;
+  requests: number;
+  tokens: number;
+};
+
+export type RouterUsage30d = {
+  byModel: RouterModelUsage[];
+  daily: RouterDailyUsage[];
+  totalRecords: number;
+  modelNames?: Record<string, string>;
+};
+
 export type RouterOverview = {
-  user: { email: string; username: string; displayName: string };
+  user: {
+    email: string;
+    username: string;
+    displayName: string;
+    tier?: AccountTier;
+    createdAt?: string;
+  };
   balanceMicro: number;
+  serverNow?: string;
+  grants?: RouterCreditGrant[];
+  usage30d?: RouterUsage30d;
   tasks: RouterTask[];
   agents: RouterAgent[];
   models: RouterModel[];
@@ -69,18 +130,37 @@ export class AccountError extends Error {
   }
 }
 
+export const ACCOUNT_TOKEN_EVENT = 'vibex:account-token-changed';
+
 export function accountToken(): string | null {
+  if (typeof window === 'undefined') return null;
   return window.localStorage.getItem(TOKEN_KEY);
+}
+
+export function subscribeAccountToken(listener: () => void): () => void {
+  if (typeof window === 'undefined') return () => undefined;
+  const onStorage = (event: StorageEvent) => {
+    if (event.key === null || event.key === TOKEN_KEY) listener();
+  };
+  window.addEventListener(ACCOUNT_TOKEN_EVENT, listener);
+  window.addEventListener('storage', onStorage);
+  return () => {
+    window.removeEventListener(ACCOUNT_TOKEN_EVENT, listener);
+    window.removeEventListener('storage', onStorage);
+  };
 }
 
 function storeToken(token: string | null) {
   if (token) window.localStorage.setItem(TOKEN_KEY, token);
   else window.localStorage.removeItem(TOKEN_KEY);
+  window.dispatchEvent(new Event(ACCOUNT_TOKEN_EVENT));
 }
+
+type HttpMethod = 'GET' | 'POST' | 'PUT' | 'DELETE';
 
 async function call<T>(
   path: string,
-  init: { method: 'GET' | 'POST'; body?: unknown; token?: string | null }
+  init: { method: HttpMethod; body?: unknown; token?: string | null }
 ): Promise<T> {
   const headers: Record<string, string> = {};
   if (init.body !== undefined) headers['Content-Type'] = 'application/json';
@@ -99,6 +179,13 @@ async function call<T>(
     if (init.token) storeToken(null);
     throw new AccountError('signed_out');
   }
+  if (
+    response.status === 404 ||
+    response.status === 405 ||
+    response.status === 501
+  ) {
+    throw new AccountError('unsupported');
+  }
   const payload = (await response.json().catch(() => null)) as
     | (T & { error?: string })
     | null;
@@ -108,17 +195,23 @@ async function call<T>(
   return payload;
 }
 
-function authed<T>(path: string, method: 'GET' | 'POST', body?: unknown) {
+function authed<T>(path: string, method: HttpMethod, body?: unknown) {
   const token = accountToken();
   if (!token) return Promise.reject(new AccountError('signed_out'));
   return call<T>(path, { method, body, token });
 }
 
 export const accountApi = {
-  startLogin: (): Promise<DeviceLogin> =>
+  startLogin: (device?: {
+    deviceName?: string;
+    hostId?: string;
+  }): Promise<DeviceLogin> =>
     call('/api/auth/desktop/start', {
       method: 'POST',
-      body: { deviceName: 'VibeX Desktop' },
+      body: {
+        deviceName: device?.deviceName?.trim() || 'VibeX Desktop',
+        hostId: device?.hostId?.trim() || '',
+      },
     }),
 
   /** Resolves `true` once the browser approved this device, `false` while it is still waiting. */
@@ -160,10 +253,39 @@ export const accountApi = {
       modelId,
       taskId: taskId ?? '',
     }),
+
+  listHostConfigs: (): Promise<{ hosts: unknown[]; records?: unknown[] }> =>
+    authed('/api/account/desktop/host-configs', 'GET'),
+
+  saveHostConfig: (
+    snapshot: unknown
+  ): Promise<{ ok?: boolean; snapshot?: unknown }> =>
+    authed('/api/account/desktop/host-configs', 'PUT', { snapshot }),
+
+  deleteHostConfig: (hostId: string): Promise<{ ok?: boolean }> =>
+    authed('/api/account/desktop/host-configs', 'DELETE', { hostId }),
+
+  listSavedHosts: (): Promise<{ savedHosts: SyncableHostProfile[] }> =>
+    authed('/api/account/desktop/saved-hosts', 'GET'),
+
+  putSavedHosts: (
+    profiles: SyncableHostProfile[]
+  ): Promise<{
+    ok?: boolean;
+    saved?: number;
+    skipped?: number;
+    savedHosts?: SyncableHostProfile[];
+  }> => authed('/api/account/desktop/saved-hosts', 'PUT', { profiles }),
+
+  deleteSavedHost: (selector: SavedHostDeleteSelector): Promise<{
+    ok?: boolean;
+    deleted?: number;
+    savedHosts?: SyncableHostProfile[];
+  }> => authed('/api/account/desktop/saved-hosts', 'DELETE', selector),
 };
 
 export function modelRouterUrl(agentId: string, modelId: string | null) {
   const query = new URLSearchParams({ agent: agentId });
   if (modelId) query.set('model', modelId);
-  return getSiteUrl(`/modelrouter?${query.toString()}`);
+  return getSiteUrl(`/account/models?${query.toString()}`);
 }

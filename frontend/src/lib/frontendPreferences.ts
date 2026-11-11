@@ -20,6 +20,8 @@ const STORAGE_KEYS = {
   'vibex:kanban-session-list-view': 'kanban_session_list_view',
   'vibex:kanban-board-style': 'kanban_board_style',
   'vibex:workspace-stage-style': 'workspace_stage_style',
+  'vibex:canvas-dock-position': 'canvas_dock_position',
+  'vibex:canvas-viewport-position': 'canvas_viewport_position',
   'vibex:kanban-canvas-list-visible': 'kanban_canvas_list_visible',
   'vibex:kanban-canvas': 'kanban_canvas',
   'vibex:activity-rail-order': 'activity_rail_order',
@@ -31,6 +33,8 @@ const STORAGE_KEYS = {
   'vibex:auto-open-created-previews': 'auto_open_created_previews',
   'vibex:settings-nav-float': 'settings_nav_float',
   'vibex:hide-bot-sessions': 'hide_bot_sessions',
+  'vibex:hide-default-workspace': 'hide_default_workspace',
+  'vibex:hide-inactive-7d-sessions': 'hide_inactive_7d_sessions',
   'vibex:basic-guide': 'basic_guide',
 } as const;
 
@@ -54,6 +58,15 @@ function normalizePreferenceValue(
 ): JsonValue {
   if (preferenceKey === 'kanban_board_style' && value === 'fixed') {
     return 'canvas';
+  }
+  if (
+    preferenceKey === 'activity_rail_order' &&
+    Array.isArray(value) &&
+    value.every((item) => typeof item === 'string') &&
+    (value.join('|') === 'file-tree|git|search|session-list|bots' ||
+      value.join('|') === 'file-tree|git|search|session-list')
+  ) {
+    return ['session-list', 'bots', 'file-tree', 'git', 'search'];
   }
   return value;
 }
@@ -138,6 +151,110 @@ export async function syncFrontendPreferences(
     }
   }
   return applyPreferences(effective);
+}
+
+const NON_PORTABLE_PREFERENCE_KEYS = new Set<string>([
+  'kanban_canvas',
+  'basic_guide',
+]);
+
+export function isPortablePreferenceKey(preferenceKey: string): boolean {
+  return (
+    !preferenceKey.startsWith('__') &&
+    !NON_PORTABLE_PREFERENCE_KEYS.has(preferenceKey)
+  );
+}
+
+export async function collectPortableFrontendPreferences(
+  api: Pick<typeof frontendPreferencesApi, 'get'> = frontendPreferencesApi
+): Promise<Record<string, JsonValue>> {
+  const local = collectLocalPreferences();
+  let remote: Record<string, JsonValue> = {};
+  if (configuredBackendTransport.environment !== 'web') {
+    try {
+      remote = await api.get();
+    } catch {
+      remote = {};
+    }
+  }
+  const merged: Record<string, JsonValue> = { ...remote, ...local };
+  return Object.fromEntries(
+    Object.entries(merged).filter(([key, value]) => {
+      return value !== undefined && isPortablePreferenceKey(key);
+    })
+  );
+}
+
+export async function applyImportedFrontendPreferences(
+  preferences: Record<string, JsonValue>,
+  api: Pick<typeof frontendPreferencesApi, 'update'> = frontendPreferencesApi
+): Promise<boolean> {
+  const allowedKeys = new Set<string>(Object.values(STORAGE_KEYS));
+  const sanitized: Record<string, JsonValue> = Object.fromEntries(
+    Object.entries(preferences).filter(
+      ([key, value]) =>
+        value !== undefined &&
+        allowedKeys.has(key) &&
+        isPortablePreferenceKey(key)
+    )
+  );
+  if (Object.keys(sanitized).length === 0) {
+    return false;
+  }
+
+  inFlightPreferenceWrites += 1;
+  lastLocalPreferenceWriteAt = Date.now();
+  try {
+    await api.update(sanitized);
+  } catch {
+    // Web or test transports without persistent JSON backing still apply to localStorage below.
+  } finally {
+    inFlightPreferenceWrites = Math.max(0, inFlightPreferenceWrites - 1);
+    lastLocalPreferenceWriteAt = Date.now();
+  }
+
+  return applyPreferences(sanitized);
+}
+
+export async function readDesktopSharedPreferenceSection<T>(
+  sectionKey: string
+): Promise<T | null> {
+  const { isTauriDesktopShell } = await import('@/utils/platform');
+  if (!isTauriDesktopShell()) return null;
+  try {
+    const { tauriBackendTransport } = await import('@/lib/transport');
+    const all = (await tauriBackendTransport.call(
+      'get_frontend_preferences'
+    )) as Record<string, unknown> | null;
+    if (!all || typeof all !== 'object' || !(sectionKey in all)) {
+      return null;
+    }
+    return (all[sectionKey] as T) ?? null;
+  } catch {
+    return null;
+  }
+}
+
+export async function writeDesktopSharedPreferenceSection(
+  sectionKey: string,
+  value: JsonValue
+): Promise<boolean> {
+  const { isTauriDesktopShell } = await import('@/utils/platform');
+  if (!isTauriDesktopShell()) return false;
+  inFlightPreferenceWrites += 1;
+  lastLocalPreferenceWriteAt = Date.now();
+  try {
+    const { tauriBackendTransport } = await import('@/lib/transport');
+    await tauriBackendTransport.call('update_frontend_preferences', {
+      preferences: { [sectionKey]: value },
+    });
+    return true;
+  } catch {
+    return false;
+  } finally {
+    inFlightPreferenceWrites = Math.max(0, inFlightPreferenceWrites - 1);
+    lastLocalPreferenceWriteAt = Date.now();
+  }
 }
 
 export function persistFrontendPreference(

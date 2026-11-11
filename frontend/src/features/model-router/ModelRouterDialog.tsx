@@ -242,10 +242,11 @@ export function ModelRouterDialog({
         ) : null}
 
         {phase.kind === 'login' ? (
-          <div className="flex flex-col items-center gap-2 py-2 text-center">
-            <output className="font-mono text-2xl font-semibold tabular-nums tracking-widest">
-              {phase.login.userCode}
-            </output>
+          <div className="flex flex-col items-center gap-2 py-4 text-center">
+            <Loader2
+              aria-hidden="true"
+              className="h-5 w-5 animate-spin text-muted-foreground"
+            />
             <p className="text-xs text-muted-foreground">
               {t('settings:agents.modelRouterCodeHint')}
             </p>

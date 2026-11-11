@@ -1,7 +1,69 @@
 export { ModelRouterEntry } from './ModelRouterEntry';
-export type { RouterProvision } from './account';
+export {
+  ACCOUNT_TOKEN_STORAGE_KEY,
+  AccountError,
+  accountApi,
+  accountToken,
+  modelRouterUrl,
+  subscribeAccountToken,
+  type AccountTier,
+  type DeviceLogin,
+  type RouterAgent,
+  type RouterCreditGrant,
+  type RouterDailyUsage,
+  type RouterGrantSource,
+  type RouterModel,
+  type RouterModelUsage,
+  type RouterOverview,
+  type RouterProvision,
+  type RouterTask,
+  type RouterUsage30d,
+  type SavedHostDeleteSelector,
+} from './account';
+export { openExternal } from './openExternal';
 export {
   ROUTER_PROVIDER_NAME,
   openCodeConnectRequest,
   providerSaveRequest,
 } from './preset';
+export {
+  refreshAccountOverview,
+  resetAccountOverviewCache,
+  resolveAccountAvatarLabel,
+  resolveAccountDisplayName,
+  useAccountToken,
+  useVibeXAccount,
+} from './useVibeXAccount';
+export {
+  ACCOUNT_HOST_CONFIGS_STORAGE_KEY,
+  AccountHostConfigSyncBridge,
+  captureCurrentHostSnapshot,
+  computeHostConfigFingerprint,
+  extractPortableUserConfig,
+  importHostConfigToCurrentHost,
+  mergePortableUserConfigOntoTarget,
+  removeSavedAccountHostConfig,
+  resetAccountHostConfigsForTests,
+  resolveAccountStorageKey,
+  resolveCurrentHostIdentity,
+  syncAccountHostConfigs,
+  useAccountHostConfigs,
+  type AccountHostConfigSnapshot,
+  type AccountHostKind,
+  type AccountHostListEntry,
+  type HostAgentEnablementItem,
+  type ImportHostConfigOptions,
+  type ImportHostConfigResult,
+  type PortableUserConfig,
+} from './accountHostConfigs';
+export {
+  AccountSavedHostsSyncBridge,
+  isolateSavedHostsOnSignOut,
+  pushLocalSavedHostChanges,
+  resetAccountSavedHostsForTests,
+  summarizeHostClientProfile,
+  summarizeSyncableHostProfile,
+  syncAccountSavedHosts,
+  useAccountSavedHosts,
+  type AccountSavedRemoteHostSummary,
+} from './accountSavedHosts';

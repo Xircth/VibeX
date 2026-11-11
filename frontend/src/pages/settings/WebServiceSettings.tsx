@@ -1,4 +1,12 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import {
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
+import { UNSAFE_LocationContext } from 'react-router-dom';
 import {
   SegmentedControl,
   SegmentedControlItem,
@@ -67,6 +75,20 @@ export function WebServiceSettings({
 } = {}) {
   const contextTransport = useBackendTransport();
   const transport = transportOverride ?? contextTransport;
+  const locationContext = useContext(UNSAFE_LocationContext);
+  const rawSearch =
+    locationContext?.location.search ??
+    (typeof window !== 'undefined' ? window.location.search : '');
+  const searchParams = useMemo(
+    () => new URLSearchParams(rawSearch),
+    [rawSearch]
+  );
+  const requestedRole = searchParams.get('role');
+  const requestedAction = searchParams.get('action');
+  const prefersClientTab =
+    requestedRole === 'client' ||
+    requestedAction === 'connect' ||
+    requestedAction === 'ssh';
   const { t } = useTranslation(['settings', 'common']);
   const [draft, setDraft] = useState<WebServiceConfig>(DEFAULT_CONFIG);
   const draftRef = useRef(draft);
@@ -84,8 +106,13 @@ export function WebServiceSettings({
   const hostConsole = isTauriClient(transport.environment);
   const boundToRemote = transport.environment === 'remote-desktop';
   const [role, setRole] = useState<RemoteRoleTab>(() =>
-    hostConsole && boundToRemote ? 'client' : 'server'
+    hostConsole && (boundToRemote || prefersClientTab) ? 'client' : 'server'
   );
+  useEffect(() => {
+    if (hostConsole && prefersClientTab) {
+      setRole('client');
+    }
+  }, [hostConsole, prefersClientTab]);
   const serviceRunning = Boolean(status?.running);
   const { writeNow, writeSettled, flush, holdingRef } = useLiveSettingsCommit(
     async (next: WebServiceConfig) => {

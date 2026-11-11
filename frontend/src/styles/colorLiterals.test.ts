@@ -34,9 +34,8 @@ const ALPHA_ONLY_PROPERTIES = new Set([
 /*
  * Colors that must not change with the theme: third-party brand marks, the
  * terminal ANSI palette, annotation pens, avatar artwork, the accent picker's
- * own hue math, the built-in theme definitions themselves, and the mock
- * palette of the unified-shell design prototype. `true` exempts the whole
- * file; a list exempts only those literals.
+ * own hue math, and the built-in theme definitions themselves. `true` exempts
+ * the whole file; a list exempts only those literals.
  */
 const LITERAL_COLOR_OWNERS: Record<string, true | readonly string[]> = {
   'components/agents/AgentTypeIcon.tsx': true,
@@ -59,7 +58,6 @@ const LITERAL_COLOR_OWNERS: Record<string, true | readonly string[]> = {
   'features/collaboration/space/CollaborationSpaceRuntime.tsx': ['#38bdf8'],
   'lib/theme/builtinThemes.ts': true,
   'lib/uiAccent.ts': true,
-  'pages/UnifiedShellPrototype.tsx': true,
   'pages/plugins/OfficialPluginIcon.tsx': true,
   'pages/settings/AccentColorField.tsx': true,
   'utils/icons.ts': true,

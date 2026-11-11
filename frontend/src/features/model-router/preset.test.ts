@@ -85,6 +85,15 @@ describe('openCodeConnectRequest', () => {
     );
     expect(request.npm).toBe('@ai-sdk/openai-compatible');
     expect(request.base_url).toBe('https://site.test/api/router/v1');
+    expect(request.enabled).toBe(true);
+  });
+
+  it('allows saving an OpenCode provider preset without enabling it immediately', () => {
+    const request = openCodeConnectRequest(
+      provision({ agentId: 'opencode' }),
+      false
+    );
+    expect(request.enabled).toBe(false);
   });
 });
 

@@ -49,11 +49,18 @@ const api = vi.hoisted(() => ({
   piTrustEntries: vi.fn(),
   validatePiCommand: vi.fn(),
   modelProviders: vi.fn(),
+  saveModelProvider: vi.fn(),
   bindModelProvider: vi.fn(),
+  connectOpenCodeProvider: vi.fn(),
   clearDiagnostics: vi.fn(),
 }));
 const confirmShow = vi.hoisted(() => vi.fn());
 const listeners = vi.hoisted(() => new Map<string, (event: unknown) => void>());
+const tauriListeners = vi.hoisted(
+  () => new Map<string, (event: unknown) => void>()
+);
+const tauriInvokeMock = vi.hoisted(() => vi.fn().mockResolvedValue(null));
+const redeemImportTicketMock = vi.hoisted(() => vi.fn());
 const userSystem = vi.hoisted(() => ({
   config: {
     executor_profile: { executor: 'codex', variant: null },
@@ -74,6 +81,17 @@ vi.mock('@/features/agent-management/api', () => ({
   agentManagementApi: api,
 }));
 
+vi.mock('@/features/model-router', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/features/model-router')>();
+  return {
+    ...actual,
+    accountApi: {
+      ...actual.accountApi,
+      redeemImportTicket: redeemImportTicketMock,
+    },
+  };
+});
+
 vi.mock('./PluginsSettings', () => ({
   PluginsSettings: ({ ecosystem }: { ecosystem: string }) => (
     <section aria-label={`${ecosystem} native plugins`}>
@@ -84,7 +102,16 @@ vi.mock('./PluginsSettings', () => ({
 
 vi.mock('@/lib/tauriApi', async (importOriginal) => {
   const original = await importOriginal<typeof import('@/lib/tauriApi')>();
-  return { ...original, tauriListen: vi.fn().mockResolvedValue(vi.fn()) };
+  return {
+    ...original,
+    tauriInvoke: tauriInvokeMock,
+    tauriListen: vi.fn(
+      async (event: string, listener: (event: unknown) => void) => {
+        tauriListeners.set(event, listener);
+        return vi.fn();
+      }
+    ),
+  };
 });
 
 vi.mock('@/lib/backendTransport', async (importOriginal) => {
@@ -109,6 +136,10 @@ describe('AgentSettings', () => {
 
   beforeEach(() => {
     listeners.clear();
+    tauriListeners.clear();
+    tauriInvokeMock.mockReset();
+    tauriInvokeMock.mockResolvedValue(null);
+    redeemImportTicketMock.mockReset();
     Object.values(api).forEach((mock) => mock.mockReset());
     userSystem.config = {
       executor_profile: { executor: 'codex', variant: null },
@@ -2887,6 +2918,141 @@ describe('AgentSettings', () => {
         status: 'queued',
       });
     });
+  });
+
+  it('redeems a ModelRouter import ticket, saves the provider without binding, and binds only when the toast Enable action is clicked', async () => {
+    const toastSuccessSpy = vi.spyOn(toast, 'success');
+    api.bar.mockResolvedValue([
+      {
+        agent_id: 'codex',
+        display_name: 'Codex',
+        description: 'Codex ACP',
+        icon_light: null,
+        icon_dark: null,
+        icon_svg: null,
+        source: 'built_in_profile',
+        built_in: true,
+        retired: false,
+        enabled: true,
+        position: 0,
+        lifecycle: 'ready',
+        authentication: 'none',
+        runtime_version: '1.0.0',
+        acp_version: '1.0.0',
+        active_operation: null,
+        rollback_available: false,
+        settings_features: ['authentication_mode', 'reusable_model_providers'],
+      },
+    ]);
+    api.authMode.mockResolvedValue({
+      agent_id: 'codex',
+      mode: 'subscription',
+      options: [
+        {
+          value: 'subscription',
+          label: 'Subscription',
+          kind: 'subscription',
+          credential_required: false,
+          credential_env: null,
+          credential_present: false,
+          native_config_field_id: null,
+        },
+        {
+          value: 'model_provider',
+          label: 'Model Provider',
+          kind: 'provider',
+          credential_required: false,
+          credential_env: null,
+          credential_present: false,
+          native_config_field_id: null,
+        },
+      ],
+      headless_account_env: null,
+    });
+    api.modelProviders.mockResolvedValue({
+      agent_id: 'codex',
+      bound_provider_id: null,
+      providers: [],
+    });
+    api.saveModelProvider.mockResolvedValue({
+      agent_id: 'codex',
+      bound_provider_id: null,
+      providers: [
+        {
+          id: 'prov-router-1',
+          name: 'VibeX ModelRouter',
+          agent_id: 'codex',
+          api_url: 'https://site.test/api/router/v1',
+          api_key_masked: 'vxr-••••',
+          has_api_key: true,
+          model: 'gpt-5',
+          created_at: '2026-11-11T00:00:00Z',
+          updated_at: '2026-11-11T00:00:00Z',
+        },
+      ],
+    });
+    api.bindModelProvider.mockResolvedValue({
+      agent_id: 'codex',
+      bound_provider_id: 'prov-router-1',
+      providers: [],
+    });
+    redeemImportTicketMock.mockResolvedValue({
+      apiKey: 'vxr-secret',
+      agentId: 'codex',
+      protocol: 'openai',
+      baseUrl: 'https://site.test/api/router/v1',
+      model: { id: 'gpt-5', name: 'GPT-5' },
+      models: [{ id: 'gpt-5', name: 'GPT-5' }],
+    });
+
+    render(<AgentSettings />);
+    await screen.findAllByText('Codex');
+
+    const listener = tauriListeners.get('vibex://modelrouter-import');
+    expect(listener).toBeDefined();
+
+    await act(async () => {
+      listener?.({ ticket: 'tkt_import_1', agentId: 'codex' });
+    });
+
+    await waitFor(() =>
+      expect(redeemImportTicketMock).toHaveBeenCalledWith('tkt_import_1')
+    );
+    await waitFor(() =>
+      expect(api.saveModelProvider).toHaveBeenCalledWith({
+        id: null,
+        name: 'VibeX ModelRouter',
+        agent_id: 'codex',
+        api_url: 'https://site.test/api/router/v1',
+        api_key: 'vxr-secret',
+        model: 'gpt-5',
+      })
+    );
+    expect(api.bindModelProvider).not.toHaveBeenCalled();
+
+    const confirmCall = toastSuccessSpy.mock.calls.find(
+      (call) => call[0] === '模型导入成功，是否立即启用？'
+    );
+    expect(confirmCall).toBeDefined();
+    const toastOptions = confirmCall?.[1] as {
+      duration?: number;
+      cancel?: { label: string; onClick: () => void };
+      action?: { label: string; onClick: () => void };
+    };
+    expect(toastOptions.duration).toBe(15000);
+    expect(toastOptions.cancel?.label).toBe('取消');
+    expect(toastOptions.action?.label).toBe('启用');
+
+    await act(async () => {
+      toastOptions.action?.onClick();
+    });
+
+    await waitFor(() =>
+      expect(api.bindModelProvider).toHaveBeenCalledWith(
+        'codex',
+        'prov-router-1'
+      )
+    );
   });
 });
 

@@ -4,7 +4,9 @@ export {
   AccountError,
   accountApi,
   accountToken,
+  modelMarketplacePath,
   modelRouterUrl,
+  openModelMarketplace,
   subscribeAccountToken,
   type AccountTier,
   type DeviceLogin,
@@ -19,12 +21,15 @@ export {
   type RouterTask,
   type RouterUsage30d,
   type SavedHostDeleteSelector,
+  type StartLoginOptions,
 } from './account';
 export { openExternal } from './openExternal';
 export {
+  ROUTER_OPENCODE_PROVIDER_ID,
   ROUTER_PROVIDER_NAME,
   openCodeConnectRequest,
   providerSaveRequest,
+  supportsModelRouter,
 } from './preset';
 export {
   refreshAccountOverview,

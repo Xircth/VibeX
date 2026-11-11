@@ -78,7 +78,8 @@ export function providerSaveRequest(
 }
 
 export function openCodeConnectRequest(
-  provision: RouterProvision
+  provision: RouterProvision,
+  enabled = true
 ): OpenCodeProviderConnectRequest {
   const anthropic = provision.protocol === 'anthropic';
   return {
@@ -94,6 +95,6 @@ export function openCodeConnectRequest(
       id: model.id,
       name: model.name,
     })),
-    enabled: true,
+    enabled,
   };
 }

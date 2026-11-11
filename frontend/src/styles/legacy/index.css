@@ -3972,6 +3972,11 @@ html.dark {
     white-space: pre-wrap;
   }
 
+  .app-hover-tooltip[data-native-title-tooltip='true'] {
+    animation: none;
+    transition: none;
+  }
+
   .app-hover-tooltip-arrow {
     fill: hsl(var(--foreground));
   }

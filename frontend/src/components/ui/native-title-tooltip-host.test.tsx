@@ -12,6 +12,8 @@ import { NATIVE_TITLE_SHOW_DELAY_MS } from './native-title-tooltip';
 describe('NativeTitleTooltipHost', () => {
   beforeEach(() => {
     vi.useFakeTimers();
+    vi.spyOn(HTMLElement.prototype, 'offsetWidth', 'get').mockReturnValue(80);
+    vi.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockReturnValue(28);
   });
 
   afterEach(() => {
@@ -122,6 +124,69 @@ describe('NativeTitleTooltipHost', () => {
       'title',
       '复制'
     );
+  });
+
+  it('keeps a conversation-tab tooltip hidden until its measured width is centered', () => {
+    vi.spyOn(HTMLElement.prototype, 'offsetWidth', 'get').mockReturnValue(0);
+    vi.spyOn(window, 'requestAnimationFrame').mockImplementation(() => 1);
+
+    render(
+      <div>
+        <NativeTitleTooltipHost />
+        <button type="button" title="新会话4">
+          新会话4
+        </button>
+      </div>
+    );
+
+    fireEvent.pointerOver(screen.getByRole('button', { name: '新会话4' }), {
+      pointerType: 'mouse',
+    });
+    act(() => {
+      vi.advanceTimersByTime(NATIVE_TITLE_SHOW_DELAY_MS);
+    });
+
+    const tooltip = screen.getByRole('tooltip', { hidden: true });
+    expect(tooltip).toHaveStyle({ visibility: 'hidden' });
+    expect(tooltip).not.toHaveAttribute('data-placed');
+  });
+
+  it('centers the tooltip on the measured capsule before showing it', () => {
+    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({
+      top: 40,
+      left: 200,
+      width: 92,
+      height: 28,
+      right: 292,
+      bottom: 68,
+      x: 200,
+      y: 40,
+      toJSON() {
+        return this;
+      },
+    } as DOMRect);
+    vi.spyOn(HTMLElement.prototype, 'offsetWidth', 'get').mockReturnValue(120);
+    vi.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockReturnValue(28);
+
+    render(
+      <div>
+        <NativeTitleTooltipHost />
+        <button type="button" title="新会话4">
+          新会话4
+        </button>
+      </div>
+    );
+
+    fireEvent.pointerOver(screen.getByRole('button', { name: '新会话4' }), {
+      pointerType: 'mouse',
+    });
+    act(() => {
+      vi.advanceTimersByTime(NATIVE_TITLE_SHOW_DELAY_MS);
+    });
+
+    const tooltip = screen.getByRole('tooltip');
+    expect(tooltip).toHaveAttribute('data-placed', 'true');
+    expect(tooltip).toHaveStyle({ left: '186px', visibility: 'visible' });
   });
 
   it('does not mount a native surface occlusion hold and hides on pointerout into native child surfaces', () => {

@@ -14,6 +14,8 @@ import { TooltipProvider } from '@/components/ui/tooltip';
 import { sessionsApi } from '@/lib/api';
 import type { KanbanProjectSessionRecord } from '@/hooks/useKanbanProjectSessions';
 import { emptyGroupFootprint } from './canvasGrouping';
+import { DETAIL_CARD_HEIGHT, DETAIL_CARD_WIDTH } from './canvasModel';
+import { getCanvasWorkspaceController } from './canvasWorkspaceBridge';
 import { SessionCanvasView, type SessionCanvasApi } from './SessionCanvasView';
 
 const fitView = vi.fn();
@@ -714,6 +716,59 @@ describe('SessionCanvasView', () => {
       parentId: null,
     });
     expect(container.querySelector('line.canvas-session-link')).not.toBeNull();
+  });
+
+  it('registers dropSessionAt for minimized session cards and dropPanelAt for expanded 4:3 panel nodes', () => {
+    screenToFlowPosition.mockReturnValue({ x: 300, y: 240 });
+    renderCanvas(
+      <SessionCanvasView
+        projectId="p1"
+        sessions={[session('sess-drop-1', new Date().toISOString())]}
+        listWidth={280}
+        list={<div>list</div>}
+      />
+    );
+
+    const controller = getCanvasWorkspaceController();
+    expect(controller).not.toBeNull();
+
+    act(() => {
+      controller?.dropSessionAt('sess-drop-1', { x: 400, y: 300 }, 240);
+      controller?.dropPanelAt(
+        {
+          id: 'file:/repo/App.tsx',
+          component: 'preview',
+          title: 'App.tsx',
+          params: { filePath: '/repo/App.tsx' },
+          expanded: true,
+        },
+        { x: 640, y: 420 }
+      );
+    });
+
+    const stored = JSON.parse(
+      window.localStorage.getItem('vibex:kanban-canvas:p1') ?? '{}'
+    );
+    const droppedSession = stored.nodes.find(
+      (node: { sessionId?: string }) => node.sessionId === 'sess-drop-1'
+    );
+    expect(droppedSession).toMatchObject({
+      sessionId: 'sess-drop-1',
+      expanded: false,
+      width: 240,
+    });
+
+    const droppedPanel = stored.nodes.find(
+      (node: { panelId?: string }) => node.panelId === 'file:/repo/App.tsx'
+    );
+    expect(droppedPanel).toMatchObject({
+      panelId: 'file:/repo/App.tsx',
+      panelComponent: 'preview',
+      panelTitle: 'App.tsx',
+      expanded: true,
+      width: DETAIL_CARD_WIDTH,
+      height: DETAIL_CARD_HEIGHT,
+    });
   });
 });
 

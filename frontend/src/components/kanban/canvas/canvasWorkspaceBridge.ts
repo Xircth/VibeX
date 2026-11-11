@@ -18,13 +18,22 @@ export interface OpenCanvasSessionRequest {
 export interface CanvasWorkspaceController {
   openOrFocusPanel: (request: OpenCanvasPanelRequest) => string;
   openOrFocusSession: (request: OpenCanvasSessionRequest) => string;
+  dropSessionAt: (
+    sessionId: string,
+    client: { x: number; y: number },
+    cardWidth?: number | null
+  ) => void;
+  dropPanelAt: (
+    request: OpenCanvasPanelRequest,
+    client: { x: number; y: number }
+  ) => string;
   closeNode: (instanceId: string) => void;
   closeOtherNodes: (instanceId: string) => void;
   closeAllNodes: () => void;
   duplicateNode: (instanceId: string) => string | null;
 }
 
-let activeController: CanvasWorkspaceController | null = null;
+const registeredControllers: CanvasWorkspaceController[] = [];
 let scopedParentNodeId: string | null = null;
 let pendingParentNode: { nodeId: string; expiresAt: number } | null = null;
 
@@ -33,16 +42,27 @@ const PENDING_PARENT_TTL_MS = 8_000;
 export function registerCanvasWorkspaceController(
   controller: CanvasWorkspaceController | null
 ): () => void {
-  activeController = controller;
+  if (!controller) {
+    registeredControllers.length = 0;
+    return () => undefined;
+  }
+  const existingIndex = registeredControllers.indexOf(controller);
+  if (existingIndex !== -1) {
+    registeredControllers.splice(existingIndex, 1);
+  }
+  registeredControllers.push(controller);
   return () => {
-    if (activeController === controller) {
-      activeController = null;
+    const idx = registeredControllers.indexOf(controller);
+    if (idx !== -1) {
+      registeredControllers.splice(idx, 1);
     }
   };
 }
 
 export function getCanvasWorkspaceController(): CanvasWorkspaceController | null {
-  return activeController;
+  return registeredControllers.length > 0
+    ? (registeredControllers[registeredControllers.length - 1] ?? null)
+    : null;
 }
 
 export function setPendingCanvasParentNode(

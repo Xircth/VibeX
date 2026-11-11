@@ -141,13 +141,24 @@ import {
   type SessionCanvasNode,
 } from './canvasModel';
 import {
+  useCanvasDockPosition,
+  useCanvasViewportPosition,
+} from '@/lib/workspaceStageStyle';
+import {
   CANVAS_BUNDLE_KEY,
   canvasDocumentStorageKey,
+  createCanvasBoard,
+  deleteCanvasBoard,
   flushCanvasDocumentPersist,
-  loadCanvasDocument,
-  saveCanvasDocument,
+  getActiveCanvasEntry,
+  loadCanvasWorkspace,
+  renameCanvasBoard,
+  saveCanvasWorkspace,
+  selectCanvasBoard,
+  updateWorkspaceActiveDocument,
   type SessionCanvasDocument,
   type SessionCanvasViewport,
+  type SessionCanvasWorkspace,
 } from './canvasStorage';
 import {
   SessionCanvasViewProvider,
@@ -196,6 +207,7 @@ interface SessionCanvasViewProps {
   listWidth: number;
   list: ReactNode;
   hideSessionList?: boolean;
+  registerWorkspaceController?: boolean;
   createPanel?: ReactNode;
   projectName?: string;
   onRenameSession?: (
@@ -352,6 +364,7 @@ function SessionCanvasFlow({
   listWidth,
   list,
   hideSessionList = false,
+  registerWorkspaceController = true,
   createPanel = null,
   projectName = '',
   onRenameSession,
@@ -404,11 +417,22 @@ function SessionCanvasFlow({
   useCanvasRightDragPan(surfaceRef, onMiddleClick, onRightPan);
   useCanvasMarqueeTextGuard(surfaceRef);
 
-  const [documentState, setDocumentState] = useState<SessionCanvasDocument>(
-    () => loadCanvasDocument(projectId)
+  const dockPosition = useCanvasDockPosition();
+  const viewportPosition = useCanvasViewportPosition();
+
+  const [workspaceState, setWorkspaceState] = useState<SessionCanvasWorkspace>(
+    () => loadCanvasWorkspace(projectId)
   );
+  const workspaceRef = useRef(workspaceState);
+  workspaceRef.current = workspaceState;
+  const activeBoard = useMemo(
+    () => getActiveCanvasEntry(workspaceState),
+    [workspaceState]
+  );
+  const documentState = activeBoard.document;
 
   useEffect(() => {
+    historyByCanvasRef.current.clear();
     const reload = (event?: StorageEvent) => {
       if (
         event &&
@@ -418,7 +442,10 @@ function SessionCanvasFlow({
       ) {
         return;
       }
-      setDocumentState(loadCanvasDocument(projectId));
+      const loaded = loadCanvasWorkspace(projectId);
+      workspaceRef.current = loaded;
+      documentRef.current = getActiveCanvasEntry(loaded).document;
+      setWorkspaceState(loaded);
     };
     reload();
     window.addEventListener('storage', reload);
@@ -445,10 +472,24 @@ function SessionCanvasFlow({
   dragOverlayRef.current = dragOverlay;
   const [alignGuides, setAlignGuides] = useState<AlignmentGuide[]>([]);
   const [, setHistoryVersion] = useState(0);
-  const historyRef = useRef<{
-    past: SessionCanvasNode[][];
-    future: SessionCanvasNode[][];
-  }>({ past: [], future: [] });
+  const historyByCanvasRef = useRef(
+    new Map<
+      string,
+      {
+        past: SessionCanvasNode[][];
+        future: SessionCanvasNode[][];
+      }
+    >()
+  );
+  const getCurrentHistory = useCallback(() => {
+    const canvasId = workspaceRef.current.activeCanvasId;
+    let stack = historyByCanvasRef.current.get(canvasId);
+    if (!stack) {
+      stack = { past: [], future: [] };
+      historyByCanvasRef.current.set(canvasId, stack);
+    }
+    return stack;
+  }, []);
   const skipHistoryRef = useRef(false);
   const marqueeSelectingRef = useRef(false);
   useLayoutEffect(() => {
@@ -528,8 +569,13 @@ function SessionCanvasFlow({
   const writeDocument = useCallback(
     (next: SessionCanvasDocument, persistToDisk: boolean) => {
       documentRef.current = next;
-      setDocumentState(next);
-      if (persistToDisk) saveCanvasDocument(projectId, next);
+      const nextWorkspace = updateWorkspaceActiveDocument(
+        workspaceRef.current,
+        next
+      );
+      workspaceRef.current = nextWorkspace;
+      setWorkspaceState(nextWorkspace);
+      if (persistToDisk) saveCanvasWorkspace(projectId, nextWorkspace);
     },
     [projectId]
   );
@@ -539,6 +585,89 @@ function SessionCanvasFlow({
       writeDocument(next, true);
     },
     [writeDocument]
+  );
+
+  const commitWorkspaceTransition = useCallback(
+    (
+      transform: (current: SessionCanvasWorkspace) => SessionCanvasWorkspace
+    ) => {
+      if (saveTimer.current != null) {
+        window.clearTimeout(saveTimer.current);
+        saveTimer.current = null;
+      }
+      const flushedCurrent = pendingViewport.current
+        ? updateWorkspaceActiveDocument(workspaceRef.current, {
+            ...documentRef.current,
+            viewport: pendingViewport.current,
+          })
+        : workspaceRef.current;
+      const nextWorkspace = transform(flushedCurrent);
+      if (nextWorkspace === flushedCurrent) return;
+
+      const switched =
+        nextWorkspace.activeCanvasId !== flushedCurrent.activeCanvasId;
+      workspaceRef.current = nextWorkspace;
+
+      if (switched) {
+        const nextDoc = getActiveCanvasEntry(nextWorkspace).document;
+        documentRef.current = nextDoc;
+        pendingViewport.current = nextDoc.viewport;
+        zoomRef.current = nextDoc.viewport?.zoom ?? 1;
+        flowNodeCacheRef.current.clear();
+        setSelectedIds(new Set());
+        setSelectionMenu(null);
+        setDropHint(null);
+        setDraggedId(null);
+        setDragOverlay(new Map());
+        dragOverlayRef.current = new Map();
+        setAlignGuides([]);
+        setHistoryVersion((value) => value + 1);
+        window.requestAnimationFrame(() => {
+          if (nextDoc.viewport) {
+            void setViewport(nextDoc.viewport, { duration: 220 });
+          } else if (nextDoc.nodes.length > 0) {
+            void fitView({ padding: 0.2, maxZoom: 1, duration: 220 });
+          } else {
+            void setViewport({ x: 0, y: 0, zoom: 1 }, { duration: 220 });
+          }
+        });
+      }
+
+      setWorkspaceState(nextWorkspace);
+      saveCanvasWorkspace(projectId, nextWorkspace);
+    },
+    [fitView, projectId, setViewport]
+  );
+
+  const handleSelectCanvas = useCallback(
+    (canvasId: string) => {
+      commitWorkspaceTransition((ws) => selectCanvasBoard(ws, canvasId));
+    },
+    [commitWorkspaceTransition]
+  );
+
+  const handleCreateCanvas = useCallback(() => {
+    commitWorkspaceTransition((ws) =>
+      createCanvasBoard(
+        ws,
+        t('hubCanvas.defaultCanvasName', { index: ws.canvases.length + 1 })
+      )
+    );
+  }, [commitWorkspaceTransition, t]);
+
+  const handleRenameCanvas = useCallback(
+    (canvasId: string, name: string) => {
+      commitWorkspaceTransition((ws) => renameCanvasBoard(ws, canvasId, name));
+    },
+    [commitWorkspaceTransition]
+  );
+
+  const handleDeleteCanvas = useCallback(
+    (canvasId: string) => {
+      historyByCanvasRef.current.delete(canvasId);
+      commitWorkspaceTransition((ws) => deleteCanvasBoard(ws, canvasId));
+    },
+    [commitWorkspaceTransition]
   );
 
   const nodes = useMemo(
@@ -653,7 +782,7 @@ function SessionCanvasFlow({
         !skipHistoryRef.current &&
         !canvasNodesMatch(current.nodes, nextNodes)
       ) {
-        const history = historyRef.current;
+        const history = getCurrentHistory();
         history.past = [
           ...history.past,
           snapshotCanvasNodes(current.nodes),
@@ -663,11 +792,11 @@ function SessionCanvasFlow({
       }
       writeDocument({ ...current, nodes: nextNodes }, persistToDisk);
     },
-    [writeDocument]
+    [getCurrentHistory, writeDocument]
   );
 
   const undoCanvas = useCallback(() => {
-    const history = historyRef.current;
+    const history = getCurrentHistory();
     const previous = history.past.pop();
     if (!previous) return;
     history.future = [
@@ -680,10 +809,10 @@ function SessionCanvasFlow({
     setSelectedIds(new Set());
     setSelectionMenu(null);
     setHistoryVersion((value) => value + 1);
-  }, [writeDocument]);
+  }, [getCurrentHistory, writeDocument]);
 
   const redoCanvas = useCallback(() => {
-    const history = historyRef.current;
+    const history = getCurrentHistory();
     const next = history.future.shift();
     if (!next) return;
     history.past = [
@@ -696,7 +825,7 @@ function SessionCanvasFlow({
     setSelectedIds(new Set());
     setSelectionMenu(null);
     setHistoryVersion((value) => value + 1);
-  }, [writeDocument]);
+  }, [getCurrentHistory, writeDocument]);
 
   const layoutNodes = useMemo(
     () => previewCanvasDrop(nodes, draggedId, dropHint),
@@ -754,6 +883,10 @@ function SessionCanvasFlow({
   } | null>(null);
   const connectingRef = useRef(connectingState);
   connectingRef.current = connectingState;
+  useEffect(() => {
+    setHoveredLinkId(null);
+    setConnectingState(null);
+  }, [workspaceState.activeCanvasId]);
 
   const autoSessionLinks = useMemo(
     () =>
@@ -1230,16 +1363,85 @@ function SessionCanvasFlow({
       holdSessionId(sessionId);
       const flow = screenToFlowPosition(client);
       const size = collapsedSessionCardSize(cardWidth);
-      const next = createCanvasNode(
-        sessionId,
-        canvasDropOrigin(flow, size),
-        undefined,
-        size
-      );
-      updateNodes((items) => [...items, next]);
+      const origin = canvasDropOrigin(flow, size);
+      const next = createCanvasNode(sessionId, origin, undefined, size);
+      updateNodes((items) => {
+        const added = [...items, next];
+        return applyDropHint(
+          added,
+          next.id,
+          computeDropHint(added, next.id, origin)
+        );
+      });
       setSelectedIds(new Set([next.id]));
     },
     [holdSessionId, screenToFlowPosition, updateNodes]
+  );
+
+  const dropPanelAt = useCallback(
+    (
+      request: OpenCanvasPanelRequest,
+      client: { x: number; y: number }
+    ): string => {
+      const flow = screenToFlowPosition(client);
+      const wantExpanded = request.expanded ?? true;
+      const size = wantExpanded
+        ? { width: DETAIL_CARD_WIDTH, height: DETAIL_CARD_HEIGHT }
+        : { width: CARD_WIDTH, height: CARD_HEIGHT };
+      const point = canvasDropOrigin(flow, size);
+      const existing = documentRef.current.nodes.find(
+        (node) => isPanelCanvasNode(node) && node.panelId === request.id
+      );
+      if (existing) {
+        updateNodes((items) =>
+          items.map((node) =>
+            node.id === existing.id
+              ? {
+                  ...node,
+                  parentId: null,
+                  x: point.x,
+                  y: point.y,
+                  panelTitle: request.title ?? node.panelTitle,
+                  panelParams: request.params ?? node.panelParams,
+                  expanded: wantExpanded,
+                  width:
+                    wantExpanded && !node.expanded
+                      ? DETAIL_CARD_WIDTH
+                      : node.width,
+                  height:
+                    wantExpanded && !node.expanded
+                      ? DETAIL_CARD_HEIGHT
+                      : node.height,
+                }
+              : node
+          )
+        );
+        setSelectedIds(new Set([existing.id]));
+        return existing.id;
+      }
+
+      const next = createCanvasPanelNode({
+        panelId: request.id,
+        panelComponent: request.component,
+        panelTitle: request.title,
+        panelParams: request.params,
+        position: point,
+        expanded: wantExpanded,
+        size,
+      });
+      updateNodes((items) => {
+        const added = [...items, next];
+        if (wantExpanded) return added;
+        return applyDropHint(
+          added,
+          next.id,
+          computeDropHint(added, next.id, point)
+        );
+      });
+      setSelectedIds(new Set([next.id]));
+      return next.id;
+    },
+    [screenToFlowPosition, updateNodes]
   );
 
   const addOrFocus = useCallback(
@@ -1522,9 +1724,15 @@ function SessionCanvasFlow({
   ]);
 
   useEffect(() => {
+    if (!registerWorkspaceController) {
+      return undefined;
+    }
     return registerCanvasWorkspaceController({
       openOrFocusPanel: (request) => openOrFocusPanelNode(request),
       openOrFocusSession: (request) => openOrFocusSessionNode(request),
+      dropSessionAt: (sessionId, client, cardWidth) =>
+        dropSessionAt(sessionId, client, cardWidth),
+      dropPanelAt: (request, client) => dropPanelAt(request, client),
       closeNode: (instanceId) => removeCard(instanceId),
       closeOtherNodes: (keepInstanceId) => closeOtherCanvasNodes(keepInstanceId),
       closeAllNodes: () => closeAllCanvasNodes(),
@@ -1533,9 +1741,12 @@ function SessionCanvasFlow({
   }, [
     closeAllCanvasNodes,
     closeOtherCanvasNodes,
+    dropPanelAt,
+    dropSessionAt,
     duplicateCanvasNode,
     openOrFocusPanelNode,
     openOrFocusSessionNode,
+    registerWorkspaceController,
     removeCard,
   ]);
 
@@ -2127,10 +2338,14 @@ function SessionCanvasFlow({
     () => () => {
       surfaceRef.current?.removeAttribute('data-canvas-panning');
       if (saveTimer.current != null) window.clearTimeout(saveTimer.current);
-      saveCanvasDocument(projectId, {
-        ...documentRef.current,
-        viewport: pendingViewport.current ?? documentRef.current.viewport,
-      });
+      const flushedWorkspace = updateWorkspaceActiveDocument(
+        workspaceRef.current,
+        {
+          ...documentRef.current,
+          viewport: pendingViewport.current ?? documentRef.current.viewport,
+        }
+      );
+      saveCanvasWorkspace(projectId, flushedWorkspace);
       flushCanvasDocumentPersist();
     },
     [projectId]
@@ -2141,8 +2356,9 @@ function SessionCanvasFlow({
   const selectedCards = selectedNodes.filter((node) => !isGroupNode(node));
   const selectedExpanded =
     selectedCards.length > 0 && selectedCards.every((node) => node.expanded);
-  const canUndo = historyRef.current.past.length > 0;
-  const canRedo = historyRef.current.future.length > 0;
+  const activeHistory = getCurrentHistory();
+  const canUndo = activeHistory.past.length > 0;
+  const canRedo = activeHistory.future.length > 0;
   const canGroup = canGroupSelection(nodes, selectedIds);
   const canvasContextMenuItems = useMemo<ProductContextMenuItem[]>(
     () => [
@@ -2421,60 +2637,144 @@ function SessionCanvasFlow({
                 </div>
               </ViewportPortal>
             ) : null}
-            <Panel position="bottom-center" data-canvas-export-skip="">
-              <div
-                className="flex items-center gap-2"
-                onPointerDown={(event) => event.stopPropagation()}
-                onMouseDown={(event) => event.stopPropagation()}
+            {dockPosition === 'bottom' ? (
+              <Panel
+                position="bottom-center"
+                data-canvas-export-skip=""
+                data-dock-position="bottom"
               >
-                <SessionCanvasHistoryDock
-                  canUndo={canUndo}
-                  canRedo={canRedo}
-                  onUndo={undoCanvas}
-                  onRedo={redoCanvas}
-                />
-                <SessionCanvasDock
-                  selectedCount={selectedIds.size}
-                  selectedExpanded={selectedExpanded}
-                  selectedGroupCollapsed={
-                    selectedNodes.length === 1 &&
-                    isGroupNode(selectedNodes[0]) &&
-                    selectedNodes[0].collapsed === true
-                  }
-                  selectedIsGroup={
-                    selectedNodes.length === 1 && isGroupNode(selectedNodes[0])
-                  }
-                  onToggleGroupCollapse={() => {
-                    const group = selectedNodes.find(isGroupNode);
-                    if (group) collapseGroup(group.id);
-                  }}
-                  onCreateGroup={createGroupAtView}
-                  onCreateSession={() => onCreateSession?.()}
-                  onCreateSessionWithExecutor={onCreateSessionWithExecutor}
-                  onCreatePanelNode={(options) => {
-                    openOrFocusPanelNode(options);
-                  }}
-                  onImportByProject={() => setImportMode('project')}
-                  onImportByRecent={() => setImportMode('recent')}
-                  onImportByAgent={() => setImportMode('agent')}
-                  onFitView={() =>
-                    void fitView({ padding: 0.2, duration: 300 })
-                  }
-                  onAutoArrange={autoArrange}
-                  onExpandSelection={expandSelection}
-                  onCollapseSelection={collapseSelection}
-                  onDeleteSelection={deleteSelection}
-                />
-              </div>
-            </Panel>
+                <div
+                  className="flex items-center gap-2"
+                  onPointerDown={(event) => event.stopPropagation()}
+                  onMouseDown={(event) => event.stopPropagation()}
+                >
+                  <SessionCanvasHistoryDock
+                    canUndo={canUndo}
+                    canRedo={canRedo}
+                    onUndo={undoCanvas}
+                    onRedo={redoCanvas}
+                    orientation="horizontal"
+                  />
+                  <SessionCanvasDock
+                    selectedCount={selectedIds.size}
+                    selectedExpanded={selectedExpanded}
+                    orientation="horizontal"
+                    menuSide="top"
+                    selectedGroupCollapsed={
+                      selectedNodes.length === 1 &&
+                      isGroupNode(selectedNodes[0]) &&
+                      selectedNodes[0].collapsed === true
+                    }
+                    selectedIsGroup={
+                      selectedNodes.length === 1 &&
+                      isGroupNode(selectedNodes[0])
+                    }
+                    onToggleGroupCollapse={() => {
+                      const group = selectedNodes.find(isGroupNode);
+                      if (group) collapseGroup(group.id);
+                    }}
+                    onCreateGroup={createGroupAtView}
+                    onCreateSession={() => onCreateSession?.()}
+                    onCreateSessionWithExecutor={onCreateSessionWithExecutor}
+                    onCreatePanelNode={(options) => {
+                      openOrFocusPanelNode(options);
+                    }}
+                    onImportByProject={() => setImportMode('project')}
+                    onImportByRecent={() => setImportMode('recent')}
+                    onImportByAgent={() => setImportMode('agent')}
+                    onFitView={() =>
+                      void fitView({ padding: 0.2, duration: 300 })
+                    }
+                    onAutoArrange={autoArrange}
+                    onExpandSelection={expandSelection}
+                    onCollapseSelection={collapseSelection}
+                    onDeleteSelection={deleteSelection}
+                  />
+                </div>
+              </Panel>
+            ) : null}
             <SessionCanvasViewportPanel
               mapVisible={documentState.minimapVisible}
+              position={viewportPosition}
+              leftOffsetPx={
+                !hideSessionList && listVisible ? listWidth + 24 : undefined
+              }
+              canvases={workspaceState.canvases}
+              activeCanvasId={workspaceState.activeCanvasId}
+              onSelectCanvas={handleSelectCanvas}
+              onCreateCanvas={handleCreateCanvas}
+              onRenameCanvas={handleRenameCanvas}
+              onDeleteCanvas={handleDeleteCanvas}
               onMapVisibleChange={(visible) =>
                 persist({ ...documentRef.current, minimapVisible: visible })
               }
             />
           </ReactFlow>
         </div>
+
+        {dockPosition !== 'bottom' ? (
+          <div
+            data-canvas-export-skip=""
+            data-dock-position={dockPosition}
+            className="pointer-events-none absolute inset-y-0 z-20 flex items-center"
+            style={
+              dockPosition === 'left'
+                ? {
+                    left:
+                      !hideSessionList && listVisible
+                        ? `calc(0.75rem + ${listWidth}px + 0.75rem)`
+                        : '0.75rem',
+                  }
+                : { right: '0.75rem' }
+            }
+          >
+            <div
+              className="pointer-events-auto flex flex-col items-center gap-2"
+              onPointerDown={(event) => event.stopPropagation()}
+              onMouseDown={(event) => event.stopPropagation()}
+            >
+              <SessionCanvasHistoryDock
+                canUndo={canUndo}
+                canRedo={canRedo}
+                onUndo={undoCanvas}
+                onRedo={redoCanvas}
+                orientation="vertical"
+              />
+              <SessionCanvasDock
+                selectedCount={selectedIds.size}
+                selectedExpanded={selectedExpanded}
+                orientation="vertical"
+                menuSide={dockPosition === 'left' ? 'right' : 'left'}
+                selectedGroupCollapsed={
+                  selectedNodes.length === 1 &&
+                  isGroupNode(selectedNodes[0]) &&
+                  selectedNodes[0].collapsed === true
+                }
+                selectedIsGroup={
+                  selectedNodes.length === 1 && isGroupNode(selectedNodes[0])
+                }
+                onToggleGroupCollapse={() => {
+                  const group = selectedNodes.find(isGroupNode);
+                  if (group) collapseGroup(group.id);
+                }}
+                onCreateGroup={createGroupAtView}
+                onCreateSession={() => onCreateSession?.()}
+                onCreateSessionWithExecutor={onCreateSessionWithExecutor}
+                onCreatePanelNode={(options) => {
+                  openOrFocusPanelNode(options);
+                }}
+                onImportByProject={() => setImportMode('project')}
+                onImportByRecent={() => setImportMode('recent')}
+                onImportByAgent={() => setImportMode('agent')}
+                onFitView={() => void fitView({ padding: 0.2, duration: 300 })}
+                onAutoArrange={autoArrange}
+                onExpandSelection={expandSelection}
+                onCollapseSelection={collapseSelection}
+                onDeleteSelection={deleteSelection}
+              />
+            </div>
+          </div>
+        ) : null}
 
         {!hideSessionList ? (
           <FloatingSessionList collapsed={!listVisible} width={listWidth}>

@@ -10,10 +10,17 @@ import { CARD_HEIGHT, CARD_WIDTH } from './canvasModel';
 import {
   CANVAS_BUNDLE_KEY,
   canvasDocumentStorageKey,
+  createCanvasBoard,
+  deleteCanvasBoard,
   flushCanvasDocumentPersist,
+  getActiveCanvasEntry,
   loadCanvasDocument,
+  loadCanvasWorkspace,
+  renameCanvasBoard,
   saveCanvasDocument,
+  saveCanvasWorkspace,
   saveMinimapVisible,
+  selectCanvasBoard,
 } from './canvasStorage';
 
 describe('canvasStorage', () => {
@@ -187,5 +194,90 @@ describe('canvasStorage', () => {
         }),
       })
     );
+  });
+
+  it('supports multiple named canvases with independent layout states', () => {
+    saveCanvasDocument(projectId, {
+      nodes: [
+        {
+          id: 'session-a',
+          kind: 'session',
+          sessionId: 'session-a',
+          parentId: null,
+          name: '',
+          createdAt: 0,
+          showAll: false,
+          x: 40,
+          y: 80,
+          width: CARD_WIDTH,
+          height: CARD_HEIGHT,
+          expanded: false,
+        },
+      ],
+      viewport: { x: 10, y: 20, zoom: 1 },
+      listCollapsed: false,
+      minimapVisible: true,
+    });
+
+    let ws = loadCanvasWorkspace(projectId);
+    expect(ws.canvases).toHaveLength(1);
+    const firstId = ws.activeCanvasId;
+
+    ws = createCanvasBoard(ws, '架构规划');
+    expect(ws.canvases).toHaveLength(2);
+    const secondId = ws.activeCanvasId;
+    expect(secondId).not.toBe(firstId);
+    expect(getActiveCanvasEntry(ws).name).toBe('架构规划');
+    expect(getActiveCanvasEntry(ws).document.nodes).toHaveLength(0);
+
+    saveCanvasWorkspace(projectId, ws);
+    saveCanvasDocument(projectId, {
+      nodes: [
+        {
+          id: 'session-b',
+          kind: 'session',
+          sessionId: 'session-b',
+          parentId: null,
+          name: '',
+          createdAt: 0,
+          showAll: false,
+          x: 300,
+          y: 400,
+          width: CARD_WIDTH,
+          height: CARD_HEIGHT,
+          expanded: false,
+        },
+      ],
+      viewport: { x: -50, y: -100, zoom: 0.8 },
+      listCollapsed: false,
+      minimapVisible: true,
+    });
+
+    const reloaded = loadCanvasWorkspace(projectId);
+    expect(reloaded.canvases).toHaveLength(2);
+    expect(reloaded.activeCanvasId).toBe(secondId);
+    expect(loadCanvasDocument(projectId).nodes[0]?.id).toBe('session-b');
+
+    const switchedBack = selectCanvasBoard(reloaded, firstId);
+    saveCanvasWorkspace(projectId, switchedBack);
+    expect(loadCanvasDocument(projectId).nodes[0]?.id).toBe('session-a');
+    expect(loadCanvasDocument(projectId).viewport).toEqual({
+      x: 10,
+      y: 20,
+      zoom: 1,
+    });
+
+    const renamed = renameCanvasBoard(switchedBack, firstId, '日常开发');
+    saveCanvasWorkspace(projectId, renamed);
+    expect(loadCanvasWorkspace(projectId).canvases[0]?.name).toBe('日常开发');
+
+    const afterDelete = deleteCanvasBoard(
+      loadCanvasWorkspace(projectId),
+      firstId
+    );
+    expect(afterDelete.canvases).toHaveLength(1);
+    expect(afterDelete.activeCanvasId).toBe(secondId);
+    // Cannot delete the last remaining canvas
+    expect(deleteCanvasBoard(afterDelete, secondId).canvases).toHaveLength(1);
   });
 });

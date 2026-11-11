@@ -2281,9 +2281,10 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
         agentId: options.agentId ?? existingAgentId ?? null,
       };
 
-      useLayoutStore.getState().setRightPanelVisible(true);
-
       if (existingPanel) {
+        if (isSessionGroup(existingPanel.group)) {
+          useLayoutStore.getState().setRightPanelVisible(true);
+        }
         existingPanel.api.updateParameters(params);
         if (options.title?.trim() && existingPanel.title !== title) {
           existingPanel.api.setTitle(title);
@@ -2341,6 +2342,11 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
       }
 
       if (!targetGroup) {
+        targetGroup =
+          getActiveEditorGroup() ?? getEditorGroups(dockviewApi)[0];
+      }
+
+      if (!targetGroup) {
         const fallbackReference =
           getEditorGroups(dockviewApi)[0]?.panels[0] ??
           getLeftGroup(dockviewApi)?.panels[0] ??
@@ -2360,6 +2366,9 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
         ).element?.setAttribute('data-session-dock', 'true');
       }
 
+      if (isSessionGroup(targetGroup)) {
+        useLayoutStore.getState().setRightPanelVisible(true);
+      }
       setColumnVisible(dockviewApi, getLayoutArrangement(), targetGroup, true);
 
       const unboundPlaceholders = targetGroup.panels.filter(
@@ -2395,7 +2404,13 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
       }
       normalizeEditorGroupIds(dockviewApi);
     },
-    [getEditorGroups, getLeftGroup, getRightGroup, normalizeEditorGroupIds]
+    [
+      getActiveEditorGroup,
+      getEditorGroups,
+      getLeftGroup,
+      getRightGroup,
+      normalizeEditorGroupIds,
+    ]
   );
 
   const openMergePanel = useCallback(

@@ -3,7 +3,15 @@ import { MiniMap, Panel, useReactFlow, useStore } from '@xyflow/react';
 import { CircleMinus, CirclePlus, Map as MapIcon } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { cn } from '@/lib/utils';
-import { saveMinimapVisible } from './canvasStorage';
+import type { CanvasViewportPosition } from '@/lib/workspaceStageStyle';
+import {
+  saveMinimapVisible,
+  type SessionCanvasBoardEntry,
+} from './canvasStorage';
+import {
+  SessionCanvasStageDock,
+  SessionCanvasStageTriggerButton,
+} from './SessionCanvasStageDock';
 
 const ZOOM_STEP_DURATION_MS = 150;
 const MINIMAP_ASPECT = 150 / 200;
@@ -51,9 +59,25 @@ function ViewportButton({
 export function SessionCanvasViewportPanel({
   mapVisible,
   onMapVisibleChange,
+  position = 'bottom-right',
+  leftOffsetPx,
+  canvases,
+  activeCanvasId,
+  onSelectCanvas,
+  onCreateCanvas,
+  onRenameCanvas,
+  onDeleteCanvas,
 }: {
   mapVisible: boolean;
   onMapVisibleChange: (visible: boolean) => void;
+  position?: CanvasViewportPosition;
+  leftOffsetPx?: number;
+  canvases?: readonly SessionCanvasBoardEntry[];
+  activeCanvasId?: string;
+  onSelectCanvas?: (canvasId: string) => void;
+  onCreateCanvas?: () => void;
+  onRenameCanvas?: (canvasId: string, name: string) => void;
+  onDeleteCanvas?: (canvasId: string) => void;
 }) {
   const { t } = useTranslation(['tasks']);
   const { zoomIn, zoomOut, zoomTo } = useReactFlow();
@@ -62,6 +86,7 @@ export function SessionCanvasViewportPanel({
   const maxZoom = useStore((state) => state.maxZoom);
   const pillRef = useRef<HTMLDivElement | null>(null);
   const [pillWidth, setPillWidth] = useState(0);
+  const [stageOpen, setStageOpen] = useState(false);
 
   useIsomorphicLayoutEffect(() => {
     const element = pillRef.current;
@@ -74,32 +99,89 @@ export function SessionCanvasViewportPanel({
   }, []);
 
   const mapWidth = pillWidth || MINIMAP_FALLBACK_WIDTH;
+  const isLeft = position === 'bottom-left';
+  const hasStageControls = Boolean(
+    canvases &&
+      activeCanvasId &&
+      onSelectCanvas &&
+      onCreateCanvas &&
+      onRenameCanvas &&
+      onDeleteCanvas
+  );
 
   return (
-    <Panel position="bottom-right" data-canvas-export-skip="">
-      <div className="flex flex-col items-end gap-2">
-        {mapVisible ? (
-          <MiniMap
-            pannable
-            zoomable
-            className="canvas-minimap"
-            style={{
-              position: 'static',
-              margin: 0,
-              width: mapWidth,
-              height: Math.round(mapWidth * MINIMAP_ASPECT),
-            }}
+    <Panel
+      position={position}
+      className="pointer-events-none z-30"
+      data-canvas-export-skip=""
+      data-viewport-position={position}
+      style={
+        isLeft && leftOffsetPx != null && leftOffsetPx > 0
+          ? { left: leftOffsetPx }
+          : undefined
+      }
+    >
+      <div
+        className={cn(
+          'pointer-events-none flex flex-col gap-2',
+          isLeft ? 'items-start' : 'items-end'
+        )}
+      >
+        {stageOpen &&
+        canvases &&
+        activeCanvasId &&
+        onSelectCanvas &&
+        onCreateCanvas &&
+        onRenameCanvas &&
+        onDeleteCanvas ? (
+          <SessionCanvasStageDock
+            canvases={canvases}
+            activeCanvasId={activeCanvasId}
+            align={isLeft ? 'left' : 'right'}
+            onSelectCanvas={onSelectCanvas}
+            onCreateCanvas={onCreateCanvas}
+            onRenameCanvas={onRenameCanvas}
+            onDeleteCanvas={onDeleteCanvas}
+            onClose={() => setStageOpen(false)}
           />
+        ) : null}
+        {mapVisible ? (
+          <div
+            className="pointer-events-auto"
+            onPointerDown={(event) => event.stopPropagation()}
+            onMouseDown={(event) => event.stopPropagation()}
+          >
+            <MiniMap
+              pannable
+              zoomable
+              className="canvas-minimap"
+              style={{
+                position: 'static',
+                margin: 0,
+                width: mapWidth,
+                height: Math.round(mapWidth * MINIMAP_ASPECT),
+              }}
+            />
+          </div>
         ) : null}
         <div
           ref={pillRef}
+          onPointerDown={(event) => event.stopPropagation()}
+          onMouseDown={(event) => event.stopPropagation()}
           className={cn(
-            'flex items-center gap-0.5 rounded-full border border-border',
+            'pointer-events-auto flex items-center gap-0.5 rounded-full border border-border',
             'bg-[var(--surface-card-strong)] p-1 shadow-[var(--shadow-popover)]'
           )}
           role="toolbar"
           aria-label={t('hubCanvas.viewportControls')}
         >
+          {hasStageControls ? (
+            <SessionCanvasStageTriggerButton
+              open={stageOpen}
+              canvasCount={canvases?.length ?? 1}
+              onClick={() => setStageOpen((prev) => !prev)}
+            />
+          ) : null}
           <ViewportButton
             label={
               mapVisible
@@ -128,7 +210,7 @@ export function SessionCanvasViewportPanel({
           </ViewportButton>
           <button
             type="button"
-            className="inline-flex h-8 w-12 shrink-0 items-center justify-center rounded-full font-mono text-[0.6875rem] text-muted-foreground transition-colors hover:bg-[var(--surface-control-hover)] hover:text-foreground"
+            className="inline-flex h-8 w-12 shrink-0 items-center justify-center rounded-full font-mono text-[0.6875rem] tabular-nums text-muted-foreground transition-colors hover:bg-[var(--surface-control-hover)] hover:text-foreground"
             onClick={() => void zoomTo(1, { duration: ZOOM_STEP_DURATION_MS })}
             aria-label={t('hubCanvas.resetZoom')}
             title={t('hubCanvas.resetZoom')}

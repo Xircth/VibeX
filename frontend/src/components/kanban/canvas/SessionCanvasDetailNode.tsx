@@ -1,4 +1,4 @@
-import { memo } from 'react';
+import { memo, useState } from 'react';
 import { NodeResizer, type Node, type NodeProps } from '@xyflow/react';
 import { Scaling, X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
@@ -16,7 +16,9 @@ import {
 } from '@/components/ui/tooltip';
 import { resolveBuiltinPanelTitle } from '@/lib/builtinPanelTitles';
 import { cn } from '@/lib/utils';
+import { PANEL_IDS } from '@/stores/useLayoutStore';
 import { CanvasNodeHandles } from './CanvasNodeHandles';
+import { CanvasPanelHeaderSlotContext } from './CanvasPanelHeaderSlotContext';
 import { CanvasPanelNodeBody } from './CanvasPanelNodeBody';
 import {
   DETAIL_MIN_HEIGHT,
@@ -49,6 +51,9 @@ export const SessionCanvasDetailNode = memo(
     selected,
   }: NodeProps<SessionCanvasDetailFlowNode>) {
     const { t } = useTranslation(['tasks', 'common', 'panels']);
+    const [headerSlotEl, setHeaderSlotEl] = useState<HTMLDivElement | null>(
+      null
+    );
     const {
       sessionsReady,
       collapseCard,
@@ -78,6 +83,8 @@ export const SessionCanvasDetailNode = memo(
     });
 
     if (data.panelComponent) {
+      const isCollaborationSpacePanel =
+        data.panelComponent === PANEL_IDS.COLLABORATION_SPACE;
       const resolvedTitle = resolveBuiltinPanelTitle(
         data.panelId ?? data.panelComponent,
         data.panelTitle ?? data.panelComponent,
@@ -92,7 +99,7 @@ export const SessionCanvasDetailNode = memo(
           data-canvas-node-id={instanceId}
           data-testid={`canvas-panel-window-${data.panelComponent}`}
           onPointerDownCapture={() =>
-            setPendingCanvasParentNode(instanceId, 1500)
+            setPendingCanvasParentNode(instanceId, 4000)
           }
         >
           <CanvasNodeHandles instanceId={instanceId} />
@@ -114,28 +121,40 @@ export const SessionCanvasDetailNode = memo(
             <div
               data-testid="canvas-node-header"
               className={cn(
-                'flex h-8 shrink-0 items-center justify-between gap-2 px-2.5',
+                'flex shrink-0 items-center justify-between gap-2 px-2.5',
+                isCollaborationSpacePanel ? 'min-h-9 py-1' : 'h-8',
                 `${DRAG_HANDLE_CLASS} cursor-grab active:cursor-grabbing`
               )}
               onContextMenu={openContextMenu}
               onDoubleClick={(event) => {
+                if ((event.target as HTMLElement | null)?.closest('.nodrag')) {
+                  return;
+                }
                 event.stopPropagation();
                 collapseCard(instanceId);
               }}
             >
-              <div className="flex min-w-0 flex-1 items-center gap-1.5">
-                <WorkspaceTabIcon
-                  component={data.panelComponent}
-                  params={(data.panelParams ?? {}) as WorkspaceTabParams}
+              {isCollaborationSpacePanel ? (
+                <div
+                  ref={setHeaderSlotEl}
+                  data-testid="canvas-space-header-slot"
+                  className="flex min-w-0 flex-1 items-center overflow-hidden"
                 />
-                <Badge
-                  variant="secondary"
-                  className="h-5 min-w-0 max-w-full shrink rounded-lg border-transparent bg-[var(--surface-control)] px-2 text-xs font-semibold text-[var(--text-strong)] hover:bg-[var(--surface-control)]"
-                  title={resolvedTitle}
-                >
-                  <span className="truncate">{resolvedTitle}</span>
-                </Badge>
-              </div>
+              ) : (
+                <div className="flex min-w-0 flex-1 items-center gap-1.5">
+                  <WorkspaceTabIcon
+                    component={data.panelComponent}
+                    params={(data.panelParams ?? {}) as WorkspaceTabParams}
+                  />
+                  <Badge
+                    variant="secondary"
+                    className="h-5 min-w-0 max-w-full shrink rounded-lg border-transparent bg-[var(--surface-control)] px-2 text-xs font-semibold text-[var(--text-strong)] hover:bg-[var(--surface-control)]"
+                    title={resolvedTitle}
+                  >
+                    <span className="truncate">{resolvedTitle}</span>
+                  </Badge>
+                </div>
+              )}
               <div className="flex shrink-0 items-center gap-1">
                 <Tooltip>
                   <TooltipTrigger asChild>
@@ -180,14 +199,18 @@ export const SessionCanvasDetailNode = memo(
             </div>
 
             <div className="nowheel nopan canvas-session-thread min-h-0 flex-1 w-full overflow-hidden rounded-t-xl bg-background">
-              <CanvasPanelNodeBody
-                instanceId={instanceId}
-                panelId={data.panelId ?? instanceId}
-                panelComponent={data.panelComponent}
-                panelTitle={resolvedTitle}
-                panelParams={data.panelParams}
-                selected={selected}
-              />
+              <CanvasPanelHeaderSlotContext.Provider
+                value={isCollaborationSpacePanel ? headerSlotEl : null}
+              >
+                <CanvasPanelNodeBody
+                  instanceId={instanceId}
+                  panelId={data.panelId ?? instanceId}
+                  panelComponent={data.panelComponent}
+                  panelTitle={resolvedTitle}
+                  panelParams={data.panelParams}
+                  selected={selected}
+                />
+              </CanvasPanelHeaderSlotContext.Provider>
             </div>
           </div>
           {contextMenuElement}

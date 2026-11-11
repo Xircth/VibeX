@@ -93,9 +93,15 @@ function DockButton({
   );
 }
 
-function DockDivider() {
+function DockDivider({ vertical }: { vertical?: boolean }) {
   return (
-    <span className="mx-1 h-5 w-px shrink-0 bg-border" aria-hidden="true" />
+    <span
+      className={cn(
+        'shrink-0 bg-border',
+        vertical ? 'my-1 h-px w-5' : 'mx-1 h-5 w-px'
+      )}
+      aria-hidden="true"
+    />
   );
 }
 
@@ -104,6 +110,8 @@ export function SessionCanvasDock({
   selectedExpanded,
   selectedIsGroup = false,
   selectedGroupCollapsed = false,
+  orientation = 'horizontal',
+  menuSide,
   onToggleGroupCollapse,
   onCreateGroup,
   onCreateSession,
@@ -122,6 +130,8 @@ export function SessionCanvasDock({
   selectedExpanded: boolean;
   selectedIsGroup?: boolean;
   selectedGroupCollapsed?: boolean;
+  orientation?: 'horizontal' | 'vertical';
+  menuSide?: 'top' | 'left' | 'right';
   onToggleGroupCollapse?: () => void;
   onCreateGroup: () => void;
   onCreateSession: () => void;
@@ -200,13 +210,18 @@ export function SessionCanvasDock({
     });
   };
 
+  const isVertical = orientation === 'vertical';
+  const resolvedMenuSide = menuSide ?? (isVertical ? 'right' : 'top');
+
   return (
     <div
       className={cn(
         'flex items-center gap-0.5 rounded-full border border-border',
+        isVertical ? 'flex-col' : 'flex-row',
         'bg-[var(--surface-card-strong)] p-1 shadow-[var(--shadow-popover)]'
       )}
       role="toolbar"
+      aria-orientation={orientation}
       aria-label={t('hubCanvas.dock')}
     >
       <DropdownMenu>
@@ -222,7 +237,7 @@ export function SessionCanvasDock({
         </DropdownMenuTrigger>
         <DropdownMenuContent
           align="start"
-          side="top"
+          side={resolvedMenuSide}
           className="max-h-[420px] min-w-[200px] overflow-y-auto"
         >
           <DropdownMenuLabel className="px-2 py-1 text-[11px] font-medium text-muted-foreground">
@@ -403,7 +418,7 @@ export function SessionCanvasDock({
             <Download className="size-4" />
           </button>
         </DropdownMenuTrigger>
-        <DropdownMenuContent align="start" side="top">
+        <DropdownMenuContent align="start" side={resolvedMenuSide}>
           <DropdownMenuItem onSelect={onImportByProject}>
             <Folder className="size-4 text-muted-foreground" />
             {t('hubCanvas.importByProject')}
@@ -426,7 +441,7 @@ export function SessionCanvasDock({
       </DockButton>
       {selectedCount > 0 ? (
         <>
-          <DockDivider />
+          <DockDivider vertical={isVertical} />
           {selectedIsGroup ? (
             <DockButton
               label={

@@ -11,7 +11,7 @@ import { usePanelActionsContext } from '@/contexts/PanelActionsContext';
 import { useWorktree } from '@/contexts/WorktreeContext';
 import { isEnabledInstalledAgent } from '@/features/agents/operationalAgent';
 import { useSelectableAgents } from '@/features/agents/useSelectableAgents';
-import { useOptionalCollaborationSpaceStore } from '@/features/collaboration/space/SpaceContext';
+import { useOptionalCollaborationSpaceStore } from '@/features/collaboration/space/SpaceStoreContext';
 import { findHostBrowserContribution } from '@/features/host-browser/hostBrowserEngine';
 import {
   contributionMetadata,

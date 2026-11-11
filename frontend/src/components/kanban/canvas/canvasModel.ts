@@ -9,8 +9,8 @@ import { dateTimestamp } from '@/utils/date';
 export const CARD_WIDTH = 196;
 export const CARD_HEIGHT = 72;
 
-export const DETAIL_CARD_WIDTH = 364;
-export const DETAIL_CARD_HEIGHT = 627;
+export const DETAIL_CARD_WIDTH = 960;
+export const DETAIL_CARD_HEIGHT = 720;
 export const DETAIL_MIN_WIDTH = 360;
 export const DETAIL_MIN_HEIGHT = 320;
 

@@ -285,19 +285,12 @@
 
 /* Zone A internal split dividers: clearly distinguish multiple panels placed in Zone A
    (horizontal columns and vertical stacks) while keeping the outer boundary against Zone B clean. */
-[class*='dockview-theme-ayu'] {
-  --zone-a-split-divider: color-mix(
-    in srgb,
-    var(--text-strong, #171717) 16%,
-    var(--border-strong, #c8c8c8)
-  );
-}
-
+[class*='dockview-theme-ayu'],
 .dark [class*='dockview-theme-ayu'] {
   --zone-a-split-divider: color-mix(
     in srgb,
-    var(--text-strong, #fafafa) 16%,
-    var(--border-strong, #404040)
+    var(--text-strong) 16%,
+    var(--border-strong)
   );
 }
 

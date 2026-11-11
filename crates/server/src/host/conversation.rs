@@ -252,16 +252,6 @@ impl ServerApplicationDomains {
                 .await
                 .map_err(|error| ApplicationError::bad_request(error.to_string()))?,
         }
-        if args.watch != Some(false) {
-            let _ = sqlx::query(
-                r#"UPDATE sessions
-                   SET updated_at = datetime('now', 'subsec')
-                   WHERE id = ? AND deleted_at IS NULL"#,
-            )
-            .bind(id)
-            .execute(&self.pool)
-            .await;
-        }
         let idle_timeout_secs = agents::idle_timeout_from_env()
             .map(|timeout| timeout.as_secs())
             .unwrap_or(0);

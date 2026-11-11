@@ -428,7 +428,7 @@ async fn handle_control_connection(
         return;
     };
 
-    let parts: Vec<&str> = first_line.trim().split_whitespace().collect();
+    let parts: Vec<&str> = first_line.split_whitespace().collect();
     // Format: VIBEX-CTRL v2 <host_id> <token> [name_b64] [lan_origins_b64]
     let (host_id, token, host_name, lan_origins) = if parts.len() >= 4 && parts[1] == "v2" {
         let host_id = parts[2].trim().to_string();
@@ -504,10 +504,10 @@ async fn handle_control_connection(
             _ = ping_interval.tick() => {
                 if let Ok(frame) = serde_json::to_string(&ControlServerFrame::Ping {
                     ts: chrono::Utc::now().timestamp_millis(),
-                }) {
-                    if ctrl_tx.send(format!("{frame}\n")).is_err() {
-                        break;
-                    }
+                })
+                    && ctrl_tx.send(format!("{frame}\n")).is_err()
+                {
+                    break;
                 }
                 // Evict stale pre-warmed streams and ask Host to replenish if needed
                 let needed = {
@@ -594,7 +594,7 @@ async fn handle_data_connection(stream: TcpStream, state: Arc<RelayServerState>)
     if n == 0 {
         return;
     }
-    let parts: Vec<&str> = first_line.trim().split_whitespace().collect();
+    let parts: Vec<&str> = first_line.split_whitespace().collect();
     // Format: VIBEX-DATA v2 <host_id> <token> <conn_id_or_POOL>
     let (host_id, token, conn_id) = if parts.len() >= 5 && parts[1] == "v2" {
         (parts[2].trim(), parts[3].trim(), parts[4].trim())

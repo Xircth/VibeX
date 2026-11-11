@@ -142,10 +142,6 @@ export function WebServiceSettings({
         if (tunnelStatus) {
           setTunnelEnabled(Boolean(tunnelStatus.enabled));
         }
-        if (!holdingRef.current) {
-          draftRef.current = savedConfig;
-          setDraft(savedConfig);
-        }
         const lanMissing =
           currentStatus.running &&
           savedConfig.allow_lan &&
@@ -153,7 +149,18 @@ export function WebServiceSettings({
             (address) =>
               !address.includes('127.0.0.1') && !address.includes('localhost')
           );
-        setStatus(lanMissing ? await webServiceApi.start() : currentStatus);
+        const nextStatus = lanMissing
+          ? await webServiceApi.start()
+          : currentStatus;
+        const effectiveConfig =
+          nextStatus.running && validPort(nextStatus.port)
+            ? { ...savedConfig, port: nextStatus.port }
+            : savedConfig;
+        if (!holdingRef.current) {
+          draftRef.current = effectiveConfig;
+          setDraft(effectiveConfig);
+        }
+        setStatus(nextStatus);
       } catch (error) {
         toast.error(getErrorMessage(error, t('webService.configLoadFailed')));
       } finally {
@@ -227,9 +234,13 @@ export function WebServiceSettings({
     try {
       const next = await webServiceApi.start();
       const saved = await webServiceApi.getConfig();
+      const effectiveConfig =
+        next.running && validPort(next.port)
+          ? { ...saved, port: next.port }
+          : saved;
       if (!holdingRef.current) {
-        draftRef.current = saved;
-        setDraft(saved);
+        draftRef.current = effectiveConfig;
+        setDraft(effectiveConfig);
       }
       setStatus(next);
       setProbe(null);

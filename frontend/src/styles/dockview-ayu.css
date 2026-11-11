@@ -792,6 +792,23 @@
   display: none;
 }
 
+/* The sash is the only split line. The AI panel's own left border sat a
+   few pixels to the right of it and only covered the content, so the join
+   read as two strokes. */
+[class*='dockview-theme-ayu'] .workspace-right-panel {
+  border-left: 0;
+}
+
+/* Monaco keeps the scrollbar left of the overview ruler, so the editor
+   thumb never meets the panel edge. Hide the ruler and pin the thumb. */
+.monaco-editor .decorationsOverviewRuler {
+  display: none !important;
+}
+
+.monaco-editor .scrollbar.vertical {
+  right: 0 !important;
+}
+
 /* Dockview adds dv-enabled only when a sash can move both ways. Against a
    minimum or maximum (the file tree often sits on its minimum width) the
    sash is dv-minimum or dv-maximum, and the library keeps a 4px bar that
@@ -799,13 +816,17 @@
    keep position:absolute plus z-index:99: position:relative stacks later
    sashes below the container, and a lower z-index lets panel content eat
    the hit target. */
+/* Dockview anchors the sash for a 4px bar, so its left edge sits 2px
+   before the split. A 1px line at that edge reads as a second stroke
+   beside the panel boundary. Shift by (4px - 1px) / 2 so this drag line
+   is the divider. */
 [class*='dockview-theme-ayu']
   .dv-split-view-container.dv-horizontal
   > .dv-sash-container
   > .dv-sash {
   overflow: visible;
   width: 1px;
-  margin-left: 0;
+  margin-left: 1.5px;
   border: 0;
   background-color: var(--workspace-divider-color, var(--dv-sash-color));
   transition:
@@ -881,7 +902,7 @@
   > .dv-sash {
   overflow: visible;
   height: 1px;
-  margin-top: 0;
+  margin-top: 1.5px;
   border: 0;
   background-color: var(--workspace-divider-color, var(--dv-sash-color));
   transition:

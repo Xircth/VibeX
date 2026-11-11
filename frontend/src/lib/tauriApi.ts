@@ -103,6 +103,7 @@ export async function tauriInvoke<T>(
     return await invoke<T>(cmd, args);
   } catch (error) {
     if (
+      cmd !== 'take_pending_model_router_import' &&
       !isCanceledError(error) &&
       !isExpectedBinaryTextReadError(cmd, error) &&
       !isExpectedAttachTerminalNotFoundError(cmd, error) &&

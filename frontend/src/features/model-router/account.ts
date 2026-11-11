@@ -1,5 +1,11 @@
 import { getSiteUrl } from '@/lib/branding';
 import type { SyncableHostProfile } from '@/lib/api';
+import {
+  readDesktopSharedPreferenceSection,
+  writeDesktopSharedPreferenceSection,
+} from '@/lib/frontendPreferences';
+
+import { openExternal } from './openExternal';
 
 export type SavedHostDeleteSelector = {
   syncKey?: string;
@@ -110,6 +116,8 @@ export type RouterProvision = {
   model: { id: string; name: string };
   /** Every model this key can reach over `protocol`. */
   models: { id: string; name: string }[];
+  group?: string;
+  keyName?: string;
 };
 
 export type DeviceLogin = {
@@ -122,6 +130,14 @@ export type DeviceLogin = {
   interval: number;
 };
 
+export type StartLoginOptions =
+  | string
+  | {
+      deviceName?: string;
+      hostId?: string;
+      nextPath?: string;
+    };
+
 /** `signed_out` means the token is missing or no longer accepted. */
 export class AccountError extends Error {
   constructor(public readonly code: string) {
@@ -131,14 +147,49 @@ export class AccountError extends Error {
 }
 
 export const ACCOUNT_TOKEN_EVENT = 'vibex:account-token-changed';
+const DESKTOP_SHARED_ACCOUNT_TOKEN_KEY = '__account_token_v1';
+let sharedTokenHydrationStarted = false;
+
+function hydrateSharedAccountTokenOnce(): void {
+  if (sharedTokenHydrationStarted || typeof window === 'undefined') return;
+  sharedTokenHydrationStarted = true;
+  const existingLocal = window.localStorage.getItem(TOKEN_KEY);
+  if (existingLocal && existingLocal.trim()) {
+    void writeDesktopSharedPreferenceSection(
+      DESKTOP_SHARED_ACCOUNT_TOKEN_KEY,
+      existingLocal.trim()
+    );
+    return;
+  }
+  void readDesktopSharedPreferenceSection<string | { token?: string }>(
+    DESKTOP_SHARED_ACCOUNT_TOKEN_KEY
+  ).then((shared) => {
+    const candidate =
+      typeof shared === 'string'
+        ? shared.trim()
+        : typeof shared?.token === 'string'
+          ? shared.token.trim()
+          : '';
+    if (!candidate) return;
+    if (!window.localStorage.getItem(TOKEN_KEY)) {
+      window.localStorage.setItem(TOKEN_KEY, candidate);
+      window.dispatchEvent(new Event(ACCOUNT_TOKEN_EVENT));
+    }
+  });
+}
 
 export function accountToken(): string | null {
   if (typeof window === 'undefined') return null;
-  return window.localStorage.getItem(TOKEN_KEY);
+  const current = window.localStorage.getItem(TOKEN_KEY);
+  if (!current) {
+    hydrateSharedAccountTokenOnce();
+  }
+  return current;
 }
 
 export function subscribeAccountToken(listener: () => void): () => void {
   if (typeof window === 'undefined') return () => undefined;
+  hydrateSharedAccountTokenOnce();
   const onStorage = (event: StorageEvent) => {
     if (event.key === null || event.key === TOKEN_KEY) listener();
   };
@@ -153,6 +204,10 @@ export function subscribeAccountToken(listener: () => void): () => void {
 function storeToken(token: string | null) {
   if (token) window.localStorage.setItem(TOKEN_KEY, token);
   else window.localStorage.removeItem(TOKEN_KEY);
+  void writeDesktopSharedPreferenceSection(
+    DESKTOP_SHARED_ACCOUNT_TOKEN_KEY,
+    token ?? ''
+  );
   window.dispatchEvent(new Event(ACCOUNT_TOKEN_EVENT));
 }
 
@@ -160,7 +215,12 @@ type HttpMethod = 'GET' | 'POST' | 'PUT' | 'DELETE';
 
 async function call<T>(
   path: string,
-  init: { method: HttpMethod; body?: unknown; token?: string | null }
+  init: {
+    method: HttpMethod;
+    body?: unknown;
+    token?: string | null;
+    preserveTokenOn401?: boolean;
+  }
 ): Promise<T> {
   const headers: Record<string, string> = {};
   if (init.body !== undefined) headers['Content-Type'] = 'application/json';
@@ -176,7 +236,7 @@ async function call<T>(
     throw new AccountError('network');
   }
   if (response.status === 401) {
-    if (init.token) storeToken(null);
+    if (init.token && !init.preserveTokenOn401) storeToken(null);
     throw new AccountError('signed_out');
   }
   if (
@@ -201,18 +261,27 @@ function authed<T>(path: string, method: HttpMethod, body?: unknown) {
   return call<T>(path, { method, body, token });
 }
 
+function normalizeNextPath(nextPath?: string): string {
+  const trimmed = nextPath?.trim();
+  if (!trimmed || !trimmed.startsWith('/') || trimmed.startsWith('//')) {
+    return '/account';
+  }
+  return trimmed;
+}
+
 export const accountApi = {
-  startLogin: (device?: {
-    deviceName?: string;
-    hostId?: string;
-  }): Promise<DeviceLogin> =>
-    call('/api/auth/desktop/start', {
+  startLogin: (options?: StartLoginOptions): Promise<DeviceLogin> => {
+    const resolved =
+      typeof options === 'string' ? { nextPath: options } : (options ?? {});
+    return call('/api/auth/desktop/start', {
       method: 'POST',
       body: {
-        deviceName: device?.deviceName?.trim() || 'VibeX Desktop',
-        hostId: device?.hostId?.trim() || '',
+        deviceName: resolved.deviceName?.trim() || 'VibeX Desktop',
+        hostId: resolved.hostId?.trim() || '',
+        nextPath: normalizeNextPath(resolved.nextPath),
       },
-    }),
+    });
+  },
 
   /** Resolves `true` once the browser approved this device, `false` while it is still waiting. */
   async pollLogin(login: DeviceLogin): Promise<boolean> {
@@ -254,6 +323,42 @@ export const accountApi = {
       taskId: taskId ?? '',
     }),
 
+  webHandoff: (
+    targetPath: string
+  ): Promise<{ handoffUrl: string; expiresIn?: number }> =>
+    authed('/api/auth/desktop/web-handoff', 'POST', {
+      targetPath: normalizeNextPath(targetPath),
+    }),
+
+  async redeemImportTicket(ticket: string): Promise<RouterProvision> {
+    const trimmed = ticket.trim();
+    if (!trimmed) {
+      throw new AccountError('invalid_ticket');
+    }
+    const token = accountToken();
+    try {
+      return await call<RouterProvision>('/api/modelrouter/desktop/redeem', {
+        method: 'POST',
+        body: { ticket: trimmed },
+        token,
+        preserveTokenOn401: true,
+      });
+    } catch (error) {
+      if (
+        token &&
+        error instanceof AccountError &&
+        error.code === 'signed_out'
+      ) {
+        return call<RouterProvision>('/api/modelrouter/desktop/redeem', {
+          method: 'POST',
+          body: { ticket: trimmed },
+          preserveTokenOn401: true,
+        });
+      }
+      throw error;
+    }
+  },
+
   listHostConfigs: (): Promise<{ hosts: unknown[]; records?: unknown[] }> =>
     authed('/api/account/desktop/host-configs', 'GET'),
 
@@ -282,10 +387,54 @@ export const accountApi = {
     deleted?: number;
     savedHosts?: SyncableHostProfile[];
   }> => authed('/api/account/desktop/saved-hosts', 'DELETE', selector),
+
+  issueRelayLease: (input: {
+    hostId: string;
+    hostName?: string;
+    osType?: string;
+    osArch?: string;
+  }): Promise<{
+    leaseToken: string;
+    expiresAt: number;
+    relayHost: string;
+    relayPort: number;
+    tenantOrigin: string;
+    hostId: string;
+    leaseVersion: number;
+  }> => authed('/api/account/relay/lease', 'POST', input),
 };
 
+export function modelMarketplacePath(
+  agentId?: string | null,
+  modelId?: string | null
+) {
+  const query = new URLSearchParams();
+  if (agentId?.trim()) query.set('agent', agentId.trim());
+  if (modelId?.trim()) query.set('model', modelId.trim());
+  const search = query.toString();
+  return search ? `/account/models?${search}` : '/account/models';
+}
+
 export function modelRouterUrl(agentId: string, modelId: string | null) {
-  const query = new URLSearchParams({ agent: agentId });
-  if (modelId) query.set('model', modelId);
-  return getSiteUrl(`/account/models?${query.toString()}`);
+  return getSiteUrl(modelMarketplacePath(agentId, modelId));
+}
+
+export async function openModelMarketplace(
+  agentId?: string | null
+): Promise<string> {
+  const targetPath = modelMarketplacePath(agentId);
+  const fallbackUrl = getSiteUrl(targetPath);
+  if (accountToken()) {
+    try {
+      const handoff = await accountApi.webHandoff(targetPath);
+      if (handoff?.handoffUrl) {
+        await openExternal(handoff.handoffUrl);
+        return handoff.handoffUrl;
+      }
+    } catch {
+      // Fall back to direct URL if handoff fails or token expired
+    }
+  }
+  await openExternal(fallbackUrl);
+  return fallbackUrl;
 }

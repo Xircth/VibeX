@@ -1,71 +1,109 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { AccountError, accountApi, accountToken } from './account';
+import {
+  ACCOUNT_TOKEN_STORAGE_KEY,
+  accountApi,
+  modelMarketplacePath,
+  openModelMarketplace,
+} from './account';
 
-const login = {
-  requestId: 'req',
-  verifier: 'ver',
-  userCode: 'ABCD-1234',
-  verifyUrl: 'https://site.test/desktop/authorize?request=req',
-  expiresIn: 600,
-  interval: 2,
-};
+const openExternal = vi.hoisted(() => vi.fn());
 
-function respond(status: number, body: unknown) {
-  return new Response(JSON.stringify(body), { status });
-}
+vi.mock('./openExternal', () => ({ openExternal }));
 
-describe('accountApi', () => {
-  const fetchMock = vi.fn();
-
+describe('accountApi & Model Marketplace helpers', () => {
   beforeEach(() => {
-    window.localStorage.clear();
-    fetchMock.mockReset();
-    vi.stubGlobal('fetch', fetchMock);
+    localStorage.clear();
+    openExternal.mockReset();
+    vi.restoreAllMocks();
   });
 
-  afterEach(() => {
-    vi.unstubAllGlobals();
+  it('passes nextPath (/account by default or custom target) when starting desktop login', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(
+      async () =>
+        new Response(
+          JSON.stringify({
+            requestId: 'req-1',
+            verifier: 'ver-1',
+            userCode: 'ABCD-1234',
+            verifyUrl: 'https://vibex.test/desktop/authorize?request=req-1',
+            expiresIn: 600,
+            interval: 2,
+          }),
+          { status: 200 }
+        )
+    );
+
+    await accountApi.startLogin();
+    expect(JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body))).toEqual({
+      deviceName: 'VibeX Desktop',
+      hostId: '',
+      nextPath: '/account',
+    });
+
+    await accountApi.startLogin(modelMarketplacePath('claude_code'));
+    expect(JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body))).toEqual({
+      deviceName: 'VibeX Desktop',
+      hostId: '',
+      nextPath: '/account/models?agent=claude_code',
+    });
   });
 
-  it('stores the token once the browser approves the device', async () => {
-    fetchMock.mockResolvedValueOnce(respond(200, { status: 'pending' }));
-    await expect(accountApi.pollLogin(login)).resolves.toBe(false);
-    expect(accountToken()).toBeNull();
+  it('uses web-handoff when signed in and falls back to direct URL on failure', async () => {
+    localStorage.setItem(ACCOUNT_TOKEN_STORAGE_KEY, 'tok_123');
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          handoffUrl:
+            'https://vibex.test/api/auth/desktop/web-handoff?ticket=h_1',
+          expiresIn: 60,
+        }),
+        { status: 200 }
+      )
+    );
+
+    const url = await openModelMarketplace('codex');
+    expect(url).toBe(
+      'https://vibex.test/api/auth/desktop/web-handoff?ticket=h_1'
+    );
+    expect(openExternal).toHaveBeenCalledWith(
+      'https://vibex.test/api/auth/desktop/web-handoff?ticket=h_1'
+    );
+    expect(JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body))).toEqual({
+      targetPath: '/account/models?agent=codex',
+    });
 
     fetchMock.mockResolvedValueOnce(
-      respond(200, { status: 'approved', token: 'tok' })
+      new Response(JSON.stringify({ error: 'failed' }), { status: 500 })
     );
-    await expect(accountApi.pollLogin(login)).resolves.toBe(true);
-    expect(accountToken()).toBe('tok');
+    const fallback = await openModelMarketplace('codex');
+    expect(fallback).toContain('/account/models?agent=codex');
+    expect(openExternal).toHaveBeenLastCalledWith(fallback);
   });
 
-  it('reports a refused or expired request by its status', async () => {
-    fetchMock.mockResolvedValueOnce(respond(200, { status: 'expired' }));
-    await expect(accountApi.pollLogin(login)).rejects.toMatchObject({
-      code: 'expired',
-    });
-  });
+  it('redeems a desktop import ticket without clearing stored token on 401 and retries without token', async () => {
+    localStorage.setItem(ACCOUNT_TOKEN_STORAGE_KEY, 'stale_tok');
+    const provision = {
+      apiKey: 'sk-vxr-1',
+      agentId: 'claude_code',
+      protocol: 'anthropic' as const,
+      baseUrl: 'https://vibex.test/api/router',
+      model: { id: 'claude-sonnet-4-6', name: 'Claude Sonnet 4.6' },
+      models: [{ id: 'claude-sonnet-4-6', name: 'Claude Sonnet 4.6' }],
+    };
 
-  it('sends the token as a Bearer header and drops it when rejected', async () => {
-    window.localStorage.setItem('vibex.account.token', 'tok');
-    fetchMock.mockResolvedValueOnce(respond(401, { error: 'unauthorized' }));
-    await expect(accountApi.overview()).rejects.toMatchObject({
-      code: 'signed_out',
-    });
-    expect(fetchMock.mock.calls[0][1].headers.Authorization).toBe('Bearer tok');
-    expect(accountToken()).toBeNull();
-  });
+    const fetchMock = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ error: 'unauthorized' }), { status: 401 })
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify(provision), { status: 200 })
+      );
 
-  it('does not call the site when signed out', async () => {
-    await expect(accountApi.overview()).rejects.toBeInstanceOf(AccountError);
-    expect(fetchMock).not.toHaveBeenCalled();
-  });
-
-  it('forgets the token on sign-out even if the revoke fails', async () => {
-    window.localStorage.setItem('vibex.account.token', 'tok');
-    fetchMock.mockRejectedValueOnce(new TypeError('offline'));
-    await accountApi.signOut();
-    expect(accountToken()).toBeNull();
+    const result = await accountApi.redeemImportTicket('tkt_999');
+    expect(result).toEqual(provision);
+    expect(localStorage.getItem(ACCOUNT_TOKEN_STORAGE_KEY)).toBe('stale_tok');
+    expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 });

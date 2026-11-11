@@ -756,12 +756,14 @@ export async function syncAccountHostConfigs(
         deleted: {},
       };
       const remoteUnsynced: UnsyncedHostRecord[] = [];
+      const cloudHosts: Record<string, AccountHostConfigSnapshot> = {};
+      let cloudListLoaded = false;
 
       // Merge cloud-stored snapshots & historical Host records when available.
       try {
         const remote = await accountApi.listHostConfigs();
+        cloudListLoaded = true;
         if (Array.isArray(remote.hosts)) {
-          const cloudHosts: Record<string, AccountHostConfigSnapshot> = {};
           for (const rawHost of remote.hosts) {
             const parsed = coerceSnapshot(rawHost, accountKey);
             if (parsed) {
@@ -811,12 +813,15 @@ export async function syncAccountHostConfigs(
 
       const captured = await captureCurrentHostSnapshot(accountKey);
       const existingCurrent = bucket.hosts[captured.hostId];
-      const shouldWriteCurrent =
+      const shouldUpdateLocalCurrent =
         Boolean(options?.forceSaveCurrent) ||
         !existingCurrent ||
-        existingCurrent.fingerprint !== captured.fingerprint;
+        existingCurrent.fingerprint !== captured.fingerprint ||
+        (existingCurrent.agents.length === 0 && captured.agents.length > 0);
 
-      const effectiveCurrent = shouldWriteCurrent ? captured : existingCurrent;
+      const effectiveCurrent = shouldUpdateLocalCurrent
+        ? captured
+        : existingCurrent;
       const nextDeleted = { ...bucket.deleted };
       delete nextDeleted[captured.hostId];
       const nextBucket: AccountBucket = {
@@ -836,12 +841,44 @@ export async function syncAccountHostConfigs(
       };
       await persistCombinedEnvelope(nextEnvelope);
 
-      if (shouldWriteCurrent) {
-        await accountApi.saveHostConfig(effectiveCurrent).catch((cause) => {
+      const snapshotsToPush: AccountHostConfigSnapshot[] = [];
+      for (const snapshot of Object.values(nextBucket.hosts)) {
+        const isCurrent = snapshot.hostId === captured.hostId;
+        const cloudExisting = cloudHosts[snapshot.hostId];
+        const needsCloudPush = isCurrent
+          ? shouldUpdateLocalCurrent ||
+            (cloudListLoaded &&
+              Boolean(cloudExisting) &&
+              (cloudExisting.fingerprint !== snapshot.fingerprint ||
+                (cloudExisting.agents.length === 0 &&
+                  snapshot.agents.length > 0)))
+          : cloudListLoaded &&
+            (!cloudExisting ||
+              cloudExisting.fingerprint !== snapshot.fingerprint ||
+              (cloudExisting.agents.length === 0 &&
+                snapshot.agents.length > 0));
+        if (needsCloudPush) {
+          snapshotsToPush.push(snapshot);
+        }
+      }
+
+      for (const snapshot of snapshotsToPush) {
+        await accountApi.saveHostConfig(snapshot).catch((cause) => {
           if (!isIgnorableCloudSyncError(cause)) {
             console.warn('Failed to push host config to cloud account:', cause);
           }
         });
+      }
+
+      if (captured.kind === 'local' && captured.hostId) {
+        await accountApi
+          .issueRelayLease({
+            hostId: captured.hostId,
+            hostName: captured.hostName,
+            osType: captured.osType || undefined,
+            osArch: captured.osArch || undefined,
+          })
+          .catch(() => undefined);
       }
 
       const ordered = sortHostSnapshots(
@@ -1237,6 +1274,7 @@ export function AccountHostConfigSyncBridge(): null {
 
     window.addEventListener('storage', handlePreferenceStorage);
     window.addEventListener(SETTINGS_CHANGED_EVENT, handleSettingsChanged);
+    window.addEventListener('host-client-changed', handleSettingsChanged);
 
     void backendListen<void>('agent-management-snapshot-invalidated', () => {
       if (!disposed) {
@@ -1254,6 +1292,7 @@ export function AccountHostConfigSyncBridge(): null {
       unlistenAgents?.();
       window.removeEventListener('storage', handlePreferenceStorage);
       window.removeEventListener(SETTINGS_CHANGED_EVENT, handleSettingsChanged);
+      window.removeEventListener('host-client-changed', handleSettingsChanged);
       if (debounceTimerRef.current !== null) {
         window.clearTimeout(debounceTimerRef.current);
         debounceTimerRef.current = null;

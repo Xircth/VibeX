@@ -165,6 +165,9 @@ export const agentManagementApi = {
   modelProviders: (agentId: AgentId): Promise<AgentModelProvidersView> =>
     backendCall('agent_model_providers', { agentId }),
 
+  listModelProviders: (agentId: AgentId): Promise<AgentModelProvidersView> =>
+    backendCall('agent_model_providers', { agentId }),
+
   modelProviderCatalog: (
     agentId: AgentId,
     providerId: string | null,

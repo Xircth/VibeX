@@ -67,14 +67,6 @@ export const snapDragOverlayToCursor: Modifier = ({
 export function dragEndClientPoint(
   event: Pick<DragEndEvent, 'active' | 'delta' | 'activatorEvent'>
 ): { x: number; y: number } | null {
-  const translated = event.active.rect.current.translated;
-  if (translated) {
-    return {
-      x: translated.left + translated.width / 2,
-      y: translated.top + translated.height / 2,
-    };
-  }
-
   const activator = event.activatorEvent;
   if (
     activator &&
@@ -87,6 +79,14 @@ export function dragEndClientPoint(
     return {
       x: activator.clientX + event.delta.x,
       y: activator.clientY + event.delta.y,
+    };
+  }
+
+  const translated = event.active.rect.current.translated;
+  if (translated) {
+    return {
+      x: translated.left + translated.width / 2,
+      y: translated.top + translated.height / 2,
     };
   }
 

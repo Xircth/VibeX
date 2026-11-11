@@ -256,8 +256,14 @@ import {
   type SidebarDropTarget,
   type Space,
   type SpaceCardRecord,
+  type SpaceInitialTarget,
   type SpaceMessage,
 } from './types';
+import { getCanvasWorkspaceController } from '@/components/kanban/canvas/canvasWorkspaceBridge';
+import {
+  hitElementFromPoint,
+  isPointOverCanvasDrop,
+} from '@/components/kanban/session-hub/sessionListDrag';
 import {
   CollaborationOptionSelect,
   type CollaborationSelectOption,
@@ -326,7 +332,48 @@ function isSameSidebarDropTarget(
   return false;
 }
 
-export function useCollaborationSpaceRuntime(workspaceId: string | null) {
+function buildScopedSpaceSessionState(
+  target: SpaceInitialTarget | null | undefined
+): SpaceSessionState | null {
+  if (!target) return null;
+  if (target.targetType === 'direct') {
+    const directThreadId =
+      target.threadId ||
+      (target.memberId
+        ? `direct:${target.memberId}`
+        : target.conversationId
+          ? `direct:${target.conversationId}`
+          : '');
+    const paneId = directThreadId || target.spaceId || '';
+    const memberKey = `${paneId}:${target.conversationId || target.memberId || target.memberNickname || ''}`;
+    return {
+      ...INITIAL_SPACE_SESSION_STATE,
+      selectedId: paneId,
+      selectedMemberKey: memberKey,
+      activeDirect: directThreadId
+        ? {
+            spaceId: paneId,
+            memberKey,
+            threadId: directThreadId,
+            name: target.memberNickname || '',
+          }
+        : null,
+    };
+  }
+  const groupSpaceId = target.spaceId || target.threadId || '';
+  return {
+    ...INITIAL_SPACE_SESSION_STATE,
+    selectedId: groupSpaceId,
+    expanded: groupSpaceId ? { [groupSpaceId]: true } : {},
+  };
+}
+
+export function useCollaborationSpaceRuntime(
+  workspaceId: string | null,
+  options?: { initialTarget?: SpaceInitialTarget | null }
+) {
+  const initialTarget = options?.initialTarget ?? null;
+  const hasScopedTarget = Boolean(initialTarget);
   const { t } = useTranslation('panels');
   const workspace = workspaceId ?? '';
   const workspaceRef = useRef(workspace);
@@ -359,9 +406,10 @@ export function useCollaborationSpaceRuntime(workspaceId: string | null) {
 
   const [session, sessionDispatch] = useReducer(
     spaceSessionReducer,
-    workspace,
-    (initialWorkspace) =>
-      sharedSpaceComposerDraftStore.getWorkspaceSession(initialWorkspace) ??
+    { workspace, initialTarget },
+    (init) =>
+      buildScopedSpaceSessionState(init.initialTarget) ??
+      sharedSpaceComposerDraftStore.getWorkspaceSession(init.workspace) ??
       INITIAL_SPACE_SESSION_STATE
   );
   const sessionRef = useRef(session);
@@ -1197,7 +1245,13 @@ export function useCollaborationSpaceRuntime(workspaceId: string | null) {
 
   const listedSelected = selectedId.startsWith('direct:')
     ? null
-    : (spaces.find((space) => space.space_id === selectedId) ?? null);
+    : (spaces.find((space) => space.space_id === selectedId) ??
+      (initialTarget?.targetType === 'group' && selectedId
+        ? {
+            space_id: selectedId,
+            name: initialTarget.spaceName || '',
+          }
+        : null));
   // A private chat addresses `direct:<member_id>`; it is not a group space.
   const selected = useMemo<Space | null>(
     () =>
@@ -2158,14 +2212,20 @@ export function useCollaborationSpaceRuntime(workspaceId: string | null) {
           activeDraftKeyRef.current
         );
       }
-      if (sessionWorkspaceRef.current && sessionRef.current.selectedId) {
+      if (
+        !hasScopedTarget &&
+        sessionWorkspaceRef.current &&
+        sessionRef.current.selectedId
+      ) {
         composerDraftsRef.current.rememberWorkspaceSession(
           sessionWorkspaceRef.current,
           sessionRef.current
         );
       }
       const restoredSession =
-        composerDraftsRef.current.getWorkspaceSession(workspace) ??
+        (hasScopedTarget
+          ? buildScopedSpaceSessionState(initialTarget)
+          : composerDraftsRef.current.getWorkspaceSession(workspace)) ??
         INITIAL_SPACE_SESSION_STATE;
       sessionWorkspaceRef.current = workspace;
       selectedIdRef.current = restoredSession.selectedId;
@@ -2214,9 +2274,13 @@ export function useCollaborationSpaceRuntime(workspaceId: string | null) {
     setRenameSpaceTargetId('');
     setRenameSpaceName('');
     setRenameSpaceError('');
-    resetCollaborationLayout();
+    if (!hasScopedTarget) {
+      resetCollaborationLayout();
+    }
   }, [
     disposePreviewDockviewListeners,
+    hasScopedTarget,
+    initialTarget,
     resetCollaborationLayout,
     setMembersBySpace,
     setMessagesBySpace,
@@ -2226,7 +2290,9 @@ export function useCollaborationSpaceRuntime(workspaceId: string | null) {
   useEffect(() => {
     if (!workspace) {
       setSpaces([]);
-      setSelectedId('');
+      if (!hasScopedTarget) {
+        setSelectedId('');
+      }
       setCreateOpen(false);
       return;
     }
@@ -2246,7 +2312,8 @@ export function useCollaborationSpaceRuntime(workspaceId: string | null) {
           setSelectedId((current) => {
             if (
               current &&
-              (current.startsWith('direct:') ||
+              (hasScopedTarget ||
+                current.startsWith('direct:') ||
                 current.startsWith('unassigned:') ||
                 next.some((item) => item.space_id === current))
             ) {
@@ -2254,6 +2321,9 @@ export function useCollaborationSpaceRuntime(workspaceId: string | null) {
             }
             return next[0]?.space_id || '';
           });
+          return;
+        }
+        if (hasScopedTarget && selectedIdRef.current) {
           return;
         }
         const targetUnassignedId = unassignedSpaceId(workspace);
@@ -3198,10 +3268,11 @@ export function useCollaborationSpaceRuntime(workspaceId: string | null) {
   }, [attachedImages, draft, workspace]);
 
   useEffect(() => {
+    if (hasScopedTarget) return;
     if (!workspace || sessionWorkspaceRef.current !== workspace) return;
     if (!session.selectedId) return;
     composerDraftsRef.current.rememberWorkspaceSession(workspace, session);
-  }, [session, workspace]);
+  }, [hasScopedTarget, session, workspace]);
 
   useEffect(
     () => () => {
@@ -3214,14 +3285,18 @@ export function useCollaborationSpaceRuntime(workspaceId: string | null) {
           activeDraftKeyRef.current
         );
       }
-      if (sessionWorkspaceRef.current && sessionRef.current.selectedId) {
+      if (
+        !hasScopedTarget &&
+        sessionWorkspaceRef.current &&
+        sessionRef.current.selectedId
+      ) {
         composerDraftsRef.current.rememberWorkspaceSession(
           sessionWorkspaceRef.current,
           sessionRef.current
         );
       }
     },
-    []
+    [hasScopedTarget]
   );
 
   useEffect(() => {
@@ -4689,8 +4764,20 @@ export function useCollaborationSpaceRuntime(workspaceId: string | null) {
     const sidebarMember = sidebarItems?.find(
       (item) => item.thread_id === threadId
     )?.member;
-    if (!sidebarMember) return;
-    const member = sidebarMemberToSpaceMember(sidebarMember);
+    const fallbackMember =
+      activeChatRoster[0] ??
+      (initialTarget?.targetType === 'direct'
+        ? ({
+            member_id: initialTarget.memberId ?? '',
+            conversation_id: initialTarget.conversationId ?? null,
+            nickname: initialTarget.memberNickname ?? '',
+            kind: 'agent',
+          } as SpaceMember)
+        : null);
+    const member = sidebarMember
+      ? sidebarMemberToSpaceMember(sidebarMember)
+      : fallbackMember;
+    if (!member) return;
     const name = displayName(member);
     const conversationId = member.conversation_id ?? '';
     const avatar = getMemberAvatar(conversationId, name);
@@ -4712,8 +4799,10 @@ export function useCollaborationSpaceRuntime(workspaceId: string | null) {
       },
     });
   }, [
+    activeChatRoster,
     activeDirectThreadId,
     getMemberAvatar,
+    initialTarget,
     openWorkspacePanel,
     projectContext?.projectId,
     sidebarItems,
@@ -5367,6 +5456,21 @@ export function useCollaborationSpaceRuntime(workspaceId: string | null) {
         (candidate) => candidate.thread_id === activeDirectThreadId
       );
       if (item?.member) return [sidebarMemberToSpaceMember(item.member)];
+      if (
+        initialTarget?.targetType === 'direct' &&
+        (initialTarget.memberNickname ||
+          initialTarget.memberId ||
+          initialTarget.conversationId)
+      ) {
+        return [
+          {
+            member_id: initialTarget.memberId ?? '',
+            conversation_id: initialTarget.conversationId ?? null,
+            nickname: initialTarget.memberNickname ?? '',
+            kind: 'agent',
+          } as SpaceMember,
+        ];
+      }
     }
     const fromSpace = agentRoster(members);
     if (fromSpace.length > 0) return fromSpace;
@@ -5386,6 +5490,7 @@ export function useCollaborationSpaceRuntime(workspaceId: string | null) {
   }, [
     activeDirectThreadId,
     activeChatRoster,
+    initialTarget,
     members,
     selectedId,
     sidebarItems,
@@ -6282,7 +6387,63 @@ export function useCollaborationSpaceRuntime(workspaceId: string | null) {
       window.setTimeout(() => {
         suppressNextMemberClickRef.current = false;
       }, 0);
-      if (!target) return;
+      if (!target) {
+        const canvasController = getCanvasWorkspaceController();
+        const hitEl = hitElementFromPoint(upEvent.clientX, upEvent.clientY);
+        if (canvasController && isPointOverCanvasDrop(hitEl)) {
+          if (payload.kind === 'member') {
+            const directThreadId =
+              payload.threadId ||
+              (payload.memberId
+                ? `direct:${payload.memberId}`
+                : payload.conversationId
+                  ? `direct:${payload.conversationId}`
+                  : '');
+            const targetKey =
+              directThreadId ||
+              payload.conversationId ||
+              payload.memberId ||
+              payload.nickname;
+            canvasController.dropPanelAt(
+              {
+                id: `${PANEL_IDS.COLLABORATION_SPACE}:${targetKey}`,
+                component: PANEL_IDS.COLLABORATION_SPACE,
+                title: payload.nickname,
+                params: {
+                  targetType: 'direct',
+                  spaceId: payload.fromSpaceId,
+                  threadId: directThreadId,
+                  conversationId: payload.conversationId,
+                  memberId: payload.memberId,
+                  memberNickname: payload.nickname,
+                  workspaceId: workspace || undefined,
+                },
+                expanded: true,
+              },
+              { x: upEvent.clientX, y: upEvent.clientY }
+            );
+          } else {
+            const groupSpaceId = payload.spaceId || payload.threadId;
+            canvasController.dropPanelAt(
+              {
+                id: `${PANEL_IDS.COLLABORATION_SPACE}:${groupSpaceId}`,
+                component: PANEL_IDS.COLLABORATION_SPACE,
+                title: payload.name,
+                params: {
+                  targetType: 'group',
+                  spaceId: groupSpaceId,
+                  spaceName: payload.name,
+                  threadId: payload.threadId || groupSpaceId,
+                  workspaceId: workspace || undefined,
+                },
+                expanded: true,
+              },
+              { x: upEvent.clientX, y: upEvent.clientY }
+            );
+          }
+        }
+        return;
+      }
       if (target.kind === 'supervisor') {
         if (payload.kind === 'member') {
           void assignSupervisor(
@@ -6373,7 +6534,7 @@ export function useCollaborationSpaceRuntime(workspaceId: string | null) {
       !isDeleteMode &&
       !isEditingMemberName &&
       member.kind === 'agent' &&
-      Boolean(conversationId);
+      Boolean(conversationId || member.member_id || memberDirectId);
     const isMemberCheckedForDelete =
       Boolean(conversationId) &&
       selectedDeleteMemberKeys.has(deleteMemberKey(spaceId, conversationId));
@@ -6425,7 +6586,7 @@ export function useCollaborationSpaceRuntime(workspaceId: string | null) {
               nickname: String(member.nickname ?? name),
               memberId:
                 member.identity_member_id ?? member.member_id ?? undefined,
-              threadId: directThreadIdForMember(member),
+              threadId: memberDirectId ?? directThreadIdForMember(member),
             });
           }}
           onDragStart={(event) => {
@@ -6577,9 +6738,11 @@ export function useCollaborationSpaceRuntime(workspaceId: string | null) {
                           );
                         }
                       }}
-                      onClick={() => {
+                      onClick={(event) => {
                         if (suppressNextMemberClickRef.current) {
                           suppressNextMemberClickRef.current = false;
+                          event.preventDefault();
+                          event.stopPropagation();
                           return;
                         }
                         if (
@@ -7173,8 +7336,10 @@ export function useCollaborationSpaceRuntime(workspaceId: string | null) {
       }
       onPointerDown={(event) => {
         // DM rows drag through their member row (member payload); group
-        // chats drag as a thread onto contact-group sections.
-        if (entry.type !== 'group' || !entry.threadId || event.button !== 0)
+        // chats drag as a thread onto contact-group sections or the canvas.
+        const groupThreadId =
+          entry.type === 'group' ? entry.threadId || entry.spaceId : '';
+        if (entry.type !== 'group' || !groupThreadId || event.button !== 0)
           return;
         if (isDeleteMode) return;
         const targetEl = event.target as HTMLElement | null;
@@ -7186,7 +7351,8 @@ export function useCollaborationSpaceRuntime(workspaceId: string | null) {
           return;
         startSidebarPointerDrag(event, {
           kind: 'thread',
-          threadId: entry.threadId,
+          threadId: groupThreadId,
+          spaceId: entry.spaceId,
           name: entry.name,
         });
       }}
@@ -7438,12 +7604,29 @@ export function useCollaborationSpaceRuntime(workspaceId: string | null) {
         ) : (
           <button
             type="button"
-            className="collaboration-supervisor-card"
+            className={cn(
+              'collaboration-supervisor-card',
+              !isDeleteMode && 'is-draggable'
+            )}
             aria-label={name}
             data-testid="collaboration-supervisor-button"
-            onClick={() => {
+            onPointerDown={(event) => {
+              if (isDeleteMode || event.button !== 0) return;
+              startSidebarPointerDrag(event, {
+                kind: 'member',
+                fromSpaceId: spaceId,
+                conversationId,
+                nickname: String(member.nickname ?? name),
+                memberId:
+                  member.identity_member_id ?? member.member_id ?? undefined,
+                threadId: memberDirectId ?? directThreadIdForMember(member),
+              });
+            }}
+            onClick={(event) => {
               if (suppressNextMemberClickRef.current) {
                 suppressNextMemberClickRef.current = false;
+                event.preventDefault();
+                event.stopPropagation();
                 return;
               }
               openPrivateChat(spaceId, member, threadId);
@@ -7677,8 +7860,41 @@ export function useCollaborationSpaceRuntime(workspaceId: string | null) {
           <div
             className={cn(
               'workspace-session-row collaboration-space-row flex-1 min-w-0',
+              !isDeleteMode &&
+                !isUnassigned &&
+                !isVirtualDefault &&
+                !isEditingSpaceName &&
+                'is-draggable',
               !isUnassigned && space.space_id === selectedId && 'is-selected'
             )}
+            onPointerDown={(event) => {
+              if (
+                isDeleteMode ||
+                isUnassigned ||
+                isVirtualDefault ||
+                isEditingSpaceName ||
+                event.button !== 0
+              ) {
+                return;
+              }
+              if (event.currentTarget.closest('.collaboration-contact-row')) {
+                return;
+              }
+              const targetEl = event.target as HTMLElement | null;
+              if (
+                targetEl?.closest(
+                  '.collaboration-space-hover-actions, input, [role="checkbox"], form'
+                )
+              ) {
+                return;
+              }
+              startSidebarPointerDrag(event, {
+                kind: 'thread',
+                threadId: entry?.threadId || space.space_id,
+                spaceId: space.space_id,
+                name: space.name,
+              });
+            }}
           >
             {isEditingSpaceName ? (
               <form
@@ -7742,7 +7958,13 @@ export function useCollaborationSpaceRuntime(workspaceId: string | null) {
                   type="button"
                   className="workspace-session-row-main collaboration-space-header-main collaboration-contact-row-main"
                   aria-label={space.name}
-                  onClick={() => {
+                  onClick={(event) => {
+                    if (suppressNextMemberClickRef.current) {
+                      suppressNextMemberClickRef.current = false;
+                      event.preventDefault();
+                      event.stopPropagation();
+                      return;
+                    }
                     if (!isUnassigned && !isVirtualDefault) {
                       const nextOpen =
                         space.space_id === selectedId && !hasActiveOverlay

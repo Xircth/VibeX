@@ -384,9 +384,41 @@ describe('collaboration assistant list and message cluster chrome', () => {
     expect(spaceList['overflow-y']?.value).toBe('auto');
   });
 
+  it('sizes the supervisor avatar wrapper and anchors its status dot in both collaboration-shell and bots dock', () => {
+    const botsDock = declarationsFor('.collaboration-bots-dock');
+    expect(botsDock['--collaboration-contact-avatar']?.value).toBe('2.5rem');
+
+    const botsDockPane = declarationsFor(
+      '.collaboration-bots-dock > .collaboration-pane'
+    );
+    expect(botsDockPane.flex?.value).toBe('1 1 0%');
+    expect(botsDockPane['min-height']?.value).toBe('0');
+
+    const avatarWrap = declarationsFor(
+      '.collaboration-supervisor-avatar-wrap.workspace-session-icon'
+    );
+    expect(avatarWrap.position?.value).toBe('relative');
+    expect(avatarWrap.width?.value).toBe('3.5rem');
+    expect(avatarWrap.height?.value).toBe('3.5rem');
+    expect(avatarWrap.flex?.value).toBe('0 0 auto');
+
+    const avatar = declarationsFor('.collaboration-supervisor-avatar');
+    expect(avatar.width?.value).toBe('3.5rem');
+    expect(avatar.height?.value).toBe('3.5rem');
+    expect(avatar.flex?.value).toBe('0 0 auto');
+
+    const statusDot = declarationsFor(
+      '.collaboration-supervisor-avatar-wrap .workspace-session-status'
+    );
+    expect(statusDot.position?.value).toBe('absolute');
+    expect(statusDot.width?.value).toBe('0.5rem');
+    expect(statusDot.height?.value).toBe('0.5rem');
+  });
+
   it('keeps message items in normal layout flow so scrolling and back-to-bottom have stable scrollHeight', () => {
     const message = declarationsFor('.collaboration-message');
     expect(message['content-visibility']).toBeUndefined();
     expect(message['contain-intrinsic-size']).toBeUndefined();
   });
 });
+

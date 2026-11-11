@@ -3,11 +3,12 @@ import {
   ArrowLeftRight,
   ArrowUpDown,
   Check,
-  Plus,
+  MessageSquarePlus,
+  MoreHorizontal,
   Search,
+  SlidersHorizontal,
   Smartphone,
   Trash2,
-  X,
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
@@ -15,8 +16,13 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import { Switch } from '@/components/ui/switch';
 import {
   Tooltip,
   TooltipContent,
@@ -34,6 +40,14 @@ import {
   setKanbanSessionListView,
   useKanbanSessionListView,
 } from '@/lib/kanbanSessionListView';
+import {
+  setHideBotSessions,
+  setHideDefaultWorkspace,
+  setHideInactiveSessions,
+  useHideBotSessions,
+  useHideDefaultWorkspace,
+  useHideInactiveSessions,
+} from '@/lib/sessionListFilters';
 import { cn } from '@/lib/utils';
 import { PANEL_IDS } from '@/stores/useLayoutStore';
 import { SessionListDeleteControl } from './SessionListDeleteControl';
@@ -44,15 +58,47 @@ import type {
 
 const SORT_KEYS: SessionListSortKey[] = ['name', 'time', 'agent'];
 
-const QUICK_ACTION_ROW_CLASS =
-  'flex h-8 w-full cursor-pointer items-center gap-2.5 rounded-lg px-2.5 text-xs font-medium text-foreground/85 transition-colors hover:bg-foreground/[0.06] active:bg-foreground/[0.09] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring';
+const QUICK_ACTION_BASE_CLASS =
+  'flex h-7 cursor-pointer items-center gap-2 rounded-md px-2 text-[12px] leading-4 font-medium text-foreground/85 transition-colors hover:bg-foreground/[0.06] hover:text-foreground active:bg-foreground/[0.09] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring';
+
+const QUICK_ACTION_ROW_CLASS = `${QUICK_ACTION_BASE_CLASS} w-full`;
+
+function FilterSwitchMenuItem({
+  label,
+  checked,
+  onCheckedChange,
+}: {
+  label: string;
+  checked: boolean;
+  onCheckedChange: (checked: boolean) => void;
+}) {
+  return (
+    <DropdownMenuItem
+      onSelect={(event) => {
+        event.preventDefault();
+        onCheckedChange(!checked);
+      }}
+      className="flex items-center justify-between gap-3 py-1.5"
+    >
+      <span className="flex-1 text-left">{label}</span>
+      <Switch
+        checked={checked}
+        aria-label={label}
+        onCheckedChange={onCheckedChange}
+        onPointerDown={(event) => event.stopPropagation()}
+        onPointerUp={(event) => event.stopPropagation()}
+        onClick={(event) => event.stopPropagation()}
+        className="scale-90"
+      />
+    </DropdownMenuItem>
+  );
+}
 
 export function WorkspaceSessionListToolbar({
   isArchiveView,
   isDeleteMode,
   selectedCount,
   isDeletingSessions,
-  searchQuery,
   sortSpecs,
   viewMode,
   onArchiveViewChange,
@@ -60,7 +106,7 @@ export function WorkspaceSessionListToolbar({
   onCancelDeleteMode,
   onDeleteSelected,
   onCreateSession,
-  onSearchQueryChange,
+  onOpenSearch,
   onToggleSortKey,
   onClearSort,
   onToggleViewMode,
@@ -69,7 +115,6 @@ export function WorkspaceSessionListToolbar({
   isDeleteMode: boolean;
   selectedCount: number;
   isDeletingSessions: boolean;
-  searchQuery: string;
   sortSpecs: SessionListSortSpec[];
   viewMode?: KanbanSessionListView;
   onArchiveViewChange: (value: boolean) => void;
@@ -77,7 +122,7 @@ export function WorkspaceSessionListToolbar({
   onCancelDeleteMode: () => void;
   onDeleteSelected: () => void;
   onCreateSession: () => void;
-  onSearchQueryChange: (value: string) => void;
+  onOpenSearch: () => void;
   onToggleSortKey: (key: SessionListSortKey) => void;
   onClearSort: () => void;
   onToggleViewMode?: () => void;
@@ -85,7 +130,16 @@ export function WorkspaceSessionListToolbar({
   const { t } = useTranslation(['panels', 'common']);
   const storedViewMode = useKanbanSessionListView();
   const effectiveViewMode = viewMode ?? storedViewMode;
-  const primarySort = sortSpecs[sortSpecs.length - 1] ?? null;
+  const hideDefaultWorkspace = useHideDefaultWorkspace();
+  const hideBotSessions = useHideBotSessions();
+  const hideInactiveSessions = useHideInactiveSessions();
+
+  const activeFilterCount =
+    Number(hideDefaultWorkspace) +
+    Number(hideBotSessions) +
+    Number(hideInactiveSessions);
+  const hasActiveMenuState =
+    isArchiveView || sortSpecs.length > 0 || activeFilterCount > 0;
 
   const handleToggleViewMode = () => {
     if (onToggleViewMode) {
@@ -99,7 +153,7 @@ export function WorkspaceSessionListToolbar({
 
   return (
     <div className="border-b border-border/60 px-2 pb-2 pt-2">
-      <div className="flex w-full items-center gap-1">
+      <div className="flex w-full items-center gap-0.5">
         {isDeleteMode ? (
           <SessionListDeleteControl
             selectedCount={selectedCount}
@@ -115,58 +169,22 @@ export function WorkspaceSessionListToolbar({
             onCancel={onCancelDeleteMode}
           />
         ) : (
-          <div className="flex min-w-0 flex-1 items-center gap-1">
-            <div className="flex h-8 min-w-0 flex-1 items-center gap-2 rounded-lg bg-foreground/[0.06] px-2.5 transition-colors focus-within:bg-foreground/[0.09]">
+          <div className="flex min-w-0 flex-1 items-center gap-0.5">
+            <button
+              type="button"
+              onClick={onOpenSearch}
+              aria-label={t('workspaceSessionList.search', '搜索会话')}
+              data-testid="session-list-search-trigger"
+              className={cn(QUICK_ACTION_BASE_CLASS, 'min-w-0 flex-1')}
+            >
               <Search
                 aria-hidden="true"
                 className="h-3.5 w-3.5 shrink-0 text-muted-foreground"
               />
-              <input
-                type="text"
-                value={searchQuery}
-                onChange={(event) => onSearchQueryChange(event.target.value)}
-                placeholder={t('workspaceSessionList.searchPlaceholder')}
-                aria-label={t('workspaceSessionList.search')}
-                className="min-w-0 flex-1 bg-transparent text-xs text-foreground placeholder:text-muted-foreground focus:outline-none"
-              />
-              {searchQuery ? (
-                <button
-                  type="button"
-                  onClick={() => onSearchQueryChange('')}
-                  aria-label={t('common:clear', 'Clear')}
-                  className="rounded p-0.5 text-muted-foreground hover:bg-foreground/[0.08] hover:text-foreground"
-                >
-                  <X className="h-3 w-3" />
-                </button>
-              ) : null}
-            </div>
-
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  type="button"
-                  size="icon"
-                  variant="ghost"
-                  className={cn(
-                    SESSION_LIST_ACTION_BUTTON_CLASS,
-                    isArchiveView && 'text-foreground'
-                  )}
-                  aria-label={
-                    isArchiveView
-                      ? t('workspaceSessionList.backToSessionList')
-                      : t('workspaceSessionList.openArchive')
-                  }
-                  onClick={() => onArchiveViewChange(!isArchiveView)}
-                >
-                  <Archive className={SESSION_LIST_ACTION_ICON_CLASS} />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>
-                {isArchiveView
-                  ? t('workspaceSessionList.backToSessionList')
-                  : t('workspaceSessionList.openArchive')}
-              </TooltipContent>
-            </Tooltip>
+              <span className="min-w-0 flex-1 truncate text-left">
+                {t('workspaceSessionList.searchShort', '搜索')}
+              </span>
+            </button>
 
             <DropdownMenu>
               <Tooltip>
@@ -178,76 +196,160 @@ export function WorkspaceSessionListToolbar({
                       variant="ghost"
                       className={cn(
                         SESSION_LIST_ACTION_BUTTON_CLASS,
-                        primarySort && 'text-foreground'
+                        hasActiveMenuState && 'text-foreground'
                       )}
-                      aria-label={t('workspaceSessionList.sort')}
+                      aria-label={t(
+                        'workspaceSessionList.moreOptions',
+                        '更多选项'
+                      )}
                     >
-                      <ArrowUpDown className={SESSION_LIST_ACTION_ICON_CLASS} />
+                      <MoreHorizontal
+                        className={SESSION_LIST_ACTION_ICON_CLASS}
+                      />
                     </Button>
                   </DropdownMenuTrigger>
                 </TooltipTrigger>
                 <TooltipContent>
-                  {t('workspaceSessionList.sort')}
+                  {t('workspaceSessionList.moreOptions', '更多选项')}
                 </TooltipContent>
               </Tooltip>
-              <DropdownMenuContent align="end" className="min-w-[11rem]">
-                {SORT_KEYS.map((key) => {
-                  const specIndex = sortSpecs.findIndex(
-                    (spec) => spec.key === key
-                  );
-                  const spec = specIndex >= 0 ? sortSpecs[specIndex] : null;
-                  const order =
-                    specIndex >= 0 ? sortSpecs.length - specIndex : null;
-                  return (
-                    <DropdownMenuItem
-                      key={key}
-                      onSelect={(event) => {
-                        event.preventDefault();
-                        onToggleSortKey(key);
-                      }}
-                    >
-                      <span className="flex flex-1 items-center gap-2">
-                        {t(`workspaceSessionList.sort${capitalize(key)}`)}
-                        {spec ? (
-                          <span className="text-[10px] text-muted-foreground">
-                            {order}
-                            {spec.direction === 'desc' ? '↓' : '↑'}
-                          </span>
-                        ) : null}
+
+              <DropdownMenuContent align="end" className="min-w-[13rem]">
+                <DropdownMenuItem
+                  onSelect={() => onArchiveViewChange(!isArchiveView)}
+                >
+                  <Archive
+                    className="h-4 w-4 shrink-0 text-muted-foreground"
+                    aria-hidden="true"
+                  />
+                  <span className="flex-1">
+                    {isArchiveView
+                      ? t('workspaceSessionList.backToSessionList')
+                      : t('workspaceSessionList.openArchive')}
+                  </span>
+                  {isArchiveView ? (
+                    <Check
+                      className="h-3.5 w-3.5 shrink-0 text-foreground"
+                      aria-hidden="true"
+                    />
+                  ) : null}
+                </DropdownMenuItem>
+
+                <DropdownMenuSub>
+                  <DropdownMenuSubTrigger>
+                    <ArrowUpDown
+                      className="h-4 w-4 shrink-0 text-muted-foreground"
+                      aria-hidden="true"
+                    />
+                    <span className="flex-1">
+                      {t('workspaceSessionList.sort')}
+                    </span>
+                    {sortSpecs.length > 0 ? (
+                      <span className="rounded bg-foreground/[0.07] px-1.5 py-0.5 text-[10px] text-muted-foreground tabular-nums">
+                        {sortSpecs.length}
                       </span>
-                      {spec ? (
-                        <Check className="h-3.5 w-3.5 text-foreground" />
-                      ) : (
-                        <span className="h-3.5 w-3.5" />
+                    ) : null}
+                  </DropdownMenuSubTrigger>
+                  <DropdownMenuSubContent className="min-w-[11.5rem]">
+                    {SORT_KEYS.map((key) => {
+                      const specIndex = sortSpecs.findIndex(
+                        (spec) => spec.key === key
+                      );
+                      const spec = specIndex >= 0 ? sortSpecs[specIndex] : null;
+                      const order =
+                        specIndex >= 0 ? sortSpecs.length - specIndex : null;
+                      return (
+                        <DropdownMenuItem
+                          key={key}
+                          onSelect={(event) => {
+                            event.preventDefault();
+                            onToggleSortKey(key);
+                          }}
+                        >
+                          <span className="flex flex-1 items-center gap-2">
+                            {t(`workspaceSessionList.sort${capitalize(key)}`)}
+                            {spec ? (
+                              <span className="text-[10px] text-muted-foreground tabular-nums">
+                                {order}
+                                {spec.direction === 'desc' ? '↓' : '↑'}
+                              </span>
+                            ) : null}
+                          </span>
+                          {spec ? (
+                            <Check className="h-3.5 w-3.5 text-foreground" />
+                          ) : (
+                            <span className="h-3.5 w-3.5" />
+                          )}
+                        </DropdownMenuItem>
+                      );
+                    })}
+                    {sortSpecs.length > 0 ? (
+                      <>
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem onSelect={onClearSort}>
+                          {t('workspaceSessionList.sortClear')}
+                        </DropdownMenuItem>
+                      </>
+                    ) : null}
+                  </DropdownMenuSubContent>
+                </DropdownMenuSub>
+
+                <DropdownMenuItem onSelect={onToggleDeleteMode}>
+                  <Trash2
+                    className="h-4 w-4 shrink-0 text-muted-foreground"
+                    aria-hidden="true"
+                  />
+                  <span className="flex-1">
+                    {t('workspaceSessionList.bulkDelete')}
+                  </span>
+                </DropdownMenuItem>
+
+                <DropdownMenuSeparator />
+
+                <DropdownMenuSub>
+                  <DropdownMenuSubTrigger>
+                    <SlidersHorizontal
+                      className="h-4 w-4 shrink-0 text-muted-foreground"
+                      aria-hidden="true"
+                    />
+                    <span className="flex-1">
+                      {t('workspaceSessionList.filter', '筛选')}
+                    </span>
+                    {activeFilterCount > 0 ? (
+                      <span className="rounded bg-foreground/[0.07] px-1.5 py-0.5 text-[10px] text-muted-foreground tabular-nums">
+                        {activeFilterCount}
+                      </span>
+                    ) : null}
+                  </DropdownMenuSubTrigger>
+                  <DropdownMenuSubContent className="min-w-[16rem]">
+                    <FilterSwitchMenuItem
+                      label={t(
+                        'workspaceSessionList.hideDefaultWorkspace',
+                        '隐藏默认工作区'
                       )}
-                    </DropdownMenuItem>
-                  );
-                })}
-                {sortSpecs.length > 0 ? (
-                  <DropdownMenuItem onSelect={onClearSort}>
-                    {t('workspaceSessionList.sortClear')}
-                  </DropdownMenuItem>
-                ) : null}
+                      checked={hideDefaultWorkspace}
+                      onCheckedChange={setHideDefaultWorkspace}
+                    />
+                    <FilterSwitchMenuItem
+                      label={t(
+                        'workspaceSessionList.hideBotSessions',
+                        '隐藏Bot会话'
+                      )}
+                      checked={hideBotSessions}
+                      onCheckedChange={setHideBotSessions}
+                    />
+                    <FilterSwitchMenuItem
+                      label={t(
+                        'workspaceSessionList.hideInactiveSessions',
+                        '隐藏长期(7天)不活跃会话'
+                      )}
+                      checked={hideInactiveSessions}
+                      onCheckedChange={setHideInactiveSessions}
+                    />
+                  </DropdownMenuSubContent>
+                </DropdownMenuSub>
               </DropdownMenuContent>
             </DropdownMenu>
-
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  type="button"
-                  size="icon"
-                  variant="ghost"
-                  className={SESSION_LIST_ACTION_BUTTON_CLASS}
-                  aria-label={t('workspaceSessionList.bulkDelete')}
-                  onClick={onToggleDeleteMode}
-                >
-                  <Trash2 className={SESSION_LIST_ACTION_ICON_CLASS} />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>
-                {t('workspaceSessionList.bulkDelete')}
-              </TooltipContent>
-            </Tooltip>
           </div>
         )}
         <ShellNavPanelDragHandle panelId={PANEL_IDS.SESSION_LIST} />
@@ -255,7 +357,7 @@ export function WorkspaceSessionListToolbar({
 
       {!isDeleteMode ? (
         <div
-          className="mt-1.5 flex flex-col gap-0.5"
+          className="mt-0.5 flex flex-col gap-0.5"
           data-testid="session-list-quick-actions"
         >
           <button
@@ -264,9 +366,10 @@ export function WorkspaceSessionListToolbar({
             aria-label={t('workspaceSessionList.newSession')}
             className={QUICK_ACTION_ROW_CLASS}
           >
-            <Plus
-              className="h-4 w-4 shrink-0 text-muted-foreground"
+            <MessageSquarePlus
+              className="h-3.5 w-3.5 shrink-0 text-muted-foreground"
               aria-hidden="true"
+              data-testid="new-session-icon"
             />
             <span className="min-w-0 flex-1 truncate text-left">
               {t('workspaceSessionList.quickNewSession', '新会话')}
@@ -276,26 +379,15 @@ export function WorkspaceSessionListToolbar({
           <button
             type="button"
             onClick={handleToggleViewMode}
-            aria-label={t(
-              'workspaceSessionList.switchView',
-              '切换视图（工作区/状态视图）'
-            )}
+            aria-label={t('workspaceSessionList.switchView', '切换视图')}
             className={QUICK_ACTION_ROW_CLASS}
           >
             <ArrowLeftRight
-              className="h-4 w-4 shrink-0 text-muted-foreground"
+              className="h-3.5 w-3.5 shrink-0 text-muted-foreground"
               aria-hidden="true"
             />
             <span className="min-w-0 flex-1 truncate text-left">
-              {t(
-                'workspaceSessionList.switchView',
-                '切换视图（工作区/状态视图）'
-              )}
-            </span>
-            <span className="shrink-0 rounded bg-foreground/[0.06] px-1.5 py-0.5 text-[10px] text-muted-foreground">
-              {effectiveViewMode === 'status'
-                ? t('workspaceSessionList.viewStatusShort', '状态')
-                : t('workspaceSessionList.viewWorkspaceShort', '工作区')}
+              {t('workspaceSessionList.switchView', '切换视图')}
             </span>
           </button>
 
@@ -306,7 +398,7 @@ export function WorkspaceSessionListToolbar({
             className={QUICK_ACTION_ROW_CLASS}
           >
             <Smartphone
-              className="h-4 w-4 shrink-0 text-muted-foreground"
+              className="h-3.5 w-3.5 shrink-0 text-muted-foreground"
               aria-hidden="true"
             />
             <span className="min-w-0 truncate text-left">

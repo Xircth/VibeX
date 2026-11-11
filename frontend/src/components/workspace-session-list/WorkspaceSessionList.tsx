@@ -48,9 +48,11 @@ import { openCollaborationSessionFromList } from '@/features/collaboration/sessi
 import type { KanbanProjectSessionRecord } from '@/hooks/useKanbanProjectSessions';
 import { exportConversation } from '@/lib/exportConversation';
 import {
-  filterVisibleBotSessions,
+  filterSessionListPreferences,
   useHideBotSessions,
-} from '@/lib/hideBotSessions';
+  useHideDefaultWorkspace,
+  useHideInactiveSessions,
+} from '@/lib/sessionListFilters';
 import { armRenameOpeningClick } from '@/lib/renameOpeningGuard';
 import { sessionTitleIsCjk } from '@/lib/sessionTitle';
 import { cn } from '@/lib/utils';
@@ -69,8 +71,12 @@ import {
   sessionListAgentKey,
   type SessionMarker,
 } from '@/components/kanban/session-hub/utils';
+import { getCanvasWorkspaceController } from '@/components/kanban/canvas/canvasWorkspaceBridge';
 import {
   SESSION_LIST_DRAG_OVERLAY_CLASS,
+  dragEndClientPoint,
+  hitElementFromPoint,
+  isPointOverCanvasDrop,
   sessionListCardWidthFromDragStart,
   sessionListDragOverlaySizeStyle,
 } from '@/components/kanban/session-hub/sessionListDrag';
@@ -152,10 +158,17 @@ export function WorkspaceSessionList({
   viewMode = 'workspace',
 }: WorkspaceSessionListProps) {
   const { t } = useTranslation(['panels', 'common']);
+  const hideDefaultWorkspace = useHideDefaultWorkspace();
   const hideBotSessions = useHideBotSessions();
+  const hideInactiveSessions = useHideInactiveSessions();
   const sessions = useMemo(
-    () => filterVisibleBotSessions(rawSessions, hideBotSessions),
-    [hideBotSessions, rawSessions]
+    () =>
+      filterSessionListPreferences(rawSessions, {
+        hideDefaultWorkspace,
+        hideBotSessions,
+        hideInactiveSessions,
+      }),
+    [hideBotSessions, hideDefaultWorkspace, hideInactiveSessions, rawSessions]
   );
   const [orderByWorkspace, setOrderByWorkspace] = useState(
     readWorkspaceSessionOrders
@@ -268,18 +281,56 @@ export function WorkspaceSessionList({
     });
   };
 
+  const resolveDraggedSessionId = (
+    event: Pick<DragStartEvent, 'active'>
+  ): string => {
+    const metaId = event.active.data?.current?.sessionId;
+    if (typeof metaId === 'string' && metaId.length > 0) {
+      return metaId;
+    }
+    const raw = String(event.active.id);
+    const prefix = `${PINNED_SESSION_GROUP_ID}:`;
+    return raw.startsWith(prefix) ? raw.slice(prefix.length) : raw;
+  };
+
   const handleDragStart = (event: DragStartEvent) => {
-    if (isDeleteMode || sortSpecs.length > 0) return;
-    setActiveId(String(event.active.id));
+    if (isDeleteMode) return;
+    if (dndContextProvided && !enableExternalDrag && sortSpecs.length > 0) {
+      return;
+    }
+    setActiveId(resolveDraggedSessionId(event));
     setActiveDragCardWidth(sessionListCardWidthFromDragStart(event));
   };
 
-  const handleDragEnd = ({ active, over }: DragEndEvent) => {
+  const handleDragEnd = (event: DragEndEvent) => {
+    const { over } = event;
+    const draggedWidth =
+      activeDragCardWidth ?? sessionListCardWidthFromDragStart(event);
     setActiveId(null);
     setActiveDragCardWidth(null);
+    if (isDeleteMode) return;
+
+    const activeSessionIdValue = resolveDraggedSessionId(event);
+    if (!dndContextProvided) {
+      const canvasController = getCanvasWorkspaceController();
+      if (canvasController) {
+        const client = dragEndClientPoint(event);
+        if (
+          client &&
+          isPointOverCanvasDrop(hitElementFromPoint(client.x, client.y))
+        ) {
+          canvasController.dropSessionAt(
+            activeSessionIdValue,
+            client,
+            draggedWidth
+          );
+          return;
+        }
+      }
+    }
+
     if (
       enableExternalDrag ||
-      isDeleteMode ||
       sortSpecs.length > 0 ||
       !over ||
       over.id === SESSION_ARCHIVE_DROP_ID
@@ -287,7 +338,6 @@ export function WorkspaceSessionList({
       return;
     }
 
-    const activeSessionIdValue = String(active.id);
     const overId = String(over.id);
     const group = groups.find((candidate) =>
       candidate.sessions.some((session) => session.id === activeSessionIdValue)
@@ -344,7 +394,9 @@ export function WorkspaceSessionList({
             sessions={pinnedSessions}
             expanded={!collapsedIds.has(PINNED_SESSION_GROUP_ID)}
             sortable={false}
-            externalDrag={enableExternalDrag}
+            externalDrag={
+              enableExternalDrag || (!dndContextProvided && !isDeleteMode)
+            }
             activeSessionId={activeSessionId}
             isDeleteMode={isDeleteMode}
             selectedSessionIds={selectedSessionIds}
@@ -368,8 +420,13 @@ export function WorkspaceSessionList({
             icon="folder"
             sessions={group.sessions}
             expanded={!collapsedIds.has(group.workspaceId)}
-            sortable={!isDeleteMode && !enableExternalDrag}
-            externalDrag={enableExternalDrag}
+            sortable={
+              !isDeleteMode && !enableExternalDrag && sortSpecs.length === 0
+            }
+            externalDrag={
+              enableExternalDrag ||
+              (!dndContextProvided && !isDeleteMode && sortSpecs.length > 0)
+            }
             activeSessionId={activeSessionId}
             isDeleteMode={isDeleteMode}
             selectedSessionIds={selectedSessionIds}
@@ -441,7 +498,7 @@ function WorkspaceSessionListDndMonitor({
   return null;
 }
 
-function WorkspaceSessionStatusIndicator({
+export function WorkspaceSessionStatusIndicator({
   tone,
   className,
 }: {
@@ -715,9 +772,11 @@ function WorkspaceSessionGroupList({
 
     if (!sortable) {
       if (externalDrag && !isDeleteMode) {
+        const dragId = `${sortableIdPrefix ?? ''}${session.id}`;
         return (
           <DraggableWorkspaceSessionRow
             key={`${sortableIdPrefix ?? ''}${session.id}`}
+            dragId={dragId}
             {...props}
           />
         );
@@ -753,6 +812,7 @@ function WorkspaceSessionGroupList({
 }
 
 function DraggableWorkspaceSessionRow({
+  dragId,
   session,
   isSelected,
   isDeleteMode,
@@ -765,6 +825,7 @@ function DraggableWorkspaceSessionRow({
   onDelete,
   onRestore,
 }: {
+  dragId?: string;
   session: KanbanProjectSessionRecord;
   isSelected: boolean;
   isDeleteMode: boolean;
@@ -778,7 +839,8 @@ function DraggableWorkspaceSessionRow({
   onRestore?: () => void;
 }) {
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
-    id: session.id,
+    id: dragId ?? session.id,
+    data: { sessionId: session.id },
     disabled: isDeleteMode,
   });
 
@@ -832,6 +894,7 @@ function SortableWorkspaceSessionRow({
   const { attributes, listeners, setNodeRef, transition, isDragging } =
     useSortable({
       id: session.id,
+      data: { sessionId: session.id },
       disabled: isDeleteMode,
       animateLayoutChanges: () => false,
     });

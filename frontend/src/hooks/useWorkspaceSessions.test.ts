@@ -99,4 +99,19 @@ describe('reconcileWorkspaceSessionSelection', () => {
     expect(next.selection).toBe(prev);
     expect(next.pendingSessionId).toBe('session-pending');
   });
+
+  it('does not auto-select background Bot sessions excluded from autoSelectSessionIds', () => {
+    const next = reconcileWorkspaceSessionSelection({
+      prev: undefined,
+      sessionIds: ['bot-master-session'],
+      autoSelectSessionIds: [],
+      initialSessionId: undefined,
+      pendingSessionId: null,
+      autoSelectFirstSession: true,
+      workspaceChanged: false,
+    });
+
+    expect(next.selection).toBeUndefined();
+    expect(next.pendingSessionId).toBeNull();
+  });
 });

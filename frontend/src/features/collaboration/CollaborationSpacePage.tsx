@@ -1,7 +1,9 @@
 import { memo, type CSSProperties } from 'react';
+import { createPortal } from 'react-dom';
 import { DockviewReact } from 'dockview-react';
 import { ChevronDown } from 'lucide-react';
 
+import { useCanvasPanelHeaderSlot } from '@/components/kanban/canvas/CanvasPanelHeaderSlotContext';
 import { WorkspaceTabAddMenu } from '@/components/layout/panels/WorkspaceTabAddMenu';
 import { cn } from '@/lib/utils';
 import i18n from '@/i18n';
@@ -136,7 +138,7 @@ const DRAG_GHOST_PICK_KEYS = [
   'pointerDragCursor',
 ] as const;
 
-const CollaborationDragGhost = memo(function CollaborationDragGhost() {
+export const CollaborationDragGhost = memo(function CollaborationDragGhost() {
   const {
     draggingMember,
     draggingThreadName,
@@ -325,6 +327,7 @@ export function CollaborationSpaceLayout({
 }: {
   hideSpacesPane?: boolean;
 } = {}) {
+  const canvasHeaderSlot = useCanvasPanelHeaderSlot();
   const {
     error,
     handlePreviewDockviewReady,
@@ -425,6 +428,7 @@ export function CollaborationSpaceLayout({
             } as CSSProperties
           }
           className="collaboration-thread"
+          data-header-member-bar={canvasHeaderSlot ? 'external' : undefined}
           aria-label={
             selected?.name ??
             (isDefaultVirtualSpaceSelected
@@ -447,8 +451,23 @@ export function CollaborationSpaceLayout({
             }
           }}
         >
+          {canvasHeaderSlot
+            ? createPortal(
+                <div
+                  style={
+                    {
+                      '--collaboration-list-avatar': `${listAvatarPx / 16}rem`,
+                    } as CSSProperties
+                  }
+                  className="collaboration-canvas-header-member-host flex min-w-0 max-w-full items-center"
+                >
+                  <MemberPanel variant="header" />
+                </div>,
+                canvasHeaderSlot
+              )
+            : null}
           <div className="collaboration-thread-body">
-            <MemberPanel />
+            {canvasHeaderSlot ? null : <MemberPanel />}
             <MessageStream />
           </div>
 

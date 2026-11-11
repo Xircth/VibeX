@@ -6,6 +6,7 @@ import { useWorktree } from '@/contexts/WorktreeContext';
 import { useProjectWorktrees } from '@/hooks/useProjectWorktrees';
 import { resolveSurfaceWorkspaceId } from '@/lib/surfaceWorkspace';
 import { PANEL_IDS } from '@/stores/useLayoutStore';
+import { CollaborationDragGhost } from './CollaborationSpacePage';
 import { GroupListPanel } from './space/GroupListPanel';
 import {
   CollaborationSpaceProvider,
@@ -49,11 +50,11 @@ function BotsDockPanelInner() {
     <div
       className="collaboration-bots-dock flex h-full w-full flex-col overflow-hidden"
       data-testid="workspace-bots-dock-panel"
-      onClickCapture={(event) => {
+      onClick={(event) => {
         const target = event.target as HTMLElement | null;
         if (
           target?.closest(
-            '[data-testid^="collaboration-space-item-"], [data-testid^="collaboration-direct-row-"], [data-testid="collaboration-supervisor-row"]'
+            '[data-testid^="collaboration-space-item-"], [data-testid^="collaboration-direct-row-"], [data-testid="collaboration-supervisor-row"], [data-testid="collaboration-supervisor-button"]'
           )
         ) {
           const title =
@@ -63,12 +64,12 @@ function BotsDockPanelInner() {
       }}
     >
       <GroupListPanel />
+      <CollaborationDragGhost />
     </div>
   );
 }
 
-export default function WorkspaceBotsDockPanel() {
-  const hasProvider = useHasCollaborationSpaceProvider();
+function StandaloneBotsDockProvider() {
   const { workspaceId: routeWorkspaceId } = useParams<{
     workspaceId?: string;
   }>();
@@ -81,13 +82,17 @@ export default function WorkspaceBotsDockPanel() {
     workspaces: worktrees.map((item) => item.workspace),
   });
 
-  if (hasProvider) {
-    return <BotsDockPanelInner />;
-  }
-
   return (
     <CollaborationSpaceProvider workspaceId={surfaceWorkspaceId}>
       <BotsDockPanelInner />
     </CollaborationSpaceProvider>
   );
+}
+
+export default function WorkspaceBotsDockPanel() {
+  const hasProvider = useHasCollaborationSpaceProvider();
+  if (hasProvider) {
+    return <BotsDockPanelInner />;
+  }
+  return <StandaloneBotsDockProvider />;
 }

@@ -1,5 +1,4 @@
 import {
-  createContext,
   useContext,
   useLayoutEffect,
   useMemo,
@@ -12,25 +11,33 @@ import {
   useCollaborationSpaceRuntime,
   type CollaborationSpaceRuntime,
 } from './CollaborationSpaceRuntime';
+import {
+  CollaborationSpaceStoreContext,
+  useHasCollaborationSpaceProvider,
+  useOptionalCollaborationSpaceStore,
+  type CollaborationSpaceListener,
+  type CollaborationSpaceStore,
+} from './SpaceStoreContext';
 
-type CollaborationSpaceListener = () => void;
+export {
+  useHasCollaborationSpaceProvider,
+  useOptionalCollaborationSpaceStore,
+  type CollaborationSpaceListener,
+  type CollaborationSpaceStore,
+};
 
-interface CollaborationSpaceStore {
-  getSnapshot: () => CollaborationSpaceRuntime;
-  subscribe: (listener: CollaborationSpaceListener) => () => void;
-}
-
-const CollaborationSpaceStoreContext =
-  createContext<CollaborationSpaceStore | null>(null);
+import type { SpaceInitialTarget } from './types';
 
 export function CollaborationSpaceProvider({
   workspaceId,
+  initialTarget,
   children,
 }: {
   workspaceId: string | null;
+  initialTarget?: SpaceInitialTarget | null;
   children: ReactNode;
 }) {
-  const value = useCollaborationSpaceRuntime(workspaceId);
+  const value = useCollaborationSpaceRuntime(workspaceId, { initialTarget });
   const valueRef = useRef<CollaborationSpaceRuntime>(value);
   valueRef.current = value;
   const listenersRef = useRef<Set<CollaborationSpaceListener>>(new Set());
@@ -59,14 +66,6 @@ export function CollaborationSpaceProvider({
       {children}
     </CollaborationSpaceStoreContext.Provider>
   );
-}
-
-export function useHasCollaborationSpaceProvider(): boolean {
-  return useContext(CollaborationSpaceStoreContext) !== null;
-}
-
-export function useOptionalCollaborationSpaceStore(): CollaborationSpaceStore | null {
-  return useContext(CollaborationSpaceStoreContext);
 }
 
 function useCollaborationSpaceStore(): CollaborationSpaceStore {

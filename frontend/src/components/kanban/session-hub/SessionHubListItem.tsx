@@ -457,7 +457,8 @@ export function SessionHubListItem({
     >
       <div
         className={cn(
-          'absolute inset-y-2 left-0 w-1 rounded-r-full',
+          'absolute left-0 rounded-r-full',
+          isCanvasMode ? 'inset-y-3 w-[3px]' : 'inset-y-2 w-1',
           marker?.hue ? marker.bar : (marker?.bar ?? 'bg-muted-foreground/35')
         )}
         style={

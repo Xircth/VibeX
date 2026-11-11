@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ReactElement } from 'react';
 import type { Workspace } from 'shared/types';
 import type { KanbanProjectSessionRecord } from '@/hooks/useKanbanProjectSessions';
+import { registerCanvasWorkspaceController } from '@/components/kanban/canvas/canvasWorkspaceBridge';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { WorkspaceSessionList } from './WorkspaceSessionList';
 import {
@@ -877,6 +878,127 @@ describe('WorkspaceSessionList', () => {
 
     expect(screen.getByRole('button', { name: '进行中' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '已完成' })).toBeInTheDocument();
+  });
+
+  it('drops a minimized session card when dragging a session row onto the Infinite Canvas', () => {
+    const dropSessionAt = vi.fn();
+    const unregister = registerCanvasWorkspaceController({
+      openOrFocusSession: vi.fn(),
+      dropSessionAt,
+      openOrFocusPanel: vi.fn(),
+      dropPanelAt: vi.fn(),
+      closeNode: vi.fn(),
+      closeOtherNodes: vi.fn(),
+      closeAllNodes: vi.fn(),
+      duplicateNode: vi.fn(),
+    });
+    const canvasSurface = document.createElement('div');
+    canvasSurface.className = 'canvas-surface';
+    document.body.appendChild(canvasSurface);
+    const originalElementsFromPoint = document.elementsFromPoint;
+    const originalElementFromPoint = document.elementFromPoint;
+    document.elementsFromPoint = vi.fn(() => {
+      const overlayEls = Array.from(
+        document.querySelectorAll('.session-list-drag-overlay')
+      );
+      return [...overlayEls, canvasSurface];
+    });
+    document.elementFromPoint = vi.fn(() => canvasSurface);
+
+    try {
+      const { rerender } = renderList(
+        <WorkspaceSessionList
+          sessions={[
+            session({
+              id: 's-canvas-drop',
+              firstPrompt: 'Drag me onto canvas',
+              fullName: 'Drag me onto canvas',
+            }),
+          ]}
+          isLoading={false}
+          activeSessionId={null}
+          activeWorkspaceId="workspace-1"
+          viewMode="status"
+          onSessionClick={vi.fn()}
+        />
+      );
+
+      const dragRowOntoCanvas = () => {
+        const rowButton = screen.getByRole('button', {
+          name: /Drag me onto canvas/,
+        });
+
+        fireEvent.pointerDown(rowButton, {
+          button: 0,
+          buttons: 1,
+          isPrimary: true,
+          clientX: 40,
+          clientY: 80,
+          pointerId: 1,
+        });
+        fireEvent.pointerMove(document, {
+          buttons: 1,
+          isPrimary: true,
+          clientX: 60,
+          clientY: 92,
+          pointerId: 1,
+        });
+        fireEvent.pointerMove(document, {
+          buttons: 1,
+          isPrimary: true,
+          clientX: 420,
+          clientY: 260,
+          pointerId: 1,
+        });
+        fireEvent.pointerUp(document, {
+          isPrimary: true,
+          clientX: 420,
+          clientY: 260,
+          pointerId: 1,
+        });
+      };
+
+      dragRowOntoCanvas();
+
+      expect(dropSessionAt).toHaveBeenCalledTimes(1);
+      expect(dropSessionAt).toHaveBeenCalledWith(
+        's-canvas-drop',
+        { x: 420, y: 260 },
+        null
+      );
+
+      dropSessionAt.mockClear();
+      rerender(
+        <WorkspaceSessionList
+          sessions={[
+            session({
+              id: 's-canvas-drop',
+              firstPrompt: 'Drag me onto canvas',
+              fullName: 'Drag me onto canvas',
+            }),
+          ]}
+          isLoading={false}
+          activeSessionId={null}
+          activeWorkspaceId="workspace-1"
+          viewMode="workspace"
+          onSessionClick={vi.fn()}
+        />
+      );
+
+      dragRowOntoCanvas();
+
+      expect(dropSessionAt).toHaveBeenCalledTimes(1);
+      expect(dropSessionAt).toHaveBeenCalledWith(
+        's-canvas-drop',
+        { x: 420, y: 260 },
+        null
+      );
+    } finally {
+      unregister();
+      canvasSurface.remove();
+      document.elementsFromPoint = originalElementsFromPoint;
+      document.elementFromPoint = originalElementFromPoint;
+    }
   });
 });
 

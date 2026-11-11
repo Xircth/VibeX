@@ -1381,7 +1381,7 @@ export function KanbanSessionHub({
   if (boardStyle === 'canvas') {
     return (
       <TooltipProvider delayDuration={120}>
-        <div className="session-hub-shell h-full min-h-0">
+        <div className="session-hub-shell h-full w-full min-h-0 min-w-0">
           <Suspense fallback={null}>
             <LazySessionCanvasView
               projectId={projectId ?? ''}
@@ -1437,6 +1437,7 @@ export function KanbanSessionHub({
               onWindowSessionIdsChange={setCanvasWindowSessionIds}
               onSelectedSessionChange={replaceRightSession}
               hideSessionList={workspaceStage}
+              registerWorkspaceController={workspaceStage}
               onCreateSession={() => {
                 pendingCreateParentNodeIdRef.current =
                   consumeCanvasParentNodeId();

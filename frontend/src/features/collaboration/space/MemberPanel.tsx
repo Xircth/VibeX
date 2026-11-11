@@ -31,7 +31,12 @@ const MEMBER_PANEL_PICK_KEYS = [
   'visibleRoster',
 ] as const;
 
-export const MemberPanel = memo(function MemberPanel() {
+export const MemberPanel = memo(function MemberPanel({
+  variant = 'overlay',
+}: {
+  variant?: 'overlay' | 'header';
+} = {}) {
+  const isHeaderVariant = variant === 'header';
   const {
     activeDirectThreadId,
     activePreviewTabId,
@@ -56,7 +61,10 @@ export const MemberPanel = memo(function MemberPanel() {
     <>
       {selected && topMemberBarExpanded ? (
         <div
-          className="collaboration-top-member-bar"
+          className={cn(
+            'collaboration-top-member-bar',
+            isHeaderVariant && 'is-canvas-header nodrag nopan'
+          )}
           data-testid="collaboration-top-member-bar"
         >
           <div
@@ -212,7 +220,10 @@ export const MemberPanel = memo(function MemberPanel() {
 
       {selected && !topMemberBarExpanded ? (
         <div
-          className="collaboration-top-member-collapsed-bar"
+          className={cn(
+            'collaboration-top-member-collapsed-bar',
+            isHeaderVariant && 'is-canvas-header nodrag nopan'
+          )}
           data-testid="collaboration-top-member-collapsed-bar"
         >
           <button

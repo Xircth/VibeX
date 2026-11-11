@@ -24,7 +24,23 @@ describe('dragEndClientPoint', () => {
     ).toEqual({ x: 30, y: 30 });
   });
 
-  it('falls back to the activator pointer plus delta', () => {
+  it('prefers the activator pointer plus delta over un-snapped translated rects', () => {
+    expect(
+      dragEndClientPoint({
+        active: {
+          rect: {
+            current: {
+              translated: { left: 120, top: 20, width: 280, height: 36 },
+            },
+          },
+        },
+        delta: { x: 100, y: 40 },
+        activatorEvent: { clientX: 280, clientY: 50 },
+      } as never)
+    ).toEqual({ x: 380, y: 90 });
+  });
+
+  it('falls back to the activator pointer plus delta when translated rect is null', () => {
     expect(
       dragEndClientPoint({
         active: { rect: { current: { translated: null } } },

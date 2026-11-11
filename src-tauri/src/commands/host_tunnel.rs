@@ -196,14 +196,17 @@ fn default_official_quick_origin() -> Option<String> {
 }
 
 fn all_published_origin_strings(store: &HostTunnelStore) -> Vec<String> {
-    if !store.enabled {
-        return Vec::new();
-    }
     let mut origins = Vec::new();
-    if let Some(custom) = active_published_origin(store) {
-        origins.push(custom);
-    }
-    if let Some(quick) = default_official_quick_origin()
+    if store.enabled {
+        if let Some(custom) = active_published_origin(store) {
+            origins.push(custom);
+        }
+        if let Some(quick) = default_official_quick_origin()
+            && !origins.contains(&quick)
+        {
+            origins.push(quick);
+        }
+    } else if let Some(quick) = quick_tunnel_origin()
         && !origins.contains(&quick)
     {
         origins.push(quick);
@@ -582,19 +585,50 @@ fn sha256_hex(input: &str) -> String {
     out
 }
 
-const SHARED_CLOUD_DISCOVERY_TOPIC: &str = "vbx-cloud-hosts-v1";
-
 async fn publish_domestic_beacon(relay_host: &str, relay_port: u16, host_id: &str, origin: &str) {
-    let host_name = utils::net::local_hostname().unwrap_or_else(|| "VibeX Desktop".to_string());
     let payload = serde_json::json!({
         "v": 2,
         "host_id": host_id,
-        "name": host_name,
         "origin": origin,
         "ts": Utc::now().timestamp(),
     });
     let host_hash = &sha256_hex(&format!("vibex-host-v1:{host_id}"))[..32];
     let topic = format!("vbx-h-{host_hash}");
+    post_relay_beacon_topic(relay_host, relay_port, &topic, &payload).await;
+}
+
+pub async fn publish_pairing_code_beacon(connection_code: &str, host_id: &str) {
+    let clean_code: String = connection_code
+        .trim()
+        .chars()
+        .filter(|c| !c.is_whitespace() && *c != '-')
+        .collect::<String>()
+        .to_ascii_uppercase();
+    if clean_code.is_empty() || host_id.trim().is_empty() {
+        return;
+    }
+    let Some(endpoint) = utils::tunnel::official_relay_endpoint(None) else {
+        return;
+    };
+    let origin = quick_tunnel_origin()
+        .unwrap_or_else(|| utils::tunnel::format_tenant_origin("https", &endpoint, host_id));
+    let payload = serde_json::json!({
+        "v": 2,
+        "host_id": host_id,
+        "origin": origin,
+        "ts": Utc::now().timestamp(),
+    });
+    let code_hash = &sha256_hex(&format!("vibex-pair-code-v1:{clean_code}"))[..32];
+    let topic = format!("vbx-p-{code_hash}");
+    post_relay_beacon_topic(&endpoint.host, endpoint.port, &topic, &payload).await;
+}
+
+async fn post_relay_beacon_topic(
+    relay_host: &str,
+    relay_port: u16,
+    topic: &str,
+    payload: &serde_json::Value,
+) {
     let is_domain = relay_host.parse::<std::net::IpAddr>().is_err()
         && !relay_host.eq_ignore_ascii_case("localhost");
     let (base_url, target_port) = if is_domain && (relay_port == 80 || relay_port == 443) {
@@ -623,12 +657,7 @@ async fn publish_domestic_beacon(relay_host: &str, relay_port: u16, host_id: &st
     if let Ok(client) = builder.build() {
         let _ = client
             .post(format!("{base_url}/{topic}"))
-            .json(&payload)
-            .send()
-            .await;
-        let _ = client
-            .post(format!("{base_url}/{SHARED_CLOUD_DISCOVERY_TOPIC}"))
-            .json(&payload)
+            .json(payload)
             .send()
             .await;
     }
@@ -702,17 +731,13 @@ async fn maintain_control(
         .ok()
         .flatten()
         .unwrap_or_else(|| "default".to_string());
-    let host_name = utils::net::local_hostname().unwrap_or_else(|| "VibeX Desktop".to_string());
-    let lan_origins: Vec<String> = utils::net::advertised_http_origins(local_port, true)
-        .into_iter()
-        .filter(|origin| !remote_protocol::is_loopback_origin(origin))
-        .collect();
 
     let stream = connect_to_relay_host(host, port).await?;
     let (reader, mut writer) = stream.into_split();
 
-    let name_b64 = BASE64.encode(host_name.as_bytes());
-    let lan_b64 = BASE64.encode(serde_json::to_vec(&lan_origins).unwrap_or_default());
+    // Never transmit local hostname or internal LAN IPs to the public relay control plane.
+    let name_b64 = BASE64.encode(b"VibeX Desktop");
+    let lan_b64 = BASE64.encode(b"[]");
     writer
         .write_all(format!("VIBEX-CTRL v2 {host_id} {token} {name_b64} {lan_b64}\n").as_bytes())
         .await

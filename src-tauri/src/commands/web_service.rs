@@ -620,9 +620,17 @@ pub async fn create_host_device_pairing(
         &challenge,
         reachability,
     );
-    Ok(remote_protocol::IssuedPairingInvitation::from_payload(
-        challenge, payload,
-    ))
+    let issued = remote_protocol::IssuedPairingInvitation::from_payload(challenge, payload);
+    let code_for_beacon = issued.connection_code.clone();
+    let host_id_for_beacon = issued.host_id.clone();
+    tokio::spawn(async move {
+        crate::commands::host_tunnel::publish_pairing_code_beacon(
+            &code_for_beacon,
+            &host_id_for_beacon,
+        )
+        .await;
+    });
+    Ok(issued)
 }
 
 #[tauri::command]

@@ -1,5 +1,6 @@
 //! Headless VibeX server composition and transport adapters.
 
+mod account_link;
 mod agent_install;
 mod artifact_sink;
 mod auth;

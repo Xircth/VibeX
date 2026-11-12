@@ -466,6 +466,8 @@ export interface PendingDeviceConnectRequest {
   sas_code: string;
   created_at: string;
   expires_at: string;
+  /** Present when the host verified the request comes from its own VibeX account. */
+  account_display_name?: string | null;
 }
 
 export interface PortProbeResult {

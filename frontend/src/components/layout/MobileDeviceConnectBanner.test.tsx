@@ -70,4 +70,23 @@ describe('MobileDeviceConnectBanner', () => {
       await screen.findByText(/已连接移动设备「Pixel 9 Pro」/)
     ).toBeInTheDocument();
   });
+
+  it('marks requests the host verified as coming from its own account', async () => {
+    listConnectRequestsMock.mockResolvedValue([
+      {
+        request_id: 'req-acct',
+        device_name: 'iPhone 16 Pro',
+        client_kind: 'mobile',
+        sas_code: '1204',
+        created_at: '2026-11-12T05:00:00Z',
+        expires_at: '2026-11-12T05:03:00Z',
+        account_display_name: 'Alice',
+      },
+    ]);
+
+    render(<MobileDeviceConnectBanner />);
+
+    expect(await screen.findByText('同账号 · Alice')).toBeInTheDocument();
+    expect(screen.getByText('核对码 1204')).toBeInTheDocument();
+  });
 });

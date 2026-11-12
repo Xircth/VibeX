@@ -232,6 +232,11 @@ export function MobileDeviceConnectBanner() {
             <span className="truncate text-sm font-semibold text-foreground">
               发现可用移动设备「{active.device_name}」
             </span>
+            {active.account_display_name ? (
+              <span className="shrink-0 rounded-full bg-primary/10 px-2.5 py-1 text-xs font-semibold text-primary">
+                同账号 · {active.account_display_name}
+              </span>
+            ) : null}
             <span
               className="shrink-0 rounded-md border border-border/70 bg-card px-2.5 py-1 font-mono text-xs font-semibold tabular-nums text-foreground"
               title="请核对手机端显示的 4 位安全码"

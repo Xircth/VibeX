@@ -386,6 +386,7 @@ pub trait ServerAuth: Send + Sync {
         _host_id: &str,
         _request: CreateDeviceConnectRequest,
         _ip_address: Option<&str>,
+        _account_display_name: Option<&str>,
     ) -> Result<PollDeviceConnectResponse, AuthStoreError> {
         Err(AuthStoreError::PairingUnavailable)
     }
@@ -950,6 +951,7 @@ impl ServerAuth for SqliteServerAuth {
         host_id: &str,
         request: CreateDeviceConnectRequest,
         ip_address: Option<&str>,
+        account_display_name: Option<&str>,
     ) -> Result<PollDeviceConnectResponse, AuthStoreError> {
         let device_name = request.device_name.trim();
         if device_name.is_empty() || device_name.len() > 128 {
@@ -1029,12 +1031,14 @@ impl ServerAuth for SqliteServerAuth {
             if let Ok(request_id) = id_str.parse::<PairingId>() {
                 sqlx::query(
                     "UPDATE server_device_connect_requests
-                     SET device_name = ?, ip_address = COALESCE(?, ip_address), expires_at_unix = ?
-                     WHERE id = ?",
+                     SET device_name = ?, ip_address = COALESCE(?, ip_address), expires_at_unix = ?,
+    account_display_name = ?
+       WHERE id = ?",
                 )
                 .bind(device_name)
                 .bind(ip_address)
                 .bind(expires_at)
+                .bind(account_display_name)
                 .bind(&id_str)
                 .execute(&self.pool)
                 .await?;
@@ -1069,8 +1073,8 @@ impl ServerAuth for SqliteServerAuth {
         sqlx::query(
             "INSERT INTO server_device_connect_requests
              (id, device_name, client_kind, ip_address, public_key_ed25519, sas_code,
-              status, created_at_unix, expires_at_unix)
-             VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?)",
+              status, created_at_unix, expires_at_unix, account_display_name)
+      VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?)",
         )
         .bind(&request_id_str)
         .bind(device_name)
@@ -1080,6 +1084,7 @@ impl ServerAuth for SqliteServerAuth {
         .bind(&sas_code)
         .bind(now)
         .bind(expires_at)
+        .bind(account_display_name)
         .execute(&self.pool)
         .await?;
 
@@ -1167,8 +1172,9 @@ impl ServerAuth for SqliteServerAuth {
         }
         let now = self.now();
         let rows = sqlx::query(
-            "SELECT id, device_name, client_kind, ip_address, sas_code, created_at_unix, expires_at_unix
-             FROM server_device_connect_requests
+            "SELECT id, device_name, client_kind, ip_address, sas_code, created_at_unix, expires_at_unix,
+      account_display_name
+      FROM server_device_connect_requests
              WHERE status = 'pending' AND expires_at_unix > ?
              ORDER BY created_at_unix DESC",
         )
@@ -1196,6 +1202,7 @@ impl ServerAuth for SqliteServerAuth {
                 sas_code: row.try_get("sas_code")?,
                 created_at: unix_timestamp(created_at_unix),
                 expires_at: unix_timestamp(expires_at_unix),
+                account_display_name: row.try_get("account_display_name")?,
             });
         }
         Ok(items)
@@ -2012,5 +2019,32 @@ mod host_console_pairing_tests {
             (week - 10..=week + 10).contains(&long_elapsed),
             "expected ~7d ttl, got {long_elapsed}"
         );
+    }
+
+    #[tokio::test]
+    async fn connect_requests_carry_the_verified_account_to_the_host_console() {
+        let auth = auth().await;
+        let owner = AuthenticatedCredential::host_console_owner();
+        let request = |name: &str| remote_protocol::CreateDeviceConnectRequest {
+            device_name: name.to_owned(),
+            client_kind: Some("mobile".to_owned()),
+            ..Default::default()
+        };
+        auth.create_connect_request("host-1", request("Alice iPhone"), None, Some("Alice"))
+            .await
+            .expect("account request");
+        auth.create_connect_request("host-1", request("Bob iPhone"), None, None)
+            .await
+            .expect("plain request");
+
+        let pending = auth.list_connect_requests(&owner).await.expect("list");
+        let account_of = |name: &str| {
+            pending
+                .iter()
+                .find(|item| item.device_name == name)
+                .map(|item| item.account_display_name.clone())
+        };
+        assert_eq!(account_of("Alice iPhone"), Some(Some("Alice".to_owned())));
+        assert_eq!(account_of("Bob iPhone"), Some(None));
     }
 }

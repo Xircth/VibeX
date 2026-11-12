@@ -189,7 +189,7 @@ pub struct RevokeDeviceResponse {
     pub revoked: bool,
 }
 
-#[derive(Clone, Debug, Default, Deserialize, Eq, JsonSchema, PartialEq, Serialize, TS)]
+#[derive(Clone, Default, Deserialize, Eq, JsonSchema, PartialEq, Serialize, TS)]
 pub struct CreateDeviceConnectRequest {
     pub device_name: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -200,6 +200,26 @@ pub struct CreateDeviceConnectRequest {
     pub session_nonce: Option<String>,
     #[serde(default)]
     pub replace_existing_mobile: bool,
+    /// VibeX account token of the requesting device. When present, the host only
+    /// accepts the request if the token belongs to the account signed in on the host.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub account_token: Option<String>,
+}
+
+impl std::fmt::Debug for CreateDeviceConnectRequest {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("CreateDeviceConnectRequest")
+            .field("device_name", &self.device_name)
+            .field("client_kind", &self.client_kind)
+            .field("public_key_ed25519", &self.public_key_ed25519)
+            .field("session_nonce", &self.session_nonce)
+            .field("replace_existing_mobile", &self.replace_existing_mobile)
+            .field(
+                "account_token",
+                &self.account_token.as_ref().map(|_| "<redacted>"),
+            )
+            .finish()
+    }
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, JsonSchema, PartialEq, Serialize, TS)]
@@ -221,6 +241,10 @@ pub struct PendingDeviceConnectRequest {
     pub sas_code: String,
     pub created_at: String,
     pub expires_at: String,
+    /// Display name of the VibeX account the host verified for this request; absent for
+    /// requests made without an account token.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub account_display_name: Option<String>,
 }
 
 #[derive(Clone, Deserialize, Eq, JsonSchema, PartialEq, Serialize, TS)]

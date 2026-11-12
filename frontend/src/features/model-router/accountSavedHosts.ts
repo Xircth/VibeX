@@ -18,10 +18,16 @@ import { savedHostAddress, savedHostSource } from '@/pages/settings/savedHostAdd
 
 import {
   AccountError,
+  HOST_BOUND_ACCOUNTS_EVENT,
   accountApi,
+  resolveProfileBoundAccount,
+  writeHostBoundAccount,
   type RouterOverview,
 } from './account';
-import { resolveAccountStorageKey } from './accountHostConfigs';
+import {
+  resolveAccountStorageKey,
+  resolveLegacyAccountStorageKeys,
+} from './accountHostConfigs';
 import { useVibeXAccount } from './useVibeXAccount';
 
 const PUSH_DEBOUNCE_MS = 350;
@@ -169,8 +175,22 @@ export function summarizeSyncableHostProfile(
   };
 }
 
+function prepareProfilesForCloudUpload(
+  profiles: SyncableHostProfile[]
+): SyncableHostProfile[] {
+  return profiles.map((item) => {
+    const boundAccount =
+      resolveProfileBoundAccount(item) ?? item.boundAccount ?? null;
+    return {
+      ...item,
+      credential: null,
+      boundAccount,
+    };
+  });
+}
+
 function stableProfileSignature(profiles: SyncableHostProfile[]): string {
-  const normalized = profiles
+  const normalized = prepareProfilesForCloudUpload(profiles)
     .map((item) => ({
       hostId: item.hostId?.trim() || '',
       profileId: item.profileId.trim(),
@@ -178,8 +198,9 @@ function stableProfileSignature(profiles: SyncableHostProfile[]): string {
       origin: item.origin.trim(),
       provisionKind: item.provisionKind?.trim() || '',
       provision: item.provision ?? null,
-      deviceId: item.credential?.deviceId?.trim() || '',
-      accessToken: item.credential?.accessToken?.trim() || '',
+      boundAccountUsername: item.boundAccount?.username?.trim() || '',
+      boundAccountDisplayName: item.boundAccount?.displayName?.trim() || '',
+      boundAccountAvatarUrl: item.boundAccount?.avatarUrl?.trim() || '',
       lastConnectedAt: item.lastConnectedAt?.trim() || '',
       updatedAt: item.updatedAt?.trim() || '',
     }))
@@ -239,16 +260,17 @@ function needsCloudPush(
   accountKey: string,
   forcePush: boolean
 ): boolean {
-  if (localProfiles.length === 0) return false;
+  const preparedLocals = prepareProfilesForCloudUpload(localProfiles);
+  if (preparedLocals.length === 0) return false;
   if (forcePush) return true;
-  const localSignature = stableProfileSignature(localProfiles);
+  const localSignature = stableProfileSignature(preparedLocals);
   if (
-    remoteProfiles.length === localProfiles.length &&
+    remoteProfiles.length === preparedLocals.length &&
     lastPushedSignatureByAccount.get(accountKey) === localSignature
   ) {
     return false;
   }
-  for (const local of localProfiles) {
+  for (const local of preparedLocals) {
     const match = remoteProfiles.find((remote) =>
       matchesCloudProfile(local, remote)
     );
@@ -260,10 +282,12 @@ function needsCloudPush(
       (local.provisionKind ?? null) !== (match.provisionKind ?? null) ||
       JSON.stringify(local.provision ?? null) !==
         JSON.stringify(match.provision ?? null) ||
-      (local.credential?.accessToken ?? null) !==
-        (match.credential?.accessToken ?? null) ||
-      (local.credential?.deviceId ?? null) !==
-        (match.credential?.deviceId ?? null)
+      (local.boundAccount?.username ?? null) !==
+        (match.boundAccount?.username ?? null) ||
+      (local.boundAccount?.displayName ?? null) !==
+        (match.boundAccount?.displayName ?? null) ||
+      (local.boundAccount?.avatarUrl ?? null) !==
+        (match.boundAccount?.avatarUrl ?? null)
     ) {
       return true;
     }
@@ -345,8 +369,11 @@ export async function syncAccountSavedHosts(
   return enqueueSyncTask(async () => {
     emitStore({ accountKey, isSyncing: true, error: null });
     try {
+      const legacyKeys = resolveLegacyAccountStorageKeys(user);
       await runWithEchoSuppressed(() =>
-        hostClientApi.setSyncAccount(accountKey)
+        legacyKeys.length > 0
+          ? hostClientApi.setSyncAccount(accountKey, legacyKeys)
+          : hostClientApi.setSyncAccount(accountKey)
       );
 
       const initialBundle = await hostClientApi.exportSyncProfiles(accountKey);
@@ -356,6 +383,14 @@ export async function syncAccountSavedHosts(
       const remoteProfiles = Array.isArray(remoteResponse.savedHosts)
         ? remoteResponse.savedHosts
         : [];
+      for (const remote of remoteProfiles) {
+        if (remote.boundAccount?.username) {
+          writeHostBoundAccount(
+            [remote.profileId, remote.hostId, remote.origin],
+            remote.boundAccount
+          );
+        }
+      }
 
       await runWithEchoSuppressed(() =>
         hostClientApi.mergeSyncProfiles({
@@ -367,15 +402,18 @@ export async function syncAccountSavedHosts(
 
       const postMergeBundle =
         await hostClientApi.exportSyncProfiles(accountKey);
+      const preparedProfiles = prepareProfilesForCloudUpload(
+        postMergeBundle.profiles
+      );
       if (
         needsCloudPush(
-          postMergeBundle.profiles,
+          preparedProfiles,
           remoteProfiles,
           accountKey,
           Boolean(options?.forcePush)
         )
       ) {
-        await accountApi.putSavedHosts(postMergeBundle.profiles);
+        await accountApi.putSavedHosts(preparedProfiles);
         await hostClientApi.markSyncPushed(
           accountKey,
           postMergeBundle.profiles.map((item) => item.profileId)
@@ -383,7 +421,7 @@ export async function syncAccountSavedHosts(
       }
       lastPushedSignatureByAccount.set(
         accountKey,
-        stableProfileSignature(postMergeBundle.profiles)
+        stableProfileSignature(preparedProfiles)
       );
 
       await refreshStoreFromLocalStatus(accountKey);
@@ -421,12 +459,13 @@ export async function pushLocalSavedHostChanges(
       const bundle = await hostClientApi.exportSyncProfiles(accountKey);
       await flushPendingCloudDeletes(bundle.pendingDeletes);
 
-      const signature = stableProfileSignature(bundle.profiles);
+      const preparedProfiles = prepareProfilesForCloudUpload(bundle.profiles);
+      const signature = stableProfileSignature(preparedProfiles);
       if (
-        bundle.profiles.length > 0 &&
+        preparedProfiles.length > 0 &&
         lastPushedSignatureByAccount.get(accountKey) !== signature
       ) {
-        await accountApi.putSavedHosts(bundle.profiles);
+        await accountApi.putSavedHosts(preparedProfiles);
         await hostClientApi.markSyncPushed(
           accountKey,
           bundle.profiles.map((item) => item.profileId)
@@ -614,6 +653,7 @@ export function AccountSavedHostsSyncBridge(): null {
     };
 
     window.addEventListener('focus', handleWindowFocus);
+    window.addEventListener(HOST_BOUND_ACCOUNTS_EVENT, schedulePush);
 
     void backendListen<void>('host-client-changed', schedulePush)
       .then((unlisten) => {
@@ -626,6 +666,7 @@ export function AccountSavedHostsSyncBridge(): null {
       disposed = true;
       stopListener?.();
       window.removeEventListener('focus', handleWindowFocus);
+      window.removeEventListener(HOST_BOUND_ACCOUNTS_EVENT, schedulePush);
       if (pushTimerRef.current !== null) {
         window.clearTimeout(pushTimerRef.current);
         pushTimerRef.current = null;

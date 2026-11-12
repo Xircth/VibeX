@@ -771,6 +771,7 @@ pub fn run() {
         commands::host_tunnel::confirm_create_host_tunnel,
         commands::host_tunnel::cancel_create_host_tunnel,
         commands::host_tunnel::remove_saved_host_tunnel,
+        commands::host_tunnel::set_account_relay_lease,
         commands::host_client::host_client_status,
         commands::host_client::host_client_discover,
         commands::host_client::host_client_host_updates,

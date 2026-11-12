@@ -53,6 +53,42 @@ vi.mock('@/components/ui/toast', () => ({
   },
 }));
 
+const vibexAccountMock = vi.hoisted(() => ({
+  isSignedIn: true,
+  overview: {
+    relayPermission: true,
+    assignedRelayServer: {
+      id: 'relay-default-1',
+      name: '默认云中继',
+      region: '香港',
+      publicOrigin: 'https://vibex.xforever.xin',
+    },
+  } as {
+    relayPermission?: boolean;
+    assignedRelayServer?: {
+      id: string;
+      name: string;
+      region: string;
+      publicOrigin: string;
+    } | null;
+  } | null,
+  user: {
+    displayName: 'Test User',
+    username: 'testuser',
+    email: 'test@vibex.dev',
+  },
+}));
+
+vi.mock('@/features/model-router', async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import('@/features/model-router')>();
+  return {
+    ...actual,
+    useVibeXAccount: () => vibexAccountMock,
+    syncCurrentHostRelayLease: vi.fn(async () => true),
+  };
+});
+
 const shellOpenMock = vi.hoisted(() => vi.fn().mockResolvedValue(undefined));
 
 vi.mock('@tauri-apps/plugin-shell', () => ({
@@ -105,6 +141,16 @@ function renderSettings(
 
 describe('WebServiceSettings', () => {
   beforeEach(() => {
+    vibexAccountMock.isSignedIn = true;
+    vibexAccountMock.overview = {
+      relayPermission: true,
+      assignedRelayServer: {
+        id: 'relay-default-1',
+        name: '默认云中继',
+        region: '香港',
+        publicOrigin: 'https://vibex.xforever.xin',
+      },
+    };
     shellOpenMock.mockReset();
     shellOpenMock.mockResolvedValue(undefined);
     for (const fn of Object.values(webServiceApiMock)) {
@@ -555,6 +601,21 @@ describe('WebServiceSettings', () => {
     });
     expect(portInput).toHaveValue(17892);
     expect(screen.getByText('http://127.0.0.1:17892')).toBeVisible();
+  });
+
+  it('hides the Cloud Relay Service (Beta) section when the account does not have relay permission', async () => {
+    vibexAccountMock.overview = {
+      relayPermission: false,
+      assignedRelayServer: null,
+    };
+    webServiceApiMock.getStatus.mockResolvedValue(runningStatus);
+
+    renderSettings();
+
+    expect(await screen.findByText('远程服务状态')).toBeVisible();
+    expect(
+      screen.queryByRole('switch', { name: '云服务' })
+    ).not.toBeInTheDocument();
   });
 });
 

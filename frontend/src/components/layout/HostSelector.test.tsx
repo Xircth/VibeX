@@ -378,4 +378,38 @@ describe('HostSelector', () => {
       '/settings/web-service?role=client'
     );
   });
+
+  it('displays the bound user avatar and name in the Host list when a Host is logged into another user account', async () => {
+    const user = userEvent.setup();
+    const { writeHostBoundAccount } = await import('@/features/model-router');
+    writeHostBoundAccount(['p-other-user'], {
+      username: 'alice',
+      displayName: 'Alice Chen',
+      avatarUrl: 'https://example.com/alice.png',
+    });
+    mocks.status.mockResolvedValue({
+      profiles: [
+        {
+          id: 'p-other-user',
+          name: 'Alice Workstation',
+          origin: 'http://192.168.1.90:17891',
+          connected: false,
+          has_credential: true,
+        },
+      ],
+    });
+
+    renderHostSelector();
+
+    await user.click(screen.getByTestId('toolbar-host-selector'));
+    const badge = await screen.findByTestId(
+      'host-selector-bound-account-p-other-user'
+    );
+    expect(badge).toBeVisible();
+    expect(within(badge).getByText('Alice Chen')).toBeVisible();
+    expect(within(badge).getByRole('img', { name: 'Alice Chen' })).toHaveAttribute(
+      'src',
+      'https://example.com/alice.png'
+    );
+  });
 });

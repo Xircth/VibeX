@@ -294,4 +294,40 @@ describe('HostTunnelPanel', () => {
       expect(hostTunnelApi.removeSaved).toHaveBeenCalledWith('t1')
     );
   });
+
+  it('displays only the host name for the assigned official cloud relay node and auto-enables it', async () => {
+    const officialNode = {
+      id: 'auto-quick-tunnel',
+      name: '香港 1 号中继',
+      origin: 'https://vibex.xforever.xin/t/win-host-1',
+      host: 'vibex.xforever.xin',
+      port: 443,
+      kind: 'relay',
+      created_at: '2026-11-12T00:00:00Z',
+    };
+    hostTunnelApi.get.mockResolvedValue({
+      enabled: true,
+      saved: [officialNode],
+      active_id: 'auto-quick-tunnel',
+      pending: null,
+      relay_state: 'connected',
+      last_error: null,
+    });
+
+    render(
+      <HostTunnelPanel serviceRunning onReachabilityChange={() => undefined} />
+    );
+
+    expect(await screen.findByText('香港 1 号中继')).toBeVisible();
+    expect(
+      screen.queryByText('https://vibex.xforever.xin/t/win-host-1')
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByText('vibex.xforever.xin:443')
+    ).not.toBeInTheDocument();
+    expect(screen.getByTestId('tunnel-usage-badge')).toHaveAttribute(
+      'data-state',
+      'in-use'
+    );
+  });
 });

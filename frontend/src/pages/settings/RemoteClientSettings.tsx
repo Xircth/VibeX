@@ -19,6 +19,7 @@ import {
 import { useTranslation } from 'react-i18next';
 
 import { ConfirmDialog } from '@/components/dialogs/shared/ConfirmDialog';
+import { resolveCloudRelayTargetOrigin } from '@/components/layout/HostSelector';
 import { TextInput } from '@astryxdesign/core/TextInput';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
@@ -27,7 +28,12 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from '@/components/ui/popover';
+import { Switch } from '@/components/ui/switch';
 import { toast } from '@/components/ui/toast';
+import {
+  reconcileRemoteHostAccount,
+  useVibeXAccount,
+} from '@/features/model-router';
 import {
   hostClientApi,
   type DiscoveredHost,
@@ -208,6 +214,13 @@ function useLocalProvisioners() {
 
 export function RemoteClientSettings() {
   const { t } = useTranslation(['settings', 'common']);
+  const { isSignedIn, overview } = useVibeXAccount();
+  const hasRelayPermission = Boolean(
+    isSignedIn && overview?.relayPermission !== false
+  );
+  const relayPublicOrigin =
+    overview?.assignedRelayServer?.publicOrigin?.trim() ||
+    'https://vibex.xforever.xin';
   const locationContext = useContext(UNSAFE_LocationContext);
   const rawSearch =
     locationContext?.location.search ??
@@ -230,6 +243,10 @@ export function RemoteClientSettings() {
   );
   const [manualOrigin, setManualOrigin] = useState('');
   const [manualCode, setManualCode] = useState('');
+  const [manualUseRelay, setManualUseRelay] = useState(false);
+  const [savedUseRelayById, setSavedUseRelayById] = useState<
+    Record<string, boolean>
+  >({});
   const [hostUpdates, setHostUpdates] = useState<SavedHostUpdateView[]>([]);
   const [updatingId, setUpdatingId] = useState<string | null>(null);
   const autoOpenedSshRef = useRef(false);
@@ -365,6 +382,9 @@ export function RemoteClientSettings() {
           token: request.token,
           profile_id: request.profile_id,
         });
+        if (result.profile?.connected) {
+          void reconcileRemoteHostAccount(result.profile);
+        }
         await loadStatus();
         setToken('');
         setManualCode('');
@@ -422,6 +442,17 @@ export function RemoteClientSettings() {
     async (profile: HostClientProfile) => {
       const source = savedHostSource(profile.provision_kind);
       let origin = savedHostOrigin(profile);
+      const useRelay =
+        hasRelayPermission &&
+        source !== 'ssh' &&
+        Boolean(savedUseRelayById[profile.id] ?? origin.includes('/t/'));
+      if (useRelay) {
+        origin = resolveCloudRelayTargetOrigin(
+          origin,
+          relayPublicOrigin,
+          profile.host_id
+        );
+      }
       if (source === 'ssh' || source === 'other') {
         const provisioner = provisionerForKind(
           provisioners.panels,
@@ -502,7 +533,10 @@ export function RemoteClientSettings() {
     },
     [
       connect,
+      hasRelayPermission,
       provisioners,
+      relayPublicOrigin,
+      savedUseRelayById,
       t,
       token,
       tokenFor,
@@ -510,12 +544,20 @@ export function RemoteClientSettings() {
   );
 
   const connectManual = useCallback(async () => {
-    const origin = manualOrigin.trim();
-    if (!origin) {
+    const rawOrigin = manualOrigin.trim();
+    if (!rawOrigin) {
       toast.error(t('webService.clientOriginRequired'));
       return;
     }
-    const saved = profiles.find((profile) => profile.origin === origin);
+    const saved = profiles.find((profile) => profile.origin === rawOrigin);
+    const origin =
+      hasRelayPermission && manualUseRelay
+        ? resolveCloudRelayTargetOrigin(
+            rawOrigin,
+            relayPublicOrigin,
+            saved?.host_id
+          )
+        : rawOrigin;
     if (saved?.has_credential && !manualCode.trim()) {
       await connect({
         origin,
@@ -535,7 +577,16 @@ export function RemoteClientSettings() {
       key: 'manual',
     });
     setManualOpen(false);
-  }, [connect, manualCode, manualOrigin, profiles, t]);
+  }, [
+    connect,
+    hasRelayPermission,
+    manualCode,
+    manualOrigin,
+    manualUseRelay,
+    profiles,
+    relayPublicOrigin,
+    t,
+  ]);
 
   const disconnectHost = useCallback(async () => {
     try {
@@ -691,6 +742,27 @@ export function RemoteClientSettings() {
                     className="mt-1 [&_input]:font-mono [&_input]:text-sm"
                   />
                 </div>
+                {hasRelayPermission ? (
+                  <div
+                    data-testid="manual-connect-cloud-relay-row"
+                    className="flex items-center justify-between gap-2 rounded-md border border-border/70 bg-muted/30 px-2.5 py-1.5"
+                  >
+                    <Label
+                      htmlFor="manual-connect-use-cloud-relay"
+                      className="text-xs font-medium"
+                    >
+                      使用云中继服务
+                    </Label>
+                    <Switch
+                      id="manual-connect-use-cloud-relay"
+                      aria-label="使用云中继服务"
+                      checked={manualUseRelay}
+                      onCheckedChange={(checked: boolean) =>
+                        setManualUseRelay(checked)
+                      }
+                    />
+                  </div>
+                ) : null}
                 <Button
                   size="sm"
                   className="h-8 self-end"
@@ -826,6 +898,7 @@ export function RemoteClientSettings() {
                 const expanded = expandedId === profile.id;
                 const asking = tokenFor === profile.id;
                 const busy = connectingKey === profile.id;
+                const isSsh = savedHostSource(profile.provision_kind) === 'ssh';
                 const update = hostUpdates.find(
                   (item) =>
                     item.profile_id === profile.id && item.update_available
@@ -899,6 +972,33 @@ export function RemoteClientSettings() {
                     {expanded ? (
                       <div className="settings-host-row__detail">
                         <SavedHostFacts profile={profile} />
+                        {hasRelayPermission && !isSsh && !profile.connected ? (
+                          <div
+                            data-testid={`saved-host-cloud-relay-row-${profile.id}`}
+                            className="flex items-center justify-between gap-2 rounded-md border border-border/70 bg-muted/30 px-2.5 py-1.5"
+                          >
+                            <Label
+                              htmlFor={`saved-host-use-cloud-relay-${profile.id}`}
+                              className="text-xs font-medium"
+                            >
+                              使用云中继服务
+                            </Label>
+                            <Switch
+                              id={`saved-host-use-cloud-relay-${profile.id}`}
+                              aria-label="使用云中继服务"
+                              checked={Boolean(
+                                savedUseRelayById[profile.id] ??
+                                  profile.origin.includes('/t/')
+                              )}
+                              onCheckedChange={(checked: boolean) =>
+                                setSavedUseRelayById((prev) => ({
+                                  ...prev,
+                                  [profile.id]: checked,
+                                }))
+                              }
+                            />
+                          </div>
+                        ) : null}
                         {asking ? (
                           <TextInput
                             label={t('webService.clientCodeLabel')}

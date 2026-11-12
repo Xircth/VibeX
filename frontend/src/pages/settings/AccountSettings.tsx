@@ -2,12 +2,11 @@ import { useEffect } from 'react';
 import {
   Copy,
   ExternalLink,
-  KeyRound,
   Loader2,
   LogOut,
   ReceiptText,
   RefreshCw,
-  Users,
+  ShieldCheck,
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
@@ -15,13 +14,12 @@ import { Logo } from '@/components/Logo';
 import { Button } from '@/components/ui/button';
 import { toast } from '@/components/ui/toast';
 import {
-  openExternal,
+  openAccountWebPath,
   resolveAccountAvatarLabel,
   resolveAccountDisplayName,
   useAccountSavedHosts,
   useVibeXAccount,
 } from '@/features/model-router';
-import { getSiteUrl } from '@/lib/branding';
 import { cn } from '@/lib/utils';
 
 import { AccountHostConfigSection } from './AccountHostConfigSection';
@@ -162,9 +160,7 @@ export function AccountSettings() {
                     </span>
                     <button
                       type="button"
-                      onClick={() =>
-                        void openExternal(getSiteUrl('/account/profile'))
-                      }
+                      onClick={() => void openAccountWebPath('/account/profile')}
                       className="text-xs text-muted-foreground transition-colors hover:text-foreground"
                     >
                       {t('settings:account.rename')}
@@ -271,50 +267,29 @@ export function AccountSettings() {
         {/* Account Host List (hidden when signed out) */}
         <AccountHostConfigSection />
 
-        {/* Security / Passkey Card */}
+        {/* Security & Devices Card */}
         <section className="settings-card flex items-center justify-between gap-4 rounded-xl border border-border bg-card px-5 py-4">
           <div className="min-w-0">
             <h3 className="flex items-center gap-2 text-sm font-semibold text-foreground">
-              <KeyRound
+              <ShieldCheck
                 className="h-4 w-4 shrink-0 text-muted-foreground"
                 aria-hidden="true"
               />
-              <span>{t('settings:account.passkeyTitle')}</span>
+              <span>{t('settings:account.securityCardTitle')}</span>
             </h3>
             <p className="mt-1 text-xs text-muted-foreground">
-              {t('settings:account.passkeyDesc')}
+              {t('settings:account.securityCardDesc')}
             </p>
           </div>
           <Button
             type="button"
             size="sm"
-            onClick={() => void openExternal(getSiteUrl('/account/security'))}
+            onClick={() => void openAccountWebPath('/account/security')}
             className="shrink-0 gap-1.5"
           >
-            <span>{t('settings:account.passkeyAction')}</span>
+            <span>{t('settings:account.securityCardAction')}</span>
             <ExternalLink className="h-3.5 w-3.5" aria-hidden="true" />
           </Button>
-        </section>
-
-        {/* Collaboration Seats Section */}
-        <section className="space-y-2.5">
-          <h3 className="text-xs font-medium text-muted-foreground">
-            {t('settings:account.seatsSectionTitle')}
-          </h3>
-          <div className="settings-card flex items-center justify-between gap-4 rounded-xl border border-border bg-card px-5 py-4">
-            <div className="flex min-w-0 items-center gap-3 text-xs text-muted-foreground">
-              <Users className="h-4 w-4 shrink-0" aria-hidden="true" />
-              <span>{t('settings:account.seatsDesc')}</span>
-            </div>
-            <button
-              type="button"
-              onClick={() => void openExternal(getSiteUrl('/account'))}
-              className="inline-flex shrink-0 items-center gap-1 text-xs font-medium text-primary transition-colors hover:underline"
-            >
-              <span>{t('settings:account.addSeats')}</span>
-              <ExternalLink className="h-3 w-3" aria-hidden="true" />
-            </button>
-          </div>
         </section>
 
         {/* Billing & Redemption Section */}
@@ -338,7 +313,7 @@ export function AccountSettings() {
             </div>
             <button
               type="button"
-              onClick={() => void openExternal(getSiteUrl('/account/billing'))}
+              onClick={() => void openAccountWebPath('/account/billing')}
               className="inline-flex shrink-0 items-center gap-1 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
             >
               <span>{t('settings:account.viewOnSite')}</span>

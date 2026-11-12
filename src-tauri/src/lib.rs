@@ -706,6 +706,7 @@ pub fn run() {
                 deeplink::route_deep_link_urls(&deep_link_handle, &event.urls());
             });
             let _ = app.deep_link().register_all();
+            deeplink::route_startup_deep_link_args(app.handle());
         }
 
         Ok(())
@@ -770,6 +771,7 @@ pub fn run() {
         commands::host_tunnel::confirm_create_host_tunnel,
         commands::host_tunnel::cancel_create_host_tunnel,
         commands::host_tunnel::remove_saved_host_tunnel,
+        commands::host_tunnel::set_account_relay_lease,
         commands::host_client::host_client_status,
         commands::host_client::host_client_discover,
         commands::host_client::host_client_host_updates,
@@ -784,6 +786,7 @@ pub fn run() {
         commands::host_client::host_client_ack_sync_deletes,
         commands::settings_window::open_settings_window,
         commands::app_window::open_app_window,
+        deeplink::take_pending_model_router_import,
         plugin_dev_server::plugin_dev_connection,
     ])
     .build(tauri::generate_context!())

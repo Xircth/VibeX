@@ -12,7 +12,13 @@ import { useUserSystem } from '@/components/ConfigProvider';
 import { agentManagementApi } from '@/features/agent-management';
 import i18n from '@/i18n';
 import { useKeyBindingOverridesStore } from '@/keyboard/useKeyBindingOverrides';
-import { configApi, hostClientApi, webServiceApi } from '@/lib/api';
+import {
+  configApi,
+  frontendPreferencesApi,
+  hostClientApi,
+  hostTunnelApi,
+  webServiceApi,
+} from '@/lib/api';
 import { backendListen } from '@/lib/backendTransport';
 import {
   SETTINGS_CHANGED_EVENT,
@@ -30,8 +36,17 @@ import { getUiLanguage } from '@/lib/uiLanguage';
 import { initUiZoom } from '@/lib/uiZoom';
 import { useEditorSettingsStore } from '@/stores/useEditorSettingsStore';
 
-import { AccountError, accountApi, type RouterOverview } from './account';
-import { useVibeXAccount } from './useVibeXAccount';
+import {
+  AccountError,
+  DESKTOP_SHARED_ACCOUNT_OWNER_KEY,
+  DESKTOP_SHARED_ACCOUNT_TOKEN_KEY,
+  accountApi,
+  accountToken,
+  writeHostBoundAccount,
+  type AccountOwnerSummary,
+  type RouterOverview,
+} from './account';
+import { resolveAccountDisplayName, useVibeXAccount } from './useVibeXAccount';
 
 export const ACCOUNT_HOST_CONFIGS_STORAGE_KEY = 'vibex.account.hostConfigs.v1';
 export const DESKTOP_SHARED_HOST_CONFIGS_KEY = '__account_host_configs_v1';
@@ -187,8 +202,21 @@ export function resolveAccountStorageKey(
   user?: RouterOverview['user'] | null
 ): string | null {
   if (!user) return null;
-  const candidate = user.username?.trim() || user.email?.trim() || '';
+  const candidate =
+    user.id?.trim() || user.username?.trim() || user.email?.trim() || '';
   return candidate ? candidate.toLowerCase() : null;
+}
+
+export function resolveLegacyAccountStorageKeys(
+  user?: RouterOverview['user'] | null
+): string[] {
+  if (!user?.id?.trim()) return [];
+  const primary = resolveAccountStorageKey(user);
+  if (!primary) return [];
+  const candidates = [user.username?.trim(), user.email?.trim()]
+    .filter((value): value is string => Boolean(value))
+    .map((value) => value.toLowerCase());
+  return [...new Set(candidates)].filter((key) => key !== primary);
 }
 
 function stableStringify(value: unknown): string {
@@ -716,6 +744,209 @@ function isIgnorableCloudSyncError(cause: unknown): boolean {
   );
 }
 
+function parseAccountOwnerSummary(raw: unknown): AccountOwnerSummary | null {
+  let candidate = raw;
+  if (typeof candidate === 'string' && candidate.trim().startsWith('{')) {
+    try {
+      candidate = JSON.parse(candidate);
+    } catch {
+      return null;
+    }
+  }
+  if (!candidate || typeof candidate !== 'object') return null;
+  const obj = candidate as Record<string, unknown>;
+  const username = typeof obj.username === 'string' ? obj.username.trim() : '';
+  if (!username) return null;
+  const displayName =
+    typeof obj.displayName === 'string' && obj.displayName.trim()
+      ? obj.displayName.trim()
+      : username;
+  const avatarUrl =
+    typeof obj.avatarUrl === 'string' && obj.avatarUrl.trim()
+      ? obj.avatarUrl.trim()
+      : null;
+  return { username, displayName, avatarUrl };
+}
+
+type RemoteHostProfileSummary = {
+  id?: string | null;
+  host_id?: string | null;
+  origin?: string | null;
+};
+
+function isRemoteHostProfileSummary(
+  value: unknown
+): value is RemoteHostProfileSummary {
+  if (!value || typeof value !== 'object') return false;
+  return 'origin' in value || 'host_id' in value;
+}
+
+export async function reconcileRemoteHostAccount(
+  userOrProfile?: RouterOverview['user'] | RemoteHostProfileSummary | null,
+  profileOverride?: RemoteHostProfileSummary | null
+): Promise<{
+  syncedToRemote: boolean;
+  differentAccount: AccountOwnerSummary | null;
+}> {
+  const passedProfile = isRemoteHostProfileSummary(userOrProfile)
+    ? userOrProfile
+    : (profileOverride ?? null);
+  let user = isRemoteHostProfileSummary(userOrProfile)
+    ? null
+    : (userOrProfile ?? null);
+
+  if (
+    !passedProfile &&
+    getBackendTransport().environment !== 'remote-desktop'
+  ) {
+    return { syncedToRemote: true, differentAccount: null };
+  }
+  const [status, remotePrefs] = await Promise.all([
+    passedProfile
+      ? Promise.resolve(null)
+      : Promise.resolve()
+          .then(() => hostClientApi.status())
+          .catch(() => null),
+    Promise.resolve()
+      .then(() => frontendPreferencesApi.get())
+      .catch(() => null),
+  ]);
+  const profile = passedProfile ?? status?.profile ?? null;
+  const rawHostId = profile?.host_id?.trim().replace(/^host:/, '') || '';
+  const profileKeys = [
+    profile?.id,
+    profile?.id ? `profile:${profile.id}` : null,
+    rawHostId || null,
+    rawHostId ? `host:${rawHostId}` : null,
+    profile?.origin?.trim().replace(/\/+$/, '') || null,
+    profile?.origin ? `origin:${profile.origin.trim().replace(/\/+$/, '')}` : null,
+  ];
+
+  const remoteTokenRaw = remotePrefs?.[DESKTOP_SHARED_ACCOUNT_TOKEN_KEY];
+  const remoteToken =
+    typeof remoteTokenRaw === 'string'
+      ? remoteTokenRaw.trim()
+      : remoteTokenRaw &&
+          typeof remoteTokenRaw === 'object' &&
+          typeof (remoteTokenRaw as { token?: unknown }).token === 'string'
+        ? ((remoteTokenRaw as { token: string }).token || '').trim()
+        : '';
+  let remoteOwner = parseAccountOwnerSummary(
+    remotePrefs?.[DESKTOP_SHARED_ACCOUNT_OWNER_KEY]
+  );
+
+  const localToken = accountToken()?.trim() || '';
+  if (!user && localToken) {
+    const localOverview = await accountApi.overview().catch(() => null);
+    user = localOverview?.user ?? null;
+  }
+  const localUsername = user?.username?.trim() || '';
+
+  if (!remoteOwner && remoteToken && remoteToken !== localToken) {
+    const remoteOverview = await accountApi
+      .overviewWithToken(remoteToken)
+      .catch(() => null);
+    if (remoteOverview?.user?.username) {
+      remoteOwner = {
+        username: remoteOverview.user.username.trim(),
+        displayName: resolveAccountDisplayName(remoteOverview.user),
+        avatarUrl: remoteOverview.user.avatarUrl ?? null,
+      };
+    }
+  }
+
+  // Case 1: Remote Host has no logged-in VibeX account -> automatically sync current account to it
+  if (!remoteToken && !remoteOwner) {
+    if (localToken && localUsername) {
+      await Promise.resolve()
+        .then(() =>
+          frontendPreferencesApi.update({
+            [DESKTOP_SHARED_ACCOUNT_TOKEN_KEY]: localToken,
+            [DESKTOP_SHARED_ACCOUNT_OWNER_KEY]: {
+              username: localUsername,
+              displayName: resolveAccountDisplayName(user),
+              avatarUrl: user?.avatarUrl ?? null,
+            },
+          })
+        )
+        .catch(() => undefined);
+    }
+    writeHostBoundAccount(profileKeys, null);
+    return { syncedToRemote: true, differentAccount: null };
+  }
+
+  // Case 2: Remote Host is logged into a DIFFERENT user's VibeX account -> do NOT overwrite; record boundAccount
+  if (
+    remoteOwner &&
+    (!localUsername ||
+      remoteOwner.username.toLowerCase() !== localUsername.toLowerCase())
+  ) {
+    writeHostBoundAccount(profileKeys, remoteOwner);
+    return { syncedToRemote: false, differentAccount: remoteOwner };
+  }
+
+  // Case 3: Remote Host is logged into the SAME user's VibeX account
+  writeHostBoundAccount(profileKeys, null);
+  if (localToken && localUsername && remoteToken !== localToken) {
+    await Promise.resolve()
+      .then(() =>
+        frontendPreferencesApi.update({
+          [DESKTOP_SHARED_ACCOUNT_TOKEN_KEY]: localToken,
+          [DESKTOP_SHARED_ACCOUNT_OWNER_KEY]: {
+            username: localUsername,
+            displayName: resolveAccountDisplayName(user),
+            avatarUrl: user?.avatarUrl ?? null,
+          },
+        })
+      )
+      .catch(() => undefined);
+  }
+  return { syncedToRemote: true, differentAccount: null };
+}
+
+async function issueAndApplyLocalRelayLease(input: {
+  hostId: string;
+  hostName?: string;
+  osType?: string;
+  osArch?: string;
+}): Promise<boolean> {
+  try {
+    const lease = await accountApi.issueRelayLease(input);
+    await hostTunnelApi
+      .setAccountLease({
+        lease_token: lease.leaseToken,
+        expires_at: lease.expiresAt,
+        relay_host: lease.relayHost,
+        relay_port: lease.relayPort,
+        tenant_origin: lease.tenantOrigin,
+        host_id: lease.hostId,
+        lease_version: lease.leaseVersion,
+        server_id: lease.serverId ?? null,
+        server_name: lease.serverName ?? null,
+      })
+      .catch(() => undefined);
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new Event('vibex:host-tunnel-updated'));
+    }
+    return true;
+  } catch {
+    await hostTunnelApi.setAccountLease(null).catch(() => undefined);
+    return false;
+  }
+}
+
+export async function syncCurrentHostRelayLease(): Promise<boolean> {
+  if (!accountToken()) return false;
+  const identity = await resolveCurrentHostIdentity().catch(() => null);
+  if (!identity || identity.kind !== 'local' || !identity.hostId) {
+    return false;
+  }
+  return issueAndApplyLocalRelayLease({
+    hostId: identity.hostId,
+    hostName: identity.hostName,
+  });
+}
+
 export async function syncAccountHostConfigs(
   user: RouterOverview['user'] | null | undefined,
   options?: { forceSaveCurrent?: boolean }
@@ -751,17 +982,25 @@ export async function syncAccountHostConfigs(
   run = (async () => {
     try {
       const envelope = await readCombinedEnvelope();
+      const legacyKeys = resolveLegacyAccountStorageKeys(user);
       let bucket: AccountBucket = envelope.accounts[accountKey] ?? {
         hosts: {},
         deleted: {},
       };
+      for (const legacyKey of legacyKeys) {
+        if (envelope.accounts[legacyKey]) {
+          bucket = mergeAccountBuckets(bucket, envelope.accounts[legacyKey]);
+        }
+      }
       const remoteUnsynced: UnsyncedHostRecord[] = [];
+      const cloudHosts: Record<string, AccountHostConfigSnapshot> = {};
+      let cloudListLoaded = false;
 
       // Merge cloud-stored snapshots & historical Host records when available.
       try {
         const remote = await accountApi.listHostConfigs();
+        cloudListLoaded = true;
         if (Array.isArray(remote.hosts)) {
-          const cloudHosts: Record<string, AccountHostConfigSnapshot> = {};
           for (const rawHost of remote.hosts) {
             const parsed = coerceSnapshot(rawHost, accountKey);
             if (parsed) {
@@ -809,38 +1048,85 @@ export async function syncAccountHostConfigs(
         }
       }
 
-      const captured = await captureCurrentHostSnapshot(accountKey);
-      const existingCurrent = bucket.hosts[captured.hostId];
-      const shouldWriteCurrent =
-        Boolean(options?.forceSaveCurrent) ||
-        !existingCurrent ||
-        existingCurrent.fingerprint !== captured.fingerprint;
+      const reconciledRemote =
+        getBackendTransport().environment === 'remote-desktop'
+          ? await reconcileRemoteHostAccount(user)
+          : { syncedToRemote: true, differentAccount: null };
 
-      const effectiveCurrent = shouldWriteCurrent ? captured : existingCurrent;
+      const captured = await captureCurrentHostSnapshot(accountKey);
+      const isDifferentRemoteAccount = Boolean(
+        reconciledRemote.differentAccount
+      );
+      const existingCurrent = bucket.hosts[captured.hostId];
+      const shouldUpdateLocalCurrent =
+        !isDifferentRemoteAccount &&
+        (Boolean(options?.forceSaveCurrent) ||
+          !existingCurrent ||
+          existingCurrent.fingerprint !== captured.fingerprint ||
+          (existingCurrent.agents.length === 0 && captured.agents.length > 0));
+
+      const effectiveCurrent = shouldUpdateLocalCurrent
+        ? captured
+        : (existingCurrent ?? captured);
       const nextDeleted = { ...bucket.deleted };
       delete nextDeleted[captured.hostId];
+      const nextHosts = { ...bucket.hosts };
+      if (!isDifferentRemoteAccount) {
+        nextHosts[captured.hostId] = effectiveCurrent;
+      }
       const nextBucket: AccountBucket = {
-        hosts: {
-          ...bucket.hosts,
-          [captured.hostId]: effectiveCurrent,
-        },
+        hosts: nextHosts,
         deleted: nextDeleted,
       };
 
+      const nextAccounts: Record<string, AccountBucket> = {
+        ...envelope.accounts,
+        [accountKey]: nextBucket,
+      };
+      for (const legacyKey of legacyKeys) {
+        delete nextAccounts[legacyKey];
+      }
       const nextEnvelope: StoredHostConfigsEnvelope = {
         version: 1,
-        accounts: {
-          ...envelope.accounts,
-          [accountKey]: nextBucket,
-        },
+        accounts: nextAccounts,
       };
       await persistCombinedEnvelope(nextEnvelope);
 
-      if (shouldWriteCurrent) {
-        await accountApi.saveHostConfig(effectiveCurrent).catch((cause) => {
+      const snapshotsToPush: AccountHostConfigSnapshot[] = [];
+      for (const snapshot of Object.values(nextBucket.hosts)) {
+        const isCurrent = snapshot.hostId === captured.hostId;
+        const cloudExisting = cloudHosts[snapshot.hostId];
+        const needsCloudPush = isCurrent
+          ? shouldUpdateLocalCurrent ||
+            (cloudListLoaded &&
+              Boolean(cloudExisting) &&
+              (cloudExisting.fingerprint !== snapshot.fingerprint ||
+                (cloudExisting.agents.length === 0 &&
+                  snapshot.agents.length > 0)))
+          : cloudListLoaded &&
+            (!cloudExisting ||
+              cloudExisting.fingerprint !== snapshot.fingerprint ||
+              (cloudExisting.agents.length === 0 &&
+                snapshot.agents.length > 0));
+        if (needsCloudPush) {
+          snapshotsToPush.push(snapshot);
+        }
+      }
+
+      for (const snapshot of snapshotsToPush) {
+        await accountApi.saveHostConfig(snapshot).catch((cause) => {
           if (!isIgnorableCloudSyncError(cause)) {
             console.warn('Failed to push host config to cloud account:', cause);
           }
+        });
+      }
+
+      if (captured.kind === 'local' && captured.hostId) {
+        await issueAndApplyLocalRelayLease({
+          hostId: captured.hostId,
+          hostName: captured.hostName,
+          osType: captured.osType || undefined,
+          osArch: captured.osArch || undefined,
         });
       }
 
@@ -1237,6 +1523,8 @@ export function AccountHostConfigSyncBridge(): null {
 
     window.addEventListener('storage', handlePreferenceStorage);
     window.addEventListener(SETTINGS_CHANGED_EVENT, handleSettingsChanged);
+    window.addEventListener('host-client-changed', handleSettingsChanged);
+    window.addEventListener('focus', handleSettingsChanged);
 
     void backendListen<void>('agent-management-snapshot-invalidated', () => {
       if (!disposed) {
@@ -1254,6 +1542,8 @@ export function AccountHostConfigSyncBridge(): null {
       unlistenAgents?.();
       window.removeEventListener('storage', handlePreferenceStorage);
       window.removeEventListener(SETTINGS_CHANGED_EVENT, handleSettingsChanged);
+      window.removeEventListener('host-client-changed', handleSettingsChanged);
+      window.removeEventListener('focus', handleSettingsChanged);
       if (debounceTimerRef.current !== null) {
         window.clearTimeout(debounceTimerRef.current);
         debounceTimerRef.current = null;
@@ -1265,6 +1555,10 @@ export function AccountHostConfigSyncBridge(): null {
 }
 
 function resetStoreOnSignOut(): void {
+  void hostTunnelApi.setAccountLease(null).catch(() => undefined);
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new Event('vibex:host-tunnel-updated'));
+  }
   if (
     storeState.accountKey !== null ||
     storeState.hosts.length > 0 ||

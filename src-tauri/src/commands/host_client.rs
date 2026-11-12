@@ -163,6 +163,8 @@ pub async fn host_client_delete(
 pub struct SetSyncAccountRequest {
     #[serde(default)]
     pub account_user_id: Option<String>,
+    #[serde(default)]
+    pub legacy_account_ids: Vec<String>,
 }
 
 #[tauri::command]
@@ -173,7 +175,11 @@ pub async fn host_client_set_sync_account(
 ) -> Result<bool, AppError> {
     runtime().set_local_host_id(local_host_id().await).await;
     let result = runtime()
-        .set_sync_account(&state.remote_desktop, request.account_user_id.as_deref())
+        .set_sync_account_with_legacy(
+            &state.remote_desktop,
+            request.account_user_id.as_deref(),
+            &request.legacy_account_ids,
+        )
         .await?;
     for label in result.closed_windows {
         if let Some(window) = app.get_webview_window(&label) {

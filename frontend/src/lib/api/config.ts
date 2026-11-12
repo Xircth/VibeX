@@ -530,6 +530,12 @@ export interface SyncableHostCredential {
   accessToken: string;
 }
 
+export interface SyncableHostBoundAccount {
+  username: string;
+  displayName: string;
+  avatarUrl: string | null;
+}
+
 export interface SyncableHostProfile {
   syncKey?: string | null;
   profileId: string;
@@ -539,6 +545,7 @@ export interface SyncableHostProfile {
   provisionKind?: string | null;
   provision?: Record<string, unknown> | null;
   credential?: SyncableHostCredential | null;
+  boundAccount?: SyncableHostBoundAccount | null;
   lastConnectedAt?: string | null;
   updatedAt?: string | null;
 }
@@ -592,9 +599,15 @@ export const hostClientApi = {
       { request: { profile_id: profileId } }
     );
   },
-  setSyncAccount: async (accountUserId: string | null): Promise<boolean> => {
+  setSyncAccount: async (
+    accountUserId: string | null,
+    legacyAccountIds?: string[]
+  ): Promise<boolean> => {
     return desktopShellCall<boolean>('host_client_set_sync_account', {
-      request: { accountUserId },
+      request:
+        legacyAccountIds && legacyAccountIds.length > 0
+          ? { accountUserId, legacyAccountIds }
+          : { accountUserId },
     });
   },
   exportSyncProfiles: async (
@@ -631,6 +644,7 @@ export const hostClientApi = {
 
 export type SavedHostTunnel = {
   id: string;
+  name?: string | null;
   origin: string;
   host: string;
   port: number;
@@ -685,6 +699,23 @@ export const hostTunnelApi = {
   removeSaved: async (id: string): Promise<HostTunnelStatus> => {
     return desktopShellCall<HostTunnelStatus>('remove_saved_host_tunnel', {
       id,
+    });
+  },
+  setAccountLease: async (
+    lease: {
+      lease_token: string;
+      expires_at: number;
+      relay_host: string;
+      relay_port: number;
+      tenant_origin: string;
+      host_id: string;
+      lease_version: number;
+      server_id?: string | null;
+      server_name?: string | null;
+    } | null
+  ): Promise<HostTunnelStatus> => {
+    return desktopShellCall<HostTunnelStatus>('set_account_relay_lease', {
+      lease,
     });
   },
 };

@@ -204,7 +204,7 @@ describe('AccountSettings', () => {
       screen.getAllByText(/登录 VibeX 账号|Sign in to VibeX/i).length
     ).toBeGreaterThanOrEqual(1);
     expect(
-      screen.getByText(/安全密钥 \(Passkey\)|Security Key \(Passkey\)/i)
+      screen.getByText(/登录安全与设备管理|Sign-in Security & Devices/i)
     ).toBeInTheDocument();
     expect(
       screen.getByText(/历史账单记录|Billing History/i)
@@ -370,8 +370,10 @@ describe('AccountSettings', () => {
     );
 
     await user.click(screen.getByTestId('open-site-plan-details'));
-    expect(openExternalSpy).toHaveBeenCalledWith(
-      expect.stringContaining('/account/plan')
+    await waitFor(() =>
+      expect(openExternalSpy).toHaveBeenCalledWith(
+        expect.stringContaining('/account/plan')
+      )
     );
 
     // Host list section with current Host row + MacBook Studio row appears

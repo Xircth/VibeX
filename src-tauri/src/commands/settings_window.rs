@@ -127,7 +127,14 @@ fn destroy_settings_webview_on_close(
 }
 
 pub fn open_local_settings_window(app: &tauri::AppHandle) -> Result<(), String> {
-    open_or_focus(app, "settings", "设置", None)
+    open_local_settings_window_at(app, None)
+}
+
+pub fn open_local_settings_window_at(
+    app: &tauri::AppHandle,
+    path: Option<&str>,
+) -> Result<(), String> {
+    open_or_focus(app, "settings", "设置", path)
 }
 
 #[tauri::command]

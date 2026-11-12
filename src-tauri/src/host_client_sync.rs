@@ -364,10 +364,30 @@ impl HostClientRuntime {
         registry: &RemoteDesktopRegistry,
         account_user_id: Option<&str>,
     ) -> Result<AccountSwitchResult, AppError> {
+        self.set_sync_account_with_legacy(registry, account_user_id, &[])
+            .await
+    }
+
+    pub async fn set_sync_account_with_legacy(
+        &self,
+        registry: &RemoteDesktopRegistry,
+        account_user_id: Option<&str>,
+        legacy_account_ids: &[String],
+    ) -> Result<AccountSwitchResult, AppError> {
         let next_id = account_user_id
             .map(str::trim)
             .filter(|value| !value.is_empty())
             .map(str::to_string);
+        let legacy_ids: HashSet<String> = legacy_account_ids
+            .iter()
+            .map(|id| id.trim().to_ascii_lowercase())
+            .filter(|id| {
+                !id.is_empty()
+                    && next_id
+                        .as_deref()
+                        .is_none_or(|target| !target.eq_ignore_ascii_case(id))
+            })
+            .collect();
         let mut state = self.load_state().await?;
         let mut changed = false;
         let mut profiles_to_disconnect = Vec::new();
@@ -383,6 +403,13 @@ impl HostClientRuntime {
                 .map(str::to_string);
             match (&owner, &next_id) {
                 (Some(owner_id), Some(target_id)) if owner_id == target_id => {
+                    remaining.push(profile);
+                }
+                (Some(owner_id), Some(target_id))
+                    if legacy_ids.contains(&owner_id.to_ascii_lowercase()) =>
+                {
+                    profile.account_user_id = Some(target_id.clone());
+                    changed = true;
                     remaining.push(profile);
                 }
                 (Some(owner_id), _) => {
@@ -414,19 +441,35 @@ impl HostClientRuntime {
         }
         state.profiles = remaining;
 
-        // Restore any archived profiles belonging to next_id
-        if let Some(ref target_id) = next_id
-            && let Some(archived) = state.archived_account_profiles.remove(target_id)
-        {
-            for mut restored in archived {
-                restored.account_user_id = Some(target_id.clone());
-                if !state
-                    .profiles
-                    .iter()
-                    .any(|existing| same_archive_identity(existing, &restored))
-                {
-                    write_saved_ssh_host_file(self.store_path(), &restored);
-                    state.profiles.push(restored);
+        // Restore any archived profiles belonging to next_id or migrated legacy keys
+        if let Some(ref target_id) = next_id {
+            let mut keys_to_restore = vec![target_id.clone()];
+            keys_to_restore.extend(
+                state
+                    .archived_account_profiles
+                    .keys()
+                    .filter(|key| legacy_ids.contains(&key.to_ascii_lowercase()))
+                    .cloned(),
+            );
+            for key in keys_to_restore {
+                if let Some(archived) = state.archived_account_profiles.remove(&key) {
+                    for mut restored in archived {
+                        restored.account_user_id = Some(target_id.clone());
+                        if !state
+                            .profiles
+                            .iter()
+                            .any(|existing| same_archive_identity(existing, &restored))
+                        {
+                            write_saved_ssh_host_file(self.store_path(), &restored);
+                            state.profiles.push(restored);
+                            changed = true;
+                        }
+                    }
+                }
+            }
+            for item in &mut state.pending_cloud_deletes {
+                if legacy_ids.contains(&item.account_user_id.to_ascii_lowercase()) {
+                    item.account_user_id = target_id.clone();
                     changed = true;
                 }
             }

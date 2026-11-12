@@ -4,7 +4,7 @@ import { type ComponentType, type SVGProps, useId, useState } from 'react';
 import { CONTRIBUTION_ICONS } from '@/components/plugins/contributionIcon';
 import type { CoreFoundationArtworkKey } from '@/features/plugins/coreFoundationPlugins';
 import type { CatalogListing } from '@/lib/api/plugins';
-import { getMarketplaceHost } from '@/lib/branding';
+import { getMarketplaceHost, getMarketplaceOrigin } from '@/lib/branding';
 
 import {
   listingPackageIds,
@@ -647,12 +647,21 @@ export function allowedMarketplaceIconUrl(value: string): string | null {
   } catch {
     return null;
   }
-  if (url.protocol !== 'https:') return null;
   if (url.username || url.password) return null;
-  if (url.port !== '' && url.port !== '443') return null;
-  if (url.hostname.toLowerCase() !== getMarketplaceHost()) return null;
   const path = url.pathname.toLowerCase();
   if (path.endsWith('.svg') || path.endsWith('.svgz')) return null;
+
+  const host = url.hostname.toLowerCase();
+  const isLoopbackHttp =
+    url.protocol === 'http:' &&
+    (host === 'localhost' || host === '127.0.0.1' || host === '[::1]') &&
+    url.origin.toLowerCase() === getMarketplaceOrigin().toLowerCase();
+
+  if (!isLoopbackHttp) {
+    if (url.protocol !== 'https:') return null;
+    if (url.port !== '' && url.port !== '443') return null;
+    if (host !== getMarketplaceHost()) return null;
+  }
   return url.href;
 }
 

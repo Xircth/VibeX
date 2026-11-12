@@ -29,13 +29,22 @@ export function getSiteHost(): string {
   }
 }
 
-export function getMarketplaceHost(): string {
+export function getMarketplaceOrigin(): string {
   const raw =
     import.meta.env.VIBEX_MARKETPLACE_URL ||
     import.meta.env.VITE_VIBEX_MARKETPLACE_URL ||
     getSiteUrl();
   try {
-    return new URL(String(raw).trim()).hostname.toLowerCase();
+    const parsed = new URL(String(raw).trim());
+    return parsed.origin;
+  } catch {
+    return getSiteUrl();
+  }
+}
+
+export function getMarketplaceHost(): string {
+  try {
+    return new URL(getMarketplaceOrigin()).hostname.toLowerCase();
   } catch {
     return getSiteHost();
   }

@@ -105,11 +105,52 @@ function getDefaultBundles(platform) {
   }
 }
 
+function isLoopbackSiteOrigin(raw) {
+  if (!raw || typeof raw !== "string") return false;
+  try {
+    const parsed = new URL(raw.trim());
+    const host = parsed.hostname.replace(/^\[|\]$/g, "").toLowerCase();
+    return (
+      host === "localhost" ||
+      host === "::1" ||
+      host === "0.0.0.0" ||
+      host.startsWith("127.")
+    );
+  } catch {
+    return false;
+  }
+}
+
+function sanitizeReleaseSiteEnv(env) {
+  if (
+    env.ALLOW_DEV_SITE_IN_RELEASE === "1" ||
+    env.ALLOW_DEV_SITE_IN_RELEASE === "true"
+  ) {
+    return env;
+  }
+  const cleaned = { ...env };
+  for (const key of [
+    "VIBEX_SITE_URL",
+    "VITE_VIBEX_SITE_URL",
+    "VIBEX_MARKETPLACE_URL",
+    "VITE_VIBEX_MARKETPLACE_URL",
+  ]) {
+    if (isLoopbackSiteOrigin(cleaned[key])) {
+      console.warn(
+        `[tauri:build] Ignoring loopback ${key}=${cleaned[key]} for release bundle (set ALLOW_DEV_SITE_IN_RELEASE=1 to override).`
+      );
+      delete cleaned[key];
+    }
+  }
+  return cleaned;
+}
+
 function withTauriBuildEnv(env, target) {
+  const safeEnv = sanitizeReleaseSiteEnv(env);
   return {
-    ...withNativeBuildEnv(env),
-    SQLX_OFFLINE: env.SQLX_OFFLINE || "true",
-    SQLX_OFFLINE_DIR: env.SQLX_OFFLINE_DIR || sqlxOfflineDir,
+    ...withNativeBuildEnv(safeEnv),
+    SQLX_OFFLINE: safeEnv.SQLX_OFFLINE || "true",
+    SQLX_OFFLINE_DIR: safeEnv.SQLX_OFFLINE_DIR || sqlxOfflineDir,
     ...(target ? { VIBEX_BUILD_TARGET: target } : {}),
   };
 }

@@ -60,8 +60,12 @@ pub fn take_pending_model_router_import() -> Option<PendingModelRouterImport> {
         .and_then(|mut guard| guard.take())
 }
 
+pub fn is_vibex_scheme(scheme: &str) -> bool {
+    scheme.eq_ignore_ascii_case("vibex") || scheme.eq_ignore_ascii_case("vibex-dev")
+}
+
 pub fn parse_model_router_import(url: &url::Url) -> Option<(String, Option<String>)> {
-    if url.scheme() != "vibex" {
+    if !is_vibex_scheme(url.scheme()) {
         return None;
     }
     let host = url.host_str().unwrap_or_default();
@@ -109,7 +113,7 @@ pub fn route_deep_link_args(app: &AppHandle, args: &[String]) {
     let urls: Vec<url::Url> = args
         .iter()
         .filter_map(|arg| url::Url::parse(arg).ok())
-        .filter(|url| url.scheme() == "vibex")
+        .filter(|url| is_vibex_scheme(url.scheme()))
         .collect();
     if urls.is_empty() {
         // A plain second launch (no deep link) — just surface the window.
@@ -123,7 +127,7 @@ pub fn route_deep_link_args(app: &AppHandle, args: &[String]) {
 pub fn route_startup_deep_link_args(app: &AppHandle) {
     let urls: Vec<url::Url> = std::env::args()
         .filter_map(|arg| url::Url::parse(&arg).ok())
-        .filter(|url| url.scheme() == "vibex")
+        .filter(|url| is_vibex_scheme(url.scheme()))
         .collect();
     if !urls.is_empty() {
         route_deep_link_urls(app, &urls);
@@ -131,7 +135,7 @@ pub fn route_startup_deep_link_args(app: &AppHandle) {
 }
 
 fn route_one(app: &AppHandle, url: &url::Url) {
-    if url.scheme() != "vibex" {
+    if !is_vibex_scheme(url.scheme()) {
         return;
     }
     // Always bring the app forward for any vibex:// link.
@@ -196,6 +200,14 @@ mod tests {
         assert_eq!(
             parse_model_router_import(&url),
             Some(("tkt_456".to_string(), None))
+        );
+
+        let dev_url =
+            url::Url::parse("vibex-dev://modelrouter/import?ticket=tkt_dev_789&agent=codex")
+                .unwrap();
+        assert_eq!(
+            parse_model_router_import(&dev_url),
+            Some(("tkt_dev_789".to_string(), Some("codex".to_string())))
         );
     }
 

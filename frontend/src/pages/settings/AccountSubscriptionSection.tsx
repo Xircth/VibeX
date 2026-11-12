@@ -10,12 +10,11 @@ import { useTranslation } from 'react-i18next';
 
 import { Button } from '@/components/ui/button';
 import {
-  openExternal,
+  openAccountWebPath,
   useVibeXAccount,
   type AccountTier,
   type RouterCreditGrant,
 } from '@/features/model-router';
-import { getSiteUrl } from '@/lib/branding';
 import { cn } from '@/lib/utils';
 
 const MICRO = 1_000_000;
@@ -151,11 +150,11 @@ export function AccountSubscriptionSection() {
   }
 
   const openPlanCenter = () => {
-    void openExternal(getSiteUrl('/account/plan'));
+    void openAccountWebPath('/account/plan');
   };
 
   const openModelRouterStore = () => {
-    void openExternal(getSiteUrl('/account/models'));
+    void openAccountWebPath('/account/models');
   };
 
   return (

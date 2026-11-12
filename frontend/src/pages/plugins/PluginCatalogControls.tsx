@@ -15,13 +15,13 @@ import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import type { PluginImportPreview } from '@/lib/api/plugins';
+import { getMarketplaceOrigin } from '@/lib/branding';
 import { PluginProductIcon } from './OfficialPluginIcon';
 import { formatPluginVersion } from './PluginAttributeBadges';
 import { officialPluginName } from './officialPlugins';
 import { errorMessage } from './pluginQueries';
 
-export const OFFICIAL_MARKETPLACE_WEB_URL =
-  'https://vibex.xforever.xin/marketplace';
+export const OFFICIAL_MARKETPLACE_WEB_URL = `${getMarketplaceOrigin().replace(/\/+$/, '')}/marketplace`;
 
 export function normalizeGithubRepositoryInput(
   rawInput: string

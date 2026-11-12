@@ -125,7 +125,13 @@ pub fn marketplace_origin() -> String {
         .or_else(|| option_env!("VIBEX_SITE_URL").map(str::to_owned))
         .map(|value| value.trim().trim_end_matches('/').to_owned())
         .filter(|value| !value.is_empty())
-        .unwrap_or_else(|| crate::official_catalog::official_marketplace_origin().to_owned())
+        .unwrap_or_else(|| {
+            if cfg!(all(debug_assertions, not(test))) {
+                utils::site_origin()
+            } else {
+                crate::official_catalog::official_marketplace_origin().to_owned()
+            }
+        })
 }
 
 pub fn marketplace_listing_url(owner: &str, plugin_name: &str) -> String {
@@ -1107,10 +1113,14 @@ async fn fetch_json<T: DeserializeOwned>(
 }
 
 fn absolutize_listing(request_url: &str, mut listing: CatalogListing) -> CatalogListing {
-    let origin = request_url
-        .parse::<url::Url>()
-        .ok()
-        .and_then(|parsed| Some(format!("{}://{}", parsed.scheme(), parsed.host_str()?)));
+    let origin = request_url.parse::<url::Url>().ok().and_then(|parsed| {
+        let host = parsed.host_str()?;
+        let authority = match parsed.port() {
+            Some(port) => format!("{host}:{port}"),
+            None => host.to_owned(),
+        };
+        Some(format!("{}://{authority}", parsed.scheme()))
+    });
     if let Some(origin) = origin {
         listing.download_url = listing
             .download_url

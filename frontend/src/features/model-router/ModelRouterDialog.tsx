@@ -18,13 +18,17 @@ import {
   AccountError,
   accountApi,
   accountToken,
-  modelRouterUrl,
+  modelMarketplacePath,
+  openModelMarketplace,
   type DeviceLogin,
   type RouterModel,
   type RouterOverview,
   type RouterProvision,
 } from './account';
+import { resolveCurrentHostIdentity } from './accountHostConfigs';
+import { isolateSavedHostsOnSignOut } from './accountSavedHosts';
 import { openExternal } from './openExternal';
+import { resetAccountOverviewCache } from './useVibeXAccount';
 
 const MICRO = 1_000_000;
 
@@ -174,7 +178,12 @@ export function ModelRouterDialog({
     setWorking(true);
     setError(null);
     try {
-      const next = await accountApi.startLogin();
+      const identity = await resolveCurrentHostIdentity().catch(() => null);
+      const next = await accountApi.startLogin({
+        deviceName: identity?.hostName,
+        hostId: identity?.hostId,
+        nextPath: modelMarketplacePath(agentId, selected),
+      });
       setPhase({
         kind: 'login',
         login: next,
@@ -190,6 +199,8 @@ export function ModelRouterDialog({
 
   const signOut = async () => {
     await accountApi.signOut();
+    await isolateSavedHostsOnSignOut().catch(() => undefined);
+    resetAccountOverviewCache();
     setPhase({ kind: 'signed_out' });
   };
 
@@ -386,9 +397,7 @@ export function ModelRouterDialog({
               </Button>
               <Button
                 variant="outline"
-                onClick={() =>
-                  void openExternal(modelRouterUrl(agentId, selected))
-                }
+                onClick={() => void openModelMarketplace(agentId, selected)}
               >
                 {t('settings:agents.modelRouterBuy')}
               </Button>

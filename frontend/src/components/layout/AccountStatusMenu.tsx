@@ -68,7 +68,7 @@ export function AccountStatusMenu({ className }: AccountStatusMenuProps) {
 
   const handleOpenChangelog = () => {
     setOpen(false);
-    void openExternal(getSiteUrl('/changelog'));
+    void openExternal(getSiteUrl('/release-notes'));
   };
 
   const handleGettingStarted = () => {

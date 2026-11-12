@@ -182,7 +182,12 @@ impl SqliteConversationRepository {
             r#"SELECT config_options_json, modes_json, current_mode
                FROM conversation_agent_bindings
                WHERE agent_id = ?
-               ORDER BY updated_at DESC
+               ORDER BY (
+                   config_options_json IS NOT NULL
+                   AND TRIM(config_options_json) != ''
+                   AND TRIM(config_options_json) != '[]'
+               ) DESC,
+               updated_at DESC
                LIMIT 1"#,
         )
         .bind(agent_id)

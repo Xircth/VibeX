@@ -38,6 +38,23 @@ struct HostTunnelStore {
     pending: Option<PendingSetup>,
     #[serde(default)]
     relays: Vec<RelayCredential>,
+    #[serde(default)]
+    account_lease: Option<AccountRelayLease>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AccountRelayLease {
+    pub lease_token: String,
+    pub expires_at: i64,
+    pub relay_host: String,
+    pub relay_port: u16,
+    pub tenant_origin: String,
+    pub host_id: String,
+    pub lease_version: i64,
+    #[serde(default)]
+    pub server_id: Option<String>,
+    #[serde(default)]
+    pub server_name: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -72,6 +89,8 @@ struct PendingSetup {
 #[derive(Debug, Clone, Serialize)]
 pub struct SavedTunnelView {
     pub id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
     pub origin: String,
     pub host: String,
     pub port: u16,
@@ -184,14 +203,40 @@ fn active_published_origin(store: &HostTunnelStore) -> Option<String> {
         .map(|item| item.origin.clone())
 }
 
-fn default_official_quick_origin() -> Option<String> {
+fn valid_account_lease(store: &HostTunnelStore) -> Option<&AccountRelayLease> {
+    let lease = store.account_lease.as_ref()?;
+    if lease.lease_token.trim().is_empty()
+        || lease.relay_host.trim().is_empty()
+        || lease.relay_port == 0
+    {
+        return None;
+    }
+    if lease.expires_at > 0 && Utc::now().timestamp() >= lease.expires_at {
+        return None;
+    }
+    Some(lease)
+}
+
+fn default_official_quick_origin(store: &HostTunnelStore) -> Option<String> {
+    let lease = valid_account_lease(store)?;
     if let Some(origin) = quick_tunnel_origin() {
         return Some(origin);
     }
-    let endpoint = utils::tunnel::official_relay_endpoint(None)?;
-    let host_id = load_or_create_host_id_sync().unwrap_or_else(|| "default".to_string());
+    if !lease.tenant_origin.trim().is_empty() {
+        return Some(lease.tenant_origin.trim().to_string());
+    }
+    let endpoint = TunnelEndpoint {
+        host: lease.relay_host.trim().to_string(),
+        port: lease.relay_port,
+    };
+    let host_id = if !lease.host_id.trim().is_empty() {
+        lease.host_id.trim().to_string()
+    } else {
+        load_or_create_host_id_sync().unwrap_or_else(|| "default".to_string())
+    };
+    let scheme = if endpoint.port == 443 { "https" } else { "http" };
     Some(utils::tunnel::format_tenant_origin(
-        "https", &endpoint, &host_id,
+        scheme, &endpoint, &host_id,
     ))
 }
 
@@ -203,7 +248,7 @@ fn all_published_origin_strings(store: &HostTunnelStore) -> Vec<String> {
     if let Some(custom) = active_published_origin(store) {
         origins.push(custom);
     }
-    if let Some(quick) = default_official_quick_origin()
+    if let Some(quick) = default_official_quick_origin(store)
         && !origins.contains(&quick)
     {
         origins.push(quick);
@@ -224,6 +269,7 @@ fn publish_browser_origins(store: &HostTunnelStore) {
 fn view_saved(item: &SavedTunnel) -> SavedTunnelView {
     SavedTunnelView {
         id: item.id.clone(),
+        name: None,
         origin: item.origin.clone(),
         host: item.host.clone(),
         port: item.port,
@@ -242,7 +288,14 @@ fn status_from(store: &HostTunnelStore, relay: &RelayState) -> HostTunnelStatus 
     };
     let mut relay_state = relay.status.clone();
 
-    if let Some(quick_origin) = default_official_quick_origin() {
+    if let Some(quick_origin) = default_official_quick_origin(store) {
+        let lease_port = valid_account_lease(store)
+            .map(|l| l.relay_port)
+            .unwrap_or(443);
+        let lease_name = valid_account_lease(store)
+            .and_then(|l| l.server_name.clone())
+            .map(|n| n.trim().to_string())
+            .filter(|n| !n.is_empty());
         let host = quick_origin
             .trim_start_matches("https://")
             .trim_start_matches("http://")
@@ -258,9 +311,10 @@ fn status_from(store: &HostTunnelStore, relay: &RelayState) -> HostTunnelStatus 
                 0,
                 SavedTunnelView {
                     id: "auto-quick-tunnel".to_string(),
+                    name: lease_name,
                     origin: quick_origin,
                     host,
-                    port: 443,
+                    port: lease_port,
                     kind: "quick".to_string(),
                     created_at: None,
                 },
@@ -272,6 +326,8 @@ fn status_from(store: &HostTunnelStore, relay: &RelayState) -> HostTunnelStatus 
         if enabled && relay_state == "idle" {
             relay_state = "connected".to_string();
         }
+    } else if active_id.as_deref() == Some("auto-quick-tunnel") {
+        active_id = saved.first().map(|item| item.id.clone());
     }
 
     HostTunnelStatus {
@@ -360,7 +416,7 @@ pub async fn sync_relay() {
     publish_browser_origins(&store);
     let listening_port = crate::commands::web_service::listening_port().await;
     let local_port = listening_port.unwrap_or(17891);
-    if listening_port.is_some() {
+    if listening_port.is_some() && valid_account_lease(&store).is_some() {
         ensure_quick_tunnel(local_port).await;
     } else {
         stop_quick_tunnel().await;
@@ -463,23 +519,6 @@ fn load_or_create_host_id_sync() -> Option<String> {
     utils::assets::load_or_create_host_id(&utils::assets::asset_dir()).ok()
 }
 
-fn load_or_create_host_relay_token() -> String {
-    let path = utils::assets::asset_dir().join("host-relay-token");
-    if let Ok(existing) = std::fs::read_to_string(&path) {
-        let trimmed = existing.trim();
-        if trimmed.len() >= 24 {
-            return trimmed.to_string();
-        }
-    }
-    let token = format!(
-        "vbx_tun_{}{}",
-        Uuid::new_v4().simple(),
-        Uuid::new_v4().simple()
-    );
-    let _ = std::fs::write(&path, &token);
-    token
-}
-
 async fn connect_to_relay_host(host: &str, port: u16) -> Result<TcpStream, String> {
     use tokio::io::AsyncReadExt;
 
@@ -551,19 +590,17 @@ async fn connect_to_relay_host(host: &str, port: u16) -> Result<TcpStream, Strin
 
 async fn run_quick_tunnel_supervisor(local_port: u16) {
     loop {
-        if let Some(endpoint) = utils::tunnel::official_relay_endpoint(None) {
-            let token = load_or_create_host_relay_token();
+        if let Ok(store) = load_store().await
+            && let Some(lease) = valid_account_lease(&store)
+        {
+            let host = lease.relay_host.trim().to_string();
+            let port = lease.relay_port;
+            let token = lease.lease_token.trim().to_string();
             let state = Arc::new(Mutex::new(RelayState::default()));
-            let key = format!("{}:{}:official", endpoint.host, endpoint.port);
-            let _ = maintain_control(
-                &endpoint.host,
-                endpoint.port,
-                &token,
-                local_port,
-                &key,
-                &state,
-            )
-            .await;
+            let key = format!("{}:{}:official", host, port);
+            let _ = maintain_control(&host, port, &token, local_port, &key, &state).await;
+        } else {
+            set_quick_tunnel_origin(None);
         }
         tokio::time::sleep(Duration::from_secs(3)).await;
     }
@@ -1235,6 +1272,8 @@ pub async fn set_host_tunnel_enabled(
     store.enabled = enabled;
     if !enabled {
         store.pending = None;
+    } else if store.active_id.is_none() && valid_account_lease(&store).is_some() {
+        store.active_id = Some("auto-quick-tunnel".to_string());
     }
     save_store(&store).await?;
     if enabled {
@@ -1296,7 +1335,13 @@ pub async fn select_saved_host_tunnel(id: Option<String>) -> Result<HostTunnelSt
         .map(|value| value.trim().to_string())
         .filter(|value| !value.is_empty());
     if let Some(ref target) = target_id {
-        if target != "auto-quick-tunnel" && !store.saved.iter().any(|item| &item.id == target) {
+        if target == "auto-quick-tunnel" {
+            if valid_account_lease(&store).is_none() {
+                return Err(AppError::BadRequest(
+                    "Sign in to your VibeX account to use the Official Cloud Relay".to_string(),
+                ));
+            }
+        } else if !store.saved.iter().any(|item| &item.id == target) {
             return Err(AppError::BadRequest("Unknown tunnel".to_string()));
         }
         store.active_id = Some(target.clone());
@@ -1306,6 +1351,39 @@ pub async fn select_saved_host_tunnel(id: Option<String>) -> Result<HostTunnelSt
         store.enabled = false;
     }
     store.pending = None;
+    save_store(&store).await?;
+    sync_relay().await;
+    current_status().await
+}
+
+#[tauri::command]
+pub async fn set_account_relay_lease(
+    lease: Option<AccountRelayLease>,
+) -> Result<HostTunnelStatus, AppError> {
+    let mut store = load_store().await?;
+    let server_changed = match (store.account_lease.as_ref(), lease.as_ref()) {
+        (Some(prev), Some(next)) => {
+            prev.relay_host != next.relay_host
+                || prev.relay_port != next.relay_port
+                || prev.tenant_origin != next.tenant_origin
+                || prev.server_id != next.server_id
+        }
+        (Some(_), None) | (None, Some(_)) => true,
+        (None, None) => false,
+    };
+    store.account_lease = lease;
+    if valid_account_lease(&store).is_none() {
+        set_quick_tunnel_origin(None);
+        if store.active_id.as_deref() == Some("auto-quick-tunnel") {
+            store.active_id = store.saved.first().map(|item| item.id.clone());
+        }
+    } else if store.enabled && store.active_id.is_none() {
+        store.active_id = Some("auto-quick-tunnel".to_string());
+    }
+    if server_changed {
+        set_quick_tunnel_origin(None);
+        stop_quick_tunnel().await;
+    }
     save_store(&store).await?;
     sync_relay().await;
     current_status().await
@@ -1445,6 +1523,7 @@ mod tests {
             }],
             pending: None,
             relays: Vec::new(),
+            account_lease: None,
         };
         let item = store.saved[0].clone();
         remember_relay(
@@ -1502,6 +1581,7 @@ mod tests {
             }],
             pending: None,
             relays: Vec::new(),
+            account_lease: None,
         };
         let relay = RelayState {
             status: "connected".to_string(),
@@ -1511,5 +1591,49 @@ mod tests {
             ),
         };
         assert!(pending_setup_ready(&store, &relay).is_ok());
+    }
+
+    #[test]
+    fn official_quick_tunnel_requires_valid_account_lease() {
+        let signed_out_store = HostTunnelStore {
+            enabled: true,
+            ..HostTunnelStore::default()
+        };
+        let signed_out_status = super::status_from(&signed_out_store, &RelayState::default());
+        assert!(
+            !signed_out_status
+                .saved
+                .iter()
+                .any(|item| item.id == "auto-quick-tunnel")
+        );
+
+        let signed_in_store = HostTunnelStore {
+            enabled: true,
+            account_lease: Some(super::AccountRelayLease {
+                lease_token: "vbx_rly_v1.payload.sig".to_string(),
+                expires_at: chrono::Utc::now().timestamp() + 3600,
+                relay_host: "vibex.xforever.xin".to_string(),
+                relay_port: 443,
+                tenant_origin: "https://vibex.xforever.xin/t/my-host".to_string(),
+                host_id: "my-host".to_string(),
+                lease_version: 1,
+                server_id: Some("official-cn-main".to_string()),
+                server_name: Some("官方主云中继节点 (华东)".to_string()),
+            }),
+            ..HostTunnelStore::default()
+        };
+        let signed_in_status = super::status_from(&signed_in_store, &RelayState::default());
+        assert!(
+            signed_in_status
+                .saved
+                .iter()
+                .any(|item| item.id == "auto-quick-tunnel"
+                    && item.origin == "https://vibex.xforever.xin/t/my-host"
+                    && item.name.as_deref() == Some("官方主云中继节点 (华东)"))
+        );
+        assert_eq!(
+            signed_in_status.active_id.as_deref(),
+            Some("auto-quick-tunnel")
+        );
     }
 }

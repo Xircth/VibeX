@@ -5,6 +5,7 @@ import {
   useMemo,
   useRef,
   useState,
+  useSyncExternalStore,
 } from 'react';
 import { UNSAFE_NavigationContext } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
@@ -35,8 +36,16 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from '@/components/ui/popover';
+import { Switch } from '@/components/ui/switch';
 import { toast } from '@/components/ui/toast';
 import { AppSurfaceHost } from '@/components/plugins/AppSurfaceHost';
+import {
+  readHostBoundAccounts,
+  reconcileRemoteHostAccount,
+  resolveProfileBoundAccount,
+  subscribeHostBoundAccounts,
+  useVibeXAccount,
+} from '@/features/model-router';
 import {
   hostClientApi,
   openSettingsSurface,
@@ -104,6 +113,33 @@ function formatConnectError(
   return cleaned || fallback;
 }
 
+export function resolveCloudRelayTargetOrigin(
+  rawOrigin: string,
+  relayPublicOrigin: string,
+  hostId?: string | null
+): string {
+  const baseRelay = relayPublicOrigin.trim().replace(/\/+$/, '');
+  const trimmed = rawOrigin.trim();
+  if (!baseRelay) return trimmed;
+  const tunnelMatch = trimmed.match(/\/t\/([^/?#]+)/i);
+  if (tunnelMatch?.[1]) {
+    return `${baseRelay}/t/${tunnelMatch[1]}`;
+  }
+  const normalizedHostId = hostId?.trim() || '';
+  if (normalizedHostId) {
+    return `${baseRelay}/t/${encodeURIComponent(normalizedHostId)}`;
+  }
+  if (
+    trimmed &&
+    !trimmed.includes('://') &&
+    !trimmed.includes(':') &&
+    !trimmed.includes('.')
+  ) {
+    return `${baseRelay}/t/${encodeURIComponent(trimmed.replace(/^\/+/, ''))}`;
+  }
+  return trimmed;
+}
+
 function ConnectHostDialog({
   seed,
   profiles,
@@ -116,11 +152,33 @@ function ConnectHostDialog({
   onConnected: () => Promise<void>;
 }) {
   const { t } = useTranslation(['panels', 'settings', 'common']);
+  const { isSignedIn, overview } = useVibeXAccount();
   const [origin, setOrigin] = useState(seed.origin);
   const [code, setCode] = useState('');
+  const [useCloudRelay, setUseCloudRelay] = useState(() =>
+    seed.origin.includes('/t/')
+  );
   const [submitting, setSubmitting] = useState(false);
   const originInputRef = useRef<HTMLInputElement>(null);
   const codeInputRef = useRef<HTMLInputElement>(null);
+
+  const matchedProfile =
+    (seed.profileId
+      ? profiles.find((item) => item.id === seed.profileId)
+      : undefined) ??
+    profiles.find(
+      (item) =>
+        item.origin === origin.trim() ||
+        savedHostOrigin(item) === origin.trim()
+    );
+  const isSshProfile =
+    savedHostSource(matchedProfile?.provision_kind) === 'ssh';
+  const relayPublicOrigin =
+    overview?.assignedRelayServer?.publicOrigin?.trim() ||
+    'https://vibex.xforever.xin';
+  const canUseCloudRelay = Boolean(
+    isSignedIn && overview?.relayPermission !== false && !isSshProfile
+  );
 
   useEffect(() => {
     const frame = window.requestAnimationFrame(() => {
@@ -135,7 +193,15 @@ function ConnectHostDialog({
 
   const handleSubmit = async (event?: React.FormEvent) => {
     event?.preventDefault();
-    const trimmedOrigin = origin.trim();
+    const rawOrigin = origin.trim();
+    const trimmedOrigin =
+      canUseCloudRelay && useCloudRelay
+        ? resolveCloudRelayTargetOrigin(
+            rawOrigin,
+            relayPublicOrigin,
+            matchedProfile?.host_id
+          )
+        : rawOrigin;
     const trimmedCode = code.trim();
     if (!trimmedOrigin) {
       toast.error(
@@ -143,16 +209,6 @@ function ConnectHostDialog({
       );
       return;
     }
-
-    const matchedProfile =
-      (seed.profileId
-        ? profiles.find((item) => item.id === seed.profileId)
-        : undefined) ??
-      profiles.find(
-        (item) =>
-          item.origin === trimmedOrigin ||
-          savedHostOrigin(item) === trimmedOrigin
-      );
 
     if (
       !trimmedCode &&
@@ -169,6 +225,9 @@ function ConnectHostDialog({
         token: trimmedCode || undefined,
         profile_id: matchedProfile?.id,
       });
+      if (result.profile?.connected) {
+        void reconcileRemoteHostAccount(result.profile);
+      }
       await onConnected();
       if (result.profile.connected) {
         toast.success(t('settings:webService.clientConnected', '已连接'));
@@ -266,6 +325,44 @@ function ConnectHostDialog({
               className="[&_input]:font-mono [&_input]:text-sm"
             />
           </div>
+
+          {canUseCloudRelay ? (
+            <div
+              data-testid="connect-host-cloud-relay-row"
+              className="flex items-center justify-between gap-3 rounded-md border border-border/70 bg-muted/30 px-3 py-2"
+            >
+              <div className="min-w-0">
+                <Label
+                  htmlFor="connect-host-use-cloud-relay"
+                  className="text-xs font-medium"
+                >
+                  {t('toolbar.useCloudRelayService', '使用云中继服务')}
+                </Label>
+                {overview?.assignedRelayServer?.name ? (
+                  <p className="truncate text-[11px] text-muted-foreground">
+                    {overview.assignedRelayServer.name}
+                  </p>
+                ) : null}
+              </div>
+              <Switch
+                id="connect-host-use-cloud-relay"
+                aria-label={t('toolbar.useCloudRelayService', '使用云中继服务')}
+                checked={useCloudRelay}
+                onCheckedChange={(checked: boolean) => {
+                  setUseCloudRelay(checked);
+                  if (checked && matchedProfile?.host_id) {
+                    setOrigin(
+                      resolveCloudRelayTargetOrigin(
+                        origin,
+                        relayPublicOrigin,
+                        matchedProfile.host_id
+                      )
+                    );
+                  }
+                }}
+              />
+            </div>
+          ) : null}
 
           <DialogFooter className="pt-2">
             <Button
@@ -406,6 +503,12 @@ function NewSshHostDialog({
 
 export function HostSelector() {
   const { t } = useTranslation(['panels', 'settings', 'common']);
+  const { user } = useVibeXAccount();
+  const boundAccounts = useSyncExternalStore(
+    subscribeHostBoundAccounts,
+    readHostBoundAccounts,
+    readHostBoundAccounts
+  );
   const navigate = useSafeNavigate();
   const [open, setOpen] = useState(false);
   const [profiles, setProfiles] = useState<HostClientProfile[]>([]);
@@ -418,6 +521,11 @@ export function HostSelector() {
 
   const connectedProfile =
     profiles.find((profile) => profile.connected) ?? null;
+
+  useEffect(() => {
+    if (!connectedProfile?.connected) return;
+    void reconcileRemoteHostAccount(connectedProfile);
+  }, [connectedProfile]);
 
   const loadStatus = useCallback(async () => {
     if (!isTauriClient()) return;
@@ -525,10 +633,13 @@ export function HostSelector() {
 
       setSwitchingKey(profile.id);
       try {
-        await hostClientApi.connect({
+        const result = await hostClientApi.connect({
           profile_id: profile.id,
           origin: durableOrigin || undefined,
         });
+        if (result.profile?.connected) {
+          void reconcileRemoteHostAccount(result.profile);
+        }
         await loadStatus();
         setOpen(false);
       } catch (error) {
@@ -585,10 +696,13 @@ export function HostSelector() {
         }
       }
 
-      await hostClientApi.connect({
+      const result = await hostClientApi.connect({
         profile_id: profile.id,
         origin: origin || undefined,
       });
+      if (result.profile?.connected) {
+        void reconcileRemoteHostAccount(result.profile);
+      }
       await loadStatus();
       setOpen(false);
     } catch (error) {
@@ -631,7 +745,10 @@ export function HostSelector() {
     const key = host.host_id || host.origin;
     setSwitchingKey(key);
     try {
-      await hostClientApi.connect({ origin: host.origin });
+      const result = await hostClientApi.connect({ origin: host.origin });
+      if (result.profile?.connected) {
+        void reconcileRemoteHostAccount(result.profile);
+      }
       await loadStatus();
       setOpen(false);
     } catch (error) {
@@ -809,41 +926,86 @@ export function HostSelector() {
               ) : null}
             </button>
 
-            {profiles.map((profile) => (
-              <button
-                key={profile.id}
-                type="button"
-                data-testid={`host-selector-item-${profile.id}`}
-                onClick={() => void handleSelectProfile(profile)}
-                className={cn(
-                  'flex w-full cursor-pointer items-center justify-between gap-2 rounded-md px-2 py-1.5 text-left text-xs transition-colors',
-                  profile.connected
-                    ? 'bg-foreground/[0.05] text-foreground'
-                    : 'text-foreground/90 hover:bg-foreground/[0.06]'
-                )}
-              >
-                <div className="flex min-w-0 items-center gap-2.5">
-                  {savedHostSource(profile.provision_kind) === 'ssh' ? (
-                    <Terminal className="h-3.5 w-3.5 shrink-0 text-primary" />
-                  ) : (
-                    <Server className="h-3.5 w-3.5 shrink-0 text-primary" />
+            {profiles.map((profile) => {
+              const boundAccount = resolveProfileBoundAccount(
+                profile,
+                boundAccounts
+              );
+              const isDifferentAccountOwner = Boolean(
+                boundAccount?.username &&
+                  (!user?.username ||
+                    boundAccount.username.toLowerCase() !==
+                      user.username.toLowerCase())
+              );
+              return (
+                <button
+                  key={profile.id}
+                  type="button"
+                  data-testid={`host-selector-item-${profile.id}`}
+                  onClick={() => void handleSelectProfile(profile)}
+                  className={cn(
+                    'flex w-full cursor-pointer items-center justify-between gap-2 rounded-md px-2 py-1.5 text-left text-xs transition-colors',
+                    profile.connected
+                      ? 'bg-foreground/[0.05] text-foreground'
+                      : 'text-foreground/90 hover:bg-foreground/[0.06]'
                   )}
-                  <div className="min-w-0">
-                    <div className="truncate font-medium">
-                      {profile.name || savedHostAddress(profile)}
-                    </div>
-                    <div className="truncate font-mono text-[10px] text-muted-foreground">
-                      {savedHostAddress(profile)}
+                >
+                  <div className="flex min-w-0 items-center gap-2.5">
+                    {savedHostSource(profile.provision_kind) === 'ssh' ? (
+                      <Terminal className="h-3.5 w-3.5 shrink-0 text-primary" />
+                    ) : (
+                      <Server className="h-3.5 w-3.5 shrink-0 text-primary" />
+                    )}
+                    <div className="min-w-0">
+                      <div className="flex min-w-0 items-center gap-1.5">
+                        <span className="truncate font-medium">
+                          {profile.name || savedHostAddress(profile)}
+                        </span>
+                        {isDifferentAccountOwner && boundAccount ? (
+                          <span
+                            data-testid={`host-selector-bound-account-${profile.id}`}
+                            className="inline-flex shrink-0 items-center gap-1 rounded-full border border-border/80 bg-muted/70 px-1.5 py-0.5 text-[10px] font-medium text-foreground/90"
+                            title={`${boundAccount.displayName || boundAccount.username} (@${boundAccount.username})`}
+                          >
+                            {boundAccount.avatarUrl ? (
+                              <img
+                                src={boundAccount.avatarUrl}
+                                alt={
+                                  boundAccount.displayName ||
+                                  boundAccount.username
+                                }
+                                className="h-3.5 w-3.5 rounded-full object-cover"
+                              />
+                            ) : (
+                              <span className="inline-flex h-3.5 w-3.5 items-center justify-center rounded-full bg-primary/15 text-[9px] font-semibold text-primary">
+                                {(
+                                  boundAccount.displayName ||
+                                  boundAccount.username
+                                )
+                                  .slice(0, 1)
+                                  .toUpperCase()}
+                              </span>
+                            )}
+                            <span className="max-w-[5.5rem] truncate">
+                              {boundAccount.displayName ||
+                                boundAccount.username}
+                            </span>
+                          </span>
+                        ) : null}
+                      </div>
+                      <div className="truncate font-mono text-[10px] text-muted-foreground">
+                        {savedHostAddress(profile)}
+                      </div>
                     </div>
                   </div>
-                </div>
-                {switchingKey === profile.id ? (
-                  <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-muted-foreground" />
-                ) : profile.connected ? (
-                  <Check className="h-3.5 w-3.5 shrink-0 text-primary" />
-                ) : null}
-              </button>
-            ))}
+                  {switchingKey === profile.id ? (
+                    <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-muted-foreground" />
+                  ) : profile.connected ? (
+                    <Check className="h-3.5 w-3.5 shrink-0 text-primary" />
+                  ) : null}
+                </button>
+              );
+            })}
 
             {unsavedDiscovered.length > 0 ? (
               <>

@@ -18,6 +18,10 @@ import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { usePortalContainer } from '@/contexts/PortalContainerContext';
 import {
+  syncCurrentHostRelayLease,
+  useVibeXAccount,
+} from '@/features/model-router';
+import {
   hostTunnelApi,
   type HostTunnelStatus,
   type SavedHostTunnel,
@@ -160,6 +164,7 @@ export function HostTunnelPanel({
   onReachabilityChange: () => void;
 }) {
   const { t } = useTranslation(['settings', 'common']);
+  const { isSignedIn, overview } = useVibeXAccount();
   const portalContainer = usePortalContainer();
   const [status, setStatus] = useState<HostTunnelStatus>(EMPTY_STATUS);
   const [address, setAddress] = useState('');
@@ -265,7 +270,19 @@ export function HostTunnelPanel({
   const toggleEnabled = async (enabled: boolean) => {
     setBusy(true);
     try {
-      applyStatus(await hostTunnelApi.setEnabled(enabled));
+      if (enabled && isSignedIn) {
+        await syncCurrentHostRelayLease().catch(() => false);
+      }
+      let next = await hostTunnelApi.setEnabled(enabled);
+      if (
+        enabled &&
+        !next.active_id &&
+        next.saved.some((item) => item.id === 'auto-quick-tunnel') &&
+        typeof hostTunnelApi.selectSaved === 'function'
+      ) {
+        next = await hostTunnelApi.selectSaved('auto-quick-tunnel');
+      }
+      applyStatus(next);
       onReachabilityChange();
     } catch (error) {
       toast.error(
@@ -528,6 +545,12 @@ export function HostTunnelPanel({
                   const isOfficialCloud =
                     item.id === 'auto-quick-tunnel' ||
                     item.origin.includes('/t/');
+                  const officialNodeName =
+                    item.name?.trim() ||
+                    overview?.assignedRelayServer?.name?.trim() ||
+                    t('webService.tunnelOfficialNode', {
+                      defaultValue: '官方云服务',
+                    });
                   const isRelayPolling =
                     active &&
                     item.kind === 'relay' &&
@@ -545,18 +568,10 @@ export function HostTunnelPanel({
                               !isOfficialCloud && 'font-mono'
                             )}
                             title={
-                              isOfficialCloud
-                                ? t('webService.tunnelOfficialNode', {
-                                    defaultValue: '官方云服务',
-                                  })
-                                : item.origin
+                              isOfficialCloud ? officialNodeName : item.origin
                             }
                           >
-                            {isOfficialCloud
-                              ? `VibeX ${t('webService.tunnelOfficialNode', {
-                                  defaultValue: '官方云服务',
-                                })}`
-                              : item.origin}
+                            {isOfficialCloud ? officialNodeName : item.origin}
                           </span>
                           <TunnelUsageBadge
                             active={active}
@@ -565,25 +580,19 @@ export function HostTunnelPanel({
                           />
                         </div>
                         <div className="flex min-w-0 items-center gap-1.5">
-                          {isOfficialCloud ? (
-                            <span className="inline-flex shrink-0 items-center rounded-full border border-primary/25 bg-primary/10 px-2 py-0.5 text-[11px] font-medium text-primary">
-                              {t('webService.tunnelOfficialNode', {
-                                defaultValue: '官方云服务',
-                              })}
-                            </span>
-                          ) : (
+                          {!isOfficialCloud ? (
                             <span
                               className="truncate rounded bg-muted px-1.5 py-0.5 font-mono text-xs text-muted-foreground"
                               title={`${item.host}:${item.port}`}
                             >
                               {item.host}:{item.port}
                             </span>
-                          )}
+                          ) : null}
                         </div>
                         <span className="truncate text-xs tabular-nums text-muted-foreground">
-                          {isOfficialCloud
-                            ? 'Beta'
-                            : formatTunnelCreatedAt(item.created_at)}
+                          {!isOfficialCloud
+                            ? formatTunnelCreatedAt(item.created_at)
+                            : null}
                         </span>
                       </div>
                       <div className="flex shrink-0 items-center gap-1.5">

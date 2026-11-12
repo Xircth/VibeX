@@ -32,6 +32,10 @@ import { isTauriClient } from '@/lib/desktopShell';
 import { getErrorMessage } from '@/lib/modals';
 import { useBackendTransport } from '@/lib/transport';
 
+import {
+  syncCurrentHostRelayLease,
+  useVibeXAccount,
+} from '@/features/model-router';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
@@ -90,6 +94,10 @@ export function WebServiceSettings({
     requestedAction === 'connect' ||
     requestedAction === 'ssh';
   const { t } = useTranslation(['settings', 'common']);
+  const { isSignedIn, overview } = useVibeXAccount();
+  const hasRelayPermission = Boolean(
+    isSignedIn && overview?.relayPermission !== false
+  );
   const [draft, setDraft] = useState<WebServiceConfig>(DEFAULT_CONFIG);
   const draftRef = useRef(draft);
   draftRef.current = draft;
@@ -237,6 +245,9 @@ export function WebServiceSettings({
       setShowModePrompt(false);
       setStatusBusy(true);
       try {
+        if (useCloud && hasRelayPermission) {
+          await syncCurrentHostRelayLease().catch(() => false);
+        }
         const updatedTunnel = await hostTunnelApi.setEnabled(useCloud);
         setTunnelEnabled(Boolean(updatedTunnel.enabled));
         window.dispatchEvent(new CustomEvent('vibex:host-tunnel-updated'));
@@ -251,7 +262,7 @@ export function WebServiceSettings({
         setStatusBusy(false);
       }
     },
-    [commitDraft]
+    [commitDraft, hasRelayPermission]
   );
 
   const startServer = useCallback(async () => {
@@ -436,7 +447,9 @@ export function WebServiceSettings({
                     checked={serviceRunning}
                     onCheckedChange={(checked: boolean) => {
                       if (checked) {
-                        setShowModePrompt(true);
+                        if (hasRelayPermission) {
+                          setShowModePrompt(true);
+                        }
                         void Promise.resolve(hostTunnelApi.setEnabled?.(false))
                           .then((next) => {
                             setTunnelEnabled(Boolean(next?.enabled));
@@ -466,7 +479,7 @@ export function WebServiceSettings({
                 </div>
               </div>
 
-              {serviceRunning && showModePrompt ? (
+              {serviceRunning && showModePrompt && hasRelayPermission ? (
                 <div
                   data-testid="remote-connection-mode-prompt"
                   className="mx-4 my-2 flex flex-col gap-2.5 rounded-lg border border-primary/30 bg-primary/5 p-3.5 text-xs"
@@ -599,7 +612,7 @@ export function WebServiceSettings({
             reachability={status?.reachability ?? []}
             listenAddresses={status?.listen_addresses ?? []}
             serviceRunning={serviceRunning}
-            showTunnel={hostConsole}
+            showTunnel={hostConsole && hasRelayPermission}
             onReachabilityChange={() => void refreshStatus()}
           />
         </div>

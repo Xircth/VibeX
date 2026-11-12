@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useState, useSyncExternalStore } from 'react';
 
+import { writeDesktopSharedPreferenceSection } from '@/lib/frontendPreferences';
+
 import {
+  DESKTOP_SHARED_ACCOUNT_OWNER_KEY,
   accountApi,
   accountToken,
   subscribeAccountToken,
@@ -130,6 +133,16 @@ export async function refreshAccountOverview(options?: {
     .overview()
     .then((data) => {
       if (accountToken() === currentToken) {
+        if (data?.user?.username) {
+          void writeDesktopSharedPreferenceSection(
+            DESKTOP_SHARED_ACCOUNT_OWNER_KEY,
+            {
+              username: data.user.username,
+              displayName: resolveAccountDisplayName(data.user),
+              avatarUrl: data.user.avatarUrl ?? null,
+            }
+          );
+        }
         emitSnapshot({
           token: currentToken,
           overview: data,

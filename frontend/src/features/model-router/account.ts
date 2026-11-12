@@ -1,5 +1,10 @@
 import { getSiteUrl } from '@/lib/branding';
-import type { SyncableHostProfile } from '@/lib/api';
+import {
+  hostClientApi,
+  hostTunnelApi,
+  type SyncableHostProfile,
+} from '@/lib/api';
+import { isTauriClient } from '@/lib/desktopShell';
 import {
   readDesktopSharedPreferenceSection,
   writeDesktopSharedPreferenceSection,
@@ -91,14 +96,33 @@ export type RouterUsage30d = {
   modelNames?: Record<string, string>;
 };
 
+export type AccountOwnerSummary = {
+  username: string;
+  displayName: string;
+  avatarUrl: string | null;
+};
+
+export type AssignedRelayServerInfo = {
+  id: string;
+  name: string;
+  region: string;
+  relayHost: string;
+  relayPort: number;
+  publicOrigin: string;
+};
+
 export type RouterOverview = {
   user: {
+    id?: string;
     email: string;
     username: string;
     displayName: string;
+    avatarUrl?: string | null;
     tier?: AccountTier;
     createdAt?: string;
   };
+  relayPermission?: boolean;
+  assignedRelayServer?: AssignedRelayServerInfo | null;
   balanceMicro: number;
   serverNow?: string;
   grants?: RouterCreditGrant[];
@@ -147,8 +171,139 @@ export class AccountError extends Error {
 }
 
 export const ACCOUNT_TOKEN_EVENT = 'vibex:account-token-changed';
-const DESKTOP_SHARED_ACCOUNT_TOKEN_KEY = '__account_token_v1';
+export const DESKTOP_SHARED_ACCOUNT_TOKEN_KEY = '__account_token_v1';
+export const DESKTOP_SHARED_ACCOUNT_OWNER_KEY = '__account_owner_v1';
+export const HOST_BOUND_ACCOUNTS_STORAGE_KEY = 'vibex.account.hostBoundAccounts.v1';
+export const HOST_BOUND_ACCOUNTS_EVENT = 'vibex:host-bound-accounts-changed';
 let sharedTokenHydrationStarted = false;
+const EMPTY_HOST_BOUND_ACCOUNTS: Record<string, AccountOwnerSummary> = Object.freeze({});
+let cachedHostBoundAccountsRaw: string | null = null;
+let cachedHostBoundAccountsSnapshot: Record<string, AccountOwnerSummary> =
+  EMPTY_HOST_BOUND_ACCOUNTS;
+
+export function readHostBoundAccounts(): Record<string, AccountOwnerSummary> {
+  if (typeof window === 'undefined') return EMPTY_HOST_BOUND_ACCOUNTS;
+  try {
+    const raw = window.localStorage.getItem(HOST_BOUND_ACCOUNTS_STORAGE_KEY);
+    if (!raw) {
+      cachedHostBoundAccountsRaw = null;
+      cachedHostBoundAccountsSnapshot = EMPTY_HOST_BOUND_ACCOUNTS;
+      return EMPTY_HOST_BOUND_ACCOUNTS;
+    }
+    if (raw === cachedHostBoundAccountsRaw) {
+      return cachedHostBoundAccountsSnapshot;
+    }
+    const parsed = JSON.parse(raw) as Record<string, unknown>;
+    if (!parsed || typeof parsed !== 'object') {
+      cachedHostBoundAccountsRaw = raw;
+      cachedHostBoundAccountsSnapshot = EMPTY_HOST_BOUND_ACCOUNTS;
+      return EMPTY_HOST_BOUND_ACCOUNTS;
+    }
+    const result: Record<string, AccountOwnerSummary> = {};
+    for (const [key, value] of Object.entries(parsed)) {
+      if (!value || typeof value !== 'object') continue;
+      const obj = value as Record<string, unknown>;
+      const username = typeof obj.username === 'string' ? obj.username.trim() : '';
+      if (!username) continue;
+      const displayName =
+        typeof obj.displayName === 'string' && obj.displayName.trim()
+          ? obj.displayName.trim()
+          : username;
+      const avatarUrl =
+        typeof obj.avatarUrl === 'string' && obj.avatarUrl.trim()
+          ? obj.avatarUrl.trim()
+          : null;
+      result[key] = { username, displayName, avatarUrl };
+    }
+    cachedHostBoundAccountsRaw = raw;
+    cachedHostBoundAccountsSnapshot = result;
+    return result;
+  } catch {
+    return EMPTY_HOST_BOUND_ACCOUNTS;
+  }
+}
+
+export function writeHostBoundAccount(
+  keys: Array<string | null | undefined>,
+  account: AccountOwnerSummary | null
+): void {
+  if (typeof window === 'undefined') return;
+  const cleanKeys = keys
+    .map((k) => (typeof k === 'string' ? k.trim() : ''))
+    .filter(Boolean);
+  if (cleanKeys.length === 0) return;
+  const current: Record<string, AccountOwnerSummary> = {
+    ...readHostBoundAccounts(),
+  };
+  let changed = false;
+  for (const key of cleanKeys) {
+    if (account) {
+      const prev = current[key];
+      if (
+        !prev ||
+        prev.username !== account.username ||
+        prev.displayName !== account.displayName ||
+        prev.avatarUrl !== account.avatarUrl
+      ) {
+        current[key] = account;
+        changed = true;
+      }
+    } else if (key in current) {
+      delete current[key];
+      changed = true;
+    }
+  }
+  if (!changed) return;
+  const serialized = JSON.stringify(current);
+  cachedHostBoundAccountsRaw = serialized;
+  cachedHostBoundAccountsSnapshot = current;
+  window.localStorage.setItem(HOST_BOUND_ACCOUNTS_STORAGE_KEY, serialized);
+  window.dispatchEvent(new Event(HOST_BOUND_ACCOUNTS_EVENT));
+}
+
+export function resolveProfileBoundAccount(
+  profile: {
+    id?: string | null;
+    profileId?: string | null;
+    host_id?: string | null;
+    hostId?: string | null;
+    origin?: string | null;
+  },
+  map: Record<string, AccountOwnerSummary> = readHostBoundAccounts()
+): AccountOwnerSummary | null {
+  const rawHostId = (profile.host_id ?? profile.hostId ?? '')
+    .trim()
+    .replace(/^host:/, '');
+  const rawId = (profile.id ?? profile.profileId ?? '').trim();
+  const rawOrigin = (profile.origin ?? '').trim().replace(/\/+$/, '');
+  const candidates = [
+    rawHostId ? `host:${rawHostId}` : '',
+    rawHostId,
+    rawId ? `profile:${rawId}` : '',
+    rawId,
+    rawOrigin ? `origin:${rawOrigin}` : '',
+    rawOrigin,
+  ].filter(Boolean);
+  for (const key of candidates) {
+    if (map[key]) return map[key]!;
+  }
+  return null;
+}
+
+export function subscribeHostBoundAccounts(listener: () => void): () => void {
+  if (typeof window === 'undefined') return () => undefined;
+  const onStorage = (event: StorageEvent) => {
+    if (event.key === null || event.key === HOST_BOUND_ACCOUNTS_STORAGE_KEY) {
+      listener();
+    }
+  };
+  window.addEventListener(HOST_BOUND_ACCOUNTS_EVENT, listener);
+  window.addEventListener('storage', onStorage);
+  return () => {
+    window.removeEventListener(HOST_BOUND_ACCOUNTS_EVENT, listener);
+    window.removeEventListener('storage', onStorage);
+  };
+}
 
 function hydrateSharedAccountTokenOnce(): void {
   if (sharedTokenHydrationStarted || typeof window === 'undefined') return;
@@ -208,6 +363,12 @@ function storeToken(token: string | null) {
     DESKTOP_SHARED_ACCOUNT_TOKEN_KEY,
     token ?? ''
   );
+  if (!token) {
+    void writeDesktopSharedPreferenceSection(
+      DESKTOP_SHARED_ACCOUNT_OWNER_KEY,
+      null
+    );
+  }
   window.dispatchEvent(new Event(ACCOUNT_TOKEN_EVENT));
 }
 
@@ -303,6 +464,13 @@ export const accountApi = {
   async signOut(): Promise<void> {
     const token = accountToken();
     storeToken(null);
+    void hostTunnelApi.setAccountLease(null).catch(() => null);
+    if (isTauriClient()) {
+      void hostClientApi.setSyncAccount(null).catch(() => null);
+    }
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new Event('vibex:host-tunnel-updated'));
+    }
     if (!token) return;
     // The local token is already gone; a failed revoke only leaves a server
     // session the user can still end from the site's security page.
@@ -311,6 +479,13 @@ export const accountApi = {
 
   overview: (): Promise<RouterOverview> =>
     authed('/api/modelrouter/desktop', 'GET'),
+
+  overviewWithToken: (token: string): Promise<RouterOverview> =>
+    call('/api/modelrouter/desktop', {
+      method: 'GET',
+      token: token.trim(),
+      preserveTokenOn401: true,
+    }),
 
   provision: (
     agentId: string,
@@ -401,6 +576,9 @@ export const accountApi = {
     tenantOrigin: string;
     hostId: string;
     leaseVersion: number;
+    serverId?: string;
+    serverName?: string;
+    serverRegion?: string;
   }> => authed('/api/account/relay/lease', 'POST', input),
 };
 
@@ -419,14 +597,14 @@ export function modelRouterUrl(agentId: string, modelId: string | null) {
   return getSiteUrl(modelMarketplacePath(agentId, modelId));
 }
 
-export async function openModelMarketplace(
-  agentId?: string | null
+export async function openAccountWebPath(
+  targetPath = '/account'
 ): Promise<string> {
-  const targetPath = modelMarketplacePath(agentId);
-  const fallbackUrl = getSiteUrl(targetPath);
+  const normalized = normalizeNextPath(targetPath);
+  const fallbackUrl = getSiteUrl(normalized);
   if (accountToken()) {
     try {
-      const handoff = await accountApi.webHandoff(targetPath);
+      const handoff = await accountApi.webHandoff(normalized);
       if (handoff?.handoffUrl) {
         await openExternal(handoff.handoffUrl);
         return handoff.handoffUrl;
@@ -437,4 +615,11 @@ export async function openModelMarketplace(
   }
   await openExternal(fallbackUrl);
   return fallbackUrl;
+}
+
+export async function openModelMarketplace(
+  agentId?: string | null,
+  modelId?: string | null
+): Promise<string> {
+  return openAccountWebPath(modelMarketplacePath(agentId, modelId));
 }

@@ -9,15 +9,23 @@ import {
 } from 'shared/types';
 
 import { agentManagementApi } from '@/features/agent-management';
-import { configApi, webServiceApi } from '@/lib/api';
+import { configApi, frontendPreferencesApi, webServiceApi } from '@/lib/api';
 import { getBackendTransport } from '@/lib/transport';
 
-import { AccountError, accountApi } from './account';
+import {
+  ACCOUNT_TOKEN_STORAGE_KEY,
+  AccountError,
+  DESKTOP_SHARED_ACCOUNT_OWNER_KEY,
+  DESKTOP_SHARED_ACCOUNT_TOKEN_KEY,
+  accountApi,
+  resolveProfileBoundAccount,
+} from './account';
 import {
   ACCOUNT_HOST_CONFIGS_STORAGE_KEY,
   extractPortableUserConfig,
   importHostConfigToCurrentHost,
   mergePortableUserConfigOntoTarget,
+  reconcileRemoteHostAccount,
   removeSavedAccountHostConfig,
   resetAccountHostConfigsForTests,
   syncAccountHostConfigs,
@@ -471,5 +479,85 @@ describe('accountHostConfigs', () => {
 
     // Bar order updated to match source Host order for installed Agents
     expect(reorderSpy).toHaveBeenCalledWith(['CODEX', 'CLAUDE_CODE', 'GEMINI']);
+  });
+
+  it('syncs current account to an unauthenticated remote Host when connected, and preserves another user account without overwriting', async () => {
+    window.localStorage.setItem(ACCOUNT_TOKEN_STORAGE_KEY, 'vbx_user_token_1');
+    vi.spyOn(accountApi, 'overview').mockResolvedValue({
+      user: {
+        displayName: '谢麟阁',
+        username: 'xielinge',
+        email: 'xielinge@vibex.dev',
+        avatarUrl: 'https://vibex.dev/xielinge.png',
+        tier: 'subscriber',
+      },
+      balanceMicro: 1000,
+      models: [],
+      tasks: [],
+      agents: [],
+    });
+
+    const getPrefsSpy = vi
+      .spyOn(frontendPreferencesApi, 'get')
+      .mockResolvedValue({});
+    const updatePrefsSpy = vi
+      .spyOn(frontendPreferencesApi, 'update')
+      .mockResolvedValue({});
+
+    // Case 1: Remote Host has no logged-in account -> auto-syncs current user's account
+    const unauthOutcome = await reconcileRemoteHostAccount({
+      id: 'prof-unauth',
+      host_id: 'host-unauth',
+      origin: 'http://192.168.1.50:17891',
+    });
+    expect(unauthOutcome).toEqual({
+      syncedToRemote: true,
+      differentAccount: null,
+    });
+    expect(updatePrefsSpy).toHaveBeenCalledWith({
+      [DESKTOP_SHARED_ACCOUNT_TOKEN_KEY]: 'vbx_user_token_1',
+      [DESKTOP_SHARED_ACCOUNT_OWNER_KEY]: {
+        username: 'xielinge',
+        displayName: '谢麟阁',
+        avatarUrl: 'https://vibex.dev/xielinge.png',
+      },
+    });
+
+    // Case 2: Remote Host is already logged into another user's account -> does not overwrite, records boundAccount
+    updatePrefsSpy.mockClear();
+    getPrefsSpy.mockResolvedValue({
+      [DESKTOP_SHARED_ACCOUNT_TOKEN_KEY]: 'vbx_other_token_2',
+      [DESKTOP_SHARED_ACCOUNT_OWNER_KEY]: {
+        username: 'bob',
+        displayName: 'Bob Smith',
+        avatarUrl: 'https://vibex.dev/bob.png',
+      },
+    });
+
+    const otherUserOutcome = await reconcileRemoteHostAccount({
+      id: 'prof-bob',
+      host_id: 'host-bob',
+      origin: 'http://192.168.1.60:17891',
+    });
+    expect(otherUserOutcome).toEqual({
+      syncedToRemote: false,
+      differentAccount: {
+        username: 'bob',
+        displayName: 'Bob Smith',
+        avatarUrl: 'https://vibex.dev/bob.png',
+      },
+    });
+    expect(updatePrefsSpy).not.toHaveBeenCalled();
+    expect(
+      resolveProfileBoundAccount({
+        id: 'prof-bob',
+        host_id: 'host-bob',
+        origin: 'http://192.168.1.60:17891',
+      })
+    ).toEqual({
+      username: 'bob',
+      displayName: 'Bob Smith',
+      avatarUrl: 'https://vibex.dev/bob.png',
+    });
   });
 });

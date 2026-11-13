@@ -733,12 +733,22 @@ impl PluginControlPlane {
         }
         // Publication is the commit point. Projection refresh failures must not
         // turn a successful switch into a failed update or revoke its files.
-        let plugin = InstalledPlugin { package, activation: PluginActivation::Enabled, package_digest: digest };
+        let plugin = InstalledPlugin {
+            package,
+            activation: PluginActivation::Enabled,
+            package_digest: digest,
+        };
         if let Err(error) = self.reconcile_enabled().await {
-            tracing::warn!(?error, "could not reconcile plugins after update publication");
+            tracing::warn!(
+                ?error,
+                "could not reconcile plugins after update publication"
+            );
         }
         if let Err(error) = self.refresh_live_projections().await {
-            tracing::warn!(?error, "could not refresh plugin projections after update publication");
+            tracing::warn!(
+                ?error,
+                "could not refresh plugin projections after update publication"
+            );
         }
         Ok(plugin)
     }

@@ -1199,6 +1199,8 @@ export const HOST_EVENT_CHANNELS = [
   { prefix: 'plugin-internal-message', durability: 'best_effort', scope: 'conversation.read' },
   { prefix: 'conversation-after-turn', durability: 'best_effort', scope: 'conversation.read' },
   { prefix: 'conversation-runtime-event', durability: 'best_effort', scope: 'conversation.read' },
+  { prefix: 'plugin-updates-changed', durability: 'invalidation', scope: 'plugin.read' },
+  { prefix: 'plugin-updates-available', durability: 'best_effort', scope: 'plugin.read' },
   { prefix: 'plugin-notify-toast', durability: 'best_effort', scope: 'plugin.read' },
   { prefix: 'provider-bind-confirm', durability: 'best_effort', scope: 'plugin.write' },
 ] as const;

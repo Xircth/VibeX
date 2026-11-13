@@ -79,15 +79,26 @@ impl ServerApplicationDomains {
         args: Value,
     ) -> Result<Value, ApplicationError> {
         // Serialize public lifecycle writes; internal helpers may call each other.
-        let _plugin_mutation = if matches!(command,
-            DomainCommand::PluginSaveConfig | DomainCommand::PluginControlSetEnabled
-            | DomainCommand::PluginControlImport | DomainCommand::PluginMarketplaceInstall
-            | DomainCommand::PluginInstall | DomainCommand::PluginUpdate
-            | DomainCommand::PluginControlUpdate | DomainCommand::PluginUninstall
-            | DomainCommand::PluginControlUninstall | DomainCommand::PluginControlRollback
-            | DomainCommand::PluginControlConfigureAgents | DomainCommand::PluginControlConfigureMcp
-            | DomainCommand::PluginControlInstallRuntime
-        ) { Some(self.plugin_updates.mutation.lock().await) } else { None };
+        let _plugin_mutation = if matches!(
+            command,
+            DomainCommand::PluginSaveConfig
+                | DomainCommand::PluginControlSetEnabled
+                | DomainCommand::PluginControlImport
+                | DomainCommand::PluginMarketplaceInstall
+                | DomainCommand::PluginInstall
+                | DomainCommand::PluginUpdate
+                | DomainCommand::PluginControlUpdate
+                | DomainCommand::PluginUninstall
+                | DomainCommand::PluginControlUninstall
+                | DomainCommand::PluginControlRollback
+                | DomainCommand::PluginControlConfigureAgents
+                | DomainCommand::PluginControlConfigureMcp
+                | DomainCommand::PluginControlInstallRuntime
+        ) {
+            Some(self.plugin_updates.mutation.lock().await)
+        } else {
+            None
+        };
         match command {
             DomainCommand::PluginActionCatalog => self.plugin_catalog().await,
             DomainCommand::PluginControlCatalog => self.plugin_control_catalog().await,
@@ -1520,22 +1531,29 @@ impl ServerApplicationDomains {
                 args.plugin_id
             )));
         };
+        let snapshots = if !retain_data {
+            let paths: Vec<String> = sqlx::query_scalar("SELECT DISTINCT source_path FROM plugin_packages_v4 WHERE plugin_id = ? AND source_kind IN ('snapshot', 'marketplace')")
+                .bind(plugin.id()).fetch_all(&self.pool).await.map_err(internal_error)?;
+            paths
+                .into_iter()
+                .map(std::path::PathBuf::from)
+                .filter(|path| path.exists())
+                .map(|path| managed_plugin_snapshot_path(&self.runtime_root, &path))
+                .collect::<Result<Vec<_>, _>>()?
+        } else {
+            Vec::new()
+        };
         Self::remove_plugin_projections(&plugin).await?;
         self.capability_broker
             .kill_plugin_processes(&args.plugin_id)
             .await;
-        let snapshot = matches!(
-            plugin.source.kind,
-            plugins::PluginSourceKind::Snapshot | plugins::PluginSourceKind::Marketplace
-        )
-        .then(|| plugin.source.path.clone());
         self.plugin_control_plane
             .uninstall(&args.plugin_id)
             .await
             .map_err(plugin_error)?;
         if !retain_data {
             let _ = self.plugin_control_plane.kv_clear(&args.plugin_id).await;
-            if let Some(source) = snapshot {
+            for source in snapshots {
                 remove_managed_plugin_snapshot(&self.runtime_root, &source)?;
             }
         }
@@ -3149,6 +3167,7 @@ fn plugin_control_item_with_quarantine(
         "sourceOrigin": plugin.source.origin,
         "sourceRef": plugin.source.git_ref,
         "sourceSha": plugin.source.git_sha,
+        "hasWorker": plugin.entrypoints.worker.is_some(),
         "sourceLocked": plugin.source.locked,
         "sourceLock": plugin.source.update_lock.clone().or_else(|| plugins::PluginSourceLock::from_source(&plugin.source, &plugin.version, &plugin.package_digest)),
         "sourceShowTree": plugin.source.show_tree,
@@ -3221,25 +3240,33 @@ fn tag_matches_monorepo_official_plugin(
     })
 }
 
+fn managed_plugin_snapshot_path(
+    runtime_root: &std::path::Path,
+    source: &std::path::Path,
+) -> Result<std::path::PathBuf, ApplicationError> {
+    let source = source.canonicalize().map_err(internal_error)?;
+    let allowed = ["plugins/snapshots", "plugins/candidates"]
+        .iter()
+        .any(|relative| {
+            runtime_root
+                .join(relative)
+                .canonicalize()
+                .is_ok_and(|root| source != root && source.starts_with(root))
+        });
+    if !allowed {
+        return Err(ApplicationError::bad_request(
+            "plugin package is outside managed storage",
+        ));
+    }
+    Ok(source)
+}
+
 fn remove_managed_plugin_snapshot(
     runtime_root: &std::path::Path,
     source: &std::path::Path,
 ) -> Result<(), ApplicationError> {
-    let root = runtime_root
-        .join("plugins/snapshots")
-        .canonicalize()
-        .map_err(|error| ApplicationError::internal(error.to_string()))?;
-    let source = source
-        .canonicalize()
-        .map_err(|error| ApplicationError::internal(error.to_string()))?;
-    if source.parent() != Some(root.as_path()) {
-        return Err(ApplicationError::bad_request(
-            "plugin snapshot is outside the managed snapshot directory",
-        ));
-    }
-    std::fs::remove_dir_all(&source)
-        .map_err(|error| ApplicationError::internal(error.to_string()))?;
-    Ok(())
+    let source = managed_plugin_snapshot_path(runtime_root, source)?;
+    std::fs::remove_dir_all(source).map_err(internal_error)
 }
 
 fn automation_run_view(run: AutomationRunRecord) -> AutomationRunView {

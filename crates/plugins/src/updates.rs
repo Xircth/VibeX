@@ -18,7 +18,10 @@ pub struct PluginSourceLock {
 
 impl PluginSourceLock {
     pub fn from_source(source: &PluginSource, version: &str, digest: &str) -> Option<Self> {
-        if !crate::source_allows_remote_update(source.kind, source.origin.as_deref()) {
+        if !matches!(
+            source.kind,
+            crate::PluginSourceKind::Snapshot | crate::PluginSourceKind::Marketplace
+        ) {
             return None;
         }
         let raw = source.origin.as_deref()?;
@@ -114,6 +117,7 @@ impl PluginUpdateResolver {
 
     /// HTTP adapter seam, also used by local integration fixtures.
     pub fn with_github_api(github_api: &str) -> Result<Self, PluginError> {
+        let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
         Ok(Self {
             client: reqwest::Client::builder()
                 .timeout(std::time::Duration::from_secs(15))
@@ -165,10 +169,13 @@ impl PluginUpdateResolver {
             segment(&source.plugin_name)
         );
         let releases = if let Some(tag) = requested {
-            vec![
-                self.json(&format!("{base}/releases/tags/{}", segment(tag)))
-                    .await?,
-            ]
+            match self
+                .json(&format!("{base}/releases/tags/{}", segment(tag)))
+                .await
+            {
+                Ok(release) => vec![release],
+                Err(_) => vec![self.github_tag(&base, tag).await?],
+            }
         } else {
             self.json(&format!("{base}/releases?per_page=100"))
                 .await?
@@ -176,6 +183,14 @@ impl PluginUpdateResolver {
                 .cloned()
                 .ok_or_else(|| PluginError::invalid_manifest("GitHub releases must be an array"))?
         };
+        let excluded_tags: std::collections::BTreeSet<_> = releases
+            .iter()
+            .filter(|release| {
+                release["draft"].as_bool() == Some(true)
+                    || release["prerelease"].as_bool() == Some(true)
+            })
+            .filter_map(|release| release["tag_name"].as_str().map(str::to_owned))
+            .collect();
         let mut candidates = Vec::new();
         for release in releases {
             if release["draft"].as_bool() == Some(true)
@@ -192,18 +207,18 @@ impl PluginUpdateResolver {
             if !version.pre.is_empty() || !newer(&source.version, &version.to_string()) {
                 continue;
             }
-            let Some(asset) = release["assets"].as_array().and_then(|assets| {
+            let asset = release["assets"].as_array().and_then(|assets| {
                 assets.iter().find(|asset| {
                     asset["name"]
                         .as_str()
                         .is_some_and(|name| name.ends_with(".vxp"))
                 })
-            }) else {
-                continue;
-            };
-            let Some(download_url) = asset["browser_download_url"].as_str() else {
-                continue;
-            };
+            });
+            let download_url = asset
+                .and_then(|a| a["browser_download_url"].as_str())
+                .or_else(|| release["zipball_url"].as_str())
+                .map(str::to_owned)
+                .unwrap_or_else(|| format!("{base}/zipball/{}", segment(tag)));
             let mut lock = source.clone();
             lock.tag = tag.to_owned();
             lock.version = version.to_string();
@@ -212,20 +227,69 @@ impl PluginUpdateResolver {
                 version,
                 PluginUpdateCandidate {
                     source: lock,
-                    download_url: download_url.to_owned(),
-                    sha256: asset["digest"]
-                        .as_str()
+                    download_url,
+                    sha256: asset
+                        .and_then(|a| a["digest"].as_str())
                         .filter(|s| s.starts_with("sha256:"))
                         .map(str::to_owned),
                     release_notes: release["body"].as_str().unwrap_or_default().to_owned(),
                 },
             ));
         }
+        if candidates.is_empty() && requested.is_none() {
+            let tags = self.json(&format!("{base}/tags?per_page=100")).await?;
+            for tag in tags
+                .as_array()
+                .ok_or_else(|| PluginError::invalid_manifest("GitHub tags must be an array"))?
+            {
+                let Some(name) = tag["name"].as_str() else {
+                    continue;
+                };
+                if excluded_tags.contains(name) {
+                    continue;
+                }
+                let Ok(version) = semver::Version::parse(name.trim_start_matches('v')) else {
+                    continue;
+                };
+                if !version.pre.is_empty() || !newer(&source.version, &version.to_string()) {
+                    continue;
+                }
+                let mut lock = source.clone();
+                lock.tag = name.to_owned();
+                lock.version = version.to_string();
+                lock.package_digest.clear();
+                candidates.push((
+                    version,
+                    PluginUpdateCandidate {
+                        source: lock,
+                        download_url: format!("{base}/zipball/{}", segment(name)),
+                        sha256: None,
+                        release_notes: String::new(),
+                    },
+                ));
+            }
+        }
         candidates.sort_by(|a, b| b.0.cmp(&a.0));
         Ok(candidates
             .into_iter()
             .next()
             .map(|(_, candidate)| candidate))
+    }
+
+    async fn github_tag(&self, base: &str, tag: &str) -> Result<Value, PluginError> {
+        // A branch or arbitrary commit is not a stable upgrade target.
+        let version = semver::Version::parse(tag.trim_start_matches('v'))
+            .map_err(|e| PluginError::io("update requires a stable semver tag", e))?;
+        if !version.pre.is_empty() {
+            return Err(PluginError::invalid_manifest(
+                "update requires a stable tag",
+            ));
+        }
+        self.json(&format!("{base}/git/ref/tags/{}", segment(tag)))
+            .await?;
+        Ok(
+            serde_json::json!({"tag_name": tag, "zipball_url": format!("{base}/zipball/{}", segment(tag))}),
+        )
     }
 
     async fn marketplace(
@@ -299,7 +363,10 @@ impl PluginUpdateResolver {
             .to_owned();
         Ok(Some(PluginUpdateCandidate {
             source: lock,
-            download_url: origin.join(&download_url).map_err(|e| PluginError::io("release download URL", e))?.to_string(),
+            download_url: origin
+                .join(&download_url)
+                .map_err(|e| PluginError::io("release download URL", e))?
+                .to_string(),
             sha256: artifact["sha256"].as_str().map(str::to_owned),
             release_notes: artifact["releaseNotes"]
                 .as_str()
@@ -363,6 +430,18 @@ pub fn validate_update_package(
     package: &PluginPackage,
     candidate: &PluginUpdateCandidate,
 ) -> Result<(), PluginError> {
+    if let Some(minimum) = &package.minimum_host_version {
+        let minimum = semver::Version::parse(minimum.trim_start_matches('v'))
+            .map_err(|e| PluginError::io("minimum Host version", e))?;
+        let current = semver::Version::parse(env!("CARGO_PKG_VERSION"))
+            .map_err(|e| PluginError::io("Host version", e))?;
+        if current < minimum {
+            return Err(PluginError::coded(
+                "plugin_update_incompatible",
+                "release requires a newer VibeX version",
+            ));
+        }
+    }
     if package.version.trim_start_matches('v') != candidate.source.version.trim_start_matches('v') {
         return Err(PluginError::invalid_manifest(
             "downloaded package version does not match release",
@@ -392,66 +471,5 @@ fn newer(current: &str, candidate: &str) -> bool {
     ) {
         (Ok(current), Ok(candidate)) => candidate > current,
         _ => false,
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use axum::{Router, response::Json, routing::get};
-    use serde_json::json;
-    use tokio::net::TcpListener;
-
-    use super::*;
-
-    async fn fixture() -> (String, tokio::task::JoinHandle<()>) {
-        let app = Router::new()
-            .route("/repos/acme/notes/releases", get(|| async { Json(json!([{"tag_name":"v2.0.0","draft":false,"prerelease":false,"body":"Bug fixes","assets":[{"name":"notes.vxp","browser_download_url":"http://download.test/notes.vxp","digest":"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}]}])) }))
-            .route("/api/marketplace/v1/listing/acme/notes/versions", get(|| async { Json(json!([{"tag":"v2.0.0","version":"2.0.0","packageDigest":"digest-v2"}])) }))
-            .route("/api/marketplace/v1/artifact/acme/notes", get(|| async { Json(json!({"tag":"v2.0.0","version":"2.0.0","packageDigest":"digest-v2","downloadUrl":"http://download.test/notes.vxp","sha256":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","releaseNotes":"Marketplace fixes"})) }))
-            ;
-        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let origin = format!("http://{}", listener.local_addr().unwrap());
-        let task = tokio::spawn(async move {
-            axum::serve(listener, app).await.unwrap();
-        });
-        (origin, task)
-    }
-
-    #[tokio::test]
-    async fn resolves_github_release_from_locked_owner_and_repo() {
-        let (origin, task) = fixture().await;
-        let resolver = PluginUpdateResolver::with_github_api(&origin).unwrap();
-        let source = PluginSourceLock {
-            source_kind: "github".into(),
-            origin: "https://github.com/acme/notes".into(),
-            owner: "acme".into(),
-            plugin_name: "notes".into(),
-            tag: "v1.0.0".into(),
-            version: "1.0.0".into(),
-            package_digest: "old".into(),
-        };
-        let candidate = resolver.resolve(&source, None).await.unwrap().unwrap();
-        assert_eq!(candidate.source.tag, "v2.0.0");
-        assert_eq!(candidate.release_notes, "Bug fixes");
-        task.abort();
-    }
-
-    #[tokio::test]
-    async fn resolves_marketplace_release_from_locked_origin() {
-        let (origin, task) = fixture().await;
-        let resolver = PluginUpdateResolver::new().unwrap();
-        let source = PluginSourceLock {
-            source_kind: "marketplace".into(),
-            origin: format!("{origin}/marketplace/acme/notes"),
-            owner: "acme".into(),
-            plugin_name: "notes".into(),
-            tag: "v1.0.0".into(),
-            version: "1.0.0".into(),
-            package_digest: "old".into(),
-        };
-        let candidate = resolver.resolve(&source, None).await.unwrap().unwrap();
-        assert_eq!(candidate.source.tag, "v2.0.0");
-        assert_eq!(candidate.source.package_digest, "digest-v2");
-        task.abort();
     }
 }

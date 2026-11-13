@@ -115,6 +115,7 @@ export interface PluginControlItem {
   sourceOrigin?: string | null;
   sourceRef?: string | null;
   sourceSha?: string | null;
+  hasWorker?: boolean;
   sourceLocked?: boolean;
   sourceLock?: PluginSourceLock | null;
   sourceShowTree?: boolean | null;
@@ -751,10 +752,12 @@ export function createPluginControlApi(transport: BackendTransport) {
         tag: tag ?? null,
         conflict,
       }) as Promise<PluginControlItem>,
-    checkUpdates: (cached = false) =>
-      transport.call('plugin_check_updates', { cached }) as Promise<
-        PluginUpdateStatus[]
-      >,
+    checkUpdates: async (cached = false): Promise<PluginUpdateStatus[]> => {
+      const statuses = await transport.call('plugin_check_updates', { cached });
+      if (!Array.isArray(statuses))
+        throw new Error('Invalid plugin update response');
+      return statuses;
+    },
     install: (
       source:
         | { artifactId: string }
@@ -772,11 +775,18 @@ export function createPluginControlApi(transport: BackendTransport) {
         source,
         conflict,
       }) as Promise<PluginControlItem>,
-    prepareUpdate: (pluginId: string, tag?: string) =>
-      transport.call('plugin_control_update', {
+    prepareUpdate: async (
+      pluginId: string,
+      tag?: string
+    ): Promise<PluginUpdatePreview> => {
+      const preview = (await transport.call('plugin_control_update', {
         pluginId,
         tag,
-      }) as Promise<PluginUpdatePreview>,
+      })) as PluginUpdatePreview;
+      if (!preview?.confirmationId || !preview.plugin)
+        throw new Error('Host does not support plugin update previews');
+      return preview;
+    },
     confirmUpdate: (pluginId: string, confirmationId: string) =>
       transport.call('plugin_control_update', {
         pluginId,

@@ -287,11 +287,13 @@ impl ServerApplicationDomains {
                     .resolve()
                     .await
                     .map_err(internal_error)?;
+                let grants = plugins::candidate_capability_grants(&prepared.package, &[], &[])
+                    .map_err(plugin_error)?;
                 self.plugin_control_plane
                     .update_and_activate(
                         &node,
                         prepared.package,
-                        &[],
+                        &grants,
                         self.capability_broker.clone(),
                     )
                     .await
@@ -307,6 +309,17 @@ impl ServerApplicationDomains {
             };
             // Publication now owns this directory, including the rollback generation.
             let _ = prepared._directory.keep();
+            if result.activation == PluginActivation::Enabled
+                && let Err(error) = self
+                    .refresh_updated_plugin_projections(&installed, &result)
+                    .await
+            {
+                tracing::warn!(
+                    ?error,
+                    plugin_id = result.id(),
+                    "could not refresh existing plugin bindings after update"
+                );
+            }
             let mut observations = self.plugin_updates.observations.lock().await;
             observations
                 .statuses
@@ -385,5 +398,32 @@ impl ServerApplicationDomains {
             },
         );
         Ok(response)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn observations_and_notification_deduplication_survive_restart() {
+        let root = tempfile::tempdir().unwrap();
+        let observations = UpdateObservations {
+            statuses: vec![PluginUpdateStatus::failed(
+                "acme.notes".into(),
+                "offline".into(),
+                None,
+            )],
+            notified: BTreeMap::from([("acme.notes".into(), "2.0.0".into())]),
+        };
+        save_cache(root.path(), &observations).unwrap();
+        let restored = PluginUpdates::load(root.path());
+        let observations = restored.observations.lock().await;
+        assert_eq!(observations.statuses[0].status, "failed");
+        assert_eq!(observations.statuses[0].error.as_deref(), Some("offline"));
+        assert_eq!(
+            observations.notified.get("acme.notes").map(String::as_str),
+            Some("2.0.0")
+        );
     }
 }

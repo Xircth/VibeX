@@ -43,7 +43,7 @@ publish Submit a packed .vxp or GitHub repository to the official marketplace re
         --hide-tree     Hide package structure (default for uploads)
 list    Show plugins on the running Host
 update  Refresh a snapshot from its locked origin. Linked plugins do not use this.
-        --ref tag       Pin a new Git tag, branch, or commit
+        --ref tag       Select a newer stable semver release/tag
 remove  Uninstall a non-built-in plugin. Default keeps user config.
         --delete-data   Delete Host-managed snapshot and config. Runtimes with no
                         remaining plugin refs are reclaimed. Conversations stay.
@@ -862,6 +862,13 @@ async function updatePlugin(args) {
   log(`${preview.plugin.publisher}/${pluginId}: ${preview.currentVersion} -> ${preview.targetVersion}`);
   log(`Source: ${preview.source.origin} @ ${preview.source.tag}`);
   log(`Package digest: ${preview.packageDigest}`);
+  if (preview.plugin.description) log(preview.plugin.description);
+  log(`Capabilities: ${[
+    preview.plugin.hasWorker ? "Worker" : "",
+    ...(preview.plugin.mcpServers || []).map((id) => `MCP: ${id}`),
+    ...(preview.plugin.appContributions || []).map((app) => app.label),
+    ...(preview.plugin.skills || []).map((skill) => skill.id),
+  ].filter(Boolean).join(", ") || "none"}`);
   if (preview.releaseNotes) log(preview.releaseNotes);
   log("Full Trust: this plugin can execute code with your account's permissions.");
   if (!parsed.flags.yes) {

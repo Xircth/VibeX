@@ -90,6 +90,24 @@ export function PluginUpdateDialog({
         {preview ? (
           <div className="min-w-0 space-y-3">
             <p className="font-medium">{preview.plugin.name}</p>
+            <p className="break-all text-sm text-muted-foreground">
+              {preview.plugin.publisher}/{preview.plugin.id}
+            </p>
+            {preview.plugin.description ? (
+              <p className="text-sm">{preview.plugin.description}</p>
+            ) : null}
+            <ul className="text-sm">
+              {preview.plugin.hasWorker ? <li>Worker</li> : null}
+              {(preview.plugin.mcpServers ?? []).map((id) => (
+                <li key={id}>MCP: {id}</li>
+              ))}
+              {(preview.plugin.appContributions ?? []).map((app) => (
+                <li key={app.id}>{app.label}</li>
+              ))}
+              {(preview.plugin.skills ?? []).map((skill) => (
+                <li key={skill.id}>{skill.id}</li>
+              ))}
+            </ul>
             <p className="tabular-nums">
               {preview.currentVersion} → {preview.targetVersion}
             </p>

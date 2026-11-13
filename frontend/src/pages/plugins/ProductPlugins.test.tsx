@@ -978,7 +978,9 @@ describe('product plugin experience', () => {
       { target: { value: '' } }
     );
     expect(screen.getByText('Notes')).toBeVisible();
-    expect(call).toHaveBeenCalledTimes(2);
+    expect(
+      call.mock.calls.filter(([command]) => command !== 'plugin_check_updates')
+    ).toHaveLength(2);
   });
 
   it('marks a marketplace listing as installed after install succeeds', async () => {

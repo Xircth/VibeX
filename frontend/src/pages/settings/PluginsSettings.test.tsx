@@ -16,6 +16,7 @@ import { renderWithQueryClient as render } from '@/test/QueryClientHarness';
 vi.mock('@/components/ui/toast', () => ({
   toast: {
     error: vi.fn(),
+    success: vi.fn(),
   },
 }));
 
@@ -1197,27 +1198,50 @@ describe('PluginsSettings', () => {
     );
   });
 
-  it('updates a plugin without reviewing a permission delta dialog', async () => {
+  it('reviews an exact product update before publishing it', async () => {
     const user = userEvent.setup();
-    const backend = transport();
+    const preview = {
+      confirmationId: 'confirmed-digest',
+      plugin: { ...catalog.plugins[1], version: '1.5.0' },
+      currentVersion: '1.4.0',
+      targetVersion: '1.5.0',
+      packageDigest: 'digest-1.5.0',
+      source: { origin: 'https://github.com/acme/research', tag: 'v1.5.0' },
+      releaseNotes: 'Improved exports.',
+    };
+    const backend = transport({
+      plugin_control_update: (args: unknown) => {
+        if (typeof args === 'object' && args && 'confirmationId' in args)
+          return preview.plugin;
+        return preview;
+      },
+    });
     renderSettings(backend.value, false, 'vibex');
     await user.click(
       await screen.findByRole('button', { name: /Research Toolkit/ })
     );
-
     await user.click(
-      screen.getByRole('button', { name: '更新 Research Toolkit' })
+      screen.getByRole('button', {
+        name: /\u66f4\u65b0 Research Toolkit|Update Research Toolkit/,
+      })
     );
-    await waitFor(() => {
+    const dialog = await screen.findByRole('dialog');
+    expect(within(dialog).getByText('digest-1.5.0')).toBeVisible();
+    expect(backend.call).not.toHaveBeenCalledWith('plugin_control_update', {
+      pluginId: 'dev.vibex.research',
+      confirmationId: 'confirmed-digest',
+    });
+    await user.click(
+      within(dialog).getByRole('button', {
+        name: /\u786e\u8ba4\u66f4\u65b0|Confirm update/,
+      })
+    );
+    await waitFor(() =>
       expect(backend.call).toHaveBeenCalledWith('plugin_control_update', {
         pluginId: 'dev.vibex.research',
-      });
-    });
-    expect(
-      screen.queryByRole('alertdialog', {
-        name: '审查 Research Toolkit 更新后的能力',
+        confirmationId: 'confirmed-digest',
       })
-    ).not.toBeInTheDocument();
+    );
   });
 
   it('restores the previous verified package through the rollback command', async () => {

@@ -500,7 +500,7 @@ impl ConversationSessionService {
                             session_id: runtime_session_id,
                             acp_session_id: String::new(),
                             auto_approve_mode: launch_settings.auto_approve_mode,
-                            env: launch_settings.env,
+                            env: launch_settings.env.clone(),
                             preferences,
                         })
                         .await?;
@@ -559,7 +559,7 @@ impl ConversationSessionService {
                     session_id: runtime_session_id,
                     acp_session_id: String::new(),
                     auto_approve_mode: launch_settings.auto_approve_mode,
-                    env: launch_settings.env,
+                    env: launch_settings.env.clone(),
                     preferences,
                 })
                 .await?;
@@ -607,7 +607,7 @@ impl ConversationSessionService {
         if let Err(error) = crate::record_open_capability_catalog(
             pool,
             &agent_id,
-            &launch_settings.launch_lock,
+            &launch_settings,
             &controls,
         )
         .await

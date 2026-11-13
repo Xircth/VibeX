@@ -540,5 +540,41 @@
     "sessionError": "Session error",
     "configOverrideSkipped": "Session config not applied",
     "unrecognizedUpdate": "Unrecognized session update"
+  },
+  "runtime": {
+    "connection": {
+      "connecting": "Connecting to Agent",
+      "recovering": "Reconnecting to Agent",
+      "binding": "Creating or restoring session",
+      "ready": "Agent session ready",
+      "error": "Agent connection failed",
+      "closed": "Agent disconnected",
+      "unconnected": "Agent not connected"
+    },
+    "request": {
+      "submitting": "Queued / submitting",
+      "waiting_agent": "Waiting for Agent response",
+      "waiting_model": "Waiting for model response",
+      "thinking": "Thinking",
+      "responding": "Responding",
+      "executing_tool": "Running tools",
+      "waiting_user": "Waiting for your input",
+      "retrying": "Retrying request",
+      "cancelling": "Cancelling",
+      "completed": "Completed",
+      "failed": "Request failed",
+      "cancelled": "Cancelled",
+      "interrupted": "Interrupted"
+    },
+    "elapsed": "Time in this stage",
+    "attempt": "Attempt {{count}}",
+    "backoff": "Retry delay: {{seconds}}s",
+    "longWait": "Still waiting. You can cancel; elapsed time alone does not mean failure.",
+    "connectionWait": "Session setup is taking longer than usual.",
+    "reconnect": "Reconnect",
+    "cancel": "Cancel request",
+    "retry": "Retry manually",
+    "copyFailed": "Could not copy error",
+    "copyError": "Copy error"
   }
 }

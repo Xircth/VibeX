@@ -87,6 +87,16 @@ impl ConversationSessionService {
             .container()
             .ensure_container_exists(&workspace)
             .await?;
+        let mut workspace_ids = vec![input.workspace_id, workspace.id];
+        workspace_ids.sort_unstable();
+        workspace_ids.dedup();
+        let mut workspace_permits = Vec::new();
+        for id in workspace_ids {
+            workspace_permits.push(services::services::workspace_lifecycle::workspace_operation(id).read_owned().await);
+            if Workspace::find_by_id(pool, id).await?.is_none() {
+                return Err(ConversationServiceError::NotFound(format!("Workspace {id} not found")));
+            }
+        }
         let repos = WorkspaceRepo::find_repos_for_workspace(pool, workspace.id).await?;
         let working_dir = self
             .ctx

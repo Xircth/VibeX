@@ -52,13 +52,6 @@ export async function loadAgentSessionControlsCatalog(
 }
 
 /**
- * One create-form snapshot from catalog + live composer controls.
- * Earlier snapshots win on current values; later snapshots only add missing
- * option keys or richer choice lists so Kanban and Workspace show the same
- * fields (model, effort, fast mode) even when only one surface has a live
- * session.
- */
-/**
  * Conversation-projected ACP controls, or null when this conversation has not
  * advertised any yet (a newly created session before the first turn).
  */
@@ -106,6 +99,14 @@ function isThoughtLevelOption(option: AgentSessionConfigOption): boolean {
   return option.category === 'thought_level';
 }
 
+/**
+ * One snapshot from controls ordered by authority. The first snapshot that
+ * defines an option key owns its choices and value, and the first snapshot
+ * with modes owns the mode list; later snapshots only add option keys the
+ * earlier ones lack (for example effort or fast mode a catalog never saw).
+ * A later snapshot never widens an earlier choice list, so a provider removed
+ * from the Agent's config stops being offered once the authority drops it.
+ */
 export function mergeCreateSessionControls(
   snapshots: Array<AgentSessionControlsSnapshot | null | undefined>
 ): AgentSessionControlsSnapshot | null {
@@ -116,38 +117,58 @@ export function mergeCreateSessionControls(
     return null;
   }
 
-  const richestModes = present.reduce((best, next) =>
-    next.modes.length > best.modes.length ? next : best
-  );
+  const modesOwner =
+    present.find((snapshot) => snapshot.modes.length > 0) ?? present[0];
   const optionsByKey = new Map<string, AgentSessionConfigOption>();
   for (const snapshot of present) {
     for (const option of snapshot.config_options) {
-      const existing = optionsByKey.get(option.key);
-      if (!existing) {
-        if (
-          isThoughtLevelOption(option) &&
-          [...optionsByKey.values()].some(isThoughtLevelOption)
-        ) {
-          continue;
-        }
-        optionsByKey.set(option.key, option);
+      if (optionsByKey.has(option.key)) continue;
+      if (
+        isThoughtLevelOption(option) &&
+        [...optionsByKey.values()].some(isThoughtLevelOption)
+      ) {
         continue;
       }
-      if ((option.choices ?? []).length <= (existing.choices ?? []).length) {
-        continue;
-      }
-      optionsByKey.set(option.key, {
-        ...option,
-        value: existing.value ?? option.value,
-      });
+      optionsByKey.set(option.key, option);
     }
   }
 
   return {
     ...present[0],
-    modes: richestModes.modes,
-    current_mode: present[0].current_mode ?? richestModes.current_mode,
+    modes: modesOwner.modes,
+    current_mode: modesOwner.current_mode ?? present[0].current_mode,
     config_options: Array.from(optionsByKey.values()),
+  };
+}
+
+/**
+ * Keep `preferred`'s current mode and option values wherever `controls` still
+ * offers them, so a workspace's live picks survive without reviving choices
+ * the authoritative controls no longer advertise.
+ */
+export function preferSessionControlValues(
+  controls: AgentSessionControlsSnapshot | null,
+  preferred: AgentSessionControlsSnapshot | null | undefined
+): AgentSessionControlsSnapshot | null {
+  if (!controls || !preferred) return controls;
+  const preferredValues = new Map(
+    preferred.config_options.map((option) => [option.key, option.value])
+  );
+  return {
+    ...controls,
+    current_mode: controls.modes.some(
+      (mode) => mode.id === preferred.current_mode
+    )
+      ? preferred.current_mode
+      : controls.current_mode,
+    config_options: controls.config_options.map((option) => {
+      const value = preferredValues.get(option.key);
+      const offered =
+ value !== undefined &&
+        value !== null &&
+        (option.choices ?? []).some((choice) => choice.value === value);
+      return offered ? { ...option, value } : option;
+    }),
   };
 }
 
@@ -177,8 +198,8 @@ export function publishLiveSessionControls(
   queryClient.setQueryData(
     schemaKey,
     mergeCreateSessionControls([
-      queryClient.getQueryData<AgentSessionControlsSnapshot>(schemaKey),
       controls,
+      queryClient.getQueryData<AgentSessionControlsSnapshot>(schemaKey),
     ])
   );
 }

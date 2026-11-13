@@ -1,3 +1,14 @@
+import { matchPath } from 'react-router-dom';
+
+export const projectRoutePatterns = {
+  project: '/local-projects/:projectId',
+  sessions: '/local-projects/:projectId/sessions',
+  workspace: '/local-projects/:projectId/workspaces/:workspaceId',
+  session:
+    '/local-projects/:projectId/workspaces/:workspaceId/sessions/:sessionId',
+  full: '/local-projects/:projectId/workspaces/:workspaceId/full',
+};
+
 export const paths = {
   projects: () => '/local-projects',
   projectSessions: (projectId: string) =>
@@ -52,7 +63,41 @@ export function normalizeProjectRoute(route: string) {
     return `${paths.projectSessions(taskMatch[1])}${search}${hash}`;
   }
 
+  if (
+    Object.values(projectRoutePatterns).some((pattern) =>
+      matchPath(pattern, pathname)
+    )
+  ) {
+    return route;
+  }
+
+  const workspace = matchPath(
+    { path: projectRoutePatterns.workspace, end: false },
+    pathname
+  );
+  if (workspace) return `${workspace.pathnameBase}${search}${hash}`;
+
+  const project = matchPath(
+    { path: projectRoutePatterns.project, end: false },
+    pathname
+  );
+  if (project) return `${project.pathnameBase}/sessions${search}${hash}`;
+
   return route;
+}
+
+export function normalizeMainWindowRoute(route: string): string | null {
+  const normalized = normalizeProjectRoute(route);
+  const { pathname } = splitRouteParts(normalized);
+  const patterns = [
+    '/',
+    paths.projects(),
+    ...Object.values(projectRoutePatterns),
+    '/workflows/:runId',
+  ];
+  return patterns.some((pattern) => matchPath(pattern, pathname))
+    ? normalized
+    : null;
 }
 
 export function parseProjectSessionRoute(route: string): {

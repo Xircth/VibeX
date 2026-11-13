@@ -215,6 +215,9 @@ impl ServerApplicationDomains {
             DomainCommand::WorkspaceCreate
             | DomainCommand::WorkspaceUpdate
             | DomainCommand::WorkspaceDelete
+            | DomainCommand::WorkspaceInitializationStatus
+            | DomainCommand::WorkspaceRetryInitialization
+            | DomainCommand::WorkspaceCancelInitialization
             | DomainCommand::WorkspaceMarkSeen
             | DomainCommand::WorkspaceChildren
             | DomainCommand::WorkspaceBranchStatus

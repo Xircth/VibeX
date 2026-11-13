@@ -110,4 +110,25 @@ describe('new workspace Dockview sizing', () => {
     expect(Math.round(session.api.width)).toBe(500);
     api.dispose();
   });
+
+  it('shrinks dock columns before the workspace when the canvas contracts', () => {
+    const api = createApi(1400);
+    const { fileTree, session } = buildWorkspaceGroups(api);
+    fileTree.element?.setAttribute('data-left-dock', 'true');
+
+    layoutDockviewPreservingGroupWidths(
+      api,
+      [fileTree, session],
+      900,
+      700,
+      true
+    );
+
+    expect(fileTree.api.width).toBeLessThan(200);
+    expect(session.api.width).toBeCloseTo(434, 0);
+    expect(
+      api.width - fileTree.api.width - session.api.width
+    ).toBeGreaterThanOrEqual(320);
+    api.dispose();
+  });
 });

@@ -1,9 +1,12 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Config } from 'shared/types';
 
 import { WorktreeSettings } from './WorktreeSettings';
+vi.mock('./WorktreeProjectDetails', () => ({
+  WorktreeProjectDetails: () => null,
+}));
 
 const api = vi.hoisted(() => ({
   getAll: vi.fn(),
@@ -203,5 +206,52 @@ describe('WorktreeSettings', () => {
       screen.getByText('分支前缀不能以 / 开头或结尾。')
     ).toBeInTheDocument();
     expect(configMocks.updateAndSaveConfig).not.toHaveBeenCalled();
+  });
+
+  it('saves a directory when the branch prefix is empty', async () => {
+    const user = userEvent.setup();
+    configMocks.config = {
+      workspace_dir: '/workspace',
+      git_branch_prefix: '',
+    } as Config;
+    render(<WorktreeSettings />);
+    const directory = await screen.findByDisplayValue('/workspace');
+    await user.clear(directory);
+    await user.type(directory, '/new');
+    await user.tab();
+    await waitFor(() =>
+      expect(configMocks.updateAndSaveConfig).toHaveBeenCalledWith({
+        workspace_dir: '/new',
+        git_branch_prefix: '',
+      })
+    );
+  });
+
+  it('keeps newer command edits when an older save completes', async () => {
+    const user = userEvent.setup();
+    let resolveSave!: (settings: unknown) => void;
+    api.update.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveSave = resolve;
+        })
+    );
+    render(<WorktreeSettings />);
+    const command = await screen.findByDisplayValue('pnpm install');
+    await user.clear(command);
+    await user.type(command, 'first');
+    await user.tab();
+    await waitFor(() => expect(api.update).toHaveBeenCalled());
+    await user.clear(command);
+    await user.type(command, 'second');
+    await act(async () => {
+      resolveSave({
+        create_command: 'first',
+        delete_command: null,
+        cleanup_prompt_enabled: true,
+        cleanup_prompt_threshold: 4,
+      });
+    });
+    await waitFor(() => expect(command).toHaveValue('second'));
   });
 });

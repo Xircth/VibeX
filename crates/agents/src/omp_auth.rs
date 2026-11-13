@@ -45,6 +45,34 @@ pub fn credential_presence(agent_dir: &Path) -> OmpCredentialPresence {
     presence
 }
 
+/// Live credential rows that decide which providers OMP lists models for.
+/// `agent.db` itself is rewritten on every turn (usage, caches), so a
+/// fingerprint must hash this projection rather than the file.
+pub fn credential_fingerprint(agent_dir: &Path) -> Vec<String> {
+    let Ok(connection) = rusqlite::Connection::open_with_flags(
+ agent_dir.join("agent.db"),
+        OpenFlags::SQLITE_OPEN_READ_ONLY,
+    ) else {
+        return Vec::new();
+    };
+    let Ok(mut statement) = connection.prepare(
+ "SELECT provider, credential_type FROM auth_credentials
+         WHERE disabled_cause IS NULL ORDER BY provider, credential_type",
+    ) else {
+        return Vec::new();
+    };
+    statement
+        .query_map([], |row| {
+            Ok(format!(
+  "{}:{}",
+  row.get::<_, String>(0)?,
+  row.get::<_, String>(1)?
+     ))
+        })
+ .map(|rows| rows.flatten().collect())
+        .unwrap_or_default()
+}
+
 fn sqlite_presence(path: &Path) -> OmpCredentialPresence {
     let connection =
         match rusqlite::Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY) {

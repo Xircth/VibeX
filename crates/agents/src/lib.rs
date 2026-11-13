@@ -67,6 +67,8 @@ pub mod plan_usage;
 pub mod profiles;
 pub mod registry_client;
 pub mod runtime;
+pub mod request_status;
+mod vendor_request_activity;
 mod runtime_temp;
 pub mod session;
 mod session_bind_metrics;
@@ -280,6 +282,7 @@ pub use npm_registry::{
 };
 pub use omp_auth::{
     OmpCredentialPresence, agent_dir as omp_agent_dir,
+    credential_fingerprint as omp_credential_fingerprint,
     credential_presence as omp_credential_presence,
 };
 pub use operations::{InstallOperationError, InstallOrchestrator, OrchestratorAgentSnapshot};

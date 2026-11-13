@@ -1,6 +1,7 @@
 import type { NavigateOptions, URLSearchParamsInit } from 'react-router-dom';
 import type { KanbanBoardStyle } from '@/lib/kanbanBoardStyle';
 import { useLayoutStore } from '@/stores/useLayoutStore';
+import { getCanvasWorkspaceController } from '@/components/kanban/canvas/canvasWorkspaceBridge';
 
 export type CreateSessionSurface = 'execution-area' | 'beside-session-list';
 
@@ -19,6 +20,11 @@ export function requestCreateSessionInExecutionArea(
   setSearchParams: SearchParamsSetter,
   currentSearchParams: URLSearchParams
 ) {
+  const canvasController = getCanvasWorkspaceController();
+  if (canvasController?.createSession) {
+    canvasController.createSession();
+    return;
+  }
   const layout = useLayoutStore.getState();
   layout.setRightPanelVisible(true);
   if (layout.activeTab === 'kanban') {

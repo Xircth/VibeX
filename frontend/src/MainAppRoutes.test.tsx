@@ -153,15 +153,44 @@ function ProductRoutes() {
   return <MainAppRoutes />;
 }
 
+function RouteLocation() {
+  const { pathname, search, hash } = useLocation();
+  return (
+    <output data-testid="route-location">{`${pathname}${search}${hash}`}</output>
+  );
+}
+
 function renderAt(pathname: string) {
   render(
     <MemoryRouter initialEntries={[pathname]}>
       <ProductRoutes />
+      <RouteLocation />
     </MemoryRouter>
   );
 }
 
 describe('MainAppRoutes', () => {
+  it.each([
+    [
+      '/local-projects/project-1/workspaces/workspace-1/evidence/agent-runtime-status-zh.png',
+      '/local-projects/project-1/workspaces/workspace-1',
+    ],
+    [
+      '/local-projects/project-1/workspaces/workspace-1/evidence/image.png?view=canvas#message-1',
+      '/local-projects/project-1/workspaces/workspace-1?view=canvas#message-1',
+    ],
+    ['/local-projects/project-1/unknown', '/local-projects/project-1/sessions'],
+    ['/unknown', '/local-projects'],
+  ])(
+    'recovers unsupported address %s into a working shell',
+    async (route, target) => {
+      renderAt(route);
+
+      expect(await screen.findByTestId('ide-layout')).toBeInTheDocument();
+      expect(screen.getByTestId('route-location').textContent).toBe(target);
+    }
+  );
+
   it.each([
     '/',
     '/local-projects',

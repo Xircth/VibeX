@@ -82,6 +82,41 @@ describe('session controls query cache', () => {
     ).toBeUndefined();
   });
 
+  it('replaces stale schema choices with the newest live controls', () => {
+    const client = new QueryClient();
+    const modelWith = (values: string[]): AgentSessionControlsSnapshot => ({
+      modes: [],
+      current_mode: null,
+      config_options: [
+        {
+          key: 'model',
+          label: 'Model',
+          category: 'model',
+   value: values[0],
+   choices: values.map((value) => ({ value, label: value })),
+ },
+      ],
+    });
+
+    publishLiveSessionControls(client, {
+      agentType: 'omp',
+      workspaceId: 'workspace-1',
+      controls: modelWith(['vibex/opus', 'antigravity/gemini']),
+    });
+    publishLiveSessionControls(client, {
+      agentType: 'omp',
+      workspaceId: 'workspace-1',
+      controls: modelWith(['vibex/opus']),
+    });
+
+    const schema = client.getQueryData<AgentSessionControlsSnapshot>(
+      sessionControlsSchemaQueryKey('omp')
+    );
+    expect(
+      schema?.config_options[0].choices?.map((choice) => choice.value)
+    ).toEqual(['vibex/opus']);
+  });
+
   it('normalizes null or undefined agentType without throwing during disabled query key evaluation', () => {
     expect(sessionControlsQueryKey(null, null)).toEqual([
       'agent-session-controls-catalog',

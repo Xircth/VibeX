@@ -3,10 +3,6 @@ pub fn is_valid_branch_prefix(prefix: &str) -> bool {
         return true;
     }
 
-    if prefix.contains('/') {
-        return false;
-    }
-
     git2::Branch::name_is_valid(&format!("{prefix}/x")).unwrap_or_default()
 }
 
@@ -28,7 +24,10 @@ mod tests {
 
     #[test]
     fn test_invalid_prefixes() {
-        assert!(!is_valid_branch_prefix("foo/bar"));
+        assert!(is_valid_branch_prefix("foo/bar"));
+        assert!(!is_valid_branch_prefix("foo//bar"));
+        assert!(!is_valid_branch_prefix("foo/.bar"));
+        assert!(!is_valid_branch_prefix("foo.lock/bar"));
         assert!(!is_valid_branch_prefix("foo..bar"));
         assert!(!is_valid_branch_prefix("foo@{"));
         assert!(!is_valid_branch_prefix("foo.lock"));

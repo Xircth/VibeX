@@ -179,6 +179,16 @@ async fn main() -> std::io::Result<()> {
                 "id": id,
                 "result": {"sessionId": "fixture-session"}
             }),
+            "session/prompt" if std::env::var_os("VIBEX_FIXTURE_PROMPT_SIDE_EFFECT").is_some() => {
+                use std::io::Write;
+                let path = std::env::var_os("VIBEX_FIXTURE_PROMPT_SIDE_EFFECT").unwrap();
+                let mut file = std::fs::OpenOptions::new()
+                    .create(true)
+                    .append(true)
+                    .open(path)?;
+                writeln!(file, "applied")?;
+                return Ok(());
+            }
             "session/close" => json!({"jsonrpc": "2.0", "id": id, "result": {}}),
             "session/list" if session_discovery => json!({
                 "jsonrpc": "2.0",

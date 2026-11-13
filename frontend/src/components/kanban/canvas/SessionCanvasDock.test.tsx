@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import { SessionCanvasDock } from './SessionCanvasDock';
@@ -15,17 +15,26 @@ vi.mock('@/hooks/usePluginHostContributions', () => ({
 }));
 
 vi.mock('@/features/agents/useSelectableAgents', () => ({
-  useSelectableAgents: () => [],
+  useSelectableAgents: () => [
+    {
+      agentId: 'codex',
+      displayName: 'Codex',
+      enabled: true,
+      lifecycle: 'installed',
+    },
+  ],
 }));
 
 function renderDock({
   onCreateGroup = vi.fn(),
   onCreateSession = vi.fn(),
+  onCreateSessionWithExecutor = vi.fn(),
   orientation = 'horizontal' as 'horizontal' | 'vertical',
   menuSide,
 }: {
   onCreateGroup?: ReturnType<typeof vi.fn>;
   onCreateSession?: ReturnType<typeof vi.fn>;
+  onCreateSessionWithExecutor?: ReturnType<typeof vi.fn>;
   orientation?: 'horizontal' | 'vertical';
   menuSide?: 'top' | 'left' | 'right';
 } = {}) {
@@ -41,6 +50,7 @@ function renderDock({
         menuSide={menuSide}
         onCreateGroup={onCreateGroup}
         onCreateSession={onCreateSession}
+        onCreateSessionWithExecutor={onCreateSessionWithExecutor}
         onImportByProject={vi.fn()}
         onImportByRecent={vi.fn()}
         onImportByAgent={vi.fn()}
@@ -52,7 +62,7 @@ function renderDock({
       />
     </QueryClientProvider>
   );
-  return { onCreateGroup, onCreateSession };
+  return { onCreateGroup, onCreateSession, onCreateSessionWithExecutor };
 }
 
 describe('SessionCanvasDock', () => {
@@ -63,7 +73,7 @@ describe('SessionCanvasDock', () => {
     await user.click(screen.getByRole('button', { name: '新建' }));
     const createMenu = await screen.findByRole('menu');
     expect(createMenu).toHaveAttribute('data-align', 'start');
-    await user.click(await screen.findByRole('menuitem', { name: '空白分组' }));
+    await user.click(await screen.findByRole('menuitem', { name: '新建分组' }));
     expect(onCreateGroup).toHaveBeenCalledTimes(1);
     expect(onCreateSession).not.toHaveBeenCalled();
 
@@ -93,5 +103,29 @@ describe('SessionCanvasDock', () => {
     await user.click(screen.getByRole('button', { name: '新建' }));
     const createMenu = await screen.findByRole('menu');
     expect(createMenu).toHaveAttribute('data-side', 'left');
+  });
+
+  it('shows the requested groups and omits session details from the create menu', async () => {
+    const user = userEvent.setup();
+    renderDock();
+    await user.click(screen.getByRole('button', { name: '新建' }));
+    const menu = await screen.findByRole('menu');
+    expect(menu).toHaveTextContent('Agent');
+    expect(menu).toHaveTextContent('画布');
+    expect(menu).toHaveTextContent('功能');
+    expect(menu).not.toHaveTextContent('会话详情');
+    expect(menu).not.toHaveTextContent('信息');
+  });
+
+  it('shows enabled Agents in the new-session submenu', async () => {
+    const user = userEvent.setup();
+    const { onCreateSession, onCreateSessionWithExecutor } = renderDock();
+    await user.click(screen.getByRole('button', { name: '新建' }));
+    const hover = new MouseEvent('pointermove', { bubbles: true });
+    Object.defineProperty(hover, 'pointerType', { value: 'mouse' });
+    fireEvent(screen.getByRole('menuitem', { name: '新建会话' }), hover);
+    await user.click(await screen.findByRole('menuitem', { name: 'Codex' }));
+    expect(onCreateSessionWithExecutor).toHaveBeenCalledWith('codex');
+    expect(onCreateSession).not.toHaveBeenCalled();
   });
 });

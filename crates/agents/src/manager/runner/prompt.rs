@@ -105,6 +105,16 @@ impl AgentConnectionRunner {
             *guard = Some((session_id, Arc::clone(&turn_probe)));
         }
         let request = PromptRequest::new(SessionId::new(acp_session_id.clone()), wire_blocks);
+        self.emit(
+            Some(session_id),
+            Some(prompt_id),
+            AgentEvent::RequestActivity {
+                prompt_id,
+                activity: crate::request_status::RequestActivity::phase(
+                    crate::request_status::RequestPhase::WaitingAgent,
+                ),
+            },
+        );
         let prompt_future = conn.send_request(request).block_task();
         tokio::pin!(prompt_future);
 
@@ -349,7 +359,7 @@ impl AgentConnectionRunner {
                     let Some(idle_timeout) = idle_timeout else {
                         continue;
                     };
-                    if prompt_idle_watchdog_blocked(
+                    if turn_probe.has_running_tools() || prompt_idle_watchdog_blocked(
                         self.has_pending_permission_for(session_id).await,
                         self.has_pending_elicitation_for(session_id).await,
                         self.has_running_terminal_for(session_id).await,
@@ -378,7 +388,7 @@ impl AgentConnectionRunner {
                         AgentEvent::Error {
                             error: AgentErrorEvent {
                                 message: format!(
-                                    "Agent stopped responding (idle timeout after {}s). The model may be unreachable — check your network/proxy or re-authenticate the agent.",
+                                    "No ACP activity was received for {}s. The request ended because the configured idle timeout elapsed.",
                                     elapsed.as_secs()
                                 ),
                                 code: Some("idle_timeout".to_string()),

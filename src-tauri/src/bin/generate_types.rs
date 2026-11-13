@@ -47,6 +47,10 @@ use agents::{
         SessionRecoveryStrategy, SessionStats, SubAgentToolCall, TimelineRow, TimelineTextStream,
         TurnBlockedReason, TurnRole, TurnUsage,
     },
+    request_status::{
+        ConversationConnectionStatus, ConversationRequestStatus, RequestActivity, RequestPhase,
+        RequestRetry,
+    },
 };
 use api_types::{
     AgentAccountFlowStatus, AgentAccountFlowView, AgentAuthModeKind, AgentAuthModeOptionView,
@@ -857,6 +861,11 @@ fn replacement_declarations() -> BTreeMap<String, String> {
     insert_declaration::<ConversationTerminalView>(&mut decls);
     insert_declaration::<ConversationErrorView>(&mut decls);
     insert_declaration::<ConversationSessionNotice>(&mut decls);
+    insert_declaration::<ConversationConnectionStatus>(&mut decls);
+    insert_declaration::<ConversationRequestStatus>(&mut decls);
+    insert_declaration::<RequestActivity>(&mut decls);
+    insert_declaration::<RequestPhase>(&mut decls);
+    insert_declaration::<RequestRetry>(&mut decls);
     insert_declaration::<ConversationNoticeAction>(&mut decls);
     insert_declaration::<ConversationTimelineRow>(&mut decls);
     insert_declaration::<TimelineRow>(&mut decls);

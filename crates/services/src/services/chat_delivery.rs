@@ -971,7 +971,7 @@ pub fn build_conversation_rich(
                 })
                 .level(MsgLevel::Warning)
         }
-        ConversationEvent::AgentConnectionStatusChanged { status } => {
+        ConversationEvent::AgentConnectionStatusChanged { status, .. } => {
             RichMessage::info(format!("{status:?}")).with_title(if zh {
                 "🔌 连接状态"
             } else {

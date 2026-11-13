@@ -267,7 +267,13 @@ impl GitService {
             None => Ok(current),
             Some(name) if name == current => Ok(current),
             Some(name) if Self::local_branch_exists(repo_path, name) => Ok(name.to_string()),
-            Some(_) => Ok(current),
+            Some(name) => {
+                let repo = self.open_repo(repo_path)?;
+                if repo.find_branch(name, BranchType::Remote).is_ok() {
+                    return Ok(name.to_string());
+                }
+                Err(GitServiceError::BranchNotFound(name.to_string()))
+            }
         }
     }
 
@@ -276,7 +282,11 @@ impl GitService {
         repo_path: &Path,
         requested: Option<&str>,
     ) -> Result<String, GitServiceError> {
-        let branch = self.resolve_workspace_branch(repo_path, requested)?;
+        let branch = match self.resolve_workspace_branch(repo_path, requested) {
+            Ok(branch) => branch,
+            Err(GitServiceError::BranchNotFound(_)) => self.get_current_branch(repo_path)?,
+            Err(error) => return Err(error),
+        };
         let current = self
             .get_current_branch(repo_path)
             .map_err(GitServiceError::from)?;

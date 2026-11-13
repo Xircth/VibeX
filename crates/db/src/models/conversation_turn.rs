@@ -224,11 +224,14 @@ impl ConversationTurnRecord {
             r#"SELECT DISTINCT t.conversation_id
                FROM conversation_turns t
                INNER JOIN sessions s ON s.id = t.conversation_id
-               WHERE s.workspace_id = ?
+               LEFT JOIN member_session_workspaces msw
+                 ON replace(lower(msw.conversation_id), '-', '') = lower(hex(t.conversation_id))
+               WHERE (s.workspace_id = ? OR msw.isolated_workspace_id = ?)
                  AND s.deleted_at IS NULL
                  AND t.status IN ('pending','queued','running','blocked')"#,
         )
         .bind(workspace_id)
+        .bind(workspace_id.to_string())
         .fetch_all(pool)
         .await?;
 
@@ -862,6 +865,18 @@ mod tests {
                 .expect("list live conversations");
 
         assert_eq!(live, HashSet::from([live_id]));
+        sqlx::query("INSERT INTO member_session_workspaces (conversation_id, member_id, parent_workspace_id, isolated_workspace_id, created_at) VALUES (?, ?, ?, ?, 'now')")
+            .bind(live_id.to_string()).bind(Uuid::new_v4().to_string())
+            .bind(workspace_id.to_string()).bind(other_workspace_id.to_string()).execute(&pool).await.unwrap();
+        assert_eq!(
+            ConversationTurnRecord::in_flight_conversation_ids_for_workspace(
+                &pool,
+                other_workspace_id
+            )
+            .await
+            .unwrap(),
+            HashSet::from([live_id, other_id])
+        );
     }
 
     #[tokio::test]

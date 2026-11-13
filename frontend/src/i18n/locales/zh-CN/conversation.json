@@ -540,5 +540,41 @@
     "sessionError": "会话出错",
     "configOverrideSkipped": "会话配置未应用",
     "unrecognizedUpdate": "未识别的会话更新"
+  },
+  "runtime": {
+    "connection": {
+      "connecting": "正在连接 Agent",
+      "recovering": "正在重新连接 Agent",
+      "binding": "正在创建或恢复会话",
+      "ready": "Agent 会话已就绪",
+      "error": "Agent 连接失败",
+      "closed": "Agent 已断开",
+      "unconnected": "Agent 尚未连接"
+    },
+    "request": {
+      "submitting": "排队或提交中",
+      "waiting_agent": "等待 Agent 响应",
+      "waiting_model": "等待模型响应",
+      "thinking": "正在思考",
+      "responding": "正在输出",
+      "executing_tool": "正在执行工具",
+      "waiting_user": "等待你的授权或补充信息",
+      "retrying": "请求重试中",
+      "cancelling": "正在取消",
+      "completed": "已完成",
+      "failed": "请求失败",
+      "cancelled": "已取消",
+      "interrupted": "已中断"
+    },
+    "elapsed": "当前阶段已等待时间",
+    "attempt": "第 {{count}} 次",
+    "backoff": "重试等待：{{seconds}} 秒",
+    "longWait": "仍在等待，可取消请求；等待时长本身不代表失败。",
+    "connectionWait": "会话连接所需时间较长。",
+    "reconnect": "重新连接",
+    "cancel": "取消请求",
+    "retry": "手动重试",
+    "copyFailed": "无法复制错误",
+    "copyError": "复制错误"
   }
 }

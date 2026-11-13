@@ -591,6 +591,14 @@ export function shouldForceWelcome(
   );
 }
 
+export function shouldRedirectToGuideWelcome(
+  state: PersistedBasicGuide,
+  pathname: string,
+  configLoading: boolean
+): boolean {
+  return !configLoading && shouldForceWelcome(state, pathname);
+}
+
 export function shouldCompleteStep1OnRoute(
   state: PersistedBasicGuide,
   previousPathname: string,

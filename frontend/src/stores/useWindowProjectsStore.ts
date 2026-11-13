@@ -398,7 +398,7 @@ export const useWindowProjectsStore = create<WindowProjectsState>()(
     }),
     {
       name: 'vibex-window-projects',
-      version: 7,
+      version: 8,
       migrate: (persistedState: unknown) => {
         const state = (persistedState ?? {}) as PersistedWindowProjectsState;
         const normalizedLastRouteByProject = Object.fromEntries(

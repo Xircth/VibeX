@@ -1,11 +1,13 @@
 import { useEffect, useRef, type RefObject } from 'react';
 import { CANVAS_DROP_IGNORE_SELECTOR } from '@/components/kanban/session-hub/sessionListDrag';
+import { DRAG_HANDLE_SELECTOR } from './canvasModel';
 
 const MIDDLE_BUTTON = 1;
 const RIGHT_BUTTON = 2;
 const RIGHT_BUTTON_MASK = 2;
 const MIDDLE_CLICK_SLOP_PX = 6;
 const RIGHT_PAN_SLOP_PX = 6;
+const NODE_MENU_SELECTOR = `${DRAG_HANDLE_SELECTOR}, .canvas-node-context-menu`;
 
 export type CanvasRightPanDelta = { x: number; y: number; gestureId: number };
 
@@ -35,6 +37,7 @@ function isRightPanTarget(
 ): boolean {
   if (!(target instanceof Element)) return false;
   if (!isCanvasEventTarget(surface, target)) return false;
+  if (target.closest(NODE_MENU_SELECTOR)) return false;
   if (
     target.closest(
       'button, a, input, textarea, select, [role="menu"], [role="menuitem"], [contenteditable="true"]'
@@ -55,7 +58,8 @@ function isRightPanTarget(
  * form controls). Codeg uses the same split: `panOnDrag={[]}` plus a
  * window-level mouse pan that starts on cards and empty canvas alike.
  *
- * Pan only after slop. A short press is a no-op (no menu, no pan).
+ * Node headers and collapsed cards own their context menus. Other surfaces
+ * pan only after slop; a short press on the canvas is a no-op.
  *
  * Middle-click must be claimed in capture: the selection overlay still
  * treats middle-press as a pan. WebKit may deliver the click as
@@ -89,6 +93,12 @@ export function useCanvasRightDragPan(
 
     const onContextMenu = (event: MouseEvent) => {
       if (isSessionListEventTarget(event.target)) return;
+      if (
+        event.target instanceof Element &&
+        event.target.closest(NODE_MENU_SELECTOR)
+      ) {
+        return;
+      }
       event.preventDefault();
       event.stopPropagation();
     };

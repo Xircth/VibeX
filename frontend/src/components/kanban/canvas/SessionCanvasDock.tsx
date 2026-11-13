@@ -1,4 +1,4 @@
-import { useMemo, type ReactNode } from 'react';
+import { useMemo, useState, type ReactNode } from 'react';
 import {
   Activity,
   Bot,
@@ -8,16 +8,12 @@ import {
   FileDiff,
   FileText,
   Folder,
-  Globe,
-  Info,
   LayoutGrid,
   Maximize2,
   MessageSquarePlus,
   Minimize2,
   Plus,
-  Puzzle,
   SquareDashed,
-  SquareTerminal,
   Trash2,
 } from 'lucide-react';
 import {
@@ -33,30 +29,11 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { useTranslation } from 'react-i18next';
 import { AgentIcon, getAgentName } from '@/components/agents/AgentIcon';
-import { useOptionalUserSystem } from '@/components/ConfigProvider';
-import { contributionIconComponent } from '@/components/plugins/contributionIcon';
-import { useOptionalWorktree } from '@/contexts/WorktreeContext';
+import { useOptionalCollaborationSpaceStore } from '@/features/collaboration/space/SpaceStoreContext';
 import { isEnabledInstalledAgent } from '@/features/agents/operationalAgent';
 import { useSelectableAgents } from '@/features/agents/useSelectableAgents';
-import { findHostBrowserContribution } from '@/features/host-browser/hostBrowserEngine';
-import {
-  contributionMetadata,
-  usePluginHostContributions,
-} from '@/hooks/usePluginHostContributions';
-import { pluginSurfaceId } from '@/lib/hostSurfaceIds';
-import {
-  getDefaultTerminalShell,
-  getTerminalShellOptions,
-  getTerminalWorkspaceKey,
-} from '@/lib/terminalPreferences';
 import { cn } from '@/lib/utils';
-import { editorTerminalPanelId } from '@/lib/workspaceTerminalTabs';
 import { PANEL_IDS } from '@/stores/useLayoutStore';
-import {
-  generateTerminalTabId,
-  useTerminalStore,
-} from '@/stores/useTerminalStore';
-import { terminalHostPlatform } from '@/utils/platform';
 import type { OpenCanvasPanelRequest } from './canvasWorkspaceBridge';
 
 const DOCK_BUTTON_SHAPE =
@@ -147,68 +124,16 @@ export function SessionCanvasDock({
   onDeleteSelection: () => void;
 }) {
   const { t } = useTranslation(['tasks', 'panels']);
-  const system = useOptionalUserSystem();
-  const worktree = useOptionalWorktree();
-  const activeWorktreeId = worktree?.activeWorktreeId ?? null;
+  const collaboration = useOptionalCollaborationSpaceStore();
   const selectableAgents = useSelectableAgents();
-  const pluginPanels = usePluginHostContributions('app_panel');
+  const [createMenuOpen, setCreateMenuOpen] = useState(false);
 
   const enabledAgents = useMemo(() => {
-    const installedEnabled = selectableAgents.filter(isEnabledInstalledAgent);
-    if (installedEnabled.length > 0) {
-      return installedEnabled.map((agent) => ({
-        id: agent.agentId,
-        label: agent.displayName || getAgentName(agent.agentId),
-      }));
-    }
-    const profileIds = Object.keys(system?.profiles ?? {});
-    return profileIds.map((agentId) => ({
-      id: agentId,
-      label: getAgentName(agentId),
+    return selectableAgents.filter(isEnabledInstalledAgent).map((agent) => ({
+      id: agent.agentId,
+      label: agent.displayName || getAgentName(agent.agentId),
     }));
-  }, [selectableAgents, system?.profiles]);
-
-  const hostPlatform = terminalHostPlatform(system?.environment?.os_type);
-  const shells = getTerminalShellOptions(hostPlatform);
-  const defaultShell = getDefaultTerminalShell(
-    system?.config,
-    system?.environment?.os_type
-  );
-  const browser = findHostBrowserContribution(pluginPanels);
-  const nonBrowserPlugins = useMemo(
-    () =>
-      pluginPanels.filter(
-        (item) =>
-          !browser ||
-          item.pluginId !== browser.pluginId ||
-          item.id !== browser.id
-      ),
-    [browser, pluginPanels]
-  );
-
-  const openTerminalNode = (shell?: string) => {
-    const resolvedShell = shell || defaultShell;
-    const termWsKey = getTerminalWorkspaceKey(activeWorktreeId);
-    void termWsKey;
-    void useTerminalStore;
-    const tabId = generateTerminalTabId();
-    const shellInfo = shells.find((item) => item.value === resolvedShell);
-    const title =
-      shellInfo?.label ||
-      resolvedShell ||
-      t('panels:tabCreation.terminal', '终端');
-    onCreatePanelNode?.({
-      id: editorTerminalPanelId(tabId),
-      component: PANEL_IDS.TERMINAL,
-      title,
-      params: {
-        surface: 'editor',
-        tabId,
-        shell: resolvedShell,
-      },
-      expanded: true,
-    });
-  };
+  }, [selectableAgents]);
 
   const isVertical = orientation === 'vertical';
   const resolvedMenuSide = menuSide ?? (isVertical ? 'right' : 'top');
@@ -224,7 +149,7 @@ export function SessionCanvasDock({
       aria-orientation={orientation}
       aria-label={t('hubCanvas.dock')}
     >
-      <DropdownMenu>
+      <DropdownMenu open={createMenuOpen} onOpenChange={setCreateMenuOpen}>
         <DropdownMenuTrigger asChild>
           <button
             type="button"
@@ -241,8 +166,95 @@ export function SessionCanvasDock({
           className="max-h-[420px] min-w-[200px] overflow-y-auto"
         >
           <DropdownMenuLabel className="px-2 py-1 text-[11px] font-medium text-muted-foreground">
+            {t('panels:tabCreation.agentGroup', 'Agent')}
+          </DropdownMenuLabel>
+          <DropdownMenuSub>
+            <DropdownMenuSubTrigger
+              onKeyDown={(event) => {
+                if (event.key === 'Enter' || event.key === ' ') {
+                  event.preventDefault();
+                  onCreateSession();
+                  setCreateMenuOpen(false);
+                }
+              }}
+              onClick={() => {
+                onCreateSession();
+                setCreateMenuOpen(false);
+              }}
+            >
+              <MessageSquarePlus className="size-4 text-muted-foreground" />
+              {t('hubCanvas.createSession')}
+            </DropdownMenuSubTrigger>
+            <DropdownMenuSubContent>
+              {enabledAgents.length === 0 ? (
+                <DropdownMenuItem disabled>
+                  {t('hubCanvas.noEnabledAgents')}
+                </DropdownMenuItem>
+              ) : null}
+              {enabledAgents.map((agent) => (
+                <DropdownMenuItem
+                  key={agent.id}
+                  onSelect={() => {
+                    if (onCreateSessionWithExecutor) {
+                      onCreateSessionWithExecutor(agent.id);
+                    } else {
+                      onCreateSession();
+                    }
+                  }}
+                >
+                  <span aria-hidden="true">
+                    <AgentIcon agent={agent.id} className="size-4 shrink-0" />
+                  </span>
+                  {agent.label}
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuSubContent>
+          </DropdownMenuSub>
+          <DropdownMenuItem
+            disabled={!collaboration}
+            onSelect={() =>
+              collaboration?.getSnapshot().openCreateMemberDialog()
+            }
+          >
+            <Bot className="size-4 text-muted-foreground" />
+            {t('hubCanvas.createAssistant')}
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            disabled={!collaboration}
+            onSelect={() =>
+              collaboration?.getSnapshot().openCreateSpaceDialog()
+            }
+          >
+            <Bot className="size-4 text-muted-foreground" />
+            {t('hubCanvas.createGroupChat')}
+          </DropdownMenuItem>
+
+          <DropdownMenuSeparator />
+          <DropdownMenuLabel className="px-2 py-1 text-[11px] font-medium text-muted-foreground">
+            {t('hubCanvas.canvasGroup')}
+          </DropdownMenuLabel>
+          <DropdownMenuItem onSelect={onCreateGroup}>
+            <SquareDashed className="size-4 text-muted-foreground" />
+            {t('hubCanvas.createGroup')}
+          </DropdownMenuItem>
+
+          <DropdownMenuSeparator />
+          <DropdownMenuLabel className="px-2 py-1 text-[11px] font-medium text-muted-foreground">
             {t('panels:tabCreation.featuresGroup', '功能')}
           </DropdownMenuLabel>
+          <DropdownMenuItem
+            onSelect={() =>
+              onCreatePanelNode?.({
+                id: PANEL_IDS.DIFFS,
+                component: PANEL_IDS.DIFFS,
+                title: t('panels:tabCreation.review', '审阅'),
+                expanded: true,
+              })
+            }
+          >
+            <FileDiff className="size-4 text-muted-foreground" />
+            {t('panels:tabCreation.review', '审阅')}
+          </DropdownMenuItem>
           <DropdownMenuItem
             onSelect={() =>
               onCreatePanelNode?.({
@@ -259,28 +271,6 @@ export function SessionCanvasDock({
           <DropdownMenuItem
             onSelect={() =>
               onCreatePanelNode?.({
-                id: PANEL_IDS.DIFFS,
-                component: PANEL_IDS.DIFFS,
-                title: t('panels:tabCreation.review', '审阅'),
-                expanded: true,
-              })
-            }
-          >
-            <FileDiff className="size-4 text-muted-foreground" />
-            {t('panels:tabCreation.review', '审阅')}
-          </DropdownMenuItem>
-          <DropdownMenuItem onSelect={onCreateGroup}>
-            <SquareDashed className="size-4 text-muted-foreground" />
-            {t('hubCanvas.createEmptyGroup')}
-          </DropdownMenuItem>
-
-          <DropdownMenuSeparator />
-          <DropdownMenuLabel className="px-2 py-1 text-[11px] font-medium text-muted-foreground">
-            {t('panels:tabCreation.infoGroup', '信息')}
-          </DropdownMenuLabel>
-          <DropdownMenuItem
-            onSelect={() =>
-              onCreatePanelNode?.({
                 id: PANEL_IDS.PROCESSES,
                 component: PANEL_IDS.PROCESSES,
                 title: t('panels:tabCreation.processes', '执行进程'),
@@ -291,120 +281,6 @@ export function SessionCanvasDock({
             <Activity className="size-4 text-muted-foreground" />
             {t('panels:tabCreation.processes', '执行进程')}
           </DropdownMenuItem>
-          <DropdownMenuItem
-            onSelect={() =>
-              onCreatePanelNode?.({
-                id: PANEL_IDS.SESSION_DETAILS,
-                component: PANEL_IDS.SESSION_DETAILS,
-                title: t('panels:tabCreation.sessionDetails', '会话详情'),
-                expanded: true,
-              })
-            }
-          >
-            <Info className="size-4 text-muted-foreground" />
-            {t('panels:tabCreation.sessionDetails', '会话详情')}
-          </DropdownMenuItem>
-
-          <DropdownMenuSeparator />
-          <DropdownMenuLabel className="px-2 py-1 text-[11px] font-medium text-muted-foreground">
-            {t('panels:tabCreation.agentGroup', 'Agent')}
-          </DropdownMenuLabel>
-          {enabledAgents.map((agent) => (
-            <DropdownMenuItem
-              key={agent.id}
-              onSelect={() => {
-                if (onCreateSessionWithExecutor) {
-                  onCreateSessionWithExecutor(agent.id);
-                } else {
-                  onCreateSession();
-                }
-              }}
-            >
-              <AgentIcon agent={agent.id} className="size-4 shrink-0" />
-              {agent.label}
-            </DropdownMenuItem>
-          ))}
-          <DropdownMenuItem onSelect={onCreateSession}>
-            <MessageSquarePlus className="size-4 text-muted-foreground" />
-            {t('hubCanvas.createSession')}
-          </DropdownMenuItem>
-
-          <DropdownMenuSeparator />
-          <DropdownMenuLabel className="px-2 py-1 text-[11px] font-medium text-muted-foreground">
-            {t('panels:tabCreation.othersGroup', '其他')}
-          </DropdownMenuLabel>
-          <DropdownMenuSub>
-            <DropdownMenuSubTrigger onClick={() => openTerminalNode()}>
-              <SquareTerminal className="size-4 text-muted-foreground" />
-              {t('panels:tabCreation.terminal', '终端')}
-            </DropdownMenuSubTrigger>
-            <DropdownMenuSubContent>
-              {shells.map((shell) => (
-                <DropdownMenuItem
-                  key={shell.value}
-                  onSelect={() => openTerminalNode(shell.value)}
-                >
-                  {shell.label}
-                </DropdownMenuItem>
-              ))}
-            </DropdownMenuSubContent>
-          </DropdownMenuSub>
-          {browser ? (
-            <DropdownMenuItem
-              onSelect={() => {
-                const metadata = contributionMetadata(browser);
-                const icon =
-                  typeof metadata.icon === 'string' ? metadata.icon : 'globe';
-                const id = `${pluginSurfaceId(browser.pluginId, browser.id)}:${Date.now().toString(36)}`;
-                onCreatePanelNode?.({
-                  id,
-                  component: 'plugin-panel',
-                  title: browser.label,
-                  params: {
-                    pluginId: browser.pluginId,
-                    contributionId: browser.id,
-                    icon,
-                  },
-                  expanded: true,
-                });
-              }}
-            >
-              <Globe className="size-4 text-muted-foreground" />
-              {t('panels:tabCreation.browser', 'Browser')}
-            </DropdownMenuItem>
-          ) : null}
-          {nonBrowserPlugins.map((item) => {
-            const metadata = contributionMetadata(item);
-            const icon =
-              typeof metadata.icon === 'string' ? metadata.icon : null;
-            const Icon = contributionIconComponent(icon, Puzzle);
-            return (
-              <DropdownMenuItem
-                key={`${item.pluginId}:${item.id}`}
-                onSelect={() => {
-                  const baseId = pluginSurfaceId(item.pluginId, item.id);
-                  const id =
-                    metadata.multiInstance === true
-                      ? `${baseId}:${Date.now().toString(36)}`
-                      : baseId;
-                  onCreatePanelNode?.({
-                    id,
-                    component: 'plugin-panel',
-                    title: item.label,
-                    params: {
-                      pluginId: item.pluginId,
-                      contributionId: item.id,
-                      icon,
-                    },
-                    expanded: true,
-                  });
-                }}
-              >
-                <Icon className="size-4 text-muted-foreground" />
-                {item.label}
-              </DropdownMenuItem>
-            );
-          })}
         </DropdownMenuContent>
       </DropdownMenu>
       <DropdownMenu>

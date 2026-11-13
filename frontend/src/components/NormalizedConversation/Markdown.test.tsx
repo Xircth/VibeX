@@ -20,6 +20,10 @@ const clipboardMock = vi.hoisted(() => ({
   writeText: vi.fn(),
 }));
 
+const hostAssetMock = vi.hoisted(() => ({
+  hostFileSrc: vi.fn(async (path: string) => `asset://${path}`),
+}));
+
 const shikiMock = vi.hoisted(() => {
   const loadLanguage = vi.fn(async () => undefined);
   const codeToTokensWithThemes = vi.fn((code: string) =>
@@ -112,7 +116,7 @@ vi.mock('@/lib/hostAsset', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/lib/hostAsset')>();
   return {
     ...actual,
-    hostFileSrc: async (path: string) => `asset://${path}`,
+    hostFileSrc: hostAssetMock.hostFileSrc,
     releaseHostFileSrc: () => undefined,
   };
 });
@@ -156,6 +160,10 @@ function renderMarkdown(
 
 describe('Markdown', () => {
   beforeEach(() => {
+    hostAssetMock.hostFileSrc.mockReset();
+    hostAssetMock.hostFileSrc.mockImplementation(
+      async (path: string) => `asset://${path}`
+    );
     panelActionsMock.openFilePreview.mockClear();
     panelActionsMock.revealInFileTree.mockClear();
     shikiMock.createHighlighter.mockClear();
@@ -180,6 +188,25 @@ describe('Markdown', () => {
     const image = screen.getByRole('img', { name: 'Generated image' });
     expect(image).toHaveAttribute('src', 'https://example.com/image.png');
   });
+
+  it.each(['Status', 'docs/example.png'])(
+    'opens the actual unavailable image rather than its label %s',
+    async (label) => {
+    hostAssetMock.hostFileSrc.mockRejectedValueOnce(
+      new Error('File not found')
+    );
+    renderMarkdown(`![${label}](evidence/agent-runtime-status-zh.png)`);
+
+    const link = await screen.findByRole('link', { name: label });
+    fireEvent.click(link);
+
+    expect(link).not.toHaveAttribute('href');
+    expect(panelActionsMock.openFilePreview).toHaveBeenCalledWith(
+      'C:/workspace/project/evidence/agent-runtime-status-zh.png',
+      expect.any(Object)
+    );
+    }
+  );
 
   it('renders bare GFM URLs as links', () => {
     renderMarkdown('See https://example.com/docs for details.');

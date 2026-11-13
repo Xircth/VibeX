@@ -8,7 +8,7 @@ use application::{ApplicationError, DomainCommand};
 use base64::{Engine, engine::general_purpose::STANDARD as BASE64};
 use db::models::{
     attention as attention_model,
-    execution_process::{ExecutionProcess, ExecutionProcessStatus},
+    conversation_turn::ConversationTurnRecord,
     repo::{Repo, UpdateRepo},
     scratch::{CreateScratch, Scratch, ScratchType, UpdateScratch},
     session::{CreateSession, Session, SessionStatus},
@@ -293,6 +293,43 @@ impl ServerApplicationDomains {
             DomainCommand::WorkspaceCreate => self.create_workspace(args).await,
             DomainCommand::WorkspaceUpdate => self.update_workspace(args).await,
             DomainCommand::WorkspaceDelete => self.delete_workspace(args).await,
+            DomainCommand::WorkspaceInitializationStatus => {
+                let args: WorkspaceIdArgs = parse(args)?;
+                let workspace = self.require_workspace(args.workspace_id).await?;
+                let status = services::services::workspace_lifecycle::initialization_status(&workspace).await.map_err(internal_error)?;
+                let mut result = serialize(status)?;
+                result["active"] = json!(services::services::workspace_lifecycle::initialization_is_active(workspace.id));
+                let repos = WorkspaceRepo::find_repos_for_workspace(&self.pool, workspace.id).await.map_err(internal_error)?;
+                let mut logs = Vec::new();
+                if let Some(root) = workspace.container_ref.as_deref() {
+                    for repo in repos {
+                        let log = Path::new(root).join(format!(".vibex-create-{}.log", repo.id));
+                        match services::services::worktree_settings::read_command_log_tail(&log).await {
+                            Ok(output) => logs.push(format!("{}\n{output}", repo.display_name)),
+                            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {},
+                            Err(error) => return Err(internal_error(error)),
+                        }
+                    }
+                }
+                result["logs"] = json!(logs.join("\n"));
+                Ok(result)
+            }
+            DomainCommand::WorkspaceCancelInitialization => {
+                let args: WorkspaceIdArgs = parse(args)?;
+                self.require_workspace(args.workspace_id).await?;
+                serialize(services::services::workspace_lifecycle::cancel_initialization(args.workspace_id))
+            }
+            DomainCommand::WorkspaceRetryInitialization => {
+                let args: WorkspaceIdArgs = parse(args)?;
+                let workspace = self.require_workspace(args.workspace_id).await?;
+                if services::services::workspace_lifecycle::initialization_is_active(workspace.id) { return Err(ApplicationError::conflict("Initialization is already running")); }
+                if !workspace.use_worktree { return Err(ApplicationError::bad_request("Project root workspaces do not run initialization commands")); }
+                if !ConversationTurnRecord::in_flight_conversation_ids_for_workspace(&self.pool, workspace.id).await.map_err(internal_error)?.is_empty() {
+                    return Err(ApplicationError::conflict("Stop active turns before retrying initialization"));
+                }
+                self.deployment.container().create(&workspace).await.map_err(internal_error)?;
+                serialize(self.require_workspace(workspace.id).await?)
+            }
             DomainCommand::WorkspaceMarkSeen => {
                 let args: WorkspaceIdArgs = parse(args)?;
                 Workspace::touch(&self.pool, args.workspace_id)
@@ -798,7 +835,7 @@ impl ServerApplicationDomains {
             DomainCommand::ProjectWorktreeSettingsGet => {
                 let args: ProjectSettingsArgs = parse(args)?;
                 serialize(
-                    load_project_settings(&utils::assets::settings_path(), args.project_id)
+                    load_project_settings(self.deployment.settings_path(), args.project_id)
                         .await
                         .map_err(internal_error)?,
                 )
@@ -812,7 +849,7 @@ impl ServerApplicationDomains {
                     .map_err(|error| ApplicationError::bad_request(error.to_string()))?;
                 serialize(
                     save_project_settings(
-                        &utils::assets::settings_path(),
+                        self.deployment.settings_path(),
                         args.project_id,
                         settings,
                     )
@@ -992,6 +1029,12 @@ impl ServerApplicationDomains {
         WorkspaceRepo::create_many(&self.pool, workspace.id, &workspace_repos)
             .await
             .map_err(internal_error)?;
+        let container_ref = self
+            .deployment
+            .container()
+            .ensure_container_exists(&workspace)
+            .await
+            .map_err(internal_error)?;
         let session = Session::create(
             &self.pool,
             &CreateSession {
@@ -1010,12 +1053,6 @@ impl ServerApplicationDomains {
         )
         .await
         .map_err(internal_error)?;
-        let container_ref = self
-            .deployment
-            .container()
-            .ensure_container_exists(&workspace)
-            .await
-            .map_err(internal_error)?;
         if let Some(profile) = args.executor_profile_id
             && let Ok(agent_id) = AgentId::parse(&profile.executor)
             && let Ok(launch) = self
@@ -1102,50 +1139,8 @@ impl ServerApplicationDomains {
     async fn delete_workspace(&self, args: Value) -> Result<Value, ApplicationError> {
         let args: DeleteWorkspaceArgs = parse(args)?;
         let workspace = self.require_workspace(args.workspace_id).await?;
-        if ExecutionProcess::has_running_non_dev_server_processes_for_workspace(
-            &self.pool,
-            workspace.id,
-        )
-        .await
-        .map_err(internal_error)?
-        {
-            return Err(ApplicationError::conflict(
-                "Cannot delete workspace while processes are running. Stop all processes first.",
-            ));
-        }
-        let dev_servers =
-            ExecutionProcess::find_running_dev_servers_by_workspace(&self.pool, workspace.id)
-                .await
-                .map_err(internal_error)?;
-        for dev_server in dev_servers {
-            let _ = self
-                .deployment
-                .container()
-                .stop_execution(&dev_server, ExecutionProcessStatus::Killed)
-                .await;
-        }
-        let repositories = WorkspaceRepo::find_repos_for_workspace(&self.pool, workspace.id)
-            .await
-            .map_err(internal_error)?;
-        let _ = Task::nullify_children_by_workspace_id(&self.pool, workspace.id).await;
-        if args.delete_branches.unwrap_or(false) {
-            let branch = workspace.branch.clone();
-            let git = self.deployment.git().clone();
-            let repo_paths = repositories
-                .iter()
-                .map(|repo| repo.path.clone())
-                .collect::<Vec<_>>();
-            let _ = tokio::task::spawn_blocking(move || {
-                for path in repo_paths {
-                    let _ = git.delete_branch(&path, &branch);
-                }
-            })
-            .await;
-        }
-        let _ = self.deployment.container().delete(&workspace).await;
-        Workspace::delete(&self.pool, args.workspace_id)
-            .await
-            .map_err(internal_error)?;
+        self.deployment.container().remove(&workspace, args.delete_branches.unwrap_or(false))
+            .await.map_err(internal_error)?;
         Ok(Value::Null)
     }
 

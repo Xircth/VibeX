@@ -22,6 +22,7 @@ import { SETTINGS_CHANGED_EVENT } from '@/lib/frontendPreferences';
 import { cn } from '@/lib/utils';
 import { SettingsSection } from './SettingsUi';
 import { useLiveSettingsCommit } from './useLiveSettingsCommit';
+import { WorktreeProjectDetails } from './WorktreeProjectDetails';
 import { EmptyState } from '@/components/ui/empty-state';
 
 const EMPTY_SETTINGS: ProjectWorktreeSettings = {
@@ -39,9 +40,7 @@ function validateBranchPrefix(
   prefix: string,
   t: (key: string) => string
 ): string | null {
-  if (!prefix.trim()) {
-    return t('versionControl.branchPrefixEmpty');
-  }
+  if (!prefix) return null;
   if (prefix.includes(' ')) {
     return t('versionControl.branchPrefixNoSpaces');
   }
@@ -51,7 +50,17 @@ function validateBranchPrefix(
   if (prefix.includes('//')) {
     return t('versionControl.branchPrefixNoDoubleSlash');
   }
-  if (/[~^:?*[\\]/.test(prefix)) {
+  if (
+    /[~^:?*[\\]/.test(prefix) ||
+    [...prefix].some(
+      (char) => char.charCodeAt(0) <= 32 || char.charCodeAt(0) === 127
+    ) ||
+    prefix.includes('..') ||
+    prefix.includes('@{') ||
+    prefix
+      .split('/')
+      .some((part) => part.startsWith('.') || part.endsWith('.lock'))
+  ) {
     return t('versionControl.branchPrefixInvalidChars');
   }
   return null;
@@ -60,6 +69,12 @@ function validateBranchPrefix(
 export function WorktreeSettings() {
   const { t } = useTranslation(['settings', 'common']);
   const { config, updateAndSaveConfig } = useUserSystem();
+  const [globalSave, setGlobalSave] = useState<
+    'idle' | 'saving' | 'saved' | 'error'
+  >('idle');
+  const [projectSave, setProjectSave] = useState<
+    'idle' | 'saving' | 'saved' | 'error'
+  >('idle');
   const [projects, setProjects] = useState<Project[]>([]);
   const [projectId, setProjectId] = useState('');
   const [draft, setDraft] = useState<ProjectWorktreeSettings>(EMPTY_SETTINGS);
@@ -81,6 +96,7 @@ export function WorktreeSettings() {
     [worktreeDraft.git_branch_prefix, t]
   );
   const {
+    writeNow: writeWorktreeNow,
     writeSettled: writeWorktreeSettled,
     flush: flushWorktree,
     holdingRef: worktreeHoldingRef,
@@ -89,13 +105,15 @@ export function WorktreeSettings() {
       workspace_dir: string | null;
       git_branch_prefix: string;
     }) => {
-      if (validateBranchPrefix(next.git_branch_prefix, t)) return;
+      const validPrefix = !validateBranchPrefix(next.git_branch_prefix, t);
+      setGlobalSave('saving');
       try {
         const savedConfig = await updateAndSaveConfig({
           workspace_dir: next.workspace_dir,
-          git_branch_prefix: next.git_branch_prefix,
+          ...(validPrefix ? { git_branch_prefix: next.git_branch_prefix } : {}),
         });
         if (!savedConfig) {
+          setGlobalSave('error');
           toast.error(t('versionControl.saveFailed'), {
             description: t('versionControl.saveFailedDesc'),
           });
@@ -107,9 +125,16 @@ export function WorktreeSettings() {
           current.git_branch_prefix === next.git_branch_prefix
         ) {
           worktreeEditedRef.current = false;
-          setWorktreeEdited(false);
+          if (validPrefix) {
+            setWorktreeEdited(false);
+            setGlobalSave('saved');
+          } else {
+            worktreeEditedRef.current = true;
+            setGlobalSave('idle');
+          }
         }
       } catch (error) {
+        setGlobalSave('error');
         toast.error(t('versionControl.saveFailed'), {
           description:
             error instanceof Error
@@ -127,15 +152,21 @@ export function WorktreeSettings() {
   } = useLiveSettingsCommit(async (next: ProjectWorktreeSettings) => {
     const project = projectIdRef.current;
     if (!project) return;
+    setProjectSave('saving');
     try {
       const savedSettings = await worktreeSettingsApi.update(project, next);
       if (projectIdRef.current !== project) return;
       const cloned = cloneSettings(savedSettings);
-      draftRef.current = cloned;
-      setDraft(cloned);
-      setStatus(await worktreeSettingsApi.getCleanupStatus(project));
+      if (JSON.stringify(draftRef.current) === JSON.stringify(next)) {
+        draftRef.current = cloned;
+        setDraft(cloned);
+        setProjectSave('saved');
+      }
+      const nextStatus = await worktreeSettingsApi.getCleanupStatus(project);
+      if (projectIdRef.current === project) setStatus(nextStatus);
     } catch (error) {
       if (projectIdRef.current !== project) return;
+      setProjectSave('error');
       toast.error(t('worktrees.saveFailed'), {
         description: error instanceof Error ? error.message : String(error),
       });
@@ -163,6 +194,7 @@ export function WorktreeSettings() {
   const updateWorktreeDraft = useCallback(
     (patch: Partial<typeof worktreeDraft>) => {
       worktreeEditedRef.current = true;
+      setGlobalSave('idle');
       setWorktreeEdited(true);
       const next = { ...worktreeDraftRef.current, ...patch };
       worktreeDraftRef.current = next;
@@ -247,6 +279,7 @@ export function WorktreeSettings() {
 
   const updateDraft = useCallback(
     (patch: Partial<ProjectWorktreeSettings>, settle = false) => {
+      setProjectSave('idle');
       const next = { ...draftRef.current, ...patch };
       draftRef.current = next;
       setDraft(next);
@@ -262,6 +295,7 @@ export function WorktreeSettings() {
     void (async () => {
       await flushProject();
       projectIdRef.current = id;
+      setProjectSave('idle');
       setProjectId(id);
     })();
   };
@@ -322,7 +356,7 @@ export function WorktreeSettings() {
                     value={worktreeDraft.git_branch_prefix}
                     onChange={(value) =>
                       updateWorktreeDraft({
-                        git_branch_prefix: value.trim(),
+                        git_branch_prefix: value,
                       })
                     }
                     onBlur={() => void flushWorktree()}
@@ -342,6 +376,27 @@ export function WorktreeSettings() {
                   {worktreeBranchPrefixError}
                 </p>
               ) : null}
+            </div>
+            <div
+              role="status"
+              className="flex items-center justify-end gap-2 text-sm text-muted-foreground"
+            >
+              {globalSave === 'saving'
+                ? t('worktrees.saving')
+                : globalSave === 'saved'
+                  ? t('worktrees.saved')
+                  : globalSave === 'error'
+                    ? t('worktrees.saveFailed')
+                    : null}
+              {globalSave === 'error' && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => writeWorktreeNow(worktreeDraftRef.current)}
+                >
+                  {t('worktrees.retry')}
+                </Button>
+              )}
             </div>
           </div>
         </SettingsSection>
@@ -385,6 +440,27 @@ export function WorktreeSettings() {
             </div>
 
             <div className="settings-worktree-board__pane">
+              <div
+                role="status"
+                className="flex items-center gap-2 text-sm text-muted-foreground"
+              >
+                {projectSave === 'saving'
+                  ? t('worktrees.saving')
+                  : projectSave === 'saved'
+                    ? t('worktrees.saved')
+                    : projectSave === 'error'
+                      ? t('worktrees.saveFailed')
+                      : null}
+                {projectSave === 'error' && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => writeProjectNow(draftRef.current)}
+                  >
+                    {t('worktrees.retry')}
+                  </Button>
+                )}
+              </div>
               <div className="space-y-3">
                 <h4>{t('worktrees.commandsTitle')}</h4>
                 <div className="space-y-2">
@@ -437,6 +513,9 @@ export function WorktreeSettings() {
                 </div>
               </div>
 
+              {projectId && (
+                <WorktreeProjectDetails key={projectId} projectId={projectId} />
+              )}
               <div className="space-y-3">
                 <h4>{t('worktrees.cleanupTitle')}</h4>
                 <div className="settings-row items-center justify-between gap-4">
@@ -466,7 +545,7 @@ export function WorktreeSettings() {
                     type="number"
                     min={1}
                     max={999}
-                    className="w-24 text-right"
+                    className="w-24 text-right tabular-nums"
                     value={draft.cleanup_prompt_threshold}
                     onChange={(event) => {
                       const parsed = Number.parseInt(event.target.value, 10);

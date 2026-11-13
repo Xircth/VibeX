@@ -170,7 +170,7 @@ describe('SessionCanvasView', () => {
     );
 
     await user.click(screen.getByRole('button', { name: '新建' }));
-    await user.click(await screen.findByRole('menuitem', { name: '空白分组' }));
+    await user.click(await screen.findByRole('menuitem', { name: '新建分组' }));
     const raw = window.localStorage.getItem('vibex:kanban-canvas:p1');
     expect(raw).toBeTruthy();
     const saved = JSON.parse(raw ?? '{}') as {
@@ -399,7 +399,7 @@ describe('SessionCanvasView', () => {
     );
 
     await user.click(screen.getByRole('button', { name: '新建' }));
-    await user.click(await screen.findByRole('menuitem', { name: '空白分组' }));
+    await user.click(await screen.findByRole('menuitem', { name: '新建分组' }));
     expect(
       JSON.parse(
         window.localStorage.getItem('vibex:kanban-canvas:p1') ?? '{}'
@@ -432,7 +432,7 @@ describe('SessionCanvasView', () => {
     );
 
     await user.click(screen.getByRole('button', { name: '新建' }));
-    await user.click(await screen.findByRole('menuitem', { name: '空白分组' }));
+    await user.click(await screen.findByRole('menuitem', { name: '新建分组' }));
     const overlay = document.createElement('div');
     overlay.className = 'react-flow__nodesselection';
     container.querySelector('.canvas-surface')!.appendChild(overlay);

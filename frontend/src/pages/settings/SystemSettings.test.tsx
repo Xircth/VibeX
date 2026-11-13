@@ -21,6 +21,9 @@ const mocks = vi.hoisted(() => ({
   getDataDir: vi.fn(),
   updateDataDir: vi.fn(),
   revealInFileManager: vi.fn(),
+  getDeveloperMode: vi.fn(),
+  setDeveloperMode: vi.fn(),
+  openDeveloperTools: vi.fn(),
   pickHostDirectory: vi.fn(),
   backupCreate: vi.fn(),
   backupInspect: vi.fn(),
@@ -48,6 +51,9 @@ vi.mock('@/lib/hostFs', () => ({
 vi.mock('@/lib/api/misc', () => ({
   desktopApi: {
     revealInFileManager: mocks.revealInFileManager,
+    getDeveloperMode: mocks.getDeveloperMode,
+    setDeveloperMode: mocks.setDeveloperMode,
+    openDeveloperTools: mocks.openDeveloperTools,
   },
 }));
 
@@ -166,6 +172,11 @@ describe('SystemSettings', () => {
       requires_reload: false,
     }));
     mocks.revealInFileManager.mockResolvedValue(undefined);
+    mocks.getDeveloperMode.mockResolvedValue(false);
+    mocks.setDeveloperMode.mockImplementation(
+      async (enabled: boolean) => enabled
+    );
+    mocks.openDeveloperTools.mockResolvedValue(undefined);
     mocks.pickHostDirectory.mockResolvedValue('/Volumes/SSD/VibeXData');
     mocks.backupCreate.mockResolvedValue(preview);
     mocks.backupInspect.mockResolvedValue(preview);
@@ -337,5 +348,28 @@ describe('SystemSettings', () => {
     expect(confirmOptions).toBeDefined();
     await act(async () => confirmOptions.action.onClick());
     expect(mocks.updateDataDir).toHaveBeenCalledWith('/Volumes/SSD/VibeXData');
+  });
+
+  it('keeps developer mode at the bottom of system settings and opens the inspector', async () => {
+    const user = userEvent.setup();
+    render(<SystemSettings />);
+
+    const headings = await screen.findAllByRole('heading', { level: 3 });
+    expect(headings.at(-1)).toHaveTextContent('开发者模式');
+    expect(
+      headings.findIndex(
+        (heading) => heading.textContent === '清除 VibeX 本地数据'
+      )
+    ).toBeLessThan(headings.length - 1);
+
+    const toggle = screen.getByRole('switch', { name: '开发者模式' });
+    expect(toggle).not.toBeChecked();
+    await user.click(toggle);
+    await waitFor(() => {
+      expect(mocks.setDeveloperMode).toHaveBeenCalledWith(true);
+    });
+
+    await user.click(screen.getByRole('button', { name: '打开开发者工具' }));
+    expect(mocks.openDeveloperTools).toHaveBeenCalled();
   });
 });

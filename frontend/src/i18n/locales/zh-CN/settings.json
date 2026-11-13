@@ -3340,6 +3340,10 @@
     "moreEntries": "还有 {{count}} 个条目未显示",
     "clearLocalDataTitle": "清除 VibeX 本地数据",
     "clearLocalDataLabel": "清除本机配置和缓存",
+    "developerMode": "开发者模式",
+    "developerModeDescription": "打开后可用 F12 或 Ctrl+Shift+I 检查界面。macOS 使用 Option+Command+I。",
+    "openDeveloperTools": "打开开发者工具",
+    "developerModeSaveFailed": "开发者模式保存失败",
     "saveSettings": "保存设置"
   },
   "browser": {

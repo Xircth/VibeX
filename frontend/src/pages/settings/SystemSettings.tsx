@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Archive,
+  Bug,
   Download,
   FileJson2,
   FolderOpen,
@@ -17,6 +18,7 @@ import { useUserSystem } from '@/components/ConfigProvider';
 import { TextInput } from '@astryxdesign/core/TextInput';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
+import { Switch } from '@/components/ui/switch';
 import {
   Select,
   SelectContent,
@@ -38,7 +40,7 @@ import { useWindowProjectsStore } from '@/stores/useWindowProjectsStore';
 import { ConversationBundlePanel } from '@/features/conversation/ConversationBundle';
 import { getInvokeErrorMessage } from '@/lib/errors';
 import { SETTINGS_CHANGED_EVENT } from '@/lib/frontendPreferences';
-import { useLocalDesktopHost } from '@/lib/desktopShell';
+import { useLocalDesktopHost, useTauriClient } from '@/lib/desktopShell';
 
 import { SettingsSection } from './SettingsUi';
 import { useLiveSettingsCommit } from './useLiveSettingsCommit';
@@ -133,6 +135,7 @@ export function SystemSettings() {
   const { t } = useTranslation(['settings', 'common']);
   const { config, loading, updateAndSaveConfig } = useUserSystem();
   const localDesktopHost = useLocalDesktopHost();
+  const tauriClient = useTauriClient();
 
   const [draft, setDraft] = useState<SystemSettingsConfig | null>(() =>
     config ? structuredClone(config as SystemSettingsConfig) : null
@@ -152,6 +155,9 @@ export function SystemSettings() {
   const renderingDraftRef = useRef(renderingDraft);
   renderingDraftRef.current = renderingDraft;
   const [renderingLoading, setRenderingLoading] = useState(true);
+  const [developerMode, setDeveloperMode] = useState(false);
+  const [developerModeLoading, setDeveloperModeLoading] = useState(tauriClient);
+  const developerModeHoldingRef = useRef(false);
   const { writeNow, holding } = useLiveSettingsCommit(
     async (next: SystemSettingsConfig) => {
       const saved = await updateAndSaveConfig(sanitizeDraft(next));
@@ -249,6 +255,23 @@ export function SystemSettings() {
       setRenderingLoading(false);
     }
 
+    if (tauriClient) {
+      try {
+        const enabled = await desktopApi.getDeveloperMode();
+        if (!developerModeHoldingRef.current) {
+          setDeveloperMode(enabled);
+        }
+      } catch (error) {
+        toast.error(
+          error instanceof Error
+            ? error.message
+            : t('system.developerModeSaveFailed')
+        );
+      } finally {
+        setDeveloperModeLoading(false);
+      }
+    }
+
     try {
       const dataDirSettings = await systemSettingsApi.getDataDir?.();
       if (dataDirSettings?.current_data_dir) {
@@ -258,7 +281,7 @@ export function SystemSettings() {
     } catch {
       // Optional during backend transition or mocked environments.
     }
-  }, [proxyHoldingRef, renderingHoldingRef, t]);
+  }, [proxyHoldingRef, renderingHoldingRef, t, tauriClient]);
 
   useEffect(() => {
     void refreshSystemSettings();
@@ -959,6 +982,63 @@ export function SystemSettings() {
             </Button>
           </div>
         </SettingsSection>
+
+        {tauriClient ? (
+          <SettingsSection
+            icon={Bug}
+            title={t('system.developerMode')}
+            description={t('system.developerModeDescription')}
+            bare={!developerMode}
+            action={
+              <Switch
+                aria-label={t('system.developerMode')}
+                checked={developerMode}
+                disabled={developerModeLoading}
+                onCheckedChange={(checked) => {
+                  const previous = developerMode;
+                  developerModeHoldingRef.current = true;
+                  setDeveloperMode(checked);
+                  void desktopApi
+                    .setDeveloperMode(checked)
+                    .then((saved) => {
+                      setDeveloperMode(saved);
+                    })
+                    .catch((error: unknown) => {
+                      setDeveloperMode(previous);
+                      toast.error(
+                        error instanceof Error
+                          ? error.message
+                          : t('system.developerModeSaveFailed')
+                      );
+                    })
+                    .finally(() => {
+                      developerModeHoldingRef.current = false;
+                    });
+                }}
+              />
+            }
+          >
+            {developerMode ? (
+              <div className="flex justify-end">
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    void desktopApi
+                      .openDeveloperTools()
+                      .catch((error: unknown) => {
+                        toast.error(
+                          getInvokeErrorMessage(error) ||
+                            t('system.developerModeSaveFailed')
+                        );
+                      });
+                  }}
+                >
+                  {t('system.openDeveloperTools')}
+                </Button>
+              </div>
+            ) : null}
+          </SettingsSection>
+        ) : null}
       </div>
     </div>
   );

@@ -80,6 +80,10 @@ struct SystemSettingsStore {
     proxy: PersistedProxy,
     #[serde(default)]
     rendering: SystemRenderingSettings,
+    /// Desktop shell flag. Full-section saves must keep it, or a proxy or
+    /// rendering write drops the remembered developer-mode switch.
+    #[serde(default)]
+    developer_mode: bool,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -1165,5 +1169,21 @@ mod tests {
             utils::assets::read_custom_data_dir_from(&bootstrap),
             Some(target)
         );
+    }
+
+    #[test]
+    fn system_section_rewrite_keeps_developer_mode() {
+        let store: SystemSettingsStore = serde_json::from_str(
+            r#"{"proxy":{"mode":"auto"},"rendering":{"acceleration_mode":"auto"},"developer_mode":true}"#,
+        )
+        .expect("system section");
+        assert!(store.developer_mode);
+        let rewritten = serde_json::to_value(&store).expect("rewrite");
+        assert_eq!(rewritten["developer_mode"], true);
+
+        let missing: SystemSettingsStore =
+            serde_json::from_str(r#"{"rendering":{"acceleration_mode":"disable_gpu"}}"#)
+                .expect("older system section");
+        assert!(!missing.developer_mode);
     }
 }

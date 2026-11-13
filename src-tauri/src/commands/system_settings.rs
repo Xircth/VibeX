@@ -95,6 +95,9 @@ struct SystemSettingsStore {
     proxy: PersistedProxy,
     #[serde(default)]
     rendering: SystemRenderingSettings,
+    /// Kept so a legacy migration rewrite does not drop the desktop shell flag.
+    #[serde(default)]
+    developer_mode: bool,
 }
 
 fn settings_path() -> PathBuf {

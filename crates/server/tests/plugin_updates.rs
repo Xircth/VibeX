@@ -264,3 +264,113 @@ async fn host_update_journey() {
     );
     task.abort();
 }
+
+struct HostProcess(std::process::Child);
+
+impl Drop for HostProcess {
+    fn drop(&mut self) {
+        let _ = self.0.kill();
+        let _ = self.0.wait();
+    }
+}
+
+#[tokio::test]
+async fn standalone_host_updates_plugins_over_http() {
+    let (origin, _, fixture_task) = fixture().await;
+    let data = tempfile::tempdir().unwrap();
+    let package = tempfile::tempdir().unwrap();
+    write_package(package.path(), "1.0.0");
+    let reservation = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let address = reservation.local_addr().unwrap();
+    drop(reservation);
+    let log_path = data.path().join("host.log");
+    let log = std::fs::File::create(&log_path).unwrap();
+    let mut host = HostProcess(
+        std::process::Command::new(env!("CARGO_BIN_EXE_vibex-server"))
+            .current_dir(data.path())
+            .env("VIBEX_DATA_DIR", data.path())
+            .env("VIBEX_SERVER_LISTEN", address.to_string())
+            .env("VIBEX_SERVER_TOKEN", TOKEN)
+            .env("RUST_LOG", "warn")
+            .stdout(log.try_clone().unwrap())
+            .stderr(log)
+            .spawn()
+            .unwrap(),
+    );
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(30))
+        .build()
+        .unwrap();
+    let base = format!("http://{address}");
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+    loop {
+        assert!(
+            host.0.try_wait().unwrap().is_none(),
+            "Host exited: {}",
+            std::fs::read_to_string(&log_path).unwrap()
+        );
+        if client
+            .get(format!("{base}/api/v1/capabilities"))
+            .bearer_auth(TOKEN)
+            .send()
+            .await
+            .is_ok_and(|response| response.status().is_success())
+        {
+            break;
+        }
+        assert!(std::time::Instant::now() < deadline, "Host did not start");
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    }
+    let call = |command: &str, args: Value| {
+        client
+            .post(format!("{base}/api/v1/call/{command}"))
+            .bearer_auth(TOKEN)
+            .json(&json!({"operation_id":uuid::Uuid::new_v4(),"args":args}))
+            .send()
+    };
+    for (command, args) in [
+        (
+            "plugin_control_import",
+            json!({"path":package.path(),"origin":format!("{origin}/marketplace/acme/notes"),"gitRef":"v1.0.0","locked":true}),
+        ),
+        (
+            "plugin_control_set_enabled",
+            json!({"pluginId":"acme.notes","enabled":false}),
+        ),
+        (
+            "plugin_save_config",
+            json!({"pluginId":"acme.notes","config":{"preview":false}}),
+        ),
+    ] {
+        let response = call(command, args).await.unwrap();
+        assert!(
+            response.status().is_success(),
+            "{}",
+            response.text().await.unwrap()
+        );
+    }
+    let response = call("plugin_control_update", json!({"pluginId":"acme.notes"}))
+        .await
+        .unwrap();
+    assert!(response.status().is_success());
+    let preview: Value = response.json().await.unwrap();
+    let response = call(
+        "plugin_control_update",
+        json!({"pluginId":"acme.notes","confirmationId":preview["data"]["confirmationId"]}),
+    )
+    .await
+    .unwrap();
+    assert!(response.status().is_success());
+    let updated: Value = response.json().await.unwrap();
+    assert_eq!(updated["data"]["version"], "2.0.0");
+    assert_eq!(updated["data"]["enabled"], false);
+    assert_eq!(updated["data"]["sourceLock"]["tag"], "v2.0.0");
+    let detail: Value = call("plugin_product_detail", json!({"pluginId":"acme.notes"}))
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(detail["data"]["config"], json!({"preview":false}));
+    fixture_task.abort();
+}

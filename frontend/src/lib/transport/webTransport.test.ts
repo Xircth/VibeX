@@ -253,6 +253,62 @@ describe('WebTransport', () => {
     transport.destroy();
   });
 
+  it('receives Host invalidations and notifications after the Host restarts', async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal('WebSocket', MockWebSocket);
+    const transport = new WebTransport({
+      baseUrl: 'http://127.0.0.1:17891',
+      token: 'remote-secret',
+    });
+    const changed = vi.fn();
+    const available = vi.fn();
+    const stopChanged = await transport.listen(
+      'plugin-updates-changed',
+      changed
+    );
+    const stopAvailable = await transport.listen(
+      'plugin-updates-available',
+      available
+    );
+    const socket = MockWebSocket.instances[0]!;
+    socket.open();
+    const attachments = socket.sent.map((frame) => JSON.parse(frame));
+    for (const { request } of attachments) {
+      socket.message({
+        type: 'event',
+        subscription_id: request.subscription_id,
+        event: { sequence: 99, kind: request.channel, payload: 'before' },
+      });
+    }
+    await vi.advanceTimersByTimeAsync(0);
+    expect(changed).toHaveBeenCalledWith('before');
+    expect(available).toHaveBeenCalledWith('before');
+    socket.drop();
+    await vi.advanceTimersByTimeAsync(250);
+    const reconnected = MockWebSocket.instances[1]!;
+    reconnected.open();
+    reconnected.message({
+      type: 'snapshot',
+      subscription_id: attachments[0].request.subscription_id,
+      snapshot: { through_sequence: 1, payload: 'after' },
+    });
+    reconnected.message({
+      type: 'event',
+      subscription_id: attachments[1].request.subscription_id,
+      event: {
+        sequence: 2,
+        kind: 'plugin-updates-available',
+        payload: 'after',
+      },
+    });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(changed).toHaveBeenLastCalledWith('after');
+    expect(available).toHaveBeenLastCalledWith('after');
+    stopChanged();
+    stopAvailable();
+    transport.destroy();
+  });
+
   it('keeps an idle socket alive and reconnects after a missed pong', async () => {
     vi.useFakeTimers();
     vi.stubGlobal('WebSocket', MockWebSocket);

@@ -124,7 +124,11 @@ export function AgentSetupPicker({
   onRetry,
   onEnabledChange,
   onDefaultChange,
+  onInspect,
+  inspectedAgentId,
 }: {
+  onInspect?: (agentId: AgentId) => void;
+  inspectedAgentId?: AgentId | null;
   agents: OnboardingAgentOption[];
   enabledAgentIds: ReadonlySet<AgentId>;
   defaultAgentId: AgentId | null;
@@ -136,7 +140,7 @@ export function AgentSetupPicker({
   onEnabledChange: (agentId: AgentId, enabled: boolean) => void;
   onDefaultChange: (agentId: AgentId) => void;
 }) {
-  const { t } = useTranslation('dialogs');
+  const { t } = useTranslation(['dialogs', 'settings']);
   const [defaultAgentOpen, setDefaultAgentOpen] = useState(false);
   const [showEnableAgentPrompt, setShowEnableAgentPrompt] = useState(false);
   const enabledAgents = agents.filter((agent) =>
@@ -166,7 +170,7 @@ export function AgentSetupPicker({
     setDefaultAgentOpen(false);
   }, [hasEnabledAgents]);
 
-  if (loading) {
+  if (loading && agents.length === 0) {
     return (
       <div
         className="onboarding-agent-loading"
@@ -241,13 +245,17 @@ export function AgentSetupPicker({
             return (
               <article
                 key={agent.agentId}
-                className="onboarding-agent-row"
+                className={cn(
+                  'onboarding-agent-row',
+                  inspectedAgentId === agent.agentId && 'is-inspected'
+                )}
                 role="listitem"
               >
                 <label className="onboarding-agent-enable">
                   <input
                     type="checkbox"
                     checked={enabled}
+                    disabled={!agent.platformSupported}
                     onChange={(event) =>
                       onEnabledChange(agent.agentId, event.target.checked)
                     }
@@ -275,7 +283,15 @@ export function AgentSetupPicker({
                   />
                 </span>
 
-                <div className="onboarding-agent-copy">
+                <button
+                  type="button"
+                  className="onboarding-agent-copy text-left"
+                  onClick={() => onInspect?.(agent.agentId)}
+                  aria-expanded={inspectedAgentId === agent.agentId}
+                  aria-label={t('onboarding.agentDetail', {
+                    agent: agent.displayName,
+                  })}
+                >
                   <div className="onboarding-agent-name-line">
                     <strong>{agent.displayName}</strong>
                     {checking ? (
@@ -286,15 +302,21 @@ export function AgentSetupPicker({
                         />
                         {t('onboarding.checking')}
                       </span>
-                    ) : agent.runtimeInstalled ? (
-                      <span className="onboarding-status-badge is-installed">
-                        <ShieldCheck aria-hidden="true" />
-                        {t('onboarding.installed')}
-                      </span>
                     ) : (
-                      <span className="onboarding-status-badge">
-                        <Download aria-hidden="true" />
-                        {t('onboarding.notInstalled')}
+                      <span
+                        className={cn(
+                          'onboarding-status-badge',
+                          agent.lifecycle === 'ready' && 'is-installed'
+                        )}
+                      >
+                        {agent.lifecycle === 'ready' ? (
+                          <ShieldCheck aria-hidden="true" />
+                        ) : (
+                          <Download aria-hidden="true" />
+                        )}
+                        {t(
+                          `settings:agents.lifecycleStatus.${agent.lifecycle}`
+                        )}
                       </span>
                     )}
                     {agent.recommended ? (
@@ -307,8 +329,7 @@ export function AgentSetupPicker({
                       </span>
                     ) : null}
                   </div>
-                  <p>{agent.description}</p>
-                </div>
+                </button>
               </article>
             );
           })}

@@ -1093,7 +1093,10 @@ fn local_ssh_target() -> Option<LocalSshTargetView> {
     })
 }
 
-pub(crate) fn provision_target_key(kind: &str, provision: Option<&serde_json::Value>) -> Option<String> {
+pub(crate) fn provision_target_key(
+    kind: &str,
+    provision: Option<&serde_json::Value>,
+) -> Option<String> {
     let kind = kind.trim();
     if kind.is_empty() || kind == "manual" || kind == "discovered" {
         return None;

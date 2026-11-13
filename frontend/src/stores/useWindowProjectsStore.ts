@@ -203,7 +203,7 @@ export const useWindowProjectsStore = create<WindowProjectsState>()(
           const nextOpenProjectIds = [
             projectId,
             ...state.openProjectIds.filter((id) => id !== projectId),
-          ].slice(0, 6);
+          ];
           const wasRemoved = Boolean(state.removedProjectIds[projectId]);
           if (
             !wasRemoved &&

@@ -7,8 +7,17 @@ use server::{
 };
 use tracing_subscriber::EnvFilter;
 
-#[tokio::main]
-async fn main() -> ExitCode {
+fn main() -> ExitCode {
+    // Match the desktop Host: debug command futures exceed Tokio's default stack.
+    tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .thread_stack_size(16 * 1024 * 1024)
+        .build()
+        .expect("could not initialize Host runtime")
+        .block_on(run_command())
+}
+
+async fn run_command() -> ExitCode {
     match parse_args(std::env::args().skip(1)) {
         Ok(ParsedArgs::Command(LaunchCommand::Version)) => {
             println!("{}", env!("CARGO_PKG_VERSION"));

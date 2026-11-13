@@ -157,6 +157,61 @@ impl ServerApplicationDomains {
         self.apply_default_plugin_mcp_projections(plugin).await
     }
 
+    /// Refresh the existing bindings without opting new Agents into an update.
+    pub(crate) async fn refresh_updated_plugin_projections(
+        &self,
+        previous: &InstalledPlugin,
+        current: &InstalledPlugin,
+    ) -> Result<(), ApplicationError> {
+        let removed = previous
+            .skills
+            .iter()
+            .filter(|old| !current.skills.iter().any(|new| new.id == old.id))
+            .map(|skill| skill.id.clone())
+            .collect::<Vec<_>>();
+        if !removed.is_empty() {
+            skills::remove_plugin_skill_projections(current.id(), &removed)
+                .map_err(internal_error)?;
+        }
+        let bindings: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM plugin_agent_bindings_v4 WHERE plugin_id = ?")
+                .bind(current.id())
+                .fetch_one(&self.pool)
+                .await
+                .map_err(internal_error)?;
+        if bindings > 0 {
+            self.apply_default_plugin_skill_projections(current).await?;
+        }
+        for id in plugin_mcp_server_ids(previous) {
+            if !plugin_mcp_server_ids(current).contains(&id)
+                && let Err(error) = services::services::mcp::uninstall_server(id).await
+            {
+                tracing::warn!(?error, "could not remove retired plugin MCP projection");
+            }
+        }
+        let bindings: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM plugin_mcp_bindings_v4 WHERE plugin_id = ?")
+                .bind(current.id())
+                .fetch_one(&self.pool)
+                .await
+                .map_err(internal_error)?;
+        if bindings > 0 {
+            for error in configure_plugin_mcp(
+                &self.pool,
+                &self.plugin_control_plane,
+                &self.worker_runtime,
+                &self.host_call,
+                current,
+                McpProjectionSelection::Refresh,
+            )
+            .await
+            {
+                tracing::warn!(plugin_id = current.id(), %error, "MCP update projection failed");
+            }
+        }
+        Ok(())
+    }
+
     pub(crate) async fn remove_plugin_projections(
         plugin: &InstalledPlugin,
     ) -> Result<(), ApplicationError> {
@@ -434,8 +489,10 @@ impl ServerApplicationDomains {
             &self.worker_runtime,
             &self.host_call,
             plugin,
-            all_agents,
-            desired,
+            McpProjectionSelection::Configure {
+                all_agents,
+                desired,
+            },
         )
         .await
     }
@@ -746,53 +803,94 @@ pub async fn reconcile_disabled_and_uninstalled_plugin_projections(
     }
 }
 
+enum McpProjectionSelection<'a> {
+    Configure {
+        all_agents: bool,
+        desired: &'a BTreeSet<String>,
+    },
+    Refresh,
+}
+
 async fn configure_plugin_mcp(
     pool: &SqlitePool,
     control_plane: &plugins::PluginControlPlane,
     worker_runtime: &plugins::PluginWorkerRuntimeProvider,
     host_call: &plugins::PluginHostCall,
     plugin: &InstalledPlugin,
-    all_agents: bool,
-    desired: &BTreeSet<String>,
+    selection: McpProjectionSelection<'_>,
 ) -> Vec<String> {
-    if let Err(error) = sqlx::query("DELETE FROM plugin_mcp_bindings_v4 WHERE plugin_id = ?")
-        .bind(plugin.id())
-        .execute(pool)
-        .await
+    let saved = match sqlx::query_as::<_, (String, String, bool)>(
+        "SELECT mcp_id, agent_id, desired FROM plugin_mcp_bindings_v4 WHERE plugin_id = ?",
+    )
+    .bind(plugin.id())
+    .fetch_all(pool)
+    .await
     {
-        return vec![format!("control-plane binding reset: {error}")];
+        Ok(saved) => saved,
+        Err(error) => return vec![format!("control-plane binding read: {error}")],
+    };
+    let mut desired_by_server = BTreeMap::<String, BTreeSet<String>>::new();
+    for (server_id, agent_id, wanted) in saved {
+        let desired = desired_by_server.entry(server_id).or_default();
+        if wanted {
+            desired.insert(agent_id);
+        }
     }
+    let existing_agents: BTreeSet<_> = desired_by_server.values().flatten().cloned().collect();
     let raw_mcp = &plugin.mcp;
-    if raw_mcp.is_null() {
-        return Vec::new();
-    }
     let servers = raw_mcp
         .get("mcpServers")
         .unwrap_or(raw_mcp)
         .as_object()
         .cloned()
         .unwrap_or_default();
-    let apps = if all_agents {
-        Vec::new()
-    } else {
-        desired
-            .iter()
-            .filter_map(|agent| {
-                serde_json::from_value::<services::services::mcp::McpAppType>(Value::String(
-                    agent.clone(),
-                ))
-                .ok()
-            })
-            .collect()
-    };
     let mut errors = Vec::new();
+    for retired in desired_by_server
+        .keys()
+        .filter(|id| !servers.contains_key(*id))
+    {
+        if let Err(error) =
+            sqlx::query("DELETE FROM plugin_mcp_bindings_v4 WHERE plugin_id = ? AND mcp_id = ?")
+                .bind(plugin.id())
+                .bind(retired)
+                .execute(pool)
+                .await
+        {
+            errors.push(format!("{retired} binding removal: {error}"));
+        }
+    }
     for (server_id, spec) in servers {
+        let (all_agents, desired) = match &selection {
+            McpProjectionSelection::Configure {
+                all_agents,
+                desired,
+            } => (*all_agents, *desired),
+            McpProjectionSelection::Refresh => (
+                false,
+                desired_by_server
+                    .get(&server_id)
+                    .unwrap_or(&existing_agents),
+            ),
+        };
+        let apps = if all_agents {
+            Vec::new()
+        } else {
+            desired
+                .iter()
+                .filter_map(|agent| {
+                    serde_json::from_value::<services::services::mcp::McpAppType>(Value::String(
+                        agent.clone(),
+                    ))
+                    .ok()
+                })
+                .collect()
+        };
         let projected_id = plugins::projected_mcp_server_id(plugin.id(), &server_id, &spec);
         let legacy_id = plugins::legacy_projected_mcp_server_id(plugin.id(), &server_id, &spec);
         if legacy_id != projected_id {
             let _ = services::services::mcp::uninstall_server(legacy_id).await;
         }
-        let materialized = match materialize_plugin_mcp_spec(
+        let materialized = materialize_plugin_mcp_spec(
             control_plane,
             worker_runtime,
             host_call,
@@ -800,21 +898,18 @@ async fn configure_plugin_mcp(
             &server_id,
             spec,
         )
-        .await
-        {
-            Ok(spec) => spec,
+        .await;
+        let mut applied = false;
+        let error_message = match materialized {
             Err(error) => {
-                errors.push(format!("{server_id}: {error}"));
                 if let Err(uninstall_error) =
                     services::services::mcp::uninstall_server(projected_id.clone()).await
                 {
                     errors.push(format!("{server_id}: {uninstall_error}"));
                 }
-                continue;
+                Some(error.to_string())
             }
-        };
-        let error_message = match materialized {
-            None => {
+            Ok(None) => {
                 if let Err(error) =
                     services::services::mcp::uninstall_server(projected_id.clone()).await
                 {
@@ -824,32 +919,54 @@ async fn configure_plugin_mcp(
                     None
                 }
             }
-            Some(spec) => services::services::mcp::upsert_local_server(
-                projected_id,
-                spec,
-                all_agents,
-                apps.clone(),
-            )
-            .await
-            .err()
-            .map(|error| error.to_string()),
+            Ok(Some(spec)) => {
+                let result = services::services::mcp::upsert_local_server(
+                    projected_id,
+                    spec,
+                    all_agents,
+                    apps.clone(),
+                )
+                .await;
+                applied = result.is_ok();
+                result.err().map(|error| error.to_string())
+            }
         };
         if let Some(error) = &error_message {
             errors.push(format!("{server_id}: {error}"));
         }
-        let known_agents = skills::skill_capable_agent_ids()
-            .into_iter()
-            .collect::<BTreeSet<_>>();
-        for agent_id in &known_agents {
-            let wanted = desired.contains(agent_id);
-            let binding_error_code =
-                (wanted && error_message.is_some()).then_some("mcp_projection_failed");
-            let binding_error_message = if wanted {
-                error_message.as_deref()
-            } else {
-                None
-            };
-            if let Err(error) = sqlx::query(
+        errors.extend(
+            persist_plugin_mcp_outcome(
+                pool,
+                plugin.id(),
+                &server_id,
+                desired,
+                applied,
+                error_message.as_deref(),
+            )
+            .await,
+        );
+    }
+    errors
+}
+
+async fn persist_plugin_mcp_outcome(
+    pool: &SqlitePool,
+    plugin_id: &str,
+    server_id: &str,
+    desired: &BTreeSet<String>,
+    applied: bool,
+    error_message: Option<&str>,
+) -> Vec<String> {
+    let mut errors = Vec::new();
+    let known_agents = skills::skill_capable_agent_ids()
+        .into_iter()
+        .collect::<BTreeSet<_>>();
+    for agent_id in &known_agents {
+        let wanted = desired.contains(agent_id);
+        let binding_error_code =
+            (wanted && error_message.is_some()).then_some("mcp_projection_failed");
+        let binding_error_message = if wanted { error_message } else { None };
+        if let Err(error) = sqlx::query(
                 "INSERT INTO plugin_mcp_bindings_v4
                      (plugin_id, mcp_id, agent_id, desired, applied, error_code, error_message, updated_at)
                  VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
@@ -860,11 +977,11 @@ async fn configure_plugin_mcp(
                      error_message = excluded.error_message,
                      updated_at = CURRENT_TIMESTAMP",
             )
-            .bind(plugin.id())
-            .bind(&server_id)
+            .bind(plugin_id)
+            .bind(server_id)
             .bind(agent_id)
             .bind(i64::from(wanted))
-            .bind(i64::from(wanted && error_message.is_none()))
+            .bind(i64::from(wanted && applied))
             .bind(binding_error_code)
             .bind(binding_error_message)
             .execute(pool)
@@ -872,7 +989,6 @@ async fn configure_plugin_mcp(
             {
                 errors.push(format!("{server_id}/{agent_id} binding: {error}"));
             }
-        }
     }
     errors
 }
@@ -1101,6 +1217,107 @@ mod tests {
     use serde_json::json;
 
     use super::*;
+
+    #[tokio::test]
+    async fn mcp_update_failure_preserves_each_servers_desired_agents() {
+        let pool = sqlx::sqlite::SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+        sqlx::migrate!("../db/migrations").run(&pool).await.unwrap();
+        sqlx::query("PRAGMA foreign_keys = OFF")
+            .execute(&pool)
+            .await
+            .unwrap();
+        let plugin_id = format!("test.mcp-update-{}", uuid::Uuid::new_v4());
+        let first = BTreeSet::from(["codex".to_owned()]);
+        let second = BTreeSet::from(["claude_code".to_owned()]);
+        for (server, desired) in [("first", &first), ("second", &second), ("retired", &first)] {
+            assert!(
+                persist_plugin_mcp_outcome(&pool, &plugin_id, server, desired, true, None)
+                    .await
+                    .is_empty()
+            );
+        }
+        let root = tempfile::tempdir().unwrap();
+        let mut package = PluginPackage::for_test(
+            &plugin_id,
+            "MCP update",
+            "2.0.0",
+            plugins::PluginSourceKind::Snapshot,
+            root.path(),
+        );
+        // The declared handler has no activation lease: materialization fails.
+        package.mcp = json!({"first":{"managedRuntime":{"kind":"workerHttp","handler":"endpoint"}},"second":{"managedRuntime":{"kind":"workerHttp","handler":"endpoint"}}});
+        let plugin = InstalledPlugin {
+            package,
+            activation: plugins::PluginActivation::Enabled,
+            package_digest: String::new(),
+        };
+        let plane = plugins::PluginControlPlane::new(std::sync::Arc::new(
+            plugins::InMemoryPluginRegistry::default(),
+        ));
+        let runtime = plugins::PluginWorkerRuntimeProvider::new(root.path().to_owned());
+        let host_call =
+            plugins::PluginHostCall::new(std::sync::Arc::new(plugins::DenyCapabilityBroker));
+        for _ in 0..2 {
+            let errors = configure_plugin_mcp(
+                &pool,
+                &plane,
+                &runtime,
+                &host_call,
+                &plugin,
+                McpProjectionSelection::Refresh,
+            )
+            .await;
+            assert!(
+                errors
+                    .iter()
+                    .any(|error| error.contains("requires an active Worker"))
+            );
+            let wanted: Vec<(String, String, bool, Option<String>)> = sqlx::query_as("SELECT mcp_id, agent_id, applied, error_code FROM plugin_mcp_bindings_v4 WHERE plugin_id = ? AND desired = 1 ORDER BY mcp_id, agent_id")
+                .bind(&plugin_id).fetch_all(&pool).await.unwrap();
+            assert_eq!(
+                wanted,
+                vec![
+                    (
+                        "first".into(),
+                        "codex".into(),
+                        false,
+                        Some("mcp_projection_failed".into())
+                    ),
+                    (
+                        "second".into(),
+                        "claude_code".into(),
+                        false,
+                        Some("mcp_projection_failed".into())
+                    ),
+                ]
+            );
+            let retired: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM plugin_mcp_bindings_v4 WHERE plugin_id = ? AND mcp_id = 'retired'")
+                .bind(&plugin_id).fetch_one(&pool).await.unwrap();
+            assert_eq!(retired, 0);
+        }
+        // Explicitly opting out remains an opt-out after another failed refresh.
+        assert!(
+            persist_plugin_mcp_outcome(&pool, &plugin_id, "first", &BTreeSet::new(), false, None)
+                .await
+                .is_empty()
+        );
+        configure_plugin_mcp(
+            &pool,
+            &plane,
+            &runtime,
+            &host_call,
+            &plugin,
+            McpProjectionSelection::Refresh,
+        )
+        .await;
+        let first_wanted: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM plugin_mcp_bindings_v4 WHERE plugin_id = ? AND mcp_id = 'first' AND desired = 1")
+            .bind(&plugin_id).fetch_one(&pool).await.unwrap();
+        assert_eq!(first_wanted, 0);
+    }
 
     #[test]
     fn configure_agents_args_accept_the_frontend_enable_payload() {

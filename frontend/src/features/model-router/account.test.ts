@@ -12,6 +12,56 @@ const openExternal = vi.hoisted(() => vi.fn());
 vi.mock('./openExternal', () => ({ openExternal }));
 
 describe('accountApi & Model Marketplace helpers', () => {
+  it('keeps the deadline active while reading a stalled response body', async () => {
+    vi.useFakeTimers();
+    try {
+      vi.spyOn(globalThis, 'fetch').mockImplementation(
+        async (_url, init) =>
+          ({
+            status: 200,
+            ok: true,
+            json: () =>
+              new Promise((_resolve, reject) => {
+                init?.signal?.addEventListener('abort', () =>
+                  reject(new DOMException('Aborted', 'AbortError'))
+                );
+              }),
+          }) as Response
+      );
+      const result = accountApi.startLogin();
+      const assertion = expect(result).rejects.toMatchObject({
+        code: 'network',
+      });
+      await vi.advanceTimersByTimeAsync(15_001);
+      await assertion;
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+  it('does not store an approved token after the login was canceled', async () => {
+    const controller = new AbortController();
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async () => {
+      controller.abort();
+      return new Response(
+        JSON.stringify({ status: 'approved', token: 'late-token' }),
+        { status: 200 }
+      );
+    });
+    expect(
+      await accountApi.pollLogin(
+        {
+          requestId: 'request',
+          verifier: 'secret',
+          userCode: '',
+          verifyUrl: '',
+          expiresIn: 60,
+          interval: 1,
+        },
+        controller.signal
+      )
+    ).toBe(false);
+    expect(localStorage.getItem(ACCOUNT_TOKEN_STORAGE_KEY)).toBeNull();
+  });
   beforeEach(() => {
     localStorage.clear();
     openExternal.mockReset();

@@ -43,7 +43,7 @@ publish Submit a packed .vxp or GitHub repository to the official marketplace re
         --hide-tree     Hide package structure (default for uploads)
 list    Show plugins on the running Host
 update  Refresh a snapshot from its locked origin. Linked plugins do not use this.
-        --ref tag       Pin a new Git tag, branch, or commit
+        --ref tag       Select a newer stable semver release/tag
 remove  Uninstall a non-built-in plugin. Default keeps user config.
         --delete-data   Delete Host-managed snapshot and config. Runtimes with no
                         remaining plugin refs are reclaimed. Conversations stay.
@@ -855,18 +855,33 @@ async function updatePlugin(args) {
       `Plugin \`${pluginId}\` has no locked origin. Reinstall with --web <url>#tag.`,
     );
   }
-  const ref = parsed.flags.ref || plugin.sourceRef || "";
-  let source = plugin.sourceOrigin;
-  if (parseGitSource(source) || parseGitSource(`${source}#${ref}`)) {
-    source = ref ? `${plugin.sourceOrigin.replace(/\.git$/, "")}#${ref}` : plugin.sourceOrigin;
-  } else if (parseGithubReleaseSpec(source) && ref) {
-    const spec = parseGithubReleaseSpec(source);
-    source = spec
-      ? `https://github.com/${spec.owner}/${spec.repo}/releases/tag/${ref}`
-      : source;
+  const preview = await hostCall(host, "plugin_control_update", {
+    pluginId,
+    tag: parsed.flags.ref || undefined,
+  });
+  log(`${preview.plugin.publisher}/${pluginId}: ${preview.currentVersion} -> ${preview.targetVersion}`);
+  log(`Source: ${preview.source.origin} @ ${preview.source.tag}`);
+  log(`Package digest: ${preview.packageDigest}`);
+  if (preview.plugin.description) log(preview.plugin.description);
+  log(`Capabilities: ${[
+    preview.plugin.hasWorker ? "Worker" : "",
+    ...(preview.plugin.mcpServers || []).map((id) => `MCP: ${id}`),
+    ...(preview.plugin.appContributions || []).map((app) => app.label),
+    ...(preview.plugin.skills || []).map((skill) => skill.id),
+  ].filter(Boolean).join(", ") || "none"}`);
+  if (preview.releaseNotes) log(preview.releaseNotes);
+  log("Full Trust: this plugin can execute code with your account's permissions.");
+  if (!parsed.flags.yes) {
+    if (!process.stdin.isTTY) throw new Error("Update requires confirmation. Review the preview and pass --yes.");
+    process.stderr.write("Confirm this update? [y/N] ");
+    const answer = (await readLine()).trim().toLowerCase();
+    if (!["y", "yes"].includes(answer)) return;
   }
-  log(`Updating ${pluginId} from ${source}...`);
-  await addWebPlugin(source, { ...parsed.flags, plugin: pluginId, yes: parsed.flags.yes });
+  await hostCall(host, "plugin_control_update", {
+    pluginId,
+    confirmationId: preview.confirmationId,
+  });
+  log(`Updated ${pluginId} to ${preview.targetVersion}.`);
 }
 
 async function gcRuntimes() {

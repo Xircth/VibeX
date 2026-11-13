@@ -1105,6 +1105,7 @@ dependencies = [
  "futures",
  "git",
  "git2",
+ "local-deployment",
  "serde",
  "serde_json",
  "services",

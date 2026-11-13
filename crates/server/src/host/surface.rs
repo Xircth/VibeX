@@ -576,7 +576,7 @@ impl ServerApplicationDomains {
                 if let Some(item) = self.native_plugin_update(args.clone()).await? {
                     return Ok(item);
                 }
-                self.plugin_control_import(args).await
+                self.plugin_update(args).await
             }
             DomainCommand::PluginControlPreviewImport => self.plugin_preview_import(args).await,
             DomainCommand::PluginControlRollback => self.plugin_rollback(args).await,

@@ -40,6 +40,7 @@ type Props = {
   onAdoptExternal?: () => void;
   onOverwriteConflict?: () => void;
   onDirtyChange?: (dirty: boolean) => void;
+  onPendingChange?: (pending: boolean) => void;
   embedded?: boolean;
   locked?: boolean;
   fieldSurface?: AgentNativeConfigSurface;
@@ -105,6 +106,7 @@ export function AgentConfigurationAndDiagnostics({
   onAdoptExternal,
   onOverwriteConflict,
   onDirtyChange,
+  onPendingChange,
   embedded = false,
   locked = false,
   fieldSurface,
@@ -179,6 +181,10 @@ export function AgentConfigurationAndDiagnostics({
         Object.values(childDirty).some(Boolean)
     );
   }, [childDirty, onDirtyChange, rawDirty]);
+  useEffect(() => {
+    onPendingChange?.(holding);
+    return () => onPendingChange?.(false);
+  }, [holding, onPendingChange]);
   const updateRawDirty = useCallback((path: string, isDirty: boolean) => {
     setRawDirty((current) =>
       current[path] === isDirty ? current : { ...current, [path]: isDirty }

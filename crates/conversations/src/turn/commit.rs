@@ -87,16 +87,6 @@ impl ConversationSessionService {
             .container()
             .ensure_container_exists(&workspace)
             .await?;
-        let mut workspace_ids = vec![input.workspace_id, workspace.id];
-        workspace_ids.sort_unstable();
-        workspace_ids.dedup();
-        let mut workspace_permits = Vec::new();
-        for id in workspace_ids {
-            workspace_permits.push(services::services::workspace_lifecycle::workspace_operation(id).read_owned().await);
-            if Workspace::find_by_id(pool, id).await?.is_none() {
-                return Err(ConversationServiceError::NotFound(format!("Workspace {id} not found")));
-            }
-        }
         let repos = WorkspaceRepo::find_repos_for_workspace(pool, workspace.id).await?;
         let working_dir = self
             .ctx
@@ -175,6 +165,30 @@ impl ConversationSessionService {
             .build_prompt_blocks(&working_dir, agent_text, &input.images, &input.file_refs)
             .await?;
         let display_blocks = agent_blocks_with_display_text(&agent_blocks, &display_text);
+        // Preparation (including smart reminders) may ensure the container again.
+        // Hold read permits only across the durable turn commit, after preparation.
+        let mut workspace_ids = vec![input.workspace_id, workspace.id];
+        workspace_ids.sort_unstable();
+        workspace_ids.dedup();
+        let mut workspace_permits = Vec::new();
+        for id in workspace_ids {
+            workspace_permits.push(
+                services::services::workspace_lifecycle::workspace_operation(id)
+                    .read_owned()
+                    .await,
+            );
+            let current = Workspace::find_by_id(pool, id).await?.ok_or_else(|| {
+                ConversationServiceError::NotFound(format!("Workspace {id} not found"))
+            })?;
+            if id == workspace.id
+                && (current.container_ref.is_none()
+                    || !std::path::Path::new(&container_ref).exists())
+            {
+                return Err(ConversationServiceError::Conflict(
+                    "Workspace was cleaned up during turn preparation; retry the message".into(),
+                ));
+            }
+        }
         let conversation_blocks = conversation_input_blocks_with_display_text(
             &agent_blocks,
             &display_text,
@@ -889,4 +903,147 @@ pub(super) fn checkpoint_file_change_summary(files: &[ConversationFileChange]) -
         deleted,
         renamed
     )
+}
+
+#[cfg(test)]
+mod workspace_lock_tests {
+    use std::{collections::HashMap, sync::Arc, time::Duration};
+
+    use db::models::{
+        session::{CreateSession, Session},
+        task::{CreateTask, Task},
+        workspace::CreateWorkspace,
+    };
+    use local_deployment::LocalDeployment;
+    use services::services::config::CommitReminderMode;
+    use tokio::sync::Mutex;
+
+    use super::*;
+    use crate::{
+        ConversationContext, ConversationRuntimeState, DefaultConversationHost,
+        NoopConversationEventPublisher,
+    };
+
+    #[tokio::test]
+    async fn smart_reminder_can_recheck_workspace_before_turn_commit() {
+        let temp = tempfile::tempdir().unwrap();
+        let source = temp.path().join("source");
+        std::fs::create_dir_all(&source).unwrap();
+        let deployment = Arc::new(
+            LocalDeployment::new_at(&temp.path().join("data"))
+                .await
+                .unwrap(),
+        );
+        {
+            let mut config = deployment.config().write().await;
+            config.commit_reminder_enabled = true;
+            config.commit_reminder_mode = CommitReminderMode::Smart;
+        }
+        let pool = &deployment.db().pool;
+        let project_id = Uuid::new_v4();
+        sqlx::query("INSERT INTO projects (id, name, root_path) VALUES (?, 'Reminder', ?)")
+            .bind(project_id)
+            .bind(source.to_string_lossy().as_ref())
+            .execute(pool)
+            .await
+            .unwrap();
+        let task = Task::create(
+            pool,
+            &CreateTask {
+                project_id,
+                title: "Reminder".into(),
+                description: None,
+                status: None,
+                parent_workspace_id: None,
+                image_ids: None,
+            },
+            Uuid::new_v4(),
+        )
+        .await
+        .unwrap();
+        let workspace = Workspace::create(
+            pool,
+            &CreateWorkspace {
+                project_id,
+                parent_workspace_id: None,
+                branch: "main".into(),
+                container_ref: Some(source.to_string_lossy().into_owned()),
+                use_worktree: false,
+                agent_working_dir: None,
+            },
+            Uuid::new_v4(),
+            task.id,
+        )
+        .await
+        .unwrap();
+        let session = Session::create(
+            pool,
+            &CreateSession {
+                executor: None,
+                agent_id: None,
+                task_id: Some(task.id),
+                name: None,
+                initial_prompt: None,
+                status: None,
+            },
+            Uuid::new_v4(),
+            workspace.id,
+        )
+        .await
+        .unwrap();
+        let (sink, _events) = agents::runtime_event_channel();
+        let context = ConversationContext {
+            deployment: deployment.clone(),
+            agent_runtime: Arc::new(agents::AgentRuntime::new(sink)),
+            turn_locks: Arc::new(Mutex::new(HashMap::new())),
+            runtime_states: Arc::new(Mutex::new(HashMap::from([(
+                session.id,
+                ConversationRuntimeState {
+                    commit_reminder_pending: true,
+                    ..Default::default()
+                },
+            )]))),
+            row_projectors: Arc::new(Mutex::new(HashMap::new())),
+            host: Arc::new(DefaultConversationHost::default()),
+            event_publisher: Arc::new(NoopConversationEventPublisher),
+        };
+        let service = ConversationSessionService::new(context);
+        let committed = tokio::time::timeout(
+            Duration::from_secs(5),
+            service.commit_new_turn(
+                ConversationStartTurnInput {
+                    agent_id: agents::AgentId::parse("test-agent").unwrap(),
+                    workspace_id: workspace.id,
+                    conversation_id: session.id,
+                    executor_profile_id: None,
+                    text: "next message".into(),
+                    display_text: None,
+                    images: Vec::new(),
+                    mode_override: None,
+                    config_overrides: Vec::new(),
+                    workflow_refs: Vec::new(),
+                    file_refs: Vec::new(),
+                    internal_prompt_contributions: Vec::new(),
+                    queued_input_claim: None,
+                    operation_id: None,
+                    collaboration_origin: None,
+                },
+                crate::commit_reminder::USER_ORIGIN,
+            ),
+        )
+        .await
+        .expect("smart reminder must not reenter a held workspace lock")
+        .unwrap();
+        assert!(
+            ConversationTurnRecord::find_by_id(pool, committed.turn_id)
+                .await
+                .unwrap()
+                .is_some()
+        );
+        assert!(
+            services::services::workspace_lifecycle::workspace_operation(workspace.id)
+                .try_write()
+                .is_ok()
+        );
+    }
 }

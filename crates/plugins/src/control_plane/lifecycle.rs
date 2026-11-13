@@ -654,10 +654,14 @@ impl PluginControlPlane {
     pub async fn update_and_activate(
         &self,
         node_executable: &std::path::Path,
-        package: PluginPackage,
+        mut package: PluginPackage,
         grants: &[CapabilityGrant],
         broker: Arc<dyn CapabilityBroker>,
     ) -> Result<InstalledPlugin, WorkerHostError> {
+        let digest = crate::package_content_digest(&package.source.path)
+            .map_err(|error| WorkerHostError::external(error.code(), error))?;
+        package.source.update_lock =
+            crate::PluginSourceLock::from_source(&package.source, &package.version, &digest);
         let plugin_id = package.id.as_str().to_owned();
         let installed = self
             .registry
@@ -727,24 +731,25 @@ impl PluginControlPlane {
             self.host_services
                 .start(&plugin_id, lease, &installed.package);
         }
-        let plugin = self
-            .registry
-            .plugin(&plugin_id)
-            .await
-            .map_err(|error| WorkerHostError::external("plugin_registry_failed", error))?
-            .ok_or_else(|| WorkerHostError::external("plugin_not_found", plugin_id))?;
-        let plugins = self
-            .registry
-            .list_plugins()
-            .await
-            .map_err(|error| WorkerHostError::external("plugin_registry_failed", error))?;
-        self.official_mcp.sync_from_plugins(&plugins);
-        self.reconcile_enabled()
-            .await
-            .map_err(|error| WorkerHostError::external(error.code(), error))?;
-        self.refresh_live_projections()
-            .await
-            .map_err(|error| WorkerHostError::external("plugin_registry_failed", error))?;
+        // Publication is the commit point. Projection refresh failures must not
+        // turn a successful switch into a failed update or revoke its files.
+        let plugin = InstalledPlugin {
+            package,
+            activation: PluginActivation::Enabled,
+            package_digest: digest,
+        };
+        if let Err(error) = self.reconcile_enabled().await {
+            tracing::warn!(
+                ?error,
+                "could not reconcile plugins after update publication"
+            );
+        }
+        if let Err(error) = self.refresh_live_projections().await {
+            tracing::warn!(
+                ?error,
+                "could not refresh plugin projections after update publication"
+            );
+        }
         Ok(plugin)
     }
 

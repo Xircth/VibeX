@@ -32,5 +32,6 @@ tokio = { workspace = true }
 sqlx = { version = "0.8.6", features = ["runtime-tokio", "sqlite", "chrono", "uuid"] }
 
 [dev-dependencies]
+local-deployment = { path = "../local-deployment" }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
 tempfile = { workspace = true }

@@ -362,3 +362,46 @@ function writeFixture(root) {
     "---\nname: test\ndescription: Test skill.\n---\n",
   );
 }
+
+
+test("plugin update uses one Host preview and confirms its exact package", async () => {
+  const { run } = require("./plugin");
+  const previousFetch = global.fetch;
+  const previousToken = process.env.VIBEX_TOKEN;
+  const previousUrl = process.env.VIBEX_URL;
+  const calls = [];
+  process.env.VIBEX_TOKEN = "test-only-host-token";
+  process.env.VIBEX_URL = "http://host.test";
+  const plugin = { id: "acme.notes", publisher: "acme", sourceKind: "snapshot", sourceOrigin: "https://github.com/acme/notes", sourceRef: "v1.0.0" };
+  global.fetch = async (url, options) => {
+    const command = url.split("/").pop();
+    const args = JSON.parse(options.body).args;
+    calls.push({ command, args });
+    let data;
+    if (command === "plugin_control_catalog") data = { plugins: [plugin] };
+    else if (command === "plugin_control_update" && !args.confirmationId) data = { confirmationId: "exact-preview", plugin, currentVersion: "1.0.0", targetVersion: "2.0.0", packageDigest: "digest-v2", source: { origin: plugin.sourceOrigin, tag: "v2.0.0" } };
+    else if (command === "plugin_control_update") data = plugin;
+    else throw new Error(`Unexpected command ${command}`);
+    return new Response(JSON.stringify({ data }), { status: 200 });
+  };
+  try {
+    await run(["update", "acme.notes", "--yes"]);
+    const updates = calls.filter((call) => call.command === "plugin_control_update");
+    assert.deepEqual(updates.map((call) => call.args), [
+      { pluginId: "acme.notes" },
+      { pluginId: "acme.notes", confirmationId: "exact-preview" },
+    ]);
+    assert.equal(calls.some((call) => /import|set_enabled|configure/.test(call.command)), false);
+    if (!process.stdin.isTTY) {
+      calls.length = 0;
+      await assert.rejects(run(["update", "acme.notes"]), /requires confirmation/);
+      assert.equal(calls.filter((call) => call.command === "plugin_control_update").length, 1);
+    }
+  } finally {
+    global.fetch = previousFetch;
+    if (previousToken === undefined) delete process.env.VIBEX_TOKEN;
+    else process.env.VIBEX_TOKEN = previousToken;
+    if (previousUrl === undefined) delete process.env.VIBEX_URL;
+    else process.env.VIBEX_URL = previousUrl;
+  }
+});

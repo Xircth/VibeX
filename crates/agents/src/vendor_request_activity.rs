@@ -158,54 +158,8 @@ pub(crate) fn session_update(kind: Option<AgentKind>, update: &Value) -> Option<
                 None,
             ))
         }
-        AgentKind::Pi => {
-            if update.get("sessionUpdate")?.as_str()? != "agent_message_chunk"
-                || update.get("messageId").is_some()
-            {
-                return None;
-            }
-            if update.pointer("/content/type")?.as_str()? != "text" {
-                return None;
-            }
-            pi_text(update.pointer("/content/text")?.as_str()?)
-        }
         _ => None,
     }
-}
-
-/// pi-acp 0.0.34 emits these complete, untagged adapter status chunks.
-fn pi_text(text: &str) -> Option<RequestActivity> {
-    if text == "Retry finished, resuming." {
-        return Some(RequestActivity::phase(RequestPhase::WaitingAgent));
-    }
-    if text == "Retrying..." {
-        return Some(retrying(None, None, None, None, None));
-    }
-    let rest = text
-        .strip_prefix("Retrying (attempt ")?
-        .strip_suffix("s)...")?;
-    let (counts, seconds) = rest.split_once(", waiting ")?;
-    let (attempt, max) = counts.split_once('/')?;
-    let parse = |value: &str| -> Option<u32> {
-        if value.is_empty() || !value.bytes().all(|b| b.is_ascii_digit()) {
-            return None;
-        }
-        value.parse().ok()
-    };
-    let (attempt, max, seconds) = (parse(attempt)?, parse(max)?, parse(seconds)?);
-    if attempt == 0 || max == 0 || attempt > max {
-        return None;
-    }
-    Some(RequestActivity {
-        phase: RequestPhase::Retrying,
-        retry: Some(RequestRetry {
-            attempt: Some(attempt),
-            max_attempts: Some(max),
-            delay_ms: Some(u64::from(seconds) * 1000),
-            reason: None,
-            code: None,
-        }),
-    })
 }
 
 fn retrying(
@@ -330,41 +284,14 @@ mod tests {
         assert!(!ledger.accept(next, "turn:error:01f888b7-a040-4fe0-94ad-40ff454e385b:2", 2));
     }
     #[test]
-    fn pi_acp_0034_complete_chunks_only() {
-        let update = |text| json!({"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":text}});
-        let retry = session_update(
-            Some(AgentKind::Pi),
-            &update("Retrying (attempt 2/5, waiting 3s)..."),
-        )
-        .unwrap()
-        .retry
-        .unwrap();
-        assert_eq!(
-            (retry.attempt, retry.max_attempts, retry.delay_ms),
-            (Some(2), Some(5), Some(3000))
-        );
-        assert_eq!(
-            session_update(Some(AgentKind::Pi), &update("Retry finished, resuming."))
-                .unwrap()
-                .phase,
-            RequestPhase::WaitingAgent
-        );
-        assert!(
-            session_update(Some(AgentKind::Pi), &update("Retrying..."))
-                .unwrap()
-                .retry
-                .unwrap()
-                .attempt
-                .is_none()
-        );
+    fn ordinary_pi_text_never_becomes_runtime_activity() {
         for text in [
-            "Retrying this approach",
-            "Retrying (attempt 2/5, waiting 3s)... extra",
-            "Retrying (attempt 6/5, waiting 3s)...",
+            "Retrying...",
+            "Retrying (attempt 2/5, waiting 3s)...",
+            "Retry finished, resuming.",
         ] {
-            assert!(session_update(Some(AgentKind::Pi), &update(text)).is_none());
+            let update = json!({"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":text}});
+            assert!(session_update(Some(AgentKind::Pi), &update).is_none());
         }
-        assert!(session_update(None, &update("Retrying...")).is_none());
-        assert!(session_update(Some(AgentKind::Codex), &update("Retrying...")).is_none());
     }
 }

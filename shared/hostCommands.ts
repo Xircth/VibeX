@@ -605,6 +605,7 @@ export const DESKTOP_SHELL_COMMANDS = [
   'respond_host_connect_request',
   'reveal_in_file_manager',
   'select_saved_host_tunnel',
+  'set_account_relay_lease',
   'set_host_tunnel_enabled',
   'start_create_host_tunnel',
   'take_tauri_inspector_capture',
@@ -1204,6 +1205,8 @@ export const HOST_EVENT_CHANNELS = [
   { prefix: 'plugin-internal-message', durability: 'best_effort', scope: 'conversation.read' },
   { prefix: 'conversation-after-turn', durability: 'best_effort', scope: 'conversation.read' },
   { prefix: 'conversation-runtime-event', durability: 'best_effort', scope: 'conversation.read' },
+  { prefix: 'plugin-updates-changed', durability: 'invalidation', scope: 'plugin.read' },
+  { prefix: 'plugin-updates-available', durability: 'best_effort', scope: 'plugin.read' },
   { prefix: 'plugin-notify-toast', durability: 'best_effort', scope: 'plugin.read' },
   { prefix: 'provider-bind-confirm', durability: 'best_effort', scope: 'plugin.write' },
 ] as const;

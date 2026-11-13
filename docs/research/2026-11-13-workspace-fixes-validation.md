@@ -18,6 +18,10 @@
 
 已通过：`local-deployment` 59 项、`services` 217 项、Git 单元测试 36 项与工作流集成 28 项、Host 命令契约 4 项与生命周期集成 1 项；`cargo clippy -p server --lib -- -D warnings` 通过。Host 生命周期测试包含真实 pending turn 阻止删除、结束后删除分支的断言。Git 测试仓库固定 `core.autocrlf=false`，消除 Windows 用户配置对字节断言的影响。
 
+前端工作区设置、管理、创建表单、请求与确认测试共 50 项通过。与最新 `master` 整合后的设置、插件更新与运行状态相关测试另有 20 项通过。复审补充智能提交提醒的真实容器回归：修复前因读锁内重新确保容器而超时；调整为准备完成后取得保护锁，随后才持久化回合，并复查工作区是否仍存在。
+
+合并后智能提醒超时回归 1 项通过；前端 TypeScript、相关文件 ESLint/Prettier、`cargo clippy -p server -p conversations --lib -- -D warnings` 均通过。已重新运行类型生成器同步 `shared/hostCommands.ts`，`shared/types.ts` 无需进一步更新。
+
 ## 兼容与限制
 
 - 已有完整工作树没有初始化日志时沿用现有目录，不自动补跑可能有副作用的命令。

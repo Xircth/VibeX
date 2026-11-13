@@ -10,6 +10,7 @@ pub mod native_commands;
 pub mod plugin_conversation;
 pub(crate) mod plugin_native;
 pub(crate) mod plugin_projections;
+pub(crate) mod plugin_updates;
 pub mod product;
 pub mod provider_bind;
 pub mod remote_profiles;

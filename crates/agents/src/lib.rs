@@ -66,9 +66,8 @@ pub mod pi_trust;
 pub mod plan_usage;
 pub mod profiles;
 pub mod registry_client;
-pub mod runtime;
 pub mod request_status;
-mod vendor_request_activity;
+pub mod runtime;
 mod runtime_temp;
 pub mod session;
 mod session_bind_metrics;
@@ -76,6 +75,7 @@ mod session_config_guard;
 mod session_meta;
 mod session_notice;
 pub mod timeline_images;
+mod vendor_request_activity;
 mod zcode;
 pub use session_notice::{
     AGENT_SESSION_NOTICE_KIND, SESSION_CONNECT_ERROR_KIND, SESSION_RECONNECT_PROGRESS_KIND,

@@ -1,5 +1,11 @@
 //! Plugin manifest and lifecycle domain services.
 
+mod updates;
+pub use updates::{
+    PluginSourceLock, PluginUpdateCandidate, PluginUpdateResolver, PluginUpdateStatus,
+    validate_update_package,
+};
+
 mod activation;
 mod app_surface;
 mod archive;
@@ -49,11 +55,10 @@ pub use artifact_http::{artifact_origin, rewrite_remote_entry, set_artifact_orig
 pub use artifact_preview::PluginArtifactPreviewService;
 pub use catalog::{
     AUTHORING_SAMPLE_PLUGIN_IDS, COMMUNITY_PAGE_SIZE, CatalogListing, CatalogPage,
-    CatalogPluginDetail, CatalogVersion, DEFAULT_MARKETPLACE_ORIGIN, InstalledOrigin,
-    PluginUpdateStatus, REPLACED_PLUGIN_IDS, canonical_listing_id, canonical_plugin_id,
-    check_installed_updates, collapse_replaced_official, detail_from_package, fetch_artifact,
-    fetch_catalog, fetch_listing, fetch_versions, filter_catalog_page, fold_official_listings,
-    github_latest_tag, is_authoring_sample_plugin_id, is_newer_version, listing_from_package,
+    CatalogPluginDetail, CatalogVersion, DEFAULT_MARKETPLACE_ORIGIN, REPLACED_PLUGIN_IDS,
+    canonical_listing_id, canonical_plugin_id, collapse_replaced_official, detail_from_package,
+    fetch_artifact, fetch_catalog, fetch_listing, fetch_versions, filter_catalog_page,
+    fold_official_listings, is_authoring_sample_plugin_id, is_newer_version, listing_from_package,
     listing_identity, listing_is_authoring_sample, listing_is_retired, listing_matches_query,
     listings_from_official_index, marketplace_archive_suffix, marketplace_listing_url,
     marketplace_origin, marketplace_plugin_ids, marketplace_plugin_slug,

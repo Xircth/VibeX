@@ -604,13 +604,9 @@ impl ConversationSessionService {
             }
             Err(error) => return Err(error.into()),
         };
-        if let Err(error) = crate::record_open_capability_catalog(
-            pool,
-            &agent_id,
-            &launch_settings,
-            &controls,
-        )
-        .await
+        if let Err(error) =
+            crate::record_open_capability_catalog(pool, &agent_id, &launch_settings, &controls)
+                .await
         {
             tracing::warn!(
                 %error,

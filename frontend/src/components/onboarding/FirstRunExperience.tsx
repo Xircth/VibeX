@@ -1,13 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useGSAP } from '@gsap/react';
 import gsap from 'gsap';
-import { ArrowLeft, ShieldAlert } from 'lucide-react';
+import { ArrowLeft } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import {
   EditorType,
   type AgentDiscoveryProgressView,
   type AgentId,
-  type AgentManagementView,
   type EditorConfig,
 } from 'shared/types';
 
@@ -19,7 +18,11 @@ import {
 import { backendListen } from '@/lib/backendTransport';
 import { sortAgentsForBar } from '@/pages/settings/agentBarOrder';
 
-import { AgentSetupPicker } from './AgentSetupPicker';
+import { OnboardingAgents } from './OnboardingAgents';
+import { OnboardingAccount } from './OnboardingAccount';
+import { useVibeXAccount } from '@/features/model-router/useVibeXAccount';
+import { useAccountDeviceLogin } from '@/pages/settings/useAccountDeviceLogin';
+import { OnboardingProjects } from './OnboardingProjects';
 import {
   OnboardingDisclaimerDialog,
   OnboardingDisclaimerNotice,
@@ -27,11 +30,6 @@ import {
 import type { AgentValidationError } from './AgentSetupPicker';
 import { AgentScatter } from './hero/AgentScatter';
 import { EquationLine } from './hero/EquationLine';
-import { ProductStack } from './hero/ProductStack';
-import {
-  OnboardingAgentInstall,
-  createOnboardingInstallRuntime,
-} from './OnboardingAgentInstall';
 import {
   buildOnboardingAgentOptions,
   normalizeOnboardingAgentSelection,
@@ -45,7 +43,7 @@ gsap.registerPlugin(useGSAP);
 
 const AGENT_LIST_TIMEOUT_MS = 4_000;
 
-type FirstRunStep = 'intro' | 'configure' | 'install';
+type FirstRunStep = 'intro' | 'configure' | 'projects';
 
 function fileManagerEditor(): EditorConfig {
   return {
@@ -85,15 +83,15 @@ export function FirstRunExperience({
     defaultAgentId: AgentId;
     skipped: boolean;
   }) => Promise<void>;
-  onFinish: () => void;
+  onFinish: (projectIds?: string[]) => Promise<void> | void;
 }) {
   const { t, i18n } = useTranslation(['dialogs', 'common']);
   const heroLocale = i18n.language.startsWith('zh') ? 'zh' : 'en';
   const rootRef = useRef<HTMLDivElement | null>(null);
   const [visible, setVisible] = useState(open);
   const [step, setStep] = useState<FirstRunStep>('intro');
+  const [projectSetupStarted, setProjectSetupStarted] = useState(false);
   const [agents, setAgents] = useState<OnboardingAgentOption[]>([]);
-  const [managedAgents, setManagedAgents] = useState<AgentManagementView[]>([]);
   const [enabledAgentIds, setEnabledAgentIds] = useState<Set<AgentId>>(
     () => new Set()
   );
@@ -121,7 +119,9 @@ export function FirstRunExperience({
   const agentLoadPendingRef = useRef(false);
   const discoveryProgressRef = useRef<AgentDiscoveryProgressView | null>(null);
   const mountedRef = useRef(true);
-  const installRuntimeRef = useRef(createOnboardingInstallRuntime());
+  const [configurationDirty, setConfigurationDirty] = useState(false);
+  const account = useVibeXAccount();
+  const accountLogin = useAccountDeviceLogin(account);
   const applyAgentSelection = useCallback(
     (enabledIds: Set<AgentId>, selectedDefaultId: AgentId | null) => {
       enabledAgentIdsRef.current = enabledIds;
@@ -209,7 +209,7 @@ export function FirstRunExperience({
         : null;
       const nextEnabled = new Set(
         options
-          .filter((agent) => agent.runtimeInstalled)
+          .filter((agent) => agent.runtimeInstalled && agent.platformSupported)
           .map((agent) => agent.agentId)
       );
       const nextDefault =
@@ -217,7 +217,6 @@ export function FirstRunExperience({
           ? configuredDefault
           : (nextEnabled.values().next().value ?? null);
 
-      setManagedAgents(managedAgents);
       setAgents(options);
       if (initialCatalogLoad) {
         applyAgentSelection(nextEnabled, nextDefault ?? null);
@@ -231,7 +230,8 @@ export function FirstRunExperience({
         }
         for (const agent of options) {
           if (userModifiedAgentIdsRef.current.has(agent.agentId)) continue;
-          if (agent.runtimeInstalled) mergedEnabled.add(agent.agentId);
+          if (agent.runtimeInstalled && agent.platformSupported)
+            mergedEnabled.add(agent.agentId);
           else mergedEnabled.delete(agent.agentId);
         }
         const currentDefault = defaultAgentIdRef.current;
@@ -476,8 +476,8 @@ export function FirstRunExperience({
         defaultAgentId: initialDefaultAgentId,
         skipped: true,
       });
+      await onFinish([]);
       setVisible(false);
-      onFinish();
     } catch (error) {
       setSubmitError(
         agentManagementErrorMessage(error, t('dialogs:onboarding.setupFailed'))
@@ -487,7 +487,7 @@ export function FirstRunExperience({
   };
 
   const handleStartSetup = async () => {
-    if (submitting || !editorValid) return;
+    if (submitting || !editorValid || configurationDirty) return;
     if (enabledAgentIds.size === 0) {
       setValidationError('enabled-required');
       return;
@@ -527,13 +527,32 @@ export function FirstRunExperience({
         await agentManagementApi.reorder(ordered);
       }
 
-      setManagedAgents(memberships);
+      const report = await agentManagementApi.preflight(defaultAgentId);
+      const failures = report.items.filter((item) => item.status === 'fail');
+      const checkedAgents = await agentManagementApi.bar();
+      const checkedDefault = checkedAgents.find(
+        (agent) => agent.agent_id === defaultAgentId
+      );
+      if (failures.length || checkedDefault?.lifecycle !== 'ready') {
+        throw new Error(
+          t('dialogs:onboarding.defaultNotReady', {
+            agent: checkedDefault?.display_name ?? defaultAgentId,
+            detail:
+              failures.map((item) => item.detail || item.label).join(' · ') ||
+              t(
+                `settings:agents.lifecycleStatus.${checkedDefault?.lifecycle ?? 'uninstalled'}`
+              ),
+          })
+        );
+      }
+
       await onPersist({
         editor,
         defaultAgentId,
         skipped: false,
       });
-      setStep('install');
+      setProjectSetupStarted(true);
+      setStep('projects');
     } catch (error) {
       setSubmitError(
         agentManagementErrorMessage(error, t('dialogs:onboarding.setupFailed'))
@@ -548,9 +567,12 @@ export function FirstRunExperience({
     editor.editor_type !== EditorType.CUSTOM ||
     Boolean(editor.custom_command?.trim());
 
-  const selectedAgents = useMemo(
-    () => agents.filter((agent) => enabledAgentIds.has(agent.agentId)),
-    [agents, enabledAgentIds]
+  const historySourceAgentIds = useMemo(
+    () =>
+      agents
+        .filter((agent) => agent.builtIn && agent.runtimeInstalled)
+        .map((agent) => agent.agentId),
+    [agents]
   );
 
   if (!visible) return null;
@@ -606,7 +628,7 @@ export function FirstRunExperience({
               </button>
             </div>
           </div>
-          <ProductStack />
+          <OnboardingAccount account={account} login={accountLogin} />
           {submitError ? (
             <p className="onboarding-inline-error" role="alert">
               {submitError}
@@ -617,57 +639,40 @@ export function FirstRunExperience({
 
       {step === 'configure' ? (
         <main className="onboarding-config-step">
-          <div className="onboarding-config-grid" inert={disclaimerOpen}>
-            <section className="onboarding-config-section">
-              <h2
-                id="onboarding-title"
-                className="onboarding-config-section-title"
-                tabIndex={-1}
-              >
-                {t('dialogs:onboarding.agentsTitle')}
-              </h2>
-              <div className="onboarding-config-panel onboarding-agent-panel">
-                <AgentSetupPicker
-                  agents={agents}
-                  enabledAgentIds={enabledAgentIds}
-                  defaultAgentId={defaultAgentId}
-                  loading={
-                    !loadError &&
-                    (loadingAgents ||
-                      discoverySnapshotStale ||
-                      discoveryProgress == null ||
-                      discoveryProgress.phase === 'pending' ||
-                      discoveryProgress.phase === 'checking')
-                  }
-                  discoveryProgress={discoveryProgress}
-                  error={loadError}
-                  validationError={validationError}
-                  onRetry={() => void loadAgents()}
-                  onEnabledChange={toggleAgent}
-                  onDefaultChange={selectDefault}
-                />
-                <p className="onboarding-login-note">
-                  <ShieldAlert aria-hidden="true" />
-                  {t('dialogs:onboarding.loginNotice')}
-                </p>
-              </div>
-            </section>
-
-            <section className="onboarding-config-section">
-              <h2 className="onboarding-config-section-title">
-                {t('dialogs:onboarding.viewerTitle')}
-              </h2>
-              <div className="onboarding-config-panel onboarding-editor-panel">
-                <ExternalEditorPicker
-                  value={editor}
-                  onChange={setEditor}
-                  label={t('dialogs:onboarding.viewerLabel')}
-                  compact
-                  selectTriggerClassName="onboarding-editor-select"
-                  selectContentClassName="onboarding-popover-layer onboarding-editor-options !z-[13000]"
-                />
-              </div>
-            </section>
+          <header className="onboarding-page-heading">
+            <h1 id="onboarding-title" tabIndex={-1}>
+              {t('dialogs:onboarding.agentsTitle')}
+            </h1>
+            <p>{t('dialogs:onboarding.agentsDescription')}</p>
+          </header>
+          <div className="onboarding-config-body" inert={disclaimerOpen}>
+            <OnboardingAgents
+              onDirtyChange={setConfigurationDirty}
+              picker={{
+                agents,
+                enabledAgentIds,
+                defaultAgentId,
+                loading: !loadError && loadingAgents,
+                discoveryProgress,
+                error: loadError,
+                validationError,
+                onRetry: () => void loadAgents(),
+                onEnabledChange: toggleAgent,
+                onDefaultChange: selectDefault,
+              }}
+              editor={
+                <div className="onboarding-editor-field">
+                  <ExternalEditorPicker
+                    value={editor}
+                    onChange={setEditor}
+                    label={t('dialogs:onboarding.viewerLabel')}
+                    compact
+                    selectTriggerClassName="onboarding-editor-select"
+                    selectContentClassName="onboarding-popover-layer onboarding-editor-options !z-[13000]"
+                  />
+                </div>
+              }
+            />
           </div>
 
           <footer className="onboarding-config-footer" inert={disclaimerOpen}>
@@ -679,11 +684,16 @@ export function FirstRunExperience({
                 {submitError}
               </p>
             ) : null}
+            {configurationDirty ? (
+              <p className="text-xs text-muted-foreground" role="status">
+                {t('dialogs:onboarding.unsavedConfiguration')}
+              </p>
+            ) : null}
             <div className="onboarding-step-actions onboarding-config-actions">
               <button
                 type="button"
                 className="onboarding-back-button"
-                disabled={submitting}
+                disabled={submitting || configurationDirty}
                 onClick={() => {
                   setDisclaimerOpen(false);
                   setStep('intro');
@@ -695,7 +705,7 @@ export function FirstRunExperience({
               <button
                 type="button"
                 className="onboarding-primary-button"
-                disabled={submitting || !editorValid}
+                disabled={submitting || !editorValid || configurationDirty}
                 onClick={() => void handleStartSetup()}
               >
                 {t('dialogs:onboarding.next')}
@@ -709,18 +719,20 @@ export function FirstRunExperience({
         </main>
       ) : null}
 
-      {step === 'install' ? (
-        <OnboardingAgentInstall
-          agents={selectedAgents}
-          views={managedAgents}
-          defaultAgentId={defaultAgentId}
-          runtimeRef={installRuntimeRef}
-          onBack={() => setStep('configure')}
-          onFinish={() => {
-            setVisible(false);
-            onFinish();
-          }}
-        />
+      {projectSetupStarted ? (
+        <div
+          hidden={step !== 'projects'}
+          className={step === 'projects' ? 'contents' : 'hidden'}
+        >
+          <OnboardingProjects
+            sourceAgentIds={historySourceAgentIds}
+            onBack={() => setStep('configure')}
+            onFinish={async (projectIds) => {
+              await onFinish(projectIds);
+              setVisible(false);
+            }}
+          />
+        </div>
       ) : null}
     </div>
   );

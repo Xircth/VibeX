@@ -300,12 +300,19 @@ fn snapshot_update_preserves_the_root_config_file() {
         .write_config(serde_json::json!({"preview": false}))
         .expect("change user config");
 
-    let updated =
-        PluginPackage::materialize(update.path(), storage.path(), PluginSourceKind::Snapshot)
-            .expect("install update");
+    let updated = PluginPackage::materialize_candidate(update.path(), storage.path(), &installed)
+        .expect("install update");
 
     assert_eq!(updated.version, "1.1.0");
     assert_eq!(updated.config, serde_json::json!({"preview": false}));
+    assert_ne!(installed.source.path, updated.source.path);
+    assert_eq!(
+        PluginPackage::inspect(&installed.source.path, PluginSourceKind::Snapshot)
+            .unwrap()
+            .version,
+        "1.0.0",
+        "preparing an update must leave the running and rollback package intact"
+    );
 }
 
 #[test]

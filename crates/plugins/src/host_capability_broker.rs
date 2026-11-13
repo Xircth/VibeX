@@ -2394,16 +2394,12 @@ impl HostCapabilityBroker {
         let grants = self.effective_grants_for_plugin(plugin_id).await;
         let ws_grants: Vec<&crate::HostCapabilityGrant> = grants
             .iter()
-            .filter(|grant| {
-                capability_matches(&grant.capability, "network.websocket", "network")
-            })
+            .filter(|grant| capability_matches(&grant.capability, "network.websocket", "network"))
             .collect();
         if ws_grants.is_empty() {
             return Err(broker_error(
                 "network_url_denied",
-                format!(
-                    "Plugin `{plugin_id}` is not granted `net.websocket` capability"
-                ),
+                format!("Plugin `{plugin_id}` is not granted `net.websocket` capability"),
             ));
         }
         let mut patterns = Vec::new();
@@ -2514,7 +2510,12 @@ fn capability_matches(granted: &str, requested_key: &str, domain: &str) -> bool 
             && requested_key != "files.write"
             && matches!(
                 granted,
-                "fs.read" | "files.read" | "files.ro" | "files.readonly" | "fs.write" | "files.write"
+                "fs.read"
+                    | "files.read"
+                    | "files.ro"
+                    | "files.readonly"
+                    | "fs.write"
+                    | "files.write"
             ))
         || (domain == "network"
             && requested_key == "network.fetch"
@@ -2526,7 +2527,10 @@ fn capability_matches(granted: &str, requested_key: &str, domain: &str) -> bool 
                 "net.*" | "net" | "net.websocket" | "network.websocket"
             ))
         || (domain == "secrets"
-            && matches!(granted, "secret.*" | "secret" | "secret.keep" | "secrets.keep"))
+            && matches!(
+                granted,
+                "secret.*" | "secret" | "secret.keep" | "secrets.keep"
+            ))
         || (domain == "storage"
             && requested_key.starts_with("storage.kv")
             && matches!(granted, "storage.kv" | "storage.kv.*"))
@@ -4050,9 +4054,7 @@ mod tests {
             storage_kv: true,
         };
         for grant in manifest.to_capability_grants() {
-            broker
-                .grant_capability("vibex.grants-guard", grant)
-                .await;
+            broker.grant_capability("vibex.grants-guard", grant).await;
         }
 
         // 1. fs.read allows reading inside `allowed_dir`, denies writing, denies sibling `user2`, and denies `..`
@@ -4181,4 +4183,3 @@ mod tests {
         assert!(env_obj.len() <= 1);
     }
 }
-

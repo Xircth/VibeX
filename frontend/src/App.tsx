@@ -1,3 +1,7 @@
+import { paths } from '@/lib/paths';
+import { useWindowProjectsStore } from '@/stores/useWindowProjectsStore';
+import { configApi } from '@/lib/api';
+import i18n from '@/i18n';
 import {
   lazy,
   Suspense,
@@ -95,7 +99,7 @@ function ThemedToaster() {
 }
 
 function MainAppContent({ children }: { children: ReactNode }) {
-  const { config, updateAndSaveConfig } = useUserSystem();
+  const { config, updateAndSaveConfig, updateConfig } = useUserSystem();
   const navigate = useNavigate();
   const location = useLocation();
   const maintenanceStartedRef = useRef(false);
@@ -122,40 +126,42 @@ function MainAppContent({ children }: { children: ReactNode }) {
     }) => {
       // The guide stays mounted only while onboarding is unacknowledged.
       // Saving the choices here must not dismiss it; acknowledgement waits
-      // until the user skips or leaves the install step.
+      // until the user finishes choosing projects.
       if (skipped) {
         writeBasicGuide(skipBasicGuide());
+        return;
       }
-      await updateAndSaveConfig(
-        skipped
-          ? {
-              disclaimer_acknowledged: true,
-              onboarding_acknowledged: true,
-            }
-          : {
-              editor,
-              executor_profile: {
-                executor: defaultAgentId,
-                variant: null,
-              },
-            }
-      );
+      const saved = await updateAndSaveConfig({
+        editor,
+        executor_profile: { executor: defaultAgentId, variant: null },
+      });
+      if (!saved) throw new Error(i18n.t('dialogs:onboarding.setupFailed'));
     },
     [updateAndSaveConfig]
   );
 
-  const finishFirstRun = useCallback(() => {
-    void updateAndSaveConfig({
-      disclaimer_acknowledged: true,
-      onboarding_acknowledged: true,
-    }).then(() => {
+  const finishFirstRun = useCallback(
+    async (projectIds: string[] = []) => {
+      const store = useWindowProjectsStore.getState();
+      for (const projectId of [...projectIds].reverse())
+        store.ensureProjectOpen(projectId);
+      if (!config) throw new Error(i18n.t('dialogs:onboarding.setupFailed'));
+      const saved = await configApi.saveConfig({
+        ...config,
+        disclaimer_acknowledged: true,
+        onboarding_acknowledged: true,
+      });
+      updateConfig(saved);
       const current = readBasicGuide();
-      if (current?.phase !== 'completed') {
+      if (current?.phase !== 'completed')
         writeBasicGuide(startBasicGuide(current));
-      }
-      navigate('/local-projects', { replace: true });
-    });
-  }, [navigate, updateAndSaveConfig]);
+      const selected = projectIds[0];
+      navigate(selected ? paths.projectSessions(selected) : '/local-projects', {
+        replace: true,
+      });
+    },
+    [config, navigate, updateConfig]
+  );
 
   // Track previous path for back navigation
   usePreviousPath();

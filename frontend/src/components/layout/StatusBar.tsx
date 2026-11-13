@@ -13,6 +13,7 @@ import {
   useAgentAcpUpdates,
   useAgentManagement,
 } from '@/features/agent-management';
+import { PluginUpdateBadge } from './PluginUpdateBadge';
 import { PluginStatusItems } from '@/components/plugins/PluginStatusItems';
 
 export function StatusBar() {
@@ -33,6 +34,7 @@ export function StatusBar() {
         <PluginStatusItems placement="after-mcp" />
         <BackgroundTaskCountBadge />
         <UpdateAvailableBadge />
+        <PluginUpdateBadge />
         <AutomationFailureBadge />
         <span className="hidden text-[10px] uppercase tracking-wide opacity-60 sm:inline">
           {APP_NAME}

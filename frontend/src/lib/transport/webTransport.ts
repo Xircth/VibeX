@@ -310,6 +310,10 @@ export class WebTransport implements BackendTransport {
       this.awaitingPong = false;
       this.startKeepalive();
       for (const subscription of this.subscriptions.values()) {
+        // Host event sequences belong to one process and restart from zero.
+        if (subscription.request.resource === 'host_event') {
+          subscription.cursor = 0n;
+        }
         this.sendAttach(subscription);
       }
     };

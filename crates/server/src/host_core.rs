@@ -198,6 +198,9 @@ pub fn host_application_core(
 ) -> ApplicationCore<SqliteConversationRepository> {
     let domains = Arc::new(ServerApplicationDomains {
         pool: pool.clone(),
+        plugin_updates: Arc::new(crate::host::plugin_updates::PluginUpdates::load(
+            &runtime_root,
+        )),
         plugin_control_plane: plugin_control_plane.clone(),
         preview_host,
         capability_broker,
@@ -216,6 +219,7 @@ pub fn host_application_core(
         delegation_broker,
         prompt_enhancement: Arc::new(tokio::sync::Mutex::new(None)),
     });
+    domains.spawn_plugin_updates();
     let companion = companion_memory.map(|memory| {
         std::sync::Arc::new(crate::companion_session::CompanionSessionAdapter::new(
             memory,

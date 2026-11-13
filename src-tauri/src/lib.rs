@@ -13,6 +13,7 @@ mod conversation_service;
 mod crash_reports;
 mod deeplink;
 mod delegation;
+mod developer_mode;
 mod error;
 mod events;
 mod host_bus;
@@ -438,6 +439,9 @@ pub fn run() {
     .on_window_event(|window, event| {
         window_chrome::handle_window_event(window, event);
     })
+    .on_page_load(|webview, payload| {
+        developer_mode::handle_page_load(webview, payload);
+    })
     .setup(move |app| {
         // Apply frameless chrome while the window is still hidden so the first
         // show never flashes Tauri's native decorations. Overlay titleBarStyle
@@ -599,6 +603,7 @@ pub fn run() {
             conversations::spawn_delayed_input_promoter(delayed_input_pool, delayed_input_delivery);
         });
         settings_watcher::start(app.handle().clone());
+        developer_mode::apply_saved(app.handle());
 
         // Backfill the conversation full-text index for any conversation not
         // yet indexed (first run after the FTS migration, imported histories).
@@ -786,6 +791,9 @@ pub fn run() {
         commands::host_client::host_client_ack_sync_deletes,
         commands::settings_window::open_settings_window,
         commands::app_window::open_app_window,
+        developer_mode::get_developer_mode,
+        developer_mode::set_developer_mode,
+        developer_mode::open_developer_tools,
         deeplink::take_pending_model_router_import,
         plugin_dev_server::plugin_dev_connection,
     ])

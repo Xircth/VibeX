@@ -26,7 +26,8 @@ The current document shape is:
     },
     "rendering": {
       "acceleration_mode": "auto"
-    }
+    },
+    "developer_mode": false
   },
   "web_service": {
     "port": 17891,
@@ -76,6 +77,13 @@ The former application `config.json`, `version-control-settings.json`, and
 `model-provider-settings.json`, and `chat-channel-settings.json` files are
 imported when their corresponding section is first needed. Existing browser
 preferences are likewise imported into the `frontend` section on first launch.
+
+`system.developer_mode` is the desktop shell switch for the app inspector. It
+defaults to false. When true, the shell that owns the WebView enables F12 and
+the platform inspect shortcut, and Settings → System can open the inspector
+for the current window. The desktop shell reads and writes this field in the
+local settings document. A remote Host's copy does not control the window you
+are looking at. Proxy and rendering saves keep the field.
 
 Secrets stay out of this user-editable document: provider and channel tokens
 remain in their protected secret stores. Agent-native settings remain in the

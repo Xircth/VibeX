@@ -390,6 +390,9 @@ const DESKTOP_SHELL_COMMANDS: &[&str] = &[
     "start_create_host_tunnel",
     "take_tauri_inspector_capture",
     "update_web_service_config",
+    "get_developer_mode",
+    "set_developer_mode",
+    "open_developer_tools",
 ];
 
 fn workspace_root() -> PathBuf {

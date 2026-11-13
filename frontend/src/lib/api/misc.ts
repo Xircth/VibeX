@@ -277,6 +277,15 @@ export const desktopApi = {
   revealInFileManager: async (path: string): Promise<void> => {
     return desktopShellCall<void>('reveal_in_file_manager', { path });
   },
+  getDeveloperMode: async (): Promise<boolean> => {
+    return desktopShellCall<boolean>('get_developer_mode');
+  },
+  setDeveloperMode: async (enabled: boolean): Promise<boolean> => {
+    return desktopShellCall<boolean>('set_developer_mode', { enabled });
+  },
+  openDeveloperTools: async (): Promise<void> => {
+    return desktopShellCall<void>('open_developer_tools');
+  },
   isMainWindowFocused: async (): Promise<boolean> => {
     return desktopShellCall<boolean>('is_main_window_focused');
   },

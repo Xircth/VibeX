@@ -6,7 +6,7 @@ use tauri::AppHandle;
 pub const SETTINGS_CHANGED_EVENT: &str = "vibex://settings-file-changed";
 const EMIT_COALESCE: Duration = Duration::from_millis(100);
 
-pub fn start(_app: AppHandle) {
+pub fn start(app: AppHandle) {
     if let Err(error) = std::thread::Builder::new()
         .name("vibex-settings-watcher".to_string())
         .spawn(move || {
@@ -48,6 +48,7 @@ pub fn start(_app: AppHandle) {
                     continue;
                 }
                 last_emit = Some(Instant::now());
+                crate::developer_mode::apply_saved(&app);
                 crate::host_bus::bus().emit(SETTINGS_CHANGED_EVENT, ());
             }
         })

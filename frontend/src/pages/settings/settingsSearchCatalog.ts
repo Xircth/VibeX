@@ -212,5 +212,6 @@ export const SETTINGS_SEARCH_ENTRIES: SettingsSearchEntry[] = [
     'system.renderingTitle',
     'system.backupTitle',
     'system.clearLocalDataTitle',
+    'system.developerMode',
   ]),
 ];

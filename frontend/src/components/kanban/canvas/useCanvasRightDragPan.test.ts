@@ -22,6 +22,32 @@ function mountSurface() {
 }
 
 describe('useCanvasRightDragPan', () => {
+  it.each(['canvas-card-drag-handle', 'canvas-node-context-menu'])(
+    'lets a %s receive right-clicks without starting canvas pan',
+    (className) => {
+      const { surface, ref } = mountSurface();
+      const header = document.createElement('div');
+      header.className = className;
+      const title = document.createElement('span');
+      header.appendChild(title);
+      surface.appendChild(header);
+      const openMenu = vi.fn();
+      const onRightPan = vi.fn();
+      header.addEventListener('contextmenu', openMenu);
+      renderHook(() => useCanvasRightDragPan(ref, undefined, onRightPan));
+
+      title.dispatchEvent(pointer('pointerdown', { button: 2 }));
+      window.dispatchEvent(
+        pointer('pointermove', { buttons: 2, clientX: 40, clientY: 40 })
+      );
+      fireEvent.contextMenu(title, { button: 2 });
+
+      expect(openMenu).toHaveBeenCalledOnce();
+      expect(onRightPan).not.toHaveBeenCalled();
+      surface.remove();
+    }
+  );
+
   it('blocks the browser context menu so right-button pan can run', () => {
     const { surface, ref } = mountSurface();
     renderHook(() => useCanvasRightDragPan(ref));

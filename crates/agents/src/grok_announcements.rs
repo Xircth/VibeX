@@ -94,6 +94,7 @@ fn notice_from_announcement(
         severity: notice_severity(announcement.severity.as_deref()),
         announcement_id: Some(announcement_id),
         action: notice_action(announcement, agent_id),
+        ..Default::default()
     })
 }
 

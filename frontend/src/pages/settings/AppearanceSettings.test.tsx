@@ -98,7 +98,7 @@ vi.mock('@/lib/layoutArrangement', () => {
 });
 
 vi.mock('@/lib/kanbanSessionListView', () => ({
-  KANBAN_SESSION_LIST_VIEWS: ['status', 'workspace'],
+  KANBAN_SESSION_LIST_VIEWS: ['status', 'workspace', 'mixed'],
   getKanbanSessionListView: () => 'status',
   setKanbanSessionListView: mocks.setKanbanSessionListView,
 }));
@@ -221,17 +221,23 @@ describe('AppearanceSettings', () => {
     expect(screen.queryByText('看板样式')).not.toBeInTheDocument();
   });
 
-  it('applies the Kanban session list grouping immediately via Select', async () => {
-    const user = userEvent.setup();
-    render(<AppearanceSettings />);
+  it.each([
+    { label: '工作区分组', value: 'workspace' },
+    { label: '混合视图', value: 'mixed' },
+  ])(
+    'applies $value session list grouping immediately via Select',
+    async ({ label, value }) => {
+      const user = userEvent.setup();
+      render(<AppearanceSettings />);
 
-    await user.click(
-      screen.getByRole('combobox', { name: '看板会话列表视图' })
-    );
-    await user.click(await screen.findByRole('option', { name: '工作区分组' }));
+      await user.click(
+        screen.getByRole('combobox', { name: '看板会话列表视图' })
+      );
+      await user.click(await screen.findByRole('option', { name: label }));
 
-    expect(mocks.setKanbanSessionListView).toHaveBeenCalledWith('workspace');
-  });
+      expect(mocks.setKanbanSessionListView).toHaveBeenCalledWith(value);
+    }
+  );
 
   it('floats the settings menu by default and applies the choice immediately', async () => {
     const user = userEvent.setup();

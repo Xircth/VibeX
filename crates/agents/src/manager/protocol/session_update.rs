@@ -47,6 +47,38 @@ impl AcpClientBridge {
         ) {
             self.record_live_update(&acp_session_id, &args.update);
         }
+        if bound_session_id.is_some()
+            && let Ok(update) = serde_json::to_value(&args.update)
+            && let Some(activity) =
+                crate::vendor_request_activity::session_update(self.apply.agent_kind(), &update)
+            && let Some((active_session, prompt_id)) = *self.apply.active_prompt.lock().await
+            && Some(active_session) == bound_session_id
+        {
+            if self.apply.agent_kind() == Some(AgentKind::Codex)
+                && let Some((id, revision)) =
+                    crate::vendor_request_activity::codex_retry_incident(&update)
+                && !self
+                    .retry_incidents
+                    .lock()
+                    .await
+                    .accept(prompt_id, id, revision)
+            {
+                return Ok(());
+            }
+            send_manager_event(
+                &self.event_tx,
+                AgentConnectionManagerEvent {
+                    connection_id: self.connection_id,
+                    session_id: Some(active_session),
+                    prompt_id: Some(prompt_id),
+                    event: AgentEvent::RequestActivity {
+                        prompt_id,
+                        activity,
+                    },
+                },
+            );
+            return Ok(());
+        }
         let event = match args.update {
             SessionUpdate::AgentMessageChunk(chunk) => {
                 if self.take_pi_startup_banner(session_id, &chunk).await
@@ -59,7 +91,9 @@ impl AcpClientBridge {
                     self.apply
                         .note_adapter_turn_error(session_id, adapter_error);
                     None
-                } else if let Some(notice) = session_notice::from_agent_message_chunk(&chunk) {
+                } else if let Some(notice) =
+                    session_notice::from_agent_message_chunk_for(self.apply.agent_kind(), &chunk)
+                {
                     Some(AgentEvent::RawAcpDiagnostic {
                         raw: session_notice::diagnostic_payload(&notice),
                     })
@@ -574,6 +608,21 @@ impl AcpClientBridge {
         };
 
         if let Some(event) = event {
+            let retry_progress = match &event {
+                AgentEvent::MessageChunk { content } | AgentEvent::ThoughtChunk { content } => {
+                    super::super::runner::agent_content_has_output(content)
+                }
+                AgentEvent::ToolCall { .. } => true,
+                AgentEvent::ToolCallUpdate { update } => update.status.is_some(),
+                _ => false,
+            };
+            if self.apply.agent_kind() == Some(AgentKind::Codex)
+                && retry_progress
+                && let Some((active_session, prompt_id)) = *self.apply.active_prompt.lock().await
+                && Some(active_session) == session_id
+            {
+                self.retry_incidents.lock().await.note_progress(prompt_id);
+            }
             let establishing = self.pending_session_id.lock().await.is_some();
             if establishing
                 && matches!(
@@ -593,7 +642,14 @@ impl AcpClientBridge {
                 AgentConnectionManagerEvent {
                     connection_id: self.connection_id,
                     session_id,
-                    prompt_id: None,
+                    prompt_id: self
+                        .apply
+                        .active_prompt
+                        .lock()
+                        .await
+                        .as_ref()
+                        .filter(|(active_session, _)| Some(*active_session) == session_id)
+                        .map(|(_, id)| *id),
                     event,
                 },
             );
@@ -661,4 +717,137 @@ pub(in crate::manager) fn extract_question_items_from_tool_input(
             .or_else(|| obj.get("params"))?;
     }
     None
+}
+
+#[cfg(test)]
+mod retry_tests {
+    use serde_json::json;
+
+    use super::*;
+
+    #[tokio::test]
+    async fn codex_retry_notifications_reject_old_revisions_and_retired_incidents() {
+        let (event_tx, mut event_rx) = mpsc::unbounded_channel();
+        let agent_id = AgentId::parse("codex").unwrap();
+        let connection_id = AgentConnectionId::new();
+        let runner = AgentConnectionRunner::new(
+            ManagedAgentConnectionSnapshot {
+                connection_id,
+                agent_id: agent_id.clone(),
+                launch_lock: SessionLaunchLock {
+                    agent_id: agent_id.clone(),
+                    absolute_acp_program: PathBuf::from("/fixture/codex-acp"),
+                    args: Vec::new(),
+                    env: BTreeMap::new(),
+                    runtime_version: "fixture".into(),
+                    acp_version: "2.2.2".into(),
+                },
+                workspace_id: uuid::Uuid::nil(),
+                working_dir: PathBuf::from("/fixture"),
+                additional_directories: Vec::new(),
+                auto_approve_mode: AgentAutoApproveMode::default(),
+                env: HashMap::new(),
+            },
+            event_tx.clone(),
+            None,
+        );
+        let session = AgentSessionId::new();
+        let prompt = AgentPromptId::new();
+        runner
+            .session_map
+            .write()
+            .await
+            .insert(session, "acp-test".into());
+        *runner.active_prompt.lock().await = Some((session, prompt));
+        let bridge = AcpClientBridge::new(
+            connection_id,
+            agent_id,
+            event_tx,
+            runner.session_map.clone(),
+            runner.session_controls.clone(),
+            runner.pending_permissions.clone(),
+            runner.pending_elicitations.clone(),
+            runner.auto_approve_mode.clone(),
+            runner.stream_dedup.clone(),
+            runner.last_activity.clone(),
+            runner.grok_subagent.clone(),
+            runner.grok_mcp.clone(),
+            runner.pending_session_id.clone(),
+            PathBuf::from("/fixture"),
+            HashMap::new(),
+            runner.clone(),
+        );
+        let retry = |id, revision| {
+            serde_json::from_value::<SessionNotification>(json!({
+                "sessionId":"acp-test", "update": {"sessionUpdate":"session_info_update",
+                "_meta":{"jetbrains":{"air":{"version":1,"sessionFailure":{
+                    "id":id,"revision":revision,"category":"connection","severity":"warning",
+                    "title":"stream disconnected","actions":[]
+                }}}}}
+            }))
+            .unwrap()
+        };
+        bridge
+            .session_notification(retry("turn:error", 2))
+            .await
+            .unwrap();
+        let first = event_rx.try_recv().unwrap();
+        assert_eq!(first.prompt_id, Some(prompt));
+        assert!(matches!(first.event, AgentEvent::RequestActivity { .. }));
+        bridge
+            .session_notification(retry("turn:error", 1))
+            .await
+            .unwrap();
+        assert!(event_rx.try_recv().is_err());
+
+        let metadata = serde_json::from_value::<SessionNotification>(json!({
+            "sessionId":"acp-test", "update":{"sessionUpdate":"tool_call_update",
+            "toolCallId":"tool-1", "title":"updated title"}
+        }))
+        .unwrap();
+        bridge.session_notification(metadata).await.unwrap();
+        assert!(matches!(
+            event_rx.try_recv().unwrap().event,
+            AgentEvent::ToolCallUpdate { .. }
+        ));
+        bridge
+            .session_notification(retry("turn:error", 3))
+            .await
+            .unwrap();
+        assert!(matches!(
+            event_rx.try_recv().unwrap().event,
+            AgentEvent::RequestActivity { .. }
+        ));
+
+        let content = serde_json::from_value::<SessionNotification>(json!({
+            "sessionId":"acp-test", "update":{"sessionUpdate":"agent_message_chunk",
+            "content":{"type":"text","text":"recovered output"}}
+        }))
+        .unwrap();
+        bridge.session_notification(content).await.unwrap();
+        assert!(matches!(
+            event_rx.try_recv().unwrap().event,
+            AgentEvent::MessageChunk { .. }
+        ));
+        let second_id = "turn:error:01f888b7-a040-4fe0-94ad-40ff454e385b:2";
+        bridge
+            .session_notification(retry(second_id, 1))
+            .await
+            .unwrap();
+        assert!(matches!(
+            event_rx.try_recv().unwrap().event,
+            AgentEvent::RequestActivity { .. }
+        ));
+        bridge
+            .session_notification(retry("turn:error", 4))
+            .await
+            .unwrap();
+        assert!(event_rx.try_recv().is_err());
+        *runner.active_prompt.lock().await = Some((session, AgentPromptId::new()));
+        bridge
+            .session_notification(retry(second_id, 2))
+            .await
+            .unwrap();
+        assert!(event_rx.try_recv().is_err());
+    }
 }

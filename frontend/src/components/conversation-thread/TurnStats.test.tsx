@@ -168,7 +168,7 @@ describe('TurnStats', () => {
       />
     );
 
-    expect(screen.getByText('生成中')).toBeInTheDocument();
+    expect(screen.getByText('等待 Agent 响应')).toBeInTheDocument();
     expect(screen.queryByText('Token')).not.toBeInTheDocument();
   });
 
@@ -183,7 +183,7 @@ describe('TurnStats', () => {
       />
     );
 
-    expect(screen.getByText('生成中')).toBeInTheDocument();
+    expect(screen.getByText('等待 Agent 响应')).toBeInTheDocument();
     expect(screen.getByText('状态')).toBeInTheDocument();
     expect(screen.getByText('5s')).toBeInTheDocument();
 
@@ -201,7 +201,7 @@ describe('TurnStats', () => {
 
     render(<LiveTurnStats startedAt="1970-01-01T00:00:00.000Z" />);
 
-    expect(screen.getByText('生成中')).toBeInTheDocument();
+    expect(screen.getByText('等待 Agent 响应')).toBeInTheDocument();
     expect(screen.queryByText(/h/)).not.toBeInTheDocument();
     expect(screen.queryByText(/\dm/)).not.toBeInTheDocument();
   });

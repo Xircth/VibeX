@@ -76,6 +76,7 @@ type Props = {
   nativeCredentialPresent?: (fieldId: string) => boolean;
   onChanged?: () => void | Promise<void>;
   onDirtyChange?: (dirty: boolean) => void;
+  onPendingChange?: (pending: boolean) => void;
   onAuthenticated?: () => void;
   onRunAction?: (actionId: string) => void;
   locked?: boolean;
@@ -95,6 +96,7 @@ export function AgentAuthModeControl({
   nativeCredentialPresent,
   onChanged,
   onDirtyChange,
+  onPendingChange,
   onAuthenticated,
   onRunAction,
   locked = false,
@@ -193,6 +195,10 @@ export function AgentAuthModeControl({
     onDirtyChange?.(dirty);
     return () => onDirtyChange?.(false);
   }, [dirty, onDirtyChange]);
+  useEffect(() => {
+    onPendingChange?.(saving);
+    return () => onPendingChange?.(false);
+  }, [onPendingChange, saving]);
   useEffect(() => {
     if (!view) return;
     const key = authDraftKey(agentId);

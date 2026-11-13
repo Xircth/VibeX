@@ -89,17 +89,6 @@ pub struct CatalogVersion {
     pub package_digest: Option<String>,
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
-#[serde(rename_all = "camelCase")]
-pub struct PluginUpdateStatus {
-    pub plugin_id: String,
-    pub update_available: bool,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub available_tag: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub available_version: Option<String>,
-}
-
 #[derive(Clone, Debug, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct CatalogPluginDetail {
@@ -107,14 +96,6 @@ pub struct CatalogPluginDetail {
     pub summary: String,
     pub readme: String,
     pub contents: Vec<PluginContentDocument>,
-}
-
-pub struct InstalledOrigin {
-    pub plugin_id: String,
-    pub version: String,
-    pub kind: PluginSourceKind,
-    pub origin: Option<String>,
-    pub git_ref: Option<String>,
 }
 
 pub fn marketplace_origin() -> String {
@@ -761,122 +742,6 @@ pub fn origin_owner_name(origin: &str, fallback_id: &str) -> (String, String) {
     ("vibex".to_owned(), fallback_id.to_owned())
 }
 
-pub async fn github_latest_tag(origin: &str) -> Result<String, PluginError> {
-    let url = origin.trim_end_matches('/').trim_end_matches(".git");
-    let rest = url
-        .strip_prefix("https://github.com/")
-        .ok_or_else(|| PluginError::not_found("github origin"))?;
-    let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(8))
-        .build()
-        .map_err(|error| PluginError::io("github client", error))?;
-    let tags_api = format!("https://api.github.com/repos/{rest}/tags?per_page=100");
-    if let Ok(response) = client
-        .get(&tags_api)
-        .header("user-agent", "VibeX")
-        .send()
-        .await
-        && response.status().is_success()
-    {
-        let body: Vec<serde_json::Value> = response
-            .json()
-            .await
-            .map_err(|error| PluginError::io("github tags json", error))?;
-        let mut tags: Vec<String> = body
-            .iter()
-            .filter_map(|item| item.get("name").and_then(|value| value.as_str()))
-            .map(str::to_owned)
-            .collect();
-        if !tags.is_empty() {
-            tags.sort_by(|left, right| compare_version_desc(left, right));
-            return Ok(tags[0].clone());
-        }
-    }
-    let api = format!("https://api.github.com/repos/{rest}/releases/latest");
-    let response = client
-        .get(api)
-        .header("user-agent", "VibeX")
-        .send()
-        .await
-        .map_err(|error| PluginError::io("github release", error))?;
-    if !response.status().is_success() {
-        return Err(PluginError::not_found("github release"));
-    }
-    let body: serde_json::Value = response
-        .json()
-        .await
-        .map_err(|error| PluginError::io("github release json", error))?;
-    body.get("tag_name")
-        .and_then(|value| value.as_str())
-        .map(str::to_owned)
-        .ok_or_else(|| PluginError::not_found("github tag"))
-}
-
-fn compare_version_desc(left: &str, right: &str) -> std::cmp::Ordering {
-    if is_newer_version(right, left) {
-        std::cmp::Ordering::Less
-    } else if is_newer_version(left, right) {
-        std::cmp::Ordering::Greater
-    } else {
-        right.cmp(left)
-    }
-}
-
-fn newest_catalog_version(mut versions: Vec<CatalogVersion>) -> Option<CatalogVersion> {
-    versions.sort_by(|left, right| {
-        let by_version = compare_version_desc(&left.version, &right.version);
-        if by_version != std::cmp::Ordering::Equal {
-            return by_version;
-        }
-        compare_version_desc(&left.tag, &right.tag)
-    });
-    versions.into_iter().next()
-}
-
-pub async fn check_installed_updates(plugins: &[InstalledOrigin]) -> Vec<PluginUpdateStatus> {
-    let mut updates = Vec::new();
-    for plugin in plugins {
-        if !source_allows_remote_update(plugin.kind, plugin.origin.as_deref()) {
-            continue;
-        }
-        let origin = plugin.origin.clone().unwrap_or_default();
-        let (owner, name) = origin_owner_name(&origin, &plugin.plugin_id);
-        let current = plugin
-            .git_ref
-            .clone()
-            .unwrap_or_else(|| plugin.version.clone());
-        let available = if origin_kind(Some(&origin)) == Some("github") {
-            github_latest_tag(&origin)
-                .await
-                .ok()
-                .map(|tag| CatalogVersion {
-                    tag: tag.clone(),
-                    version: tag,
-                    package_digest: None,
-                })
-        } else {
-            fetch_versions(&owner, &name)
-                .await
-                .ok()
-                .and_then(newest_catalog_version)
-        };
-        let update_available = available.as_ref().is_some_and(|item| {
-            is_newer_version(&current, &item.tag)
-                || is_newer_version(&current, &item.version)
-                || is_newer_version(&plugin.version, &item.version)
-        });
-        if update_available {
-            updates.push(PluginUpdateStatus {
-                plugin_id: plugin.plugin_id.clone(),
-                update_available: true,
-                available_tag: Some(available.as_ref().unwrap().tag.clone()),
-                available_version: Some(available.as_ref().unwrap().version.clone()),
-            });
-        }
-    }
-    updates
-}
-
 fn utf8_percent_encode(value: &str) -> String {
     let mut encoded = String::new();
     for byte in value.bytes() {
@@ -1146,6 +1011,16 @@ fn absolutize_url(origin: &str, value: &str) -> String {
     } else {
         format!("{origin}/{value}")
     }
+}
+
+#[cfg(test)]
+fn newest_catalog_version(mut versions: Vec<CatalogVersion>) -> Option<CatalogVersion> {
+    versions.sort_by(|left, right| {
+        semver::Version::parse(right.version.trim_start_matches('v'))
+            .ok()
+            .cmp(&semver::Version::parse(left.version.trim_start_matches('v')).ok())
+    });
+    versions.into_iter().next()
 }
 
 #[cfg(test)]

@@ -6,6 +6,52 @@ describe('useWindowProjectsStore', () => {
   beforeEach(() => {
     useWindowProjectsStore.getState().resetProjectWindowState();
   });
+  it('keeps every selected project open, including selections larger than six', () => {
+    const ids = Array.from({ length: 9 }, (_, index) => `selected-${index}`);
+    for (const id of ids)
+      useWindowProjectsStore.getState().ensureProjectOpen(id);
+    expect(useWindowProjectsStore.getState().openProjectIds).toEqual(
+      [...ids].reverse()
+    );
+  });
+
+  it('repairs a persisted image address when restoring open projects', async () => {
+    localStorage.setItem(
+      'vibex-window-projects',
+      JSON.stringify({
+        version: 7,
+        state: {
+          openProjectIds: ['project-1'],
+          lastRouteByProject: {
+            'project-1':
+              '/local-projects/project-1/workspaces/workspace-1/evidence/agent-runtime-status-zh.png',
+          },
+        },
+      })
+    );
+
+    await useWindowProjectsStore.persist.rehydrate();
+
+    expect(useWindowProjectsStore.getState().openProjectIds).toEqual([
+      'project-1',
+    ]);
+    expect(
+      useWindowProjectsStore.getState().lastRouteByProject['project-1']
+    ).toBe('/local-projects/project-1/workspaces/workspace-1');
+  });
+
+  it('remembers the working parent instead of an unsupported file address', () => {
+    useWindowProjectsStore
+      .getState()
+      .rememberProjectRoute(
+        'project-1',
+        '/local-projects/project-1/workspaces/workspace-1/evidence/image.png'
+      );
+
+    expect(
+      useWindowProjectsStore.getState().lastRouteByProject['project-1']
+    ).toBe('/local-projects/project-1/workspaces/workspace-1');
+  });
 
   it('does not wipe open projects when prune is called with an empty list', () => {
     useWindowProjectsStore.setState({

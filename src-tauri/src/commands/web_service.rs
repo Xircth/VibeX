@@ -930,7 +930,8 @@ mod tests {
             .local_addr()
             .expect("first occupied listener should expose address")
             .port();
-        let _occupied_second = StdTcpListener::bind(("127.0.0.1", base_port.saturating_add(1))).ok();
+        let _occupied_second =
+            StdTcpListener::bind(("127.0.0.1", base_port.saturating_add(1))).ok();
 
         let config = WebServiceConfig {
             port: base_port,
@@ -956,4 +957,3 @@ mod tests {
         );
     }
 }
-

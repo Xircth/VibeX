@@ -22,6 +22,7 @@ type Props = {
   disabled?: boolean;
   onChanged?: () => void | Promise<void>;
   onDirtyChange?: (dirty: boolean) => void;
+  onPendingChange?: (pending: boolean) => void;
 };
 
 export type EnvironmentRow = {
@@ -37,6 +38,7 @@ export function AgentEnvironmentEditor({
   disabled = false,
   onChanged,
   onDirtyChange,
+  onPendingChange,
 }: Props) {
   const { t } = useTranslation('settings');
   const nextKey = useRef(1);
@@ -95,7 +97,7 @@ export function AgentEnvironmentEditor({
   const dirty = Boolean(
     request && (structureDirty || Object.keys(request.values).length > 0)
   );
-  const { writeNow } = useLiveSettingsCommit(
+  const { writeNow, holding } = useLiveSettingsCommit(
     async (commit: {
       request: AgentEnvironmentPatchRequest;
       token: number;
@@ -124,6 +126,10 @@ export function AgentEnvironmentEditor({
     onDirtyChange?.(saving ? false : dirty);
     return () => onDirtyChange?.(false);
   }, [dirty, onDirtyChange, saving]);
+  useEffect(() => {
+    onPendingChange?.(holding || saving);
+    return () => onPendingChange?.(false);
+  }, [holding, onPendingChange, saving]);
 
   const updateRow = (key: number, field: 'name' | 'value', value: string) => {
     setRows((current) => {

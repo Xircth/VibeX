@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import {
@@ -15,6 +15,16 @@ export function useAccountDeviceLogin(options: {
 }) {
   const { isSignedIn, refresh } = options;
   const { t } = useTranslation(['settings', 'common']);
+
+  const generation = useRef(0);
+  const startingRef = useRef(false);
+  const pollingController = useRef<AbortController | null>(null);
+  useEffect(
+    () => () => {
+      generation.current += 1;
+    },
+    []
+  );
 
   const [loginState, setLoginState] = useState<{
     login: DeviceLogin;
@@ -53,36 +63,62 @@ export function useAccountDeviceLogin(options: {
   useEffect(() => {
     if (!loginState) return;
     let stopped = false;
-    const timer = window.setInterval(async () => {
-      if (Date.now() >= loginState.expiresAt) {
-        window.clearInterval(timer);
+    let timer: number | undefined;
+    const controller = new AbortController();
+    pollingController.current = controller;
+    const expiryTimer = window.setTimeout(
+      () => {
+        stopped = true;
+        controller.abort();
+        window.clearTimeout(timer);
         setLoginState(null);
         setAuthError(t('settings:agents.modelRouterErrorExpired'));
-        return;
-      }
+      },
+      Math.max(0, loginState.expiresAt - Date.now())
+    );
+    const poll = async () => {
       try {
-        const approved = await accountApi.pollLogin(loginState.login);
-        if (stopped || !approved) return;
-        window.clearInterval(timer);
-        setLoginState(null);
+        const approved = await accountApi.pollLogin(
+          loginState.login,
+          controller.signal
+        );
+        if (stopped) return;
         setAuthError(null);
-        await refresh();
+        if (approved) {
+          setLoginState(null);
+          await refresh();
+          return;
+        }
       } catch (cause) {
         if (stopped) return;
-        if (cause instanceof AccountError && cause.code === 'network') return;
-        window.clearInterval(timer);
-        setLoginState(null);
         setAuthError(describeError(cause));
+        if (!(cause instanceof AccountError) || cause.code !== 'network') {
+          setLoginState(null);
+          return;
+        }
       }
-    }, loginState.login.interval * 1000);
-
+      if (!stopped)
+        timer = window.setTimeout(
+          () => void poll(),
+          Math.max(1, loginState.login.interval) * 1000
+        );
+    };
+    timer = window.setTimeout(
+      () => void poll(),
+      Math.max(1, loginState.login.interval) * 1000
+    );
     return () => {
       stopped = true;
-      window.clearInterval(timer);
+      controller.abort();
+      window.clearTimeout(timer);
+      window.clearTimeout(expiryTimer);
     };
   }, [describeError, loginState, refresh, t]);
 
   const startLogin = useCallback(async () => {
+    if (startingRef.current) return;
+    startingRef.current = true;
+    const attempt = ++generation.current;
     setStartingLogin(true);
     setAuthError(null);
     try {
@@ -92,6 +128,7 @@ export function useAccountDeviceLogin(options: {
           ? { deviceName: identity.hostName, hostId: identity.hostId }
           : undefined
       );
+      if (generation.current !== attempt) return;
       setLoginState({
         login: next,
         expiresAt: Date.now() + next.expiresIn * 1000,
@@ -100,18 +137,24 @@ export function useAccountDeviceLogin(options: {
     } catch (cause) {
       setAuthError(describeError(cause));
     } finally {
+      startingRef.current = false;
       setStartingLogin(false);
     }
   }, [describeError]);
 
   const cancelLogin = useCallback(() => {
+    pollingController.current?.abort();
+    generation.current += 1;
     setLoginState(null);
+    setAuthError(null);
   }, []);
 
   const reopenVerifyUrl = useCallback(() => {
     if (!loginState) return;
-    void openExternal(loginState.login.verifyUrl);
-  }, [loginState]);
+    void openExternal(loginState.login.verifyUrl).catch((cause) =>
+      setAuthError(describeError(cause))
+    );
+  }, [describeError, loginState]);
 
   return {
     loginState,

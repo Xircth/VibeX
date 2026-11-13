@@ -436,11 +436,7 @@ function WorkspaceSessionListPanel(_props: IDockviewPanelProps) {
             setSortSpecs((current) => toggleSessionListSort(current, key));
           }}
           onClearSort={() => setSortSpecs([])}
-          onToggleViewMode={() => {
-            setKanbanSessionListView(
-              listView === 'workspace' ? 'status' : 'workspace'
-            );
-          }}
+          onViewModeChange={setKanbanSessionListView}
         />
         <div
           className="min-h-0 flex-1 overflow-y-auto px-0 pb-2 pt-0.5"

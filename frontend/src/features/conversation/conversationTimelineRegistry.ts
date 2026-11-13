@@ -136,6 +136,11 @@ type Slot = {
   refs: number;
   surfaceRefs: number;
   bindReady: boolean;
+  connectionStatus?: string;
+  connectionSequence?: number;
+  connectionId?: string;
+  retiredConnectionIds?: Set<string>;
+  bindGeneration?: number;
   keepalive?: () => void;
   controller: Controller | null;
 };
@@ -191,6 +196,7 @@ const viewCache = new Map<
   {
     entry: ConversationStoreState['byConversationId'][string] | undefined;
     bindReady: boolean;
+    connectionStatus?: string;
     view: ConversationTimelineView;
   }
 >();
@@ -468,12 +474,18 @@ export function getConversationTimelineView(
   if (!conversationId) return EMPTY_VIEW;
   const entry = state.byConversationId[conversationId];
   const bindReady = slots.get(conversationId)?.bindReady ?? false;
+  const connectionStatus = slots.get(conversationId)?.connectionStatus;
   const cached = viewCache.get(conversationId);
-  if (cached && cached.entry === entry && cached.bindReady === bindReady) {
+  if (
+    cached &&
+    cached.entry === entry &&
+    cached.bindReady === bindReady &&
+    cached.connectionStatus === connectionStatus
+  ) {
     return cached.view;
   }
   const view = buildView(conversationId, entry, bindReady);
-  viewCache.set(conversationId, { entry, bindReady, view });
+  viewCache.set(conversationId, { entry, bindReady, connectionStatus, view });
   return view;
 }
 
@@ -637,7 +649,45 @@ function startController(conversationId: string, slot: Slot): void {
     if (controller.stopped || envelope.session_id !== conversationId) return;
     const current = slots.get(conversationId);
     if (!current || current.refs <= 0) return;
+    let connectionChanged = false;
+    if (
+      envelope.event.kind === 'session_bind_ready' ||
+      envelope.event.kind === 'connection_status_changed' ||
+      envelope.event.kind === 'session_created'
+    ) {
+      const incomingConnectionId = envelope.connection_id;
+      if (incomingConnectionId) {
+        if (current.retiredConnectionIds?.has(incomingConnectionId)) return;
+        if (
+          current.connectionId &&
+          current.connectionId !== incomingConnectionId
+        ) {
+          (current.retiredConnectionIds ??= new Set()).add(
+            current.connectionId
+          );
+          current.connectionId = incomingConnectionId;
+          current.connectionSequence = undefined;
+          current.bindGeneration = (current.bindGeneration ?? 0) + 1;
+          current.bindReady = false;
+          current.keepalive?.();
+          current.keepalive = undefined;
+          connectionChanged = true;
+        } else if (!current.connectionId) {
+          current.connectionId = incomingConnectionId;
+        }
+      }
+      if (
+        current.connectionSequence != null &&
+        envelope.sequence != null &&
+        envelope.sequence <= current.connectionSequence
+      )
+        return;
+      if (envelope.sequence != null)
+        current.connectionSequence = envelope.sequence;
+    }
     if (envelope.event.kind === 'session_bind_ready') {
+      current.bindGeneration = (current.bindGeneration ?? 0) + 1;
+      current.connectionStatus = 'ready';
       current.bindReady = true;
       notify(conversationId);
       startKeepalive(conversationId, current);
@@ -647,23 +697,25 @@ function startController(conversationId: string, slot: Slot): void {
       (envelope.event.kind === 'session_created' &&
         envelope.event.snapshot?.status === 'creating') ||
       (envelope.event.kind === 'connection_status_changed' &&
-        envelope.event.snapshot?.status === 'connecting')
+        envelope.event.snapshot.status !== 'ready')
     ) {
-      if (current.bindReady) {
-        current.bindReady = false;
-        notify(conversationId);
-      }
+      current.connectionStatus =
+        envelope.event.kind === 'connection_status_changed'
+          ? envelope.event.snapshot.status
+          : 'connecting';
+      current.bindReady = false;
+      current.bindGeneration = (current.bindGeneration ?? 0) + 1;
+      current.keepalive?.();
+      current.keepalive = undefined;
+      notify(conversationId);
       return;
     }
-    if (
-      envelope.event.kind === 'session_created' &&
-      envelope.event.snapshot?.status === 'ready'
-    ) {
-      if (!current.bindReady) {
-        current.bindReady = true;
-        notify(conversationId);
-        startKeepalive(conversationId, current);
-      }
+    if (connectionChanged) {
+      current.connectionStatus =
+        envelope.event.kind === 'connection_status_changed'
+          ? envelope.event.snapshot.status
+          : 'connecting';
+      notify(conversationId);
     }
   }).then((unsubscribe) => {
     if (controller.stopped) {
@@ -920,23 +972,40 @@ function scheduleBind(conversationId: string, controller: Controller): void {
 
 function beginBind(conversationId: string): void {
   if (inflightBinds.has(conversationId)) return;
+  const startingSlot = slots.get(conversationId);
+  if (!startingSlot) return;
+  startingSlot.bindGeneration = (startingSlot.bindGeneration ?? 0) + 1;
+  const bindGeneration = startingSlot.bindGeneration;
   const pending = conversationApi
     .ensureSessionControls(conversationId, { reload: false })
     .then((controls) => {
       const current = slots.get(conversationId);
-      if (!current || current.refs <= 0) return;
+      if (
+        !current ||
+        current !== startingSlot ||
+        current.refs <= 0 ||
+        (current.bindGeneration ?? 0) !== bindGeneration
+      )
+        return;
       dispatch({
         type: 'session_controls_hydrated',
         conversationId,
         controls,
       });
       current.bindReady = true;
+      current.connectionStatus = 'ready';
       notify(conversationId);
       startKeepalive(conversationId, current);
     })
     .catch((error: unknown) => {
       const current = slots.get(conversationId);
-      if (!current || current.refs <= 0) return;
+      if (
+        !current ||
+        current !== startingSlot ||
+        current.refs <= 0 ||
+        (current.bindGeneration ?? 0) !== bindGeneration
+      )
+        return;
       if (isStaleAgentConnectionError(error)) return;
       current.bindReady = false;
       notify(conversationId);
@@ -1007,6 +1076,8 @@ async function resetAndReload(conversationId: string): Promise<void> {
 async function reconnectAndReload(conversationId: string): Promise<void> {
   const slot = slots.get(conversationId);
   if (!slot?.controller) return;
+  slot.bindGeneration = (slot.bindGeneration ?? 0) + 1;
+  const bindGeneration = slot.bindGeneration;
   slot.bindReady = false;
   notify(conversationId);
   try {
@@ -1015,20 +1086,33 @@ async function reconnectAndReload(conversationId: string): Promise<void> {
       { reload: true }
     );
     const current = slots.get(conversationId);
-    if (!current || current.refs <= 0) return;
+    if (
+      !current ||
+      current !== slot ||
+      current.refs <= 0 ||
+      (current.bindGeneration ?? 0) !== bindGeneration
+    )
+      return;
     dispatch({
       type: 'session_controls_hydrated',
       conversationId,
       controls,
     });
     current.bindReady = true;
+    current.connectionStatus = 'ready';
     notify(conversationId);
     startKeepalive(conversationId, current);
     if (current.controller)
       await loadDetail(conversationId, current.controller);
   } catch (error: unknown) {
     const current = slots.get(conversationId);
-    if (!current || current.refs <= 0) return;
+    if (
+      !current ||
+      current !== slot ||
+      current.refs <= 0 ||
+      (current.bindGeneration ?? 0) !== bindGeneration
+    )
+      return;
     current.bindReady = false;
     notify(conversationId);
     report(conversationId, error);
@@ -1164,6 +1248,9 @@ function buildView(
       hasDetail &&
       Boolean(entry?.detail?.summary.workspace_id) &&
       !bindReady &&
+      !['failed', 'disconnected'].includes(
+        slots.get(conversationId)?.connectionStatus ?? ''
+      ) &&
       !entry?.error &&
       !(entry?.rows ?? []).some(
         (row) => row.row_id === AGENT_BINDING_LOAD_FAILURE_NOTICE_ROW_ID

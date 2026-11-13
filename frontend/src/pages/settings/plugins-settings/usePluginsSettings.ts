@@ -1,3 +1,4 @@
+import { usePluginUpdateConfirmation } from '@/pages/plugins/PluginUpdateDialog';
 import { pickHostFile } from '@/lib/hostFs';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -318,6 +319,8 @@ export function usePluginsSettings({
     }
   };
 
+  const updateConfirmation = usePluginUpdateConfirmation(api, reload);
+
   const performUpdate = async (plugin: PluginControlItem) => {
     setBusy(true);
     setError(null);
@@ -342,7 +345,11 @@ export function usePluginsSettings({
 
   const updatePlugin = async (plugin: PluginControlItem) => {
     if (!canWrite) return;
-    await performUpdate(plugin);
+    if (pluginEcosystem(plugin) === 'vibex') {
+      await updateConfirmation.prepare(plugin.id);
+    } else {
+      await performUpdate(plugin);
+    }
   };
 
   const rollbackPlugin = async (plugin: PluginControlItem) => {
@@ -454,6 +461,7 @@ export function usePluginsSettings({
     applyImport,
     setEnabled,
     updatePlugin,
+    updateConfirmation,
     rollbackPlugin,
     configureAllAgents,
     uninstall,

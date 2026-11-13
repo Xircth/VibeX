@@ -271,8 +271,10 @@ pub(crate) fn record_pending_cloud_delete(state: &mut StoredState, removed: &Sto
     else {
         return;
     };
-    let sanitized_provision =
-        sanitize_provision_for_sync(removed.provision_kind.as_deref(), removed.provision.as_ref());
+    let sanitized_provision = sanitize_provision_for_sync(
+        removed.provision_kind.as_deref(),
+        removed.provision.as_ref(),
+    );
     let sync_origin = resolve_syncable_origin(
         &removed.origin,
         removed.provision_kind.as_deref(),
@@ -503,7 +505,9 @@ impl HostClientRuntime {
     ) -> Result<ExportSyncBundle, AppError> {
         let account_id = account_user_id.trim();
         if account_id.is_empty() {
-            return Err(AppError::BadRequest("accountUserId is required".to_string()));
+            return Err(AppError::BadRequest(
+                "accountUserId is required".to_string(),
+            ));
         }
         let local_host_id = normalize_raw_host_id(self.local_host_id().await.as_deref());
         let mut state = self.load_state().await?;
@@ -661,7 +665,9 @@ impl HostClientRuntime {
     ) -> Result<MergeSyncResult, AppError> {
         let account_id = account_user_id.trim();
         if account_id.is_empty() {
-            return Err(AppError::BadRequest("accountUserId is required".to_string()));
+            return Err(AppError::BadRequest(
+                "accountUserId is required".to_string(),
+            ));
         }
         let local_host_id = normalize_raw_host_id(self.local_host_id().await.as_deref());
         let active_bound_ids = self.active_bound_profile_ids().await;
@@ -744,15 +750,13 @@ impl HostClientRuntime {
                     && existing.origin.eq_ignore_ascii_case(&sync_origin)
             });
 
-            let incoming_credential = item
-                .credential
-                .and_then(|cred| {
-                    let token = cred.access_token.trim().to_string();
-                    (!token.is_empty()).then_some(SyncableHostCredential {
-                        device_id: cred.device_id.filter(|id| !id.trim().is_empty()),
-                        access_token: token,
-                    })
-                });
+            let incoming_credential = item.credential.and_then(|cred| {
+                let token = cred.access_token.trim().to_string();
+                (!token.is_empty()).then_some(SyncableHostCredential {
+                    device_id: cred.device_id.filter(|id| !id.trim().is_empty()),
+                    access_token: token,
+                })
+            });
 
             if let Some(idx) = existing_index {
                 let profile = &mut state.profiles[idx];
@@ -785,8 +789,8 @@ impl HostClientRuntime {
                 }
 
                 // Credential merge: cloud wins unless local holds a strictly newer valid token
-                let local_has_valid_token =
-                    !profile.needs_token && profile.access_token.as_ref().is_some_and(|t| !t.is_empty());
+                let local_has_valid_token = !profile.needs_token
+                    && profile.access_token.as_ref().is_some_and(|t| !t.is_empty());
                 let local_is_newer = match (&profile.updated_at, &item.updated_at) {
                     (Some(local_ts), Some(cloud_ts)) => local_ts > cloud_ts,
                     _ => false,
@@ -918,7 +922,9 @@ mod tests {
     async fn exports_sanitized_profiles_and_excludes_pure_loopback_and_self_host() {
         let dir = tempfile::tempdir().expect("tempdir");
         let runtime = HostClientRuntime::with_path(dir.path().join("profiles.json"));
-        runtime.set_local_host_id(Some("self-host-uuid".to_string())).await;
+        runtime
+            .set_local_host_id(Some("self-host-uuid".to_string()))
+            .await;
 
         let mut state = StoredState {
             signed_in_account_id: Some("user-a".into()),
@@ -970,7 +976,10 @@ mod tests {
         assert_eq!(exported.profile_id, "ssh-1");
         assert_eq!(exported.origin, "http://10.0.1.50:17891");
         assert_eq!(
-            exported.credential.as_ref().map(|c| c.access_token.as_str()),
+            exported
+                .credential
+                .as_ref()
+                .map(|c| c.access_token.as_str()),
             Some("tok-ssh-secret")
         );
         let prov_str = serde_json::to_string(&exported.provision).expect("json");
@@ -1051,7 +1060,12 @@ mod tests {
 
         let status_a = runtime.status(&registry, "main").await.expect("status");
         assert_eq!(status_a.profiles.len(), 2);
-        assert!(status_a.profiles.iter().all(|p| p.has_credential && !p.needs_token));
+        assert!(
+            status_a
+                .profiles
+                .iter()
+                .all(|p| p.has_credential && !p.needs_token)
+        );
         assert!(
             dir.path()
                 .join("hosts")
@@ -1068,7 +1082,10 @@ mod tests {
 
         let status_b = runtime.status(&registry, "main").await.expect("status B");
         assert!(status_b.profiles.is_empty());
-        let export_b = runtime.export_sync_bundle("user-b").await.expect("export B");
+        let export_b = runtime
+            .export_sync_bundle("user-b")
+            .await
+            .expect("export B");
         assert!(export_b.profiles.is_empty());
 
         // Switch back to Account A: profiles are restored, then authoritative cloud list without HTTP Box prunes it!

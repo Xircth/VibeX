@@ -11,6 +11,7 @@ import {
 import { CARD_HEIGHT, CARD_WIDTH } from './canvasModel';
 import { useSessionCanvasView } from './CanvasViewContext';
 import { cn } from '@/lib/utils';
+import { useCanvasNodeContextMenu } from './useCanvasNodeContextMenu';
 
 export interface SessionCanvasGroupData {
   instanceId: string;
@@ -49,6 +50,10 @@ export const SessionCanvasGroupNode = memo(function SessionCanvasGroupNode({
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(data.name);
   const collapsed = data.collapsed;
+  const { openContextMenu, contextMenuElement } = useCanvasNodeContextMenu({
+    instanceId: data.instanceId,
+    panelTitle: data.name,
+  });
 
   return (
     <div className="relative h-full w-full cursor-grab active:cursor-grabbing">
@@ -64,11 +69,13 @@ export const SessionCanvasGroupNode = memo(function SessionCanvasGroupNode({
         <div
           className={cn(
             'flex shrink-0 items-center gap-2 px-2.5',
+            'canvas-card-drag-handle',
             collapsed ? 'h-full' : undefined
           )}
           style={{
             height: collapsed ? GROUP_COLLAPSED_HEIGHT : GROUP_HEADER_HEIGHT,
           }}
+          onContextMenu={openContextMenu}
         >
           <Folder className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
           {editing ? (
@@ -137,6 +144,7 @@ export const SessionCanvasGroupNode = memo(function SessionCanvasGroupNode({
           </button>
         ) : null}
       </div>
+      {contextMenuElement}
       {typeof data.placeholderX === 'number' &&
       typeof data.placeholderY === 'number' &&
       !collapsed ? (

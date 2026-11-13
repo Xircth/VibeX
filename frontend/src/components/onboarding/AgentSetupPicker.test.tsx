@@ -1,8 +1,8 @@
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { parse } from 'postcss';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import '@/i18n';
 
@@ -99,8 +99,8 @@ describe('AgentSetupPicker icons', () => {
     expect(frames).toHaveLength(3);
 
     for (const frame of frames) {
-      expect(getComputedStyle(frame).width).toBe('36px');
-      expect(getComputedStyle(frame).height).toBe('36px');
+      expect(getComputedStyle(frame).width).toBe('28px');
+      expect(getComputedStyle(frame).height).toBe('28px');
       expect(getComputedStyle(frame).overflow).toBe('hidden');
     }
 
@@ -119,80 +119,36 @@ describe('AgentSetupPicker icons', () => {
     expect(document.querySelector('.onboarding-agent-icon img')).toBeNull();
   });
 
-  it('separates the agent list from a lighter panel without painting selected rows', () => {
-    const css = readFileSync(
-      resolve(
-        process.cwd(),
-        'src/components/onboarding/firstRunExperience.css'
-      ),
-      'utf8'
+  it('inspects an Agent independently of enabling it', () => {
+    const onInspect = vi.fn();
+    const onEnabledChange = vi.fn();
+    render(
+      <AgentSetupPicker
+        agents={[
+          option({
+            agentId: 'codex',
+            displayName: 'Codex',
+            lifecycle: 'needs_auth',
+            runtimeInstalled: true,
+          }),
+        ]}
+        enabledAgentIds={new Set()}
+        defaultAgentId={null}
+        loading={false}
+        discoveryProgress={null}
+        error={null}
+        validationError={null}
+        onRetry={() => undefined}
+        onDefaultChange={() => undefined}
+        onInspect={onInspect}
+        onEnabledChange={onEnabledChange}
+      />
     );
-    expect(css).toMatch(
-      /\.onboarding-agent-panel\s*\{[^}]*background:\s*var\(--surface-dialog\);/
-    );
-    expect(css).toMatch(
-      /\.onboarding-agent-list\s*\{[^}]*background:\s*var\(--surface-card-strong\);/
-    );
-    expect(css).toMatch(
-      /\.dark \.onboarding-agent-list\s*\{[^}]*background:\s*var\(--surface-card\);/
-    );
-    expect(css).toMatch(
-      /\.onboarding-editor-panel\s*\{[^}]*background:\s*var\(--surface-dialog\);/
-    );
-    expect(css).toMatch(
-      /\.onboarding-experience \.onboarding-editor-select,\s*\.onboarding-experience \.onboarding-editor-options\s*\{[^}]*background:\s*var\(--surface-card-strong\);/
-    );
-    expect(css).not.toMatch(
-      /\.onboarding-agent-row\.is-enabled\s*\{[^}]*background:/
-    );
-  });
-
-  it('centers a horizontal agent rail inside the install detail', () => {
-    const css = readFileSync(
-      resolve(
-        process.cwd(),
-        'src/components/onboarding/firstRunExperience.css'
-      ),
-      'utf8'
-    );
-    expect(css).toMatch(
-      /\.onboarding-install-step\s*\{[^}]*align-content:\s*safe center;/
-    );
-    expect(css).toMatch(
-      /\.onboarding-install-step\s*\{[^}]*padding:\s*88px 32px 48px;/
-    );
-    expect(css).toMatch(
-      /\.onboarding-install-column\s*\{[^}]*width:\s*min\(1120px,/
-    );
-    expect(css).toMatch(
-      /\.onboarding-agent-rail\s*\{[^}]*justify-content:\s*center;/
-    );
-    expect(css).toMatch(
-      /\.onboarding-agent-rail \.agent-management-bar\s*\{[^}]*max-width:\s*440px;/
-    );
-    expect(css).toMatch(
-      /\.agent-management-bar\.is-hug\s*\{[^}]*width:\s*max-content;/
-    );
-    expect(css).toMatch(
-      /\.onboarding-install-guidance\s*\{[^}]*align-self:\s*flex-end;/
-    );
-    expect(css).toMatch(
-      /\.agent-management-bar-pager\.is-next\s*svg\s*\{[^}]*transform:\s*scaleX\(-1\);/
-    );
-    expect(css).not.toMatch(
-      /\.agent-management-bar-label\s*\{[^}]*max-width:\s*none;/
-    );
-    expect(css).toMatch(/\.onboarding-install-panels\s*\{[^}]*gap:\s*16px;/);
-    const settingsCss = readFileSync(
-      resolve(process.cwd(), 'src/styles/legacy/index.css'),
-      'utf8'
-    );
-    expect(settingsCss).toMatch(
-      /\.agent-management-bar-label\s*\{[^}]*max-width:\s*0;/
-    );
-    expect(settingsCss).toMatch(
-      /\.agent-management-bar-item\.is-selected\s+\.agent-management-bar-label\s*\{[^}]*opacity:\s*1;/
-    );
-    expect(css).toMatch(/@keyframes onboarding-install-dot/);
+    fireEvent.click(screen.getByRole('button', { name: '配置 Codex' }));
+    expect(onInspect).toHaveBeenCalledWith('codex');
+    expect(onEnabledChange).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('checkbox', { name: '启用 Codex' }));
+    expect(onEnabledChange).toHaveBeenCalledWith('codex', true);
+    expect(screen.getByText('需要登录')).toBeInTheDocument();
   });
 });

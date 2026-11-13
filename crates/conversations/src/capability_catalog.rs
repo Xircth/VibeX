@@ -1,8 +1,11 @@
-use std::path::{Path, PathBuf};
+use std::{
+    collections::BTreeMap,
+    path::{Path, PathBuf},
+};
 
 use agents::{
-    AgentAuthenticationStatus, AgentId, AgentRuntime, AgentSessionControlsSnapshot, AgentSessionId,
-    EnsureAgentSessionInput, SessionAuthenticationEvidence, SessionLaunchLock,
+    AgentAuthenticationStatus, AgentId, AgentKind, AgentRuntime, AgentSessionControlsSnapshot,
+    AgentSessionId, EnsureAgentSessionInput, SessionAuthenticationEvidence,
     resolve_session_authentication_evidence,
 };
 use chrono::{Duration, Utc};
@@ -13,7 +16,7 @@ use sqlx::{Row, SqlitePool};
 use uuid::Uuid;
 
 use crate::{
-    ConversationServiceError, host::parse_management_authentication,
+    AgentRuntimeLaunchSettings, ConversationServiceError, host::parse_management_authentication,
     resolve_agent_runtime_launch_settings,
 };
 
@@ -21,12 +24,13 @@ pub const CAPABILITY_CATALOG_TTL: Duration = Duration::minutes(10);
 
 pub async fn open_capability_catalog_fingerprint(
     pool: &SqlitePool,
-    launch_lock: &SessionLaunchLock,
+    launch: &AgentRuntimeLaunchSettings,
 ) -> Result<String, ConversationServiceError> {
+    let launch_lock = &launch.launch_lock;
     let mut digest = Sha256::new();
-    // v3 invalidates catalogs captured before effort/permission were merged
-    // from Grok's vendor `_meta` into the standard session-control snapshot.
-    digest.update(b"open-agent-capability-catalog-v5:");
+    // v6 invalidates catalogs whose fingerprint skipped the native config
+    // files because the Agent home was looked up only in the lock env.
+    digest.update(b"open-agent-capability-catalog-v6:");
     digest.update(launch_lock.agent_id.as_str().as_bytes());
     digest.update(b"\0");
     digest.update(
@@ -133,86 +137,141 @@ pub async fn open_capability_catalog_fingerprint(
             digest.update(b"\0");
         }
     }
-    hash_native_model_sources(&mut digest, launch_lock);
+    hash_native_model_sources(&mut digest, launch);
     Ok(format!("{:x}", digest.finalize()))
 }
 
-fn hash_native_model_sources(digest: &mut Sha256, launch_lock: &SessionLaunchLock) {
-    let home = launch_lock
-        .env
-        .get("HOME")
-        .or_else(|| launch_lock.env.get("USERPROFILE"))
-        .map(PathBuf::from);
-    let dir = native_model_source_dir(launch_lock, home.as_deref());
+/// The environment the Agent process actually starts with: it inherits the
+/// Host process, then the Agent settings env (after launch policy), then the
+/// install lock env. Native config homes must be resolved from this, not from
+/// the lock env alone, which normally carries only `PATH`.
+fn effective_launch_environment(launch: &AgentRuntimeLaunchSettings) -> BTreeMap<String, String> {
+    let mut environment: BTreeMap<String, String> = std::env::vars().collect();
+    environment.extend(launch.env.clone());
+    environment.extend(launch.launch_lock.env.clone());
+    environment
+}
+
+fn hash_native_model_sources(digest: &mut Sha256, launch: &AgentRuntimeLaunchSettings) {
+    let agent_id = launch.launch_lock.agent_id.as_str();
     digest.update(b"\0native:");
-    digest.update(launch_lock.agent_id.as_str().as_bytes());
-    let Some(dir) = dir else {
+    digest.update(agent_id.as_bytes());
+    let environment = effective_launch_environment(launch);
+    let Some(home) = environment
+        .get("HOME")
+        .or_else(|| environment.get("USERPROFILE"))
+        .map(|value| value.trim())
+        .filter(|value| !value.is_empty())
+        .map(PathBuf::from)
+        .or_else(dirs::home_dir)
+    else {
         return;
     };
-    for file in native_model_source_files(launch_lock.agent_id.as_str()) {
+    let Some(source) = native_model_source(agent_id, &environment, &home) else {
+        return;
+    };
+    for file in source.files {
         digest.update(b"\0file:");
         digest.update(file.as_bytes());
-        if let Ok(bytes) = std::fs::read(dir.join(file)) {
+        if let Ok(bytes) = std::fs::read(source.dir.join(file)) {
             digest.update(&bytes);
+        }
+    }
+    if agent_id == "omp" {
+        for credential in agents::omp_credential_fingerprint(&source.dir) {
+            digest.update(b"\0credential:");
+            digest.update(credential.as_bytes());
         }
     }
 }
 
-fn native_model_source_dir(
-    launch_lock: &SessionLaunchLock,
-    home: Option<&Path>,
-) -> Option<PathBuf> {
-    match launch_lock.agent_id.as_str() {
-        "codex" => env_dir(launch_lock, &["CODEX_HOME"], home, ".codex"),
-        "claude_code" => env_dir(launch_lock, &["CLAUDE_CONFIG_DIR"], home, ".claude"),
+/// Native config files that decide which models and providers an Agent
+/// advertises. Volatile state stores (auth tokens, usage databases) are left
+/// out so the catalog is not invalidated on every turn.
+struct NativeModelSource {
+    dir: PathBuf,
+    files: &'static [&'static str],
+}
+
+fn native_model_source(
+    agent_id: &str,
+    environment: &BTreeMap<String, String>,
+    home: &Path,
+) -> Option<NativeModelSource> {
+    let configured = |keys: &[&str], fallback: &str| {
+        keys.iter()
+            .find_map(|key| {
+                environment
+                    .get(*key)
+                    .map(|value| value.trim())
+                    .filter(|value| !value.is_empty())
+            })
+            .map(|value| agents::pi_trust::expand_pi_home(value, home))
+            .unwrap_or_else(|| home.join(fallback))
+    };
+    let (dir, files): (PathBuf, &'static [&'static str]) = match agent_id {
+        "codex" => (
+            configured(&["CODEX_HOME"], ".codex"),
+            &[
+                "config.toml",
+                "vibex-model-catalog.json",
+                "vibex-model-catalog.source.json",
+            ],
+        ),
+        "claude_code" => (
+            configured(&["CLAUDE_CONFIG_DIR"], ".claude"),
+            &["settings.json"],
+        ),
         // Pi reads `PI_CODING_AGENT_DIR`; `PI_HOME` is not a variable pi knows.
         // Kept as a fallback only so a lock written before this keeps hashing the
         // directory it always did.
-        "pi" => env_dir(
-            launch_lock,
-            &["PI_CODING_AGENT_DIR", "PI_HOME"],
-            home,
-            ".pi/agent",
+        "pi" => (
+            configured(&["PI_CODING_AGENT_DIR", "PI_HOME"], ".pi/agent"),
+            &["settings.json", "models.json"],
         ),
-        "omp" => env_dir(launch_lock, &["OMP_CODING_AGENT_DIR"], home, ".omp/agent"),
-        "grok" => env_dir(launch_lock, &["GROK_HOME"], home, ".grok"),
-        "openclaw" => env_dir(launch_lock, &["OPENCLAW_HOME"], home, ".openclaw"),
-        _ => None,
-    }
-}
-
-fn native_model_source_files(agent_id: &str) -> &'static [&'static str] {
-    match agent_id {
-        "codex" => &[
-            "config.toml",
-            "vibex-model-catalog.json",
-            "vibex-model-catalog.source.json",
-        ],
-        "claude_code" => &["settings.json"],
-        "pi" => &["settings.json", "models.json"],
-        "omp" => &["models.yml", "config.yml", "agent.db"],
-        "grok" => &["config.toml"],
-        "openclaw" => &["openclaw.json"],
-        _ => &[],
-    }
-}
-
-fn env_dir(
-    launch_lock: &SessionLaunchLock,
-    keys: &[&str],
-    home: Option<&Path>,
-    fallback: &str,
-) -> Option<PathBuf> {
-    if let Some(value) = keys.iter().find_map(|key| {
-        launch_lock
-            .env
-            .get(*key)
-            .map(|value| value.trim())
-            .filter(|value| !value.is_empty())
-    }) {
-        return Some(PathBuf::from(value));
-    }
-    home.map(|home| home.join(fallback))
+        "omp" => (
+            agents::omp_agent_dir(home, environment),
+            &["models.yml", "config.yml"],
+        ),
+        "grok" => (configured(&["GROK_HOME"], ".grok"), &["config.toml"]),
+        "openclaw" => (
+            configured(&["OPENCLAW_HOME"], ".openclaw"),
+            &["openclaw.json"],
+        ),
+        "kimi_code" => (
+            configured(&["KIMI_CODE_HOME"], ".kimi-code"),
+            &["config.toml"],
+        ),
+        "hermes" => (configured(&["HERMES_HOME"], ".hermes"), &["config.yaml"]),
+        "codebuddy" => (
+            configured(&["CODEBUDDY_CONFIG_DIR"], ".codebuddy"),
+            &[".env"],
+        ),
+        "qoder" => (
+            configured(&["QODER_CONFIG_DIR"], ".qoder"),
+            &["settings.json"],
+        ),
+        "auggie" => (
+            configured(&["AUGMENT_CACHE_DIR"], ".augment"),
+            &["settings.json"],
+        ),
+        "trae" => (configured(&["TRAE_HOME"], ".trae"), &["traecli.toml"]),
+        "command_code" => (
+            configured(&["COMMAND_CODE_HOME"], ".commandcode"),
+            &["providers.json"],
+        ),
+        "zcode" => (configured(&["ZCODE_HOME"], ".zcode"), &["settings.json"]),
+        "opencode" => (
+            configured(&["XDG_CONFIG_HOME"], ".config").join("opencode"),
+            &["opencode.json", "opencode.jsonc"],
+        ),
+        id if AgentKind::Antigravity.matches_id(id) => (
+            configured(&["GEMINI_HOME"], ".gemini"),
+            &["settings.json", "antigravity-acp/settings.json"],
+        ),
+        _ => return None,
+    };
+    Some(NativeModelSource { dir, files })
 }
 
 pub async fn invalidate_open_capability_catalog(
@@ -249,7 +308,7 @@ async fn read_matching_capability_catalog_record(
         Ok(launch) => launch,
         Err(_) => return Ok(None),
     };
-    let fingerprint = open_capability_catalog_fingerprint(pool, &launch.launch_lock).await?;
+    let fingerprint = open_capability_catalog_fingerprint(pool, &launch).await?;
     AgentCapabilityCatalogRecord::find_matching(pool, agent_id.as_str(), &fingerprint)
         .await
         .map_err(|error| ConversationServiceError::Internal(error.to_string()))
@@ -307,7 +366,7 @@ pub async fn capability_catalog_is_fresh(
         Ok(launch) => launch,
         Err(_) => return Ok(false),
     };
-    let fingerprint = open_capability_catalog_fingerprint(pool, &launch.launch_lock).await?;
+    let fingerprint = open_capability_catalog_fingerprint(pool, &launch).await?;
     Ok(
         match AgentCapabilityCatalogRecord::find_matching(pool, agent_id.as_str(), &fingerprint)
             .await
@@ -325,8 +384,7 @@ pub async fn refresh_open_capability_catalog(
     agent_id: &AgentId,
 ) -> Result<bool, ConversationServiceError> {
     let launch = resolve_agent_runtime_launch_settings(pool, agent_id).await?;
-    let launch_lock = launch.launch_lock;
-    let fingerprint = open_capability_catalog_fingerprint(pool, &launch_lock).await?;
+    let fingerprint = open_capability_catalog_fingerprint(pool, &launch).await?;
     let expected_generation =
         AgentCapabilityCatalogRecord::find_matching(pool, agent_id.as_str(), &fingerprint)
             .await
@@ -346,14 +404,14 @@ pub async fn refresh_open_capability_catalog(
         agent_runtime
             .prepare_session(EnsureAgentSessionInput {
                 agent_id: agent_id.clone(),
-                launch_lock: launch_lock.clone(),
+                launch_lock: launch.launch_lock.clone(),
                 workspace_id: Uuid::new_v4(),
                 working_dir: working_dir.clone(),
                 additional_directories: Vec::new(),
                 session_id,
                 acp_session_id: String::new(),
                 auto_approve_mode: launch.auto_approve_mode,
-                env: launch.env,
+                env: launch.env.clone(),
                 preferences: Default::default(),
             })
             .await,
@@ -361,7 +419,7 @@ pub async fn refresh_open_capability_catalog(
     .await;
     let persist_result = match discovery {
         Ok(prepared) => {
-            persist_capability_catalog(pool, agent_id, &launch_lock, &prepared.controls).await
+            persist_capability_catalog(pool, agent_id, &launch, &prepared.controls).await
         }
         Err(error) => {
             if let Some(expected_generation) = expected_generation {
@@ -398,10 +456,10 @@ pub async fn refresh_open_capability_catalog(
 pub async fn record_open_capability_catalog(
     pool: &SqlitePool,
     agent_id: &AgentId,
-    launch_lock: &SessionLaunchLock,
+    launch: &AgentRuntimeLaunchSettings,
     controls: &AgentSessionControlsSnapshot,
 ) -> Result<(), ConversationServiceError> {
-    let fingerprint = open_capability_catalog_fingerprint(pool, launch_lock).await?;
+    let fingerprint = open_capability_catalog_fingerprint(pool, launch).await?;
     let controls_json = serde_json::to_string(controls)
         .map_err(|error| ConversationServiceError::Internal(error.to_string()))?;
     AgentCapabilityCatalogRecord::replace(pool, agent_id.as_str(), &fingerprint, &controls_json)
@@ -413,10 +471,10 @@ pub async fn record_open_capability_catalog(
 async fn persist_capability_catalog(
     pool: &SqlitePool,
     agent_id: &AgentId,
-    launch_lock: &SessionLaunchLock,
+    launch: &AgentRuntimeLaunchSettings,
     controls: &AgentSessionControlsSnapshot,
 ) -> Result<(), ConversationServiceError> {
-    let persist_fingerprint = open_capability_catalog_fingerprint(pool, launch_lock).await?;
+    let persist_fingerprint = open_capability_catalog_fingerprint(pool, launch).await?;
     let persist_expected_generation =
         AgentCapabilityCatalogRecord::find_matching(pool, agent_id.as_str(), &persist_fingerprint)
             .await
@@ -499,7 +557,9 @@ fn capability_probe_result(
 
 #[cfg(test)]
 mod tests {
-    use std::{collections::BTreeMap, path::PathBuf};
+    use std::collections::HashMap;
+
+    use agents::SessionLaunchLock;
 
     use super::*;
 
@@ -534,15 +594,33 @@ mod tests {
         pool
     }
 
-    fn launch_lock() -> SessionLaunchLock {
-        SessionLaunchLock {
-            agent_id: AgentId::parse("catalog-agent").unwrap(),
-            absolute_acp_program: PathBuf::from("/managed/catalog-agent"),
-            args: vec!["acp".to_string()],
-            env: BTreeMap::new(),
-            runtime_version: "1.0.0".to_string(),
-            acp_version: "0.8".to_string(),
+    fn launch() -> AgentRuntimeLaunchSettings {
+        AgentRuntimeLaunchSettings {
+            auto_approve_mode: Default::default(),
+            env: HashMap::new(),
+            launch_lock: SessionLaunchLock {
+                agent_id: AgentId::parse("catalog-agent").unwrap(),
+                absolute_acp_program: PathBuf::from("/managed/catalog-agent"),
+                args: vec!["acp".to_string()],
+                // Production install locks carry only PATH.
+                env: BTreeMap::from([("PATH".to_string(), "/usr/bin".to_string())]),
+                runtime_version: "1.0.0".to_string(),
+                acp_version: "0.8".to_string(),
+            },
         }
+    }
+
+    /// A launch whose Agent home is a scratch directory, set the way
+    /// production sets it: in the Agent settings env, never the lock env.
+    fn launch_at_home(agent_id: &str, home: &Path) -> AgentRuntimeLaunchSettings {
+        let mut launch = launch();
+        launch.launch_lock.agent_id = AgentId::parse(agent_id).unwrap();
+        for key in ["HOME", "USERPROFILE"] {
+            launch
+                .env
+                .insert(key.to_string(), home.to_string_lossy().into_owned());
+        }
+        launch
     }
 
     #[test]
@@ -565,9 +643,8 @@ mod tests {
 
     #[test]
     fn pi_model_sources_follow_the_directory_pi_actually_reads() {
-        let mut lock = launch_lock();
-        lock.agent_id = AgentId::parse("pi").unwrap();
-        lock.env = BTreeMap::from([
+        let home = Path::new("/home/developer");
+        let mut environment = BTreeMap::from([
             (
                 "PI_CODING_AGENT_DIR".to_string(),
                 "/custom/pi-agent".to_string(),
@@ -575,39 +652,33 @@ mod tests {
             // A stale `PI_HOME` must not win over the variable pi reads.
             ("PI_HOME".to_string(), "/legacy/pi".to_string()),
         ]);
-        assert_eq!(
-            native_model_source_dir(&lock, Some(Path::new("/home/developer"))),
-            Some(PathBuf::from("/custom/pi-agent"))
-        );
+        let dir = |environment: &BTreeMap<String, String>| {
+            native_model_source("pi", environment, home).map(|source| source.dir)
+        };
+        assert_eq!(dir(&environment), Some(PathBuf::from("/custom/pi-agent")));
 
         // A lock written before VibeX read `PI_CODING_AGENT_DIR` keeps hashing
         // the directory it always did.
-        lock.env = BTreeMap::from([("PI_HOME".to_string(), "/legacy/pi".to_string())]);
-        assert_eq!(
-            native_model_source_dir(&lock, Some(Path::new("/home/developer"))),
-            Some(PathBuf::from("/legacy/pi"))
-        );
+        environment.remove("PI_CODING_AGENT_DIR");
+        assert_eq!(dir(&environment), Some(PathBuf::from("/legacy/pi")));
 
-        lock.env = BTreeMap::new();
-        assert_eq!(
-            native_model_source_dir(&lock, Some(Path::new("/home/developer"))),
-            Some(PathBuf::from("/home/developer/.pi/agent"))
-        );
+        environment.clear();
+        assert_eq!(dir(&environment), Some(home.join(".pi/agent")));
     }
 
     #[tokio::test]
     async fn fingerprint_includes_probe_generation_not_probe_time() {
         let pool = fingerprint_pool().await;
-        let lock = launch_lock();
+        let launch = launch();
         sqlx::query(
             r#"INSERT INTO agent_probe
-               VALUES (?, 'not_required', '2026-07-30T01:00:00Z', 7, 1, 1, 0)"#,
+        VALUES (?, 'not_required', '2026-07-30T01:00:00Z', 7, 1, 1, 0)"#,
         )
-        .bind(lock.agent_id.as_str())
+        .bind(launch.launch_lock.agent_id.as_str())
         .execute(&pool)
         .await
         .unwrap();
-        let before = open_capability_catalog_fingerprint(&pool, &lock)
+        let before = open_capability_catalog_fingerprint(&pool, &launch)
             .await
             .unwrap();
 
@@ -615,7 +686,7 @@ mod tests {
             .execute(&pool)
             .await
             .unwrap();
-        let after = open_capability_catalog_fingerprint(&pool, &lock)
+        let after = open_capability_catalog_fingerprint(&pool, &launch)
             .await
             .unwrap();
         assert_eq!(before, after);
@@ -624,7 +695,7 @@ mod tests {
             .execute(&pool)
             .await
             .unwrap();
-        let next = open_capability_catalog_fingerprint(&pool, &lock)
+        let next = open_capability_catalog_fingerprint(&pool, &launch)
             .await
             .unwrap();
         assert_ne!(after, next);
@@ -633,52 +704,110 @@ mod tests {
     #[tokio::test]
     async fn fingerprint_includes_agent_settings() {
         let pool = fingerprint_pool().await;
-        let lock = launch_lock();
-        let without_settings = open_capability_catalog_fingerprint(&pool, &lock)
+        let launch = launch();
+        let without_settings = open_capability_catalog_fingerprint(&pool, &launch)
             .await
             .unwrap();
         sqlx::query(
             r#"INSERT INTO agent_setting (agent_type, updated_at, config_json, env_json)
-               VALUES (?, '2026-07-30T01:00:00Z', '{"model":"grok"}', '{}')"#,
+        VALUES (?, '2026-07-30T01:00:00Z', '{"model":"grok"}', '{}')"#,
         )
-        .bind(lock.agent_id.as_str())
+        .bind(launch.launch_lock.agent_id.as_str())
         .execute(&pool)
         .await
         .unwrap();
-        let with_settings = open_capability_catalog_fingerprint(&pool, &lock)
+        let with_settings = open_capability_catalog_fingerprint(&pool, &launch)
             .await
             .unwrap();
         assert_ne!(without_settings, with_settings);
     }
 
+    /// Editing an Agent's native model config outside VibeX must invalidate
+    /// the catalog even though the install lock env carries only `PATH`.
     #[tokio::test]
-    async fn fingerprint_includes_native_model_catalog_files() {
+    async fn fingerprint_tracks_native_model_config_edits_for_every_agent() {
         let pool = fingerprint_pool().await;
-        let scratch = utils::path::get_vibex_temp_dir()
-            .join("capability-catalog-tests")
-            .join(uuid::Uuid::new_v4().simple().to_string());
-        std::fs::create_dir_all(&scratch).unwrap();
-        let codex_home = scratch.join(".codex");
-        std::fs::create_dir_all(&codex_home).unwrap();
-        let mut lock = launch_lock();
-        lock.agent_id = AgentId::parse("codex").unwrap();
-        lock.env.insert(
-            "CODEX_HOME".to_string(),
-            codex_home.to_string_lossy().into_owned(),
+        let cases = [
+            ("claude_code", ".claude/settings.json"),
+            ("codex", ".codex/config.toml"),
+            ("pi", ".pi/agent/models.json"),
+            ("omp", ".omp/agent/config.yml"),
+            ("grok", ".grok/config.toml"),
+            ("opencode", ".config/opencode/opencode.json"),
+            ("antigravity", ".gemini/antigravity-acp/settings.json"),
+        ];
+        let mut stale = Vec::new();
+        for (agent_id, relative) in cases {
+            let home = tempfile::tempdir().unwrap();
+            let file = home.path().join(relative);
+            std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+            std::fs::write(&file, "before").unwrap();
+            let launch = launch_at_home(agent_id, home.path());
+            let before = open_capability_catalog_fingerprint(&pool, &launch)
+                .await
+                .unwrap();
+            std::fs::write(&file, "after").unwrap();
+            let after = open_capability_catalog_fingerprint(&pool, &launch)
+                .await
+                .unwrap();
+            if before == after {
+                stale.push(agent_id);
+            }
+        }
+        assert!(
+            stale.is_empty(),
+            "catalog ignores native config edits for {stale:?}"
         );
-        let before = open_capability_catalog_fingerprint(&pool, &lock)
-            .await
+    }
+
+    #[tokio::test]
+    async fn fingerprint_tracks_omp_logins_but_not_usage_writes() {
+        let pool = fingerprint_pool().await;
+        let home = tempfile::tempdir().unwrap();
+        let agent_dir = home.path().join(".omp").join("agent");
+        std::fs::create_dir_all(&agent_dir).unwrap();
+        let db = rusqlite_free_db(&agent_dir);
+        let launch = launch_at_home("omp", home.path());
+        let fingerprint = || open_capability_catalog_fingerprint(&pool, &launch);
+
+        let logged_out = fingerprint().await.unwrap();
+        db("INSERT INTO auth_credentials VALUES ('google-antigravity', 'oauth', NULL)");
+        let logged_in = fingerprint().await.unwrap();
+        assert_ne!(logged_out, logged_in);
+
+        db("INSERT INTO model_usage VALUES ('google-antigravity/x', 1)");
+        assert_eq!(logged_in, fingerprint().await.unwrap());
+
+        db("UPDATE auth_credentials SET disabled_cause = 'logout'");
+        assert_eq!(logged_out, fingerprint().await.unwrap());
+    }
+
+    /// OMP's `agent.db` driven through the `sqlite3`-compatible schema subset
+    /// the fingerprint reads, without adding a SQLite client to this crate.
+    fn rusqlite_free_db(agent_dir: &Path) -> impl Fn(&str) {
+        let url = format!("sqlite://{}?mode=rwc", agent_dir.join("agent.db").display());
+        let run = move |sql: &str| {
+            let url = url.clone();
+            let sql = sql.to_string();
+            std::thread::spawn(move || {
+                tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
+                    .build()
+                    .unwrap()
+                    .block_on(async {
+                        let pool = SqlitePool::connect(&url).await.unwrap();
+                        sqlx::query(&sql).execute(&pool).await.unwrap();
+                        pool.close().await;
+                    })
+            })
+            .join()
             .unwrap();
-        std::fs::write(
-            codex_home.join("vibex-model-catalog.json"),
-            r#"{"models":[{"slug":"gateway-a"}]}"#,
-        )
-        .unwrap();
-        let after = open_capability_catalog_fingerprint(&pool, &lock)
-            .await
-            .unwrap();
-        assert_ne!(before, after);
-        let _ = std::fs::remove_dir_all(&scratch);
+        };
+        run(
+            "CREATE TABLE auth_credentials (provider TEXT, credential_type TEXT, disabled_cause TEXT)",
+        );
+        run("CREATE TABLE model_usage (model_key TEXT, last_used_at INTEGER)");
+        run
     }
 
     #[test]

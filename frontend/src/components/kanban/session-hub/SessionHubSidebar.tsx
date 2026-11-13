@@ -581,7 +581,9 @@ export function SessionHubSidebar({
   const hasActiveFilters =
     workspaceFilterIds.length > 0 || executorFilterValues.length > 0;
   const isWorkspaceListView =
-    listView === 'workspace' && !isArchiveView && !isDeleteMode;
+    (listView === 'workspace' || listView === 'mixed') &&
+    !isArchiveView &&
+    !isDeleteMode;
   const isFlatListMode =
     !isArchiveView &&
     !isWorkspaceListView &&
@@ -1200,6 +1202,7 @@ export function SessionHubSidebar({
                 ) : searchedWorkspaceListSessions.length > 0 ? (
                   <WorkspaceSessionList
                     sessions={searchedWorkspaceListSessions}
+                    viewMode={listView}
                     isLoading={false}
                     activeSessionId={activeSessionId}
                     activeWorkspaceId={activeWorkspaceId}

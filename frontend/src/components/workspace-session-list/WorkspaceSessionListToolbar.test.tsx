@@ -11,6 +11,15 @@ import {
   resetHideInactiveSessions,
 } from '@/lib/sessionListFilters';
 import { WorkspaceSessionListToolbar } from './WorkspaceSessionListToolbar';
+import { resetKanbanSessionListView } from '@/lib/kanbanSessionListView';
+import {
+  getSessionListAppearance,
+  setSessionListAppearance,
+} from '@/lib/sessionListAppearance';
+
+vi.mock('@/lib/frontendPreferences', () => ({
+  persistFrontendPreference: vi.fn(),
+}));
 
 const toolbarProps = {
   isArchiveView: false,
@@ -45,20 +54,20 @@ function openRadixDropdown(trigger: HTMLElement) {
 
 describe('WorkspaceSessionListToolbar', () => {
   beforeEach(() => {
+    resetKanbanSessionListView();
+    setSessionListAppearance('compact');
     resetHideDefaultWorkspace();
     resetHideInactiveSessions();
     setHideBotSessions(false);
   });
 
-  it('renders unified 12px search and quick-action buttons without a resting fill on search or a status pill on switch view', () => {
+  it('keeps search and creation visible and moves view selection into More Options', () => {
     const onOpenSearch = vi.fn();
     const onCreateSession = vi.fn();
-    const onToggleViewMode = vi.fn();
     const { container } = renderToolbar({
       viewMode: 'workspace',
       onOpenSearch,
       onCreateSession,
-      onToggleViewMode,
     });
 
     const root = container.firstElementChild;
@@ -70,7 +79,11 @@ describe('WorkspaceSessionListToolbar', () => {
 
     const searchBtn = screen.getByRole('button', { name: '搜索会话' });
     expect(searchBtn).toHaveTextContent('搜索');
-    expect(searchBtn).toHaveClass('text-[12px]', 'h-7', 'hover:bg-foreground/[0.06]');
+    expect(searchBtn).toHaveClass(
+      'text-[12px]',
+      'h-7',
+      'hover:bg-foreground/[0.06]'
+    );
     expect(searchBtn).not.toHaveClass('bg-foreground/[0.06]');
 
     expect(
@@ -87,17 +100,20 @@ describe('WorkspaceSessionListToolbar', () => {
     ).not.toBeInTheDocument();
 
     const newSessionBtn = screen.getByRole('button', { name: '新建会话' });
-    const switchViewBtn = screen.getByRole('button', { name: '切换视图' });
+    expect(
+      screen.queryByRole('button', { name: '切换视图' })
+    ).not.toBeInTheDocument();
     const mobileAppBtn = screen.getByRole('button', { name: '移动端APP' });
 
     expect(newSessionBtn).toHaveTextContent('新会话');
-    expect(newSessionBtn).toHaveClass('text-[12px]', 'h-7', 'hover:bg-foreground/[0.06]');
+    expect(newSessionBtn).toHaveClass(
+      'text-[12px]',
+      'h-7',
+      'hover:bg-foreground/[0.06]'
+    );
     expect(screen.getByTestId('new-session-icon')).toHaveClass(
       'lucide-message-square-plus'
     );
-
-    expect(switchViewBtn.textContent).toBe('切换视图');
-    expect(switchViewBtn).toHaveClass('text-[12px]', 'h-7');
 
     expect(mobileAppBtn).toHaveTextContent('移动端APP');
     expect(mobileAppBtn).toHaveTextContent('Beta');
@@ -108,9 +124,48 @@ describe('WorkspaceSessionListToolbar', () => {
 
     fireEvent.click(newSessionBtn);
     expect(onCreateSession).toHaveBeenCalledTimes(1);
+  });
 
-    fireEvent.click(switchViewBtn);
-    expect(onToggleViewMode).toHaveBeenCalledTimes(1);
+  it('offers three mutually exclusive views in More Options', async () => {
+    renderToolbar();
+    openRadixDropdown(screen.getByRole('button', { name: '更多选项' }));
+    fireEvent.keyDown(screen.getByRole('menuitem', { name: /切换视图/ }), {
+      key: 'ArrowRight',
+    });
+    expect(
+      await screen.findByRole('menuitemradio', { name: '状态分组视图' })
+    ).toHaveAttribute('aria-checked', 'true');
+    expect(
+      screen.getByRole('menuitemradio', { name: '工作区分组视图' })
+    ).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('menuitemradio', { name: '混合视图' }));
+    openRadixDropdown(screen.getByRole('button', { name: '更多选项' }));
+    fireEvent.keyDown(screen.getByRole('menuitem', { name: /切换视图/ }), {
+      key: 'ArrowRight',
+    });
+    expect(
+      await screen.findByRole('menuitemradio', { name: '混合视图' })
+    ).toHaveAttribute('aria-checked', 'true');
+  });
+
+  it('selects and persists the full session component style from More Options', async () => {
+    renderToolbar();
+    openRadixDropdown(screen.getByRole('button', { name: '更多选项' }));
+    fireEvent.keyDown(screen.getByRole('menuitem', { name: '会话组件样式' }), {
+      key: 'ArrowRight',
+    });
+    expect(
+      await screen.findByRole('menuitemradio', { name: '精简版' })
+    ).toHaveAttribute('aria-checked', 'true');
+    fireEvent.click(screen.getByRole('menuitemradio', { name: '完整版' }));
+    expect(getSessionListAppearance()).toBe('full');
+    openRadixDropdown(screen.getByRole('button', { name: '更多选项' }));
+    fireEvent.keyDown(screen.getByRole('menuitem', { name: '会话组件样式' }), {
+      key: 'ArrowRight',
+    });
+    expect(
+      await screen.findByRole('menuitemradio', { name: '完整版' })
+    ).toHaveAttribute('aria-checked', 'true');
   });
 
   it('exposes archive, sort, bulk delete, and the 3 filter switches inside More Options', async () => {

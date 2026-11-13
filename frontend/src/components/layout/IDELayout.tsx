@@ -149,6 +149,7 @@ import {
   settleDockviewGroupWidths,
 } from '@/utils/dockviewStartupSizing';
 import { useWorkspaceStageStyle } from '@/lib/workspaceStageStyle';
+import { useDockviewPanelActionsBinding } from '@/hooks/useDockviewPanelActionsBinding';
 import { CollaborationSpaceProvider } from '@/features/collaboration/space/SpaceContext';
 import {
   findCanvasBoundarySash,
@@ -567,6 +568,10 @@ export function IDELayout({
   const { setDockviewApi } = usePanelActionsContext();
   const [readyDockviewApi, setReadyDockviewApi] = useState<DockviewApi | null>(
     null
+  );
+  useDockviewPanelActionsBinding(
+    isLayoutScopeReady ? readyDockviewApi : null,
+    setDockviewApi
   );
   if (!isLayoutScopeReady && apiRef.current !== null) {
     apiRef.current = null;
@@ -1042,6 +1047,7 @@ export function IDELayout({
               : null,
           ].filter((group): group is DockviewGroup => Boolean(group));
 
+          applyWorkspaceZoneConstraints(api, width);
           layoutDockviewPreservingGroupWidths(api, sideGroups, width, height);
         });
       });
@@ -1312,14 +1318,6 @@ export function IDELayout({
       setDockviewApi(null);
     }
   }, [isLayoutScopeReady, setDockviewApi]);
-
-  useEffect(() => {
-    return () => {
-      apiRef.current = null;
-      setReadyDockviewApi(null);
-      setDockviewApi(null);
-    };
-  }, [setDockviewApi]);
 
   useEffect(() => {
     const previous = prevSerializedLayoutRef.current;
@@ -1660,7 +1658,8 @@ export function IDELayout({
   const layoutBody = (
     <div className="flex min-h-0 flex-1">
       {hasProject &&
-      (effectiveActiveTab === 'workspace' || effectiveActiveTab === 'kanban') ? (
+      (effectiveActiveTab === 'workspace' ||
+        effectiveActiveTab === 'kanban') ? (
         <WorkspaceActivityRail
           mode={effectiveActiveTab === 'kanban' ? 'kanban' : 'workspace'}
           isEditorAreaVisible={isEditorAreaVisible}

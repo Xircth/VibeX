@@ -10,6 +10,7 @@ pub(in crate::manager) struct TurnOutputProbe {
     first_dropped_tag: std::sync::Mutex<Option<String>>,
     first_dropped_error: std::sync::Mutex<Option<String>>,
     adapter_turn_error: std::sync::Mutex<Option<String>>,
+    running_tools: std::sync::Mutex<HashSet<String>>,
 }
 
 impl TurnOutputProbe {
@@ -31,6 +32,24 @@ impl TurnOutputProbe {
     }
 
     pub(in crate::manager) fn record_agent_event(&self, event: &AgentEvent) {
+        let tool = match event {
+            AgentEvent::ToolCall { tool_call } => {
+                Some((&tool_call.id, tool_call.status.as_deref()))
+            }
+            AgentEvent::ToolCallUpdate { update } if update.status.is_some() => {
+                Some((&update.id, update.status.as_deref()))
+            }
+            _ => None,
+        };
+        if let Some((id, status)) = tool
+            && let Ok(mut tools) = self.running_tools.lock()
+        {
+            if matches!(status, Some("completed" | "failed" | "cancelled")) {
+                tools.remove(id);
+            } else {
+                tools.insert(id.clone());
+            }
+        }
         let visible = match event {
             AgentEvent::MessageChunk { content } | AgentEvent::ThoughtChunk { content } => {
                 agent_content_has_output(content)
@@ -66,6 +85,12 @@ impl TurnOutputProbe {
         self.produced.load(Ordering::Acquire)
     }
 
+    pub(in crate::manager) fn has_running_tools(&self) -> bool {
+        self.running_tools
+            .lock()
+            .is_ok_and(|tools| !tools.is_empty())
+    }
+
     pub(in crate::manager) fn dropped_summary(&self) -> (u64, Option<String>, Option<String>) {
         let count = self.dropped_updates.load(Ordering::Acquire);
         let tag = self
@@ -96,4 +121,28 @@ pub(in crate::manager) enum EmptyTurnCause {
     UnreadableUpdates,
     AgentStderr,
     SilentEndTurn,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn metadata_only_tool_patch_does_not_restart_completed_tool_or_reset_wait() {
+        let probe = TurnOutputProbe::default();
+        let patch = |status: Option<&str>| -> AgentEvent {
+            serde_json::from_value(serde_json::json!({"kind":"tool_call_update", "update": {
+                "id":"tool-1", "status":status, "meta":{"source":"fixture"}
+            }}))
+            .unwrap()
+        };
+        probe.record_agent_event(&patch(Some("in_progress")));
+        assert!(probe.has_running_tools());
+        probe.record_agent_event(&patch(None));
+        assert!(probe.has_running_tools());
+        probe.record_agent_event(&patch(Some("completed")));
+        assert!(!probe.has_running_tools());
+        probe.record_agent_event(&patch(None));
+        assert!(!probe.has_running_tools());
+        assert!(crate::request_status::activity_for_event(&patch(None)).is_none());
+    }
 }

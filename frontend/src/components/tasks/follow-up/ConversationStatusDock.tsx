@@ -11,6 +11,7 @@ import {
   useConversationStatusDismissal,
 } from '@/features/conversation/conversationStatusDismissal';
 import { sessionNoticeNeedsRebind } from '@/features/conversation/sessionNoticeNeedsRebind';
+import { AgentRuntimeStatus } from './AgentRuntimeStatus';
 import { SessionNoticeActions } from './SessionNoticeActions';
 
 type ConversationStatusDockProps = {
@@ -33,7 +34,12 @@ export function ConversationStatusDock({
   const { t } = useTranslation(['conversation']);
   const { dismiss: dismissNotice, isDismissed } =
     useConversationStatusDismissal(dismissalScope);
-  const visibleNotices = notices.filter((notice) => !isDismissed(notice));
+  const visibleNotices = notices.filter(
+    (notice) =>
+      (notice.kind === 'session-notice' &&
+        (notice.notice.connection_status || notice.notice.request_status)) ||
+      !isDismissed(notice)
+  );
   const blockingNotice = visibleNotices.some(
     (notice) =>
       notice.kind === 'turn-error' ||
@@ -151,6 +157,17 @@ export function ConversationStatusDock({
             );
           }
 
+          if (notice.notice.connection_status || notice.notice.request_status) {
+            return (
+              <AgentRuntimeStatus
+                key={notice.id}
+                notice={notice.notice}
+                onReconnect={notice.onReload}
+                onCancel={notice.onCancel}
+                onRetry={notice.onRetry}
+              />
+            );
+          }
           const tone =
             notice.notice.severity === 'error'
               ? 'error'

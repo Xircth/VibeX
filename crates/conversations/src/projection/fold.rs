@@ -28,6 +28,8 @@ impl ProjectionFold {
             }
         };
 
+        self.apply_runtime_status(record, &event);
+
         if let ConversationEvent::AssistantTextDelta { ref text, .. }
         | ConversationEvent::AssistantReasoningDelta { ref text, .. } = event
         {
@@ -1002,6 +1004,7 @@ mod tests {
                         fallback_url: Some("https://x.ai/cli/install".into()),
                     },
                 ),
+                ..Default::default()
             }],
         };
         let cleared = ConversationEvent::AnnouncementsUpdated {
@@ -1144,6 +1147,8 @@ mod tests {
         };
         let ready = ConversationEvent::AgentConnectionStatusChanged {
             status: ConversationAgentConnectionStatus::Ready,
+            message: None,
+            bound: true,
         };
         let in_progress = ConversationProjector::project_records(
             conversation_id,
@@ -1154,7 +1159,11 @@ mod tests {
             .rows
             .iter()
             .filter_map(|row| match &row.row {
-                ConversationTimelineRow::SessionNotice { notice } => Some(notice),
+                ConversationTimelineRow::SessionNotice { notice }
+                    if notice.connection_status.is_none() && notice.request_status.is_none() =>
+                {
+                    Some(notice)
+                }
                 _ => None,
             })
             .collect();
@@ -1173,12 +1182,16 @@ mod tests {
             .rows
             .iter()
             .filter_map(|row| match &row.row {
-                ConversationTimelineRow::SessionNotice { notice } => Some(notice),
+                ConversationTimelineRow::SessionNotice { notice }
+                    if notice.connection_status.is_none() && notice.request_status.is_none() =>
+                {
+                    Some(notice)
+                }
                 _ => None,
             })
             .collect();
-        assert_eq!(notices.len(), 1);
-        assert_eq!(notices[0].severity, "error");
+        assert_eq!(notices.len(), 2);
+        assert!(notices.iter().any(|notice| notice.severity == "error"));
 
         let recovered = ConversationProjector::project_records(
             conversation_id,
@@ -1189,12 +1202,10 @@ mod tests {
             ],
         )
         .expect("ready clears reconnect notices");
-        assert!(
-            recovered
-                .rows
-                .iter()
-                .all(|row| { !matches!(row.row, ConversationTimelineRow::SessionNotice { .. }) })
-        );
+        assert!(recovered.rows.iter().all(|row| {
+            row.row_id == "status:agent-connection"
+                || !matches!(row.row, ConversationTimelineRow::SessionNotice { .. })
+        }));
     }
 
     #[test]
@@ -1202,6 +1213,8 @@ mod tests {
         let conversation_id = Uuid::new_v4();
         let connecting = ConversationEvent::AgentConnectionStatusChanged {
             status: ConversationAgentConnectionStatus::Connecting,
+            message: None,
+            bound: false,
         };
         let waiting = ConversationProjector::project_records(
             conversation_id,
@@ -1212,7 +1225,11 @@ mod tests {
             .rows
             .iter()
             .filter_map(|row| match &row.row {
-                ConversationTimelineRow::SessionNotice { notice } => Some(notice),
+                ConversationTimelineRow::SessionNotice { notice }
+                    if notice.connection_status.is_none() && notice.request_status.is_none() =>
+                {
+                    Some(notice)
+                }
                 _ => None,
             })
             .collect();
@@ -1230,10 +1247,10 @@ mod tests {
         )
         .expect("cancel clears connecting notice");
         assert!(
-            settled
-                .rows
-                .iter()
-                .all(|row| { !matches!(row.row, ConversationTimelineRow::SessionNotice { .. }) }),
+            settled.rows.iter().all(|row| {
+                row.row_id.starts_with("status:")
+                    || !matches!(row.row, ConversationTimelineRow::SessionNotice { .. })
+            }),
             "stopping a hang must remove the connecting warning so the user is not left waiting"
         );
     }

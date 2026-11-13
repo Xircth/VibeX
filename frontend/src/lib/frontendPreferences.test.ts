@@ -30,6 +30,20 @@ describe('syncFrontendPreferences', () => {
     expect(api.update).not.toHaveBeenCalled();
   });
 
+  it('syncs session list appearance and mixed grouping from settings', async () => {
+    api.get.mockResolvedValue({
+      session_list_appearance: 'full',
+      kanban_session_list_view: 'mixed',
+    });
+
+    await syncFrontendPreferences(api);
+
+    expect(localStorage.getItem('vibex:session-list-appearance')).toBe('full');
+    expect(localStorage.getItem('vibex:kanban-session-list-view')).toBe(
+      'mixed'
+    );
+  });
+
   it('migrates existing browser preferences missing from the JSON document', async () => {
     localStorage.setItem('vibex:mono-font', 'menlo');
     api.get.mockResolvedValue({ ui_zoom: 1 });
@@ -64,4 +78,3 @@ describe('syncFrontendPreferences', () => {
     expect(localStorage.getItem('vibex:kanban-board-style')).toBe('canvas');
   });
 });
-

@@ -73,6 +73,36 @@ impl AcpClientBridge {
         let pending_session_id = *self.pending_session_id.lock().await;
         let session_id = resolve_agent_session_id(bound_session_id, pending_session_id);
         let establishing = pending_session_id.is_some();
+        if !establishing
+            && let Some(activity) = crate::vendor_request_activity::extension(
+                self.apply.agent_kind(),
+                ext.method.as_ref(),
+                &params,
+            )
+            .or_else(|| {
+                crate::vendor_request_activity::registry_extension(
+                    &self.agent_id,
+                    ext.method.as_ref(),
+                    &params,
+                )
+            })
+            && let Some((active_session, prompt_id)) = *self.apply.active_prompt.lock().await
+            && Some(active_session) == bound_session_id
+        {
+            send_manager_event(
+                &self.event_tx,
+                AgentConnectionManagerEvent {
+                    connection_id: self.connection_id,
+                    session_id: Some(active_session),
+                    prompt_id: Some(prompt_id),
+                    event: AgentEvent::RequestActivity {
+                        prompt_id,
+                        activity,
+                    },
+                },
+            );
+            return Ok(());
+        }
 
         match ext.method.as_ref() {
             KIRO_METADATA_METHOD => {

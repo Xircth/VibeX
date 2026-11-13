@@ -167,6 +167,8 @@ pub(in crate::manager) fn dedup_stream_text(
 
 #[derive(Clone)]
 pub(in crate::manager) struct AcpClientBridge {
+    pub(in crate::manager) retry_incidents:
+        Arc<Mutex<crate::vendor_request_activity::RetryIncidentLedger>>,
     pub(in crate::manager) connection_id: AgentConnectionId,
     pub(in crate::manager) agent_id: crate::AgentId,
     pub(in crate::manager) event_tx: mpsc::UnboundedSender<AgentConnectionManagerEvent>,
@@ -214,6 +216,9 @@ impl AcpClientBridge {
         apply: AgentConnectionRunner,
     ) -> Self {
         Self {
+            retry_incidents: Arc::new(Mutex::new(
+                crate::vendor_request_activity::RetryIncidentLedger::default(),
+            )),
             connection_id,
             agent_id,
             event_tx,

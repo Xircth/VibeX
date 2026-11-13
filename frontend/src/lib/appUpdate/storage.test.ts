@@ -104,6 +104,42 @@ describe('app update check storage', () => {
     expect(consumePostUpdateRestoreRoute(1_700_000_010_000)).toBeNull();
   });
 
+  it.each([
+    '/local-projects',
+    '/local-projects/project-1',
+    '/local-projects/project-1/sessions',
+    '/local-projects/project-1/workspaces/workspace-1',
+    '/local-projects/project-1/workspaces/workspace-1/sessions/session-1?tab=chat#message-1',
+    '/local-projects/project-1/workspaces/workspace-1/full',
+    '/workflows/run-1',
+  ])('preserves supported route %s on restart', (route) => {
+    recordMainWindowRoute(route);
+    writePostUpdateRestoreRoute(route, 1_700_000_000_000);
+
+    expect(consumePostUpdateRestoreRoute(1_700_000_010_000)).toBe(route);
+  });
+
+  it('restores legacy attempt routes into the current workspace route', () => {
+    writePostUpdateRestoreRoute(
+      '/local-projects/project-1/tasks/task-1/attempts/workspace-1?view=canvas#message-1',
+      1_700_000_000_000
+    );
+
+    expect(consumePostUpdateRestoreRoute(1_700_000_010_000)).toBe(
+      '/local-projects/project-1/workspaces/workspace-1?view=canvas#message-1'
+    );
+  });
+
+  it.each([
+    '/settings/system',
+    '/plugins/vibex.browser',
+    '/unknown',
+    'https://example.com',
+  ])('does not restore unsupported main-window route %s', (route) => {
+    window.localStorage.setItem('vibex.appUpdate.lastMainRoute', route);
+    expect(readLastMainWindowRoute()).toBeNull();
+  });
+
   it('expires stale post-update restore routes beyond the TTL window', () => {
     writePostUpdateRestoreRoute(
       '/local-projects/project-1/sessions',
@@ -113,5 +149,51 @@ describe('app update check storage', () => {
     expect(
       consumePostUpdateRestoreRoute(1_700_000_000_000 + 31 * 60 * 1000)
     ).toBeNull();
+  });
+
+  it('repairs a remembered file address before returning to the main window', () => {
+    window.localStorage.setItem(
+      'vibex.appUpdate.lastMainRoute',
+      '/local-projects/project-1/workspaces/workspace-1/evidence/image.png'
+    );
+
+    expect(readLastMainWindowRoute()).toBe(
+      '/local-projects/project-1/workspaces/workspace-1'
+    );
+  });
+
+  it('records a working parent when an unsupported file address is visited', () => {
+    recordMainWindowRoute(
+      '/local-projects/project-1/workspaces/workspace-1/evidence/image.png'
+    );
+
+    expect(readLastMainWindowRoute()).toBe(
+      '/local-projects/project-1/workspaces/workspace-1'
+    );
+  });
+
+  it('repairs file addresses stored by an older updater', () => {
+    window.localStorage.setItem(
+      'vibex.appUpdate.postUpdateRestore',
+      JSON.stringify({
+        route:
+          '/local-projects/project-1/workspaces/workspace-1/evidence/image.png',
+        at: 1_700_000_000_000,
+      })
+    );
+
+    expect(consumePostUpdateRestoreRoute(1_700_000_010_000)).toBe(
+      '/local-projects/project-1/workspaces/workspace-1'
+    );
+  });
+
+  it('falls back to the last valid page when an update starts from an unknown address', () => {
+    recordMainWindowRoute('/local-projects/project-1/sessions');
+    recordMainWindowRoute('/unknown');
+    writePostUpdateRestoreRoute('/unknown', 1_700_000_000_000);
+
+    expect(consumePostUpdateRestoreRoute(1_700_000_010_000)).toBe(
+      '/local-projects/project-1/sessions'
+    );
   });
 });

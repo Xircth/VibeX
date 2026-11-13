@@ -116,6 +116,7 @@ export interface PluginControlItem {
   sourceRef?: string | null;
   sourceSha?: string | null;
   sourceLocked?: boolean;
+  sourceLock?: PluginSourceLock | null;
   sourceShowTree?: boolean | null;
   updateAvailable?: boolean;
   availableTag?: string | null;
@@ -386,9 +387,33 @@ export interface CatalogPage {
   remote: boolean;
 }
 
+export interface PluginSourceLock {
+  sourceKind: 'marketplace' | 'github';
+  origin: string;
+  owner: string;
+  pluginName: string;
+  tag: string;
+  version: string;
+  packageDigest: string;
+}
+
+export interface PluginUpdatePreview {
+  confirmationId: string;
+  plugin: PluginControlItem;
+  currentVersion: string;
+  targetVersion: string;
+  packageDigest: string;
+  source: PluginSourceLock;
+  releaseNotes: string;
+}
+
 export interface PluginUpdateStatus {
   pluginId: string;
   updateAvailable: boolean;
+  status?: 'available' | 'current' | 'unsupported' | 'failed';
+  checkedAt?: number;
+  lastSuccessfulAt?: number | null;
+  error?: string | null;
   availableTag?: string | null;
   availableVersion?: string | null;
 }
@@ -726,8 +751,10 @@ export function createPluginControlApi(transport: BackendTransport) {
         tag: tag ?? null,
         conflict,
       }) as Promise<PluginControlItem>,
-    checkUpdates: () =>
-      transport.call('plugin_check_updates') as Promise<PluginUpdateStatus[]>,
+    checkUpdates: (cached = false) =>
+      transport.call('plugin_check_updates', { cached }) as Promise<
+        PluginUpdateStatus[]
+      >,
     install: (
       source:
         | { artifactId: string }
@@ -744,6 +771,16 @@ export function createPluginControlApi(transport: BackendTransport) {
       transport.call('plugin_install', {
         source,
         conflict,
+      }) as Promise<PluginControlItem>,
+    prepareUpdate: (pluginId: string, tag?: string) =>
+      transport.call('plugin_control_update', {
+        pluginId,
+        tag,
+      }) as Promise<PluginUpdatePreview>,
+    confirmUpdate: (pluginId: string, confirmationId: string) =>
+      transport.call('plugin_control_update', {
+        pluginId,
+        confirmationId,
       }) as Promise<PluginControlItem>,
     update: (pluginId: string, version?: string, digest?: string) =>
       version || digest

@@ -34,7 +34,13 @@ const {
   const agentEventListeners = [] as Array<
     (envelope: {
       session_id?: string | null;
-      event: { kind: string; acp_session_id?: string };
+      sequence?: number;
+      connection_id?: string;
+      event: {
+        kind: string;
+        acp_session_id?: string;
+        snapshot?: { status: string };
+      };
     }) => void
   >;
   return {
@@ -53,7 +59,13 @@ const {
       (
         handler: (envelope: {
           session_id?: string | null;
-          event: { kind: string; acp_session_id?: string };
+          sequence?: number;
+          connection_id?: string;
+          event: {
+            kind: string;
+            acp_session_id?: string;
+            snapshot?: { status: string };
+          };
         }) => void
       ) => {
         agentEventListeners.push(handler);
@@ -939,6 +951,167 @@ describe('useConversationTimeline', () => {
       current_mode: null,
       config_options: [],
     });
+  });
+
+  it.each(['connecting', 'recovering', 'failed', 'disconnected'])(
+    'closes the send gate immediately when the ACP connection is %s',
+    async (status) => {
+      detailMock.mockResolvedValue(detail());
+      const { result } = renderHook(() =>
+        useConversationTimeline(CONVERSATION_ID)
+      );
+      await waitFor(() => expect(result.current.sessionBindReady).toBe(true));
+      act(() => {
+        agentEventListeners[0]?.({
+          session_id: CONVERSATION_ID,
+          event: { kind: 'connection_status_changed', snapshot: { status } },
+        });
+      });
+      expect(result.current.sessionBindReady).toBe(false);
+      expect(result.current.connecting).toBe(
+        status === 'connecting' || status === 'recovering'
+      );
+    }
+  );
+
+  it('does not reopen the send gate when an older ensure promise resolves after failure', async () => {
+    detailMock.mockResolvedValue(detail());
+    let resolveControls: (value: {
+      modes: never[];
+      current_mode: null;
+      config_options: never[];
+    }) => void = () => {};
+    ensureSessionControlsMock.mockReturnValue(
+      new Promise((resolve) => {
+        resolveControls = resolve;
+      })
+    );
+    const { result } = renderHook(() =>
+      useConversationTimeline(CONVERSATION_ID)
+    );
+    await waitFor(() => expect(ensureSessionControlsMock).toHaveBeenCalled());
+    act(() =>
+      agentEventListeners[0]?.({
+        session_id: CONVERSATION_ID,
+        event: {
+          kind: 'connection_status_changed',
+          snapshot: { status: 'failed' },
+        },
+      })
+    );
+    await act(async () =>
+      resolveControls({ modes: [], current_mode: null, config_options: [] })
+    );
+    expect(result.current.sessionBindReady).toBe(false);
+    expect(result.current.connecting).toBe(false);
+  });
+
+  it('accepts a restarted Host sequence and ignores events from retired connections', async () => {
+    detailMock.mockResolvedValue(detail());
+    const { result } = renderHook(() =>
+      useConversationTimeline(CONVERSATION_ID)
+    );
+    await waitFor(() => expect(result.current.sessionBindReady).toBe(true));
+
+    act(() => {
+      agentEventListeners[0]?.({
+        session_id: CONVERSATION_ID,
+        sequence: 100,
+        connection_id: 'connection-old',
+        event: {
+          kind: 'connection_status_changed',
+          snapshot: { status: 'recovering' },
+        },
+      });
+    });
+    expect(result.current.sessionBindReady).toBe(false);
+
+    act(() => {
+      agentEventListeners[0]?.({
+        session_id: CONVERSATION_ID,
+        sequence: 1,
+        connection_id: 'connection-new',
+        event: { kind: 'session_bind_ready', acp_session_id: 'acp-2' },
+      });
+    });
+    expect(result.current.sessionBindReady).toBe(true);
+
+    act(() => {
+      agentEventListeners[0]?.({
+        session_id: CONVERSATION_ID,
+        sequence: 101,
+        connection_id: 'connection-old',
+        event: {
+          kind: 'connection_status_changed',
+          snapshot: { status: 'failed' },
+        },
+      });
+    });
+    expect(result.current.sessionBindReady).toBe(true);
+  });
+
+  it('does not reopen the send gate when bind resolves after recovery starts', async () => {
+    detailMock.mockResolvedValue(detail());
+    let resolveControls: (value: {
+      modes: never[];
+      current_mode: null;
+      config_options: never[];
+    }) => void = () => {};
+    ensureSessionControlsMock.mockReturnValue(
+      new Promise((resolve) => {
+        resolveControls = resolve;
+      })
+    );
+    const { result } = renderHook(() =>
+      useConversationTimeline(CONVERSATION_ID)
+    );
+    await waitFor(() => expect(ensureSessionControlsMock).toHaveBeenCalled());
+
+    act(() => {
+      agentEventListeners[0]?.({
+        session_id: CONVERSATION_ID,
+        sequence: 1,
+        connection_id: 'connection-1',
+        event: {
+          kind: 'connection_status_changed',
+          snapshot: { status: 'recovering' },
+        },
+      });
+    });
+    await act(async () =>
+      resolveControls({ modes: [], current_mode: null, config_options: [] })
+    );
+
+    expect(result.current.sessionBindReady).toBe(false);
+    expect(result.current.connecting).toBe(true);
+  });
+
+  it('ignores a bind rejection after a newer bind-ready event', async () => {
+    detailMock.mockResolvedValue(detail());
+    let rejectControls: (error: Error) => void = () => {};
+    ensureSessionControlsMock.mockReturnValue(
+      new Promise((_, reject) => {
+        rejectControls = reject;
+      })
+    );
+    const { result } = renderHook(() =>
+      useConversationTimeline(CONVERSATION_ID)
+    );
+    await waitFor(() => expect(ensureSessionControlsMock).toHaveBeenCalled());
+
+    act(() => {
+      agentEventListeners[0]?.({
+        session_id: CONVERSATION_ID,
+        sequence: 1,
+        connection_id: 'connection-1',
+        event: { kind: 'session_bind_ready', acp_session_id: 'acp-1' },
+      });
+    });
+    expect(result.current.sessionBindReady).toBe(true);
+
+    await act(async () => rejectControls(new Error('stale bind failure')));
+    expect(result.current.sessionBindReady).toBe(true);
+    expect(result.current.error).toBeNull();
   });
 
   it('keeps projected controls for a zero-message conversation while auto-connecting', async () => {

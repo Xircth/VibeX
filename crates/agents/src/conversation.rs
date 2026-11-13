@@ -1109,6 +1109,13 @@ pub enum ConversationEvent {
     },
     AgentConnectionStatusChanged {
         status: ConversationAgentConnectionStatus,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        message: Option<String>,
+        #[serde(default)]
+        bound: bool,
+    },
+    RequestActivityChanged {
+        activity: crate::request_status::RequestActivity,
     },
     UserTurnCreated {
         blocks: Vec<ConversationInputBlock>,
@@ -1321,6 +1328,10 @@ pub struct ConversationSessionNotice {
     pub announcement_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub action: Option<ConversationNoticeAction>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub connection_status: Option<crate::request_status::ConversationConnectionStatus>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub request_status: Option<crate::request_status::ConversationRequestStatus>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]

@@ -1420,7 +1420,8 @@ mod tests {
             .await
             .expect("load projector");
         let initial_ops = projector.apply(&user_rec).expect("apply user turn");
-        assert_eq!(initial_ops.len(), 1);
+        assert_eq!(initial_ops.len(), 2);
+        assert!(initial_ops.iter().any(|op| matches!(op, ConversationRowOp::Upsert { row } if row.row_id == "status:agent-request")));
 
         let diag_rec = append_event(
             &pool,
@@ -1897,6 +1898,8 @@ mod tests {
             "runtime",
             ConversationEvent::AgentConnectionStatusChanged {
                 status: ConversationAgentConnectionStatus::Connecting,
+                message: None,
+                bound: false,
             },
             None,
         )
@@ -1920,6 +1923,8 @@ mod tests {
             "runtime",
             ConversationEvent::AgentConnectionStatusChanged {
                 status: ConversationAgentConnectionStatus::Ready,
+                message: None,
+                bound: true,
             },
             None,
         )
@@ -1965,6 +1970,8 @@ mod tests {
             "runtime",
             ConversationEvent::AgentConnectionStatusChanged {
                 status: ConversationAgentConnectionStatus::Connecting,
+                message: None,
+                bound: false,
             },
             None,
         )
@@ -1981,6 +1988,8 @@ mod tests {
             "runtime",
             ConversationEvent::AgentConnectionStatusChanged {
                 status: ConversationAgentConnectionStatus::Ready,
+                message: None,
+                bound: true,
             },
             None,
         )

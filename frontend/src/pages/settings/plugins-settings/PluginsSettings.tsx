@@ -1,3 +1,4 @@
+import { PluginUpdateDialog } from '@/pages/plugins/PluginUpdateDialog';
 import { Bot, PackagePlus, Puzzle } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
@@ -84,6 +85,7 @@ export function PluginsSettings({
     applyImport,
     setEnabled,
     updatePlugin,
+    updateConfirmation,
     rollbackPlugin,
     configureAllAgents,
     uninstall,
@@ -92,6 +94,7 @@ export function PluginsSettings({
 
   return (
     <div className="space-y-4">
+      <PluginUpdateDialog {...updateConfirmation} />
       <SettingsSection
         icon={Puzzle}
         title={t('plugins.pageTitle')}

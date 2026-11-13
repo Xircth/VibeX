@@ -15,6 +15,7 @@ executors = { path = "../executors" }
 git = { path = "../git" }
 services = { path = "../services" }
 utils = { path = "../utils" }
+dirs = { workspace = true }
 git2 = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

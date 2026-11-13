@@ -228,7 +228,8 @@
     "kanbanSessionList": {
       "label": "Kanban session list",
       "status": "Status groups",
-      "workspace": "Workspace groups"
+      "workspace": "Workspace groups",
+      "mixed": "Mixed view"
     },
     "kanbanBoardStyle": {
       "title": "Session board style",
@@ -1218,7 +1219,19 @@
     },
     "statusQuarantined": "Quarantined",
     "recoverQuarantined": "Recover",
-    "quarantinedBannerTitle": "This plugin was automatically quarantined after repeated crashes"
+    "quarantinedBannerTitle": "This plugin was automatically quarantined after repeated crashes",
+    "checkUpdates": "Check for updates",
+    "checkingUpdates": "Checking?",
+    "updateFailed": "Could not update plugin",
+    "updated": "Plugin updated",
+    "updatePreviewTitle": "Review plugin update",
+    "packageDigest": "Package digest",
+    "releaseNotes": "Release notes",
+    "updating": "Updating?",
+    "confirmUpdate": "Confirm update",
+    "updatesAvailable": "Plugin updates available",
+    "viewUpdates": "View updates",
+    "updatesAvailableCount": "{{count}} plugin updates available"
   },
   "webService": {
     "title": "Remote connection",

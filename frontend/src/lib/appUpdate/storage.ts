@@ -1,21 +1,11 @@
 import type { AppUpdateInfo, CachedUpdateCheck } from './types';
+import { normalizeMainWindowRoute } from '@/lib/paths';
 
 export const LAST_CHECK_KEY = 'vibex.appUpdate.lastCheck';
 export const DISMISSED_VERSION_KEY = 'vibex.appUpdate.dismissedVersion';
 export const LAST_MAIN_ROUTE_KEY = 'vibex.appUpdate.lastMainRoute';
 export const POST_UPDATE_RESTORE_KEY = 'vibex.appUpdate.postUpdateRestore';
 export const POST_UPDATE_RESTORE_TTL_MS = 30 * 60 * 1000;
-
-function isSettingsOrPluginRoute(route: string): boolean {
-  return (
-    route === '/settings' ||
-    route.startsWith('/settings/') ||
-    route.startsWith('/settings?') ||
-    route === '/plugins' ||
-    route.startsWith('/plugins/') ||
-    route.startsWith('/plugins?')
-  );
-}
 
 function asUpdateInfo(value: unknown): AppUpdateInfo | null {
   if (!value || typeof value !== 'object') return null;
@@ -105,10 +95,11 @@ export function writeDismissedVersion(version: string | null): void {
 
 export function recordMainWindowRoute(route: string): void {
   if (typeof window === 'undefined') return;
-  if (!route.startsWith('/') || isSettingsOrPluginRoute(route)) return;
+  const normalized = normalizeMainWindowRoute(route);
+  if (!normalized) return;
 
   try {
-    window.localStorage.setItem(LAST_MAIN_ROUTE_KEY, route);
+    window.localStorage.setItem(LAST_MAIN_ROUTE_KEY, normalized);
   } catch {
     // ignore
   }
@@ -118,10 +109,7 @@ export function readLastMainWindowRoute(): string | null {
   if (typeof window === 'undefined') return null;
   try {
     const value = window.localStorage.getItem(LAST_MAIN_ROUTE_KEY);
-    if (!value || !value.startsWith('/') || isSettingsOrPluginRoute(value)) {
-      return null;
-    }
-    return value;
+    return value ? normalizeMainWindowRoute(value) : null;
   } catch {
     return null;
   }
@@ -137,12 +125,9 @@ export function writePostUpdateRestoreRoute(
     currentRoute ??
     `${window.location.pathname}${window.location.search}${window.location.hash}`;
 
+  const normalized = normalizeMainWindowRoute(candidate);
   const resolvedRoute =
-    candidate.startsWith('/') &&
-    candidate !== '/' &&
-    !isSettingsOrPluginRoute(candidate)
-      ? candidate
-      : readLastMainWindowRoute();
+    normalized && normalized !== '/' ? normalized : readLastMainWindowRoute();
 
   if (!resolvedRoute || resolvedRoute === '/') return;
 
@@ -169,9 +154,7 @@ export function consumePostUpdateRestoreRoute(
     const parsed = JSON.parse(raw) as { route?: unknown; at?: unknown };
     if (
       typeof parsed.route !== 'string' ||
-      !parsed.route.startsWith('/') ||
       parsed.route === '/' ||
-      isSettingsOrPluginRoute(parsed.route) ||
       typeof parsed.at !== 'number' ||
       !Number.isFinite(parsed.at)
     ) {
@@ -182,7 +165,7 @@ export function consumePostUpdateRestoreRoute(
       return null;
     }
 
-    return parsed.route;
+    return normalizeMainWindowRoute(parsed.route);
   } catch {
     return null;
   }

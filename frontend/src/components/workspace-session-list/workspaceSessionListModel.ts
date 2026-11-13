@@ -35,6 +35,7 @@ export interface WorkspaceSessionGroup {
   useWorktree: boolean;
   pinned: boolean;
   sessions: KanbanProjectSessionRecord[];
+  subgroups?: WorkspaceSessionGroup[];
 }
 
 export function workspaceGroupLabel(
@@ -113,6 +114,7 @@ export function groupWorkspaceSessionsByStatus(
     statusLabels: Record<WorkspaceSessionStatusTone, string>;
     sessionOrderByGroup?: Record<string, string[]>;
     sortSpecs?: SessionListSortSpec[];
+    groupIdPrefix?: string;
   }
 ): WorkspaceSessionGroup[] {
   const buckets = new Map<
@@ -134,7 +136,7 @@ export function groupWorkspaceSessionsByStatus(
   for (const tone of STATUS_GROUP_ORDER) {
     const groupSessions = buckets.get(tone) ?? [];
     if (groupSessions.length === 0) continue;
-    const groupId = `status:${tone}`;
+    const groupId = `${options.groupIdPrefix ?? ''}status:${tone}`;
     result.push({
       workspaceId: groupId,
       label: options.statusLabels[tone],

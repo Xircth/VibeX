@@ -228,7 +228,8 @@
     "kanbanSessionList": {
       "label": "看板会话列表视图",
       "status": "状态分组",
-      "workspace": "工作区分组"
+      "workspace": "工作区分组",
+      "mixed": "混合视图"
     },
     "kanbanBoardStyle": {
       "title": "会话看板样式",
@@ -1218,7 +1219,19 @@
     },
     "statusQuarantined": "已隔离",
     "recoverQuarantined": "解除隔离",
-    "quarantinedBannerTitle": "此插件因连续崩溃已被自动隔离"
+    "quarantinedBannerTitle": "此插件因连续崩溃已被自动隔离",
+    "checkUpdates": "检查更新",
+    "checkingUpdates": "正在检查…",
+    "updateFailed": "插件更新失败",
+    "updated": "插件已更新",
+    "updatePreviewTitle": "确认插件更新",
+    "packageDigest": "软件包摘要",
+    "releaseNotes": "更新说明",
+    "updating": "正在更新…",
+    "confirmUpdate": "确认更新",
+    "updatesAvailable": "插件有可用更新",
+    "viewUpdates": "查看更新",
+    "updatesAvailableCount": "{{count}} 个插件有可用更新"
   },
   "webService": {
     "title": "远程连接",

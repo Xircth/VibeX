@@ -214,6 +214,16 @@ pub const HOST_EVENT_CHANNELS: &[HostEventChannel] = &[
         required_scope: "conversation.read",
     },
     HostEventChannel {
+        prefix: "plugin-updates-changed",
+        durability: EventDurability::Invalidation,
+        required_scope: "plugin.read",
+    },
+    HostEventChannel {
+        prefix: "plugin-updates-available",
+        durability: EventDurability::BestEffort,
+        required_scope: "plugin.read",
+    },
+    HostEventChannel {
         prefix: "plugin-notify-toast",
         durability: EventDurability::BestEffort,
         required_scope: "plugin.read",

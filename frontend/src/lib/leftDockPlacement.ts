@@ -27,6 +27,8 @@ import { settleDockviewGroupWidths } from '@/utils/dockviewStartupSizing';
 import { MIN_LEFT_PANEL_WIDTH } from '@/utils/dockviewWorkspaceConstraints';
 
 const MIN_PANE = 80;
+const MIN_DOCK_GROUP_WIDTH = 120;
+const MAX_DOCK_WIDTH_RATIO = 0.34;
 const RIGHT_EDGE_DROP_WIDTH = 180;
 const LEFT_EDGE_DROP_WIDTH = 180;
 
@@ -373,6 +375,34 @@ export function applyLeftDockSplitSizes(
 
   const { first } = sizesFromRatio(union.width, memory.rowRatio, MIN_PANE);
   ordered[0].group.api.setSize({ width: first });
+}
+
+export function rebalanceLeftDockWidth(api: DockviewApi): void {
+  const groups = listLeftDockGroups(api.groups).filter(
+    (group) => group.api.isVisible && !isRightSideShellNavGroup(group)
+  );
+  if (groups.length === 0) return;
+
+  const widths = groups.map((group) => ({
+    group,
+    width: Math.max(
+      MIN_DOCK_GROUP_WIDTH,
+      Math.round(group.api.width || boxFromElement(group.element)?.width || 0)
+    ),
+  }));
+  const totalWidth = widths.reduce((total, item) => total + item.width, 0);
+  const widthBudget = Math.max(
+    groups.length * MIN_DOCK_GROUP_WIDTH,
+    Math.round(api.width * MAX_DOCK_WIDTH_RATIO)
+  );
+  if (totalWidth <= widthBudget) return;
+
+  settleDockviewGroupWidths(
+    widths.map(({ group, width }) => {
+      group.api.setConstraints({ minimumWidth: MIN_DOCK_GROUP_WIDTH });
+      return { group, width: (width / totalWidth) * widthBudget };
+    })
+  );
 }
 
 export function syncLeftDockSplitFromLayout(

@@ -2,7 +2,6 @@ import type {
   AgentId,
   AgentLifecycleState,
   AgentManagementView,
-  AgentOperationStatus,
   AgentRegistryViewRow,
 } from 'shared/types';
 
@@ -83,13 +82,14 @@ export function buildOnboardingAgentOptions(
         builtIn: managed?.built_in ?? registry?.built_in ?? false,
         added: Boolean(managed ?? registry?.added),
         enabled: managed?.enabled ?? false,
-        platformSupported: registry?.platform_supported ?? true,
+        platformSupported:
+          lifecycle !== 'platform_unsupported' &&
+          (registry?.platform_supported ?? true),
         runtimeInstalled,
         lifecycle,
         needsInstallation: !acpReady,
       };
     })
-    .filter((agent) => agent.platformSupported)
     .sort((left, right) => {
       if (left.runtimeInstalled !== right.runtimeInstalled) {
         return left.runtimeInstalled ? -1 : 1;
@@ -145,97 +145,4 @@ export function selectDefaultOnboardingAgent(
     enabledAgentIds: new Set([...enabledAgentIds, agentId]),
     defaultAgentId: agentId,
   };
-}
-
-export type OnboardingInstallResult = 'verified' | 'needs_attention' | 'failed';
-
-export function classifyOnboardingInstallResult(
-  status: AgentOperationStatus,
-  preflightStatuses: string[]
-): OnboardingInstallResult {
-  if (status !== 'succeeded') return 'failed';
-  return preflightStatuses.some((item) => item === 'fail')
-    ? 'needs_attention'
-    : 'verified';
-}
-
-const RUNTIME_PREFLIGHT_IDS = new Set([
-  'acp',
-  'runtime',
-  'node',
-  'npm',
-  'uv',
-  'python',
-  'archive',
-  'membership',
-]);
-
-const LOGIN_FAILURE = /登录失败|login failed/i;
-
-export type OnboardingPreflightItem = {
-  id: string;
-  status: string;
-  label?: string;
-  detail?: string;
-  repairable?: boolean;
-};
-
-export type OnboardingPreflightGuidance =
-  | { kind: 'pending' }
-  | { kind: 'pass' }
-  | { kind: 'runtime'; target: string; repairable: boolean }
-  | { kind: 'login' }
-  | { kind: 'auth' }
-  | { kind: 'other'; repairable: boolean };
-
-export function describeOnboardingPreflight(
-  items: readonly OnboardingPreflightItem[],
-  loginFailed: boolean
-): OnboardingPreflightGuidance {
-  if (items.length === 0) return { kind: 'pending' };
-  const failed = items.filter((item) => item.status === 'fail');
-  if (failed.length === 0 && !loginFailed) return { kind: 'pass' };
-
-  const runtime = failed.find(
-    (item) =>
-      RUNTIME_PREFLIGHT_IDS.has(item.id) || item.id.startsWith('dependency.')
-  );
-  if (runtime) {
-    return {
-      kind: 'runtime',
-      target: runtime.label?.trim() || runtime.id,
-      repairable: runtime.repairable !== false,
-    };
-  }
-
-  if (
-    loginFailed ||
-    failed.some((item) => LOGIN_FAILURE.test(item.detail ?? ''))
-  ) {
-    return { kind: 'login' };
-  }
-
-  if (failed.some((item) => item.id === 'authentication')) {
-    return { kind: 'auth' };
-  }
-
-  return {
-    kind: 'other',
-    repairable: failed.some(
-      (item) => item.id !== 'authentication' && item.repairable === true
-    ),
-  };
-}
-
-export type OnboardingAgentCheckStatus = 'pass' | 'blocked';
-
-export type OnboardingContinueDecision = 'direct' | 'partial' | 'none';
-
-export function onboardingContinueGate(
-  statuses: readonly OnboardingAgentCheckStatus[]
-): OnboardingContinueDecision {
-  const passed = statuses.filter((status) => status === 'pass').length;
-  if (statuses.length > 0 && passed === statuses.length) return 'direct';
-  if (passed > 0) return 'partial';
-  return 'none';
 }

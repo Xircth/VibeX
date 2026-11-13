@@ -2,6 +2,7 @@ import {
   Archive,
   ArrowLeftRight,
   ArrowUpDown,
+  PanelsTopLeft,
   Check,
   MessageSquarePlus,
   MoreHorizontal,
@@ -16,6 +17,8 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
   DropdownMenuSeparator,
   DropdownMenuSub,
   DropdownMenuSubContent,
@@ -51,6 +54,10 @@ import {
 import { cn } from '@/lib/utils';
 import { PANEL_IDS } from '@/stores/useLayoutStore';
 import { SessionListDeleteControl } from './SessionListDeleteControl';
+import {
+  setSessionListAppearance,
+  useSessionListAppearance,
+} from '@/lib/sessionListAppearance';
 import type {
   SessionListSortKey,
   SessionListSortSpec,
@@ -109,7 +116,7 @@ export function WorkspaceSessionListToolbar({
   onOpenSearch,
   onToggleSortKey,
   onClearSort,
-  onToggleViewMode,
+  onViewModeChange,
 }: {
   isArchiveView: boolean;
   isDeleteMode: boolean;
@@ -125,11 +132,12 @@ export function WorkspaceSessionListToolbar({
   onOpenSearch: () => void;
   onToggleSortKey: (key: SessionListSortKey) => void;
   onClearSort: () => void;
-  onToggleViewMode?: () => void;
+  onViewModeChange?: (view: KanbanSessionListView) => void;
 }) {
   const { t } = useTranslation(['panels', 'common']);
   const storedViewMode = useKanbanSessionListView();
   const effectiveViewMode = viewMode ?? storedViewMode;
+  const appearance = useSessionListAppearance();
   const hideDefaultWorkspace = useHideDefaultWorkspace();
   const hideBotSessions = useHideBotSessions();
   const hideInactiveSessions = useHideInactiveSessions();
@@ -140,16 +148,6 @@ export function WorkspaceSessionListToolbar({
     Number(hideInactiveSessions);
   const hasActiveMenuState =
     isArchiveView || sortSpecs.length > 0 || activeFilterCount > 0;
-
-  const handleToggleViewMode = () => {
-    if (onToggleViewMode) {
-      onToggleViewMode();
-      return;
-    }
-    setKanbanSessionListView(
-      effectiveViewMode === 'workspace' ? 'status' : 'workspace'
-    );
-  };
 
   return (
     <div className="border-b border-border/60 px-2 pb-2 pt-2">
@@ -215,6 +213,72 @@ export function WorkspaceSessionListToolbar({
               </Tooltip>
 
               <DropdownMenuContent align="end" className="min-w-[13rem]">
+                <DropdownMenuSub>
+                  <DropdownMenuSubTrigger>
+                    <ArrowLeftRight
+                      className="h-4 w-4 shrink-0 text-muted-foreground"
+                      aria-hidden="true"
+                    />
+                    <span className="flex-1">
+                      {t('workspaceSessionList.switchView')}
+                    </span>
+                  </DropdownMenuSubTrigger>
+                  <DropdownMenuSubContent>
+                    <DropdownMenuRadioGroup
+                      value={effectiveViewMode}
+                      onValueChange={(value) => {
+                        if (
+                          value === 'status' ||
+                          value === 'workspace' ||
+                          value === 'mixed'
+                        ) {
+                          (onViewModeChange ?? setKanbanSessionListView)(value);
+                        }
+                      }}
+                    >
+                      <DropdownMenuRadioItem value="status">
+                        {t('workspaceSessionList.viewStatus', '状态分组视图')}
+                      </DropdownMenuRadioItem>
+                      <DropdownMenuRadioItem value="workspace">
+                        {t(
+                          'workspaceSessionList.viewWorkspace',
+                          '工作区分组视图'
+                        )}
+                      </DropdownMenuRadioItem>
+                      <DropdownMenuRadioItem value="mixed">
+                        {t('workspaceSessionList.viewMixed', '混合视图')}
+                      </DropdownMenuRadioItem>
+                    </DropdownMenuRadioGroup>
+                  </DropdownMenuSubContent>
+                </DropdownMenuSub>
+                <DropdownMenuSub>
+                  <DropdownMenuSubTrigger>
+                    <PanelsTopLeft
+                      className="h-4 w-4 shrink-0 text-muted-foreground"
+                      aria-hidden="true"
+                    />
+                    <span className="flex-1">
+                      {t('workspaceSessionList.appearance', '会话组件样式')}
+                    </span>
+                  </DropdownMenuSubTrigger>
+                  <DropdownMenuSubContent>
+                    <DropdownMenuRadioGroup
+                      value={appearance}
+                      onValueChange={(value) => {
+                        if (value === 'compact' || value === 'full')
+                          setSessionListAppearance(value);
+                      }}
+                    >
+                      <DropdownMenuRadioItem value="compact">
+                        {t('workspaceSessionList.appearanceCompact', '精简版')}
+                      </DropdownMenuRadioItem>
+                      <DropdownMenuRadioItem value="full">
+                        {t('workspaceSessionList.appearanceFull', '完整版')}
+                      </DropdownMenuRadioItem>
+                    </DropdownMenuRadioGroup>
+                  </DropdownMenuSubContent>
+                </DropdownMenuSub>
+                <DropdownMenuSeparator />
                 <DropdownMenuItem
                   onSelect={() => onArchiveViewChange(!isArchiveView)}
                 >
@@ -373,21 +437,6 @@ export function WorkspaceSessionListToolbar({
             />
             <span className="min-w-0 flex-1 truncate text-left">
               {t('workspaceSessionList.quickNewSession', '新会话')}
-            </span>
-          </button>
-
-          <button
-            type="button"
-            onClick={handleToggleViewMode}
-            aria-label={t('workspaceSessionList.switchView', '切换视图')}
-            className={QUICK_ACTION_ROW_CLASS}
-          >
-            <ArrowLeftRight
-              className="h-3.5 w-3.5 shrink-0 text-muted-foreground"
-              aria-hidden="true"
-            />
-            <span className="min-w-0 flex-1 truncate text-left">
-              {t('workspaceSessionList.switchView', '切换视图')}
             </span>
           </button>
 

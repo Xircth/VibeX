@@ -2,12 +2,14 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { act, render, type RenderResult } from '@testing-library/react';
 import { createDockview } from 'dockview-core';
 import type { DockviewApi } from 'dockview-react';
-import type { ReactNode } from 'react';
+import { StrictMode, type ReactNode } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { resetTerminalShelfForTests } from '@/lib/terminalShelf';
 import { PANEL_IDS, useLayoutStore } from '@/stores/useLayoutStore';
 import { syncDockviewGroupRegistry } from '@/utils/dockviewHelpers';
 import { isEditorGroup } from '@/utils/dockviewGroupPolicy';
+import { settleDockviewGroupWidths } from '@/utils/dockviewStartupSizing';
+import { useDockviewPanelActionsBinding } from '@/hooks/useDockviewPanelActionsBinding';
 import { resolveImagePreviewSource } from '@/lib/imagePreviewRegistry';
 import {
   PanelActionsContext,
@@ -90,8 +92,10 @@ function createDockviewApi() {
     ),
     height: 800,
     onDidRemovePanel: vi.fn(() => ({ dispose: vi.fn() })),
+    onDidAddPanel: vi.fn(() => ({ dispose: vi.fn() })),
     onDidRemoveGroup: vi.fn(() => ({ dispose: vi.fn() })),
     onDidLayoutChange: vi.fn(() => ({ dispose: vi.fn() })),
+    onDidLayoutFromJSON: vi.fn(() => ({ dispose: vi.fn() })),
     removePanel: vi.fn(),
     addGroup: vi.fn(),
   };
@@ -233,6 +237,185 @@ describe('PanelActionsContext host-browser plugin', () => {
         },
       })
     );
+  });
+});
+
+describe('left dock panel widths', () => {
+  function setup(bindThroughEffects = false) {
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    const api = createDockview(container, {
+      createComponent: () => ({
+        element: document.createElement('div'),
+        init() {},
+        dispose() {},
+      }),
+    });
+    api.layout(1600, 800, true);
+    const welcome = api.addPanel({
+      id: PANEL_IDS.WELCOME,
+      component: PANEL_IDS.WELCOME,
+    });
+    (welcome.group as { id: string }).id = 'group-editor-1';
+    const first = api.addPanel({
+      id: PANEL_IDS.FILE_TREE,
+      component: PANEL_IDS.FILE_TREE,
+      position: { referencePanel: welcome, direction: 'left' },
+    });
+    (first.group as { id: string }).id = 'group-left';
+    first.group.element.setAttribute('data-left-dock', 'true');
+    const second = api.addPanel({
+      id: PANEL_IDS.SESSION_LIST,
+      component: PANEL_IDS.SESSION_LIST,
+      position: { referencePanel: first, direction: 'right' },
+    });
+    (second.group as { id: string }).id = 'group-left-2';
+    second.group.element.setAttribute('data-left-dock', 'true');
+    syncDockviewGroupRegistry(api);
+    settleDockviewGroupWidths([
+      { group: first.group, width: 240 },
+      { group: second.group, width: 280 },
+    ]);
+    expect(first.group.api.width).toBeCloseTo(240, 0);
+    expect(second.group.api.width).toBeCloseTo(280, 0);
+    const workspaceWidth = welcome.group.api.width;
+    let actions: PanelActions | undefined;
+    function Probe() {
+      actions = usePanelActionsContext();
+      return null;
+    }
+    function Binding() {
+      const { setDockviewApi } = usePanelActionsContext();
+      useDockviewPanelActionsBinding(
+        api as unknown as DockviewApi,
+        setDockviewApi
+      );
+      return null;
+    }
+    const content = (
+      <PanelActionsProvider>
+        <Probe />
+        {bindThroughEffects ? <Binding /> : null}
+      </PanelActionsProvider>
+    );
+    const view = renderWithQueryClient(
+      bindThroughEffects ? <StrictMode>{content}</StrictMode> : content
+    );
+    if (!bindThroughEffects)
+      act(() => actions?.setDockviewApi(api as unknown as DockviewApi));
+    return {
+      api,
+      first,
+      second,
+      welcome,
+      workspaceWidth,
+      get actions() {
+        return actions!;
+      },
+      cleanup() {
+        view.unmount();
+        api.dispose();
+        container.remove();
+      },
+    };
+  }
+
+  it.each(['close', 'toggle', 'native'])(
+    'gives a removed column to Zone B through %s without resizing the remaining dock',
+    (method) => {
+      const { api, first, second, welcome, workspaceWidth, actions, cleanup } =
+        setup();
+      act(() => {
+        if (method === 'close') actions?.closePanel(PANEL_IDS.SESSION_LIST);
+        else if (method === 'toggle') actions?.toggleSessionList();
+        else api.removePanel(second);
+      });
+      expect(first.group.api.width).toBeCloseTo(240, 0);
+      expect(welcome.group.api.width).toBeCloseTo(workspaceWidth + 280, 0);
+      cleanup();
+    }
+  );
+
+  it('replaces visible slots in FIFO order, preserves their widths, and reduces the queue on close', () => {
+    const { api, first, second, welcome, workspaceWidth, actions, cleanup } =
+      setup();
+    const firstGroup = first.group;
+    const secondGroup = second.group;
+    act(() => actions.toggleBotsPanel());
+    expect(api.getPanel(PANEL_IDS.FILE_TREE)?.id).toBeUndefined();
+    expect(api.getPanel(PANEL_IDS.BOTS)?.group).toBe(firstGroup);
+    expect(actions.isPanelOpen(PANEL_IDS.FILE_TREE)).toBe(false);
+    expect(actions.isPanelOpen(PANEL_IDS.BOTS)).toBe(true);
+    expect(actions.isPanelOpen(PANEL_IDS.SESSION_LIST)).toBe(true);
+    act(() => actions.toggleGitPanel());
+    expect(api.getPanel(PANEL_IDS.SESSION_LIST)?.id).toBeUndefined();
+    expect(api.getPanel(PANEL_IDS.GIT)?.group).toBe(secondGroup);
+    expect(firstGroup.api.width).toBeCloseTo(240, 0);
+    expect(secondGroup.api.width).toBeCloseTo(280, 0);
+    act(() => actions.toggleBotsPanel());
+    expect(actions.isPanelOpen(PANEL_IDS.BOTS)).toBe(false);
+    expect(secondGroup.api.width).toBeCloseTo(280, 0);
+    expect(welcome.group.api.width).toBeCloseTo(workspaceWidth + 240, 0);
+    act(() => actions.toggleSessionList());
+    expect(api.getPanel(PANEL_IDS.GIT)?.id).toBeUndefined();
+    expect(api.getPanel(PANEL_IDS.SESSION_LIST)?.group).toBe(secondGroup);
+    expect(secondGroup.api.width).toBeCloseTo(280, 0);
+    cleanup();
+  });
+
+  it('opens a compact dock panel after every dock slot has been closed', () => {
+    const { api, actions, cleanup } = setup();
+    act(() => {
+      actions.toggleFileTree();
+      actions.toggleSessionList();
+    });
+    expect(actions.isPanelOpen(PANEL_IDS.FILE_TREE)).toBe(false);
+    act(() => actions.toggleBotsPanel());
+    expect(actions.isPanelOpen(PANEL_IDS.BOTS)).toBe(true);
+    expect(api.getPanel(PANEL_IDS.BOTS)!.group.api.width).toBeGreaterThan(100);
+    expect(api.getPanel(PANEL_IDS.BOTS)!.group.api.width).toBeLessThan(400);
+    cleanup();
+  });
+
+  it('keeps activity rail actions bound after effect cleanup and setup replay', () => {
+    const { api, first, welcome, workspaceWidth, actions, cleanup } =
+      setup(true);
+    act(() => actions.toggleSessionList());
+    expect(first.group.api.width).toBeCloseTo(240, 0);
+    expect(welcome.group.api.width).toBeCloseTo(workspaceWidth + 280, 0);
+    act(() => actions.toggleBotsPanel());
+    expect(actions.isPanelOpen(PANEL_IDS.BOTS)).toBe(true);
+    expect(api.getPanel(PANEL_IDS.FILE_TREE)?.id).toBeUndefined();
+    cleanup();
+  });
+
+  it('restores one active panel per legacy dock slot so closing it releases the slot', () => {
+    const { api, first, actions, cleanup } = setup();
+    act(() => {
+      api.addPanel({
+        id: PANEL_IDS.GIT,
+        component: PANEL_IDS.GIT,
+        position: { referenceGroup: first.group, direction: 'within' },
+      });
+      const layout = api.toJSON();
+      actions.setDockviewApi(null);
+      api.clear();
+      actions.setDockviewApi(api as unknown as DockviewApi);
+      api.fromJSON(layout);
+    });
+    expect(api.getPanel(PANEL_IDS.FILE_TREE)?.id).toBeUndefined();
+    expect(actions.isPanelOpen(PANEL_IDS.GIT)).toBe(true);
+    expect(actions.isPanelOpen(PANEL_IDS.FILE_TREE)).toBe(false);
+    const remainingGroup = api.getPanel(PANEL_IDS.SESSION_LIST)!.group;
+    const remainingWidth = remainingGroup.api.width;
+    const editor = api.getPanel(PANEL_IDS.WELCOME)!.group;
+    const editorWidth = editor.api.width;
+    const closedWidth = api.getPanel(PANEL_IDS.GIT)!.group.api.width;
+    act(() => actions.toggleGitPanel());
+    expect(api.getPanel(PANEL_IDS.GIT)?.id).toBeUndefined();
+    expect(remainingGroup.api.width).toBeCloseTo(remainingWidth, 0);
+    expect(editor.api.width).toBeCloseTo(editorWidth + closedWidth, 0);
+    cleanup();
   });
 });
 
@@ -570,7 +753,7 @@ describe('PanelActionsContext editor placement', () => {
     );
   });
 
-  it('keeps multiple tabs in the left dock group without deleting sibling tabs', () => {
+  it('replaces the single dock slot and closes it when its icon is clicked again', () => {
     class ResizeObserverStub {
       observe() {}
       unobserve() {}
@@ -629,13 +812,35 @@ describe('PanelActionsContext editor placement', () => {
     expect(actions?.isPanelOpen(PANEL_IDS.FILE_TREE)).toBe(false);
 
     act(() => {
+      actions?.toggleGitPanel();
+    });
+
+    expect(actions?.isPanelOpen(PANEL_IDS.GIT)).toBe(false);
+    expect(actions?.isPanelOpen(PANEL_IDS.FILE_TREE)).toBe(false);
+
+    act(() => {
+      actions?.toggleGitPanel();
+    });
+
+    act(() => {
       actions?.placeLeftDockPanel(PANEL_IDS.FILE_TREE, 'bottom');
     });
 
     expect(actions?.isLeftDockSplit()).toBe(true);
-    expect(leftGroup.panels.map((p) => p.id)).toEqual([PANEL_IDS.GIT]);
+    expect(api.getPanel(PANEL_IDS.GIT)?.group.panels.map((p) => p.id)).toEqual([
+      PANEL_IDS.GIT,
+    ]);
     expect(actions?.isPanelOpen(PANEL_IDS.GIT)).toBe(true);
     expect(actions?.isPanelOpen(PANEL_IDS.FILE_TREE)).toBe(true);
+    const totalDockWidth = api.groups
+      .filter(
+        (group) =>
+          group.api.isVisible &&
+          group.element?.getAttribute('data-left-dock') === 'true' &&
+          group.element.getAttribute('data-shell-nav-side') !== 'right'
+      )
+      .reduce((total, group) => total + group.api.width, 0);
+    expect(totalDockWidth).toBeLessThanOrEqual(api.width * 0.34 + 2);
 
     api.dispose();
     container.remove();

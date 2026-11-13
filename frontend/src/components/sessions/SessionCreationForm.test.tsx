@@ -391,6 +391,35 @@ describe('SessionCreationForm agent capability catalog controls', () => {
     expect(screen.getByText('Fast mode')).toBeInTheDocument();
   });
 
+  it('offers only the refreshed catalog models after a provider is removed', async () => {
+    const { client } = renderForm('codex', vi.fn());
+    publishLiveSessionControls(client, {
+      agentType: 'codex',
+      workspaceId: 'workspace-1',
+      controls: {
+        ...CONTROLS,
+        config_options: [
+          {
+     ...CONTROLS.config_options[0],
+     choices: [
+       ...CONTROLS.config_options[0].choices,
+       { value: 'removed-model', label: 'Removed', description: null },
+     ],
+          },
+          CONTROLS.config_options[1],
+        ],
+      },
+    });
+
+    const user = userEvent.setup();
+    await user.click(await screen.findByTestId('session-settings-summary'));
+    await user.click(screen.getByText('Model'));
+    expect(screen.getByRole('menuitem', { name: 'Opus' })).toBeInTheDocument();
+    expect(
+      screen.queryByRole('menuitem', { name: 'Removed' })
+    ).not.toBeInTheDocument();
+  });
+
   it('loads editable controls for the first session in a new workspace', async () => {
     const onPreset = vi.fn();
     renderForm('codex', onPreset, 'new_workspace');

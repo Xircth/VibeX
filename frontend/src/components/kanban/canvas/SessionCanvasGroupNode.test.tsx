@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import { SessionCanvasGroupNode } from './SessionCanvasGroupNode';
@@ -16,6 +16,14 @@ vi.mock('./CanvasViewContext', () => ({
     previewGroupResize: vi.fn(),
     beginGroupResize: vi.fn(),
     resizeGroup: vi.fn(),
+  }),
+}));
+
+const openContextMenu = vi.fn();
+vi.mock('./useCanvasNodeContextMenu', () => ({
+  useCanvasNodeContextMenu: () => ({
+    openContextMenu,
+    contextMenuElement: null,
   }),
 }));
 
@@ -56,6 +64,8 @@ describe('SessionCanvasGroupNode', () => {
       'is-running',
       'cursor-grab'
     );
+    fireEvent.contextMenu(container.querySelector('.canvas-card-drag-handle')!);
+    expect(openContextMenu).toHaveBeenCalledOnce();
   });
 
   it('marks a group for review breathing when a child needs review', () => {

@@ -196,9 +196,9 @@ function MarkdownImage({
 
   if (!imageUrl) {
     return (
-      <a href={normalizedSrc} rel="noopener noreferrer">
+      <MarkdownResourceLink href={normalizedSrc} workspacePath={workspacePath}>
         {label}
-      </a>
+      </MarkdownResourceLink>
     );
   }
 

@@ -39,6 +39,7 @@ use crate::{
 #[derive(Clone)]
 pub struct ServerApplicationDomains {
     pub(crate) pool: SqlitePool,
+    pub(crate) plugin_updates: Arc<crate::host::plugin_updates::PluginUpdates>,
     pub(crate) plugin_control_plane: Arc<plugins::PluginControlPlane>,
     pub(crate) preview_host: Arc<dyn plugins::PluginPreviewHost>,
     pub(crate) capability_broker: Arc<plugins::HostCapabilityBroker>,
@@ -77,6 +78,16 @@ impl ServerApplicationDomains {
         command: DomainCommand,
         args: Value,
     ) -> Result<Value, ApplicationError> {
+        // Serialize public lifecycle writes; internal helpers may call each other.
+        let _plugin_mutation = if matches!(command,
+            DomainCommand::PluginSaveConfig | DomainCommand::PluginControlSetEnabled
+            | DomainCommand::PluginControlImport | DomainCommand::PluginMarketplaceInstall
+            | DomainCommand::PluginInstall | DomainCommand::PluginUpdate
+            | DomainCommand::PluginControlUpdate | DomainCommand::PluginUninstall
+            | DomainCommand::PluginControlUninstall | DomainCommand::PluginControlRollback
+            | DomainCommand::PluginControlConfigureAgents | DomainCommand::PluginControlConfigureMcp
+            | DomainCommand::PluginControlInstallRuntime
+        ) { Some(self.plugin_updates.mutation.lock().await) } else { None };
         match command {
             DomainCommand::PluginActionCatalog => self.plugin_catalog().await,
             DomainCommand::PluginControlCatalog => self.plugin_control_catalog().await,
@@ -107,7 +118,12 @@ impl ServerApplicationDomains {
             DomainCommand::PluginMarketplaceCatalog => self.plugin_marketplace_catalog(args).await,
             DomainCommand::PluginMarketplaceListing => self.plugin_marketplace_listing(args).await,
             DomainCommand::PluginMarketplaceInstall => self.plugin_marketplace_install(args).await,
-            DomainCommand::PluginCheckUpdates => self.plugin_check_updates().await,
+            DomainCommand::PluginCheckUpdates => {
+                self.check_plugin_updates(
+                    args.get("cached").and_then(Value::as_bool).unwrap_or(false),
+                )
+                .await
+            }
             DomainCommand::PluginControlLogs => self.plugin_control_logs(args).await,
             DomainCommand::PluginControlDiagnostics => self.plugin_control_diagnostics(args).await,
             DomainCommand::PluginControlUninstall => self.plugin_control_uninstall(args).await,
@@ -860,7 +876,7 @@ impl ServerApplicationDomains {
         Ok(())
     }
 
-    async fn ensure_required_plugin_dependencies(
+    pub(crate) async fn ensure_required_plugin_dependencies(
         &self,
         package: &plugins::PluginPackage,
     ) -> Result<(), ApplicationError> {
@@ -1010,8 +1026,30 @@ impl ServerApplicationDomains {
         } else {
             plugins::PluginSourceKind::Snapshot
         };
+        let incoming =
+            plugins::PluginPackage::inspect(&source, source_kind).map_err(plugin_error)?;
+        let existing = self
+            .plugin_control_plane
+            .plugin(incoming.id.as_str())
+            .await
+            .map_err(plugin_error)?;
+        if let Some(existing) = &existing {
+            if decision == plugins::ConflictDecision::KeepInstalled {
+                return Ok(plugin_control_item(existing));
+            }
+            if decision != plugins::ConflictDecision::Replace {
+                return Err(ApplicationError::conflict("plugin is already installed"));
+            }
+        }
         let mut package = if args.developer_link {
             plugins::PluginPackage::inspect(&source, source_kind).map_err(plugin_error)?
+        } else if let Some(existing) = &existing {
+            plugins::PluginPackage::materialize_candidate(
+                &source,
+                &self.runtime_root.join("plugins/candidates"),
+                &existing.package,
+            )
+            .map_err(plugin_error)?
         } else {
             let storage = self.runtime_root.join("plugins/snapshots");
             plugins::PluginPackage::materialize(&source, &storage, source_kind)
@@ -1059,7 +1097,8 @@ impl ServerApplicationDomains {
             .import(package, decision)
             .await
             .map_err(plugin_error)?;
-        if decision != plugins::ConflictDecision::KeepInstalled
+        if existing.is_none()
+            && decision != plugins::ConflictDecision::KeepInstalled
             && self
                 .plugin_control_plane
                 .validate_runtime_readiness(imported.plugin.id())
@@ -1389,28 +1428,6 @@ impl ServerApplicationDomains {
             }
         }
         Err(import_error.unwrap_or(last_error))
-    }
-
-    async fn plugin_check_updates(&self) -> Result<Value, ApplicationError> {
-        let catalog = self
-            .plugin_control_plane
-            .catalog()
-            .await
-            .map_err(plugin_error)?;
-        let updates = plugins::check_installed_updates(
-            &catalog
-                .iter()
-                .map(|plugin| plugins::InstalledOrigin {
-                    plugin_id: plugin.id().to_owned(),
-                    version: plugin.version.clone(),
-                    kind: plugin.source.kind,
-                    origin: plugin.source.origin.clone(),
-                    git_ref: plugin.source.git_ref.clone(),
-                })
-                .collect::<Vec<_>>(),
-        )
-        .await;
-        serde_json::to_value(updates).map_err(|error| ApplicationError::internal(error.to_string()))
     }
 
     async fn plugin_control_logs(&self, args: Value) -> Result<Value, ApplicationError> {
@@ -2981,7 +2998,7 @@ fn automation_view(record: AutomationRecord) -> AutomationView {
     }
 }
 
-fn plugin_control_item(plugin: &plugins::InstalledPlugin) -> Value {
+pub(crate) fn plugin_control_item(plugin: &plugins::InstalledPlugin) -> Value {
     plugin_control_item_with_quarantine(plugin, None)
 }
 
@@ -3133,6 +3150,7 @@ fn plugin_control_item_with_quarantine(
         "sourceRef": plugin.source.git_ref,
         "sourceSha": plugin.source.git_sha,
         "sourceLocked": plugin.source.locked,
+        "sourceLock": plugin.source.update_lock.clone().or_else(|| plugins::PluginSourceLock::from_source(&plugin.source, &plugin.version, &plugin.package_digest)),
         "sourceShowTree": plugin.source.show_tree,
     })
 }

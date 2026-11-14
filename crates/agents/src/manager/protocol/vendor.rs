@@ -147,6 +147,60 @@ pub(in crate::manager) fn ensure_omp_yolo_config_option(options: &mut [AcpSessio
     }
 }
 
+/// OMP lists every model of every configured provider in one `model` select and
+/// names each choice with the bare model name, keeping the provider in the
+/// description. Pi — the other multi-provider agent here — names its choices
+/// `provider/model`, and that is what the pickers render, so a machine with
+/// several providers shows OMP models that cannot be told apart.
+///
+/// Qualify OMP's labels to read the same as Pi's. Only choices whose
+/// description repeats the provider-qualified value are touched, so an agent
+/// that already labels itself (Pi) or uses bare aliases (Claude) is untouched.
+pub(in crate::manager) fn qualify_omp_model_labels(options: &mut [AcpSessionConfigOption]) {
+    for option in options {
+        if option.category != Some(SessionConfigOptionCategory::Model)
+            && option.id.0.as_ref() != "model"
+        {
+            continue;
+        }
+        let SessionConfigKind::Select(select) = &mut option.kind else {
+            continue;
+        };
+        match &mut select.options {
+            SessionConfigSelectOptions::Ungrouped(choices) => {
+                choices.iter_mut().for_each(qualify_model_choice_label);
+            }
+            SessionConfigSelectOptions::Grouped(groups) => {
+                for group in groups {
+                    group.options.iter_mut().for_each(qualify_model_choice_label);
+                }
+            }
+            #[allow(unreachable_patterns)]
+            _ => {}
+        }
+    }
+}
+
+fn qualify_model_choice_label(choice: &mut SessionConfigSelectOption) {
+    let value = choice.value.0.to_string();
+    let Some((provider, _)) = value.split_once('/') else {
+        return;
+    };
+    if provider.is_empty() || choice.name.is_empty() {
+        return;
+    }
+    let qualified = format!("{provider}/");
+    if !choice
+        .description
+        .as_deref()
+        .is_some_and(|description| description.starts_with(&qualified))
+        || choice.name.starts_with(&qualified)
+    {
+        return;
+    }
+    choice.name = format!("{provider}/{}", choice.name);
+}
+
 /// The model ids a session-establishing answer lists in its raw top-level
 /// `models` (`availableModels[].modelId`). Empty when the answer carries no
 /// such list; an entry without a non-empty string id is skipped.
@@ -465,5 +519,70 @@ pub(in crate::manager) fn kiro_prompt_input_hint(prompt: &serde_json::Value) -> 
         [] => None,
         [only] if only == "[args]" => None,
         _ => Some(names.join(" ")),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn model_option(choices: Vec<SessionConfigSelectOption>) -> AcpSessionConfigOption {
+        AcpSessionConfigOption::select("model", "Model", "mint/gpt-5.6-terra", choices)
+            .category(Some(SessionConfigOptionCategory::Model))
+    }
+
+    #[test]
+    fn qualifies_omp_model_labels_with_their_provider() {
+        let mut options = vec![model_option(vec![
+            SessionConfigSelectOption::new("mint/gpt-5.6-terra", "GPT-5.6 Terra")
+                .description("mint/gpt-5.6-terra".to_string()),
+            SessionConfigSelectOption::new(
+                "cc-switch-open-router/stealth/ox-alpha",
+                "Ox Alpha",
+            )
+            .description("cc-switch-open-router/stealth/ox-alpha".to_string()),
+        ])];
+
+        qualify_omp_model_labels(&mut options);
+
+        let SessionConfigKind::Select(select) = &options[0].kind else {
+            panic!("model select");
+        };
+        let SessionConfigSelectOptions::Ungrouped(choices) = &select.options else {
+            panic!("ungrouped choices");
+        };
+        let names = choices
+            .iter()
+            .map(|choice| choice.name.as_str())
+            .collect::<Vec<_>>();
+        assert_eq!(names, ["mint/GPT-5.6 Terra", "cc-switch-open-router/Ox Alpha"]);
+    }
+
+    #[test]
+    fn leaves_labels_that_already_name_their_provider_alone() {
+        // Pi advertises `provider/model` and no description; Claude advertises
+        // bare aliases. Neither may be rewritten.
+        let mut options = vec![model_option(vec![
+            SessionConfigSelectOption::new(
+                "mcgrx/DeepSeek V4.1 Flash (Grok)",
+                "mcgrx/DeepSeek V4.1 Flash (Grok)",
+            ),
+            SessionConfigSelectOption::new("sonnet", "Sonnet")
+                .description("Claude Sonnet 5".to_string()),
+        ])];
+
+        qualify_omp_model_labels(&mut options);
+
+        let SessionConfigKind::Select(select) = &options[0].kind else {
+            panic!("model select");
+        };
+        let SessionConfigSelectOptions::Ungrouped(choices) = &select.options else {
+            panic!("ungrouped choices");
+        };
+        let names = choices
+            .iter()
+            .map(|choice| choice.name.as_str())
+            .collect::<Vec<_>>();
+        assert_eq!(names, ["mcgrx/DeepSeek V4.1 Flash (Grok)", "Sonnet"]);
     }
 }

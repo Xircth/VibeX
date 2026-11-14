@@ -494,6 +494,7 @@ impl AcpClientBridge {
                 let mut config_options = update.config_options;
                 let is_omp = self.apply.agent_kind() == Some(AgentKind::Omp);
                 if is_omp {
+                    qualify_omp_model_labels(&mut config_options);
                     ensure_omp_yolo_config_option(&mut config_options);
                 }
                 if let Some(session_id) = session_id {

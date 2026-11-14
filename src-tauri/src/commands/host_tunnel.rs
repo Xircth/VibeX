@@ -234,7 +234,11 @@ fn default_official_quick_origin(store: &HostTunnelStore) -> Option<String> {
     } else {
         load_or_create_host_id_sync().unwrap_or_else(|| "default".to_string())
     };
-    let scheme = if endpoint.port == 443 { "https" } else { "http" };
+    let scheme = if endpoint.port == 443 {
+        "https"
+    } else {
+        "http"
+    };
     Some(utils::tunnel::format_tenant_origin(
         scheme, &endpoint, &host_id,
     ))
@@ -601,11 +605,53 @@ async fn run_quick_tunnel_supervisor(local_port: u16) {
             let token = lease.lease_token.trim().to_string();
             let state = Arc::new(Mutex::new(RelayState::default()));
             let key = format!("{}:{}:official", host, port);
-            let _ = maintain_control(&host, port, &token, local_port, &key, &state).await;
+            if let Err(error) =
+                maintain_control(&host, port, &token, local_port, &key, &state).await
+                && let Some(reason) = terminal_lease_rejection(&error)
+            {
+                tracing::warn!(reason, "official relay rejected the account lease");
+                drop_rejected_account_lease(&token).await;
+            }
         } else {
             set_quick_tunnel_origin(None);
         }
         tokio::time::sleep(Duration::from_secs(3)).await;
+    }
+}
+
+const RELAY_REJECTION_PREFIX: &str = "relay rejected control session: ";
+
+/// Relay rejections that the same lease can never recover from (the computer was removed
+/// from the account, or the lease is no longer valid). Retrying them only loads the relay.
+fn terminal_lease_rejection(error: &str) -> Option<&str> {
+    let reason = error.strip_prefix(RELAY_REJECTION_PREFIX)?.trim();
+    matches!(
+        reason,
+        "host_revoked" | "lease_expired" | "invalid_lease_signature" | "lease_host_mismatch"
+    )
+    .then_some(reason)
+}
+
+/// Forgets a lease the relay rejected, unless the frontend already stored a newer one; the
+/// next lease renewal reconnects the relay.
+async fn drop_rejected_account_lease(rejected_token: &str) {
+    let Ok(mut store) = load_store().await else {
+        return;
+    };
+    let still_current = store
+        .account_lease
+        .as_ref()
+        .is_some_and(|lease| lease.lease_token.trim() == rejected_token);
+    if !still_current {
+        return;
+    }
+    store.account_lease = None;
+    set_quick_tunnel_origin(None);
+    if store.active_id.as_deref() == Some("auto-quick-tunnel") {
+        store.active_id = store.saved.first().map(|item| item.id.clone());
+    }
+    if let Err(error) = save_store(&store).await {
+        tracing::warn!(%error, "failed to forget the rejected relay lease");
     }
 }
 
@@ -824,7 +870,7 @@ async fn maintain_control(
         }
         if let Some(err_reason) = trimmed.strip_prefix("ERR ") {
             writer_task.abort();
-            return Err(format!("relay rejected control session: {err_reason}"));
+            return Err(format!("{RELAY_REJECTION_PREFIX}{err_reason}"));
         }
         // Backwards compatibility with v1 single-host relay script
         if let Some(id) = trimmed.strip_prefix("OPEN ") {
@@ -1530,6 +1576,25 @@ mod tests {
                 ("http://192.168.1.20:17891", "lan"),
             ]
         );
+    }
+
+    #[test]
+    fn only_unrecoverable_relay_rejections_drop_the_lease() {
+        assert_eq!(
+            super::terminal_lease_rejection("relay rejected control session: host_revoked"),
+            Some("host_revoked")
+        );
+        assert_eq!(
+            super::terminal_lease_rejection("relay rejected control session: lease_expired"),
+            Some("lease_expired")
+        );
+        assert_eq!(
+            super::terminal_lease_rejection(
+                "relay rejected control session: relay_lease_unconfigured"
+            ),
+            None
+        );
+        assert_eq!(super::terminal_lease_rejection("connection reset"), None);
     }
 
     #[test]

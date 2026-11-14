@@ -785,6 +785,16 @@ pub async fn revoke_host_device(
     .map_err(|error| AppError::Internal(error.to_string()))
 }
 
+/// Revokes the phones and computers admitted through the VibeX account of this Host, so
+/// signing out disconnects them on every path (LAN and relay).
+#[tauri::command]
+pub async fn revoke_account_linked_devices(app: tauri::AppHandle) -> Result<u64, AppError> {
+    let auth = server::SqliteServerAuth::new(app.state::<AppState>().deployment.db().pool.clone());
+    auth.revoke_account_linked_devices(&server::AuthenticatedCredential::host_console_owner())
+        .await
+        .map_err(|error| AppError::Internal(error.to_string()))
+}
+
 pub(crate) async fn listening_port() -> Option<u16> {
     WEB_SERVICE_RUNTIME
         .lock()
@@ -938,7 +948,8 @@ mod tests {
             .local_addr()
             .expect("first occupied listener should expose address")
             .port();
-        let _occupied_second = StdTcpListener::bind(("127.0.0.1", base_port.saturating_add(1))).ok();
+        let _occupied_second =
+            StdTcpListener::bind(("127.0.0.1", base_port.saturating_add(1))).ok();
 
         let config = WebServiceConfig {
             port: base_port,
@@ -964,4 +975,3 @@ mod tests {
         );
     }
 }
-

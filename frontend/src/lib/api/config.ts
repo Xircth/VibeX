@@ -782,6 +782,10 @@ export const webServiceApi = {
       request: { device_id: deviceId },
     });
   },
+  /** Revokes every phone that connected through the account signed in on this computer. */
+  revokeAccountLinkedDevices: async (): Promise<number> => {
+    return desktopShellCall<number>('revoke_account_linked_devices');
+  },
 };
 
 export interface ChatChannelStatus {

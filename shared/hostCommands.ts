@@ -560,6 +560,7 @@ export const DESKTOP_SHELL_COMMANDS = [
   'update_tray_badge',
   'host_client_delete',
   'revoke_host_device',
+  'revoke_account_linked_devices',
   'fixture_delegate',
   'fixture_reset',
   'allow_preview_asset_scope',

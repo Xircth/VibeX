@@ -1543,6 +1543,54 @@ impl ServerAuth for SqliteServerAuth {
 }
 
 impl SqliteServerAuth {
+    /// Revokes every device admitted because it shares the VibeX account signed in on this
+    /// Host. Called when the Host signs out, since that account no longer vouches for them.
+    /// Live WebSockets of the revoked devices close on their next revocation check.
+    pub async fn revoke_account_linked_devices(
+        &self,
+        actor: &AuthenticatedCredential,
+    ) -> Result<u64, AuthStoreError> {
+        if !actor.allows("device.revoke") {
+            return Err(AuthStoreError::Forbidden);
+        }
+        let now = self.now();
+        let mut transaction = self.pool.begin().await?;
+        let device_ids: Vec<String> = sqlx::query_scalar(
+            "SELECT DISTINCT d.id
+             FROM server_device_credentials d
+             JOIN server_device_connect_requests r ON r.issued_device_id = d.id
+             WHERE d.revoked_at_unix IS NULL AND r.account_display_name IS NOT NULL",
+        )
+        .fetch_all(&mut *transaction)
+        .await?;
+        for device_id in &device_ids {
+            sqlx::query(
+                "UPDATE server_device_credentials
+                 SET revoked_at_unix = ?
+                 WHERE id = ? AND revoked_at_unix IS NULL",
+            )
+            .bind(now)
+            .bind(device_id)
+            .execute(&mut *transaction)
+            .await?;
+            sqlx::query(
+                "INSERT INTO server_auth_audit_events
+                 (id, event_kind, actor_credential_id, actor_device_id, target_id, outcome,
+                  occurred_at_unix)
+                 VALUES (?, 'device_revoked', ?, ?, ?, 'succeeded', ?)",
+            )
+            .bind(Uuid::new_v4().to_string())
+            .bind(&actor.credential_id)
+            .bind(actor.device_id.map(|id| id.to_string()))
+            .bind(device_id)
+            .bind(now)
+            .execute(&mut *transaction)
+            .await?;
+        }
+        transaction.commit().await?;
+        Ok(device_ids.len() as u64)
+    }
+
     /// Persists a WebRTC device after the user approves the SAS prompt on the Host.
     pub async fn trust_webrtc_device(
         &self,
@@ -1986,12 +2034,14 @@ pub(crate) fn infer_preset(scopes: &[String]) -> Option<DevicePermissionPreset> 
 mod host_console_pairing_tests {
     use std::str::FromStr;
 
+    use base64::Engine as _;
     use chrono::{DateTime, Utc};
     use remote_protocol::{CreatePairingRequest, DevicePermissionPreset, RedeemPairingRequest};
     use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
 
     use super::{
-        AuthStoreError, AuthenticatedCredential, CredentialKind, ServerAuth, SqliteServerAuth,
+        AuthStoreError, AuthenticatedCredential, BASE64, CredentialKind, DeviceId, ServerAuth,
+        SqliteServerAuth, TrustWebRtcDeviceRequest,
     };
 
     async fn auth() -> SqliteServerAuth {
@@ -2302,5 +2352,69 @@ mod host_console_pairing_tests {
             .await
             .expect("list after revoke");
         assert!(after_revoke.is_empty());
+    }
+
+    #[tokio::test]
+    async fn host_sign_out_revokes_only_account_linked_devices() {
+        let auth = auth().await;
+        let owner = AuthenticatedCredential::host_console_owner();
+        let phone = auth
+            .create_connect_request(
+                "host-1",
+                remote_protocol::CreateDeviceConnectRequest {
+                    device_name: "Alice Pixel".to_owned(),
+                    client_kind: Some("mobile".to_owned()),
+                    ..Default::default()
+                },
+                None,
+                Some("Alice"),
+                true,
+            )
+            .await
+            .expect("same-account phone")
+            .credential
+            .expect("phone credential");
+        let workstation = auth
+            .trust_webrtc_device(
+                &owner,
+                TrustWebRtcDeviceRequest {
+                    device_id: DeviceId::new(),
+                    device_name: "Studio Mac".to_owned(),
+                    public_key_ed25519: BASE64.encode([7u8; 32]),
+                    preset: DevicePermissionPreset::Workstation,
+                },
+            )
+            .await
+            .expect("paired workstation");
+
+        assert_eq!(
+            auth.revoke_account_linked_devices(&owner)
+                .await
+                .expect("revoke"),
+            1
+        );
+        assert!(
+            auth.authenticate(&phone.access_token)
+                .await
+                .unwrap()
+                .is_none()
+        );
+        let remaining = auth.list_devices(&owner).await.expect("list");
+        assert!(
+            remaining
+                .iter()
+                .any(|device| device.device_id == workstation.device_id)
+        );
+        assert!(
+            remaining
+                .iter()
+                .all(|device| device.device_id != phone.device_id)
+        );
+        assert_eq!(
+            auth.revoke_account_linked_devices(&owner)
+                .await
+                .expect("second revoke"),
+            0
+        );
     }
 }

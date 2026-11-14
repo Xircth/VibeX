@@ -2,6 +2,7 @@ import { getSiteUrl } from '@/lib/branding';
 import {
   hostClientApi,
   hostTunnelApi,
+  webServiceApi,
   type SyncableHostProfile,
 } from '@/lib/api';
 import { isTauriClient } from '@/lib/desktopShell';
@@ -173,10 +174,12 @@ export class AccountError extends Error {
 export const ACCOUNT_TOKEN_EVENT = 'vibex:account-token-changed';
 export const DESKTOP_SHARED_ACCOUNT_TOKEN_KEY = '__account_token_v1';
 export const DESKTOP_SHARED_ACCOUNT_OWNER_KEY = '__account_owner_v1';
-export const HOST_BOUND_ACCOUNTS_STORAGE_KEY = 'vibex.account.hostBoundAccounts.v1';
+export const HOST_BOUND_ACCOUNTS_STORAGE_KEY =
+  'vibex.account.hostBoundAccounts.v1';
 export const HOST_BOUND_ACCOUNTS_EVENT = 'vibex:host-bound-accounts-changed';
 let sharedTokenHydrationStarted = false;
-const EMPTY_HOST_BOUND_ACCOUNTS: Record<string, AccountOwnerSummary> = Object.freeze({});
+const EMPTY_HOST_BOUND_ACCOUNTS: Record<string, AccountOwnerSummary> =
+  Object.freeze({});
 let cachedHostBoundAccountsRaw: string | null = null;
 let cachedHostBoundAccountsSnapshot: Record<string, AccountOwnerSummary> =
   EMPTY_HOST_BOUND_ACCOUNTS;
@@ -203,7 +206,8 @@ export function readHostBoundAccounts(): Record<string, AccountOwnerSummary> {
     for (const [key, value] of Object.entries(parsed)) {
       if (!value || typeof value !== 'object') continue;
       const obj = value as Record<string, unknown>;
-      const username = typeof obj.username === 'string' ? obj.username.trim() : '';
+      const username =
+        typeof obj.username === 'string' ? obj.username.trim() : '';
       if (!username) continue;
       const displayName =
         typeof obj.displayName === 'string' && obj.displayName.trim()
@@ -467,6 +471,8 @@ export const accountApi = {
     void hostTunnelApi.setAccountLease(null).catch(() => null);
     if (isTauriClient()) {
       void hostClientApi.setSyncAccount(null).catch(() => null);
+      // Phones were admitted because they share this account; signing out ends that trust.
+      void webServiceApi.revokeAccountLinkedDevices().catch(() => null);
     }
     if (typeof window !== 'undefined') {
       window.dispatchEvent(new Event('vibex:host-tunnel-updated'));
@@ -557,7 +563,9 @@ export const accountApi = {
     savedHosts?: SyncableHostProfile[];
   }> => authed('/api/account/desktop/saved-hosts', 'PUT', { profiles }),
 
-  deleteSavedHost: (selector: SavedHostDeleteSelector): Promise<{
+  deleteSavedHost: (
+    selector: SavedHostDeleteSelector
+  ): Promise<{
     ok?: boolean;
     deleted?: number;
     savedHosts?: SyncableHostProfile[];

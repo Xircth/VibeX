@@ -27,6 +27,7 @@ export {
 };
 
 import type { SpaceInitialTarget } from './types';
+import { CollaborationCanvasCreateOverlay } from '../CollaborationCreateOverlay';
 
 export function CollaborationSpaceProvider({
   workspaceId,
@@ -64,6 +65,7 @@ export function CollaborationSpaceProvider({
   return (
     <CollaborationSpaceStoreContext.Provider value={store}>
       {children}
+      <CollaborationCanvasCreateOverlay />
     </CollaborationSpaceStoreContext.Provider>
   );
 }

@@ -250,12 +250,14 @@ export const SessionCanvasCardNode = memo(function SessionCanvasCardNode({
       <div
         className="group/canvas-node relative h-full w-full"
         data-canvas-node-id={instanceId}
-        onPointerDownCapture={() => setPendingCanvasParentNode(instanceId, 1500)}
+        onPointerDownCapture={() =>
+          setPendingCanvasParentNode(instanceId, 1500)
+        }
       >
         <CanvasNodeHandles instanceId={instanceId} />
         <div
           className={cn(
-            'canvas-board-units canvas-session-card h-full w-full rounded-lg',
+            'canvas-node-context-menu canvas-board-units canvas-session-card h-full w-full rounded-lg',
             selected && 'is-selected'
           )}
         >
@@ -375,7 +377,7 @@ export const SessionCanvasCardNode = memo(function SessionCanvasCardNode({
     }
     return (
       <div
-        className="group/canvas-node canvas-board-units canvas-session-card-missing relative flex h-full w-full items-center overflow-hidden rounded-lg px-2.5 py-1.5 opacity-85"
+        className="canvas-node-context-menu group/canvas-node canvas-board-units canvas-session-card-missing relative flex h-full w-full items-center overflow-hidden rounded-lg px-2.5 py-1.5 opacity-85"
         data-canvas-node-id={instanceId}
         onContextMenu={openContextMenu}
       >
@@ -414,7 +416,7 @@ export const SessionCanvasCardNode = memo(function SessionCanvasCardNode({
       <CanvasNodeHandles instanceId={instanceId} />
       <div
         className={cn(
-          'canvas-board-units canvas-session-card h-full w-full rounded-lg',
+          'canvas-node-context-menu canvas-board-units canvas-session-card h-full w-full rounded-lg',
           selected && 'is-selected',
           attention === 'running' && 'is-running',
           attention === 'review' && 'is-reviewing'

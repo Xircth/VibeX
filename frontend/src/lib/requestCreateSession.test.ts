@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { registerCanvasWorkspaceController } from '@/components/kanban/canvas/canvasWorkspaceBridge';
 import {
   CREATE_AGENT_SESSION_EVENT,
   requestCreateAgentSessionInExecutionArea,
@@ -33,6 +34,36 @@ describe('requestCreateSessionInExecutionArea', () => {
     layout.activeTab = 'kanban';
     layout.setRightPanelVisible.mockReset();
     layout.setKanbanSessionVisible.mockReset();
+  });
+
+  it('opens the active canvas create form without creating a placeholder node or changing the route', () => {
+    const createSession = vi.fn();
+    const openOrFocusPanel = vi.fn();
+    const openOrFocusSession = vi.fn();
+    const unregister = registerCanvasWorkspaceController({
+      createSession,
+      openOrFocusPanel,
+      openOrFocusSession,
+      dropSessionAt: vi.fn(),
+      dropPanelAt: vi.fn(),
+      closeNode: vi.fn(),
+      closeOtherNodes: vi.fn(),
+      closeAllNodes: vi.fn(),
+      duplicateNode: vi.fn(),
+    });
+    const setSearchParams = vi.fn();
+    try {
+      requestCreateSessionInExecutionArea(
+        setSearchParams,
+        new URLSearchParams()
+      );
+      expect(createSession).toHaveBeenCalledOnce();
+      expect(setSearchParams).not.toHaveBeenCalled();
+      expect(openOrFocusPanel).not.toHaveBeenCalled();
+      expect(openOrFocusSession).not.toHaveBeenCalled();
+    } finally {
+      unregister();
+    }
   });
 
   it('reveals the workspace execution column without switching the kanban tab', () => {

@@ -70,6 +70,25 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn cleanup_refuses_project_directory_and_reports_failure() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let project_dir = temp.path().join("project");
+        std::fs::create_dir_all(&project_dir).unwrap();
+        std::fs::write(project_dir.join("keep.txt"), "user data").unwrap();
+        let result =
+            WorkspaceManager::cleanup_workspace(&project_dir, &[test_repo(project_dir.clone())])
+                .await;
+        assert!(matches!(
+            result,
+            Err(WorkspaceError::UnsafeWorkspacePath(_))
+        ));
+        assert_eq!(
+            std::fs::read_to_string(project_dir.join("keep.txt")).unwrap(),
+            "user data"
+        );
+    }
+
+    #[tokio::test]
     async fn ensure_workspace_creates_missing_branch_from_target_branch() {
         let temp = tempfile::tempdir().expect("tempdir");
         let repo_path = temp.path().join("source");
@@ -205,7 +224,7 @@ impl WorkspaceManager {
         false
     }
 
-    fn validate_workspace_container_path(path: &Path) -> Result<(), WorkspaceError> {
+    pub fn validate_workspace_container_path(path: &Path) -> Result<(), WorkspaceError> {
         if Self::is_app_owned_workspace_dir(path) {
             return Ok(());
         }
@@ -369,7 +388,9 @@ impl WorkspaceManager {
     ) -> Result<(), WorkspaceError> {
         info!("Cleaning up workspace at {}", workspace_dir.display());
         if Self::refuse_unsafe_cleanup(workspace_dir, repos) {
-            return Ok(());
+            return Err(WorkspaceError::UnsafeWorkspacePath(
+                workspace_dir.to_path_buf(),
+            ));
         }
 
         let cleanup_data: Vec<WorktreeCleanup> = repos
@@ -383,14 +404,8 @@ impl WorkspaceManager {
         WorktreeManager::batch_cleanup_worktrees(&cleanup_data).await?;
 
         // Remove the workspace directory itself
-        if workspace_dir.exists()
-            && let Err(e) = tokio::fs::remove_dir_all(workspace_dir).await
-        {
-            debug!(
-                "Could not remove workspace directory {}: {}",
-                workspace_dir.display(),
-                e
-            );
+        if workspace_dir.exists() {
+            tokio::fs::remove_dir_all(workspace_dir).await?;
         }
 
         Ok(())
@@ -539,6 +554,15 @@ impl WorkspaceManager {
             }
 
             let workspace_path_str = path.to_string_lossy().to_string();
+            if path.join(".vibex-initialization.json").exists()
+                || path.join(".vibex-deletion.json").exists()
+            {
+                debug!(
+                    "Preserving workspace lifecycle evidence for explicit recovery: {}",
+                    workspace_path_str
+                );
+                continue;
+            }
             if let Ok(false) = DbWorkspace::container_ref_exists(db, &workspace_path_str).await {
                 info!("Found orphaned workspace: {}", workspace_path_str);
                 if let Err(e) = Self::cleanup_workspace_without_repos(&path).await {

@@ -134,6 +134,15 @@ pub struct CreateWorkspace {
 }
 
 impl Workspace {
+    pub async fn mark_setup_completed(pool: &SqlitePool, id: Uuid) -> Result<(), sqlx::Error> {
+        sqlx::query(
+            "UPDATE workspaces SET setup_completed_at = datetime('now', 'subsec') WHERE id = ?",
+        )
+        .bind(id)
+        .execute(pool)
+        .await?;
+        Ok(())
+    }
     fn normalize_paths(mut self) -> Self {
         if let Some(container_ref) = &self.container_ref {
             let normalized = normalize_repo_path_for_display(Path::new(container_ref));
@@ -898,7 +907,10 @@ impl Workspace {
     }
 
     /// Delete a workspace by ID
-    pub async fn delete(pool: &SqlitePool, id: Uuid) -> Result<u64, sqlx::Error> {
+    pub async fn delete<'e, E>(pool: E, id: Uuid) -> Result<u64, sqlx::Error>
+    where
+        E: sqlx::Executor<'e, Database = sqlx::Sqlite>,
+    {
         let result = sqlx::query!("DELETE FROM workspaces WHERE id = $1", id)
             .execute(pool)
             .await?;

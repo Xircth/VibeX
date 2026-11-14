@@ -1,15 +1,20 @@
-import { act, fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ReactElement } from 'react';
 import type { Workspace } from 'shared/types';
 import type { KanbanProjectSessionRecord } from '@/hooks/useKanbanProjectSessions';
 import { registerCanvasWorkspaceController } from '@/components/kanban/canvas/canvasWorkspaceBridge';
 import { TooltipProvider } from '@/components/ui/tooltip';
+import { setSessionListAppearance } from '@/lib/sessionListAppearance';
 import { WorkspaceSessionList } from './WorkspaceSessionList';
 import {
   WORKSPACE_SESSION_GROUPS_COLLAPSED_KEY,
   WORKSPACE_SESSION_ORDER_KEY,
 } from './workspaceSessionListModel';
+
+vi.mock('@/lib/frontendPreferences', () => ({
+  persistFrontendPreference: vi.fn(),
+}));
 
 function renderList(ui: ReactElement) {
   return render(<TooltipProvider>{ui}</TooltipProvider>);
@@ -129,6 +134,68 @@ describe('WorkspaceSessionList', () => {
         name: /Modify Plan component styles/,
       })
     ).toHaveAttribute('aria-current', 'true');
+  });
+
+  it('switches between compact rows and full cards while preserving selection and rename actions', async () => {
+    const onSessionClick = vi.fn();
+    const onRenameSession = vi.fn();
+    const { container } = renderList(
+      <WorkspaceSessionList
+        sessions={[
+          session({
+            name: 'Named session',
+            model: 'grok-4',
+            firstPrompt: 'Investigate the layout problem',
+          }),
+        ]}
+        isLoading={false}
+        activeSessionId="session-1"
+        activeWorkspaceId="workspace-1"
+        onSessionClick={onSessionClick}
+        onRenameSession={onRenameSession}
+      />
+    );
+    expect(screen.queryByText('grok-4')).not.toBeInTheDocument();
+    act(() => setSessionListAppearance('full'));
+    expect(screen.queryByText('grok-4')).not.toBeInTheDocument();
+    expect(
+      screen.queryByText('Investigate the layout problem')
+    ).not.toBeInTheDocument();
+    const card = container.querySelector('.workspace-session-row--full')!;
+    const workspaceLine = card.querySelector(
+      '.workspace-session-card-workspace'
+    )!;
+    expect(workspaceLine).toHaveTextContent('VibeX');
+    expect(
+      workspaceLine.querySelector('.workspace-session-row-marker')
+    ).not.toBeNull();
+    expect(card.querySelectorAll('.workspace-session-row-marker')).toHaveLength(
+      1
+    );
+    expect(container.querySelector('.workspace-session-row--full')).toHaveClass(
+      'is-selected'
+    );
+    fireEvent.click(
+      screen.getByRole('button', { name: /Named session, Grok/ })
+    );
+    expect(onSessionClick).toHaveBeenCalledTimes(1);
+    fireEvent.contextMenu(
+      screen.getByRole('button', { name: /Named session, Grok/ })
+    );
+    fireEvent.click(
+      await screen.findByRole('menuitem', { name: '重命名会话' })
+    );
+    const input = screen.getByRole('textbox');
+    fireEvent.change(input, { target: { value: 'Renamed session' } });
+    await act(async () => {
+      fireEvent.keyDown(input, { key: 'Enter' });
+    });
+    expect(onRenameSession).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'session-1' }),
+      'Renamed session'
+    );
+    act(() => setSessionListAppearance('compact'));
+    expect(screen.queryByText('grok-4')).not.toBeInTheDocument();
   });
 
   it('shows the delegated agent mark when executor is empty', () => {
@@ -880,6 +947,77 @@ describe('WorkspaceSessionList', () => {
     expect(screen.getByRole('button', { name: '已完成' })).toBeInTheDocument();
   });
 
+  it('nests status groups inside each workspace in mixed view and expands the active session path', () => {
+    const main = workspace();
+    const feature = workspace({
+      id: 'ws-feature',
+      branch: 'feature',
+      use_worktree: true,
+      name: 'Feature',
+    });
+    localStorage.setItem(
+      WORKSPACE_SESSION_GROUPS_COLLAPSED_KEY,
+      JSON.stringify(['workspace-1', 'workspace-1:status:inprogress'])
+    );
+    renderList(
+      <WorkspaceSessionList
+        sessions={[
+          session({
+            id: 'running-main',
+            workspace: main,
+            firstPrompt: 'Main running',
+            isRunning: true,
+          }),
+          session({
+            id: 'done-main',
+            workspace: main,
+            firstPrompt: 'Main done',
+            status: 'done',
+          }),
+          session({
+            id: 'running-feature',
+            workspace: feature,
+            workspaceName: 'Feature',
+            firstPrompt: 'Feature running',
+            isRunning: true,
+          }),
+        ]}
+        isLoading={false}
+        activeSessionId="running-main"
+        activeWorkspaceId="workspace-1"
+        viewMode="mixed"
+        onSessionClick={vi.fn()}
+      />
+    );
+    const mainSection = screen
+      .getByRole('button', { name: 'main' })
+      .closest('section')!;
+    const featureSection = screen
+      .getByRole('button', { name: 'Feature' })
+      .closest('section')!;
+    expect(
+      within(mainSection).getByRole('button', { name: '进行中' })
+    ).toHaveAttribute('aria-expanded', 'true');
+    expect(
+      within(mainSection).getByRole('button', { name: '已完成' })
+    ).toBeInTheDocument();
+    expect(
+      within(mainSection).getByRole('button', { name: /Main running/ })
+    ).toBeInTheDocument();
+    expect(
+      within(mainSection).queryByRole('button', { name: /Feature running/ })
+    ).not.toBeInTheDocument();
+    fireEvent.click(
+      within(mainSection).getByRole('button', { name: '进行中' })
+    );
+    expect(
+      within(mainSection).queryByRole('button', { name: /Main running/ })
+    ).not.toBeInTheDocument();
+    expect(
+      within(featureSection).getByRole('button', { name: /Feature running/ })
+    ).toBeInTheDocument();
+  });
+
   it('drops a minimized session card when dragging a session row onto the Infinite Canvas', () => {
     const dropSessionAt = vi.fn();
     const unregister = registerCanvasWorkspaceController({
@@ -1001,4 +1139,3 @@ describe('WorkspaceSessionList', () => {
     }
   });
 });
-

@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { act, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import type { AgentNativeConfigView } from 'shared/types';
@@ -97,6 +97,25 @@ const config: AgentNativeConfigView = {
 };
 
 describe('AgentConfigurationAndDiagnostics', () => {
+  it('holds navigation while an automatic configuration save is pending', async () => {
+    let finish!: () => void;
+    const onDirtyChange = vi.fn();
+    render(
+      <AgentConfigurationAndDiagnostics
+        config={config}
+        saving={false}
+        onSave={() =>
+          new Promise<void>((resolve) => {
+            finish = resolve;
+          })
+        }
+        onPendingChange={onDirtyChange}
+      />
+    );
+    await pickAstryxOption(userEvent, screen.getByLabelText('推理强度'), '高');
+    expect(onDirtyChange).toHaveBeenLastCalledWith(true);
+    await act(async () => finish());
+  });
   it('keeps authentication fields out of configuration management', () => {
     render(
       <AgentConfigurationAndDiagnostics

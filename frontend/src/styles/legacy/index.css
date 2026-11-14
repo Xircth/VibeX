@@ -6066,7 +6066,9 @@ html.dark {
     align-items: center;
     gap: 0.5rem;
     border-radius: var(--radius);
-    padding: 0.25rem 0.375rem;
+    padding: 0.5rem 0.5rem;
+    background: transparent;
+    border: 0;
     color: var(--text-strong);
     font-size: 0.8125rem;
     font-weight: 600;
@@ -6074,7 +6076,7 @@ html.dark {
   }
 
   .workspace-session-group-header:hover {
-    background: var(--surface-control-hover);
+    color: var(--text-primary);
   }
 
   .workspace-session-group-header:focus-visible {
@@ -6088,17 +6090,87 @@ html.dark {
     align-items: center;
     justify-content: center;
     border-radius: 999px;
-    background: hsl(var(--warning) / 0.18);
-    color: hsl(var(--warning-foreground));
+    background: var(--surface-content);
+    color: var(--text-secondary);
     font-size: 0.6875rem;
     font-weight: 600;
     line-height: 1;
     padding: 0.2rem 0.35rem;
+    font-variant-numeric: tabular-nums;
   }
 
   .workspace-session-group {
     min-width: 0;
     max-width: 100%;
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius);
+    padding: 0.25rem 0.125rem 0.375rem;
+    background: transparent;
+  }
+
+  :is(.workspace-session-group, .workspace-session-status-label)[data-status='todo'] {
+    --workspace-session-group-color: var(--session-status-todo);
+  }
+
+  :is(.workspace-session-group, .workspace-session-status-label)[data-status='inprogress'] {
+    --workspace-session-group-color: var(--session-status-inprogress);
+  }
+
+  :is(.workspace-session-group, .workspace-session-status-label)[data-status='inreview'] {
+    --workspace-session-group-color: var(--session-status-inreview);
+  }
+
+  :is(.workspace-session-group, .workspace-session-status-label)[data-status='done'] {
+    --workspace-session-group-color: var(--session-status-done);
+  }
+
+  .workspace-session-group[data-status] {
+    border-color: var(--workspace-session-group-color);
+  }
+
+  .workspace-session-status-label {
+    display: inline-flex;
+    max-width: 100%;
+    align-items: center;
+    gap: 0.375rem;
+    padding: 0.25rem 0.5rem;
+    border: 1px solid color-mix(in srgb, var(--workspace-session-group-color) 45%, transparent);
+    border-radius: 999px;
+    color: var(--text-strong);
+    font-size: 0.75rem;
+    line-height: 1;
+    white-space: nowrap;
+  }
+
+  .workspace-session-group + .workspace-session-group {
+    margin-top: 1rem;
+  }
+
+  .workspace-session-subgroups {
+    padding: 0 0.25rem 0.125rem;
+  }
+
+  .workspace-session-group--nested {
+    border: 0;
+    border-radius: 0;
+    padding: 0;
+  }
+
+  .workspace-session-group--nested > .workspace-session-group-header {
+    padding: 0.375rem;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    border-bottom: 1px solid var(--workspace-session-group-color);
+    font-size: 0.75rem;
+  }
+
+  .workspace-session-group--nested + .workspace-session-group--nested {
+    margin-top: 0.5rem;
+  }
+
+  .workspace-session-group-chevron {
+    color: var(--text-secondary);
   }
 
   .workspace-session-rail {
@@ -6108,7 +6180,7 @@ html.dark {
     gap: 0.25rem;
     min-width: 0;
     max-width: 100%;
-    margin-top: 0.125rem;
+    margin-top: 0.375rem;
     padding-left: 0.375rem;
     padding-right: 0.25rem;
   }
@@ -6141,6 +6213,69 @@ html.dark {
     width: 3px;
     height: 0.875rem;
     border-radius: 999px;
+  }
+
+  .workspace-session-row--full {
+    border: 1px solid var(--border-subtle);
+    background: var(--surface-card);
+    --workspace-session-row-bg: var(--surface-card);
+    padding: 0.375rem 0.5rem;
+  }
+
+  .workspace-session-row--full .workspace-session-row-main:not(.is-editing) {
+    display: grid;
+    grid-template-columns: 1rem minmax(0, 1fr);
+    gap: 0.375rem 0.5rem;
+    width: 100%;
+    max-width: 100%;
+  }
+
+  .workspace-session-card-content {
+    display: contents;
+  }
+
+  .workspace-session-card-title {
+    grid-column: 2;
+    grid-row: 1;
+    display: block;
+    min-width: 0;
+    max-width: 100%;
+    overflow: hidden;
+    white-space: nowrap;
+    mask-image: linear-gradient(to right, black calc(100% - 1.5rem), transparent);
+    color: var(--text-strong);
+    font-size: 0.8125rem;
+    line-height: 1.4;
+    font-weight: 600;
+  }
+
+  .workspace-session-card-title.is-cjk {
+    font-weight: 500;
+  }
+
+  .workspace-session-card-workspace {
+    grid-column: 1 / -1;
+    grid-row: 2;
+    display: flex;
+    align-items: center;
+    gap: 0.625rem;
+    min-width: 0;
+    height: 1.25rem;
+    padding-right: 4.25rem;
+    color: var(--text-secondary);
+    font-size: 0.6875rem;
+    line-height: 1.5;
+  }
+
+  .workspace-session-row--full .workspace-session-row-marker {
+    margin-left: 0.375rem;
+  }
+
+  .workspace-session-row--full .workspace-session-row-actions {
+    position: absolute;
+    right: 0.75rem;
+    bottom: 0.625rem;
+    justify-content: flex-end;
   }
 
   .workspace-session-row-main {

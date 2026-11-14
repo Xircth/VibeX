@@ -14,10 +14,12 @@ export function defaultSessionPanelWidth(
 
 interface WidthPreservingGroup {
   id: string;
+  element?: HTMLElement;
   api: {
     width: number;
     isVisible: boolean;
     setSize(size: { width: number }): void;
+    setConstraints?(constraints: { minimumWidth: number }): void;
   };
 }
 
@@ -32,6 +34,8 @@ interface DockviewGroupWidthTarget {
 
 const MAX_SIDE_WIDTH_SETTLE_PASSES = 12;
 const SIDE_WIDTH_SETTLE_TOLERANCE = 0.5;
+const MIN_DOCK_WIDTH_WHILE_RESIZING = 120;
+const MIN_WORKSPACE_WIDTH_WHILE_RESIZING = 320;
 
 /**
  * Set coupled Dockview columns to their intended widths before the layout is
@@ -82,9 +86,44 @@ export function layoutDockviewPreservingGroupWidths(
 
   api.layout(width, height, forceResize);
 
+  const dockWidths = widths.filter(
+    ({ group }) => group.element?.getAttribute('data-left-dock') === 'true'
+  );
+  const otherSideWidth = widths
+    .filter(
+      ({ group }) => group.element?.getAttribute('data-left-dock') !== 'true'
+    )
+    .reduce((total, item) => total + item.width, 0);
+  const dockWidth = dockWidths.reduce((total, item) => total + item.width, 0);
+  const dockBudget = Math.max(
+    dockWidths.length * MIN_DOCK_WIDTH_WHILE_RESIZING,
+    width - otherSideWidth - MIN_WORKSPACE_WIDTH_WHILE_RESIZING
+  );
+  const dockTargets =
+    dockWidth > dockBudget
+      ? dockWidths.map(({ group, width: previousWidth }) => {
+          group.api.setConstraints?.({
+            minimumWidth: MIN_DOCK_WIDTH_WHILE_RESIZING,
+          });
+          return {
+            group,
+            width: (previousWidth / dockWidth) * dockBudget,
+          };
+        })
+      : [];
+
   // Dockview redistributes the delta from each setSize() across the other
   // columns, so restoring one side can nudge the other. Settle the two coupled
   // widths to sub-pixel precision; impossible sizes still stop at the bounded
   // pass count and remain clamped by Dockview's native minimum constraints.
-  settleDockviewGroupWidths(widths);
+  settleDockviewGroupWidths(
+    dockTargets.length > 0
+      ? [
+          ...widths.filter(
+            ({ group }) => !dockWidths.some((dock) => dock.group === group)
+          ),
+          ...dockTargets,
+        ]
+      : widths
+  );
 }

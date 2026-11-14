@@ -252,7 +252,7 @@ impl PluginControlPlane {
 
     pub async fn import(
         &self,
-        package: PluginPackage,
+        mut package: PluginPackage,
         decision: ConflictDecision,
     ) -> Result<ImportResult, PluginError> {
         if crate::catalog::is_retired_plugin_id(package.id.as_str()) {
@@ -283,6 +283,11 @@ impl PluginControlPlane {
             ImportDisposition::Installed
         };
         let package_digest = package_digest(&package)?;
+        package.source.update_lock = crate::PluginSourceLock::from_source(
+            &package.source,
+            &package.version,
+            &package_digest,
+        );
         let plugin = InstalledPlugin {
             package,
             activation: PluginActivation::Disabled,

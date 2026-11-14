@@ -1,4 +1,11 @@
-import { fireEvent, screen, waitFor } from '@testing-library/react';
+import {
+  act,
+  fireEvent,
+  screen,
+  waitFor,
+  within,
+} from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { HotkeysProvider } from 'react-hotkeys-hook';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -11,6 +18,7 @@ import { useCollaborationLayoutStore } from './collaborationLayoutStore';
 import { CollaborationSpaceLayout } from './CollaborationSpacePage';
 import { resetSharedSpaceComposerDrafts } from './spaceComposerDrafts';
 import { CollaborationSpaceProvider } from './space/SpaceContext';
+import { registerCanvasCreationHost } from '@/components/kanban/canvas/canvasCreationHost';
 import WorkspaceBotsDockPanel from './WorkspaceBotsDockPanel';
 
 const collaborationCall = vi.hoisted(() => vi.fn());
@@ -63,6 +71,7 @@ describe('Collaboration canvas integration', () => {
   const dropPanelAt = vi.fn();
   let unregisterController: (() => void) | null = null;
   let canvasSurface: HTMLDivElement | null = null;
+  let unregisterCreationHost: (() => void) | null = null;
   const originalElementsFromPoint = document.elementsFromPoint;
   const originalElementFromPoint = document.elementFromPoint;
 
@@ -187,6 +196,7 @@ describe('Collaboration canvas integration', () => {
     canvasSurface = document.createElement('div');
     canvasSurface.className = 'canvas-surface';
     document.body.appendChild(canvasSurface);
+    unregisterCreationHost = registerCanvasCreationHost(canvasSurface);
     document.elementsFromPoint = vi.fn(() => [canvasSurface!]);
     document.elementFromPoint = vi.fn(() => canvasSurface);
   });
@@ -194,11 +204,58 @@ describe('Collaboration canvas integration', () => {
   afterEach(() => {
     unregisterController?.();
     unregisterController = null;
+    act(() => unregisterCreationHost?.());
     canvasSurface?.remove();
     canvasSurface = null;
     document.elementsFromPoint = originalElementsFromPoint;
     document.elementFromPoint = originalElementFromPoint;
   });
+
+  it.each(['outer', 'nested'])(
+    'opens a single editable canvas form from the %s collaboration provider',
+    async (scope) => {
+      const user = userEvent.setup();
+      render(
+        <HotkeysProvider>
+          <TooltipProvider>
+            <CollaborationSpaceProvider workspaceId="ws-1">
+              {scope === 'outer' ? <WorkspaceBotsDockPanel /> : null}
+              <CollaborationSpaceProvider workspaceId="ws-1">
+                {scope === 'nested' ? <WorkspaceBotsDockPanel /> : null}
+                <CollaborationSpaceLayout hideSpacesPane />
+              </CollaborationSpaceProvider>
+            </CollaborationSpaceProvider>
+          </TooltipProvider>
+        </HotkeysProvider>
+      );
+
+      await user.click(
+        (await screen.findAllByRole('button', { name: '创建' }))[0]!
+      );
+      await user.click(
+        await screen.findByRole('menuitem', { name: '创建群聊' })
+      );
+      await waitFor(() =>
+        expect(screen.getAllByRole('dialog')).toHaveLength(1)
+      );
+      const dialog = screen.getByRole('dialog');
+      expect(canvasSurface).toContainElement(dialog);
+      const name = within(dialog).getByRole('textbox', { name: '群聊名称' });
+      await user.type(name, '测试群组');
+      expect(name).toHaveValue('测试群组');
+      await user.click(within(dialog).getByRole('button', { name: '关闭' }));
+      expect(screen.queryByRole('dialog')).toBeNull();
+
+      await user.click(screen.getAllByRole('button', { name: '创建' })[0]!);
+      await user.click(
+        await screen.findByRole('menuitem', { name: '创建助手' })
+      );
+      await waitFor(() =>
+        expect(screen.getAllByRole('dialog')).toHaveLength(1)
+      );
+      expect(canvasSurface).toContainElement(screen.getByRole('dialog'));
+    }
+  );
 
   it('portals MemberPanel into the canvas Space node header slot and removes the inner overlay bar', async () => {
     const headerSlot = document.createElement('div');
@@ -238,7 +295,9 @@ describe('Collaboration canvas integration', () => {
     const threadSection = container.querySelector('.collaboration-thread');
     expect(threadSection).toHaveAttribute('data-header-member-bar', 'external');
     expect(
-      threadSection?.querySelector('[data-testid="collaboration-top-member-bar"]')
+      threadSection?.querySelector(
+        '[data-testid="collaboration-top-member-bar"]'
+      )
     ).toBeNull();
 
     headerSlot.remove();

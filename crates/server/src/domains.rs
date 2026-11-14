@@ -39,6 +39,7 @@ use crate::{
 #[derive(Clone)]
 pub struct ServerApplicationDomains {
     pub(crate) pool: SqlitePool,
+    pub(crate) plugin_updates: Arc<crate::host::plugin_updates::PluginUpdates>,
     pub(crate) plugin_control_plane: Arc<plugins::PluginControlPlane>,
     pub(crate) preview_host: Arc<dyn plugins::PluginPreviewHost>,
     pub(crate) capability_broker: Arc<plugins::HostCapabilityBroker>,
@@ -77,6 +78,27 @@ impl ServerApplicationDomains {
         command: DomainCommand,
         args: Value,
     ) -> Result<Value, ApplicationError> {
+        // Serialize public lifecycle writes; internal helpers may call each other.
+        let _plugin_mutation = if matches!(
+            command,
+            DomainCommand::PluginSaveConfig
+                | DomainCommand::PluginControlSetEnabled
+                | DomainCommand::PluginControlImport
+                | DomainCommand::PluginMarketplaceInstall
+                | DomainCommand::PluginInstall
+                | DomainCommand::PluginUpdate
+                | DomainCommand::PluginControlUpdate
+                | DomainCommand::PluginUninstall
+                | DomainCommand::PluginControlUninstall
+                | DomainCommand::PluginControlRollback
+                | DomainCommand::PluginControlConfigureAgents
+                | DomainCommand::PluginControlConfigureMcp
+                | DomainCommand::PluginControlInstallRuntime
+        ) {
+            Some(self.plugin_updates.mutation.lock().await)
+        } else {
+            None
+        };
         match command {
             DomainCommand::PluginActionCatalog => self.plugin_catalog().await,
             DomainCommand::PluginControlCatalog => self.plugin_control_catalog().await,
@@ -107,7 +129,12 @@ impl ServerApplicationDomains {
             DomainCommand::PluginMarketplaceCatalog => self.plugin_marketplace_catalog(args).await,
             DomainCommand::PluginMarketplaceListing => self.plugin_marketplace_listing(args).await,
             DomainCommand::PluginMarketplaceInstall => self.plugin_marketplace_install(args).await,
-            DomainCommand::PluginCheckUpdates => self.plugin_check_updates().await,
+            DomainCommand::PluginCheckUpdates => {
+                self.check_plugin_updates(
+                    args.get("cached").and_then(Value::as_bool).unwrap_or(false),
+                )
+                .await
+            }
             DomainCommand::PluginControlLogs => self.plugin_control_logs(args).await,
             DomainCommand::PluginControlDiagnostics => self.plugin_control_diagnostics(args).await,
             DomainCommand::PluginControlUninstall => self.plugin_control_uninstall(args).await,
@@ -215,6 +242,9 @@ impl ServerApplicationDomains {
             DomainCommand::WorkspaceCreate
             | DomainCommand::WorkspaceUpdate
             | DomainCommand::WorkspaceDelete
+            | DomainCommand::WorkspaceInitializationStatus
+            | DomainCommand::WorkspaceRetryInitialization
+            | DomainCommand::WorkspaceCancelInitialization
             | DomainCommand::WorkspaceMarkSeen
             | DomainCommand::WorkspaceChildren
             | DomainCommand::WorkspaceBranchStatus
@@ -860,7 +890,7 @@ impl ServerApplicationDomains {
         Ok(())
     }
 
-    async fn ensure_required_plugin_dependencies(
+    pub(crate) async fn ensure_required_plugin_dependencies(
         &self,
         package: &plugins::PluginPackage,
     ) -> Result<(), ApplicationError> {
@@ -1010,8 +1040,30 @@ impl ServerApplicationDomains {
         } else {
             plugins::PluginSourceKind::Snapshot
         };
+        let incoming =
+            plugins::PluginPackage::inspect(&source, source_kind).map_err(plugin_error)?;
+        let existing = self
+            .plugin_control_plane
+            .plugin(incoming.id.as_str())
+            .await
+            .map_err(plugin_error)?;
+        if let Some(existing) = &existing {
+            if decision == plugins::ConflictDecision::KeepInstalled {
+                return Ok(plugin_control_item(existing));
+            }
+            if decision != plugins::ConflictDecision::Replace {
+                return Err(ApplicationError::conflict("plugin is already installed"));
+            }
+        }
         let mut package = if args.developer_link {
             plugins::PluginPackage::inspect(&source, source_kind).map_err(plugin_error)?
+        } else if let Some(existing) = &existing {
+            plugins::PluginPackage::materialize_candidate(
+                &source,
+                &self.runtime_root.join("plugins/candidates"),
+                &existing.package,
+            )
+            .map_err(plugin_error)?
         } else {
             let storage = self.runtime_root.join("plugins/snapshots");
             plugins::PluginPackage::materialize(&source, &storage, source_kind)
@@ -1059,7 +1111,8 @@ impl ServerApplicationDomains {
             .import(package, decision)
             .await
             .map_err(plugin_error)?;
-        if decision != plugins::ConflictDecision::KeepInstalled
+        if existing.is_none()
+            && decision != plugins::ConflictDecision::KeepInstalled
             && self
                 .plugin_control_plane
                 .validate_runtime_readiness(imported.plugin.id())
@@ -1391,28 +1444,6 @@ impl ServerApplicationDomains {
         Err(import_error.unwrap_or(last_error))
     }
 
-    async fn plugin_check_updates(&self) -> Result<Value, ApplicationError> {
-        let catalog = self
-            .plugin_control_plane
-            .catalog()
-            .await
-            .map_err(plugin_error)?;
-        let updates = plugins::check_installed_updates(
-            &catalog
-                .iter()
-                .map(|plugin| plugins::InstalledOrigin {
-                    plugin_id: plugin.id().to_owned(),
-                    version: plugin.version.clone(),
-                    kind: plugin.source.kind,
-                    origin: plugin.source.origin.clone(),
-                    git_ref: plugin.source.git_ref.clone(),
-                })
-                .collect::<Vec<_>>(),
-        )
-        .await;
-        serde_json::to_value(updates).map_err(|error| ApplicationError::internal(error.to_string()))
-    }
-
     async fn plugin_control_logs(&self, args: Value) -> Result<Value, ApplicationError> {
         #[derive(Deserialize)]
         #[serde(rename_all = "camelCase")]
@@ -1503,22 +1534,29 @@ impl ServerApplicationDomains {
                 args.plugin_id
             )));
         };
+        let snapshots = if !retain_data {
+            let paths: Vec<String> = sqlx::query_scalar("SELECT DISTINCT source_path FROM plugin_packages_v4 WHERE plugin_id = ? AND source_kind IN ('snapshot', 'marketplace')")
+                .bind(plugin.id()).fetch_all(&self.pool).await.map_err(internal_error)?;
+            paths
+                .into_iter()
+                .map(std::path::PathBuf::from)
+                .filter(|path| path.exists())
+                .map(|path| managed_plugin_snapshot_path(&self.runtime_root, &path))
+                .collect::<Result<Vec<_>, _>>()?
+        } else {
+            Vec::new()
+        };
         Self::remove_plugin_projections(&plugin).await?;
         self.capability_broker
             .kill_plugin_processes(&args.plugin_id)
             .await;
-        let snapshot = matches!(
-            plugin.source.kind,
-            plugins::PluginSourceKind::Snapshot | plugins::PluginSourceKind::Marketplace
-        )
-        .then(|| plugin.source.path.clone());
         self.plugin_control_plane
             .uninstall(&args.plugin_id)
             .await
             .map_err(plugin_error)?;
         if !retain_data {
             let _ = self.plugin_control_plane.kv_clear(&args.plugin_id).await;
-            if let Some(source) = snapshot {
+            for source in snapshots {
                 remove_managed_plugin_snapshot(&self.runtime_root, &source)?;
             }
         }
@@ -2981,7 +3019,7 @@ fn automation_view(record: AutomationRecord) -> AutomationView {
     }
 }
 
-fn plugin_control_item(plugin: &plugins::InstalledPlugin) -> Value {
+pub(crate) fn plugin_control_item(plugin: &plugins::InstalledPlugin) -> Value {
     plugin_control_item_with_quarantine(plugin, None)
 }
 
@@ -3132,7 +3170,9 @@ fn plugin_control_item_with_quarantine(
         "sourceOrigin": plugin.source.origin,
         "sourceRef": plugin.source.git_ref,
         "sourceSha": plugin.source.git_sha,
+        "hasWorker": plugin.entrypoints.worker.is_some(),
         "sourceLocked": plugin.source.locked,
+        "sourceLock": plugin.source.update_lock.clone().or_else(|| plugins::PluginSourceLock::from_source(&plugin.source, &plugin.version, &plugin.package_digest)),
         "sourceShowTree": plugin.source.show_tree,
     })
 }
@@ -3203,25 +3243,33 @@ fn tag_matches_monorepo_official_plugin(
     })
 }
 
+fn managed_plugin_snapshot_path(
+    runtime_root: &std::path::Path,
+    source: &std::path::Path,
+) -> Result<std::path::PathBuf, ApplicationError> {
+    let source = source.canonicalize().map_err(internal_error)?;
+    let allowed = ["plugins/snapshots", "plugins/candidates"]
+        .iter()
+        .any(|relative| {
+            runtime_root
+                .join(relative)
+                .canonicalize()
+                .is_ok_and(|root| source != root && source.starts_with(root))
+        });
+    if !allowed {
+        return Err(ApplicationError::bad_request(
+            "plugin package is outside managed storage",
+        ));
+    }
+    Ok(source)
+}
+
 fn remove_managed_plugin_snapshot(
     runtime_root: &std::path::Path,
     source: &std::path::Path,
 ) -> Result<(), ApplicationError> {
-    let root = runtime_root
-        .join("plugins/snapshots")
-        .canonicalize()
-        .map_err(|error| ApplicationError::internal(error.to_string()))?;
-    let source = source
-        .canonicalize()
-        .map_err(|error| ApplicationError::internal(error.to_string()))?;
-    if source.parent() != Some(root.as_path()) {
-        return Err(ApplicationError::bad_request(
-            "plugin snapshot is outside the managed snapshot directory",
-        ));
-    }
-    std::fs::remove_dir_all(&source)
-        .map_err(|error| ApplicationError::internal(error.to_string()))?;
-    Ok(())
+    let source = managed_plugin_snapshot_path(runtime_root, source)?;
+    std::fs::remove_dir_all(source).map_err(internal_error)
 }
 
 fn automation_run_view(run: AutomationRunRecord) -> AutomationRunView {

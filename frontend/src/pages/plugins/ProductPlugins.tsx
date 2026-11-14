@@ -52,7 +52,6 @@ import {
   type PluginControlItem,
   type PluginImportPreview,
   type PluginProductDetail,
-  type PluginUpdateStatus,
 } from '@/lib/api/plugins';
 import { useBackendCapabilities, useBackendTransport } from '@/lib/transport';
 import {
@@ -62,6 +61,11 @@ import {
   PluginDetailLoading,
   PluginDropOverlay,
 } from './PluginCatalogControls';
+import { usePluginUpdates } from '@/hooks/usePluginUpdates';
+import {
+  PluginUpdateDialog,
+  usePluginUpdateConfirmation,
+} from './PluginUpdateDialog';
 import { PluginInstallTrustDialog } from './PluginInstallTrustDialog';
 import {
   PluginCatalogModeTabs,
@@ -247,7 +251,10 @@ export function PluginCatalogPage() {
   );
   const [pendingPath, setPendingPath] = useState<string | null>(null);
   const [installingId, setInstallingId] = useState<string | null>(null);
-  const [updates, setUpdates] = useState<PluginUpdateStatus[]>([]);
+  const { updates, checking, check, error: updateError } = usePluginUpdates();
+  const update = usePluginUpdateConfirmation(api, async () => {
+    await refresh(false);
+  });
   const [replacement, setReplacement] = useState<{
     path: string;
     preview: PluginImportPreview;
@@ -310,14 +317,6 @@ export function PluginCatalogPage() {
       cancelled = true;
     };
   }, [api, catalogMode, marketReloadKey, t]);
-
-  useEffect(() => {
-    if (catalogMode !== 'installed' || !canInstall) return;
-    void api
-      .checkUpdates()
-      .then((result) => setUpdates(Array.isArray(result) ? result : []))
-      .catch(() => setUpdates([]));
-  }, [api, canInstall, catalogMode, plugins]);
 
   const visible = useMemo(() => {
     const needle = query.trim().toLocaleLowerCase();
@@ -446,11 +445,6 @@ export function PluginCatalogPage() {
 
   const replacePluginPackage = useCallback(async () => {
     if (!replacement || importingRef.current) return;
-    const name = officialPluginName(
-      replacement.preview.plugin.id,
-      replacement.preview.plugin.name,
-      t
-    );
     importingRef.current = true;
     setImporting(true);
     try {
@@ -467,19 +461,6 @@ export function PluginCatalogPage() {
       setReplacement(null);
       setPlugins((current) => upsertPlugin(current, imported));
       await refresh(false);
-      if (imported.enableSupported !== false && !imported.enabled) {
-        try {
-          const { plugin: activated } = await activateInstalledPlugin(
-            imported,
-            { api, supports }
-          );
-          setPlugins((current) => upsertPlugin(current, activated));
-        } catch (error) {
-          toast.error(t('plugins.productEnableFailed', { name }), {
-            description: errorMessage(error),
-          });
-        }
-      }
     } catch (error) {
       toast.error(t('plugins.productImportFailed'), {
         description: errorMessage(error),
@@ -488,7 +469,7 @@ export function PluginCatalogPage() {
       importingRef.current = false;
       setImporting(false);
     }
-  }, [api, refresh, replacement, setPlugins, supports, t]);
+  }, [api, refresh, replacement, setPlugins, t]);
 
   const confirmMarketplaceInstall = useCallback(async () => {
     if (!pendingListing) return;
@@ -512,17 +493,21 @@ export function PluginCatalogPage() {
       setPlugins((current) => upsertPlugin(current, imported));
       await refresh(false);
       toast.success(t('plugins.productInstalled', { name }));
-      try {
-        const { plugin: activated } = await activateInstalledPlugin(imported, {
-          api,
-          supports,
-        });
-        setPlugins((current) => upsertPlugin(current, activated));
-      } catch (error) {
-        toast.error(t('plugins.productEnableFailed', { name }), {
-          description: errorMessage(error),
-        });
-      }
+      if (!already)
+        try {
+          const { plugin: activated } = await activateInstalledPlugin(
+            imported,
+            {
+              api,
+              supports,
+            }
+          );
+          setPlugins((current) => upsertPlugin(current, activated));
+        } catch (error) {
+          toast.error(t('plugins.productEnableFailed', { name }), {
+            description: errorMessage(error),
+          });
+        }
     } catch (error) {
       toast.error(t('plugins.productImportFailed'), {
         description: errorMessage(error),
@@ -769,23 +754,8 @@ export function PluginCatalogPage() {
             <Button
               type="button"
               variant="outline"
-              disabled={!canInstall || busyId === plugin.id}
-              onClick={() => {
-                const listing: CatalogListing = {
-                  owner: plugin.publisher ?? 'vibex',
-                  pluginName: plugin.id,
-                  tag:
-                    updates.find((item) => item.pluginId === plugin.id)
-                      ?.availableTag ?? plugin.version,
-                  version: plugin.version,
-                  displayName: plugin.name,
-                  summary: plugin.description ?? '',
-                  category: 'official',
-                  sourceKind: plugin.sourceKind,
-                  homepage: plugin.sourceOrigin,
-                };
-                setPendingListing(listing);
-              }}
+              disabled={!canInstall || busyId === plugin.id || update.busy}
+              onClick={() => void update.prepare(plugin.id)}
             >
               {t('plugins.updateAvailable')}
             </Button>
@@ -837,6 +807,14 @@ export function PluginCatalogPage() {
               onConfirmGithubInstall={confirmGithubInstall}
               onOpenExternalMarketplace={openExternalMarketplace}
             />
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={checking || !canInstall}
+              onClick={() => void check()}
+            >
+              {t(checking ? 'plugins.checkingUpdates' : 'plugins.checkUpdates')}
+            </Button>
             <PluginCatalogModeTabs
               value={catalogMode}
               onChange={setCatalogMode}
@@ -845,6 +823,14 @@ export function PluginCatalogPage() {
         </div>
       </header>
 
+      {updateError ? <p role="alert">{updateError}</p> : null}
+      {updates
+        .filter((item) => item.error)
+        .map((item) => (
+          <p key={item.pluginId} role="status">
+            {item.pluginId}: {item.error}
+          </p>
+        ))}
       {catalogMode === 'marketplace' ? (
         <section
           className="product-plugin-catalog-body"
@@ -922,6 +908,7 @@ export function PluginCatalogPage() {
         </section>
       )}
 
+      <PluginUpdateDialog {...update} />
       <PluginInstallTrustDialog
         listing={pendingListing}
         onCancel={() => {

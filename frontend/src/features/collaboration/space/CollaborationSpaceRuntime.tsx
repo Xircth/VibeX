@@ -8120,7 +8120,7 @@ export function useCollaborationSpaceRuntime(
     );
   };
 
-  const renderMessageAreaOverlay = () => {
+  const renderMessageAreaOverlay = (surface: 'thread' | 'canvas' = 'thread') => {
     if (!hasActiveOverlay) return null;
 
     const overlayTitle = createOpen
@@ -8129,7 +8129,11 @@ export function useCollaborationSpaceRuntime(
 
     return (
       <div
-        className="collaboration-thread-overlay absolute inset-0 z-10 flex items-center justify-center p-6"
+        className={
+          surface === 'canvas'
+            ? 'collaboration-thread-overlay pointer-events-auto relative flex max-h-full w-[440px] max-w-full items-center'
+            : 'collaboration-thread-overlay absolute inset-0 z-10 flex items-center justify-center p-6'
+        }
         onMouseDown={(event) => {
           if (event.target === event.currentTarget) {
             closeAllOverlays();

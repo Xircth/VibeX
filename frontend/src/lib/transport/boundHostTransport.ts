@@ -47,6 +47,8 @@ const HOST_PUSH_EVENT_PREFIXES = [
   'conversation-after-turn',
   'conversation-runtime-event',
   'plugin-notify-toast',
+  'plugin-updates-changed',
+  'plugin-updates-available',
   'provider-bind-confirm',
 ] as const;
 

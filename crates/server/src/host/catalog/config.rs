@@ -92,12 +92,12 @@ pub(super) async fn update_config(
     new_config.clamp_multi_agent();
     if !git::is_valid_branch_prefix(&new_config.git_branch_prefix) {
         return Err(ApplicationError::bad_request(
-            "Invalid git branch prefix. Must be a valid git branch name component without slashes.",
+            "Invalid git branch prefix. Use valid Git ref segments separated by '/', or leave it empty.",
         ));
     }
     let previous_theme = domains.deployment.config().read().await.theme.clone();
-    let path = utils::assets::settings_path();
-    save_config_to_file(&new_config, &path)
+    let path = domains.deployment.settings_path();
+    save_config_to_file(&new_config, path)
         .await
         .map_err(internal_error)?;
     publish_config_runtime(&new_config).await;

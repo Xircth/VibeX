@@ -376,7 +376,7 @@ impl ProjectionFold {
                     record.sequence,
                 );
             }
-            ConversationEvent::AgentConnectionStatusChanged { status } => match status {
+            ConversationEvent::AgentConnectionStatusChanged { status, bound, .. } => match status {
                 ConversationAgentConnectionStatus::Connecting
                 | ConversationAgentConnectionStatus::Recovering => {
                     upsert_stable_notice(
@@ -392,6 +392,9 @@ impl ProjectionFold {
                     );
                 }
                 ConversationAgentConnectionStatus::Ready => {
+                    if !bound {
+                        return;
+                    }
                     remove_side_row(
                         side_rows,
                         deleted_rows,
@@ -545,12 +548,6 @@ impl ProjectionFold {
                         .and_then(serde_json::Value::as_str)
                         == Some(agents::SESSION_CONNECT_ERROR_KIND)
                 {
-                    remove_side_row(
-                        side_rows,
-                        deleted_rows,
-                        AGENT_CONNECTION_RECOVERING_NOTICE_ROW_ID,
-                        record.sequence,
-                    );
                     let message = payload
                         .as_ref()
                         .and_then(|value| value.get("message"))
@@ -829,6 +826,7 @@ fn host_note_notice(
         severity: "info".into(),
         announcement_id: Some(announcement_id.to_string()),
         action: None,
+        ..Default::default()
     })
 }
 

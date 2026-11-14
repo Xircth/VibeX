@@ -448,6 +448,8 @@ impl ConversationSessionService {
             "runtime",
             ConversationEvent::AgentConnectionStatusChanged {
                 status: ConversationAgentConnectionStatus::Closed,
+                message: None,
+                bound: false,
             },
             Some(format!("conversation:{conversation_id}:closed")),
         )
@@ -847,13 +849,13 @@ pub(super) async fn reconcile_orphaned_connecting_conversations_in_pool(
                GROUP BY conversation_id
            ) latest
            ON e.conversation_id = latest.conversation_id AND e.sequence = latest.max_seq
-           WHERE e.event_kind = 'agent_connection_status_changed'"#,
+           WHERE e.event_kind IN ('agent_connection_status_changed', 'agent_binding_ready', 'agent_binding_recovered')"#,
     )
     .fetch_all(pool)
     .await?;
 
     let materialized_candidates: Vec<Uuid> = sqlx::query_scalar(
-        "SELECT DISTINCT conversation_id FROM conversation_timeline_rows WHERE row_id = 'notice:agent-connection-recovering'",
+        "SELECT DISTINCT conversation_id FROM conversation_timeline_rows WHERE row_id IN ('notice:agent-connection-recovering', 'status:agent-connection')",
     )
     .fetch_all(pool)
     .await?;
@@ -870,9 +872,23 @@ pub(super) async fn reconcile_orphaned_connecting_conversations_in_pool(
             .side_rows
             .iter()
             .any(|row| row.row_id == "notice:agent-connection-recovering");
-        if has_recovering_notice {
+        let had_live_connection = fold.side_rows.iter().any(|row| match &row.row {
+            agents::conversation::ConversationTimelineRow::SessionNotice { notice } => {
+                notice.connection_status.as_ref().is_some_and(|connection| {
+                    !matches!(
+                        connection.status,
+                        ConversationAgentConnectionStatus::Closed
+                            | ConversationAgentConnectionStatus::Error
+                    )
+                })
+            }
+            _ => false,
+        });
+        if has_recovering_notice || had_live_connection {
             let event = ConversationEvent::AgentConnectionStatusChanged {
                 status: ConversationAgentConnectionStatus::Closed,
+                message: None,
+                bound: false,
             };
             let normalized_json = serde_json::to_string(&event)
                 .map_err(|e| ConversationServiceError::Internal(e.to_string()))?;

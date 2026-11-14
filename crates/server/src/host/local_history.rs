@@ -139,23 +139,35 @@ async fn ensure_project_root_workspace_for_import(
     project: &Project,
     repos: &[Repo],
 ) -> Result<Workspace, sqlx::Error> {
-    let Some(primary) = repos.first() else {
+    let primary = repos.first();
+    if primary.is_none() && project.root_path.trim().is_empty() {
         return Err(sqlx::Error::RowNotFound);
-    };
-    let branch = project
-        .default_main_branch
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .unwrap_or("main")
-        .to_string();
-    let workspace_repos = [CreateWorkspaceRepo {
-        repo_id: primary.id,
-        target_branch: branch.clone(),
-    }];
-    if let Some(workspace_id) =
-        WorkspaceRepo::find_reusable_non_worktree_workspace_id(pool, project.id, &workspace_repos)
-            .await?
+    }
+    let branch = primary
+        .map(|_| {
+            project
+                .default_main_branch
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .unwrap_or("main")
+                .to_string()
+        })
+        .unwrap_or_default();
+    let workspace_repos = primary
+        .into_iter()
+        .map(|primary| CreateWorkspaceRepo {
+            repo_id: primary.id,
+            target_branch: branch.clone(),
+        })
+        .collect::<Vec<_>>();
+    if !workspace_repos.is_empty()
+        && let Some(workspace_id) = WorkspaceRepo::find_reusable_non_worktree_workspace_id(
+            pool,
+            project.id,
+            &workspace_repos,
+        )
+        .await?
         && let Some(workspace) = Workspace::find_by_id(pool, workspace_id).await?
     {
         return Ok(workspace);
@@ -175,7 +187,7 @@ async fn ensure_project_root_workspace_for_import(
             pool,
             &CreateTask {
                 project_id: project.id,
-                title: format!("Project Root Workspace ({})", primary.name),
+                title: format!("Project Root Workspace ({})", project.name),
                 description: Some(
                     "Auto-created to support sessions on the project root branch.".to_string(),
                 ),
@@ -193,9 +205,15 @@ async fn ensure_project_root_workspace_for_import(
             project_id: project.id,
             parent_workspace_id: None,
             branch: branch.clone(),
-            container_ref: Some(primary.path.to_string_lossy().to_string()),
+            container_ref: Some(
+                primary
+                    .map(|repo| repo.path.to_string_lossy().to_string())
+                    .unwrap_or_else(|| project.root_path.clone()),
+            ),
             use_worktree: false,
-            agent_working_dir: primary.default_working_dir.clone(),
+            agent_working_dir: primary
+                .map(|repo| repo.default_working_dir.clone())
+                .unwrap_or_else(|| Some(project.root_path.clone())),
         },
         Uuid::new_v4(),
         task.id,
@@ -203,12 +221,20 @@ async fn ensure_project_root_workspace_for_import(
     .await
     .map_err(workspace_db_error)?;
     WorkspaceRepo::create_many(pool, workspace.id, &workspace_repos).await?;
-    let display_name = if primary.display_name.trim().is_empty() {
-        primary.name.as_str()
+    let display_name = primary
+        .map(|primary| {
+            if primary.display_name.trim().is_empty() {
+                primary.name.as_str()
+            } else {
+                primary.display_name.as_str()
+            }
+        })
+        .unwrap_or(project.name.as_str());
+    let workspace_name = if branch.is_empty() {
+        display_name.to_string()
     } else {
-        primary.display_name.as_str()
+        format!("{display_name} · {branch}")
     };
-    let workspace_name = format!("{display_name} · {branch}");
     Workspace::update(
         pool,
         workspace.id,
@@ -258,6 +284,51 @@ mod tests {
             .await
             .expect("disable foreign keys");
         pool
+    }
+
+    #[tokio::test]
+    async fn directory_project_without_git_or_conversations_can_import_history() {
+        let pool = migrated_pool().await;
+        let project_id = Uuid::new_v4();
+        Project::create(
+            &pool,
+            &CreateProject {
+                name: "Notes".into(),
+                root_path: "/Projects/Notes".into(),
+                ..Default::default()
+            },
+            project_id,
+        )
+        .await
+        .expect("directory project");
+        let sessions = vec![HistoryScanEntry {
+            source_agent: AgentKind::Codex,
+            external_session_id: "notes-1".into(),
+            title: Some("Notes history".into()),
+            workspace_path: Some("/Projects/Notes".into()),
+            message_count: 2,
+            updated_at: None,
+        }];
+        let page = assemble_local_history_scan_page(&pool, sessions.clone())
+            .await
+            .expect("scan");
+        assert_eq!(page.destinations.len(), 1);
+        assert_eq!(page.folders[0].project_id, Some(project_id));
+        let workspace_id = page.folders[0].workspace_id.expect("import workspace");
+        let workspace = Workspace::find_by_id(&pool, workspace_id)
+            .await
+            .expect("workspace query")
+            .expect("workspace");
+        assert!(!workspace.use_worktree);
+        assert_eq!(
+            std::path::Path::new(workspace.container_ref.as_deref().expect("directory")),
+            std::path::Path::new("/Projects/Notes")
+        );
+        assert!(workspace.branch.is_empty());
+        let rescanned = assemble_local_history_scan_page(&pool, sessions)
+            .await
+            .expect("rescan");
+        assert_eq!(rescanned.folders[0].workspace_id, Some(workspace_id));
     }
 
     #[tokio::test]

@@ -37,6 +37,8 @@ pub enum PluginSourceKind {
 #[serde(rename_all = "camelCase")]
 pub struct PluginSource {
     pub kind: PluginSourceKind,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub update_lock: Option<crate::PluginSourceLock>,
     pub path: PathBuf,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub origin: Option<String>,
@@ -54,6 +56,7 @@ impl PluginSource {
     pub fn new(kind: PluginSourceKind, path: PathBuf) -> Self {
         Self {
             kind,
+            update_lock: None,
             path,
             origin: None,
             git_ref: None,
@@ -1179,6 +1182,27 @@ impl PluginPackage {
             .persist(path)
             .map_err(|error| PluginError::io("publish Plugin config", error.error))?;
         Ok(())
+    }
+
+    /// Prepare an update without replacing any installed or rollback files.
+    pub fn materialize_candidate(
+        source: &Path,
+        storage_root: &Path,
+        previous: &PluginPackage,
+    ) -> Result<Self, PluginError> {
+        fs::create_dir_all(storage_root).map_err(|e| PluginError::io("create candidates", e))?;
+        let candidate_root = tempfile::tempdir_in(storage_root)
+            .map_err(|e| PluginError::io("create candidate", e))?;
+        let mut package = Self::materialize(source, candidate_root.path(), previous.source.kind)?;
+        if package.id != previous.id || package.publisher != previous.publisher {
+            return Err(PluginError::conflict(previous.id.as_str()));
+        }
+        // Read the live config, since the stored package model may predate user edits.
+        let config = previous.read_config()?;
+        package.write_config(config)?;
+        package.config = package.read_config()?;
+        let _ = candidate_root.keep();
+        Ok(package)
     }
 
     pub fn materialize(

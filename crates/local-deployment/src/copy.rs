@@ -28,6 +28,7 @@ pub(crate) fn copy_project_files_impl(
 
     // Track files to avoid duplicates
     let mut seen = HashSet::new();
+    let mut errors = Vec::new();
 
     for pattern in patterns {
         let pattern = normalize_pattern(pattern);
@@ -35,12 +36,7 @@ pub(crate) fn copy_project_files_impl(
 
         if pattern_path.is_file() {
             if let Err(e) = copy_single_file(&pattern_path, source_dir, target_dir, &mut seen) {
-                tracing::warn!(
-                    "Failed to copy file {} (from {}): {}",
-                    pattern,
-                    pattern_path.display(),
-                    e
-                );
+                errors.push(format!("{}: {e}", pattern_path.display()));
             }
             continue;
         }
@@ -58,19 +54,29 @@ pub(crate) fn copy_project_files_impl(
         {
             Ok(w) => w,
             Err(e) => {
-                tracing::warn!("Invalid glob pattern '{glob_pattern}': {e}");
+                errors.push(format!("Invalid glob pattern '{glob_pattern}': {e}"));
                 continue;
             }
         };
 
-        for entry in walker.flatten() {
-            if let Err(e) = copy_single_file(entry.path(), source_dir, target_dir, &mut seen) {
-                tracing::warn!("Failed to copy file {:?}: {e}", entry.path());
+        for entry in walker {
+            match entry {
+                Ok(entry) => {
+                    if let Err(e) =
+                        copy_single_file(entry.path(), source_dir, target_dir, &mut seen)
+                    {
+                        errors.push(format!("{}: {e}", entry.path().display()));
+                    }
+                }
+                Err(e) => errors.push(e.to_string()),
             }
         }
     }
-
-    Ok(())
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        Err(ContainerError::Other(anyhow!(errors.join("; "))))
+    }
 }
 
 fn copy_single_file(
@@ -207,7 +213,7 @@ mod tests {
     }
 
     #[test]
-    fn test_copy_project_files_outside_source_skips_without_copying() {
+    fn test_copy_project_files_outside_source_reports_failure() {
         let source_dir = TempDir::new().unwrap();
         let target_dir = TempDir::new().unwrap();
 
@@ -219,7 +225,7 @@ mod tests {
         // Pattern referencing parent directory should resolve to outside_file and be rejected
         let result = copy_project_files_impl(source_dir.path(), target_dir.path(), "../secret.txt");
 
-        assert!(result.is_ok());
+        assert!(result.is_err());
         assert_eq!(fs::read_dir(target_dir.path()).unwrap().count(), 0);
     }
 

@@ -18,8 +18,7 @@ use crate::{
     AgentPermissionRequest, AgentPermissionResponse, AgentPreparedSessionSnapshot, AgentPromptId,
     AgentPromptQueue, AgentPromptSnapshot, AgentPromptStatus, AgentResult,
     AgentSessionConfigOverride, AgentSessionControlsSnapshot, AgentSessionId, AgentSessionSnapshot,
-    AgentSessionStatus, QueueTransition, SESSION_CONNECT_ERROR_KIND,
-    SESSION_RECONNECT_PROGRESS_KIND, SessionLaunchLock,
+    AgentSessionStatus, QueueTransition, SessionLaunchLock,
     state::{AgentConnectionSnapshot, AgentConnectionStatus},
 };
 
@@ -267,7 +266,6 @@ pub struct RuntimeSnapshot {
 #[derive(Debug, Clone)]
 struct RuntimeConnectionLaunch {
     launch_lock: SessionLaunchLock,
-    additional_directories: Vec<PathBuf>,
     auto_approve_mode: AgentAutoApproveMode,
     env: HashMap<String, String>,
 }
@@ -284,27 +282,6 @@ struct RuntimeSession {
     queue: AgentPromptQueue,
     ownership: RuntimeSessionOwnership,
     controls: AgentSessionControlsSnapshot,
-    /// How many times this session auto-recovered a silent in-flight turn.
-    /// Reset when a new prompt starts. Caps the reconnect loop (Codeg keeps
-    /// Prompting connections alive; we reconnect instead of failing immediately).
-    turn_recovery_attempts: u32,
-}
-
-const MAX_SILENT_TURN_RECOVERIES: u32 = 3;
-
-struct SilentTurnRecovery {
-    connection_id: AgentConnectionId,
-    session_id: AgentSessionId,
-    prompt_id: AgentPromptId,
-    blocks: Vec<AgentContentBlock>,
-    display_blocks: Option<Vec<AgentContentBlock>>,
-    options: PromptDispatchOptions,
-    launch: RuntimeConnectionLaunch,
-    agent_id: AgentId,
-    workspace_id: Uuid,
-    working_dir: PathBuf,
-    acp_session_id: String,
-    attempt: u32,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -316,6 +293,13 @@ enum RuntimeSessionOwnership {
 
 #[derive(Debug, Default)]
 struct RuntimeState {
+    request_activity: HashMap<
+        AgentPromptId,
+        (
+            crate::request_status::RequestActivity,
+            chrono::DateTime<Utc>,
+        ),
+    >,
     sequence: i64,
     connections: HashMap<AgentConnectionId, RuntimeConnection>,
     sessions: HashMap<AgentSessionId, RuntimeSession>,
@@ -330,7 +314,6 @@ struct RuntimeState {
 struct PromptDispatchOptions {
     mode_override: Option<String>,
     config_overrides: Vec<AgentSessionConfigOverride>,
-    allow_automatic_recovery: bool,
 }
 
 const MAX_RECENT_EVENTS: usize = 2_000;
@@ -465,27 +448,66 @@ impl AgentRuntime {
     ) {
         tokio::spawn(async move {
             while let Some(manager_event) = manager_event_rx.recv().await {
-                if let Some(recovery) =
-                    Self::take_silent_turn_recovery(&state, &manager_event).await
-                {
-                    let recovered = Self::recover_silent_turn(
-                        &state,
-                        &connection_manager,
-                        event_sink.as_ref(),
-                        &event_tx,
-                        recovery,
-                    )
-                    .await;
-                    if recovered {
+                let (next_prompt, envelope, activity_envelope, connection_envelopes) = {
+                    let mut state = state.write().await;
+                    if manager_event
+                        .session_id
+                        .and_then(|id| state.sessions.get(&id))
+                        .is_some_and(|session| {
+                            session.snapshot.connection_id != manager_event.connection_id
+                        })
+                    {
                         continue;
                     }
-                }
-
-                let (next_prompt, envelope) = {
-                    let mut state = state.write().await;
                     let active_before =
                         Self::active_prompt_for_manager_event_locked(&state, &manager_event);
+                    if manager_event.prompt_id.is_some() && manager_event.prompt_id != active_before
+                    {
+                        continue;
+                    }
+                    if let AgentEvent::PromptFinished { finished } = &manager_event.event
+                        && Some(finished.prompt_id) != active_before
+                    {
+                        continue;
+                    }
+                    let activity = crate::request_status::activity_for_event(&manager_event.event);
+                    if matches!(manager_event.event, AgentEvent::RequestActivity { .. })
+                        && manager_event.prompt_id != active_before
+                    {
+                        continue;
+                    }
+                    if matches!(manager_event.event, AgentEvent::RequestActivity { .. })
+                        && active_before
+                            .and_then(|id| state.prompts.get(&id))
+                            .is_some_and(|p| matches!(p.status, AgentPromptStatus::Cancelling))
+                    {
+                        continue;
+                    }
                     Self::apply_manager_event_locked(&mut state, &manager_event);
+                    let mut connection_envelopes = Vec::new();
+                    if manager_event.session_id.is_none()
+                        && matches!(
+                            manager_event.event,
+                            AgentEvent::ConnectionStatusChanged { .. }
+                        )
+                    {
+                        let sessions: Vec<_> = state
+                            .sessions
+                            .iter()
+                            .filter_map(|(id, session)| {
+                                (session.snapshot.connection_id == manager_event.connection_id)
+                                    .then_some(*id)
+                            })
+                            .collect();
+                        for session in sessions {
+                            connection_envelopes.push(Self::queue_envelope_locked(
+                                &mut state,
+                                manager_event.connection_id,
+                                Some(session),
+                                manager_event.event.clone(),
+                            ));
+                        }
+                    }
                     let next_prompt = Self::prompt_to_dispatch_after_manager_event_locked(
                         &state,
                         &manager_event,
@@ -494,15 +516,75 @@ impl AgentRuntime {
                     // Persist/broadcast after releasing the runtime lock. Holding
                     // `state.write()` while the persist sink blocked deadlocked
                     // every concurrent session's ACP read loop at "生成中".
+                    let explicit_activity =
+                        matches!(manager_event.event, AgentEvent::RequestActivity { .. });
                     let envelope = Self::queue_envelope_locked(
                         &mut state,
                         manager_event.connection_id,
                         manager_event.session_id,
                         manager_event.event,
                     );
-                    (next_prompt, envelope)
+                    let activity_envelope = if let (Some(prompt_id), Some(activity)) =
+                        (active_before, activity)
+                    {
+                        let now = Utc::now();
+                        let previous = state.request_activity.get(&prompt_id);
+                        let cancelling = previous.is_some_and(|(held, _)| {
+                            held.phase == crate::request_status::RequestPhase::Cancelling
+                        });
+                        let changed = previous.is_none_or(|(held, at)| {
+                            held != &activity || now.signed_duration_since(*at).num_seconds() >= 5
+                        });
+                        if changed
+                            && (!cancelling
+                                || activity.phase
+                                    == crate::request_status::RequestPhase::Cancelling)
+                        {
+                            state
+                                .request_activity
+                                .insert(prompt_id, (activity.clone(), now));
+                            (!explicit_activity).then(|| {
+                                Self::queue_envelope_locked(
+                                    &mut state,
+                                    manager_event.connection_id,
+                                    manager_event.session_id,
+                                    AgentEvent::RequestActivity {
+                                        prompt_id,
+                                        activity,
+                                    },
+                                )
+                            })
+                        } else {
+                            None
+                        }
+                    } else {
+                        None
+                    };
+                    if let Some(prompt_id) = active_before
+                        && state.prompts.get(&prompt_id).is_some_and(|p| {
+                            matches!(
+                                p.status,
+                                AgentPromptStatus::Completed { .. }
+                                    | AgentPromptStatus::Failed { .. }
+                            )
+                        })
+                    {
+                        state.request_activity.remove(&prompt_id);
+                    }
+                    (
+                        next_prompt,
+                        envelope,
+                        activity_envelope,
+                        connection_envelopes,
+                    )
                 };
+                for envelope in connection_envelopes {
+                    Self::dispatch_envelope(&*event_sink, &event_tx, envelope);
+                }
                 Self::dispatch_envelope(&*event_sink, &event_tx, envelope);
+                if let Some(envelope) = activity_envelope {
+                    Self::dispatch_envelope(&*event_sink, &event_tx, envelope);
+                }
 
                 if let Some((session_id, prompt_id, blocks, display_blocks, options)) = next_prompt
                     && let Err(error) = connection_manager
@@ -590,249 +672,6 @@ impl AgentRuntime {
             .cloned()
             .unwrap_or_default();
         Some((session_id, prompt_id, blocks, display_blocks, options))
-    }
-
-    async fn take_silent_turn_recovery(
-        state: &RwLock<RuntimeState>,
-        manager_event: &AgentConnectionManagerEvent,
-    ) -> Option<SilentTurnRecovery> {
-        let AgentEvent::Error { error } = &manager_event.event else {
-            return None;
-        };
-        if !matches!(
-            error.code.as_deref(),
-            Some("connection_closed" | "agent_connection_lost")
-        ) {
-            return None;
-        }
-        let session_id = manager_event.session_id?;
-        let prompt_id = manager_event.prompt_id?;
-        let mut state = state.write().await;
-        if prompt_has_turn_output(&state, session_id, prompt_id) {
-            return None;
-        }
-        let session = state.sessions.get(&session_id)?;
-        if session.snapshot.active_prompt_id != Some(prompt_id) {
-            return None;
-        }
-        if session.turn_recovery_attempts >= MAX_SILENT_TURN_RECOVERIES {
-            return None;
-        }
-        let blocks = state.prompt_blocks.get(&prompt_id).cloned()?;
-        let display_blocks = state.prompt_display_blocks.get(&prompt_id).cloned();
-        let options = state
-            .prompt_options
-            .get(&prompt_id)
-            .cloned()
-            .unwrap_or_default();
-        if !options.allow_automatic_recovery {
-            return None;
-        }
-        let connection = state.connections.get(&manager_event.connection_id)?;
-        let recovery = SilentTurnRecovery {
-            connection_id: manager_event.connection_id,
-            session_id,
-            prompt_id,
-            blocks,
-            display_blocks,
-            options,
-            launch: connection.launch.clone(),
-            agent_id: connection.snapshot.agent_id.clone(),
-            workspace_id: connection.snapshot.workspace_id,
-            working_dir: PathBuf::from(&connection.snapshot.working_dir),
-            acp_session_id: session.snapshot.acp_session_id.clone(),
-            attempt: session.turn_recovery_attempts + 1,
-        };
-        if let Some(session) = state.sessions.get_mut(&session_id) {
-            session.turn_recovery_attempts = recovery.attempt;
-        }
-        Some(recovery)
-    }
-
-    async fn recover_silent_turn(
-        state: &RwLock<RuntimeState>,
-        connection_manager: &AgentConnectionManager,
-        event_sink: &dyn RuntimeEventSink,
-        event_tx: &broadcast::Sender<AgentEventEnvelope>,
-        recovery: SilentTurnRecovery,
-    ) -> bool {
-        {
-            let mut state = state.write().await;
-            if let Some(connection) = state.connections.get_mut(&recovery.connection_id) {
-                connection.snapshot.status = AgentConnectionStatus::Recovering;
-                connection.snapshot.status_message = Some(format!(
-                    "Agent connection dropped; reconnecting ({}/{})…",
-                    recovery.attempt, MAX_SILENT_TURN_RECOVERIES
-                ));
-                connection.snapshot.updated_at = Utc::now();
-                let snapshot = connection.snapshot.clone();
-                Self::emit_with_parts_locked(
-                    &mut state,
-                    event_sink,
-                    event_tx,
-                    snapshot.id,
-                    Some(recovery.session_id),
-                    AgentEvent::ConnectionStatusChanged { snapshot },
-                );
-            }
-            Self::emit_with_parts_locked(
-                &mut state,
-                event_sink,
-                event_tx,
-                recovery.connection_id,
-                Some(recovery.session_id),
-                AgentEvent::RawAcpDiagnostic {
-                    raw: serde_json::json!({
-                        "kind": SESSION_RECONNECT_PROGRESS_KIND,
-                        "attempt": recovery.attempt,
-                        "max": MAX_SILENT_TURN_RECOVERIES,
-                    }),
-                },
-            );
-            Self::emit_with_parts_locked(
-                &mut state,
-                event_sink,
-                event_tx,
-                recovery.connection_id,
-                Some(recovery.session_id),
-                AgentEvent::RawAcpDiagnostic {
-                    raw: serde_json::json!({
-                        "kind": SESSION_CONNECT_ERROR_KIND,
-                        "message": "Agent connection closed before the turn completed.",
-                    }),
-                },
-            );
-        }
-
-        tokio::time::sleep(silent_turn_recovery_backoff(recovery.attempt)).await;
-        let _ = connection_manager.disconnect(recovery.connection_id).await;
-
-        let connect = Self::establish_connection(
-            state,
-            connection_manager,
-            event_sink,
-            event_tx,
-            ConnectAgentInput {
-                agent_id: recovery.agent_id,
-                launch_lock: recovery.launch.launch_lock,
-                workspace_id: recovery.workspace_id,
-                working_dir: recovery.working_dir,
-                additional_directories: recovery.launch.additional_directories,
-                auto_approve_mode: recovery.launch.auto_approve_mode,
-                env: recovery.launch.env,
-            },
-        )
-        .await;
-        let Ok(rebound) = connect else {
-            return false;
-        };
-
-        {
-            let mut state = state.write().await;
-            if let Some(session) = state.sessions.get_mut(&recovery.session_id) {
-                session.snapshot.connection_id = rebound.id;
-                session.snapshot.updated_at = Utc::now();
-            }
-        }
-
-        let preferences = crate::SessionControlPreferences {
-            mode: recovery.options.mode_override.clone(),
-            config: recovery.options.config_overrides.clone(),
-            ..Default::default()
-        };
-        if !bind_acp_thread_before_prompt(
-            connection_manager,
-            rebound.id,
-            recovery.session_id,
-            &recovery.acp_session_id,
-            preferences,
-        )
-        .await
-        {
-            Self::fail_rebound_silent_turn(
-                state,
-                event_sink,
-                event_tx,
-                rebound.id,
-                recovery.session_id,
-                recovery.prompt_id,
-                "ACP session is not bound on this connection; resume the existing thread instead of calling session/new",
-            )
-            .await;
-            return true;
-        }
-
-        if let Err(error) = connection_manager
-            .send_prompt_with_display_blocks(
-                rebound.id,
-                recovery.session_id,
-                recovery.prompt_id,
-                recovery.blocks,
-                recovery.display_blocks,
-                recovery.options.mode_override,
-                recovery.options.config_overrides,
-            )
-            .await
-        {
-            Self::fail_rebound_silent_turn(
-                state,
-                event_sink,
-                event_tx,
-                rebound.id,
-                recovery.session_id,
-                recovery.prompt_id,
-                &error.to_string(),
-            )
-            .await;
-            return true;
-        }
-
-        {
-            let mut state = state.write().await;
-            if let Some(connection) = state.connections.get_mut(&rebound.id) {
-                connection.snapshot.status = AgentConnectionStatus::Ready;
-                connection.snapshot.status_message = None;
-                connection.snapshot.updated_at = Utc::now();
-                let snapshot = connection.snapshot.clone();
-                Self::emit_with_parts_locked(
-                    &mut state,
-                    event_sink,
-                    event_tx,
-                    snapshot.id,
-                    Some(recovery.session_id),
-                    AgentEvent::ConnectionStatusChanged { snapshot },
-                );
-            }
-        }
-        true
-    }
-
-    async fn fail_rebound_silent_turn(
-        state: &RwLock<RuntimeState>,
-        event_sink: &dyn RuntimeEventSink,
-        event_tx: &broadcast::Sender<AgentEventEnvelope>,
-        connection_id: AgentConnectionId,
-        session_id: AgentSessionId,
-        prompt_id: AgentPromptId,
-        message: &str,
-    ) {
-        let mut state = state.write().await;
-        fail_prompt_locked(&mut state, session_id, prompt_id, message.to_string());
-        let envelope = Self::queue_envelope_locked(
-            &mut state,
-            connection_id,
-            Some(session_id),
-            AgentEvent::Error {
-                error: AgentErrorEvent {
-                    message: message.to_string(),
-                    code: Some("connection_closed".to_string()),
-                    raw: None,
-                },
-            },
-        );
-        drop(state);
-        event_sink.emit(envelope.clone());
-        let _ = event_tx.send(envelope);
     }
 
     pub fn subscribe_events(&self) -> broadcast::Receiver<AgentEventEnvelope> {
@@ -969,7 +808,6 @@ impl AgentRuntime {
                 snapshot: snapshot.clone(),
                 launch: RuntimeConnectionLaunch {
                     launch_lock: input.launch_lock.clone(),
-                    additional_directories: input.additional_directories.clone(),
                     auto_approve_mode: input.auto_approve_mode,
                     env: input.env.clone(),
                 },
@@ -1102,7 +940,6 @@ impl AgentRuntime {
                 queue: AgentPromptQueue::default(),
                 ownership: RuntimeSessionOwnership::Owned,
                 controls: AgentSessionControlsSnapshot::default(),
-                turn_recovery_attempts: 0,
             },
         );
         self.emit_locked(
@@ -1406,126 +1243,6 @@ impl AgentRuntime {
         }
         let _ = self.connection_manager.disconnect(connection_id).await;
         self.state.write().await.connections.remove(&connection_id);
-    }
-
-    /// Reopen a dead ACP process and re-issue a prompt that never reached the
-    /// agent (Codeg Prompting keep-alive). Used when send_prompt hits a dead
-    /// command channel and when the event pump sees a silent in-flight death.
-    #[allow(clippy::too_many_arguments)]
-    async fn recover_live_prompt(
-        &self,
-        connection_id: AgentConnectionId,
-        session_id: AgentSessionId,
-        prompt_id: AgentPromptId,
-        blocks: Vec<AgentContentBlock>,
-        display_blocks: Option<Vec<AgentContentBlock>>,
-        mode_override: Option<String>,
-        config_overrides: Vec<AgentSessionConfigOverride>,
-    ) -> AgentResult<()> {
-        let (launch_input, acp_session_id, preferences) = {
-            let state = self.state.read().await;
-            let connection = state
-                .connections
-                .get(&connection_id)
-                .ok_or_else(|| AgentError::ConnectionNotFound(connection_id.to_string()))?;
-            let session = state
-                .sessions
-                .get(&session_id)
-                .ok_or_else(|| AgentError::SessionNotFound(session_id.to_string()))?;
-            let launch_input = ConnectAgentInput {
-                agent_id: connection.snapshot.agent_id.clone(),
-                launch_lock: connection.launch.launch_lock.clone(),
-                workspace_id: connection.snapshot.workspace_id,
-                working_dir: PathBuf::from(&connection.snapshot.working_dir),
-                additional_directories: connection.launch.additional_directories.clone(),
-                auto_approve_mode: connection.launch.auto_approve_mode,
-                env: connection.launch.env.clone(),
-            };
-            let preferences = crate::SessionControlPreferences {
-                mode: mode_override.clone(),
-                config: config_overrides.clone(),
-                ..Default::default()
-            };
-            (
-                launch_input,
-                session.snapshot.acp_session_id.clone(),
-                preferences,
-            )
-        };
-
-        self.mark_connection_recovering(connection_id, session_id)
-            .await;
-        self.retire_failed_connection(
-            connection_id,
-            &AgentError::ConnectionClosed(
-                "ACP connection dropped; reopening before the turn is lost".into(),
-            ),
-        )
-        .await;
-
-        let rebound = self
-            .ensure_session(EnsureAgentSessionInput {
-                agent_id: launch_input.agent_id,
-                launch_lock: launch_input.launch_lock,
-                workspace_id: launch_input.workspace_id,
-                working_dir: launch_input.working_dir,
-                additional_directories: launch_input.additional_directories,
-                session_id,
-                acp_session_id: acp_session_id.clone(),
-                auto_approve_mode: launch_input.auto_approve_mode,
-                env: launch_input.env,
-                preferences: preferences.clone(),
-            })
-            .await?;
-
-        if !bind_acp_thread_before_prompt(
-            &self.connection_manager,
-            rebound.connection_id,
-            session_id,
-            &acp_session_id,
-            preferences,
-        )
-        .await
-        {
-            return Err(AgentError::Runtime(
-                "ACP session is not bound on this connection; resume the existing thread instead of calling session/new".into(),
-            ));
-        }
-
-        self.connection_manager
-            .send_prompt_with_display_blocks(
-                rebound.connection_id,
-                session_id,
-                prompt_id,
-                blocks,
-                display_blocks,
-                mode_override,
-                config_overrides,
-            )
-            .await
-    }
-
-    async fn mark_connection_recovering(
-        &self,
-        connection_id: AgentConnectionId,
-        session_id: AgentSessionId,
-    ) {
-        let mut state = self.state.write().await;
-        let Some(connection) = state.connections.get_mut(&connection_id) else {
-            return;
-        };
-        connection.snapshot.status = AgentConnectionStatus::Recovering;
-        connection.snapshot.status_message =
-            Some("Agent connection dropped; reconnecting…".to_string());
-        connection.snapshot.updated_at = Utc::now();
-        let snapshot = connection.snapshot.clone();
-        self.emit_locked(
-            &mut state,
-            snapshot.workspace_id,
-            snapshot.id,
-            Some(session_id),
-            AgentEvent::ConnectionStatusChanged { snapshot },
-        );
     }
 
     async fn retire_failed_connection(&self, connection_id: AgentConnectionId, error: &AgentError) {
@@ -1987,7 +1704,7 @@ impl AgentRuntime {
         input: SendAgentPromptInput,
         display_blocks: Option<Vec<AgentContentBlock>>,
     ) -> AgentResult<AgentPromptSnapshot> {
-        self.enqueue_prompt(AgentPromptId::new(), input, display_blocks, true)
+        self.enqueue_prompt(AgentPromptId::new(), input, display_blocks)
             .await
     }
 
@@ -1999,8 +1716,7 @@ impl AgentRuntime {
         input: SendAgentPromptInput,
         display_blocks: Option<Vec<AgentContentBlock>>,
     ) -> AgentResult<AgentPromptSnapshot> {
-        self.enqueue_prompt(prompt_id, input, display_blocks, false)
-            .await
+        self.enqueue_prompt(prompt_id, input, display_blocks).await
     }
 
     async fn enqueue_prompt(
@@ -2008,7 +1724,6 @@ impl AgentRuntime {
         prompt_id: AgentPromptId,
         input: SendAgentPromptInput,
         display_blocks: Option<Vec<AgentContentBlock>>,
-        recover_before_enqueue: bool,
     ) -> AgentResult<AgentPromptSnapshot> {
         if input.blocks.is_empty() {
             return Err(AgentError::Runtime(
@@ -2062,9 +1777,6 @@ impl AgentRuntime {
                 AgentSessionStatus::Ready
             };
             session.snapshot.updated_at = now;
-            if matches!(transition, QueueTransition::Started { .. }) {
-                session.turn_recovery_attempts = 0;
-            }
             (transition, cleared_prompt_suggestion)
         };
         let status = match transition {
@@ -2102,7 +1814,6 @@ impl AgentRuntime {
             PromptDispatchOptions {
                 mode_override: mode_override.clone(),
                 config_overrides: config_overrides.clone(),
-                allow_automatic_recovery: recover_before_enqueue,
             },
         );
         if cleared_prompt_suggestion {
@@ -2132,39 +1843,13 @@ impl AgentRuntime {
                     connection_id,
                     session_id,
                     prompt.id,
-                    blocks.clone(),
-                    display_blocks.clone(),
-                    mode_override.clone(),
-                    config_overrides.clone(),
+                    blocks,
+                    display_blocks,
+                    mode_override,
+                    config_overrides,
                 )
                 .await
         {
-            if recover_before_enqueue && is_connection_loss_during_session_preparation(&error) {
-                match self
-                    .recover_live_prompt(
-                        connection_id,
-                        session_id,
-                        prompt.id,
-                        blocks,
-                        display_blocks,
-                        mode_override,
-                        config_overrides,
-                    )
-                    .await
-                {
-                    Ok(()) => return Ok(prompt),
-                    Err(recovery_error) => {
-                        self.fail_prompt_after_send(
-                            connection_id,
-                            session_id,
-                            prompt.id,
-                            &recovery_error,
-                        )
-                        .await;
-                        return Err(recovery_error);
-                    }
-                }
-            }
             self.fail_prompt_after_send(connection_id, session_id, prompt.id, &error)
                 .await;
             return Err(error);
@@ -2377,6 +2062,25 @@ impl AgentRuntime {
                         }
                     };
                     prompt.updated_at = now;
+                }
+                if was_active {
+                    let activity = crate::request_status::RequestActivity::phase(
+                        crate::request_status::RequestPhase::Cancelling,
+                    );
+                    state
+                        .request_activity
+                        .insert(input.prompt_id, (activity.clone(), now));
+                    Self::emit_with_parts_locked(
+                        &mut state,
+                        &*self.event_sink,
+                        &self.event_tx,
+                        input.connection_id,
+                        Some(input.session_id),
+                        AgentEvent::RequestActivity {
+                            prompt_id: input.prompt_id,
+                            activity,
+                        },
+                    );
                 }
                 if !was_active {
                     state.prompt_blocks.remove(&input.prompt_id);
@@ -2635,6 +2339,18 @@ impl AgentRuntime {
                 }
             }
             AgentEvent::PromptFinished { finished } => {
+                if state
+                    .prompts
+                    .get(&finished.prompt_id)
+                    .is_some_and(|prompt| {
+                        matches!(
+                            prompt.status,
+                            AgentPromptStatus::Completed { .. } | AgentPromptStatus::Failed { .. }
+                        )
+                    })
+                {
+                    return;
+                }
                 if let Some(prompt) = state.prompts.get_mut(&finished.prompt_id)
                     && !matches!(prompt.status, AgentPromptStatus::Failed { .. })
                 {
@@ -2647,7 +2363,6 @@ impl AgentRuntime {
                     && let Some(session) = state.sessions.get_mut(&session_id)
                 {
                     let _ = session.queue.complete(finished.prompt_id);
-                    session.turn_recovery_attempts = 0;
                     session.snapshot.active_prompt_id = session.queue.active();
                     session.snapshot.queued_prompt_ids = session.queue.queued();
                     session.snapshot.status = if session.snapshot.active_prompt_id.is_some() {
@@ -2751,6 +2466,14 @@ fn fail_prompt_locked(
     prompt_id: AgentPromptId,
     message: String,
 ) {
+    if state.prompts.get(&prompt_id).is_some_and(|prompt| {
+        matches!(
+            prompt.status,
+            AgentPromptStatus::Completed { .. } | AgentPromptStatus::Failed { .. }
+        )
+    }) {
+        return;
+    }
     let now = Utc::now();
     if let Some(prompt) = state.prompts.get_mut(&prompt_id) {
         prompt.status = AgentPromptStatus::Failed {
@@ -2893,34 +2616,6 @@ pub fn is_restorable_acp_session_id(acp_session_id: &str) -> bool {
     !is_placeholder_acp_session_id(acp_session_id)
 }
 
-/// Bind this connection to the conversation's existing thread before Prompt.
-/// Prompt itself must not call `session/new`; that forks a Codex thread into
-/// a new session while VibeX keeps writing the original Conversation.
-async fn bind_acp_thread_before_prompt(
-    connection_manager: &AgentConnectionManager,
-    connection_id: AgentConnectionId,
-    session_id: AgentSessionId,
-    acp_session_id: &str,
-    preferences: crate::SessionControlPreferences,
-) -> bool {
-    if is_placeholder_acp_session_id(acp_session_id) {
-        connection_manager
-            .prepare_session(connection_id, session_id, preferences)
-            .await
-            .is_ok()
-    } else {
-        connection_manager
-            .resume_session(
-                connection_id,
-                session_id,
-                acp_session_id.to_string(),
-                preferences,
-            )
-            .await
-            .is_ok()
-    }
-}
-
 /// Events the workbench hydrate actually folds into UI state.
 ///
 /// Message chunks, tool calls, plans, terminal output, and raw ACP diagnostics
@@ -2968,55 +2663,6 @@ async fn touch_session_ids(
             let _ = manager.touch(connection_id).await;
         }
     }
-}
-
-fn silent_turn_recovery_backoff(attempt: u32) -> Duration {
-    let shift = attempt.saturating_sub(1).min(3);
-    Duration::from_millis(250 * (1u64 << shift))
-}
-
-fn prompt_has_turn_output(
-    state: &RuntimeState,
-    session_id: AgentSessionId,
-    prompt_id: AgentPromptId,
-) -> bool {
-    if state
-        .sessions
-        .get(&session_id)
-        .is_none_or(|session| session.snapshot.active_prompt_id != Some(prompt_id))
-    {
-        return false;
-    }
-    for envelope in state
-        .recent_events
-        .iter()
-        .rev()
-        .filter(|envelope| envelope.session_id == Some(session_id))
-    {
-        match &envelope.event {
-            AgentEvent::PromptStarted { snapshot } if snapshot.id == prompt_id => break,
-            AgentEvent::PromptFinished { .. } | AgentEvent::Error { .. } => break,
-            AgentEvent::ConnectionStatusChanged { snapshot }
-                if matches!(
-                    snapshot.status,
-                    AgentConnectionStatus::Recovering | AgentConnectionStatus::Connecting
-                ) =>
-            {
-                break;
-            }
-            AgentEvent::MessageChunk { content } => {
-                if !matches!(content, AgentContentBlock::Text { text } if text.is_empty()) {
-                    return true;
-                }
-            }
-            AgentEvent::ToolCall { .. }
-            | AgentEvent::ToolCallUpdate { .. }
-            | AgentEvent::Plan { .. }
-            | AgentEvent::PermissionRequested { .. } => return true,
-            _ => {}
-        }
-    }
-    false
 }
 
 #[cfg(test)]
@@ -3081,7 +2727,6 @@ mod tests {
                 queue: AgentPromptQueue::default(),
                 ownership: RuntimeSessionOwnership::Owned,
                 controls: AgentSessionControlsSnapshot::default(),
-                turn_recovery_attempts: 0,
             },
         );
         let idle = Duration::from_secs(60);
@@ -3893,241 +3538,6 @@ mod tests {
             .unwrap();
         assert_eq!(prompt.id, id);
         assert!(runtime.send_reserved_prompt(id, input, None).await.is_err());
-        let event = AgentConnectionManagerEvent {
-            connection_id: connection.id,
-            session_id: Some(session.id),
-            prompt_id: Some(id),
-            event: AgentEvent::Error {
-                error: AgentErrorEvent {
-                    message: "transport lost after enqueue".into(),
-                    code: Some("connection_closed".into()),
-                    raw: None,
-                },
-            },
-        };
-        assert!(
-            AgentRuntime::take_silent_turn_recovery(&runtime.state, &event)
-                .await
-                .is_none()
-        );
-    }
-
-    #[tokio::test]
-    async fn silent_connection_closed_is_auto_recovered_before_any_output() {
-        let runtime = AgentRuntime::new_with_driver(Arc::new(NoopEventSink), false);
-        let (connection, session, prompt) = create_running_prompt(&runtime, "silent think").await;
-        let event = AgentConnectionManagerEvent {
-            connection_id: connection.id,
-            session_id: Some(session.id),
-            prompt_id: Some(prompt.id),
-            event: AgentEvent::Error {
-                error: AgentErrorEvent {
-                    message: "Agent connection closed before the turn completed.".to_string(),
-                    code: Some("connection_closed".to_string()),
-                    raw: None,
-                },
-            },
-        };
-
-        let recovery = AgentRuntime::take_silent_turn_recovery(&runtime.state, &event)
-            .await
-            .expect("a silent in-flight turn must be recoverable");
-        assert_eq!(recovery.prompt_id, prompt.id);
-        assert_eq!(recovery.attempt, 1);
-
-        let recovered = AgentRuntime::recover_silent_turn(
-            &runtime.state,
-            &runtime.connection_manager,
-            runtime.event_sink.as_ref(),
-            &runtime.event_tx,
-            recovery,
-        )
-        .await;
-        assert!(
-            recovered,
-            "in-memory ACP should accept the recovered prompt"
-        );
-
-        let snapshot = runtime.snapshot().await;
-        let recovered_session = snapshot
-            .sessions
-            .iter()
-            .find(|candidate| candidate.id == session.id)
-            .unwrap();
-        assert_ne!(recovered_session.connection_id, connection.id);
-        let recovered_prompt = snapshot
-            .prompts
-            .iter()
-            .find(|candidate| candidate.id == prompt.id)
-            .unwrap();
-        assert!(
-            matches!(recovered_prompt.status, AgentPromptStatus::Running),
-            "recovery must keep the original prompt running, not fail it"
-        );
-    }
-
-    #[tokio::test]
-    async fn connection_closed_after_output_is_not_auto_recovered() {
-        let runtime = AgentRuntime::new_with_driver(Arc::new(NoopEventSink), false);
-        let (connection, session, prompt) =
-            create_running_prompt(&runtime, "already streamed").await;
-        {
-            let mut state = runtime.state.write().await;
-            AgentRuntime::queue_envelope_locked(
-                &mut state,
-                connection.id,
-                Some(session.id),
-                AgentEvent::MessageChunk {
-                    content: AgentContentBlock::Text {
-                        text: "partial".to_string(),
-                    },
-                },
-            );
-        }
-        let event = AgentConnectionManagerEvent {
-            connection_id: connection.id,
-            session_id: Some(session.id),
-            prompt_id: Some(prompt.id),
-            event: AgentEvent::Error {
-                error: AgentErrorEvent {
-                    message: "Agent connection closed before the turn completed.".to_string(),
-                    code: Some("connection_closed".to_string()),
-                    raw: None,
-                },
-            },
-        };
-        assert!(
-            AgentRuntime::take_silent_turn_recovery(&runtime.state, &event)
-                .await
-                .is_none(),
-            "once the agent has streamed, retrying the prompt would duplicate work"
-        );
-    }
-
-    #[tokio::test]
-    async fn silent_agent_connection_lost_is_auto_recovered_via_reconnect_and_session_load() {
-        let runtime = AgentRuntime::new_with_driver(Arc::new(NoopEventSink), false);
-        let (connection, session, prompt) =
-            create_running_prompt(&runtime, "recover after 13 INTERNAL").await;
-        let event = AgentConnectionManagerEvent {
-            connection_id: connection.id,
-            session_id: Some(session.id),
-            prompt_id: Some(prompt.id),
-            event: AgentEvent::Error {
-                error: AgentErrorEvent {
-                    message: "Agent 底层连接中断，当前轮次未能完成。可能原因：Antigravity 语言服务（Language Server）内部 gRPC 连接意外断开。建议：重新发送消息，或重启 Agent 会话。".to_string(),
-                    code: Some("agent_connection_lost".to_string()),
-                    raw: None,
-                },
-            },
-        };
-
-        let recovery = AgentRuntime::take_silent_turn_recovery(&runtime.state, &event)
-            .await
-            .expect("agent_connection_lost without turn output must trigger SilentTurnRecovery");
-        assert_eq!(recovery.prompt_id, prompt.id);
-        assert_eq!(recovery.attempt, 1);
-
-        let recovered = AgentRuntime::recover_silent_turn(
-            &runtime.state,
-            &runtime.connection_manager,
-            runtime.event_sink.as_ref(),
-            &runtime.event_tx,
-            recovery,
-        )
-        .await;
-        assert!(
-            recovered,
-            "SilentTurnRecovery must reconnect, reload the ACP session, and resend the prompt"
-        );
-
-        let snapshot = runtime.snapshot().await;
-        let recovered_session = snapshot
-            .sessions
-            .iter()
-            .find(|candidate| candidate.id == session.id)
-            .unwrap();
-        assert_ne!(
-            recovered_session.connection_id, connection.id,
-            "session must be rebound to a fresh connection"
-        );
-        let recovered_prompt = snapshot
-            .prompts
-            .iter()
-            .find(|candidate| candidate.id == prompt.id)
-            .unwrap();
-        assert!(
-            matches!(recovered_prompt.status, AgentPromptStatus::Running),
-            "recovery must keep the original prompt running"
-        );
-    }
-
-    #[tokio::test]
-    async fn silent_agent_connection_lost_after_completed_prior_turn_is_auto_recovered() {
-        let runtime = AgentRuntime::new_with_driver(Arc::new(NoopEventSink), false);
-        let (connection, session, first_prompt, second_prompt) =
-            create_running_prompt_pair(&runtime).await;
-        {
-            let mut state = runtime.state.write().await;
-            AgentRuntime::queue_envelope_locked(
-                &mut state,
-                connection.id,
-                Some(session.id),
-                AgentEvent::MessageChunk {
-                    content: AgentContentBlock::Text {
-                        text: "turn 1 output".to_string(),
-                    },
-                },
-            );
-            AgentRuntime::apply_manager_event_locked(
-                &mut state,
-                &AgentConnectionManagerEvent {
-                    connection_id: connection.id,
-                    session_id: Some(session.id),
-                    prompt_id: Some(first_prompt.id),
-                    event: AgentEvent::PromptFinished {
-                        finished: crate::AgentPromptFinished {
-                            prompt_id: first_prompt.id,
-                            stop_reason: Some("end_turn".to_string()),
-                            usage: None,
-                        },
-                    },
-                },
-            );
-            if let Some(session_entry) = state.sessions.get_mut(&session.id) {
-                session_entry.snapshot.active_prompt_id = Some(second_prompt.id);
-            }
-            if let Some(prompt_entry) = state.prompts.get_mut(&second_prompt.id) {
-                prompt_entry.status = AgentPromptStatus::Running;
-            }
-            let second_snapshot = state.prompts.get(&second_prompt.id).unwrap().clone();
-            AgentRuntime::queue_envelope_locked(
-                &mut state,
-                connection.id,
-                Some(session.id),
-                AgentEvent::PromptStarted {
-                    snapshot: second_snapshot,
-                },
-            );
-        }
-
-        let error_event = AgentConnectionManagerEvent {
-            connection_id: connection.id,
-            session_id: Some(session.id),
-            prompt_id: Some(second_prompt.id),
-            event: AgentEvent::Error {
-                error: AgentErrorEvent {
-                    message: "Agent connection was lost and could not be re-established: Failed to rebuild agent: received 1000 (OK); then sent 1000 (OK)".to_string(),
-                    code: Some("agent_connection_lost".to_string()),
-                    raw: None,
-                },
-            },
-        };
-        let recovery = AgentRuntime::take_silent_turn_recovery(&runtime.state, &error_event)
-            .await
-            .expect("prior turn output must not block SilentTurnRecovery on a new turn");
-        assert_eq!(recovery.prompt_id, second_prompt.id);
-        assert_eq!(recovery.attempt, 1);
     }
 
     #[tokio::test]
@@ -4162,12 +3572,6 @@ mod tests {
                 },
             },
         };
-        assert!(
-            AgentRuntime::take_silent_turn_recovery(&runtime.state, &error_event)
-                .await
-                .is_none(),
-            "once partial output has streamed, agent_connection_lost must not auto-retry"
-        );
 
         let failed_conn = AgentConnectionSnapshot {
             status: AgentConnectionStatus::Failed,
@@ -4204,102 +3608,6 @@ mod tests {
         assert!(
             !runtime.session_has_ready_connection(session.id).await,
             "connection must not look ready after agent_connection_lost so the next turn reconnects via session/load"
-        );
-    }
-
-    #[tokio::test]
-    async fn thought_only_connection_closed_is_still_auto_recovered() {
-        let runtime = AgentRuntime::new_with_driver(Arc::new(NoopEventSink), false);
-        let (connection, session, prompt) = create_running_prompt(&runtime, "thinking").await;
-        {
-            let mut state = runtime.state.write().await;
-            AgentRuntime::queue_envelope_locked(
-                &mut state,
-                connection.id,
-                Some(session.id),
-                AgentEvent::ThoughtChunk {
-                    content: AgentContentBlock::Text {
-                        text: "planning".to_string(),
-                    },
-                },
-            );
-        }
-        let event = AgentConnectionManagerEvent {
-            connection_id: connection.id,
-            session_id: Some(session.id),
-            prompt_id: Some(prompt.id),
-            event: AgentEvent::Error {
-                error: AgentErrorEvent {
-                    message: "Agent connection closed before the turn completed.".to_string(),
-                    code: Some("connection_closed".to_string()),
-                    raw: None,
-                },
-            },
-        };
-        let recovery = AgentRuntime::take_silent_turn_recovery(&runtime.state, &event)
-            .await
-            .expect("thought-only output must not block reconnect");
-        assert_eq!(recovery.attempt, 1);
-    }
-
-    #[tokio::test]
-    async fn silent_recovery_emits_reconnect_progress_notices() {
-        let sink = Arc::new(RecordingSink {
-            events: Mutex::new(Vec::new()),
-        });
-        let runtime = AgentRuntime::new_with_driver(sink.clone(), false);
-        let (connection, session, prompt) = create_running_prompt(&runtime, "silent think").await;
-        let event = AgentConnectionManagerEvent {
-            connection_id: connection.id,
-            session_id: Some(session.id),
-            prompt_id: Some(prompt.id),
-            event: AgentEvent::Error {
-                error: AgentErrorEvent {
-                    message: "Agent connection closed before the turn completed.".to_string(),
-                    code: Some("connection_closed".to_string()),
-                    raw: None,
-                },
-            },
-        };
-        let recovery = AgentRuntime::take_silent_turn_recovery(&runtime.state, &event)
-            .await
-            .expect("recoverable");
-        let recovered = AgentRuntime::recover_silent_turn(
-            &runtime.state,
-            &runtime.connection_manager,
-            runtime.event_sink.as_ref(),
-            &runtime.event_tx,
-            recovery,
-        )
-        .await;
-        assert!(recovered);
-
-        let events = sink.events.lock().unwrap().clone();
-        assert!(
-            events.iter().any(|envelope| matches!(
-                &envelope.event,
-                AgentEvent::ConnectionStatusChanged { snapshot }
-                    if snapshot.status == AgentConnectionStatus::Recovering
-            )),
-            "recovery must publish a Recovering connection status"
-        );
-        assert!(
-            events.iter().any(|envelope| matches!(
-                &envelope.event,
-                AgentEvent::RawAcpDiagnostic { raw }
-                    if raw.get("kind").and_then(|value| value.as_str())
-                        == Some(SESSION_RECONNECT_PROGRESS_KIND)
-            )),
-            "recovery must publish the reconnect-progress notice"
-        );
-        assert!(
-            events.iter().any(|envelope| matches!(
-                &envelope.event,
-                AgentEvent::RawAcpDiagnostic { raw }
-                    if raw.get("kind").and_then(|value| value.as_str())
-                        == Some(SESSION_CONNECT_ERROR_KIND)
-            )),
-            "recovery must publish the connect-error detail"
         );
     }
 

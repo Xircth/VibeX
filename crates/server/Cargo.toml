@@ -4,6 +4,7 @@ version = "0.4.4"
 edition = "2024"
 
 [dependencies]
+tempfile = { workspace = true }
 anyhow = { workspace = true }
 application = { path = "../application" }
 agents = { path = "../agents" }
@@ -59,5 +60,4 @@ zip = { version = "2", default-features = false, features = ["deflate"] }
 
 [dev-dependencies]
 futures = { workspace = true }
-tempfile = { workspace = true }
 tower = { version = "0.5", features = ["util"] }

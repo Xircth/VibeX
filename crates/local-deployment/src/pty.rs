@@ -206,6 +206,7 @@ impl Scrollback {
 }
 
 struct PtySession {
+    working_dir: PathBuf,
     input_tx: std_mpsc::Sender<Vec<u8>>,
     master: Box<dyn MasterPty + Send>,
     child: Box<dyn portable_pty::Child + Send>,
@@ -268,6 +269,7 @@ impl PtyService {
 
         let (output_tx, output_rx) = TerminalOutputTx::pair();
         let working_dir = Self::normalize_working_dir_for_shell(working_dir);
+        let session_working_dir = working_dir.clone();
         let shell = resolve_pty_shell(shell_override).await;
         let scrollback = Arc::new(Mutex::new(Scrollback::default()));
         let subscribers = Arc::new(Mutex::new(vec![output_tx]));
@@ -339,6 +341,7 @@ impl PtyService {
             .map_err(|e| PtyError::CreateFailed(e.to_string()))?;
 
         let session = PtySession {
+            working_dir: session_working_dir,
             input_tx,
             master,
             child,
@@ -528,6 +531,29 @@ impl PtyService {
             .await;
         }
         Ok(())
+    }
+
+    pub fn has_running_in_directory(&self, root: &std::path::Path) -> Result<bool, PtyError> {
+        let root = std::fs::canonicalize(root).unwrap_or_else(|_| root.to_path_buf());
+        let mut sessions = self
+            .sessions
+            .lock()
+            .map_err(|e| PtyError::CreateFailed(e.to_string()))?;
+        for session in sessions.values_mut() {
+            let cwd = std::fs::canonicalize(&session.working_dir)
+                .unwrap_or_else(|_| session.working_dir.clone());
+            if cwd.starts_with(&root)
+                && !session.closed
+                && session
+                    .child
+                    .try_wait()
+                    .map_err(|e| PtyError::CreateFailed(e.to_string()))?
+                    .is_none()
+            {
+                return Ok(true);
+            }
+        }
+        Ok(false)
     }
 
     pub fn session_exists(&self, session_id: &Uuid) -> bool {

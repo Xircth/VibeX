@@ -51,6 +51,9 @@ pub struct LocalDeployment {
 }
 
 impl LocalDeployment {
+    pub fn settings_path(&self) -> &std::path::Path {
+        self.container.settings_path()
+    }
     // Inherent constructor: `new` is intentionally not on the `Deployment` trait (it
     // returns `Self`, which would break the object-safety needed for `Arc<dyn Deployment>`).
     pub async fn new() -> Result<Self, DeploymentError> {
@@ -144,6 +147,7 @@ impl LocalDeployment {
         }
 
         let approvals = Approvals::new(msg_stores.clone());
+        let pty = PtyService::new();
         let container = LocalContainerService::new(
             db.clone(),
             msg_stores.clone(),
@@ -151,6 +155,7 @@ impl LocalDeployment {
             git.clone(),
             image.clone(),
             settings_file.clone(),
+            pty.clone(),
         )
         .await;
 
@@ -158,7 +163,6 @@ impl LocalDeployment {
 
         let file_search = FileSearchService::new();
 
-        let pty = PtyService::new();
         {
             let db = db.clone();
             let container = container.clone();

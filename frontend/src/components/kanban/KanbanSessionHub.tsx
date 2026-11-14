@@ -45,10 +45,7 @@ import {
   isCreateSessionFormVisibleForProject,
   resolveDefaultCreateSessionMode,
 } from '@/lib/createSessionFormVisibility';
-import {
-  requestCreateSessionInExecutionArea,
-  resolveCreateSessionSurface,
-} from '@/lib/requestCreateSession';
+import { requestCreateSessionInExecutionArea } from '@/lib/requestCreateSession';
 import {
   setKanbanCanvasListVisible,
   useKanbanCanvasListVisible,
@@ -77,6 +74,7 @@ import {
   type SessionCreationMode,
 } from '@/components/sessions/SessionCreationForm';
 import type { SessionCanvasApi } from './canvas/SessionCanvasView';
+import { useOptionalCollaborationSpaceStore } from '@/features/collaboration/space/SpaceStoreContext';
 import { consumeCanvasParentNodeId } from './canvas/canvasWorkspaceBridge';
 import { SessionHubMonitor } from './session-hub/SessionHubMonitor';
 import { SessionHubSidebar } from './session-hub/SessionHubSidebar';
@@ -178,6 +176,7 @@ export function KanbanSessionHub({
 }: KanbanSessionHubProps) {
   const { t } = useTranslation(['tasks', 'common', 'panels']);
   const queryClient = useQueryClient();
+  const collaboration = useOptionalCollaborationSpaceStore();
   const storedBoardStyle = useKanbanBoardStyle();
   const boardStyle = presentation ?? storedBoardStyle;
   const canvasListVisible = useKanbanCanvasListVisible();
@@ -797,6 +796,7 @@ export function KanbanSessionHub({
     setCreatePopoverProjectId(open ? (projectId ?? null) : null);
 
     if (open) {
+      collaboration?.getSnapshot().closeAllOverlays();
       updateCreateWorkspaceValue(defaultWorkspaceValue);
       updateSelectedExecutorProfile(defaultExecutorProfile);
       setUserCreateMode(null);
@@ -849,11 +849,19 @@ export function KanbanSessionHub({
     }
   };
 
-  const handleSubmitCreateSession = async (input?: {
-    includeUncommitted?: boolean;
-  }) => {
+  const handleSubmitCreateSession = async (
+    input?: {
+      includeUncommitted?: boolean;
+    },
+    overrides?: {
+      workspaceValue: string;
+      executorProfile: ExecutorProfileId;
+      mode: SessionCreationMode;
+    }
+  ) => {
+    const mode = overrides?.mode ?? createMode;
     if (
-      createMode === 'new_workspace' &&
+      mode === 'new_workspace' &&
       projectId &&
       !(await confirmWorktreeCreation(projectId, t))
     ) {
@@ -862,15 +870,21 @@ export function KanbanSessionHub({
     const parentNodeId =
       pendingCreateParentNodeIdRef.current ?? consumeCanvasParentNodeId();
     pendingCreateParentNodeIdRef.current = null;
+    if (overrides) setIsCreatePopoverOpen(false);
     createSessionMutation.mutate(
       {
-        workspaceValue: createWorkspaceValueRef.current,
-        executorProfile: selectedExecutorProfileRef.current,
-        mode: createMode,
-        sessionControls: sessionControlsPresetRef.current,
+        workspaceValue:
+          overrides?.workspaceValue ?? createWorkspaceValueRef.current,
+        executorProfile:
+          overrides?.executorProfile ?? selectedExecutorProfileRef.current,
+        mode,
+        sessionControls: overrides ? null : sessionControlsPresetRef.current,
         includeUncommitted: input?.includeUncommitted,
       },
       {
+        onError: () => {
+          if (overrides) setIsCreatePopoverOpen(true);
+        },
         onSuccess: (session) => {
           if (boardStyle === 'canvas') {
             rememberCreatedCanvasSession(session);
@@ -890,7 +904,12 @@ export function KanbanSessionHub({
       setCreatePopoverProjectId(null);
       createSessionMutation.reset();
     }
-  }, [canvasListVisible, createSessionMutation, isCreatePopoverOpen, workspaceStage]);
+  }, [
+    canvasListVisible,
+    createSessionMutation,
+    isCreatePopoverOpen,
+    workspaceStage,
+  ]);
 
   useEffect(() => {
     if (
@@ -1323,8 +1342,8 @@ export function KanbanSessionHub({
       onResizeMouseDown={handleSessionListResizeMouseDown}
       onArchiveViewChange={handleArchiveViewChange}
       onCreateSessionRequested={() => {
-        if (resolveCreateSessionSurface(boardStyle) === 'beside-session-list') {
-          handleCreatePopoverOpenChange(!isCreatePopoverOpen);
+        if (boardStyle === 'canvas') {
+          handleCreatePopoverOpenChange(true);
           return;
         }
         requestCreateSessionInExecutionArea(setSearchParams, searchParams);
@@ -1447,17 +1466,38 @@ export function KanbanSessionHub({
                 handleCreatePopoverOpenChange(true);
               }}
               onCreateSessionWithExecutor={(executorName) => {
+                if (createSessionMutation.isPending) return;
                 pendingCreateParentNodeIdRef.current =
                   consumeCanvasParentNodeId();
                 if (!workspaceStage) {
                   setKanbanCanvasListVisible(true);
                 }
                 handleCreatePopoverOpenChange(true);
-                updateSelectedExecutorProfile({
+                const executorProfile: ExecutorProfileId = {
                   executor:
                     executorName as NonNullable<ExecutorProfileId>['executor'],
                   variant: null,
-                });
+                };
+                updateSelectedExecutorProfile(executorProfile);
+                if (
+                  getCanCreateKanbanSession({
+                    executorProfile,
+                    isPending: createSessionMutation.isPending,
+                    mode: defaultCreateMode,
+                    selectedWorkspaceOption: findWorkspaceBranchOption(
+                      workspaceBranchOptions,
+                      defaultWorkspaceValue
+                    ),
+                    projectRepoCount: project?.is_git ? projectRepos.length : 0,
+                    repoBranchConfigs,
+                  })
+                ) {
+                  void handleSubmitCreateSession(undefined, {
+                    workspaceValue: defaultWorkspaceValue,
+                    executorProfile,
+                    mode: defaultCreateMode,
+                  });
+                }
               }}
             />
           </Suspense>

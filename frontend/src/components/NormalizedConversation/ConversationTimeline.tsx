@@ -1,4 +1,8 @@
 import {
+  conversationRuntimeStatus,
+  requestStatusKey,
+} from '@/features/conversation/runtimeStatus';
+import {
   forwardRef,
   useCallback,
   useEffect,
@@ -709,6 +713,7 @@ const AgentTimelineConversation = forwardRef<
   const detailLoading = conversation.loading;
   const conversationError = conversation.error;
   const sideRows = conversation.sideRows;
+  const runtimeStatus = conversationRuntimeStatus(sideRows);
   const delegations = useMemo(
     () =>
       sideRows.flatMap((row) =>
@@ -793,6 +798,7 @@ const AgentTimelineConversation = forwardRef<
   const conversationResetAndReload = conversation.resetAndReload;
   // Restore a failed ACP connection without clearing the durable/live timeline.
   const conversationReconnectAndReload = conversation.reconnectAndReload;
+  const conversationCancel = conversation.cancel;
   const conversationRebindSession = useCallback(async () => {
     if (!sessionId) return;
     await conversationApi.rebindSession(sessionId);
@@ -910,7 +916,13 @@ const AgentTimelineConversation = forwardRef<
   // Keep the latest turn error in full (message + the agent's real ACP error
   // code) so the card can offer code-specific recovery instead of a flat banner.
   const latestTurnErrorRow = sideRows
-    .filter((entry) => entry.row.kind === 'turn_error')
+    .filter(
+      (entry) =>
+        entry.row.kind === 'turn_error' &&
+        (!runtimeStatus.request ||
+          !entry.row.error.turn_id ||
+          entry.row.error.turn_id === runtimeStatus.request.turn_id)
+    )
     .at(-1);
   const latestTurnError =
     latestTurnErrorRow?.row.kind === 'turn_error'
@@ -928,8 +940,21 @@ const AgentTimelineConversation = forwardRef<
     }
     return ids;
   }, [sideRows]);
+  const runtimeStatusRows = useMemo(
+    () =>
+      sideRows.filter(
+        (entry) =>
+          entry.row.kind === 'session_notice' &&
+          (entry.row.notice.connection_status ||
+            entry.row.notice.request_status)
+      ),
+    [sideRows]
+  );
   const sessionNoticeRows = sideRows.filter(
-    (entry) => entry.row.kind === 'session_notice'
+    (entry) =>
+      entry.row.kind === 'session_notice' &&
+      !entry.row.notice.connection_status &&
+      !entry.row.notice.request_status
   );
   const reconnectNoticeRow = sessionNoticeRows.find(
     (entry) => entry.row_id === AGENT_CONNECTION_RECOVERING_NOTICE_ROW_ID
@@ -1747,6 +1772,32 @@ const AgentTimelineConversation = forwardRef<
           : settled;
       return row.phase === 'streaming' && !hasReconnectNotice ? (
         <LiveTurnStats
+          statusLabel={
+            runtimeStatus.connection && !runtimeStatus.connection.bound
+              ? t(
+                  `runtime.connection.${runtimeStatus.connection.status === 'ready' ? 'binding' : runtimeStatus.connection.status}`
+                )
+              : t(
+                  `runtime.request.${requestStatusKey({
+                    request: runtimeStatus.request,
+                    currentTurnId: vibexTurnId,
+                    connection: runtimeStatus.connection,
+                    hasInteraction:
+                      Boolean(pendingQuestionRow) ||
+                      sideRows.some(
+                        (entry) =>
+                          entry.row.kind === 'permission_request' &&
+                          entry.row.request.status === 'pending'
+                      ),
+                    hasRunningTool: row.turn.blocks.some(
+                      (block) =>
+                        block.type === 'tool_use' &&
+                        (block.status === 'in_progress' ||
+                          block.status === 'pending')
+                    ),
+                  })}`
+                )
+          }
           stats={liveStats}
           startedAt={row.turn.timestamp}
           copyText={copyText}
@@ -1768,6 +1819,11 @@ const AgentTimelineConversation = forwardRef<
       forkSupported,
       handleForkFromTurn,
       hasReconnectNotice,
+      runtimeStatus.connection,
+      runtimeStatus.request,
+      pendingQuestionRow,
+      sideRows,
+      t,
       isTurnInFlight,
       jumpToVirtualIndex,
       lastAssistantKey,
@@ -2034,15 +2090,48 @@ const AgentTimelineConversation = forwardRef<
       if (isResendColdStartNotice(row.row_id, row.row.notice)) return;
       if (notices.some((notice) => notice.id === row.row_id)) return;
       const notice = row.row.notice;
+      const retryRow =
+        notice.request_status && !isTurnInFlight
+          ? [...timeline]
+              .reverse()
+              .find(
+                (entry) =>
+                  entry.turn.role === 'user' &&
+                  !entry.turn.id.includes(':steer:')
+              )
+          : undefined;
       notices.push({
         id: row.row_id,
         kind: 'session-notice' as const,
         notice,
+        onCancel:
+          (notice.request_status && isTurnInFlight) ||
+          (notice.connection_status &&
+            !notice.connection_status.bound &&
+            ['ready', 'connecting', 'recovering'].includes(
+              notice.connection_status.status
+            ))
+            ? async () => {
+                try {
+                  await conversationCancel();
+                } catch (error) {
+                  toast.error(getErrorMessage(error));
+                }
+              }
+            : undefined,
+        onRetry: retryRow
+          ? () =>
+              handleRetry(
+                retryRow.turn,
+                userOrdinalByKey.get(retryRow.key) ?? 0
+              )
+          : undefined,
         onRebind: sessionNoticeNeedsRebind(notice, row.row_id)
           ? conversationRebindSession
           : undefined,
         onReload:
-          row.row_id === AGENT_BINDING_LOAD_FAILURE_NOTICE_ROW_ID
+          row.row_id === AGENT_BINDING_LOAD_FAILURE_NOTICE_ROW_ID ||
+          row.row.notice.connection_status
             ? conversationReconnectAndReload
             : undefined,
         onNewConversation:
@@ -2065,6 +2154,59 @@ const AgentTimelineConversation = forwardRef<
       });
     } else {
       pushSessionNotice(connectErrorNoticeRow);
+    }
+    for (const row of runtimeStatusRows) {
+      if (row.row.kind !== 'session_notice') continue;
+      const request = row.row.notice.request_status;
+      if (
+        request &&
+        isTurnInFlight &&
+        ['completed', 'failed', 'cancelled', 'interrupted'].includes(
+          request.activity.phase
+        )
+      )
+        continue;
+      if (
+        request &&
+        !isTurnInFlight &&
+        !['failed', 'cancelled', 'interrupted'].includes(request.activity.phase)
+      )
+        continue;
+      if (request) {
+        const phase = requestStatusKey({
+          request,
+          connection: runtimeStatus.connection,
+          hasInteraction:
+            Boolean(pendingQuestionRow) ||
+            sideRows.some(
+              (entry) =>
+                entry.row.kind === 'permission_request' &&
+                entry.row.request.status === 'pending'
+            ),
+          hasRunningTool: timeline.some(
+            (turn) =>
+              turn.phase === 'streaming' &&
+              turn.turn.blocks.some(
+                (block) =>
+                  block.type === 'tool_use' &&
+                  (block.status === 'in_progress' || block.status === 'pending')
+              )
+          ),
+        });
+        pushSessionNotice({
+          ...row,
+          row: {
+            kind: 'session_notice',
+            notice: {
+              ...row.row.notice,
+              request_status: {
+                ...request,
+                activity: { ...request.activity, phase },
+              },
+            },
+          },
+        });
+      } else pushSessionNotice(row);
     }
     pushSessionNotice(reconnectNoticeRow);
     pushSessionNotice(autoPermissionNoticeRow);
@@ -2089,8 +2231,15 @@ const AgentTimelineConversation = forwardRef<
     return notices;
   }, [
     autoPermissionNoticeRow,
+    runtimeStatusRows,
+    runtimeStatus.connection,
+    pendingQuestionRow,
+    sideRows,
+    timeline,
+    isTurnInFlight,
     connectErrorNoticeRow,
     conversationReconnectAndReload,
+    conversationCancel,
     conversationRebindSession,
     handleRetry,
     latestInterruptedRow,

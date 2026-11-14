@@ -29,6 +29,8 @@ import { useTranslation } from 'react-i18next';
 import type { KanbanProjectSessionRecord } from '@/hooks/useKanbanProjectSessions';
 import { useQueryClient } from '@tanstack/react-query';
 import { sessionsApi } from '@/lib/api';
+import { CollaborationCreateOverlay } from '@/features/collaboration/CollaborationCreateOverlay';
+import { registerCanvasCreationHost } from './canvasCreationHost';
 import { useKanbanCanvasListVisible } from '@/lib/kanbanCanvasListVisible';
 import { invalidateWorkspaceSessions } from '@/lib/sessionQueryCache';
 import {
@@ -383,6 +385,11 @@ function SessionCanvasFlow({
   const { fitView, setCenter, screenToFlowPosition, getViewport, setViewport } =
     useReactFlow();
   const surfaceRef = useRef<HTMLDivElement>(null);
+  const [creationHost, setCreationHost] = useState<HTMLDivElement | null>(null);
+  useLayoutEffect(
+    () => (creationHost ? registerCanvasCreationHost(creationHost) : undefined),
+    [creationHost]
+  );
   const onMiddleClickRef = useRef<(event: MouseEvent) => void>(() => {});
   const onMiddleClick = useCallback((event: MouseEvent) => {
     onMiddleClickRef.current(event);
@@ -1728,6 +1735,7 @@ function SessionCanvasFlow({
       return undefined;
     }
     return registerCanvasWorkspaceController({
+      createSession: onCreateSession,
       openOrFocusPanel: (request) => openOrFocusPanelNode(request),
       openOrFocusSession: (request) => openOrFocusSessionNode(request),
       dropSessionAt: (sessionId, client, cardWidth) =>
@@ -1744,6 +1752,7 @@ function SessionCanvasFlow({
     dropPanelAt,
     dropSessionAt,
     duplicateCanvasNode,
+    onCreateSession,
     openOrFocusPanelNode,
     openOrFocusSessionNode,
     registerWorkspaceController,
@@ -2781,19 +2790,28 @@ function SessionCanvasFlow({
             {list}
           </FloatingSessionList>
         ) : null}
-        {createPanel ? (
-          <div
-            className="pointer-events-none absolute inset-y-0 z-20 flex items-center"
-            style={{
-              left:
-                !hideSessionList && listVisible
-                  ? `calc(0.75rem + ${listWidth}px + 0.75rem)`
-                  : '0.75rem',
-            }}
-          >
-            <div className="pointer-events-auto">{createPanel}</div>
-          </div>
-        ) : null}
+        <div
+          data-testid="canvas-creation-panel"
+          ref={setCreationHost}
+          className="pointer-events-none absolute inset-y-3 right-3 z-30 flex items-center"
+          style={{
+            left:
+              !hideSessionList && listVisible
+                ? `calc(0.75rem + ${listWidth}px + 0.75rem)`
+                : '0.75rem',
+          }}
+        >
+          <CollaborationCreateOverlay
+            surface="canvas"
+            fallback={
+              createPanel ? (
+                <div className="pointer-events-auto max-h-full">
+                  {createPanel}
+                </div>
+              ) : null
+            }
+          />
+        </div>
 
         {empty ? (
           <div className="pointer-events-none absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 p-8 text-center">

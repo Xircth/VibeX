@@ -16,6 +16,7 @@ export interface OpenCanvasSessionRequest {
 }
 
 export interface CanvasWorkspaceController {
+  createSession?: () => void;
   openOrFocusPanel: (request: OpenCanvasPanelRequest) => string;
   openOrFocusSession: (request: OpenCanvasSessionRequest) => string;
   dropSessionAt: (

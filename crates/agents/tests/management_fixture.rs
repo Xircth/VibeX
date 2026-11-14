@@ -396,3 +396,84 @@ async fn management_boundary_fakes_are_deterministic() {
     assert_eq!(filesystem.read(&path).await.unwrap(), Some(b"{}".to_vec()));
     assert_eq!(filesystem.metadata(&path).await.unwrap().unwrap().length, 2);
 }
+
+#[tokio::test]
+async fn silent_process_death_never_replays_a_prompt_with_unobserved_side_effects() {
+    use std::{collections::HashMap, sync::Arc, time::Duration};
+
+    use agents::{
+        AgentEvent, AgentRuntime, ConnectAgentInput, NoopEventSink, SendAgentPromptInput,
+    };
+    let temp = tempfile::tempdir().unwrap();
+    let marker = temp.path().join("side-effects.txt");
+    let agent_id = AgentId::parse("fixture.silent-death").unwrap();
+    let runtime = AgentRuntime::new(Arc::new(NoopEventSink));
+    let mut events = runtime.subscribe_events();
+    let connection = runtime
+        .connect(ConnectAgentInput {
+            agent_id: agent_id.clone(),
+            launch_lock: SessionLaunchLock {
+                agent_id,
+                absolute_acp_program: PathBuf::from(env!("CARGO_BIN_EXE_management_fixture_acp")),
+                args: Vec::new(),
+                env: BTreeMap::from([(
+                    "VIBEX_FIXTURE_PROMPT_SIDE_EFFECT".into(),
+                    marker.display().to_string(),
+                )]),
+                runtime_version: "fixture".into(),
+                acp_version: "fixture".into(),
+            },
+            workspace_id: Uuid::new_v4(),
+            working_dir: temp.path().into(),
+            additional_directories: Vec::new(),
+            auto_approve_mode: AgentAutoApproveMode::Off,
+            env: HashMap::new(),
+        })
+        .await
+        .unwrap();
+    let session = AgentSessionId::new();
+    runtime
+        .prepare_session_on_connection(connection.id, session, Default::default())
+        .await
+        .unwrap();
+    let prompt = runtime
+        .send_prompt(SendAgentPromptInput {
+            connection_id: connection.id,
+            session_id: session,
+            blocks: vec![agents::AgentContentBlock::Text {
+                text: "apply side effect".into(),
+            }],
+            mode_override: None,
+            config_overrides: Vec::new(),
+        })
+        .await
+        .unwrap();
+    tokio::time::timeout(Duration::from_secs(10), async {
+        loop {
+            let event = events.recv().await.unwrap();
+            if event.session_id == Some(session) && matches!(event.event, AgentEvent::Error { .. })
+            {
+                break;
+            }
+        }
+    })
+    .await
+    .expect("silent process death must terminate the request");
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    assert_eq!(std::fs::read_to_string(&marker).unwrap(), "applied\n");
+    let snapshot = runtime.snapshot().await;
+    let prompt = snapshot
+        .prompts
+        .iter()
+        .find(|item| item.id == prompt.id)
+        .unwrap();
+    assert!(matches!(
+        prompt.status,
+        agents::AgentPromptStatus::Failed { .. }
+    ));
+    assert_eq!(
+        snapshot.connections.len(),
+        1,
+        "host must not start a replacement prompt connection"
+    );
+}

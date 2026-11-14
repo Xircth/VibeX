@@ -394,6 +394,10 @@ pub struct AgentErrorEvent {
 #[serde(tag = "kind", rename_all = "snake_case")]
 #[ts(export)]
 pub enum AgentEvent {
+    RequestActivity {
+        prompt_id: crate::AgentPromptId,
+        activity: crate::request_status::RequestActivity,
+    },
     ConnectionStatusChanged {
         snapshot: AgentConnectionSnapshot,
     },

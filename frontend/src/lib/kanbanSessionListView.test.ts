@@ -26,18 +26,19 @@ describe('kanbanSessionListView', () => {
     expect(getKanbanSessionListView()).toBe('status');
   });
 
-  it('persists a workspace grouping choice', () => {
-    setKanbanSessionListView('workspace');
+  it.each(['workspace', 'mixed'] as const)(
+    'persists the %s grouping choice',
+    (view) => {
+      setKanbanSessionListView(view);
 
-    expect(localStorage.getItem(KANBAN_SESSION_LIST_VIEW_KEY)).toBe(
-      'workspace'
-    );
-    expect(persistFrontendPreference).toHaveBeenCalledWith(
-      KANBAN_SESSION_LIST_VIEW_KEY,
-      'workspace'
-    );
-    expect(getKanbanSessionListView()).toBe('workspace');
-  });
+      expect(localStorage.getItem(KANBAN_SESSION_LIST_VIEW_KEY)).toBe(view);
+      expect(persistFrontendPreference).toHaveBeenCalledWith(
+        KANBAN_SESSION_LIST_VIEW_KEY,
+        view
+      );
+      expect(getKanbanSessionListView()).toBe(view);
+    }
+  );
 
   it('ignores invalid persisted values', () => {
     localStorage.setItem(KANBAN_SESSION_LIST_VIEW_KEY, 'columns');

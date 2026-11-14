@@ -7,7 +7,11 @@ import { useSyncExternalStore } from 'react';
 
 import { persistFrontendPreference } from '@/lib/frontendPreferences';
 
-export const KANBAN_SESSION_LIST_VIEWS = ['status', 'workspace'] as const;
+export const KANBAN_SESSION_LIST_VIEWS = [
+  'status',
+  'workspace',
+  'mixed',
+] as const;
 export type KanbanSessionListView = (typeof KANBAN_SESSION_LIST_VIEWS)[number];
 
 export const DEFAULT_KANBAN_SESSION_LIST_VIEW: KanbanSessionListView = 'status';

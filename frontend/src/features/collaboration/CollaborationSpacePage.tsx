@@ -25,6 +25,7 @@ import {
   useCollaborationSpacePick,
 } from './space/SpaceContext';
 import { GroupListPanel } from './space/GroupListPanel';
+import { CollaborationCreateOverlay } from './CollaborationCreateOverlay';
 import { MemberPanel } from './space/MemberPanel';
 import { MessageStream } from './space/MessageStream';
 import { ComposerDock } from './space/ComposerDock';
@@ -85,48 +86,6 @@ const CollaborationBackToBottomButton = memo(
         </button>
       </div>
     );
-  }
-);
-
-const MESSAGE_AREA_OVERLAY_PICK_KEYS = [
-  'agentSelectOptions',
-  'chooseConversationLabel',
-  'conversationById',
-  'conversationSelectOptions',
-  'createError',
-  'createGroupBots',
-  'createMemberError',
-  'createMemberOpen',
-  'createOpen',
-  'draftMemberMetaByConvId',
-  'hasActiveOverlay',
-  'memberAvatars',
-  'memberNicknameByConversationId',
-  'memberSourceOptions',
-  'newMemberAgentId',
-  'newMemberAvatar',
-  'newMemberConfigValues',
-  'newMemberModeId',
-  'newMemberName',
-  'newMemberPersonaPrompt',
-  'newMemberRoleId',
-  'newMemberSessionId',
-  'newMemberSource',
-  'renderMessageAreaOverlay',
-  'roleSelectOptions',
-  'roles',
-  'selectedSpaceMemberConvIds',
-  'spaceName',
-  'spaceTagColorId',
-  't',
-] as const;
-
-const CollaborationMessageAreaOverlay = memo(
-  function CollaborationMessageAreaOverlay() {
-    const { renderMessageAreaOverlay } = useCollaborationSpacePick(
-      MESSAGE_AREA_OVERLAY_PICK_KEYS
-    );
-    return <>{renderMessageAreaOverlay()}</>;
   }
 );
 
@@ -475,7 +434,7 @@ export function CollaborationSpaceLayout({
 
           {error ? <p className="collaboration-error">{error}</p> : null}
           <ComposerDock />
-          <CollaborationMessageAreaOverlay />
+          <CollaborationCreateOverlay />
         </section>
       ) : null}
 

@@ -28,6 +28,7 @@ pub mod qa_repos;
 pub mod repo;
 pub mod settings_store;
 pub mod usage;
+pub mod workspace_lifecycle;
 pub mod workspace_manager;
 pub mod workspace_paths;
 pub mod worktree_manager;

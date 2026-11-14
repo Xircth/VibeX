@@ -662,6 +662,66 @@ fn checksum_str(path: &str, value: &str) -> ConversationBundleChecksum {
     }
 }
 
+pub async fn resolve_agent_fork_point(
+    pool: &SqlitePool,
+    source_id: Uuid,
+    until_turn_id: Option<Uuid>,
+    raw_at_turn_id: Option<&str>,
+    agent_id: &agents::AgentId,
+) -> Result<Option<agents::ForkPoint>, ConversationBundleError> {
+    use std::str::FromStr;
+    let Some(until_turn_id) = until_turn_id else {
+        return Ok(None);
+    };
+    let Ok(agent_kind) = agents::AgentKind::from_str(agent_id.as_str()) else {
+        return Ok(None);
+    };
+    if let Some(turns) = crate::jsonl_history::load_all_turns(pool, source_id)
+        .await
+        .map_err(|error| ConversationBundleError::Internal(error.to_string()))?
+        && !turns.is_empty()
+    {
+        if let Some(raw) = raw_at_turn_id
+            && let Some(fp) = agents::resolve_fork_point_for_turn(&turns, raw, agent_kind)
+        {
+            return Ok(Some(fp));
+        }
+        if let Some(fp) =
+            agents::resolve_fork_point_for_turn(&turns, &until_turn_id.to_string(), agent_kind)
+        {
+            return Ok(Some(fp));
+        }
+        let db_turns = ConversationTurnRecord::list_for_conversation(pool, source_id).await?;
+        if let Some(user_ordinal) = db_turns.iter().position(|turn| turn.id == until_turn_id) {
+            let target_turn_id = turns
+                .iter()
+                .filter(|turn| matches!(turn.role, TurnRole::User) && !turn.id.contains(":steer:"))
+                .nth(user_ordinal)
+                .map(|turn| turn.id.clone());
+            if let Some(target_turn_id) = target_turn_id
+                && let Some(fp) =
+                    agents::resolve_fork_point_for_turn(&turns, &target_turn_id, agent_kind)
+            {
+                return Ok(Some(fp));
+            }
+        }
+    }
+    let timeline = ConversationProjector::project(pool, source_id).await?;
+    let turns: Vec<agents::conversation::MessageTurn> = timeline
+        .rows
+        .into_iter()
+        .filter_map(|row| match row.row {
+            agents::conversation::ConversationTimelineRow::MessageTurn { turn, .. } => Some(turn),
+            _ => None,
+        })
+        .collect();
+    Ok(agents::resolve_fork_point_for_turn(
+        &turns,
+        &until_turn_id.to_string(),
+        agent_kind,
+    ))
+}
+
 #[cfg(test)]
 mod tests {
     use std::str::FromStr;

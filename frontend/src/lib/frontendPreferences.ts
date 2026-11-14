@@ -18,6 +18,7 @@ const STORAGE_KEYS = {
   'vibex:kanban-layout-arrangement': 'kanban_layout',
   'vibex:collaboration-layout-arrangement': 'collaboration_layout',
   'vibex:kanban-session-list-view': 'kanban_session_list_view',
+  'vibex:session-list-appearance': 'session_list_appearance',
   'vibex:kanban-board-style': 'kanban_board_style',
   'vibex:workspace-stage-style': 'workspace_stage_style',
   'vibex:canvas-dock-position': 'canvas_dock_position',

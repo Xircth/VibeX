@@ -646,7 +646,7 @@ pub(super) async fn worktree_cleanup(
         .ok_or_else(|| {
             ApplicationError::not_found(format!("Project {} not found", args.project_id))
         })?;
-    let settings = load_project_settings(&utils::assets::settings_path(), args.project_id)
+    let settings = load_project_settings(domains.deployment.settings_path(), args.project_id)
         .await
         .map_err(internal_error)?;
     let workspaces = Workspace::fetch_by_project_id(&domains.pool, args.project_id)

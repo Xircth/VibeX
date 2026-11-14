@@ -11,7 +11,7 @@ use std::{
 };
 
 use agents::{
-    AgentConnectionStatus, AgentContentBlock, AgentEvent, AgentEventEnvelope,
+    AgentConnectionId, AgentConnectionStatus, AgentContentBlock, AgentEvent, AgentEventEnvelope,
     conversation::{
         ConversationAgentConnectionStatus, ConversationDelegation, ConversationDelegationResult,
         ConversationError, ConversationEvent, ConversationEventEnvelope, ConversationFileLocation,
@@ -80,6 +80,7 @@ struct MappedConversationEventRecord {
     turn_id: Option<Uuid>,
     binding_id: Option<Uuid>,
     connection_id: String,
+    prompt_id: Option<String>,
     source: &'static str,
     event_kind: String,
     event: ConversationEvent,
@@ -231,7 +232,10 @@ impl ConversationAgentEventRecorder {
             return Ok(None);
         }
         let turn_id = self.event_turn_id(conversation_id, &envelope.event).await?;
-        if turn_id.is_none() && is_turn_scoped_content(&envelope.event) {
+        if turn_id.is_none()
+            && (is_turn_scoped_content(&envelope.event)
+                || matches!(envelope.event, AgentEvent::RequestActivity { .. }))
+        {
             // Turn content with no in-flight Turn to own it: a cancelled prompt's
             // tail, or output from an agent process the Host has already let go.
             // Recording it would attach the text to a neighbouring Turn, which is
@@ -311,14 +315,22 @@ impl ConversationAgentEventRecorder {
         if is_terminal_conversation_event(&event) {
             self.active_turn_cache.remove(&conversation_id);
         }
-        let raw_json = if is_unpersisted_conversation_event(&event) {
+        let raw_json = if is_unpersisted_conversation_event(&event)
+            || matches!(
+                envelope.event,
+                AgentEvent::ConnectionStatusChanged { .. } | AgentEvent::RequestActivity { .. }
+            ) {
             None
         } else {
             Some(serde_json::to_string(&envelope.event)?)
         };
         let connection_id = envelope.connection_id.to_string();
-        let idempotency_key =
-            conversation_event_idempotency_key(conversation_id, envelope.sequence, &event);
+        let idempotency_key = conversation_event_idempotency_key(
+            conversation_id,
+            envelope.connection_id,
+            envelope.sequence,
+            &event,
+        );
         let complete_reply = matches!(
             &envelope.event,
             AgentEvent::PromptFinished { finished }
@@ -330,6 +342,12 @@ impl ConversationAgentEventRecorder {
             turn_id,
             binding_id,
             connection_id,
+            prompt_id: match &envelope.event {
+                AgentEvent::RequestActivity { prompt_id, .. } => Some(prompt_id.to_string()),
+                AgentEvent::PromptStarted { snapshot } => Some(snapshot.id.to_string()),
+                AgentEvent::PromptFinished { finished } => Some(finished.prompt_id.to_string()),
+                _ => None,
+            },
             source,
             event_kind,
             event,
@@ -757,6 +775,9 @@ impl ConversationAgentEventRecorder {
         }
 
         match event {
+            AgentEvent::RequestActivity { prompt_id, .. } => {
+                request_activity_turn_id(&self.pool, conversation_id, *prompt_id).await
+            }
             AgentEvent::PromptStarted { snapshot } => {
                 #[cfg(test)]
                 {
@@ -830,7 +851,7 @@ fn ephemeral_record(
         turn_id: mapped.turn_id,
         binding_id: mapped.binding_id,
         connection_id: Some(mapped.connection_id.clone()),
-        prompt_id: None,
+        prompt_id: mapped.prompt_id.clone(),
         sequence: 0,
         source: mapped.source.to_string(),
         event_kind: mapped.event_kind.clone(),
@@ -844,6 +865,7 @@ fn ephemeral_record(
 
 fn conversation_event_idempotency_key(
     conversation_id: Uuid,
+    connection_id: AgentConnectionId,
     agent_sequence: i64,
     event: &ConversationEvent,
 ) -> String {
@@ -861,7 +883,7 @@ fn conversation_event_idempotency_key(
             )
         }
         _ => format!(
-            "agent:{}:{}",
+            "agent:{connection_id}:{}:{}",
             agent_sequence,
             conversation_event_kind(event)
         ),
@@ -880,7 +902,7 @@ fn append_event_input<'a>(
         turn_id,
         binding_id: mapped.binding_id,
         connection_id: Some(&mapped.connection_id),
-        prompt_id: None,
+        prompt_id: mapped.prompt_id.as_deref(),
         source: mapped.source,
         event_kind: &mapped.event_kind,
         normalized_json,
@@ -956,6 +978,9 @@ async fn resolve_agent_event_turn_id(
     event: &AgentEvent,
 ) -> Result<Option<Uuid>, sqlx::Error> {
     match event {
+        AgentEvent::RequestActivity { prompt_id, .. } => {
+            request_activity_turn_id(pool, conversation_id, *prompt_id).await
+        }
         AgentEvent::PromptStarted { snapshot } => {
             bind_prompt_turn(pool, conversation_id, &snapshot.id.to_string()).await
         }
@@ -988,6 +1013,19 @@ async fn resolve_agent_event_turn_id(
             )
         }
     }
+}
+
+async fn request_activity_turn_id(
+    pool: &SqlitePool,
+    conversation_id: Uuid,
+    prompt_id: agents::AgentPromptId,
+) -> Result<Option<Uuid>, sqlx::Error> {
+    Ok(
+        ConversationTurnRecord::find_by_prompt_id(pool, conversation_id, &prompt_id.to_string())
+            .await?
+            .filter(|turn| is_in_flight_turn_status(&turn.status))
+            .map(|turn| turn.id),
+    )
 }
 
 /// Events that must never be attributed to an already-settled Turn. When there is no
@@ -1282,8 +1320,11 @@ impl PendingConversationDelta {
         };
         self.base.event_kind = conversation_event_kind(&self.base.event);
         self.base.idempotency_key = format!(
-            "agent:{}-{}:{}",
-            self.base.first_agent_sequence, self.base.last_agent_sequence, self.base.event_kind
+            "agent:{}:{}-{}:{}",
+            self.base.connection_id,
+            self.base.first_agent_sequence,
+            self.base.last_agent_sequence,
+            self.base.event_kind
         );
         self.base.raw_json = Some(
             serde_json::json!({
@@ -1487,6 +1528,18 @@ fn map_agent_event(
     turn_id: Option<Uuid>,
 ) -> Option<ConversationEvent> {
     match &envelope.event {
+        AgentEvent::RequestActivity { activity, .. } => {
+            Some(ConversationEvent::RequestActivityChanged {
+                activity: activity.clone(),
+            })
+        }
+        AgentEvent::SessionBindReady { .. } => {
+            Some(ConversationEvent::AgentConnectionStatusChanged {
+                status: ConversationAgentConnectionStatus::Ready,
+                message: None,
+                bound: true,
+            })
+        }
         AgentEvent::ConnectionStatusChanged { snapshot } => {
             Some(ConversationEvent::AgentConnectionStatusChanged {
                 status: match snapshot.status {
@@ -1502,6 +1555,12 @@ fn map_agent_event(
                     AgentConnectionStatus::Ready => ConversationAgentConnectionStatus::Ready,
                     AgentConnectionStatus::Failed => ConversationAgentConnectionStatus::Error,
                 },
+                message: snapshot.status_message.as_deref().map(|text| {
+                    agents::conversation::cap_preview_bytes(
+                        agents::stderr_tail::sanitize_diagnostic(text),
+                    )
+                }),
+                bound: false,
             })
         }
         AgentEvent::SessionLinked {
@@ -1797,7 +1856,6 @@ fn map_agent_event(
         | AgentEvent::ModeChanged { .. }
         | AgentEvent::ConfigChanged { .. }
         | AgentEvent::ConfigOptionRejected { .. }
-        | AgentEvent::SessionBindReady { .. }
         | AgentEvent::SessionInvalidated { .. }
         | AgentEvent::PromptAccepted { .. } => None,
     }
@@ -1966,9 +2024,9 @@ mod tests {
 
     use super::{
         ConversationEventCoalescer, MappedConversationEventRecord, append_mapped_event,
-        binds_only_to_in_flight_turn, conversation_event_kind, conversation_event_source,
-        is_turn_scoped_content, map_agent_event, persist_session_linked_external_id,
-        resolve_agent_event_turn_id,
+        binds_only_to_in_flight_turn, conversation_event_idempotency_key, conversation_event_kind,
+        conversation_event_source, is_turn_scoped_content, map_agent_event,
+        persist_session_linked_external_id, resolve_agent_event_turn_id,
     };
 
     #[test]
@@ -2004,7 +2062,10 @@ mod tests {
             },
         ));
         assert_eq!(ready.len(), 2);
-        assert_eq!(ready[0].idempotency_key, "agent:10-11:assistant_text_delta");
+        assert_eq!(
+            ready[0].idempotency_key,
+            "agent:connection:10-11:assistant_text_delta"
+        );
         assert!(
             ready[0]
                 .raw_json
@@ -2120,7 +2181,10 @@ mod tests {
 
         let flushed = coalescer.flush();
         assert_eq!(flushed.len(), 1);
-        assert_eq!(flushed[0].idempotency_key, "agent:100-109:tool_call_upsert");
+        assert_eq!(
+            flushed[0].idempotency_key,
+            "agent:connection:100-109:tool_call_upsert"
+        );
         assert!(
             flushed[0]
                 .raw_json
@@ -2302,6 +2366,7 @@ mod tests {
                         fallback_url: None,
                     },
                 ),
+                ..Default::default()
             }],
         });
         assert_eq!(conversation_event_source(&envelope.event), "acp");
@@ -2493,6 +2558,7 @@ mod tests {
             turn_id: Some(Uuid::nil()),
             binding_id: None,
             connection_id: "connection".to_string(),
+            prompt_id: None,
             source: "acp",
             event_kind: conversation_event_kind(&event),
             event,
@@ -2547,6 +2613,8 @@ mod tests {
     fn connection_ready_event() -> ConversationEvent {
         ConversationEvent::AgentConnectionStatusChanged {
             status: agents::conversation::ConversationAgentConnectionStatus::Ready,
+            message: None,
+            bound: false,
         }
     }
 
@@ -2697,11 +2765,14 @@ mod tests {
     }
 
     #[test]
-    fn session_bind_ready_is_not_persisted_as_a_conversation_event() {
+    fn session_bind_ready_persists_the_real_send_gate_fact() {
         let envelope = envelope(AgentEvent::SessionBindReady {
             acp_session_id: "acp-live-session-9".into(),
         });
-        assert!(map_agent_event(&envelope, None).is_none());
+        assert!(matches!(
+            map_agent_event(&envelope, None),
+            Some(ConversationEvent::AgentConnectionStatusChanged { bound: true, .. })
+        ));
     }
 
     #[tokio::test]
@@ -2886,6 +2957,59 @@ mod tests {
         assert_eq!(second, Some(turn_b));
     }
 
+    #[tokio::test]
+    async fn request_activity_never_falls_back_from_an_old_or_unknown_prompt() {
+        let pool = setup_pool().await;
+        let prompt_a = AgentPromptId::new();
+        let (conversation_id, turn_a) =
+            seed_conversation_turn(&pool, &prompt_a.to_string(), "A").await;
+        ConversationTurnRecord::mark_completed(&pool, turn_a, None, None, None)
+            .await
+            .unwrap();
+        let prompt_b = AgentPromptId::new();
+        let turn_b = ConversationTurnRecord::create_pending(
+            &pool,
+            Uuid::new_v4(),
+            CreateConversationTurn {
+                conversation_id,
+                prompt_id: Some(&prompt_b.to_string()),
+                text_preview: Some("B"),
+                input_blocks_json: "[]",
+            },
+        )
+        .await
+        .unwrap();
+        ConversationRecord::update_active_turn(&pool, conversation_id, Some(turn_b.id))
+            .await
+            .unwrap();
+        for prompt in [prompt_a, AgentPromptId::new()] {
+            let event = AgentEvent::RequestActivity {
+                prompt_id: prompt,
+                activity: agents::request_status::RequestActivity::phase(
+                    agents::request_status::RequestPhase::Retrying,
+                ),
+            };
+            assert_eq!(
+                resolve_agent_event_turn_id(&pool, conversation_id, &event)
+                    .await
+                    .unwrap(),
+                None
+            );
+        }
+        let event = AgentEvent::RequestActivity {
+            prompt_id: prompt_b,
+            activity: agents::request_status::RequestActivity::phase(
+                agents::request_status::RequestPhase::Retrying,
+            ),
+        };
+        assert_eq!(
+            resolve_agent_event_turn_id(&pool, conversation_id, &event)
+                .await
+                .unwrap(),
+            Some(turn_b.id)
+        );
+    }
+
     /// Regression: a user cancel settles the Turn and nulls the active pointer
     /// without passing through this recorder. The agent's still-arriving output must
     /// be dropped, not attributed to the Turn the user stopped or to the next one.
@@ -2942,9 +3066,36 @@ mod tests {
                 None
             ),
             Some(ConversationEvent::AgentConnectionStatusChanged {
-                status: agents::conversation::ConversationAgentConnectionStatus::Recovering
+                status: agents::conversation::ConversationAgentConnectionStatus::Recovering,
+                ..
             })
         ));
+    }
+
+    #[test]
+    fn restarting_runtime_sequence_cannot_deduplicate_a_new_connections_status() {
+        let conversation = Uuid::new_v4();
+        let event = connection_ready_event();
+        let a =
+            conversation_event_idempotency_key(conversation, AgentConnectionId::new(), 1, &event);
+        let b =
+            conversation_event_idempotency_key(conversation, AgentConnectionId::new(), 1, &event);
+        assert_ne!(a, b);
+        let mut a = mapped_record(
+            1,
+            ConversationEvent::AssistantTextDelta {
+                text: "a".into(),
+                message_id: None,
+            },
+        );
+        let mut b = a.clone();
+        a.connection_id = "old-host".into();
+        b.connection_id = "new-host".into();
+        let mut coalescer = ConversationEventCoalescer::default();
+        coalescer.push(a);
+        let first = coalescer.push(b);
+        let second = coalescer.flush();
+        assert_ne!(first[0].idempotency_key, second[0].idempotency_key);
     }
 
     #[test]

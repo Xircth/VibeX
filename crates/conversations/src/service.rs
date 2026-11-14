@@ -1135,6 +1135,54 @@ mod tests {
         pool
     }
 
+    #[tokio::test]
+    async fn host_restart_closes_ready_connection_even_after_binding_event() {
+        let pool = migrated_pool().await;
+        let conversation = seed_conversation_with_active_turn(&pool).await;
+        let events = [
+            serde_json::json!({"kind":"agent_connection_status_changed","status":"ready","bound":true}),
+            serde_json::json!({"kind":"agent_binding_ready","acp_session_id":"acp-session","capabilities":{}}),
+        ];
+        for event in events {
+            let normalized = event.to_string();
+            crate::ConversationEventAppender::append(
+                &pool,
+                AppendConversationEvent {
+                    id: Uuid::new_v4(),
+                    conversation_id: conversation.id,
+                    turn_id: None,
+                    binding_id: None,
+                    connection_id: Some("previous-host-connection"),
+                    prompt_id: None,
+                    source: "runtime",
+                    event_kind: event["kind"].as_str().unwrap(),
+                    normalized_json: &normalized,
+                    raw_json: None,
+                    idempotency_key: None,
+                },
+            )
+            .await
+            .unwrap();
+        }
+        let count =
+            super::recover::reconcile_orphaned_connecting_conversations_in_pool(&pool, None)
+                .await
+                .unwrap();
+        assert_eq!(count, 1);
+        let fold = crate::ConversationProjector::fold(&pool, conversation.id)
+            .await
+            .unwrap();
+        assert!(fold.side_rows.iter().any(|row| matches!(&row.row,
+            agents::conversation::ConversationTimelineRow::SessionNotice {notice}
+            if notice.connection_status.as_ref().is_some_and(|status| status.status == ConversationAgentConnectionStatus::Closed && !status.bound))));
+        assert_eq!(
+            super::recover::reconcile_orphaned_connecting_conversations_in_pool(&pool, None)
+                .await
+                .unwrap(),
+            0
+        );
+    }
+
     #[derive(Default)]
     struct RecordingConversationEventPublisher {
         published_sequences: StdMutex<Vec<i64>>,
@@ -1170,6 +1218,8 @@ mod tests {
         .expect("create conversation");
         let event = ConversationEvent::AgentConnectionStatusChanged {
             status: ConversationAgentConnectionStatus::Closed,
+            message: None,
+            bound: false,
         };
         let normalized_json = serde_json::to_string(&event).expect("serialize event");
         let publisher = RecordingConversationEventPublisher::default();

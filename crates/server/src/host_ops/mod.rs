@@ -1,6 +1,7 @@
 mod file_listing;
 mod file_move;
 mod file_search;
+mod workspace_creation;
 
 use std::{
     collections::{BTreeMap, HashSet},
@@ -1358,6 +1359,10 @@ impl ServerApplicationDomains {
             }
             None => self.resolve_terminal_working_dir(args.workspace_id).await?,
         };
+        let operation =
+            services::services::workspace_lifecycle::workspace_operation(args.workspace_id);
+        let _permit = operation.read().await;
+        self.require_workspace(args.workspace_id).await?;
         let (session_id, output_rx) = self
             .deployment
             .pty()
@@ -1744,133 +1749,6 @@ impl ServerApplicationDomains {
         )
         .await
         .map_err(internal_error)?;
-        Workspace::find_by_id(&self.pool, workspace.id)
-            .await
-            .map_err(internal_error)?
-            .ok_or_else(|| ApplicationError::not_found(format!("workspace {}", workspace.id)))
-    }
-
-    async fn create_worktree_workspace_for_project_session(
-        &self,
-        project_id: Uuid,
-        name: Option<&str>,
-        initial_prompt: Option<&str>,
-        repos: &[ProjectSessionRepoInput],
-        include_uncommitted: bool,
-    ) -> Result<Workspace, ApplicationError> {
-        if repos.is_empty() {
-            return Err(ApplicationError::bad_request(
-                "At least one repository is required",
-            ));
-        }
-        let workspace_title = derive_workspace_seed_title(name, initial_prompt);
-        let task = Task::create(
-            &self.pool,
-            &CreateTask {
-                project_id,
-                title: workspace_title.clone(),
-                description: initial_prompt.map(ToOwned::to_owned),
-                status: Some(TaskStatus::Todo),
-                parent_workspace_id: None,
-                image_ids: None,
-            },
-            Uuid::new_v4(),
-        )
-        .await
-        .map_err(internal_error)?;
-        let agent_working_dir = if repos.len() == 1 {
-            let repo = Repo::find_by_id(&self.pool, repos[0].repo_id)
-                .await
-                .map_err(internal_error)?
-                .ok_or_else(|| ApplicationError::not_found("repository not found"))?;
-            Some(match repo.default_working_dir {
-                Some(subdir) => PathBuf::from(&repo.name)
-                    .join(subdir)
-                    .to_string_lossy()
-                    .into_owned(),
-                None => repo.name,
-            })
-        } else {
-            None
-        };
-        let workspace_id = Uuid::new_v4();
-        let branch = self
-            .deployment
-            .container()
-            .git_branch_from_workspace(&workspace_id, &workspace_title)
-            .await;
-        let workspace = Workspace::create(
-            &self.pool,
-            &CreateWorkspace {
-                project_id,
-                parent_workspace_id: None,
-                branch,
-                container_ref: None,
-                use_worktree: true,
-                agent_working_dir,
-            },
-            workspace_id,
-            task.id,
-        )
-        .await
-        .map_err(internal_error)?;
-        Workspace::update(
-            &self.pool,
-            workspace.id,
-            None,
-            None,
-            Some(workspace_title.as_str()),
-        )
-        .await
-        .map_err(internal_error)?;
-        let mut workspace_repos = Vec::with_capacity(repos.len());
-        for input in repos {
-            let repo = Repo::find_by_id(&self.pool, input.repo_id)
-                .await
-                .map_err(internal_error)?
-                .ok_or_else(|| ApplicationError::not_found("repository not found"))?;
-            let target_branch = self
-                .deployment
-                .git()
-                .resolve_workspace_branch(&repo.path, Some(input.target_branch.as_str()))
-                .map_err(|error| {
-                    ApplicationError::internal(format!(
-                        "Could not resolve the default branch of repo {}: {error}",
-                        repo.name
-                    ))
-                })?;
-            workspace_repos.push(CreateWorkspaceRepo {
-                repo_id: input.repo_id,
-                target_branch,
-            });
-        }
-        WorkspaceRepo::create_many(&self.pool, workspace.id, &workspace_repos)
-            .await
-            .map_err(internal_error)?;
-        let workspace = Workspace::find_by_id(&self.pool, workspace.id)
-            .await
-            .map_err(internal_error)?
-            .ok_or_else(|| ApplicationError::not_found(format!("workspace {}", workspace.id)))?;
-        self.deployment
-            .container()
-            .ensure_container_exists(&workspace)
-            .await
-            .map_err(map_workspace_git_error)?;
-        let workspace = Workspace::find_by_id(&self.pool, workspace.id)
-            .await
-            .map_err(internal_error)?
-            .ok_or_else(|| ApplicationError::not_found(format!("workspace {}", workspace.id)))?;
-        if include_uncommitted && let Some(container_ref) = workspace.container_ref.as_deref() {
-            let repos = WorkspaceRepo::find_repos_for_workspace(&self.pool, workspace.id)
-                .await
-                .map_err(internal_error)?;
-            services::services::workspace_manager::WorkspaceManager::copy_uncommitted_changes(
-                Path::new(container_ref),
-                &repos,
-            )
-            .await
-            .map_err(map_workspace_git_error)?;
-        }
         Workspace::find_by_id(&self.pool, workspace.id)
             .await
             .map_err(internal_error)?

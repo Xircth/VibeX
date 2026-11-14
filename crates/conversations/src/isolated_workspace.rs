@@ -116,11 +116,9 @@ pub async fn create_isolated_workspace(
         .ensure_container_exists(&workspace)
         .await
     {
-        let _ = context.deployment.container().delete(&workspace).await;
-        let _ = Workspace::delete(pool, workspace.id).await;
-        let _ = Task::delete(pool, workspace.task_id).await;
         return Err(IsolatedWorkspaceError::other(format!(
-            "failed to create isolated {purpose} worktree: {error}"
+            "failed to create isolated {purpose} worktree {} (retained for review and retry): {error}",
+            workspace.id
         )));
     }
     let materialized = Workspace::find_by_id(pool, workspace.id)

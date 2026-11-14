@@ -173,10 +173,12 @@ export class AccountError extends Error {
 export const ACCOUNT_TOKEN_EVENT = 'vibex:account-token-changed';
 export const DESKTOP_SHARED_ACCOUNT_TOKEN_KEY = '__account_token_v1';
 export const DESKTOP_SHARED_ACCOUNT_OWNER_KEY = '__account_owner_v1';
-export const HOST_BOUND_ACCOUNTS_STORAGE_KEY = 'vibex.account.hostBoundAccounts.v1';
+export const HOST_BOUND_ACCOUNTS_STORAGE_KEY =
+  'vibex.account.hostBoundAccounts.v1';
 export const HOST_BOUND_ACCOUNTS_EVENT = 'vibex:host-bound-accounts-changed';
 let sharedTokenHydrationStarted = false;
-const EMPTY_HOST_BOUND_ACCOUNTS: Record<string, AccountOwnerSummary> = Object.freeze({});
+const EMPTY_HOST_BOUND_ACCOUNTS: Record<string, AccountOwnerSummary> =
+  Object.freeze({});
 let cachedHostBoundAccountsRaw: string | null = null;
 let cachedHostBoundAccountsSnapshot: Record<string, AccountOwnerSummary> =
   EMPTY_HOST_BOUND_ACCOUNTS;
@@ -203,7 +205,8 @@ export function readHostBoundAccounts(): Record<string, AccountOwnerSummary> {
     for (const [key, value] of Object.entries(parsed)) {
       if (!value || typeof value !== 'object') continue;
       const obj = value as Record<string, unknown>;
-      const username = typeof obj.username === 'string' ? obj.username.trim() : '';
+      const username =
+        typeof obj.username === 'string' ? obj.username.trim() : '';
       if (!username) continue;
       const displayName =
         typeof obj.displayName === 'string' && obj.displayName.trim()
@@ -381,39 +384,48 @@ async function call<T>(
     body?: unknown;
     token?: string | null;
     preserveTokenOn401?: boolean;
+    signal?: AbortSignal;
   }
 ): Promise<T> {
   const headers: Record<string, string> = {};
   if (init.body !== undefined) headers['Content-Type'] = 'application/json';
   if (init.token) headers.Authorization = `Bearer ${init.token}`;
   let response: Response;
+  const controller = new AbortController();
+  const abort = () => controller.abort();
+  if (init.signal?.aborted) controller.abort();
+  init.signal?.addEventListener('abort', abort, { once: true });
+  const timeout = window.setTimeout(abort, 15_000);
   try {
     response = await fetch(getSiteUrl(path), {
       method: init.method,
       headers,
       body: init.body === undefined ? undefined : JSON.stringify(init.body),
+      signal: controller.signal,
     });
-  } catch {
+    if (response.status === 401) {
+      if (init.token && !init.preserveTokenOn401) storeToken(null);
+      throw new AccountError('signed_out');
+    }
+    if (
+      response.status === 404 ||
+      response.status === 405 ||
+      response.status === 501
+    ) {
+      throw new AccountError('unsupported');
+    }
+    const payload = (await response.json()) as (T & { error?: string }) | null;
+    if (!response.ok || !payload) {
+      throw new AccountError(payload?.error ?? 'failed');
+    }
+    return payload;
+  } catch (cause) {
+    if (cause instanceof AccountError) throw cause;
     throw new AccountError('network');
+  } finally {
+    window.clearTimeout(timeout);
+    init.signal?.removeEventListener('abort', abort);
   }
-  if (response.status === 401) {
-    if (init.token && !init.preserveTokenOn401) storeToken(null);
-    throw new AccountError('signed_out');
-  }
-  if (
-    response.status === 404 ||
-    response.status === 405 ||
-    response.status === 501
-  ) {
-    throw new AccountError('unsupported');
-  }
-  const payload = (await response.json().catch(() => null)) as
-    | (T & { error?: string })
-    | null;
-  if (!response.ok || !payload) {
-    throw new AccountError(payload?.error ?? 'failed');
-  }
-  return payload;
 }
 
 function authed<T>(path: string, method: HttpMethod, body?: unknown) {
@@ -445,14 +457,16 @@ export const accountApi = {
   },
 
   /** Resolves `true` once the browser approved this device, `false` while it is still waiting. */
-  async pollLogin(login: DeviceLogin): Promise<boolean> {
+  async pollLogin(login: DeviceLogin, signal?: AbortSignal): Promise<boolean> {
     const result = await call<{ status: string; token?: string }>(
       '/api/auth/desktop/token',
       {
         method: 'POST',
         body: { requestId: login.requestId, verifier: login.verifier },
+        signal,
       }
     );
+    if (signal?.aborted) return false;
     if (result.status === 'approved' && result.token) {
       storeToken(result.token);
       return true;
@@ -557,7 +571,9 @@ export const accountApi = {
     savedHosts?: SyncableHostProfile[];
   }> => authed('/api/account/desktop/saved-hosts', 'PUT', { profiles }),
 
-  deleteSavedHost: (selector: SavedHostDeleteSelector): Promise<{
+  deleteSavedHost: (
+    selector: SavedHostDeleteSelector
+  ): Promise<{
     ok?: boolean;
     deleted?: number;
     savedHosts?: SyncableHostProfile[];

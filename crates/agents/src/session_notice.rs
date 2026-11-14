@@ -20,14 +20,21 @@ const CODEX_WARNING_PREFIX: &str = "Warning: ";
 const CODEX_CONFIG_WARNING_PREFIX: &str = "Config warning: ";
 const CODEX_CONTEXT_COMPACTED: &str = "*Context compacted to fit the model's context window.*";
 
-pub fn from_agent_message_chunk(chunk: &ContentChunk) -> Option<ConversationSessionNotice> {
+pub fn from_agent_message_chunk_for(
+    agent_kind: Option<api_types::AgentKind>,
+    chunk: &ContentChunk,
+) -> Option<ConversationSessionNotice> {
     if chunk.message_id.is_some() {
         return None;
     }
     let ContentBlock::Text(text) = &chunk.content else {
         return None;
     };
-    from_adapter_message(&text.text)
+    match agent_kind {
+        Some(api_types::AgentKind::Codex) => from_adapter_message(&text.text),
+        Some(api_types::AgentKind::Pi) => from_pi_acp_lifecycle(text.text.trim()),
+        _ => None,
+    }
 }
 
 pub fn from_session_update_value(update: &Value) -> Option<ConversationSessionNotice> {
@@ -132,8 +139,7 @@ pub fn is_adapter_cancelled_chunk(
     agent_kind: Option<api_types::AgentKind>,
     chunk: &ContentChunk,
 ) -> bool {
-    if !matches!(agent_kind, None | Some(api_types::AgentKind::Antigravity))
-        || chunk.message_id.is_some()
+    if !matches!(agent_kind, Some(api_types::AgentKind::Antigravity)) || chunk.message_id.is_some()
     {
         return false;
     }
@@ -152,8 +158,7 @@ pub fn adapter_turn_error_from_chunk(
     agent_kind: Option<api_types::AgentKind>,
     chunk: &ContentChunk,
 ) -> Option<String> {
-    if !matches!(agent_kind, None | Some(api_types::AgentKind::Antigravity))
-        || chunk.message_id.is_some()
+    if !matches!(agent_kind, Some(api_types::AgentKind::Antigravity)) || chunk.message_id.is_some()
     {
         return None;
     }
@@ -186,7 +191,7 @@ fn from_adapter_message(text: &str) -> Option<ConversationSessionNotice> {
             ..Default::default()
         });
     }
-    from_pi_acp_lifecycle(text.trim())
+    None
 }
 
 /// pi-acp puts lifecycle announcements on the same `agent_message_chunk`
@@ -201,16 +206,6 @@ fn from_pi_acp_lifecycle(text: &str) -> Option<ConversationSessionNotice> {
         return Some(ConversationSessionNotice {
             title: text.to_string(),
             message: None,
-            severity: "info".into(),
-            ..Default::default()
-        });
-    }
-    if let Some(rest) = text.strip_prefix("Retrying")
-        && (rest.is_empty() || rest.starts_with(" (") || rest == "...")
-    {
-        return Some(ConversationSessionNotice {
-            title: "Retrying model call".into(),
-            message: Some(text.to_string()),
             severity: "info".into(),
             ..Default::default()
         });
@@ -285,7 +280,7 @@ mod tests {
     use serde_json::json;
 
     use super::{
-        from_agent_message_chunk, from_session_notification_params, from_session_update_value,
+        from_agent_message_chunk_for, from_session_notification_params, from_session_update_value,
         matches_pi_startup_banner, notice_from_diagnostic_payload, pi_startup_banner_from_meta,
     };
 
@@ -303,7 +298,8 @@ mod tests {
             "Warning: Skill descriptions were shortened to fit the skills context budget. Codex can still see every skill, but some descriptions are shorter. Disable unused skills or plugins to leave more room for the rest.\n\n",
             None,
         );
-        let notice = from_agent_message_chunk(&chunk).expect("warning notice");
+        let notice = from_agent_message_chunk_for(Some(api_types::AgentKind::Codex), &chunk)
+            .expect("warning notice");
         assert_eq!(
             notice.title,
             "Skill descriptions were shortened to fit the skills context budget."
@@ -323,7 +319,8 @@ mod tests {
             "Config warning: Unknown key `skills.listing_budget_fraction`\n\nIgnored extra settings.\n\n",
             None,
         );
-        let notice = from_agent_message_chunk(&chunk).expect("config warning");
+        let notice = from_agent_message_chunk_for(Some(api_types::AgentKind::Codex), &chunk)
+            .expect("config warning");
         assert_eq!(notice.title, "Unknown key `skills.listing_budget_fraction`");
         assert_eq!(notice.severity, "warning");
         assert!(
@@ -340,7 +337,8 @@ mod tests {
             "*Context compacted to fit the model's context window.*\n\n",
             None,
         );
-        let notice = from_agent_message_chunk(&chunk).expect("compaction notice");
+        let notice = from_agent_message_chunk_for(Some(api_types::AgentKind::Codex), &chunk)
+            .expect("compaction notice");
         assert_eq!(notice.title, "Context compacted");
         assert_eq!(notice.severity, "info");
     }
@@ -351,13 +349,13 @@ mod tests {
             "Warning: this change is destructive. I will ask before deleting files.\n\n",
             Some("item_1"),
         );
-        assert!(from_agent_message_chunk(&chunk).is_none());
+        assert!(from_agent_message_chunk_for(Some(api_types::AgentKind::Codex), &chunk).is_none());
     }
 
     #[test]
     fn leaves_ordinary_assistant_text_in_the_transcript() {
         let chunk = text_chunk("I'll inspect the failing test first.", None);
-        assert!(from_agent_message_chunk(&chunk).is_none());
+        assert!(from_agent_message_chunk_for(Some(api_types::AgentKind::Codex), &chunk).is_none());
     }
 
     #[test]
@@ -383,21 +381,11 @@ mod tests {
 
     #[test]
     fn peels_pi_acp_lifecycle_announcements_without_eating_prose() {
-        let retry = text_chunk("Retrying (attempt 2/5, waiting 3s)...", None);
-        let notice = from_agent_message_chunk(&retry).expect("retry notice");
-        assert_eq!(notice.title, "Retrying model call");
-        assert_eq!(notice.severity, "info");
-
         let queued = text_chunk("Queued message (position 2).", None);
-        assert_eq!(
-            from_agent_message_chunk(&queued)
-                .expect("queue notice")
-                .title,
-            "Queued message (position 2)."
-        );
-
+        assert!(from_agent_message_chunk_for(Some(api_types::AgentKind::Pi), &queued).is_some());
+        assert!(from_agent_message_chunk_for(None, &queued).is_none());
         let prose = text_chunk("Retrying this approach with a smaller change.", None);
-        assert!(from_agent_message_chunk(&prose).is_none());
+        assert!(from_agent_message_chunk_for(Some(api_types::AgentKind::Codex), &prose).is_none());
     }
 
     #[test]

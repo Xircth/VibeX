@@ -18,6 +18,7 @@ import {
   resumeBasicGuide,
   shouldCompleteStep1OnRoute,
   shouldForceWelcome,
+  shouldRedirectToGuideWelcome,
   skipBasicGuide,
   startBasicGuide,
   clickAdvancesSubstep,
@@ -28,6 +29,15 @@ import {
 } from './basicGuideState';
 
 describe('basicGuideState', () => {
+  it('does not redirect to the guide welcome page while config is loading', () => {
+    expect(
+      shouldRedirectToGuideWelcome(ACTIVE_GUIDE, '/local-projects/demo', true)
+    ).toBe(false);
+    expect(
+      shouldRedirectToGuideWelcome(ACTIVE_GUIDE, '/local-projects/demo', false)
+    ).toBe(true);
+  });
+
   it('restarts from step 1 when the first step was never finished', () => {
     const midStep2 = resumeBasicGuide({
       phase: 'active',

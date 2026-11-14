@@ -273,9 +273,38 @@ pub trait ContainerService: Send + Sync {
 
     async fn create(&self, workspace: &Workspace) -> Result<ContainerRef, ContainerError>;
 
+    /// Prepare selected source changes before running workspace initialization.
+    async fn provision(
+        &self,
+        workspace: &Workspace,
+        include_uncommitted: bool,
+    ) -> Result<ContainerRef, ContainerError> {
+        if include_uncommitted {
+            return Err(ContainerError::Other(anyhow!(
+                "Source changes are not supported by this container"
+            )));
+        }
+        self.ensure_container_exists(workspace).await
+    }
+
     async fn kill_all_running_processes(&self) -> Result<(), ContainerError>;
 
     async fn delete(&self, workspace: &Workspace) -> Result<(), ContainerError>;
+
+    async fn remove(
+        &self,
+        workspace: &Workspace,
+        delete_branches: bool,
+    ) -> Result<(), ContainerError> {
+        if delete_branches {
+            return Err(ContainerError::Other(anyhow!(
+                "Branch deletion is not supported by this container"
+            )));
+        }
+        self.delete(workspace).await?;
+        Workspace::delete(&self.db().pool, workspace.id).await?;
+        Ok(())
+    }
 
     /// Check if a task has any running execution processes
     async fn has_running_processes(&self, task_id: Uuid) -> Result<bool, ContainerError> {

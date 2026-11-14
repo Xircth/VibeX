@@ -239,14 +239,22 @@ impl GitService {
         dest: &Path,
     ) -> Result<(), GitServiceError> {
         let git = GitCli::new();
+        if self.get_head_info(source)?.oid != self.get_head_info(dest)?.oid {
+            return Err(GitServiceError::InvalidRepository(
+                "Including uncommitted changes requires the source HEAD as the base commit".into(),
+            ));
+        }
+        if !self.is_worktree_clean(dest)? {
+            return Err(GitServiceError::InvalidRepository(
+                "Destination has changes; source changes were not reapplied. Review the workspace before retrying".into(),
+            ));
+        }
         let diff = git
             .diff_binary_vs_head(source)
             .map_err(GitServiceError::from_cli)?;
         if !diff.is_empty()
             && let Err(error) = git.apply_binary_diff(dest, &diff)
         {
-            let _ = git.git(dest, ["reset", "--hard", "HEAD"]);
-            let _ = git.git(dest, ["clean", "-fd"]);
             return Err(GitServiceError::from_cli(error));
         }
 
@@ -268,6 +276,15 @@ impl GitService {
                 continue;
             }
             let to = dest.join(relative_path);
+            if to.exists() {
+                if std::fs::read(&from)? == std::fs::read(&to)? {
+                    continue;
+                }
+                return Err(GitServiceError::InvalidRepository(format!(
+                    "Refusing to replace existing destination file: {}",
+                    to.display()
+                )));
+            }
             if let Some(parent) = to.parent() {
                 std::fs::create_dir_all(parent)?;
             }

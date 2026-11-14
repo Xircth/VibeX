@@ -675,14 +675,19 @@ impl WorktreeManager {
 
     /// Clean up multiple worktrees
     pub async fn batch_cleanup_worktrees(data: &[WorktreeCleanup]) -> Result<(), WorktreeError> {
+        let mut errors = Vec::new();
         for cleanup_data in data {
             tracing::debug!("Cleaning up worktree: {:?}", cleanup_data.worktree_path);
 
             if let Err(e) = Self::cleanup_worktree(cleanup_data).await {
-                tracing::error!("Failed to cleanup worktree: {}", e);
+                errors.push(format!("{}: {e}", cleanup_data.worktree_path.display()));
             }
         }
-        Ok(())
+        if errors.is_empty() {
+            Ok(())
+        } else {
+            Err(WorktreeError::Repository(errors.join("; ")))
+        }
     }
 
     /// Clean up a worktree path and its git metadata (non-blocking)

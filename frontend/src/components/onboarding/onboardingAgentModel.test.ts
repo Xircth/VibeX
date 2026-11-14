@@ -3,10 +3,7 @@ import type { AgentManagementView, AgentRegistryViewRow } from 'shared/types';
 
 import {
   buildOnboardingAgentOptions,
-  classifyOnboardingInstallResult,
-  describeOnboardingPreflight,
   normalizeOnboardingAgentSelection,
-  onboardingContinueGate,
 } from './onboardingAgentModel';
 
 function managed(
@@ -54,6 +51,32 @@ function registry(
 }
 
 describe('onboarding Agent model', () => {
+  it('keeps platform-unsupported built-in Agents visible with their status', () => {
+    const options = buildOnboardingAgentOptions(
+      [
+        managed({
+          agent_id: 'cursor',
+          display_name: 'Cursor',
+          lifecycle: 'platform_unsupported',
+        }),
+      ],
+      [
+        registry({
+          agent_id: 'cursor',
+          display_name: 'Cursor',
+          built_in: true,
+          platform_supported: false,
+        }),
+      ]
+    );
+    expect(options).toEqual([
+      expect.objectContaining({
+        agentId: 'cursor',
+        platformSupported: false,
+        lifecycle: 'platform_unsupported',
+      }),
+    ]);
+  });
   it('puts installed Agents first and preserves product order within each group', () => {
     const options = buildOnboardingAgentOptions(
       [
@@ -190,63 +213,6 @@ describe('onboarding Agent model', () => {
     });
   });
 
-  it('describes preflight results and the continue gate', () => {
-    expect(describeOnboardingPreflight([], false)).toEqual({ kind: 'pending' });
-    expect(
-      describeOnboardingPreflight(
-        [{ id: 'acp', status: 'pass', label: 'ACP 适配器' }],
-        false
-      )
-    ).toEqual({ kind: 'pass' });
-    expect(
-      describeOnboardingPreflight(
-        [
-          {
-            id: 'acp',
-            status: 'fail',
-            label: 'ACP 适配器',
-            repairable: true,
-          },
-          { id: 'authentication', status: 'fail', repairable: true },
-        ],
-        false
-      )
-    ).toEqual({
-      kind: 'runtime',
-      target: 'ACP 适配器',
-      repairable: true,
-    });
-    expect(
-      describeOnboardingPreflight(
-        [
-          {
-            id: 'authentication',
-            status: 'fail',
-            detail: '当前鉴权模式 `subscription` 尚未就绪。',
-            repairable: true,
-          },
-        ],
-        false
-      )
-    ).toEqual({ kind: 'auth' });
-    expect(
-      describeOnboardingPreflight(
-        [{ id: 'authentication', status: 'pass' }],
-        true
-      )
-    ).toEqual({ kind: 'login' });
-    expect(
-      describeOnboardingPreflight(
-        [{ id: 'authentication', status: 'fail', detail: '登录失败' }],
-        false
-      )
-    ).toEqual({ kind: 'login' });
-    expect(onboardingContinueGate(['pass', 'pass'])).toBe('direct');
-    expect(onboardingContinueGate(['pass', 'blocked'])).toBe('partial');
-    expect(onboardingContinueGate(['blocked', 'blocked'])).toBe('none');
-    expect(onboardingContinueGate([])).toBe('none');
-  });
-
   it('skips another install when an ACP adapter is already present', () => {
     const options = buildOnboardingAgentOptions(
       [
@@ -289,18 +255,5 @@ describe('onboarding Agent model', () => {
       enabledAgentIds: new Set(['claude_code']),
       defaultAgentId: 'claude_code',
     });
-  });
-
-  it('separates install success from post-install verification', () => {
-    expect(classifyOnboardingInstallResult('succeeded', ['pass', 'pass'])).toBe(
-      'verified'
-    );
-    expect(classifyOnboardingInstallResult('succeeded', ['pass', 'fail'])).toBe(
-      'needs_attention'
-    );
-    expect(
-      classifyOnboardingInstallResult('succeeded', ['pass', 'warning'])
-    ).toBe('verified');
-    expect(classifyOnboardingInstallResult('failed', [])).toBe('failed');
   });
 });

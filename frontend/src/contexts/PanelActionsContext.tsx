@@ -106,6 +106,7 @@ import {
 } from '@/lib/activityRailOrder';
 import {
   applyLeftDockSplitSizes,
+  rebalanceLeftDockWidth,
   isLeftDockSplit as readLeftDockSplit,
   measureLeftDockBox,
   measureShellNavPanels as readShellNavPanels,
@@ -117,6 +118,7 @@ import {
   type ShellNavPanelMeasurement,
 } from '@/lib/leftDockPlacement';
 import { settleDockviewGroupWidths } from '@/utils/dockviewStartupSizing';
+import { createLeftDockPanelLifecycle } from '@/lib/leftDockPanelLifecycle';
 import {
   dropZoneToDirection,
   isRowSplit,
@@ -425,6 +427,9 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
   const applyingLeftSplitRef = useRef(false);
   const diffPreviewPanelQueueRef = useRef<string[]>([]);
   const preferredEditorGroupIdRef = useRef<string | null>(null);
+  const leftDockLifecycleRef = useRef<ReturnType<
+    typeof createLeftDockPanelLifecycle
+  > | null>(null);
   const clearCommitDiff = useCommitDiffStore((state) => state.clearCommitDiff);
   const clearGitDiffTargetPath = useGitDiffNavigationStore(
     (state) => state.clearTargetPath
@@ -444,6 +449,7 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
     imagePanelRemovalDisposableRef.current = null;
     layoutDisposableRef.current?.dispose();
     layoutDisposableRef.current = null;
+    leftDockLifecycleRef.current = null;
     leftSplitSnapshotRef.current = null;
     apiRef.current = api;
     syncWorkspaceOpenSessionIdsFromDockview(api);
@@ -460,6 +466,8 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
       syncWorkspaceOpenSessionIdsFromDockview(api);
       setShellNavRevision((rev) => rev + 1);
     });
+    const leftDockLifecycle = createLeftDockPanelLifecycle(api);
+    leftDockLifecycleRef.current = leftDockLifecycle;
     const removeGroupDisposable = api.onDidRemoveGroup((group) => {
       clearTerminalShelf(group.id);
       syncWorkspaceOpenSessionIdsFromDockview(api);
@@ -490,6 +498,7 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
       dispose: () => {
         layoutDisposable.dispose();
         removeGroupDisposable.dispose();
+        leftDockLifecycle.dispose();
       },
     };
   }, []);
@@ -1609,12 +1618,8 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
         element?: HTMLElement;
       }) => {
         const raw =
-          group.api.width ||
-          group.element?.getBoundingClientRect().width ||
-          0;
-        return raw > 0
-          ? Math.max(MIN_LEFT_PANEL_WIDTH, Math.round(raw))
-          : 0;
+          group.api.width || group.element?.getBoundingClientRect().width || 0;
+        return raw > 0 ? Math.max(MIN_LEFT_PANEL_WIDTH, Math.round(raw)) : 0;
       };
       const measureGroupHeight = (group: {
         api: { height: number };
@@ -1636,7 +1641,10 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
       }
       const minExistingWidth =
         existingGroupWidthsOnSide.length > 0
-          ? Math.max(MIN_LEFT_PANEL_WIDTH, Math.min(...existingGroupWidthsOnSide))
+          ? Math.max(
+              MIN_LEFT_PANEL_WIDTH,
+              Math.min(...existingGroupWidthsOnSide)
+            )
           : MIN_LEFT_PANEL_WIDTH;
 
       const previousGroup = existing?.group;
@@ -1707,9 +1715,8 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
         new Set(
           othersOnSide
             .map((panel) => dockviewApi.getPanel(panel.id)?.group)
-            .filter(
-              (group): group is NonNullable<typeof group> =>
-                Boolean(group && dockviewApi.groups.includes(group))
+            .filter((group): group is NonNullable<typeof group> =>
+              Boolean(group && dockviewApi.groups.includes(group))
             )
         )
       );
@@ -1802,8 +1809,10 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
       };
 
       applyPlacementSizes();
+      if (side === 'left') rebalanceLeftDockWidth(dockviewApi);
       requestAnimationFrame(() => {
         applyPlacementSizes();
+        if (side === 'left') rebalanceLeftDockWidth(dockviewApi);
         applyingLeftSplitRef.current = false;
       });
     },
@@ -1868,23 +1877,22 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
 
       const title = ACTIVITY_RAIL_PANEL_TITLES[panelId];
       let existing = dockviewApi.getPanel(panelId);
-      const leftGroup = ensureLeftDockGroup();
+      const sideWidths = [
+        ...listLeftDockGroups(dockviewApi.groups),
+        ...listSessionGroups(dockviewApi.groups),
+      ]
+        .filter((group) => group.api.isVisible)
+        .map((group) => ({ group, width: group.api.width }));
+      const leftGroup =
+        (existing?.group.api.isVisible && !isRightShellNavGroup(existing.group)
+          ? existing.group
+          : leftDockLifecycleRef.current?.oldestVisiblePanel()?.group) ??
+        ensureLeftDockGroup();
       if (!leftGroup) return;
+      const isNewSlot = !sideWidths.some(({ group }) => group === leftGroup);
 
-      if (existing && isRightShellNavGroup(existing.group)) {
-        const rightGroup = existing.group;
+      if (existing && existing.group !== leftGroup) {
         dockviewApi.removePanel(existing);
-        if (
-          rightGroup.panels.length === 0 &&
-          dockviewApi.groups.includes(rightGroup) &&
-          rightGroup.id !== GROUP_IDS.LEFT
-        ) {
-          try {
-            dockviewApi.removeGroup(rightGroup);
-          } catch {
-            // Ignore cleanup failure.
-          }
-        }
         existing = undefined;
       }
 
@@ -1895,13 +1903,12 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
           title,
           position: { referenceGroup: leftGroup.id, direction: 'within' },
         });
-        existing = dockviewApi.getPanel(panelId);
       }
 
-      for (const otherId of ACTIVITY_RAIL_ITEMS) {
-        if (otherId === panelId) continue;
-        const other = dockviewApi.getPanel(otherId);
-        if (other && !isRightShellNavGroup(other.group)) {
+      // Replace the slot's content before removing its old tab so Dockview
+      // keeps the group, its split position, and its current pixel width.
+      for (const other of [...leftGroup.panels]) {
+        if (other.id !== panelId && LEFT_PANEL_IDS.has(other.id)) {
           dockviewApi.removePanel(other);
         }
       }
@@ -1917,6 +1924,16 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
         panel.api.setActive();
       }
       finishLeftDockChange();
+      settleDockviewGroupWidths(
+        [
+          ...sideWidths,
+          ...(isNewSlot
+            ? [{ group: leftGroup, width: MIN_LEFT_PANEL_WIDTH }]
+            : []),
+        ].filter(({ group }) =>
+          dockviewApi.groups.some((current) => current === group)
+        )
+      );
     },
     [ensureLeftDockGroup, finishLeftDockChange]
   );
@@ -1938,18 +1955,11 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
         return;
       }
 
-      const othersVisible = ACTIVITY_RAIL_ITEMS.some((id) => {
-        if (id === panelId) return false;
-        const panel = dockviewApi.getPanel(id);
-        return Boolean(
-          panel &&
-            !isRightShellNavGroup(panel.group) &&
-            panel.group.api.isVisible
-        );
-      });
-
-      if (existing?.group.api.isVisible && !othersVisible) {
-        setLeftDockVisible(dockviewApi, getLayoutArrangement(), false);
+      if (
+        existing?.group.api.isVisible &&
+        existing.group.activePanel === existing
+      ) {
+        dockviewApi.removePanel(existing);
         finishLeftDockChange();
         return;
       }
@@ -1980,11 +1990,7 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
       return;
     }
     const currentlyVisible = leftGroups.some((group) => group.api.isVisible);
-    setLeftDockVisible(
-      dockviewApi,
-      getLayoutArrangement(),
-      !currentlyVisible
-    );
+    setLeftDockVisible(dockviewApi, getLayoutArrangement(), !currentlyVisible);
     setFileTreeVisible(!currentlyVisible);
     finishLeftDockChange();
   }, [finishLeftDockChange, setFileTreeVisible, showOnlyLeftDockPanel]);
@@ -2342,8 +2348,7 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
       }
 
       if (!targetGroup) {
-        targetGroup =
-          getActiveEditorGroup() ?? getEditorGroups(dockviewApi)[0];
+        targetGroup = getActiveEditorGroup() ?? getEditorGroups(dockviewApi)[0];
       }
 
       if (!targetGroup) {
@@ -2535,7 +2540,7 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
     if (!panel) return false;
 
     if (LEFT_PANEL_IDS.has(panelId)) {
-      return panel.group.api.isVisible;
+      return panel.group.api.isVisible && panel.group.activePanel === panel;
     }
 
     if (BOTTOM_PANEL_IDS.has(panelId)) {

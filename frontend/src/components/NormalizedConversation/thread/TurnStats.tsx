@@ -21,6 +21,7 @@ export type TurnStatsProps = {
   forkDisabled?: boolean;
   forkDisabledReason?: 'busy' | 'unnamed';
   live?: boolean;
+  statusLabel?: string;
   className?: string;
 };
 
@@ -89,6 +90,7 @@ export function TurnStats({
   forkDisabled = false,
   forkDisabledReason = 'busy',
   live = false,
+  statusLabel,
   className,
 }: TurnStatsProps) {
   const { t } = useTranslation(['conversation', 'common']);
@@ -176,7 +178,7 @@ export function TurnStats({
             <StatItem
               icon={Gauge}
               label={t('turnStats.statusLabel')}
-              value={t('turnStats.generating')}
+              value={statusLabel ?? t('runtime.request.waiting_agent')}
             />
           ) : null}
           {tokenText ? (

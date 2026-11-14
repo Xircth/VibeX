@@ -35,7 +35,7 @@ pub mod workbench_status;
 pub use bundle::{
     ConversationBundleError, ConversationExportResult, ConversationForkContinuity,
     ConversationForkResult, ConversationImportResult, export_conversation_bundle,
-    import_conversation_bundle,
+    import_conversation_bundle, resolve_agent_fork_point,
 };
 pub use capability_catalog::{
     capability_catalog_is_fresh, invalidate_open_capability_catalog,

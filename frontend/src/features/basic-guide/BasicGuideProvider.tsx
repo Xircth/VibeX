@@ -45,7 +45,7 @@ import {
   sessionCreateHrefLooksOpen,
   shouldCompleteStep1OnRoute,
   shouldCompleteStep2FromAgentOutput,
-  shouldForceWelcome,
+  shouldRedirectToGuideWelcome,
   skipBasicGuide,
   startBasicGuide,
 } from './basicGuideState';
@@ -80,7 +80,7 @@ function clickedGuideTarget(
 }
 
 export function BasicGuideProvider({ children }: { children: ReactNode }) {
-  const { config } = useUserSystem();
+  const { config, loading } = useUserSystem();
   const location = useLocation();
   const navigate = useNavigate();
   const { state: agentState } = useAgentManagement();
@@ -160,10 +160,10 @@ export function BasicGuideProvider({ children }: { children: ReactNode }) {
     ) {
       return;
     }
-    if (shouldForceWelcome(state, location.pathname)) {
+    if (shouldRedirectToGuideWelcome(state, location.pathname, loading)) {
       navigate('/local-projects', { replace: true });
     }
-  }, [location.pathname, navigate, state]);
+  }, [loading, location.pathname, navigate, state]);
 
   useEffect(() => {
     const previousPathname = previousPathRef.current;

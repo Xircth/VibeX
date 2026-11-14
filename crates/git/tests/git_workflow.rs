@@ -57,6 +57,9 @@ fn init_repo_main(root: &TempDir) -> PathBuf {
     let s = GitService::new();
     s.initialize_repo_with_main_branch(&path).unwrap();
     configure_user(&path, "Test User", "test@example.com");
+    GitCli::new()
+        .git(&path, ["config", "core.autocrlf", "false"])
+        .unwrap();
     checkout_branch(&path, "main");
     path
 }
@@ -685,4 +688,50 @@ fn resolve_workspace_branch_keeps_existing_requested_branch() {
         .resolve_workspace_branch(&repo_path, Some("feature"))
         .unwrap();
     assert_eq!(branch, "feature");
+}
+
+#[test]
+fn dirty_copy_refuses_existing_destination_changes_without_removing_files() {
+    let td = TempDir::new().unwrap();
+    let repo = init_repo_main(&td);
+    write_file(&repo, "tracked.txt", "baseline\n");
+    GitService::new().commit(&repo, "baseline").unwrap();
+    let dest = td.path().join("worktree");
+    create_branch(&repo, "copy-test");
+    GitService::new()
+        .add_worktree(&repo, &dest, "copy-test", false)
+        .unwrap();
+    write_file(&repo, "tracked.txt", "source edit\n");
+    write_file(&dest, "tracked.txt", "user destination edit\n");
+    write_file(&dest, "keep.txt", "preserve me");
+    assert!(
+        GitService::new()
+            .copy_uncommitted_changes(&repo, &dest)
+            .is_err()
+    );
+    assert_eq!(
+        fs::read_to_string(dest.join("tracked.txt")).unwrap(),
+        "user destination edit\n"
+    );
+    assert_eq!(
+        fs::read_to_string(dest.join("keep.txt")).unwrap(),
+        "preserve me"
+    );
+}
+
+#[test]
+fn explicit_missing_workspace_branch_is_an_error() {
+    let td = TempDir::new().unwrap();
+    let repo = init_repo_main(&td);
+    assert!(
+        GitService::new()
+            .resolve_workspace_branch(&repo, Some("typo"))
+            .is_err()
+    );
+    assert_eq!(
+        GitService::new()
+            .resolve_workspace_branch(&repo, None)
+            .unwrap(),
+        "main"
+    );
 }

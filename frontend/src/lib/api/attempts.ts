@@ -56,6 +56,19 @@ import type {
 // Task Attempts / Workspaces APIs
 // Note: frontend uses "attemptsApi" but Rust commands use "workspace" prefix
 export const attemptsApi = {
+  getInitialization: (
+    workspaceId: string
+  ): Promise<{
+    phase: string;
+    error: string | null;
+    completed_repos: string[];
+    active: boolean;
+    logs: string;
+  }> => backendCall('get_workspace_initialization', { workspaceId }),
+  cancelInitialization: (workspaceId: string): Promise<boolean> =>
+    backendCall('cancel_workspace_initialization', { workspaceId }),
+  retryInitialization: (workspaceId: string): Promise<Workspace> =>
+    backendCall('retry_workspace_initialization', { workspaceId }),
   getTauriInspectorStatus: async (
     attemptId: string
   ): Promise<TauriInspectorStatus> => {

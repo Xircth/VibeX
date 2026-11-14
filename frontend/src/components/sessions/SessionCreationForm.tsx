@@ -26,6 +26,7 @@ import { sessionDefaultsWritePayload } from '@/features/agents/sessionDefaults';
 import {
   loadAgentSessionControlsCatalog,
   mergeCreateSessionControls,
+  preferSessionControlValues,
   sessionControlsQueryKey,
   sessionControlsSchemaQueryKey,
 } from '@/features/agents/sessionControlsQuery';
@@ -187,11 +188,17 @@ export function SessionCreationForm({
     gcTime: Infinity,
     retry: false,
   });
-  const activeControls = mergeCreateSessionControls([
-    liveQuery.data,
-    catalogQuery.data,
-    schemaQuery.data,
-  ]);
+  // The catalog is the latest probe or live bind for this Agent's current
+  // config, so it owns the choices; a workspace's live controls can predate a
+  // config change and only contribute their still-offered current values.
+  const activeControls = preferSessionControlValues(
+    mergeCreateSessionControls([
+      catalogQuery.data,
+      liveQuery.data,
+      schemaQuery.data,
+    ]),
+    liveQuery.data
+  );
   const defaultsQuery = useQuery({
     queryKey: ['agentSessionDefaults', executor],
     queryFn: () => agentsApi.sessionDefaults(executor!),

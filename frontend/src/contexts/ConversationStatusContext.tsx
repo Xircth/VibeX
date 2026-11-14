@@ -31,6 +31,8 @@ export type ConversationStatusNotice =
       id: string;
       kind: 'session-notice';
       notice: ConversationSessionNotice;
+      onCancel?: () => void | Promise<unknown>;
+      onRetry?: () => void | Promise<unknown>;
       onRebind?: () => void | Promise<unknown>;
       onReload?: () => void | Promise<unknown>;
       onNewConversation?: () => void | Promise<unknown>;

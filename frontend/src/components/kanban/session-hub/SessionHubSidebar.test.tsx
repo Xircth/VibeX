@@ -61,7 +61,7 @@ vi.mock('@/components/ConfigProvider', () => ({
 }));
 
 const listView = vi.hoisted(() => ({
-  current: 'status' as 'status' | 'workspace',
+  current: 'status' as 'status' | 'workspace' | 'mixed',
 }));
 
 vi.mock('@/lib/kanbanSessionListView', () => ({
@@ -71,10 +71,12 @@ vi.mock('@/lib/kanbanSessionListView', () => ({
 vi.mock('@/components/workspace-session-list/WorkspaceSessionList', () => ({
   WorkspaceSessionList: ({
     sessions,
+    viewMode,
   }: {
     sessions: Array<{ id: string; fullName: string }>;
+    viewMode?: string;
   }) => (
-    <div data-testid="workspace-session-list">
+    <div data-testid="workspace-session-list" data-view-mode={viewMode}>
       {sessions.map((session) => (
         <div key={session.id}>{session.fullName}</div>
       ))}
@@ -530,68 +532,75 @@ describe('SessionHubSidebar', () => {
     expect(onRestoreArchivedSession).toHaveBeenCalledWith(archivedSession);
   });
 
-  it('reuses the workspace session list when grouping by workspace', () => {
-    const session: SidebarProps['sessions'][number] = {
-      id: 'session-1',
-      placement: {
-        sessionId: 'session-1',
-        workspaceId: 'workspace-1',
-      },
-      workspace: {
-        id: 'workspace-1',
-        project_id: 'project-1',
-        task_id: 'task-1',
-        parent_workspace_id: null,
-        container_ref: null,
+  it.each(['workspace', 'mixed'] as const)(
+    'reuses the workspace session list in %s view',
+    (view) => {
+      const session: SidebarProps['sessions'][number] = {
+        id: 'session-1',
+        placement: {
+          sessionId: 'session-1',
+          workspaceId: 'workspace-1',
+        },
+        workspace: {
+          id: 'workspace-1',
+          project_id: 'project-1',
+          task_id: 'task-1',
+          parent_workspace_id: null,
+          container_ref: null,
+          branch: 'main',
+          use_worktree: true,
+          agent_working_dir: null,
+          setup_completed_at: null,
+          created_at: '2026-04-15T00:00:00.000Z',
+          updated_at: '2026-04-15T00:00:00.000Z',
+          archived: false,
+          pinned: false,
+          name: 'Main',
+        },
+        task: null,
+        taskId: null,
+        name: 'Workspace grouped session',
+        status: 'todo',
         branch: 'main',
-        use_worktree: true,
-        agent_working_dir: null,
-        setup_completed_at: null,
-        created_at: '2026-04-15T00:00:00.000Z',
-        updated_at: '2026-04-15T00:00:00.000Z',
-        archived: false,
-        pinned: false,
-        name: 'Main',
-      },
-      task: null,
-      taskId: null,
-      name: 'Workspace grouped session',
-      status: 'todo',
-      branch: 'main',
-      workspaceName: 'Main',
-      workspaceDisplayLabel: 'Main · main',
-      collaboration: null,
-      executor: null,
-      agentId: null,
-      updatedAt: '2026-04-15T00:00:00.000Z',
-      createdAt: '2026-04-15T00:00:00.000Z',
-      firstPrompt: null,
-      model: null,
-      fullName: 'Workspace grouped session',
-      shortName: 'Workspace',
-      taskTitle: null,
-      isCompleted: false,
-      isRunning: false,
-      isErrored: false,
-      pinnedAt: null,
-    };
+        workspaceName: 'Main',
+        workspaceDisplayLabel: 'Main · main',
+        collaboration: null,
+        executor: null,
+        agentId: null,
+        updatedAt: '2026-04-15T00:00:00.000Z',
+        createdAt: '2026-04-15T00:00:00.000Z',
+        firstPrompt: null,
+        model: null,
+        fullName: 'Workspace grouped session',
+        shortName: 'Workspace',
+        taskTitle: null,
+        isCompleted: false,
+        isRunning: false,
+        isErrored: false,
+        pinnedAt: null,
+      };
 
-    const { rerender } = render(<Harness sessions={[session]} />);
+      const { rerender } = render(<Harness sessions={[session]} />);
 
-    expect(
-      screen.queryByTestId('workspace-session-list')
-    ).not.toBeInTheDocument();
-    expect(screen.getByRole('button', { name: '排序' })).toBeInTheDocument();
+      expect(
+        screen.queryByTestId('workspace-session-list')
+      ).not.toBeInTheDocument();
+      expect(screen.getByRole('button', { name: '排序' })).toBeInTheDocument();
 
-    listView.current = 'workspace';
-    rerender(<Harness sessions={[session]} />);
+      listView.current = view;
+      rerender(<Harness sessions={[session]} />);
 
-    expect(screen.getByTestId('workspace-session-list')).toBeInTheDocument();
-    expect(screen.getByText('Workspace grouped session')).toBeInTheDocument();
-    expect(
-      screen.queryByRole('button', { name: '排序' })
-    ).not.toBeInTheDocument();
-  });
+      expect(screen.getByTestId('workspace-session-list')).toBeInTheDocument();
+      expect(screen.getByTestId('workspace-session-list')).toHaveAttribute(
+        'data-view-mode',
+        view
+      );
+      expect(screen.getByText('Workspace grouped session')).toBeInTheDocument();
+      expect(
+        screen.queryByRole('button', { name: '排序' })
+      ).not.toBeInTheDocument();
+    }
+  );
 
   it('keeps the archive drop zone hidden until a session is dragged', () => {
     render(<Harness sessions={[]} />);

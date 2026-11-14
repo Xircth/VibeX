@@ -2,6 +2,7 @@ mod applier;
 mod cache;
 mod fold;
 mod rows;
+mod runtime_status;
 
 use std::{
     collections::{BTreeMap, HashSet},
@@ -87,7 +88,8 @@ pub(super) fn merge_reported_turn_usage(
 // v22 folds AgentBindingRecoveryFailed into the stable connect-error notice row
 // so a subsequent AgentBindingReady / AgentBindingRecovered clears it instead of
 // leaving a permanent error banner in cached snapshots.
-pub const CONVERSATION_PROJECTION_VERSION: u32 = 22;
+// v23 adds replayable connection/request facts, with independent binding readiness.
+pub const CONVERSATION_PROJECTION_VERSION: u32 = 23;
 pub const OPEN_TIMELINE_ROW_LIMIT: usize = 16;
 const SNAPSHOT_REFRESH_EVENT_GAP: i64 = 40;
 
@@ -380,6 +382,7 @@ impl ConversationProjector {
                 | "feedback_submitted"
                 | "agent_binding_load_failed"
                 | "agent_connection_status_changed"
+                | "request_activity_changed"
                 | "agent_binding_ready"
                 | "agent_binding_recovered"
                 | "agent_binding_recovery_failed"

@@ -1,11 +1,9 @@
-use std::str::FromStr;
-
 use agents::{
     AgentAvailableCommand, AgentSessionConfigOption, AgentSessionControlsSnapshot, AgentSessionId,
     conversation::{
         AcpCapabilitySnapshot, ConversationBundlePayload, ConversationEvent, ConversationRowPage,
-        ConversationSessionGoal, ConversationSessionModes, ConversationTimeline,
-        ConversationTimelineRow, MessageTurn, SessionStats,
+        ConversationSessionGoal, ConversationSessionModes, ConversationTimeline, MessageTurn,
+        SessionStats,
     },
 };
 use application::ApplicationError;
@@ -820,63 +818,15 @@ impl ServerApplicationDomains {
         raw_at_turn_id: Option<&str>,
         agent_id: &agents::AgentId,
     ) -> Result<Option<agents::ForkPoint>, ApplicationError> {
-        let Some(until_turn_id) = until_turn_id else {
-            return Ok(None);
-        };
-        let Ok(agent_kind) = agents::AgentKind::from_str(agent_id.as_str()) else {
-            return Ok(None);
-        };
-        if let Some(turns) = jsonl_history::load_all_turns(&self.pool, source_id)
-            .await
-            .map_err(internal_error)?
-            && !turns.is_empty()
-        {
-            if let Some(raw) = raw_at_turn_id
-                && let Some(fp) = agents::resolve_fork_point_for_turn(&turns, raw, agent_kind)
-            {
-                return Ok(Some(fp));
-            }
-            if let Some(fp) =
-                agents::resolve_fork_point_for_turn(&turns, &until_turn_id.to_string(), agent_kind)
-            {
-                return Ok(Some(fp));
-            }
-            let db_turns = ConversationTurnRecord::list_for_conversation(&self.pool, source_id)
-                .await
-                .map_err(internal_error)?;
-            if let Some(user_ordinal) = db_turns.iter().position(|turn| turn.id == until_turn_id) {
-                let target_turn_id = turns
-                    .iter()
-                    .filter(|turn| {
-                        matches!(turn.role, agents::conversation::TurnRole::User)
-                            && !turn.id.contains(":steer:")
-                    })
-                    .nth(user_ordinal)
-                    .map(|turn| turn.id.clone());
-                if let Some(target_turn_id) = target_turn_id
-                    && let Some(fp) =
-                        agents::resolve_fork_point_for_turn(&turns, &target_turn_id, agent_kind)
-                {
-                    return Ok(Some(fp));
-                }
-            }
-        }
-        let timeline = ConversationProjector::project(&self.pool, source_id)
-            .await
-            .map_err(internal_error)?;
-        let turns: Vec<MessageTurn> = timeline
-            .rows
-            .into_iter()
-            .filter_map(|row| match row.row {
-                ConversationTimelineRow::MessageTurn { turn, .. } => Some(turn),
-                _ => None,
-            })
-            .collect();
-        Ok(agents::resolve_fork_point_for_turn(
-            &turns,
-            &until_turn_id.to_string(),
-            agent_kind,
-        ))
+        conversations::resolve_agent_fork_point(
+            &self.pool,
+            source_id,
+            until_turn_id,
+            raw_at_turn_id,
+            agent_id,
+        )
+        .await
+        .map_err(bundle_error)
     }
 }
 

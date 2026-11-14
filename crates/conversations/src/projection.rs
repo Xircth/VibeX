@@ -434,12 +434,27 @@ impl ConversationProjector {
         .ok()
         .flatten()
         .flatten();
-        let timeline = match crate::jsonl_history::flush_and_read_existing_transcript_turns(
+        let manifest = crate::transcript_segments::read_on_connection(
+            conn,
+            &agents::acp_transcript::vibex_acp_transcripts_root(),
             conversation_id,
-            external_session_id.as_deref(),
         )
-        .await
-        {
+        .await;
+        let transcript = match manifest {
+            Ok(Some(turns)) => Some(turns),
+            Ok(None) => {
+                crate::jsonl_history::flush_and_read_existing_transcript_turns(
+                    conversation_id,
+                    external_session_id.as_deref(),
+                )
+                .await
+            }
+            Err(error) => {
+                tracing::warn!(%error, "cannot index unreadable manifest history");
+                return Ok(());
+            }
+        };
+        let timeline = match transcript {
             Some(turns) => crate::jsonl_history::timeline_from_turns(conversation_id, &turns),
             None => fold.into_timeline(conversation_id),
         };
@@ -762,7 +777,7 @@ async fn fork_capability(
     conversation_id: Uuid,
 ) -> Result<(bool, Option<agents::AgentKind>), sqlx::Error> {
     let Some(binding) =
-        ConversationAgentBindingRecord::latest_for_conversation(pool, conversation_id).await?
+        ConversationAgentBindingRecord::active_for_conversation(pool, conversation_id).await?
     else {
         return Ok((false, None));
     };

@@ -270,7 +270,8 @@ impl AcpClientBridge {
         let Ok(payload) = serde_json::to_value(update) else {
             return;
         };
-        drop(crate::acp_transcript::record_entry(
+        drop(crate::transcript_target::record_entry(
+            self.connection_id,
             &agent_dir,
             acp_session_id,
             crate::acp_transcript::EntryKind::Update,

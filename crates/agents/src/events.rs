@@ -416,8 +416,18 @@ pub enum AgentEvent {
     SessionBindReady {
         acp_session_id: String,
     },
+    /// The outstanding request could not be stopped safely. Its native context
+    /// must not be resumed, even after this process has been released.
+    SessionInvalidated {
+        reason: String,
+    },
     PromptStarted {
         snapshot: AgentPromptSnapshot,
+    },
+    /// A real protocol response confirms that the exact prompt was processed.
+    /// Local enqueue/start and synthetic completion do not emit this evidence.
+    PromptAccepted {
+        prompt_id: AgentPromptId,
     },
     MessageChunk {
         content: AgentContentBlock,

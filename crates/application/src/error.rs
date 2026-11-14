@@ -52,6 +52,11 @@ impl ApplicationError {
         &self.envelope
     }
 
+    pub fn with_detail(mut self, details: serde_json::Value) -> Self {
+        self.envelope = self.envelope.with_details(details);
+        self
+    }
+
     pub fn into_envelope(self) -> ErrorEnvelope {
         self.envelope
     }

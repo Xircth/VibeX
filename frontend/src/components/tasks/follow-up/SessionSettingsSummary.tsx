@@ -149,6 +149,10 @@ export function SessionSettingsSummary({
   persona = null,
   disabled = false,
   dropdownSide = 'top',
+  agentIcon = null,
+  agentIconLight = null,
+  agentIconDark = null,
+  agentIconSvg = null,
 }: {
   sessionModes?: ConversationSessionModesState;
   selectedMode?: string | null;
@@ -159,6 +163,10 @@ export function SessionSettingsSummary({
   persona?: SessionPersona | null;
   disabled?: boolean;
   dropdownSide?: 'top' | 'bottom';
+  agentIcon?: string | null;
+  agentIconLight?: string | null;
+  agentIconDark?: string | null;
+  agentIconSvg?: string | null;
 }) {
   const { t } = useTranslation(['tasks', 'common']);
   const activeModeId = selectedMode ?? sessionModes?.current ?? null;
@@ -349,6 +357,15 @@ export function SessionSettingsSummary({
             'active:scale-[0.98]'
           )}
         >
+          {agentIcon ? (
+            <AgentIcon
+              agent={agentIcon}
+              className="h-3.5 w-3.5 shrink-0"
+              iconLight={agentIconLight}
+              iconDark={agentIconDark}
+              iconSvg={agentIconSvg}
+            />
+          ) : null}
           <span className="truncate">
             {persona
               ? persona.name

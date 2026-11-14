@@ -97,6 +97,10 @@ pub struct CancelConversationInput {
 
 #[derive(Debug, Error)]
 pub enum ConversationInputControlError {
+    #[error("conversation binding changed; refresh before submitting")]
+    BindingRevisionConflict,
+    #[error("this conversation's Agent is controlled by its workflow or bot")]
+    ContinuationNotAllowed,
     #[error("conversation input operation {operation_id} was retried with a different payload")]
     OperationConflict { operation_id: Uuid },
     #[error("conversation input {0} was not found")]
@@ -172,6 +176,22 @@ impl ConversationInputControl {
         let mut conn = self.pool.acquire().await?;
         sqlx::query("BEGIN IMMEDIATE").execute(&mut *conn).await?;
         let append = async {
+            // Check at acceptance, never when an already accepted queue item dispatches.
+            // Retries are resolved first, even if the binding has since advanced.
+            let duplicate: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM conversation_inputs WHERE conversation_id = ? AND operation_id = ?)")
+                .bind(input.conversation_id).bind(input.operation_id).fetch_one(&mut *conn).await?;
+            if !duplicate {
+                let (revision, current_agent): (i64, Option<String>) = sqlx::query_as("SELECT binding_revision, agent_id FROM sessions WHERE id = ?")
+                    .bind(input.conversation_id).fetch_one(&mut *conn).await?;
+                if input.payload.expected_binding_revision.is_some_and(|expected| expected != revision as u64) {
+                    return Err(ConversationInputControlError::BindingRevisionConflict);
+                }
+                if current_agent.as_deref().is_some_and(|agent| agent != input.payload.agent_id.as_str()) || input.payload.continuation_policy == Some(agents::conversation::ContinuationPolicy::Fresh) {
+                    let owned: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM conversation_relations WHERE child_conversation_id = ? AND kind IN ('workflow_step','delegation')) OR EXISTS(SELECT 1 FROM collaboration_thread_members WHERE conversation_id = ?)")
+                        .bind(input.conversation_id).bind(input.conversation_id.to_string()).fetch_one(&mut *conn).await?;
+                    if owned { return Err(ConversationInputControlError::ContinuationNotAllowed); }
+                }
+            }
             let sort_key = ConversationInputRecord::next_sort_key_on_connection(
                 &mut conn,
                 input.conversation_id,
@@ -777,6 +797,8 @@ fn parse_delayed_payload(
         .and_then(|v| Uuid::parse_str(v).ok())
         .unwrap_or_else(Uuid::nil);
     Ok(ConversationInputPayload {
+        continuation_policy: None,
+        expected_binding_revision: None,
         agent_id,
         workspace_id,
         executor_profile_id: None,
@@ -1249,6 +1271,8 @@ mod tests {
 
     fn payload(text: &str) -> ConversationInputPayload {
         ConversationInputPayload {
+            continuation_policy: None,
+            expected_binding_revision: None,
             agent_id: AgentId::parse("codex").expect("agent id"),
             workspace_id: Uuid::new_v4(),
             executor_profile_id: None,
@@ -1603,7 +1627,12 @@ mod tests {
         .expect("create conversation");
         let operation_id = Uuid::new_v4();
         let control = ConversationInputControl::new(pool.clone());
-        let original_payload = payload("hello");
+        let original_payload: ConversationInputPayload =
+            serde_json::from_value(serde_json::json!({
+                "agentId": "codex", "workspaceId": Uuid::new_v4(), "text": "hello",
+                "continuationPolicy": "portable", "expectedBindingRevision": 0
+            }))
+            .unwrap();
 
         let first = control
             .submit(SubmitConversationInput {
@@ -1614,6 +1643,11 @@ mod tests {
             })
             .await
             .expect("first submit");
+        sqlx::query("UPDATE sessions SET binding_revision = 1 WHERE id = ?")
+            .bind(conversation_id)
+            .execute(&pool)
+            .await
+            .unwrap();
         let retry = control
             .submit(SubmitConversationInput {
                 conversation_id,
@@ -1624,6 +1658,32 @@ mod tests {
             .await
             .expect("idempotent retry");
         assert_eq!(retry.id, first.id);
+
+        let stale = control
+            .submit(SubmitConversationInput {
+                conversation_id,
+                operation_id: Uuid::new_v4(),
+                payload: original_payload.clone(),
+                principal: serde_json::json!({ "kind": "test" }),
+            })
+            .await;
+        assert!(
+            stale.is_err(),
+            "a new operation must not accept a stale binding revision"
+        );
+        let mut changed_policy = original_payload.clone();
+        changed_policy.continuation_policy = Some(agents::conversation::ContinuationPolicy::Fresh);
+        assert!(matches!(
+            control
+                .submit(SubmitConversationInput {
+                    conversation_id,
+                    operation_id,
+                    payload: changed_policy,
+                    principal: serde_json::json!({ "kind": "test" }),
+                })
+                .await,
+            Err(ConversationInputControlError::OperationConflict { .. })
+        ));
 
         let principal_conflict = control
             .submit(SubmitConversationInput {

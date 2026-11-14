@@ -54,6 +54,7 @@ import { useWorktree } from '@/contexts/WorktreeContext';
 import { useParams } from 'react-router-dom';
 
 import { SessionComposerTopbar } from './follow-up/SessionComposerTopbar';
+import { TerminalProfileControls } from './TerminalProfileControls';
 import { ReviewCommentsPreview } from './follow-up/ReviewCommentsPreview';
 import { MessageQueueIndicator } from './follow-up/MessageQueueIndicator';
 import { ActionBar } from './follow-up/ActionBar';
@@ -461,6 +462,9 @@ export function TaskFollowUpSection({
     setSelectedExecutorProfile,
     effectiveExecutorProfile,
   } = useSessionComposerProfileSelection(defaultExecutorProfile);
+  const targetExecutor = effectiveExecutorProfile?.executor ?? resolvedSessionExecutor;
+  const isChangingAgent = Boolean(resolvedSessionExecutor && targetExecutor !== resolvedSessionExecutor);
+  const [continuationPolicy, setContinuationPolicy] = useState<'portable' | 'fresh'>('portable');
 
   // Publish the composer's effective profile so the conversation's reset-to-here
   // retry re-sends with the SAME model/variant selection (keeping the create form,
@@ -494,7 +498,7 @@ export function TaskFollowUpSection({
   useEffect(() => {
     setSelectedMode(null);
     setSelectedConfigValues({});
-  }, [sessionId]);
+  }, [sessionId, targetExecutor]);
 
   const { handleAfterSendCleanup } = useSessionComposerDraftHydration({
     scratchId: scratchIdValue,
@@ -535,6 +539,7 @@ export function TaskFollowUpSection({
     workspaceId,
     isAttemptRunning: isComposerExecutionRunning,
     processCount: processes.length,
+    continuationPolicy,
     modeOverride: selectedMode,
     configOverrides: Object.entries(selectedConfigValues).map(
       ([key, value]) => ({
@@ -594,8 +599,7 @@ export function TaskFollowUpSection({
     isNewSessionMode,
     workspaceId,
   ]);
-  const executor =
-    resolvedSessionExecutor ?? effectiveExecutorProfile?.executor ?? null;
+  const executor = targetExecutor ?? null;
   const catalogQuery = useQuery({
     queryKey: sessionControlsQueryKey(executor ?? '', null),
     queryFn: () => loadAgentSessionControlsCatalog(executor),
@@ -623,13 +627,14 @@ export function TaskFollowUpSection({
   const displayControls = useMemo(
     () =>
       composerSessionControlDisplay([
-        liveSessionControlsSnapshot(sessionModes, sessionConfigOptions),
+        isChangingAgent ? null : liveSessionControlsSnapshot(sessionModes, sessionConfigOptions),
         workspaceControlsQuery.data,
         catalogQuery.data,
         schemaQuery.data,
       ]),
     [
       sessionModes,
+      isChangingAgent,
       sessionConfigOptions,
       workspaceControlsQuery.data,
       catalogQuery.data,
@@ -689,14 +694,14 @@ export function TaskFollowUpSection({
   const handleSelectMode = useCallback(
     (modeId: string) => {
       setSelectedMode(modeId);
-      if (!sessionId) return;
+      if (!sessionId || isChangingAgent) return;
       void conversationApi
         .setSessionMode({ conversationId: sessionId, modeId })
         .catch(() => {
           // Keep the pending selection; it is sent as modeOverride next turn.
         });
     },
-    [sessionId]
+    [sessionId, isChangingAgent]
   );
 
   // Same immediate-apply-or-defer contract for config options
@@ -722,14 +727,14 @@ export function TaskFollowUpSection({
         )
       );
       if (!accepted) return;
-      if (!sessionId) return;
+      if (!sessionId || isChangingAgent) return;
       void conversationApi
         .setSessionConfigOption({ conversationId: sessionId, key, value })
         .catch(() => {
           // Keep the pending selection; it is sent as a configOverride next turn.
         });
     },
-    [displaySessionConfigOptions, selectedConfigValues, sessionId]
+    [displaySessionConfigOptions, selectedConfigValues, sessionId, isChangingAgent]
   );
 
   const pendingConfigOverrides = useMemo(
@@ -843,6 +848,7 @@ export function TaskFollowUpSection({
     onSubmitFollowUp,
   } = useFollowUpSend({
     sessionId,
+    continuationPolicy,
     sessionExecutor: resolvedSessionExecutor,
     workspaceId: workspaceIdValue,
     isNewSessionMode,
@@ -1228,6 +1234,18 @@ export function TaskFollowUpSection({
               executorProfile={effectiveExecutorProfile}
               sessionExecutor={resolvedSessionExecutor}
               composerIdentity={composerIdentity}
+              nextAgentControl={
+                <TerminalProfileControls
+                  profiles={profiles}
+                  selectedProfile={effectiveExecutorProfile}
+                  onChange={setSelectedExecutorProfile}
+                  dropdownSide="top"
+                />
+              }
+              continuation={sessionId && !composerIdentity ? {
+                policy: continuationPolicy,
+                onChange: setContinuationPolicy,
+              } : undefined}
               showChangedFileSummary={showChangedFileSummary}
               changedFileCount={fileCount}
               added={added}

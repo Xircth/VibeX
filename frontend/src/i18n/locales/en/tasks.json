@@ -232,6 +232,9 @@
     "unavailable": "Unavailable",
     "manageAgents": "Manage Agents…"
   },
+  "agentRail": {
+    "label": "Switch agent"
+  },
   "workspaceSelector": {
     "currentProjectBranch": "Current project directory branch",
     "nonWorktreeCheckout": "Not a Worktree; will checkout first when selected",

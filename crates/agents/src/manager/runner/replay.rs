@@ -208,7 +208,8 @@ impl AgentConnectionRunner {
         let Ok(payload) = serde_json::to_value(blocks) else {
             return;
         };
-        let ack = crate::acp_transcript::record_entry(
+        let ack = crate::transcript_target::record_entry(
+            self.snapshot.connection_id,
             &agent_dir,
             acp_session_id,
             crate::acp_transcript::EntryKind::Prompt,
@@ -232,7 +233,12 @@ impl AgentConnectionRunner {
         let Ok(payload) = serde_json::to_value(blocks) else {
             return;
         };
-        let ack = crate::acp_transcript::record_steer(&agent_dir, acp_session_id, payload);
+        let ack = crate::transcript_target::record_steer(
+            self.snapshot.connection_id,
+            &agent_dir,
+            acp_session_id,
+            payload,
+        );
         let _ = tokio::time::timeout(Duration::from_millis(2000), ack).await;
     }
 
@@ -251,7 +257,8 @@ impl AgentConnectionRunner {
         let Ok(payload) = serde_json::to_value(update) else {
             return;
         };
-        drop(crate::acp_transcript::record_entry(
+        drop(crate::transcript_target::record_entry(
+            self.snapshot.connection_id,
             &agent_dir,
             acp_session_id,
             crate::acp_transcript::EntryKind::Update,
@@ -322,7 +329,8 @@ impl AgentConnectionRunner {
                 }
             }
         }
-        let ack = crate::acp_transcript::record_entry(
+        let ack = crate::transcript_target::record_entry(
+            self.snapshot.connection_id,
             &agent_dir,
             acp_session_id,
             crate::acp_transcript::EntryKind::TurnEnd,

@@ -53,7 +53,7 @@ Glossary of domain terms. Keep entries implementation-free; link decisions to AD
 
 ## Conversation domain
 
-- **Conversation（会话）** — 用户与一个 agent 之间的持久对话。用户看见的历史以 JSONL 或 vendor 会话文件为权威，与任何 agent 进程的存活无关。见 [ADR-0082](docs/adr/0082-jsonl-transcript-window.md)。
+- **Conversation（会话）** — 用户与 Agent 交互的持久对话；可以顺序更换 Agent 绑定，同一时刻至多一个 Turn 在途。用户看见的历史以 JSONL 或 vendor 会话文件为权威，与任何 Agent 进程的存活无关。见 [ADR-0082](docs/adr/0082-jsonl-transcript-window.md) 与 [ADR-0086](docs/adr/0086-conversation-binding-generations-and-history-segments.md)。
 - **Conversation panel（会话面板）** — 在 Server-bound window 中呈现一个 Conversation 的唯一 Dockview 视图；同一窗口重复打开只聚焦已有面板，关闭或移动面板只改变布局，不取消在途 Turn，也不删除 Conversation。
 - **Conversation draft（会话草稿）** — 属于 Server 上某个 Conversation、可由已授权设备继续编辑的未提交 Composer 内容；每次保存基于 revision，冲突必须保留服务器版本与本机版本，不能静默覆盖。
 - **Session auxiliary capability（会话辅助能力）** — Composer 与时间线周围的用量、计划、目标、压缩、草稿与查找只呈现 Agent 或用户明确给出的事实；缺失保持缺失，不得从自由文本或本地化文案反推，也不得把未知填成零或成功。见 [ADR-0058](docs/adr/0058-session-auxiliary-capability-honesty.md)。
@@ -68,6 +68,8 @@ Glossary of domain terms. Keep entries implementation-free; link decisions to AD
   - **Cancelled（取消）** — 用户主动请求停止。
   - **Interrupted（中断）** — 宿主进程在 turn 运行期间死亡（崩溃/强杀/重启），生成过程无法恢复。与 Failed 不同：不是 agent 的错误；与 Cancelled 不同：不是用户的意图。中断的 turn 只能由用户手动重试，绝不自动重发（agent 崩溃前可能已产生副作用）。
 - **Session resume（会话恢复）** — 将会话的上下文重载进一个新拉起的 agent 进程。恢复的是**上下文**，永远不是在途 turn 的生成过程。是否可恢复取决于 agent 的能力位。
+- **Agent binding（Agent 绑定代次）** — Conversation 与某次 Agent 原生会话的持久关联。释放连接保留恢复资格；rebind 放弃该代次的恢复资格，但保留身份与历史归属。见 [ADR-0086](docs/adr/0086-conversation-binding-generations-and-history-segments.md)。
+- **Conversation history segment（会话历史片段）** — Conversation 历史中具有明确顺序与来源的一段内容；多个片段共同构成用户看见的完整历史，不随当前 Agent 改变。
 - **Session rebind（会话重绑定）** — 旧 Agent session 无法继续加载时，经用户确认后为既有 Conversation 建立新的冷启动 Agent session；VibeX 历史保持不变，Agent 侧隐藏上下文不连续，后续交接内容由用户明确控制。
 - **Recovery（启动恢复）** — 宿主启动时对上一次进程生命周期遗留状态的协调：将孤立的在途 turn 判定为 Interrupted，使会话回到可发起新 turn 的状态。
 - **Event log（事件日志）** — 会话控制面与实时 row-op 的仅追加记录。它不是用户看见的历史；那份历史见 [ADR-0082](docs/adr/0082-jsonl-transcript-window.md)。

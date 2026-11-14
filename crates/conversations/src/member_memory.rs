@@ -1600,7 +1600,7 @@ impl ReviewSessionDriver for AgentRuntimeMemoryReviewModel {
         let pool = &self.context.deployment.db().pool;
         if let Some(cid) = prompt.conversation_id
             && let Ok(Some(binding)) =
-                db::models::conversation::ConversationAgentBindingRecord::latest_for_conversation(
+                db::models::conversation::ConversationAgentBindingRecord::active_for_conversation(
                     pool, cid,
                 )
                 .await

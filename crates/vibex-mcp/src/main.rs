@@ -637,7 +637,7 @@ impl Companion {
                 let conversation_id = arguments
                     .get("conversation_id")
                     .and_then(Value::as_str)
-                    .ok_or("conversation_id is required")?
+                    .unwrap_or("")
                     .to_string();
                 let max_messages = arguments
                     .get("max_messages")
@@ -648,6 +648,8 @@ impl Companion {
                     token,
                     conversation_id,
                     max_messages,
+                    history: serde_json::from_value(arguments.clone())
+                        .map_err(|error| error.to_string())?,
                 }))
             }
             "send_session_input" => {

@@ -251,9 +251,7 @@ pub struct MarkSyncPushedRequest {
 }
 
 #[tauri::command]
-pub async fn host_client_mark_sync_pushed(
-    request: MarkSyncPushedRequest,
-) -> Result<(), AppError> {
+pub async fn host_client_mark_sync_pushed(request: MarkSyncPushedRequest) -> Result<(), AppError> {
     runtime()
         .mark_sync_pushed(&request.account_user_id, &request.profile_ids)
         .await
@@ -267,9 +265,7 @@ pub struct AckSyncDeletesRequest {
 }
 
 #[tauri::command]
-pub async fn host_client_ack_sync_deletes(
-    request: AckSyncDeletesRequest,
-) -> Result<(), AppError> {
+pub async fn host_client_ack_sync_deletes(request: AckSyncDeletesRequest) -> Result<(), AppError> {
     runtime().ack_sync_deletes(&request.delete_ids).await
 }
 

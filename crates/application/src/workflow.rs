@@ -456,6 +456,8 @@ impl WorkflowAgentDispatcher {
                 conversation_id: child_id,
                 operation_id: child_id,
                 payload: ConversationInputPayload {
+                    continuation_policy: None,
+                    expected_binding_revision: None,
                     agent_id,
                     workspace_id: step_workspace_id,
                     executor_profile_id: agent.executor_profile_id.clone(),
@@ -1117,6 +1119,8 @@ impl WorkflowStoreExecutionPort {
                 conversation_id,
                 operation_id,
                 payload: ConversationInputPayload {
+                    continuation_policy: None,
+                    expected_binding_revision: None,
                     agent_id,
                     workspace_id,
                     executor_profile_id: agent.executor_profile_id.clone(),

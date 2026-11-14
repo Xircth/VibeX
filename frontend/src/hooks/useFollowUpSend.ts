@@ -47,6 +47,7 @@ export function buildOptimisticUserTurnBlocks({
 type Args = {
   sessionId?: string;
   sessionExecutor?: string | null;
+  continuationPolicy?: 'portable' | 'fresh';
   workspaceId?: string;
   isNewSessionMode?: boolean;
   newSessionName?: string;
@@ -75,8 +76,8 @@ let optimisticTurnSequence = 0;
 
 export function useFollowUpSend({
   sessionId,
-  sessionExecutor,
   workspaceId,
+  continuationPolicy,
   isNewSessionMode,
   newSessionName,
   onSelectSession,
@@ -149,9 +150,7 @@ export function useFollowUpSend({
         let targetSessionId = sessionId;
         let targetWorkspaceId = workspaceId;
         const shouldCreateNewSession =
-          isNewSessionMode ||
-          !targetSessionId ||
-          (!!sessionExecutor && sessionExecutor !== executorProfileId.executor);
+          isNewSessionMode || !targetSessionId;
 
         if (shouldCreateNewSession && isSessionScopedSlashCommand(prompt)) {
           throw new Error(t('followUpSend.sessionScopedSlashCommandError'));
@@ -224,6 +223,7 @@ export function useFollowUpSend({
             workspaceId: targetWorkspaceId,
             sessionId: targetSessionId,
             executorProfileId,
+            continuationPolicy,
             text: prompt,
             displayText: displayPrompt,
             images,
@@ -284,8 +284,8 @@ export function useFollowUpSend({
       t,
       queryClient,
       sessionId,
-      sessionExecutor,
       workspaceId,
+      continuationPolicy,
       isNewSessionMode,
       newSessionName,
       onSelectSession,

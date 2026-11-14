@@ -259,6 +259,8 @@ pub(crate) async fn deliver_text(
             conversation_id,
             operation_id,
             payload: ConversationInputPayload {
+                continuation_policy: None,
+                expected_binding_revision: None,
                 agent_id,
                 workspace_id: target.workspace_id,
                 executor_profile_id: None,

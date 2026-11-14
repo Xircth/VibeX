@@ -330,6 +330,7 @@ struct RuntimeState {
 struct PromptDispatchOptions {
     mode_override: Option<String>,
     config_overrides: Vec<AgentSessionConfigOverride>,
+    allow_automatic_recovery: bool,
 }
 
 const MAX_RECENT_EVENTS: usize = 2_000;
@@ -624,6 +625,9 @@ impl AgentRuntime {
             .get(&prompt_id)
             .cloned()
             .unwrap_or_default();
+        if !options.allow_automatic_recovery {
+            return None;
+        }
         let connection = state.connections.get(&manager_event.connection_id)?;
         let recovery = SilentTurnRecovery {
             connection_id: manager_event.connection_id,
@@ -1983,6 +1987,29 @@ impl AgentRuntime {
         input: SendAgentPromptInput,
         display_blocks: Option<Vec<AgentContentBlock>>,
     ) -> AgentResult<AgentPromptSnapshot> {
+        self.enqueue_prompt(AgentPromptId::new(), input, display_blocks, true)
+            .await
+    }
+
+    /// Enqueue the exact durable request reserved by the Conversation service.
+    /// Recovery belongs to the service once its sending intent is persisted.
+    pub async fn send_reserved_prompt(
+        &self,
+        prompt_id: AgentPromptId,
+        input: SendAgentPromptInput,
+        display_blocks: Option<Vec<AgentContentBlock>>,
+    ) -> AgentResult<AgentPromptSnapshot> {
+        self.enqueue_prompt(prompt_id, input, display_blocks, false)
+            .await
+    }
+
+    async fn enqueue_prompt(
+        &self,
+        prompt_id: AgentPromptId,
+        input: SendAgentPromptInput,
+        display_blocks: Option<Vec<AgentContentBlock>>,
+        recover_before_enqueue: bool,
+    ) -> AgentResult<AgentPromptSnapshot> {
         if input.blocks.is_empty() {
             return Err(AgentError::Runtime(
                 "prompt must include at least one content block".to_string(),
@@ -1994,6 +2021,11 @@ impl AgentRuntime {
 
         let now = Utc::now();
         let mut state = self.state.write().await;
+        if state.prompts.contains_key(&prompt_id) {
+            return Err(AgentError::Runtime(
+                "prompt request was already enqueued".into(),
+            ));
+        }
         let session_connection_id = state
             .sessions
             .get(&input.session_id)
@@ -2014,7 +2046,6 @@ impl AgentRuntime {
             .get(&connection_id)
             .map(|connection| connection.snapshot.workspace_id)
             .ok_or_else(|| AgentError::ConnectionNotFound(connection_id.to_string()))?;
-        let prompt_id = AgentPromptId::new();
         let (transition, cleared_prompt_suggestion) = {
             let session = state
                 .sessions
@@ -2071,6 +2102,7 @@ impl AgentRuntime {
             PromptDispatchOptions {
                 mode_override: mode_override.clone(),
                 config_overrides: config_overrides.clone(),
+                allow_automatic_recovery: recover_before_enqueue,
             },
         );
         if cleared_prompt_suggestion {
@@ -2107,7 +2139,7 @@ impl AgentRuntime {
                 )
                 .await
         {
-            if is_connection_loss_during_session_preparation(&error) {
+            if recover_before_enqueue && is_connection_loss_during_session_preparation(&error) {
                 match self
                     .recover_live_prompt(
                         connection_id,
@@ -3831,6 +3863,53 @@ mod tests {
             .await
             .expect_err("Codeg#500");
         assert!(error.to_string().contains("resume instead of session/new"));
+    }
+
+    #[tokio::test]
+    async fn reserved_prompt_keeps_its_id_and_never_recovers_an_uncertain_request() {
+        let runtime = AgentRuntime::new_with_driver(Arc::new(NoopEventSink), false);
+        let (connection, session, prior) = create_running_prompt(&runtime, "prior").await;
+        runtime
+            .cancel_prompt(CancelAgentPromptInput {
+                connection_id: connection.id,
+                session_id: session.id,
+                prompt_id: prior.id,
+            })
+            .await
+            .unwrap();
+        let id = AgentPromptId::new();
+        let input = SendAgentPromptInput {
+            connection_id: connection.id,
+            session_id: session.id,
+            blocks: vec![AgentContentBlock::Text {
+                text: "durable request".into(),
+            }],
+            mode_override: None,
+            config_overrides: Vec::new(),
+        };
+        let prompt = runtime
+            .send_reserved_prompt(id, input.clone(), None)
+            .await
+            .unwrap();
+        assert_eq!(prompt.id, id);
+        assert!(runtime.send_reserved_prompt(id, input, None).await.is_err());
+        let event = AgentConnectionManagerEvent {
+            connection_id: connection.id,
+            session_id: Some(session.id),
+            prompt_id: Some(id),
+            event: AgentEvent::Error {
+                error: AgentErrorEvent {
+                    message: "transport lost after enqueue".into(),
+                    code: Some("connection_closed".into()),
+                    raw: None,
+                },
+            },
+        };
+        assert!(
+            AgentRuntime::take_silent_turn_recovery(&runtime.state, &event)
+                .await
+                .is_none()
+        );
     }
 
     #[tokio::test]

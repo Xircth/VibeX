@@ -90,6 +90,11 @@
     "discoveringCommands": "Discovering commands...",
     "noCommands": "No commands available for the current configuration."
   },
+  "continuation": {
+    "context": "Context for next input",
+    "portable": "Carry conversation history",
+    "fresh": "Fresh context"
+  },
   "followUpSend": {
     "sessionScopedSlashCommandError": "This / command must run in an existing session and cannot be triggered by creating a new session.",
     "startFailed": "Failed to start follow-up execution: {{error}}",

@@ -156,7 +156,7 @@ pub async fn start_commit_reminder_if_needed(
         return Ok(false);
     };
 
-    let binding = ConversationAgentBindingRecord::latest_for_conversation(pool, conversation_id)
+    let binding = ConversationAgentBindingRecord::active_for_conversation(pool, conversation_id)
         .await?
         .ok_or_else(|| {
             ConversationServiceError::NotFound(format!(
@@ -166,6 +166,8 @@ pub async fn start_commit_reminder_if_needed(
     ConversationSessionService::new(context)
         .start_turn_with_origin(
             ConversationStartTurnInput {
+                continuation_policy: None,
+                expected_binding_revision: None,
                 agent_id: binding.agent_id,
                 workspace_id: workspace.id,
                 conversation_id,

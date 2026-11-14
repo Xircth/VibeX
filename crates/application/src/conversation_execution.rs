@@ -82,6 +82,8 @@ impl ConversationExecutionPort for ConversationSessionExecutionPort {
         let turn = self
             .service
             .start_turn(ConversationStartTurnInput {
+                continuation_policy: request.continuation_policy,
+                expected_binding_revision: request.expected_binding_revision,
                 agent_id,
                 workspace_id: request.workspace_id,
                 conversation_id,
@@ -355,14 +357,23 @@ fn map_service_error(error: ConversationServiceError) -> ApplicationError {
         ConversationServiceError::AuthenticationRequired(message) => {
             ApplicationError::bad_request(message)
         }
-        ConversationServiceError::SessionUnavailable { message, .. } => {
-            ApplicationError::bad_request(message)
+        ConversationServiceError::SessionUnavailable { code, message } => {
+            ApplicationError::capability_unavailable(message)
+                .with_detail(serde_json::json!({"code": code}))
         }
     }
 }
 
 fn map_input_error(error: ConversationInputControlError) -> ApplicationError {
     match error {
+        ConversationInputControlError::BindingRevisionConflict => {
+            ApplicationError::conflict(error.to_string())
+                .with_detail(serde_json::json!({"code":"binding_revision_conflict"}))
+        }
+        ConversationInputControlError::ContinuationNotAllowed => {
+            ApplicationError::bad_request(error.to_string())
+                .with_detail(serde_json::json!({"code":"continuation_not_allowed"}))
+        }
         ConversationInputControlError::NotFound(_) => {
             ApplicationError::not_found(error.to_string())
         }

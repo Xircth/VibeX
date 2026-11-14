@@ -469,7 +469,7 @@ fn relative_agent_asset_path(path: &str) -> Result<PathBuf, ConversationServiceE
     Ok(relative)
 }
 
-fn mime_type_for_agent_asset(path: &Path) -> &'static str {
+pub(crate) fn mime_type_for_agent_asset(path: &Path) -> &'static str {
     match path
         .extension()
         .and_then(|extension| extension.to_str())

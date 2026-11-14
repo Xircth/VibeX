@@ -21,5 +21,6 @@ pub use transport::{
     BrokerAskRequest, BrokerCancelRequest, BrokerCancelTaskRequest, BrokerCollaborateRequest,
     BrokerCommitFeedbackRequest, BrokerFeedbackRequest, BrokerMessage, BrokerRequest,
     BrokerResponse, BrokerSessionCancelRequest, BrokerSessionRequest, BrokerSessionSendRequest,
-    BrokerSessionWaitRequest, BrokerStatusRequest, MAX_FRAME_BYTES, read_frame, write_frame,
+    BrokerSessionWaitRequest, BrokerStatusRequest, MAX_FRAME_BYTES, SessionHistoryRequest,
+    read_frame, write_frame,
 };

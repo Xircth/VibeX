@@ -148,13 +148,20 @@ pub async fn export_conversation_bundle(
     let turns = ConversationTurnRecord::list_for_conversation(pool, conversation_id).await?;
     let mut events =
         ConversationEventRecord::events_since(pool, conversation_id, 0, i64::MAX).await?;
+    let transcript_turns = crate::transcript_segments::read_in(
+        pool,
+        &agents::acp_transcript::vibex_acp_transcripts_root(),
+        conversation_id,
+    )
+    .await?;
     let has_assistant_events = events.iter().any(|record| {
         matches!(
             record.event_kind.as_str(),
             "assistant_text_delta" | "assistant_reasoning_delta" | "tool_call_upsert"
         )
     });
-    if !has_assistant_events
+    if transcript_turns.is_none()
+        && !has_assistant_events
         && let Some(jsonl_turns) = crate::jsonl_history::flush_and_read_existing_transcript_turns(
             conversation_id,
             summary.external_session_id.as_deref(),
@@ -184,7 +191,7 @@ pub async fn export_conversation_bundle(
     let permissions_json = serde_json::to_value(&permissions)?;
     let terminals_json = serde_json::to_value(&terminals)?;
 
-    let checksums = vec![
+    let mut checksums = vec![
         checksum("conversations.json", &conversations_json)?,
         checksum("bindings.json", &bindings_json)?,
         checksum("turns.json", &turns_json)?,
@@ -196,6 +203,12 @@ pub async fn export_conversation_bundle(
         checksum("checkpoints.json", &checkpoints)?,
     ];
 
+    if let Some(turns) = &transcript_turns {
+        checksums.push(checksum(
+            "transcript-turns.json",
+            &serde_json::to_value(turns)?,
+        )?);
+    }
     let manifest = ConversationBundleManifest {
         bundle_version: BUNDLE_VERSION.to_string(),
         export_app_version: export_app_version.to_string(),
@@ -207,6 +220,7 @@ pub async fn export_conversation_bundle(
     };
 
     let bundle = ConversationBundlePayload {
+        transcript_turns,
         manifest: manifest.clone(),
         conversations_json,
         bindings_json,
@@ -534,7 +548,18 @@ pub async fn import_conversation_bundle(
     let _timeline = ConversationProjector::project(pool, conversation_id)
         .await
         .map_err(|error| ConversationBundleError::Internal(error.to_string()))?;
-    let _ = crate::jsonl_history::load_all_turns(pool, conversation_id).await;
+    if let Some(turns) = &bundle.transcript_turns {
+        crate::transcript_segments::replace_snapshot_in(
+            pool,
+            &agents::acp_transcript::vibex_acp_transcripts_root(),
+            conversation_id,
+            "session",
+            turns,
+        )
+        .await?;
+    } else {
+        let _ = crate::jsonl_history::load_all_turns(pool, conversation_id).await;
+    }
     ConversationImportRecord::insert(
         pool,
         InsertConversationImport {

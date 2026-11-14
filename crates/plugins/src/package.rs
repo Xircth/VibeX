@@ -1397,8 +1397,10 @@ impl PluginPackage {
         if grants_file.is_file() {
             let grants_text = fs::read_to_string(&grants_file)
                 .map_err(|error| PluginError::io("read plugin .grants file", error))?;
-            let parsed_grants = crate::PermissionManifest::parse_grants_str(&grants_text)
-                .map_err(|error| PluginError::invalid_manifest(format!("invalid .grants: {error}")))?;
+            let parsed_grants =
+                crate::PermissionManifest::parse_grants_str(&grants_text).map_err(|error| {
+                    PluginError::invalid_manifest(format!("invalid .grants: {error}"))
+                })?;
             for grant in parsed_grants.to_capability_grants() {
                 if !permissions.iter().any(|p| p.capability == grant.capability) {
                     permissions.push(CapabilityRequest {

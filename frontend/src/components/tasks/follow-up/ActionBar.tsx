@@ -1,15 +1,17 @@
+import { useMemo } from 'react';
 import { Slot } from '@/components/plugins/Slot';
-import { TerminalProfileControls } from '@/components/tasks/TerminalProfileControls';
 import type {
   AgentSessionConfigOption,
   ExecutorConfig,
   ExecutorProfileId,
 } from 'shared/types';
 import type { ConversationSessionModesState } from '@/features/conversation/conversationStore';
+import { useSelectableAgents } from '@/features/agents/useSelectableAgents';
 import { ActionBarImageButton } from './ActionBarImageButton';
 import { ActionBarIdleControls } from './ActionBarIdleControls';
 import { ActionBarUtilityButtons } from './ActionBarUtilityButtons';
 import { ActionBarRunningControls } from './ActionBarRunningControls';
+import { AgentRail } from './AgentRail';
 import {
   SessionSettingsSummary,
   type SessionPersona,
@@ -86,22 +88,27 @@ export function ActionBar({
   onClearComments,
   onAttachImages,
 }: ActionBarProps) {
+  const selectableAgents = useSelectableAgents();
+
+  const currentAgentId = effectiveExecutorProfile?.executor ?? null;
+  const currentAgentIcons = useMemo(() => {
+    if (!currentAgentId) return null;
+    return selectableAgents.find((a) => a.agentId === currentAgentId) ?? null;
+  }, [selectableAgents, currentAgentId]);
+
+  const handleAgentSelect = (profile: ExecutorProfileId) => {
+    onChangeExecutorProfile(profile);
+  };
+
   return (
     <div className="flex flex-wrap items-center gap-1 pt-1">
       {showProfileControls ? (
-        <TerminalProfileControls
+        <AgentRail
           profiles={profiles}
-          selectedProfile={effectiveExecutorProfile}
-          onChange={onChangeExecutorProfile}
+          effectiveExecutorProfile={effectiveExecutorProfile}
+          onChangeExecutorProfile={handleAgentSelect}
           disabled={!isEditable}
-          lockExecutor={true}
-          iconOnly={true}
-          dropdownSide="top"
-          className="flex flex-wrap items-center gap-1"
-          // Capability choices come exclusively from the live ACP session or
-          // persisted catalog. Static executor profiles remain defaults, not a
-          // competing model/permission/Fast selector source.
-          suppressAcpManagedControls={true}
+          selectableAgents={selectableAgents}
         />
       ) : null}
 
@@ -114,6 +121,10 @@ export function ActionBar({
         onSelectConfigOption={onSelectConfigOption}
         persona={persona}
         disabled={!isEditable}
+        agentIcon={currentAgentId}
+        agentIconLight={currentAgentIcons?.iconLight ?? null}
+        agentIconDark={currentAgentIcons?.iconDark ?? null}
+        agentIconSvg={currentAgentIcons?.iconSvg ?? null}
       />
 
       <div className="flex-1" />

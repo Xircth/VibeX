@@ -232,6 +232,9 @@
     "unavailable": "暂不可用",
     "manageAgents": "管理 Agent…"
   },
+  "agentRail": {
+    "label": "切换 Agent"
+  },
   "workspaceSelector": {
     "currentProjectBranch": "当前项目目录分支",
     "nonWorktreeCheckout": "非 Worktree，选择后将先 checkout",

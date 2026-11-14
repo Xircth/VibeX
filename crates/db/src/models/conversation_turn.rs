@@ -11,6 +11,7 @@ pub struct ConversationTurnRecord {
     pub id: Uuid,
     pub conversation_id: Uuid,
     pub ordinal: i64,
+    pub agent_binding_id: Option<Uuid>,
     pub prompt_id: Option<String>,
     pub role: String,
     pub origin: String,
@@ -39,6 +40,7 @@ pub struct CreateConversationTurn<'a> {
 const TURN_COLUMNS: &str = r#"id,
     conversation_id,
     ordinal,
+    agent_binding_id,
     prompt_id,
     role,
     origin,
@@ -86,9 +88,9 @@ impl ConversationTurnRecord {
         let turn = sqlx::query_as::<_, Self>(&format!(
             r#"INSERT INTO conversation_turns (
                    id, conversation_id, ordinal, prompt_id, status,
-                   text_preview, input_blocks_json
+                   text_preview, input_blocks_json, agent_binding_id
                )
-               VALUES (?, ?, ?, ?, 'pending', ?, ?)
+               VALUES (?, ?, ?, ?, 'pending', ?, ?, (SELECT active_agent_binding_id FROM sessions WHERE id = ?))
                RETURNING {TURN_COLUMNS}"#
         ))
         .bind(id)
@@ -97,6 +99,7 @@ impl ConversationTurnRecord {
         .bind(input.prompt_id)
         .bind(input.text_preview)
         .bind(input.input_blocks_json)
+        .bind(input.conversation_id)
         .fetch_one(&mut *conn)
         .await?;
         super::conversation::bump_active_turn_mutation_epoch();

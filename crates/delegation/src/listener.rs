@@ -213,6 +213,7 @@ impl DelegationListener {
                                 &scope_for(&entry),
                                 &req.conversation_id,
                                 req.max_messages.min(200),
+                                &req.history,
                             )
                             .await
                     }
@@ -1123,6 +1124,7 @@ mod tests {
                 token: "delegation-only".to_string(),
                 conversation_id: Uuid::new_v4().to_string(),
                 max_messages: 0,
+                history: Default::default(),
             }),
         )
         .await;
@@ -1329,6 +1331,7 @@ mod tests {
                 token: "tok".to_string(),
                 conversation_id: referenced,
                 max_messages: 20,
+                history: Default::default(),
             }),
         )
         .await;

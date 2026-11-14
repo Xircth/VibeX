@@ -586,9 +586,24 @@ impl ServerApplicationDomains {
                 ApplicationError::not_found(format!("conversation {source_id} not found"))
             })?;
         let source_binding =
-            ConversationAgentBindingRecord::latest_for_conversation(&self.pool, source_id)
+            ConversationAgentBindingRecord::active_for_conversation(&self.pool, source_id)
                 .await
                 .map_err(internal_error)?;
+        if let Some(turn_id) = until_turn_id {
+            let target_turn = ConversationTurnRecord::find_by_id(&self.pool, turn_id)
+                .await
+                .map_err(internal_error)?;
+            if target_turn
+                .and_then(|turn| turn.agent_binding_id)
+                .is_some_and(|binding_id| {
+                    source_binding
+                        .as_ref()
+                        .is_none_or(|binding| binding.id != binding_id)
+                })
+            {
+                return Err(ApplicationError::bad_request("fork_point_unnamed"));
+            }
+        }
         let capabilities = source_binding.as_ref().and_then(|binding| {
             serde_json::from_str::<AcpCapabilitySnapshot>(&binding.session_capabilities_json).ok()
         });
@@ -757,6 +772,7 @@ impl ServerApplicationDomains {
                         agent_id,
                         working_dir: &source_binding.working_dir,
                         acp_session_id: Some(&forked_external_id),
+                        continuation_key: source_binding.continuation_key.as_deref(),
                         acp_protocol_version: source_binding.acp_protocol_version.as_deref(),
                         runtime_version: source_binding.runtime_version.as_deref(),
                         acp_version: source_binding.acp_version.as_deref(),
@@ -1078,7 +1094,7 @@ async fn load_conversation_session_controls(
     }
 
     if let Ok(Some(binding)) =
-        ConversationAgentBindingRecord::latest_for_conversation(pool, conversation_id).await
+        ConversationAgentBindingRecord::active_for_conversation(pool, conversation_id).await
     {
         if !had_live_modes
             && let Some(mode) = binding
@@ -1131,7 +1147,7 @@ async fn active_binding_for_conversation(
     conversation_id: Uuid,
 ) -> Result<Option<HostConversationActiveBinding>, ApplicationError> {
     let Some(binding) =
-        ConversationAgentBindingRecord::latest_for_conversation(pool, conversation_id)
+        ConversationAgentBindingRecord::active_for_conversation(pool, conversation_id)
             .await
             .map_err(internal_error)?
     else {

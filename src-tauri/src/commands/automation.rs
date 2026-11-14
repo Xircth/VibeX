@@ -844,6 +844,8 @@ impl TurnLauncherPort for TauriTurnLauncher {
         let (turn, _) = ConversationSessionService::new(state.conversation_context())
             .start_turn_with_origin(
                 ConversationStartTurnInput {
+                    continuation_policy: None,
+                    expected_binding_revision: None,
                     agent_id: spec.agent.agent_id.clone(),
                     workspace_id: workspace.workspace_id,
                     conversation_id,

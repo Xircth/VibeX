@@ -379,6 +379,8 @@ impl PluginConversationHost for HostPluginConversationHost {
                 SubmitConversationInputRequest {
                     conversation_id,
                     payload: agents::ConversationInputPayload {
+                        continuation_policy: None,
+                        expected_binding_revision: None,
                         agent_id,
                         workspace_id: summary.workspace_id,
                         executor_profile_id: None,

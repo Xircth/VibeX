@@ -112,6 +112,41 @@ pub struct BrokerSessionRequest {
     pub conversation_id: String,
     #[serde(default = "default_max_messages")]
     pub max_messages: u32,
+    #[serde(default, flatten)]
+    pub history: SessionHistoryRequest,
+}
+
+/// Character offsets count Unicode scalar values, never UTF-8 bytes.
+#[derive(Debug, Clone, Default, Serialize, serde::Deserialize)]
+pub struct SessionHistoryRequest {
+    #[serde(default, alias = "itemId", skip_serializing_if = "Option::is_none")]
+    pub item_id: Option<String>,
+    #[serde(
+        default,
+        alias = "afterItemId",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub after_item_id: Option<String>,
+    #[serde(default, alias = "textOffset", skip_serializing_if = "Option::is_none")]
+    pub text_offset: Option<usize>,
+    #[serde(default, alias = "maxChars", skip_serializing_if = "Option::is_none")]
+    pub max_chars: Option<usize>,
+    #[serde(
+        default,
+        alias = "historyRevision",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub history_revision: Option<i64>,
+}
+
+impl SessionHistoryRequest {
+    pub fn is_paged(&self) -> bool {
+        self.item_id.is_some()
+            || self.after_item_id.is_some()
+            || self.text_offset.is_some()
+            || self.max_chars.is_some()
+            || self.history_revision.is_some()
+    }
 }
 
 #[derive(Debug, Clone, Serialize, serde::Deserialize)]

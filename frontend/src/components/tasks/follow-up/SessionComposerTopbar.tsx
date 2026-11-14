@@ -1,5 +1,6 @@
 import { useState, type ReactNode } from 'react';
 import { ArrowUp } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 import type {
   ExecutorProfileId,
   Session,
@@ -41,6 +42,11 @@ interface SessionComposerTopbarProps {
   onStartNewSession: () => void;
   onRenameSession: (id: string, name: string | null) => void | Promise<void>;
   composerIdentity?: ReactNode;
+  nextAgentControl?: ReactNode;
+  continuation?: {
+    policy: 'portable' | 'fresh';
+    onChange: (policy: 'portable' | 'fresh') => void;
+  };
 }
 
 const JUMP_TO_PREVIOUS_LABEL =
@@ -65,17 +71,35 @@ export function SessionComposerTopbar({
   onStartNewSession,
   onRenameSession,
   composerIdentity,
+  nextAgentControl,
+  continuation,
 }: SessionComposerTopbarProps) {
+  const { t } = useTranslation('app');
   const [showDiffStats, setShowDiffStats] = useState(false);
 
   return (
     <div className="composer-topbar flex items-center gap-2 px-1 pb-0 text-xs">
-      {composerIdentity ?? (
+      {composerIdentity ?? nextAgentControl ?? (
         <DiffStatsBar
           executorProfile={executorProfile}
           sessionExecutor={sessionExecutor}
         />
       )}
+      {continuation ? (
+        <select
+          className="raised-control rounded-md text-xs"
+          aria-label={t('continuation.context')}
+          value={continuation.policy}
+          onChange={(event) => {
+            if (event.target.value === 'portable' || event.target.value === 'fresh') {
+              continuation.onChange(event.target.value);
+            }
+          }}
+        >
+          <option value="portable">{t('continuation.portable')}</option>
+          <option value="fresh">{t('continuation.fresh')}</option>
+        </select>
+      ) : null}
       {showChangedFileSummary ? (
         <button
           type="button"

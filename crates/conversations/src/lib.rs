@@ -11,11 +11,14 @@ pub mod collaboration;
 pub mod collaboration_cards;
 pub mod collaboration_sidebar;
 pub mod commit_reminder;
+pub mod continuation;
 pub mod export;
+mod handoff;
 pub mod host;
 pub mod input;
 pub mod isolated_workspace;
 pub mod jsonl_history;
+mod legacy_transcript_checkpoint;
 pub mod member_memory;
 pub mod projection;
 pub mod relation;
@@ -24,6 +27,7 @@ pub mod scoped_control;
 pub mod search;
 pub mod service;
 pub mod session_info;
+pub mod transcript_segments;
 pub mod turn_window;
 pub mod usage_accounting;
 pub mod workbench_status;
@@ -94,8 +98,8 @@ pub use service::{
 };
 pub use session_info::{
     SessionInfo, agent_session_title_from_patch, derive_session_display_name,
-    first_prompt_session_name, load_compact_transcript, resolve_referenced_session,
-    sanitize_agent_session_title, session_info_value,
+    first_prompt_session_name, load_compact_transcript, read_history_page,
+    resolve_referenced_session, sanitize_agent_session_title, session_info_value,
 };
 pub use usage_accounting::{
     assemble_project_usage_statistics, attributed_sessions_from_rows, catch_up_usage_snapshots,

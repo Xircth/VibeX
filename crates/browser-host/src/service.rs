@@ -2877,7 +2877,10 @@ mod tests {
             Ok(())
         }
         async fn eval(&self, _tab_id: &str, expression: &str) -> Result<String, BrowserHostError> {
-            self.evals.lock().expect("evals").push(expression.to_owned());
+            self.evals
+                .lock()
+                .expect("evals")
+                .push(expression.to_owned());
             Ok(
                 r#"{"url":"https://example.test/","viewport":{"width":120,"height":80,"dpr":1}}"#
                     .into(),

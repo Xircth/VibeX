@@ -134,7 +134,11 @@ impl PermissionManifest {
                     for pattern in args {
                         validate_network_grant_pattern(pattern, false)
                             .map_err(|err| format!("line {line_no}: {err}"))?;
-                        if !manifest.net_fetch.iter().any(|existing| existing == pattern) {
+                        if !manifest
+                            .net_fetch
+                            .iter()
+                            .any(|existing| existing == pattern)
+                        {
                             manifest.net_fetch.push(pattern.to_owned());
                         }
                     }
@@ -199,7 +203,11 @@ impl PermissionManifest {
                                 "line {line_no}: invalid environment variable name `{var_name}`"
                             ));
                         }
-                        if !manifest.env_read.iter().any(|existing| existing == var_name) {
+                        if !manifest
+                            .env_read
+                            .iter()
+                            .any(|existing| existing == var_name)
+                        {
                             manifest.env_read.push(var_name.to_owned());
                         }
                     }
@@ -220,9 +228,7 @@ impl PermissionManifest {
                     manifest.storage_kv = true;
                 }
                 None => {
-                    return Err(format!(
-                        "line {line_no}: unknown capability `{cap_token}`"
-                    ));
+                    return Err(format!("line {line_no}: unknown capability `{cap_token}`"));
                 }
             }
         }
@@ -347,10 +353,7 @@ impl PermissionManifest {
 }
 
 fn is_valid_env_var_name(name: &str) -> bool {
-    !name.is_empty()
-        && name
-            .bytes()
-            .all(|b| b.is_ascii_alphanumeric() || b == b'_')
+    !name.is_empty() && name.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_')
 }
 
 /// Collects allowed environment variable names from `env.read` grants.
@@ -388,7 +391,11 @@ fn collect_env_vars_from_scope(scope: &Value, out: &mut BTreeSet<String>) {
                     collect_env_vars_from_scope(val, out);
                 }
             }
-            if let Some(single) = map.get("key").or_else(|| map.get("variable")).and_then(Value::as_str) {
+            if let Some(single) = map
+                .get("key")
+                .or_else(|| map.get("variable"))
+                .and_then(Value::as_str)
+            {
                 let trimmed = single.trim();
                 if !trimmed.is_empty() {
                     out.insert(trimmed.to_owned());
@@ -562,10 +569,7 @@ fn validate_network_grant_pattern(pattern: &str, allow_websocket: bool) -> Resul
 }
 
 fn contains_url_userinfo(raw_url: &str) -> bool {
-    let Some(after_scheme) = raw_url
-        .split_once("://")
-        .map(|(_, rest)| rest)
-    else {
+    let Some(after_scheme) = raw_url.split_once("://").map(|(_, rest)| rest) else {
         return false;
     };
     let authority_end = after_scheme
@@ -657,7 +661,10 @@ pub fn validate_network_url(
 ) -> Result<url::Url, WorkerHostError> {
     let trimmed = raw_url.trim();
     if trimmed.is_empty() {
-        return Err(WorkerHostError::new("network_invalid_url", "url is required"));
+        return Err(WorkerHostError::new(
+            "network_invalid_url",
+            "url is required",
+        ));
     }
     if contains_url_userinfo(trimmed) {
         return Err(WorkerHostError::new(
@@ -809,13 +816,26 @@ pub fn collect_network_grant_patterns(scope: &Value, out: &mut Vec<String>) {
             }
         }
         Value::Object(map) => {
-            for key in ["urls", "hosts", "origins", "allow", "allowed", "patterns", "endpoints"] {
+            for key in [
+                "urls",
+                "hosts",
+                "origins",
+                "allow",
+                "allowed",
+                "patterns",
+                "endpoints",
+            ] {
                 if let Some(val) = map.get(key) {
                     collect_network_grant_patterns(val, out);
                 }
             }
             for key in ["url", "host", "origin", "pattern"] {
-                if let Some(s) = map.get(key).and_then(Value::as_str).map(str::trim).filter(|s| !s.is_empty()) {
+                if let Some(s) = map
+                    .get(key)
+                    .and_then(Value::as_str)
+                    .map(str::trim)
+                    .filter(|s| !s.is_empty())
+                {
                     out.push(s.to_owned());
                 }
             }
@@ -853,7 +873,10 @@ mod tests {
             manifest.net_websocket,
             vec!["wss://realtime.example.com".to_owned()]
         );
-        assert_eq!(manifest.fs_read, vec![PathBuf::from("/home/user/workspace")]);
+        assert_eq!(
+            manifest.fs_read,
+            vec![PathBuf::from("/home/user/workspace")]
+        );
         assert_eq!(
             manifest.fs_write,
             vec![PathBuf::from("/home/user/workspace/output")]
@@ -868,7 +891,10 @@ mod tests {
         let mut full_env = BTreeMap::new();
         full_env.insert("OPENAI_API_KEY".to_owned(), "sk-test".to_owned());
         full_env.insert("NODE_ENV".to_owned(), "production".to_owned());
-        full_env.insert("AWS_SECRET_ACCESS_KEY".to_owned(), "super-secret".to_owned());
+        full_env.insert(
+            "AWS_SECRET_ACCESS_KEY".to_owned(),
+            "super-secret".to_owned(),
+        );
 
         let snapshot = manifest.build_env_snapshot(&full_env);
         assert_eq!(snapshot.len(), 2);
@@ -960,21 +986,30 @@ mod tests {
             "net.fetch https://api.example.com https://*.github.com\nnet.websocket wss://realtime.example.com",
         )
         .expect("parse network grants");
-        assert!(manifest
-            .allows_net_fetch("https://api.example.com/v1/models")
-            .expect("valid url"));
-        assert!(manifest
-            .allows_net_fetch("https://api.github.com/repos/expo/exact")
-            .expect("valid wildcard subdomain"));
-        assert!(!manifest
-            .allows_net_fetch("https://github.com/expo/exact")
-            .expect("root domain should not match *.github.com"));
-        assert!(!manifest
-            .allows_net_fetch("https://evil.com/phish")
-            .expect("unlisted host denied"));
-        assert!(manifest
-            .allows_net_websocket("wss://realtime.example.com/socket")
-            .expect("valid wss url"));
+        assert!(
+            manifest
+                .allows_net_fetch("https://api.example.com/v1/models")
+                .expect("valid url")
+        );
+        assert!(
+            manifest
+                .allows_net_fetch("https://api.github.com/repos/expo/exact")
+                .expect("valid wildcard subdomain")
+        );
+        assert!(
+            !manifest
+                .allows_net_fetch("https://github.com/expo/exact")
+                .expect("root domain should not match *.github.com")
+        );
+        assert!(
+            !manifest
+                .allows_net_fetch("https://evil.com/phish")
+                .expect("unlisted host denied")
+        );
+        assert!(
+            manifest
+                .allows_net_websocket("wss://realtime.example.com/socket")
+                .expect("valid wss url")
+        );
     }
 }
-

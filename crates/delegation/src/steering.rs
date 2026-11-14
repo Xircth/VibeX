@@ -91,6 +91,7 @@ pub trait CompanionFeaturePort: std::fmt::Debug + Send + Sync {
         _scope: &DelegationScope,
         conversation_id: &str,
         _max_messages: u32,
+        _history: &delegation_proto::SessionHistoryRequest,
     ) -> Value {
         json!({ "found": false, "conversation_id": conversation_id })
     }
@@ -468,6 +469,7 @@ impl CompanionFeaturePort for InMemoryCompanionFeatures {
         scope: &DelegationScope,
         conversation_id: &str,
         _max_messages: u32,
+        _history: &delegation_proto::SessionHistoryRequest,
     ) -> Value {
         self.sessions
             .lock()

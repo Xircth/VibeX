@@ -415,6 +415,10 @@ const fn default_child_visibility() -> bool {
 #[derive(Clone, Debug, PartialEq, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct StartConversationTurn {
+    #[serde(default)]
+    pub continuation_policy: Option<agents::conversation::ContinuationPolicy>,
+    #[serde(default)]
+    pub expected_binding_revision: Option<u64>,
     pub agent_id: String,
     pub workspace_id: Uuid,
     pub conversation_id: Uuid,

@@ -21,6 +21,66 @@ use super::{
 use crate::ConversationServiceError;
 
 impl ConversationSessionService {
+    pub(super) async fn commit_native_binding(
+        &self,
+        conversation_id: Uuid,
+        agent_id: &AgentId,
+        working_dir: &str,
+        native_id: &str,
+        connection_id: agents::AgentConnectionId,
+    ) -> Result<(), ConversationServiceError> {
+        let pool = &self.ctx.deployment.db().pool;
+        let result: Result<(), sqlx::Error> = async {
+            let binding = ConversationAgentBindingRecord::prepare_native_session(
+                pool,
+                conversation_id,
+                agent_id,
+                working_dir,
+                native_id,
+                &connection_id.to_string(),
+            )
+            .await?;
+            crate::jsonl_history::prepare_binding_transcript(
+                pool,
+                conversation_id,
+                &binding,
+                connection_id,
+            )
+            .await?;
+            ConversationAgentBindingRecord::activate(pool, conversation_id, binding.id).await
+        }
+        .await;
+        if let Err(error) = result {
+            self.drop_live_agent_connection(conversation_id).await;
+            return Err(error.into());
+        }
+        // Always set continuation key and resume head for the active binding.
+        let key = super::continuation::continuation_key(agent_id.as_str(), working_dir);
+        sqlx::query("UPDATE conversation_agent_bindings SET is_resume_head = 0 WHERE conversation_id = ? AND continuation_key = ?")
+            .bind(conversation_id).bind(&key).execute(pool).await?;
+        let _ = sqlx::query("UPDATE conversation_agent_bindings SET continuation_key = ?, is_resume_head = 1 WHERE id = (SELECT active_agent_binding_id FROM sessions WHERE id = ?)")
+            .bind(&key).bind(conversation_id).execute(pool).await?;
+        let controls = self
+            .ctx
+            .agent_runtime
+            .session_controls_snapshot(AgentSessionId(conversation_id))
+            .await?;
+        if let Some(capabilities) = controls.capabilities {
+            self.append_event(
+                conversation_id,
+                None,
+                "runtime",
+                agents::conversation::ConversationEvent::AgentBindingReady {
+                    acp_session_id: native_id.to_string(),
+                    capabilities,
+                },
+                None,
+            )
+            .await?;
+        }
+        Ok(())
+    }
+
     /// Immediately switch the conversation's live session mode. Mode is a
     /// Config Option category; the ACP adapter translates the intent to
     /// `session/set_mode` or `session/set_config_option`. Errors when there is
@@ -87,7 +147,7 @@ impl ConversationSessionService {
         .await;
     }
 
-    async fn resolved_session_control_preferences(
+    pub(super) async fn resolved_session_control_preferences(
         &self,
         pool: &SqlitePool,
         agent_id: &AgentId,
@@ -188,8 +248,8 @@ impl ConversationSessionService {
         reload: bool,
     ) -> Result<AgentSessionControlsSnapshot, ConversationServiceError> {
         let controls = {
-            let turn_lock = self.turn_lock(conversation_id).await;
-            let _turn_guard = turn_lock.lock().await;
+            let preparation = crate::continuation::preparation_lock(conversation_id);
+            let _preparation_guard = preparation.lock().await;
             if reload {
                 self.drop_live_agent_connection(conversation_id).await;
             }
@@ -208,8 +268,8 @@ impl ConversationSessionService {
         working_dir: Option<PathBuf>,
     ) -> Result<AgentSessionControlsSnapshot, ConversationServiceError> {
         let controls = {
-            let turn_lock = self.turn_lock(conversation_id).await;
-            let _turn_guard = turn_lock.lock().await;
+            let preparation = crate::continuation::preparation_lock(conversation_id);
+            let _preparation_guard = preparation.lock().await;
             self.ensure_session_controls_locked(conversation_id, working_dir)
                 .await?
         };
@@ -283,21 +343,34 @@ impl ConversationSessionService {
                 .await
         {
             let pool = &self.ctx.deployment.db().pool;
-            if let Ok(Some(persisted_session)) = Session::find_by_id(pool, conversation_id).await {
-                let agent_id = persisted_session.agent_id.clone().or_else(|| {
-                    persisted_session
-                        .executor
-                        .as_deref()
-                        .and_then(AgentKind::from_lenient)
-                        .and_then(|kind| agents::AgentId::parse(kind.as_str()).ok())
-                });
-                let _ = Session::update_agent_metadata(
-                    pool,
+            if let Some(persisted_session) = Session::find_by_id(pool, conversation_id).await?
+                && let Some(agent_id) = persisted_session.agent_id
+            {
+                let connection_id = self
+                    .ctx
+                    .agent_runtime
+                    .live_connection_id(runtime_session_id)
+                    .await
+                    .ok_or(agents::AgentError::AcpSessionNotBound)?;
+                let active =
+                    ConversationAgentBindingRecord::active_for_conversation(pool, conversation_id)
+                        .await?;
+                if active.as_ref().is_some_and(|binding| {
+                    binding.resume_allowed
+                        && binding.connection_id.as_deref()
+                            == Some(connection_id.to_string().as_str())
+                }) && agents::transcript_target::is_bound(connection_id)
+                {
+                    return Ok(controls);
+                }
+                self.commit_native_binding(
                     conversation_id,
-                    Some(&bound_acp_session_id),
-                    agent_id.as_ref(),
+                    &agent_id,
+                    "",
+                    &bound_acp_session_id,
+                    connection_id,
                 )
-                .await;
+                .await?;
             }
             self.ctx
                 .agent_runtime
@@ -362,9 +435,8 @@ impl ConversationSessionService {
                 )
                 .await;
             } else {
-                let _ =
-                    crate::jsonl_history::preserve_transcript_before_detach(pool, conversation_id)
-                        .await;
+                crate::jsonl_history::preserve_transcript_before_detach(pool, conversation_id)
+                    .await?;
                 persisted_session.external_session_id = None;
                 let _ = sqlx::query(
                     r#"UPDATE sessions
@@ -429,8 +501,17 @@ impl ConversationSessionService {
             &working_dir,
         );
         let launch_settings = self.ctx.host.launch_settings(pool, &agent_id).await?;
-        let latest_binding = bindings.last().cloned();
-        let restorable_binding = restorable_agent_binding(&bindings, &agent_id);
+        let latest_binding =
+            ConversationAgentBindingRecord::active_for_conversation(pool, conversation_id)
+                .await?
+                .filter(|binding| binding.agent_id == agent_id);
+        let restorable_binding = latest_binding.as_ref().filter(|binding| {
+            binding.resume_allowed
+                && binding
+                    .acp_session_id
+                    .as_deref()
+                    .is_some_and(|id| !is_placeholder_acp_session_id(id))
+        });
         let mut preferences = self
             .resolved_session_control_preferences(
                 pool,
@@ -515,18 +596,10 @@ impl ConversationSessionService {
                 strategy,
                 Some(agents::SessionRecoveryStrategy::CreatedNewSession)
             ) {
-                let _ =
-                    crate::jsonl_history::preserve_transcript_before_detach(pool, conversation_id)
-                        .await;
+                crate::jsonl_history::preserve_transcript_before_detach(pool, conversation_id)
+                    .await?;
             }
             restore_strategy = strategy;
-            Session::update_agent_metadata(
-                pool,
-                conversation_id,
-                Some(&snapshot.acp_session_id),
-                Some(&agent_id),
-            )
-            .await?;
             snapshot
         } else {
             if restorable_binding.is_some() {
@@ -543,9 +616,8 @@ impl ConversationSessionService {
                     .as_ref()
                     .is_some_and(|binding| binding.agent_id != agent_id)
             {
-                let _ =
-                    crate::jsonl_history::preserve_transcript_before_detach(pool, conversation_id)
-                        .await;
+                crate::jsonl_history::preserve_transcript_before_detach(pool, conversation_id)
+                    .await?;
             }
             let prepared = self
                 .ctx
@@ -563,13 +635,6 @@ impl ConversationSessionService {
                     preferences,
                 })
                 .await?;
-            Session::update_agent_metadata(
-                pool,
-                conversation_id,
-                Some(&prepared.session.acp_session_id),
-                Some(&agent_id),
-            )
-            .await?;
             prepared.session
         };
 
@@ -618,6 +683,14 @@ impl ConversationSessionService {
                 "failed to record live capability catalog"
             );
         }
+        self.commit_native_binding(
+            conversation_id,
+            &agent_id,
+            &working_dir,
+            &runtime_snapshot.acp_session_id,
+            runtime_snapshot.connection_id,
+        )
+        .await?;
         self.ctx
             .agent_runtime
             .commit_prepared_session(runtime_session_id)
@@ -745,7 +818,7 @@ pub(super) async fn persist_confirmed_session_controls(
     // Last-used per Agent, same store new sessions already read (CodeG
     // `selector-prefs` per agentType). A rejected upsert must not fail the pick.
     if let Ok(Some(binding)) =
-        ConversationAgentBindingRecord::latest_for_conversation(pool, conversation_id).await
+        ConversationAgentBindingRecord::active_for_conversation(pool, conversation_id).await
     {
         let repo = SessionDefaultRepository::new(pool.clone());
         if let Some(mode) = mode.filter(|mode| !mode.is_empty())
@@ -791,7 +864,8 @@ pub(crate) async fn conversation_has_recorded_turns(
         conversation_id,
     )
     .await?
-    .is_empty()
+    .iter()
+    .all(|turn| turn.status == "pending" && turn.prompt_id.is_none())
     {
         return Ok(true);
     }
@@ -857,7 +931,7 @@ async fn ensure_conversation_binding_for_controls(
     let Some(agent_id) = session.agent_id else {
         return Ok(());
     };
-    if ConversationAgentBindingRecord::latest_for_conversation(pool, conversation_id)
+    if ConversationAgentBindingRecord::active_for_conversation(pool, conversation_id)
         .await?
         .is_some_and(|latest| latest.agent_id == agent_id)
     {
@@ -879,6 +953,7 @@ async fn ensure_conversation_binding_for_controls(
             agent_id: &agent_id,
             working_dir: "",
             acp_session_id: acp_session_id.as_deref(),
+            continuation_key: None,
             acp_protocol_version: None,
             runtime_version: None,
             acp_version: None,

@@ -22,7 +22,7 @@ use agents::{
 };
 use chrono::Utc;
 use db::models::{
-    conversation::{BindingStatus, ConversationAgentBindingRecord, DbConversationSummary},
+    conversation::{ConversationAgentBindingRecord, DbConversationSummary},
     conversation_event::{AppendConversationEvent, CURRENT_EVENT_VERSION, ConversationEventRecord},
     conversation_turn::ConversationTurnRecord,
     session::Session,
@@ -78,6 +78,7 @@ pub struct RecordedConversationCompletion {
 struct MappedConversationEventRecord {
     conversation_id: Uuid,
     turn_id: Option<Uuid>,
+    binding_id: Option<Uuid>,
     connection_id: String,
     source: &'static str,
     event_kind: String,
@@ -167,6 +168,68 @@ impl ConversationAgentEventRecorder {
             return Ok(None);
         };
         let conversation_id = session_id.0;
+        if let AgentEvent::SessionInvalidated { reason } = &envelope.event {
+            ConversationAgentBindingRecord::invalidate_connection(
+                &self.pool,
+                conversation_id,
+                &envelope.connection_id.to_string(),
+                reason,
+            )
+            .await?;
+            return Ok(None);
+        }
+        if self.conversation_context.is_some()
+            && matches!(envelope.event, AgentEvent::SessionLinked { .. })
+            && !agents::transcript_target::is_bound(envelope.connection_id)
+        {
+            // The service publishes binding readiness after its history target is durable.
+            return Ok(None);
+        }
+        if agents::transcript_target::is_retired(envelope.connection_id) {
+            return Ok(None);
+        }
+        let active_binding =
+            ConversationAgentBindingRecord::active_for_conversation(&self.pool, conversation_id)
+                .await?;
+        let connection = envelope.connection_id.to_string();
+        if active_binding
+            .as_ref()
+            .and_then(|b| b.connection_id.as_deref())
+            .is_some_and(|id| id != connection)
+        {
+            let is_current_runtime = if let Some(context) = &self.conversation_context {
+                context.agent_runtime.live_connection_id(session_id).await
+                    == Some(envelope.connection_id)
+            } else {
+                false
+            };
+            if !is_current_runtime {
+                tracing::debug!(%conversation_id, %connection, "dropped retired binding event");
+                return Ok(None);
+            }
+        }
+        let mut binding_id = active_binding.as_ref().map(|b| b.id);
+        if active_binding.as_ref().is_some_and(|b| !b.resume_allowed) {
+            let is_current_runtime = if let Some(context) = &self.conversation_context {
+                context.agent_runtime.live_connection_id(session_id).await
+                    == Some(envelope.connection_id)
+            } else {
+                false
+            };
+            if !is_current_runtime {
+                return Ok(None);
+            }
+        }
+        if let AgentEvent::PromptAccepted { prompt_id } = &envelope.event {
+            crate::handoff::accept(
+                &self.pool,
+                conversation_id,
+                &connection,
+                &prompt_id.to_string(),
+            )
+            .await?;
+            return Ok(None);
+        }
         let turn_id = self.event_turn_id(conversation_id, &envelope.event).await?;
         if turn_id.is_none() && is_turn_scoped_content(&envelope.event) {
             // Turn content with no in-flight Turn to own it: a cancelled prompt's
@@ -217,6 +280,16 @@ impl ConversationAgentEventRecorder {
                     "refusing to persist a placeholder ACP session id via SessionLinked"
                 );
             } else {
+                let binding = ConversationAgentBindingRecord::link_native_session(
+                    &self.pool,
+                    conversation_id,
+                    agent_id,
+                    "",
+                    acp_session_id,
+                    &connection,
+                )
+                .await?;
+                binding_id = Some(binding.id);
                 persist_session_linked_external_id(
                     &self.pool,
                     conversation_id,
@@ -224,18 +297,6 @@ impl ConversationAgentEventRecorder {
                     agent_id,
                 )
                 .await?;
-                if let Some(binding_id) =
-                    latest_binding_id_for_agent(&self.pool, conversation_id, agent_id).await?
-                {
-                    ConversationAgentBindingRecord::bind_acp_session(
-                        &self.pool,
-                        binding_id,
-                        acp_session_id,
-                        None,
-                        BindingStatus::Ready,
-                    )
-                    .await?;
-                }
             }
         }
 
@@ -267,6 +328,7 @@ impl ConversationAgentEventRecorder {
         Ok(Some(MappedConversationEventRecord {
             conversation_id,
             turn_id,
+            binding_id,
             connection_id,
             source,
             event_kind,
@@ -384,6 +446,7 @@ impl ConversationAgentEventRecorder {
             }
 
             if terminal && let Some(turn_id) = mapped.turn_id {
+                crate::handoff::settle(&self.pool, turn_id).await?;
                 let (status, stop_reason, error_message) = match &mapped.event {
                     ConversationEvent::TurnCompleted { stop_reason, .. } => {
                         ("completed".to_string(), stop_reason.clone(), None)
@@ -765,7 +828,7 @@ fn ephemeral_record(
         id: Uuid::new_v4(),
         conversation_id: mapped.conversation_id,
         turn_id: mapped.turn_id,
-        binding_id: None,
+        binding_id: mapped.binding_id,
         connection_id: Some(mapped.connection_id.clone()),
         prompt_id: None,
         sequence: 0,
@@ -815,7 +878,7 @@ fn append_event_input<'a>(
         id: event_id,
         conversation_id: mapped.conversation_id,
         turn_id,
-        binding_id: None,
+        binding_id: mapped.binding_id,
         connection_id: Some(&mapped.connection_id),
         prompt_id: None,
         source: mapped.source,
@@ -1044,11 +1107,11 @@ async fn bind_prompt_turn(
 ) -> Result<Option<Uuid>, sqlx::Error> {
     if let Some(turn) =
         ConversationTurnRecord::find_by_prompt_id(pool, conversation_id, prompt_id).await?
-        && is_in_flight_turn_status(&turn.status)
     {
-        return Ok(Some(turn.id));
+        return Ok(is_in_flight_turn_status(&turn.status).then_some(turn.id));
     }
-    in_flight_active_turn_id(pool, conversation_id).await
+    // PromptStarted is local notification, not authority to claim a reservation.
+    Ok(None)
 }
 
 /// The conversation's in-flight Turn, read from the authoritative pointer.
@@ -1149,6 +1212,7 @@ impl PendingConversationDelta {
     fn has_same_context(&self, record: &MappedConversationEventRecord) -> bool {
         self.base.conversation_id == record.conversation_id
             && self.base.turn_id == record.turn_id
+            && self.base.binding_id == record.binding_id
             && self.base.connection_id == record.connection_id
             && self.base.source == record.source
     }
@@ -1398,25 +1462,6 @@ fn is_terminal_conversation_event(event: &ConversationEvent) -> bool {
             | ConversationEvent::TurnCancelled { .. }
             | ConversationEvent::TurnInterrupted { .. }
     )
-}
-
-async fn latest_binding_id_for_agent(
-    pool: &SqlitePool,
-    conversation_id: Uuid,
-    agent_id: &agents::AgentId,
-) -> Result<Option<Uuid>, sqlx::Error> {
-    sqlx::query_scalar(
-        r#"SELECT id
-           FROM conversation_agent_bindings
-           WHERE conversation_id = ?
-             AND agent_id = ?
-           ORDER BY created_at DESC
-           LIMIT 1"#,
-    )
-    .bind(conversation_id)
-    .bind(agent_id.as_str())
-    .fetch_optional(pool)
-    .await
 }
 
 async fn attach_cached_plan_usage(
@@ -1752,7 +1797,9 @@ fn map_agent_event(
         | AgentEvent::ModeChanged { .. }
         | AgentEvent::ConfigChanged { .. }
         | AgentEvent::ConfigOptionRejected { .. }
-        | AgentEvent::SessionBindReady { .. } => None,
+        | AgentEvent::SessionBindReady { .. }
+        | AgentEvent::SessionInvalidated { .. }
+        | AgentEvent::PromptAccepted { .. } => None,
     }
 }
 
@@ -2444,6 +2491,7 @@ mod tests {
         MappedConversationEventRecord {
             conversation_id: Uuid::nil(),
             turn_id: Some(Uuid::nil()),
+            binding_id: None,
             connection_id: "connection".to_string(),
             source: "acp",
             event_kind: conversation_event_kind(&event),
@@ -2586,12 +2634,153 @@ mod tests {
         );
     }
 
+    #[tokio::test]
+    async fn recorder_attributes_current_events_and_refuses_invalidated_session_linked() {
+        use db::models::conversation::ConversationAgentBindingRecord;
+        let pool = setup_pool().await;
+        let (conversation_id, _) = seed_conversation_turn(&pool, "prompt-binding", "hello").await;
+        let connection_id = AgentConnectionId::new();
+        let agent = agents::AgentId::parse("codex").unwrap();
+        let binding = ConversationAgentBindingRecord::link_native_session(
+            &pool,
+            conversation_id,
+            &agent,
+            "/work",
+            "native-old",
+            &connection_id.to_string(),
+        )
+        .await
+        .unwrap();
+        let mut recorder = super::ConversationAgentEventRecorder {
+            pool: pool.clone(),
+            deployment: None,
+            conversation_context: None,
+            event_publisher: None,
+            coalescer: super::ConversationEventCoalescer::default(),
+            active_turn_cache: Default::default(),
+            cached_turn_epoch: db::models::conversation::active_turn_mutation_epoch(),
+            pending_step_text: Default::default(),
+            turn_had_tool_call: Default::default(),
+            turn_db_lookups: 0,
+        };
+        let mut env = envelope(AgentEvent::SessionLinked {
+            acp_session_id: "native-old".into(),
+            agent_id: agent.clone(),
+            capabilities: Default::default(),
+        });
+        env.connection_id = connection_id;
+        env.session_id = Some(AgentSessionId(conversation_id));
+        recorder.record(&env).await.unwrap();
+        let attributed: Option<Uuid> = sqlx::query_scalar("SELECT binding_id FROM conversation_events WHERE conversation_id = ? ORDER BY sequence DESC LIMIT 1")
+            .bind(conversation_id).fetch_one(&pool).await.unwrap();
+        assert_eq!(attributed, Some(binding.id));
+        env.sequence += 1;
+        env.event = AgentEvent::SessionInvalidated {
+            reason: "cancel_timeout".into(),
+        };
+        recorder.record(&env).await.unwrap();
+        env.sequence += 1;
+        env.event = AgentEvent::SessionLinked {
+            acp_session_id: "native-old".into(),
+            agent_id: agent,
+            capabilities: Default::default(),
+        };
+        assert!(recorder.record(&env).await.unwrap().events.is_empty());
+        let active =
+            ConversationAgentBindingRecord::active_for_conversation(&pool, conversation_id)
+                .await
+                .unwrap()
+                .unwrap();
+        assert_eq!(active.id, binding.id);
+        assert!(!active.resume_allowed);
+        assert_eq!(active.acp_session_id.as_deref(), Some("native-old"));
+    }
+
     #[test]
     fn session_bind_ready_is_not_persisted_as_a_conversation_event() {
         let envelope = envelope(AgentEvent::SessionBindReady {
             acp_session_id: "acp-live-session-9".into(),
         });
         assert!(map_agent_event(&envelope, None).is_none());
+    }
+
+    #[tokio::test]
+    async fn completed_prompt_cannot_claim_a_new_pending_turn() {
+        let pool = setup_pool().await;
+        let (conversation, old) = seed_conversation_turn(&pool, "old-prompt", "old").await;
+        ConversationTurnRecord::mark_completed(&pool, old, Some("end_turn"), None, None)
+            .await
+            .unwrap();
+        let next = ConversationTurnRecord::create_pending(
+            &pool,
+            Uuid::new_v4(),
+            CreateConversationTurn {
+                conversation_id: conversation,
+                prompt_id: None,
+                text_preview: Some("next"),
+                input_blocks_json: "[]",
+            },
+        )
+        .await
+        .unwrap();
+        ConversationRecord::update_active_turn(&pool, conversation, Some(next.id))
+            .await
+            .unwrap();
+        assert_eq!(
+            super::bind_prompt_turn(&pool, conversation, "old-prompt")
+                .await
+                .unwrap(),
+            None
+        );
+        assert_eq!(
+            ConversationTurnRecord::find_by_id(&pool, next.id)
+                .await
+                .unwrap()
+                .unwrap()
+                .prompt_id,
+            None
+        );
+    }
+
+    #[tokio::test]
+    async fn prompt_start_binds_once_and_late_start_cannot_capture_another_turn() {
+        let pool = setup_pool().await;
+        let (conversation, turn) = seed_conversation_turn(&pool, "unused", "hello").await;
+        sqlx::query("UPDATE conversation_turns SET prompt_id = NULL WHERE id = ?")
+            .bind(turn)
+            .execute(&pool)
+            .await
+            .unwrap();
+        assert_eq!(
+            super::bind_prompt_turn(&pool, conversation, "unreserved-request")
+                .await
+                .unwrap(),
+            None
+        );
+        ConversationTurnRecord::set_prompt_id(&pool, turn, "request-a")
+            .await
+            .unwrap();
+        assert_eq!(
+            super::bind_prompt_turn(&pool, conversation, "request-a")
+                .await
+                .unwrap(),
+            Some(turn)
+        );
+        assert_eq!(
+            ConversationTurnRecord::find_by_id(&pool, turn)
+                .await
+                .unwrap()
+                .unwrap()
+                .prompt_id
+                .as_deref(),
+            Some("request-a")
+        );
+        assert_eq!(
+            super::bind_prompt_turn(&pool, conversation, "late-request")
+                .await
+                .unwrap(),
+            None
+        );
     }
 
     #[tokio::test]

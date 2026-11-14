@@ -472,10 +472,30 @@ impl CompanionFeaturePort for HostCompanionFeatures {
 
     async fn session_info(
         &self,
-        _scope: &DelegationScope,
+        scope: &DelegationScope,
         conversation_id: &str,
         max_messages: u32,
+        history: &delegation_proto::SessionHistoryRequest,
     ) -> Value {
+        let current_id = scope.parent_conversation_id.to_string();
+        let conversation_id = if conversation_id.trim().is_empty() {
+            &current_id
+        } else {
+            conversation_id
+        };
+        if history.is_paged() {
+            let Ok(id) = Uuid::parse_str(conversation_id) else {
+                return json!({"found": false, "conversation_id": conversation_id});
+            };
+            return match conversations::read_history_page(&self.pool, id, history).await {
+                Ok(page) => {
+                    json!({"found": true, "conversation_id": conversation_id, "history": page})
+                }
+                Err(error) => {
+                    json!({"found": false, "conversation_id": conversation_id, "error_code": "history_read_failed", "message": error.to_string()})
+                }
+            };
+        }
         let info = resolve_referenced_session(&self.pool, conversation_id, max_messages).await;
         session_info_value(&info)
     }

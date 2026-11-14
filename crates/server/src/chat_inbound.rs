@@ -1893,6 +1893,8 @@ async fn send_task(
 
     match ConversationSessionService::new(conversations.clone())
         .start_turn(conversations::ConversationStartTurnInput {
+            continuation_policy: None,
+            expected_binding_revision: None,
             agent_id,
             workspace_id,
             conversation_id,

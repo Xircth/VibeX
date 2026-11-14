@@ -23,8 +23,7 @@ use uuid::Uuid;
 use super::{
     BeforeTurnContext, CommittedTurnLaunch, ConversationSessionService, ConversationStartTurnInput,
     collect_registered_before_turn_contributions, ensure_conversation_has_no_in_flight_turn,
-    is_in_flight_turn_status,
-    start::{agent_blocks_with_display_text, conversation_input_blocks_with_display_text},
+    is_in_flight_turn_status, start::agent_blocks_with_display_text,
 };
 use crate::{ConversationEventAppender, ConversationServiceError};
 
@@ -54,123 +53,31 @@ impl ConversationSessionService {
         }
         self.interrupt_orphaned_turn(input.conversation_id).await?;
 
+        let preparation_lock = crate::continuation::preparation_lock(input.conversation_id);
         let pool = &self.ctx.deployment.db().pool;
-        let execution_workspace_id = crate::isolated_workspace::execution_workspace_id(
-            &self.ctx,
-            input.conversation_id,
-            input.workspace_id,
-        )
-        .await
-        .map_err(|error| ConversationServiceError::Internal(error.message))?;
-        let workspace = match Workspace::find_by_id(pool, execution_workspace_id).await? {
-            Some(workspace) => workspace,
-            None if execution_workspace_id != input.workspace_id => {
-                Workspace::find_by_id(pool, input.workspace_id)
-                    .await?
-                    .ok_or_else(|| {
-                        ConversationServiceError::NotFound(format!(
-                            "Workspace {} not found",
-                            input.workspace_id
-                        ))
-                    })?
-            }
-            None => {
-                return Err(ConversationServiceError::NotFound(format!(
-                    "Workspace {} not found",
-                    input.workspace_id
-                )));
-            }
-        };
-        let container_ref = self
-            .ctx
-            .deployment
-            .container()
-            .ensure_container_exists(&workspace)
-            .await?;
-        let repos = WorkspaceRepo::find_repos_for_workspace(pool, workspace.id).await?;
-        let working_dir = self
-            .ctx
-            .host
-            .resolve_working_dir(&workspace, &container_ref, &repos)
-            .unwrap_or_else(|| container_ref.clone());
-        let additional_directories = self.ctx.host.resolve_additional_directories(
-            &workspace,
-            &container_ref,
-            &repos,
-            &working_dir,
-        );
-        let smart_reminder = crate::commit_reminder::pending_smart_reminder_prompt(
-            &self.ctx,
-            input.conversation_id,
-            workspace.clone(),
-            origin,
-        )
-        .await?;
-        let prompt_text = if input.collaboration_origin.is_some() {
-            input.text.clone()
-        } else {
-            let persona = crate::collaboration::persona_prompt_text_for_turn(
-                pool,
-                input.conversation_id,
-                Some(&display_text),
+        let display_assets = input
+            .images
+            .iter()
+            .map(|uri| agents::AgentContentBlock::Image {
+                data: String::new(),
+                uri: Some(uri.clone()),
+                mime_type: crate::host::mime_type_for_agent_asset(std::path::Path::new(uri)).into(),
+            })
+            .chain(
+                input
+                    .file_refs
+                    .iter()
+                    .map(|file| agents::AgentContentBlock::Resource {
+                        uri: file.path.clone(),
+                        title: None,
+                    }),
             )
-            .await
-            .map_err(|error| ConversationServiceError::Internal(error.to_string()))?;
-            match persona.as_deref() {
-                Some(persona) => crate::collaboration::prefix_persona_prompt(persona, &input.text),
-                None => input.text.clone(),
-            }
-        };
-        let mut agent_text = match smart_reminder.as_deref() {
-            Some(reminder) if !prompt_text.trim().is_empty() => {
-                format!("{prompt_text}\n\n{reminder}")
-            }
-            Some(reminder) => reminder.to_string(),
-            None => prompt_text,
-        };
-
-        let before_turn_ctx = BeforeTurnContext {
-            conversation_id: input.conversation_id,
-            workspace_id: input.workspace_id,
-            agent_id: input.agent_id.clone(),
-            text: input.text.clone(),
-            display_text: display_text.clone(),
-            origin: origin.to_string(),
-        };
-        let mut internal_contributions = input.internal_prompt_contributions.clone();
-        internal_contributions.extend(self.ctx.host.before_turn(&before_turn_ctx).await?);
-        internal_contributions.extend(collect_registered_before_turn_contributions(
-            &before_turn_ctx,
-        ));
-        match agents::format_internal_prompt_contributions(&internal_contributions) {
-            Ok(Some(plugin_context_block)) => {
-                if agent_text.trim().is_empty() {
-                    agent_text = plugin_context_block;
-                } else {
-                    agent_text = format!("{agent_text}\n\n{plugin_context_block}");
-                }
-            }
-            Ok(None) => {}
-            Err(total_bytes) => {
-                return Err(ConversationServiceError::BadRequest(format!(
-                    "internalPromptContributions size ({total_bytes} bytes) exceeds maximum allowed {} bytes (16 KiB)",
-                    agents::MAX_INTERNAL_PROMPT_CONTRIBUTIONS_BYTES
-                )));
-            }
-        }
-
-        let agent_blocks = self
-            .ctx
-            .host
-            .build_prompt_blocks(&working_dir, agent_text, &input.images, &input.file_refs)
-            .await?;
-        let display_blocks = agent_blocks_with_display_text(&agent_blocks, &display_text);
-        let conversation_blocks = conversation_input_blocks_with_display_text(
-            &agent_blocks,
+            .collect::<Vec<_>>();
+        let conversation_blocks = super::start::conversation_input_blocks_with_display_text(
+            &display_assets,
             &display_text,
             input.collaboration_origin.as_ref(),
         );
-
         let conversation = self
             .ensure_conversation(pool, &input, &display_text)
             .await?;
@@ -347,12 +254,138 @@ impl ConversationSessionService {
         .await;
         Ok(CommittedTurnLaunch {
             input,
+            origin: origin.to_string(),
+            preparation_lock,
+            turn_id: turn.id,
+            created_sequence: created.sequence,
+        })
+    }
+    pub(super) async fn prepare_turn_prompt(
+        &self,
+        input: &ConversationStartTurnInput,
+        origin: &str,
+    ) -> Result<super::PreparedTurnPrompt, ConversationServiceError> {
+        let pool = &self.ctx.deployment.db().pool;
+        let display_text = input
+            .display_text
+            .as_deref()
+            .unwrap_or(&input.text)
+            .to_string();
+        let execution_workspace_id = crate::isolated_workspace::execution_workspace_id(
+            &self.ctx,
+            input.conversation_id,
+            input.workspace_id,
+        )
+        .await
+        .map_err(|error| ConversationServiceError::Internal(error.message))?;
+        let workspace = match Workspace::find_by_id(pool, execution_workspace_id).await? {
+            Some(workspace) => workspace,
+            None if execution_workspace_id != input.workspace_id => {
+                Workspace::find_by_id(pool, input.workspace_id)
+                    .await?
+                    .ok_or_else(|| {
+                        ConversationServiceError::NotFound(format!(
+                            "Workspace {} not found",
+                            input.workspace_id
+                        ))
+                    })?
+            }
+            None => {
+                return Err(ConversationServiceError::NotFound(format!(
+                    "Workspace {} not found",
+                    input.workspace_id
+                )));
+            }
+        };
+        let container_ref = self
+            .ctx
+            .deployment
+            .container()
+            .ensure_container_exists(&workspace)
+            .await?;
+        let repos = WorkspaceRepo::find_repos_for_workspace(pool, workspace.id).await?;
+        let working_dir = self
+            .ctx
+            .host
+            .resolve_working_dir(&workspace, &container_ref, &repos)
+            .unwrap_or_else(|| container_ref.clone());
+        let additional_directories = self.ctx.host.resolve_additional_directories(
+            &workspace,
+            &container_ref,
+            &repos,
+            &working_dir,
+        );
+        let smart_reminder = crate::commit_reminder::pending_smart_reminder_prompt(
+            &self.ctx,
+            input.conversation_id,
+            workspace.clone(),
+            origin,
+        )
+        .await?;
+        let prompt_text = if input.collaboration_origin.is_some() {
+            input.text.clone()
+        } else {
+            let persona = crate::collaboration::persona_prompt_text_for_turn(
+                pool,
+                input.conversation_id,
+                Some(&display_text),
+            )
+            .await
+            .map_err(|error| ConversationServiceError::Internal(error.to_string()))?;
+            match persona.as_deref() {
+                Some(persona) => crate::collaboration::prefix_persona_prompt(persona, &input.text),
+                None => input.text.clone(),
+            }
+        };
+        let mut agent_text = match smart_reminder.as_deref() {
+            Some(reminder) if !prompt_text.trim().is_empty() => {
+                format!("{prompt_text}\n\n{reminder}")
+            }
+            Some(reminder) => reminder.to_string(),
+            None => prompt_text,
+        };
+
+        let before_turn_ctx = BeforeTurnContext {
+            conversation_id: input.conversation_id,
+            workspace_id: input.workspace_id,
+            agent_id: input.agent_id.clone(),
+            text: input.text.clone(),
+            display_text: display_text.clone(),
+            origin: origin.to_string(),
+        };
+        let mut internal_contributions = input.internal_prompt_contributions.clone();
+        internal_contributions.extend(self.ctx.host.before_turn(&before_turn_ctx).await?);
+        internal_contributions.extend(collect_registered_before_turn_contributions(
+            &before_turn_ctx,
+        ));
+        match agents::format_internal_prompt_contributions(&internal_contributions) {
+            Ok(Some(plugin_context_block)) => {
+                if agent_text.trim().is_empty() {
+                    agent_text = plugin_context_block;
+                } else {
+                    agent_text = format!("{agent_text}\n\n{plugin_context_block}");
+                }
+            }
+            Ok(None) => {}
+            Err(total_bytes) => {
+                return Err(ConversationServiceError::BadRequest(format!(
+                    "internalPromptContributions size ({total_bytes} bytes) exceeds maximum allowed {} bytes (16 KiB)",
+                    agents::MAX_INTERNAL_PROMPT_CONTRIBUTIONS_BYTES
+                )));
+            }
+        }
+
+        let agent_blocks = self
+            .ctx
+            .host
+            .build_prompt_blocks(&working_dir, agent_text, &input.images, &input.file_refs)
+            .await?;
+        let display_blocks = agent_blocks_with_display_text(&agent_blocks, &display_text);
+        Ok(super::PreparedTurnPrompt {
             working_dir,
             additional_directories,
             agent_blocks,
             display_blocks,
-            turn_id: turn.id,
-            created_sequence: created.sequence,
             smart_reminder,
         })
     }

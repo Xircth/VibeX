@@ -33,6 +33,7 @@ export function useSessionComposerQueue({
   modeOverride = null,
   configOverrides = [],
   excludeOperationId = null,
+  continuationPolicy,
 }: {
   sessionId: string | undefined;
   workspaceId?: string | null;
@@ -41,6 +42,7 @@ export function useSessionComposerQueue({
   modeOverride?: string | null;
   configOverrides?: AgentSessionConfigOverride[];
   excludeOperationId?: string | null;
+  continuationPolicy?: 'portable' | 'fresh';
 }) {
   const queryClient = useQueryClient();
   const editingInputRef = useRef<QueuedMessage | null>(null);
@@ -195,6 +197,7 @@ export function useSessionComposerQueue({
       pluginActions: SessionComposerPluginActionInvocation[];
     }) => {
       const payload: ConversationInputPayload = {
+        continuationPolicy,
         agentId: executorProfileId.executor,
         workspaceId: workspaceId ?? '',
         executorProfileId:
@@ -289,7 +292,7 @@ export function useSessionComposerQueue({
       message: QueuedMessage;
       delaySeconds: number;
     }) => {
-      const payload: ConversationInputPayload = {
+      const payload: ConversationInputPayload = message.payload ?? {
         agentId: message.executorProfileId.executor,
         workspaceId: workspaceId ?? '',
         executorProfileId:

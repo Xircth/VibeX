@@ -1078,6 +1078,8 @@ pub(super) mod tests {
 
     pub(in crate::projection) fn test_input_payload(text: &str) -> ConversationInputPayload {
         ConversationInputPayload {
+            continuation_policy: None,
+            expected_binding_revision: None,
             agent_id: AgentId::parse("codex").expect("agent id"),
             workspace_id: Uuid::new_v4(),
             executor_profile_id: None,
@@ -2540,6 +2542,7 @@ pub(super) mod tests {
                 agent_id: &agent_id,
                 working_dir: "C:/workspace",
                 acp_session_id: None,
+                continuation_key: None,
                 acp_protocol_version: None,
                 runtime_version: None,
                 acp_version: None,

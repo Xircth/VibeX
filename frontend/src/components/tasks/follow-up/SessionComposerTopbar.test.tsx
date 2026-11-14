@@ -68,6 +68,13 @@ function renderTopbar(
 }
 
 describe('SessionComposerTopbar', () => {
+  it('lets the user change the context carried by the next input', () => {
+    const onChange = vi.fn();
+    renderTopbar({ continuation: { policy: 'portable', onChange } });
+    fireEvent.change(screen.getByRole('combobox'), { target: { value: 'fresh' } });
+    expect(onChange).toHaveBeenCalledWith('fresh');
+  });
+
   it('does not reserve redundant space below the controls', () => {
     const { container } = renderTopbar();
 

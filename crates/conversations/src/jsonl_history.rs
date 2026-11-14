@@ -532,10 +532,15 @@ async fn fork_point_statuses_for_turns(
         return Ok(statuses);
     }
     let Some(binding) =
-        ConversationAgentBindingRecord::latest_for_conversation(pool, conversation_id).await?
+        ConversationAgentBindingRecord::active_for_conversation(pool, conversation_id).await?
     else {
         return Ok(statuses);
     };
+    let segments = db::models::conversation_transcript::ConversationTranscriptSegment::list(
+        pool,
+        conversation_id,
+    )
+    .await?;
     let capabilities =
         serde_json::from_str::<agents::AcpCapabilitySnapshot>(&binding.session_capabilities_json)
             .unwrap_or_default();
@@ -547,6 +552,18 @@ async fn fork_point_statuses_for_turns(
         .map(|turn| turn.id.as_str());
     for turn in target_turns {
         if !matches!(turn.role, TurnRole::Assistant) {
+            continue;
+        }
+        if let Some(segment_id) = turn
+            .id
+            .strip_prefix("segment:")
+            .and_then(|id| id.split(':').next())
+            .and_then(|id| Uuid::parse_str(id).ok())
+            && !segments
+                .iter()
+                .any(|segment| segment.id == segment_id && segment.binding_id == Some(binding.id))
+        {
+            statuses.insert(turn.id.clone(), agents::ForkPointStatus::Unsupported);
             continue;
         }
         let is_tail = last_assistant_id == Some(turn.id.as_str());
@@ -610,6 +627,11 @@ async fn load_turns(
     pool: &SqlitePool,
     summary: &DbConversationSummary,
 ) -> Result<Vec<MessageTurn>, sqlx::Error> {
+    if let Some(turns) =
+        crate::transcript_segments::read_in(pool, &vibex_acp_transcripts_root(), summary.id).await?
+    {
+        return Ok(turns);
+    }
     let bindings = ConversationAgentBindingRecord::list_for_conversation(pool, summary.id)
         .await
         .unwrap_or_default();
@@ -823,7 +845,9 @@ async fn load_turns(
     if !has_migratable_assistant_history {
         return Ok(extracted);
     }
-    write_migrated_transcript(&root, &agent_dir, &session_id, summary, &extracted);
+    let mut checkpoint = extracted.clone();
+    exclude_unprompted_pending(pool, summary.id, &mut checkpoint).await?;
+    write_migrated_transcript(&root, &agent_dir, &session_id, summary, &checkpoint);
     let written = acp_transcript::read_chain_in(&root, &agent_dir, &session_id);
     Ok(project_turns_for(&written.entries, kind))
 }
@@ -926,31 +950,137 @@ fn write_migrated_transcript(
     }
 }
 
-/// Ensure `<conversation_id.simple()>.jsonl` holds the conversation's current
-/// transcript before `external_session_id` is cleared on session detach/rebind.
-/// When the next ACP session binds with a new `external_session_id`,
-/// `record_session_header` sets `continues_from = Some(conversation_id.simple())`
-/// and chains the full prior history automatically.
+/// Checkpoint product history before releasing its native execution context.
+/// Legacy history is imported once; manifest history is sealed in place.
 pub async fn preserve_transcript_before_detach(
     pool: &SqlitePool,
     conversation_id: Uuid,
 ) -> Result<(), sqlx::Error> {
     isolate_test_transcripts();
+    let root = vibex_acp_transcripts_root();
+    if !db::models::conversation_transcript::ConversationTranscriptSegment::list(
+        pool,
+        conversation_id,
+    )
+    .await?
+    .is_empty()
+    {
+        return crate::transcript_segments::seal_in(pool, &root, conversation_id).await;
+    }
     let Some(summary) = DbConversationSummary::find_by_id(pool, conversation_id).await? else {
         return Ok(());
     };
-    let turns = load_turns(pool, &summary).await?;
-    if turns.is_empty() {
+    let sources =
+        crate::legacy_transcript_checkpoint::validate_sources(pool, &root, &summary).await?;
+    let mut turns = load_turns(pool, &summary).await?;
+    exclude_unprompted_pending(pool, conversation_id, &mut turns).await?;
+    crate::legacy_transcript_checkpoint::validate_coverage(&sources, &turns)?;
+    crate::transcript_segments::import_snapshot_in(
+        pool,
+        &root,
+        conversation_id,
+        summary
+            .agent_id
+            .as_ref()
+            .map_or("session", |id| id.as_str()),
+        &turns,
+    )
+    .await
+}
+
+async fn exclude_unprompted_pending(
+    pool: &SqlitePool,
+    conversation: Uuid,
+    turns: &mut Vec<MessageTurn>,
+) -> Result<(), sqlx::Error> {
+    let pending: Vec<Uuid> = sqlx::query_scalar("SELECT id FROM conversation_turns WHERE conversation_id = ? AND status = 'pending' AND prompt_id IS NULL")
+        .bind(conversation).fetch_all(pool).await?;
+    turns.retain(|item| {
+        !pending.iter().any(|id| {
+            item.id.ends_with(&format!("{id}:user"))
+                || item.id.ends_with(&format!("{id}:assistant"))
+        })
+    });
+    Ok(())
+}
+
+/// A reserved input that never reached a runtime still belongs to product history.
+/// Stable Turn IDs make recovery safe after file publication but before settlement.
+pub(crate) async fn preserve_unprompted_input(
+    pool: &SqlitePool,
+    conversation: Uuid,
+    turn_id: Uuid,
+) -> Result<(), sqlx::Error> {
+    let Some(turn) = ConversationTurnRecord::find_by_id(pool, turn_id).await? else {
+        return Ok(());
+    };
+    if turn.prompt_id.is_some() {
         return Ok(());
     }
-    let kind = summary
-        .agent_id
-        .as_ref()
-        .and_then(|id| AgentKind::from_lenient(id.as_ref()));
-    let (agent_dir, session_id) = transcript_identity(&summary, kind);
+    let expected = format!("{turn_id}:user");
+    let existing = load_all_turns(pool, conversation)
+        .await?
+        .unwrap_or_default();
+    if existing.iter().any(|item| item.id.ends_with(&expected)) {
+        // Projection fallback is not yet file authority.
+        if !db::models::conversation_transcript::ConversationTranscriptSegment::list(
+            pool,
+            conversation,
+        )
+        .await?
+        .is_empty()
+        {
+            return Ok(());
+        }
+    }
+    let projected = message_turns(&ConversationProjector::project(pool, conversation).await?);
+    let Some(item) = projected.into_iter().find(|item| item.id == expected) else {
+        return Ok(());
+    };
+    preserve_transcript_before_detach(pool, conversation).await?;
+    let existing =
+        crate::transcript_segments::read_in(pool, &vibex_acp_transcripts_root(), conversation)
+            .await?
+            .unwrap_or_default();
+    if existing.iter().any(|item| item.id.ends_with(&expected)) {
+        return Ok(());
+    }
+    crate::transcript_segments::import_snapshot_in(
+        pool,
+        &vibex_acp_transcripts_root(),
+        conversation,
+        "session",
+        &[item],
+    )
+    .await
+}
+
+/// Bind a concrete runtime connection to the only product-history writer target.
+pub async fn prepare_binding_transcript(
+    pool: &SqlitePool,
+    conversation_id: Uuid,
+    binding: &ConversationAgentBindingRecord,
+    connection_id: agents::AgentConnectionId,
+) -> Result<(), sqlx::Error> {
     let root = vibex_acp_transcripts_root();
-    let serialized = serialize_transcript(&agent_dir, &session_id, &summary, &turns);
-    let _ = acp_transcript::replace_in(&root, &agent_dir, &session_id, serialized).await;
+    let segments = db::models::conversation_transcript::ConversationTranscriptSegment::list(
+        pool,
+        conversation_id,
+    )
+    .await?;
+    if segments.is_empty() {
+        preserve_transcript_before_detach(pool, conversation_id).await?;
+    }
+    let destination = crate::transcript_segments::open_in(
+        pool,
+        &root,
+        conversation_id,
+        binding.id,
+        &binding.agent_id,
+        &binding.working_dir,
+    )
+    .await?;
+    agents::transcript_target::bind(connection_id, destination);
     Ok(())
 }
 
@@ -967,6 +1097,26 @@ pub async fn truncate_transcript_to_user_ordinal(
     };
     let turns = load_turns(pool, &summary).await?;
     let kept = slice_turns_by_user_count(&turns, keep_user_turns);
+    let root = vibex_acp_transcripts_root();
+    if !db::models::conversation_transcript::ConversationTranscriptSegment::list(
+        pool,
+        conversation_id,
+    )
+    .await?
+    .is_empty()
+    {
+        return crate::transcript_segments::replace_snapshot_in(
+            pool,
+            &root,
+            conversation_id,
+            summary
+                .agent_id
+                .as_ref()
+                .map_or("session", |id| id.as_str()),
+            &kept,
+        )
+        .await;
+    }
     let kind = summary
         .agent_id
         .as_ref()
@@ -1020,8 +1170,12 @@ pub async fn copy_transcript_snapshot(
         return Ok(0);
     };
     let transcript_turns = load_turns(pool, &source).await?;
+    let source_has_manifest =
+        !db::models::conversation_transcript::ConversationTranscriptSegment::list(pool, source_id)
+            .await?
+            .is_empty();
     let projected = message_turns(&ConversationProjector::project(pool, source_id).await?);
-    let turns = if transcript_turns.len() >= projected.len() {
+    let turns = if source_has_manifest || transcript_turns.len() >= projected.len() {
         transcript_turns
     } else {
         projected
@@ -1037,6 +1191,20 @@ pub async fn copy_transcript_snapshot(
     }
     if sliced.is_empty() {
         return Ok(0);
+    }
+    if source_has_manifest {
+        crate::transcript_segments::replace_snapshot_in(
+            pool,
+            &vibex_acp_transcripts_root(),
+            destination_id,
+            destination
+                .agent_id
+                .as_ref()
+                .map_or("session", |id| id.as_str()),
+            &sliced,
+        )
+        .await?;
+        return Ok(sliced.len());
     }
     let kind = destination
         .agent_id

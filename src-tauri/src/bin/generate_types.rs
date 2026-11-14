@@ -26,26 +26,26 @@ use agents::{
     conversation::{
         AcpAuthenticationObservationSnapshot, AcpCapabilitySnapshot, AgentExecutionStats,
         AgentPromptCapabilities, CapturedInternalMessage, CollaborationSpaceOrigin, ContentBlock,
-        ConversationAgentConnectionStatus, ConversationArtifactPreviewReference,
-        ConversationArtifactReference, ConversationBundleChecksum, ConversationBundleManifest,
-        ConversationBundlePayload, ConversationDelegation, ConversationDelegationResult,
-        ConversationDelegationView, ConversationDetail, ConversationError, ConversationErrorView,
-        ConversationEvent, ConversationEventEnvelope, ConversationEventsPage,
-        ConversationFeedbackRequest, ConversationFeedbackResponse, ConversationFileChange,
-        ConversationFileChangeSummary, ConversationFileLocation, ConversationFileRef,
-        ConversationInputBlock, ConversationInputEvent, ConversationInputPayload,
-        ConversationNoticeAction, ConversationPermissionRequest, ConversationPermissionResponse,
-        ConversationPermissionView, ConversationPlanEntry, ConversationPromptSuggestion,
-        ConversationQuestionRequest, ConversationQuestionResponse, ConversationRelationKind,
-        ConversationRelationVisibility, ConversationRowOp, ConversationRowOpBatch,
-        ConversationRowPage, ConversationSessionGoal, ConversationSessionModes,
-        ConversationSessionNotice, ConversationSteeringEvent, ConversationSummary,
-        ConversationTerminalPatch, ConversationTerminalView, ConversationTimeline,
-        ConversationTimelinePage, ConversationTimelineRow, ConversationToolCallPatch,
-        ConversationTurnErrorKind, ConversationUsage, ConversationWorkflowRef, DeliveryChannel,
-        ImageData, InternalPromptBlock, MessageTurn, PlanEntry, SessionLoadFailureReason,
-        SessionRecoveryStrategy, SessionStats, SubAgentToolCall, TimelineRow, TimelineTextStream,
-        TurnBlockedReason, TurnRole, TurnUsage,
+        ContinuationPolicy, ConversationAgentConnectionStatus,
+        ConversationArtifactPreviewReference, ConversationArtifactReference,
+        ConversationBundleChecksum, ConversationBundleManifest, ConversationBundlePayload,
+        ConversationDelegation, ConversationDelegationResult, ConversationDelegationView,
+        ConversationDetail, ConversationError, ConversationErrorView, ConversationEvent,
+        ConversationEventEnvelope, ConversationEventsPage, ConversationFeedbackRequest,
+        ConversationFeedbackResponse, ConversationFileChange, ConversationFileChangeSummary,
+        ConversationFileLocation, ConversationFileRef, ConversationInputBlock,
+        ConversationInputEvent, ConversationInputPayload, ConversationNoticeAction,
+        ConversationPermissionRequest, ConversationPermissionResponse, ConversationPermissionView,
+        ConversationPlanEntry, ConversationPromptSuggestion, ConversationQuestionRequest,
+        ConversationQuestionResponse, ConversationRelationKind, ConversationRelationVisibility,
+        ConversationRowOp, ConversationRowOpBatch, ConversationRowPage, ConversationSessionGoal,
+        ConversationSessionModes, ConversationSessionNotice, ConversationSteeringEvent,
+        ConversationSummary, ConversationTerminalPatch, ConversationTerminalView,
+        ConversationTimeline, ConversationTimelinePage, ConversationTimelineRow,
+        ConversationToolCallPatch, ConversationTurnErrorKind, ConversationUsage,
+        ConversationWorkflowRef, DeliveryChannel, ImageData, InternalPromptBlock, MessageTurn,
+        PlanEntry, SessionLoadFailureReason, SessionRecoveryStrategy, SessionStats,
+        SubAgentToolCall, TimelineRow, TimelineTextStream, TurnBlockedReason, TurnRole, TurnUsage,
     },
 };
 use api_types::{
@@ -386,6 +386,7 @@ const DESKTOP_SHELL_COMMANDS: &[&str] = &[
     "respond_host_connect_request",
     "reveal_in_file_manager",
     "select_saved_host_tunnel",
+    "set_account_relay_lease",
     "set_host_tunnel_enabled",
     "start_create_host_tunnel",
     "take_tauri_inspector_capture",
@@ -812,6 +813,7 @@ fn replacement_declarations() -> BTreeMap<String, String> {
     insert_declaration::<InternalPromptBlock>(&mut decls);
     insert_declaration::<CapturedInternalMessage>(&mut decls);
     insert_declaration::<ConversationInputPayload>(&mut decls);
+    insert_declaration::<ContinuationPolicy>(&mut decls);
     insert_declaration::<CollaborationSpaceOrigin>(&mut decls);
     insert_declaration::<ConversationFileRef>(&mut decls);
     insert_declaration::<ConversationInputEvent>(&mut decls);

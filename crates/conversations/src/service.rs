@@ -23,6 +23,8 @@ use crate::{ConversationEventAppender, ConversationInputControlError};
 pub(crate) mod binding;
 #[path = "turn/commit.rs"]
 mod commit;
+#[path = "turn/continuation.rs"]
+mod continuation;
 #[path = "turn/queue.rs"]
 mod queue;
 #[path = "turn/recover.rs"]
@@ -162,6 +164,14 @@ impl From<serde_json::Error> for ConversationServiceError {
 impl From<ConversationInputControlError> for ConversationServiceError {
     fn from(error: ConversationInputControlError) -> Self {
         match error {
+            ConversationInputControlError::BindingRevisionConflict => Self::SessionUnavailable {
+                code: "binding_revision_conflict",
+                message: error.to_string(),
+            },
+            ConversationInputControlError::ContinuationNotAllowed => Self::SessionUnavailable {
+                code: "continuation_not_allowed",
+                message: error.to_string(),
+            },
             ConversationInputControlError::NotFound(_) => Self::NotFound(error.to_string()),
             ConversationInputControlError::EmptyInput
             | ConversationInputControlError::InputTooLarge { .. } => {
@@ -307,6 +317,8 @@ pub struct ConversationTurnSnapshot {
 }
 
 pub struct ConversationStartTurnInput {
+    pub continuation_policy: Option<agents::conversation::ContinuationPolicy>,
+    pub expected_binding_revision: Option<u64>,
     pub agent_id: AgentId,
     pub workspace_id: Uuid,
     pub conversation_id: Uuid,
@@ -348,12 +360,17 @@ pub struct QueuedConversationInputClaim {
 /// reentrant, and Stop needs it during the ACP handshake.
 struct CommittedTurnLaunch {
     input: ConversationStartTurnInput,
+    origin: String,
+    preparation_lock: Arc<Mutex<()>>,
+    turn_id: Uuid,
+    created_sequence: i64,
+}
+
+struct PreparedTurnPrompt {
     working_dir: String,
     additional_directories: Vec<PathBuf>,
     agent_blocks: Vec<AgentContentBlock>,
     display_blocks: Vec<AgentContentBlock>,
-    turn_id: Uuid,
-    created_sequence: i64,
     smart_reminder: Option<String>,
 }
 
@@ -483,6 +500,9 @@ impl ConversationSessionService {
             .to_string();
         let normalized_json = serde_json::to_string(&event)
             .map_err(|error| ConversationServiceError::Internal(error.to_string()))?;
+        let pool = &self.ctx.deployment.db().pool;
+        let binding_id: Option<Uuid> = sqlx::query_scalar("SELECT COALESCE((SELECT agent_binding_id FROM conversation_turns WHERE id = ?), active_agent_binding_id) FROM sessions WHERE id = ?")
+            .bind(turn_id).bind(conversation_id).fetch_optional(pool).await?.flatten();
         append_and_publish_conversation_event(
             &self.ctx.deployment.db().pool,
             self.ctx.event_publisher.as_ref(),
@@ -490,7 +510,7 @@ impl ConversationSessionService {
                 id: Uuid::new_v4(),
                 conversation_id,
                 turn_id,
-                binding_id: None,
+                binding_id,
                 connection_id: None,
                 prompt_id: None,
                 source,
@@ -685,6 +705,11 @@ mod tests {
         );
 
         let binding = ConversationAgentBindingRecord {
+            resume_allowed: true,
+            invalidated_reason: None,
+            connection_id: None,
+            continuation_key: None,
+            is_resume_head: false,
             id: Uuid::nil(),
             conversation_id: Uuid::nil(),
             agent_id: AgentId::parse("codex").expect("agent id"),
@@ -847,7 +872,7 @@ mod tests {
         .await;
 
         let binding =
-            ConversationAgentBindingRecord::latest_for_conversation(&pool, conversation.id)
+            ConversationAgentBindingRecord::active_for_conversation(&pool, conversation.id)
                 .await
                 .expect("read binding")
                 .expect("confirmed Antigravity controls create a conversation binding");
@@ -957,7 +982,7 @@ mod tests {
         .await;
 
         let binding =
-            ConversationAgentBindingRecord::latest_for_conversation(&pool, conversation.id)
+            ConversationAgentBindingRecord::active_for_conversation(&pool, conversation.id)
                 .await
                 .expect("read binding")
                 .expect("creation controls open a binding before ACP exists");
@@ -995,7 +1020,7 @@ mod tests {
         remember_creation_session_controls(&pool, conversation.id, Some("   "), std::iter::empty())
             .await;
         let unchanged =
-            ConversationAgentBindingRecord::latest_for_conversation(&pool, conversation.id)
+            ConversationAgentBindingRecord::active_for_conversation(&pool, conversation.id)
                 .await
                 .expect("read binding")
                 .expect("blank mode does not drop the binding");
@@ -1310,6 +1335,11 @@ mod tests {
         resume_supported: bool,
     ) -> ConversationAgentBindingRecord {
         ConversationAgentBindingRecord {
+            resume_allowed: true,
+            invalidated_reason: None,
+            connection_id: None,
+            continuation_key: None,
+            is_resume_head: false,
             id: Uuid::new_v4(),
             conversation_id: Uuid::new_v4(),
             agent_id,

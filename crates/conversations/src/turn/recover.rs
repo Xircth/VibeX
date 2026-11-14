@@ -13,7 +13,7 @@ use agents::{
 };
 use chrono::{DateTime, Utc};
 use db::models::{
-    conversation::{BindingStatus, ConversationAgentBindingRecord, ConversationRecord},
+    conversation::{ConversationAgentBindingRecord, ConversationRecord},
     conversation_side_effects::ConversationPermissionRecord,
     conversation_turn::ConversationTurnRecord,
     session::{Session, SessionStatus},
@@ -135,6 +135,7 @@ impl ConversationSessionService {
                 .await?
                 .is_some_and(|turn| is_in_flight_turn_status(&turn.status));
             if still_in_flight {
+                crate::handoff::settle(pool, turn_id).await?;
                 self.append_event(
                     conversation_id,
                     Some(turn_id),
@@ -167,13 +168,7 @@ impl ConversationSessionService {
             }
         })
         .await;
-        if let Err(error) = self.dispatch_next_queued_input(conversation_id).await {
-            tracing::warn!(
-                %conversation_id,
-                %error,
-                "failed to dispatch the next durable conversation input after cancel"
-            );
-        }
+        self.spawn_dispatch_queued_after_bind(conversation_id);
         Ok(())
     }
 
@@ -200,18 +195,31 @@ impl ConversationSessionService {
         let _turn_guard = turn_lock.lock().await;
 
         let pool = &self.ctx.deployment.db().pool;
-        // Truncate the JSONL transcript before detaching so `summary.external_session_id`
-        // is still present and both `<session_id>.jsonl` and `<external_session_id>.jsonl`
-        // are rewritten with the kept turns.
-        let _ = crate::jsonl_history::truncate_transcript_to_user_ordinal(
+        // Reject truncation while a Turn is in flight; the pending Turn's
+        // history and binding are still being established.
+        let conversation = ConversationRecord::find_by_id(pool, conversation_id)
+            .await?
+            .ok_or_else(|| ConversationServiceError::NotFound("Conversation not found".into()))?;
+        if let Some(active_turn_id) = conversation.active_turn_id
+            && let Some(active_turn) =
+                ConversationTurnRecord::find_by_id(pool, active_turn_id).await?
+            && is_in_flight_turn_status(&active_turn.status)
+        {
+            return Err(ConversationServiceError::Conflict(
+                "Cannot truncate while a Turn is in flight".into(),
+            ));
+        }
+        // Resolve and replace the visible history while the source native identity
+        // is still available for legacy transcript lookup.
+        crate::jsonl_history::truncate_transcript_to_user_ordinal(
             pool,
             conversation_id,
             user_ordinal.max(0) as usize,
         )
-        .await;
-        // Detach the Agent session *before* deleting anything in SQLite. The truncated prefix
-        // must never be re-sent, and the old ACP session still holds it: if the
-        // detach fails after the delete, the event log is short while the binding
+        .await?;
+        // Detach before truncating the control log. The old ACP session still
+        // holds the removed suffix: if detach fails after that cut, the log is
+        // short while the binding
         // still points at the full context, and the next send replays the deleted
         // messages through `session/load`. The `AgentBindingRecovered` event is
         // appended after the cut, since truncation drops every later sequence.
@@ -277,6 +285,10 @@ impl ConversationSessionService {
         let Some(turn) = ConversationTurnRecord::find_by_id(pool, turn_id).await? else {
             return Ok(false);
         };
+        if turn.status == "pending" && crate::continuation::preparing(conversation_id) {
+            // A reserved Turn may still be preparing history, hooks or session/new.
+            return Ok(false);
+        }
         if !is_zombie_in_flight_turn(
             is_in_flight_turn_status(&turn.status),
             self.ctx
@@ -308,6 +320,8 @@ impl ConversationSessionService {
         turn_id: Uuid,
     ) -> Result<(), ConversationServiceError> {
         let pool = &self.ctx.deployment.db().pool;
+        crate::jsonl_history::preserve_unprompted_input(pool, conversation_id, turn_id).await?;
+        crate::handoff::settle(pool, turn_id).await?;
         let permissions = ConversationPermissionRecord::list_for_turn(pool, turn_id).await?;
         for permission in permissions.into_iter().filter(|p| p.status == "pending") {
             self.append_event(
@@ -365,6 +379,8 @@ impl ConversationSessionService {
         turn_id: Uuid,
     ) -> Result<(), ConversationServiceError> {
         let pool = &self.ctx.deployment.db().pool;
+        crate::jsonl_history::preserve_unprompted_input(pool, conversation_id, turn_id).await?;
+        crate::handoff::settle(pool, turn_id).await?;
         let permissions = ConversationPermissionRecord::list_for_turn(pool, turn_id).await?;
         for permission in permissions.into_iter().filter(|p| p.status == "pending") {
             self.append_event(
@@ -470,6 +486,7 @@ impl ConversationSessionService {
     pub async fn recover_interrupted_turns(&self) -> Result<usize, ConversationServiceError> {
         note_host_lifetime();
         let pool = &self.ctx.deployment.db().pool;
+        crate::handoff::recover(pool).await?;
         let inputs = ConversationInputControl::with_publisher(
             pool.clone(),
             self.ctx.event_publisher.clone(),
@@ -557,6 +574,9 @@ impl ConversationSessionService {
             .agent_runtime
             .live_connection_id(AgentSessionId(conversation_id))
             .await;
+        if let Some(connection_id) = from_state.or(from_runtime) {
+            agents::transcript_target::release(connection_id);
+        }
         if let Some(connection_id) = from_state.or(from_runtime)
             && let Err(error) = self
                 .ctx
@@ -618,10 +638,22 @@ impl ConversationSessionService {
         &self,
         conversation_id: Uuid,
     ) -> Result<AgentSessionControlsSnapshot, ConversationServiceError> {
+        let preparation = crate::continuation::preparation_lock(conversation_id);
+        let _preparation_guard = preparation.lock().await;
         let controls = {
             let turn_lock = self.turn_lock(conversation_id).await;
             let _turn_guard = turn_lock.lock().await;
             self.interrupt_orphaned_turn(conversation_id).await?;
+            if let Some(conversation) =
+                ConversationRecord::find_by_id(&self.ctx.deployment.db().pool, conversation_id)
+                    .await?
+            {
+                super::ensure_conversation_has_no_in_flight_turn(
+                    &self.ctx.deployment.db().pool,
+                    &conversation,
+                )
+                .await?;
+            }
             self.detach_agent_session(conversation_id).await?;
             self.record_agent_binding_recovered(
                 conversation_id,
@@ -636,50 +668,43 @@ impl ConversationSessionService {
         Ok(controls)
     }
 
-    /// Drop the live Agent connection and point the binding at a fresh placeholder
-    /// ACP session, so the next send cold-starts instead of loading the old context.
-    /// Records no event — callers append `AgentBindingRecovered` once the surrounding
-    /// mutation (if any) has settled.
+    /// Release execution while retaining the native generation for a future return.
+    pub(super) async fn release_agent_session_for_switch(
+        &self,
+        conversation_id: Uuid,
+    ) -> Result<(), ConversationServiceError> {
+        let pool = &self.ctx.deployment.db().pool;
+        // The source remains authoritative if its checkpoint cannot be persisted.
+        if let Err(error) =
+            crate::jsonl_history::preserve_transcript_before_detach(pool, conversation_id).await
+        {
+            self.drop_live_agent_connection(conversation_id).await;
+            self.forget_conversation_runtime(conversation_id).await;
+            return Err(error.into());
+        }
+        self.drop_live_agent_connection(conversation_id).await;
+        self.forget_conversation_runtime(conversation_id).await;
+        let _ = sqlx::query("UPDATE conversation_agent_bindings SET connection_id = NULL WHERE id = (SELECT active_agent_binding_id FROM sessions WHERE id = ?)")
+            .bind(conversation_id).execute(pool).await?;
+        Ok(())
+    }
+
+    /// Rebind abandons this native generation; keeping its ID is evidence only.
     pub(super) async fn detach_agent_session(
         &self,
         conversation_id: Uuid,
     ) -> Result<(), ConversationServiceError> {
-        self.drop_live_agent_connection(conversation_id).await;
-        self.forget_conversation_runtime(conversation_id).await;
-
-        let pool = &self.ctx.deployment.db().pool;
-        let _ =
-            crate::jsonl_history::preserve_transcript_before_detach(pool, conversation_id).await;
-        if let Some(binding) =
-            ConversationAgentBindingRecord::latest_for_conversation(pool, conversation_id).await?
-        {
-            sqlx::query(
-                r#"UPDATE conversation_agent_bindings
-                   SET acp_session_id = NULL,
-                       status = ?,
-                       updated_at = datetime('now', 'subsec')
-                   WHERE id = ?"#,
-            )
-            .bind(BindingStatus::Recovering.as_str())
-            .bind(binding.id)
-            .execute(pool)
+        self.release_agent_session_for_switch(conversation_id)
             .await?;
-        }
-        sqlx::query(
-            r#"UPDATE sessions
-               SET external_session_id = NULL,
-                   updated_at = datetime('now', 'subsec')
-               WHERE id = ?"#,
+        ConversationAgentBindingRecord::invalidate_active(
+            &self.ctx.deployment.db().pool,
+            conversation_id,
+            "rebind",
         )
-        .bind(conversation_id)
-        .execute(pool)
         .await?;
         Ok(())
     }
 
-    /// Each rebind is a distinct fact, so this carries no idempotency key — a
-    /// per-conversation key silently swallowed every rebind after the first, and the
-    /// operation is already serialized under the conversation's turn lock.
     pub(super) async fn record_agent_binding_recovered(
         &self,
         conversation_id: Uuid,
@@ -759,13 +784,15 @@ pub(super) fn restorable_agent_binding<'a>(
     bindings: &'a [ConversationAgentBindingRecord],
     agent_id: &AgentId,
 ) -> Option<&'a ConversationAgentBindingRecord> {
-    // Newest binding for this agent is authoritative. After rebind/detach the
-    // latest row is a placeholder; falling back to an older real ACP id would
-    // `session/resume` the thread rebind was meant to abandon.
+    // An invalidated generation is a recovery barrier even when its native ID
+    // is retained. Never fall back to an older generation after rebind.
     let latest_for_agent = bindings
         .iter()
         .rev()
         .find(|binding| binding.agent_id == *agent_id)?;
+    if !latest_for_agent.resume_allowed {
+        return None;
+    }
     latest_for_agent
         .acp_session_id
         .as_deref()
@@ -778,8 +805,13 @@ pub(super) fn known_acp_session_id(
     persisted_session: Option<&Session>,
     agent_id: &AgentId,
 ) -> Option<String> {
+    if latest_binding
+        .is_some_and(|binding| binding.agent_id == *agent_id && !binding.resume_allowed)
+    {
+        return None;
+    }
     latest_binding
-        .filter(|binding| binding.agent_id == *agent_id)
+        .filter(|binding| binding.agent_id == *agent_id && binding.resume_allowed)
         .and_then(|binding| binding.acp_session_id.clone())
         .filter(|id| !is_placeholder_acp_session_id(id))
         .or_else(|| {

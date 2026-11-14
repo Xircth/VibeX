@@ -158,21 +158,24 @@
     "description": "Look up a conversation the user referenced in their message and return what it is: its title, which agent ran it, its status, workspace folder, git branch, model, message count, and token-usage stats — and, on request, a compact view of its most recent messages. RECOGNIZING A MENTIONED CONVERSATION: the user can @-mention a past conversation directly in their message — it appears as a Markdown link `[Conversation title](vibex://conversation/<uuid>)`, whose text is that conversation's title and whose `<uuid>` is VibeX's conversation id (e.g. `[Fix auth](vibex://conversation/550e8400-e29b-41d4-a716-446655440000)`). Such a mention IS the user explicitly pointing you at that conversation, even when they never name this tool — call it whenever what that conversation is about or what happened in it matters to the request (e.g. to continue its work, build on its results, answer questions about it, or summarize it). If the message mentions several conversations, make one call per conversation. Pass the UUID from the reference as `conversation_id`. The result is read-only and never modifies the conversation. A conversation that no longer exists returns a `found: false` result you can act on — it is not an error.",
     "inputSchema": {
       "type": "object",
-      "required": [
-        "conversation_id"
-      ],
+      "required": [],
       "properties": {
         "conversation_id": {
           "type": "string",
           "format": "uuid",
-          "description": "The stable UUID from a vibex://conversation/<uuid> reference."
+          "description": "The stable UUID from a vibex://conversation/<uuid> reference. Omit to read the current Conversation."
         },
         "max_messages": {
           "type": "integer",
           "minimum": 0,
           "maximum": 200,
           "description": "Recent messages to include; defaults to 20. Use 0 for metadata only."
-        }
+        },
+        "item_id": {"type": "string", "description": "Read one stable history item. Use with text_offset to continue a long item."},
+        "after_item_id": {"type": "string", "description": "Read items after this stable item ID."},
+        "text_offset": {"type": "integer", "minimum": 0, "description": "Unicode character offset within item_id, not a byte offset."},
+        "max_chars": {"type": "integer", "minimum": 1, "maximum": 65536, "description": "Enables full paged history, bounded by this many characters."},
+        "history_revision": {"type": "integer", "minimum": 0, "description": "Pass the previous page's revision; rewritten history rejects stale cursors."}
       }
     }
   },

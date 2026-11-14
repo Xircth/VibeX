@@ -31,6 +31,125 @@ const PAGE_SIZE: i64 = 512;
 const PARSE_TIMEOUT: Duration = Duration::from_secs(8);
 const MAX_CONCURRENT_PARSES: usize = 4;
 
+#[derive(Debug, Serialize)]
+pub struct SessionHistoryItem {
+    pub id: String,
+    pub role: TurnRole,
+    pub text: String,
+    pub text_offset: usize,
+    pub next_text_offset: Option<usize>,
+    pub omitted_blocks: usize,
+}
+
+#[derive(Debug, Serialize)]
+pub struct SessionHistoryPage {
+    pub history_revision: i64,
+    pub items: Vec<SessionHistoryItem>,
+    pub next_after_item_id: Option<String>,
+    pub has_more: bool,
+}
+
+/// Reads the same JSONL authority as the timeline. Offsets count Unicode scalar
+/// values; rewrites invalidate the revision carried by every continuation cursor.
+pub async fn read_history_page(
+    pool: &SqlitePool,
+    conversation_id: Uuid,
+    request: &delegation_proto::SessionHistoryRequest,
+) -> Result<SessionHistoryPage, sqlx::Error> {
+    let revision: i64 = sqlx::query_scalar(
+        "SELECT history_revision FROM sessions WHERE id = ? AND deleted_at IS NULL",
+    )
+    .bind(conversation_id)
+    .fetch_one(pool)
+    .await?;
+    if request
+        .history_revision
+        .is_some_and(|expected| expected != revision)
+    {
+        return Err(sqlx::Error::Protocol("history_revision_conflict".into()));
+    }
+    if request.item_id.is_some() && request.after_item_id.is_some() {
+        return Err(sqlx::Error::Protocol(
+            "Choose item_id or after_item_id".into(),
+        ));
+    }
+    if request.text_offset.unwrap_or(0) > 0 && request.item_id.is_none() {
+        return Err(sqlx::Error::Protocol("text_offset requires item_id".into()));
+    }
+    let turns = crate::jsonl_history::load_all_turns(pool, conversation_id)
+        .await?
+        .ok_or_else(|| sqlx::Error::Protocol("history_unavailable".into()))?;
+    let all = crate::continuation::visible_items(&turns);
+    let index = if let Some(id) = request.item_id.as_ref().or(request.after_item_id.as_ref()) {
+        let found = all
+            .iter()
+            .position(|item| &item.id == id)
+            .ok_or_else(|| sqlx::Error::Protocol("history_item_not_found".into()))?;
+        found + usize::from(request.after_item_id.is_some())
+    } else {
+        0
+    };
+    let mut remaining = request.max_chars.unwrap_or(16_000).clamp(1, 64 * 1024);
+    let mut items = Vec::new();
+    let mut next_after_item_id = None;
+    let mut has_more = false;
+    for (offset, item) in all.iter().enumerate().skip(index) {
+        let text_offset = if offset == index {
+            request.text_offset.unwrap_or(0)
+        } else {
+            0
+        };
+        let count = item.text.chars().count();
+        if text_offset > count {
+            return Err(sqlx::Error::Protocol(
+                "history_text_offset_out_of_range".into(),
+            ));
+        }
+        let text: String = item
+            .text
+            .chars()
+            .skip(text_offset)
+            .take(remaining)
+            .collect();
+        let end = text_offset + text.chars().count();
+        remaining -= end - text_offset;
+        let next_text_offset = (end < count).then_some(end);
+        items.push(SessionHistoryItem {
+            id: item.id.clone(),
+            role: item.role,
+            text,
+            text_offset,
+            next_text_offset,
+            omitted_blocks: item.omitted_blocks,
+        });
+        has_more = next_text_offset.is_some() || offset + 1 < all.len();
+        if next_text_offset.is_some() {
+            break;
+        }
+        next_after_item_id = has_more.then(|| item.id.clone());
+        if remaining == 0
+            || items.len() >= MAX_SESSION_MESSAGES as usize
+            || request.item_id.is_some()
+        {
+            break;
+        }
+    }
+    let current_revision: i64 =
+        sqlx::query_scalar("SELECT history_revision FROM sessions WHERE id = ?")
+            .bind(conversation_id)
+            .fetch_one(pool)
+            .await?;
+    if current_revision != revision {
+        return Err(sqlx::Error::Protocol("history_revision_conflict".into()));
+    }
+    Ok(SessionHistoryPage {
+        history_revision: revision,
+        items,
+        next_after_item_id,
+        has_more,
+    })
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct SessionMessageItem {
     pub role: String,
@@ -187,6 +306,9 @@ pub async fn resolve_referenced_session(
             info.stats = stats;
             info.messages = messages;
         }
+        TranscriptSlot::Unavailable => {
+            info.note = Some("Recent messages are unavailable because the conversation history could not be read.".to_string());
+        }
         TranscriptSlot::Busy => {
             info.note = Some(
                 "Recent messages are unavailable — too many session reads are in progress. Retry, or call again with max_messages: 0 for metadata only."
@@ -206,6 +328,7 @@ pub async fn resolve_referenced_session(
 enum TranscriptSlot {
     Ready((Option<SessionMessages>, Option<Value>)),
     Busy,
+    Unavailable,
     TimedOut,
 }
 
@@ -226,10 +349,11 @@ async fn bounded_transcript(
     };
     let handle = tokio::spawn(async move {
         let _permit = permit;
-        load_compact_transcript(&pool, conversation_id, max_messages).await
+        try_load_compact_transcript(&pool, conversation_id, max_messages).await
     });
     match tokio::time::timeout(PARSE_TIMEOUT, handle).await {
-        Ok(Ok(value)) => TranscriptSlot::Ready(value),
+        Ok(Ok(Ok(value))) => TranscriptSlot::Ready(value),
+        Ok(Ok(Err(_))) => TranscriptSlot::Unavailable,
         _ => TranscriptSlot::TimedOut,
     }
 }
@@ -239,8 +363,18 @@ pub async fn load_compact_transcript(
     conversation_id: Uuid,
     max_messages: u32,
 ) -> (Option<SessionMessages>, Option<Value>) {
+    try_load_compact_transcript(pool, conversation_id, max_messages)
+        .await
+        .unwrap_or_default()
+}
+
+async fn try_load_compact_transcript(
+    pool: &SqlitePool,
+    conversation_id: Uuid,
+    max_messages: u32,
+) -> Result<(Option<SessionMessages>, Option<Value>), sqlx::Error> {
     if max_messages == 0 {
-        return (None, None);
+        return Ok((None, None));
     }
     #[derive(Clone)]
     struct CompactMessage {
@@ -376,12 +510,27 @@ pub async fn load_compact_transcript(
     .ok()
     .flatten()
     .flatten();
-    if let Some(jsonl_turns) = crate::jsonl_history::flush_and_read_existing_transcript_turns(
+    let manifest_turns = crate::transcript_segments::read_in(
+        pool,
+        &agents::acp_transcript::vibex_acp_transcripts_root(),
         conversation_id,
-        external_session_id.as_deref(),
     )
-    .await
-    {
+    .await;
+    let jsonl_turns = match manifest_turns {
+        Ok(Some(turns)) => Some(turns),
+        Ok(None) => {
+            crate::jsonl_history::flush_and_read_existing_transcript_turns(
+                conversation_id,
+                external_session_id.as_deref(),
+            )
+            .await
+        }
+        Err(error) => {
+            tracing::warn!(%conversation_id, %error, "cannot read conversation manifest");
+            return Err(error);
+        }
+    };
+    if let Some(jsonl_turns) = jsonl_turns {
         let mut jsonl_messages_rev: Vec<CompactMessage> = Vec::new();
         for turn in jsonl_turns.iter().rev() {
             let role = match turn.role {
@@ -478,7 +627,7 @@ pub async fn load_compact_transcript(
     }
     items.reverse();
     let included = items.len() as u32;
-    (
+    Ok((
         Some(SessionMessages {
             total,
             included,
@@ -486,7 +635,7 @@ pub async fn load_compact_transcript(
             items,
         }),
         latest_usage,
-    )
+    ))
 }
 
 fn usage_stats(usage: &agents::ConversationUsage) -> Option<Value> {
@@ -880,6 +1029,8 @@ mod tests {
         .execute(&pool)
         .await
         .unwrap();
+        sqlx::query("CREATE TABLE conversation_transcript_segments (id BLOB, conversation_id BLOB, ordinal INTEGER, binding_id BLOB, state TEXT, sealed_length INTEGER, digest TEXT)")
+            .execute(&pool).await.unwrap();
         pool
     }
 

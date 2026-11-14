@@ -365,8 +365,10 @@ impl ConversationRecord {
         id: Uuid,
         input: CreateConversationRecord<'_>,
     ) -> Result<Self, sqlx::Error> {
-        let mut conn = pool.acquire().await?;
-        Self::create_on_connection(&mut conn, id, input).await
+        let mut tx = pool.begin().await?;
+        let conversation = Self::create_on_connection(&mut tx, id, input).await?;
+        tx.commit().await?;
+        Ok(conversation)
     }
 
     pub async fn create_on_connection(
@@ -600,6 +602,11 @@ pub struct ConversationAgentBindingRecord {
     pub agent_id: AgentId,
     pub working_dir: String,
     pub acp_session_id: Option<String>,
+    pub resume_allowed: bool,
+    pub invalidated_reason: Option<String>,
+    pub connection_id: Option<String>,
+    pub continuation_key: Option<String>,
+    pub is_resume_head: bool,
     pub acp_protocol_version: Option<String>,
     pub runtime_version: Option<String>,
     pub acp_version: Option<String>,
@@ -629,6 +636,7 @@ pub struct CreateConversationAgentBinding<'a> {
     pub agent_id: &'a AgentId,
     pub working_dir: &'a str,
     pub acp_session_id: Option<&'a str>,
+    pub continuation_key: Option<&'a str>,
     pub acp_protocol_version: Option<&'a str>,
     pub runtime_version: Option<&'a str>,
     pub acp_version: Option<&'a str>,
@@ -650,11 +658,16 @@ pub struct CreateConversationAgentBinding<'a> {
     pub status: BindingStatus,
 }
 
-const BINDING_COLUMNS: &str = r#"id,
+pub(super) const BINDING_COLUMNS: &str = r#"id,
     conversation_id,
     agent_id,
     working_dir,
     acp_session_id,
+    resume_allowed,
+    invalidated_reason,
+    connection_id,
+    continuation_key,
+    is_resume_head,
     acp_protocol_version,
     runtime_version,
     acp_version,
@@ -681,8 +694,10 @@ impl ConversationAgentBindingRecord {
         id: Uuid,
         input: CreateConversationAgentBinding<'_>,
     ) -> Result<Self, sqlx::Error> {
-        let mut conn = pool.acquire().await?;
-        Self::create_on_connection(&mut conn, id, input).await
+        let mut tx = pool.begin().await?;
+        let binding = Self::create_on_connection(&mut tx, id, input).await?;
+        tx.commit().await?;
+        Ok(binding)
     }
 
     pub async fn create_on_connection(
@@ -690,9 +705,21 @@ impl ConversationAgentBindingRecord {
         id: Uuid,
         input: CreateConversationAgentBinding<'_>,
     ) -> Result<Self, sqlx::Error> {
-        sqlx::query_as::<_, Self>(&format!(
+        let conversation_id = input.conversation_id;
+        let binding = Self::insert_on_connection(conn, id, input).await?;
+        Self::activate_on_connection(conn, conversation_id, id).await?;
+        Ok(binding)
+    }
+
+    pub(super) async fn insert_on_connection(
+        conn: &mut SqliteConnection,
+        id: Uuid,
+        input: CreateConversationAgentBinding<'_>,
+    ) -> Result<Self, sqlx::Error> {
+        let binding = sqlx::query_as::<_, Self>(&format!(
             r#"INSERT INTO conversation_agent_bindings (
                    id, conversation_id, agent_type, agent_id, working_dir, acp_session_id,
+                   continuation_key,
                    acp_protocol_version, runtime_version, acp_version,
                    load_supported, resume_supported,
                    close_supported, terminal_supported,
@@ -701,7 +728,7 @@ impl ConversationAgentBindingRecord {
                    mcp_servers_json, modes_json, config_options_json,
                    current_mode, config_selection_json, status
                )
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                RETURNING {BINDING_COLUMNS}"#
         ))
         .bind(id)
@@ -710,6 +737,7 @@ impl ConversationAgentBindingRecord {
         .bind(input.agent_id.as_str())
         .bind(input.working_dir)
         .bind(input.acp_session_id)
+        .bind(input.continuation_key)
         .bind(input.acp_protocol_version)
         .bind(input.runtime_version)
         .bind(input.acp_version)
@@ -728,7 +756,8 @@ impl ConversationAgentBindingRecord {
         .bind(input.config_selection_json)
         .bind(input.status.as_str())
         .fetch_one(&mut *conn)
-        .await
+        .await?;
+        Ok(binding)
     }
 
     pub async fn latest_for_conversation(
@@ -739,7 +768,7 @@ impl ConversationAgentBindingRecord {
             r#"SELECT {BINDING_COLUMNS}
                FROM conversation_agent_bindings
                WHERE conversation_id = ?
-               ORDER BY created_at DESC
+               ORDER BY created_at DESC, rowid DESC
                LIMIT 1"#
         ))
         .bind(conversation_id)
@@ -755,7 +784,7 @@ impl ConversationAgentBindingRecord {
             r#"SELECT {BINDING_COLUMNS}
                FROM conversation_agent_bindings
                WHERE conversation_id = ?
-               ORDER BY created_at ASC"#
+               ORDER BY created_at ASC, rowid ASC"#
         ))
         .bind(conversation_id)
         .fetch_all(pool)
@@ -769,20 +798,27 @@ impl ConversationAgentBindingRecord {
         acp_protocol_version: Option<&str>,
         status: BindingStatus,
     ) -> Result<(), sqlx::Error> {
-        sqlx::query(
+        let result = sqlx::query(
             r#"UPDATE conversation_agent_bindings
                SET acp_session_id = ?,
                    acp_protocol_version = ?,
                    status = ?,
                    updated_at = datetime('now', 'subsec')
-               WHERE id = ?"#,
+               WHERE id = ? AND resume_allowed = 1
+                 AND (acp_session_id IS NULL OR acp_session_id = ?)"#,
         )
         .bind(acp_session_id)
         .bind(acp_protocol_version)
         .bind(status.as_str())
         .bind(id)
+        .bind(acp_session_id)
         .execute(pool)
         .await?;
+        if result.rows_affected() != 1 {
+            return Err(sqlx::Error::Protocol(
+                "native binding identity cannot be replaced".into(),
+            ));
+        }
         Ok(())
     }
 
@@ -795,41 +831,22 @@ impl ConversationAgentBindingRecord {
         current_mode: Option<&str>,
         config_selection_json: Option<&str>,
     ) -> Result<(), sqlx::Error> {
-        let merged_config = if let Some(incoming) = config_selection_json {
-            let existing = sqlx::query_scalar::<_, String>(
-                r#"SELECT config_selection_json
-                   FROM conversation_agent_bindings
-                   WHERE conversation_id = ?
-                   ORDER BY updated_at DESC
-                   LIMIT 1"#,
-            )
-            .bind(conversation_id)
-            .fetch_optional(pool)
-            .await?
-            .unwrap_or_else(|| "{}".to_string());
-            Some(merge_config_selection_json(&existing, incoming))
-        } else {
-            None
-        };
-        sqlx::query(
-            r#"UPDATE conversation_agent_bindings
-               SET current_mode = COALESCE(?, current_mode),
-                   config_selection_json = COALESCE(?, config_selection_json),
-                   updated_at = datetime('now', 'subsec')
-               WHERE conversation_id = ?"#,
-        )
-        .bind(current_mode)
-        .bind(merged_config.as_deref())
-        .bind(conversation_id)
-        .execute(pool)
-        .await?;
-        Ok(())
+        let mut tx = pool.begin().await?;
+        if let Some(binding) = Self::active_on_connection(&mut tx, conversation_id).await? {
+            let merged = config_selection_json.map(|incoming| {
+                merge_config_selection_json(&binding.config_selection_json, incoming)
+            });
+            sqlx::query("UPDATE conversation_agent_bindings SET current_mode = COALESCE(?, current_mode), config_selection_json = COALESCE(?, config_selection_json), updated_at = datetime('now', 'subsec') WHERE id = ?")
+                .bind(current_mode).bind(merged).bind(binding.id).execute(&mut *tx).await?;
+        }
+        tx.commit().await
     }
 
     #[allow(clippy::too_many_arguments)]
     pub async fn update_negotiated_capabilities<'e, E>(
         executor: E,
         conversation_id: Uuid,
+        binding_id: Option<Uuid>,
         load_supported: bool,
         resume_supported: bool,
         close_supported: bool,
@@ -851,12 +868,9 @@ impl ConversationAgentBindingRecord {
                    prompt_capabilities_json = ?,
                    session_capabilities_json = ?,
                    updated_at = datetime('now', 'subsec')
-               WHERE id = (
-                   SELECT id FROM conversation_agent_bindings
-                   WHERE conversation_id = ?
-                   ORDER BY created_at DESC
-                   LIMIT 1
-               )"#,
+               WHERE id = COALESCE(?, (
+                   SELECT active_agent_binding_id FROM sessions WHERE id = ?
+               ))"#,
         )
         .bind(load_supported)
         .bind(resume_supported)
@@ -865,6 +879,7 @@ impl ConversationAgentBindingRecord {
         .bind(additional_directories_supported)
         .bind(prompt_capabilities_json)
         .bind(session_capabilities_json)
+        .bind(binding_id)
         .bind(conversation_id)
         .execute(executor)
         .await?;
@@ -998,6 +1013,7 @@ mod tests {
                 agent_id: &codex,
                 working_dir: "C:/work",
                 acp_session_id: None,
+                continuation_key: None,
                 acp_protocol_version: None,
                 runtime_version: Some("0.130.0"),
                 acp_version: Some("1.1.4"),
@@ -1078,6 +1094,7 @@ mod tests {
                     agent_id: &codex,
                     working_dir: "/work",
                     acp_session_id: None,
+                    continuation_key: None,
                     acp_protocol_version: None,
                     runtime_version: None,
                     acp_version: None,
@@ -1140,6 +1157,7 @@ mod tests {
                 agent_id: &codex,
                 working_dir: "/work",
                 acp_session_id: None,
+                continuation_key: None,
                 acp_protocol_version: None,
                 runtime_version: None,
                 acp_version: None,
@@ -1205,6 +1223,108 @@ mod tests {
         assert_eq!(selection["model"], "opus");
         assert_eq!(selection["thought_level"], "high");
         assert_eq!(latest.current_mode.as_deref(), Some("bypassPermissions"));
+    }
+
+    #[tokio::test]
+    async fn binding_activation_and_rebind_keep_native_generations_distinct() {
+        let pool = migrated_pool().await;
+        let conversation_id = Uuid::new_v4();
+        ConversationRecord::create(
+            &pool,
+            conversation_id,
+            CreateConversationRecord {
+                workspace_id: Uuid::new_v4(),
+                task_id: None,
+                title: None,
+                initial_prompt: None,
+                status: None,
+                executor: Some("codex"),
+            },
+        )
+        .await
+        .unwrap();
+        let agent = AgentId::parse("codex").unwrap();
+        let first = ConversationAgentBindingRecord::link_native_session(
+            &pool,
+            conversation_id,
+            &agent,
+            "/work",
+            "native-one",
+            "connection-one",
+        )
+        .await
+        .unwrap();
+        let second = ConversationAgentBindingRecord::link_native_session(
+            &pool,
+            conversation_id,
+            &agent,
+            "/work",
+            "native-two",
+            "connection-two",
+        )
+        .await
+        .unwrap();
+        assert_ne!(first.id, second.id);
+        ConversationAgentBindingRecord::activate(&pool, conversation_id, first.id)
+            .await
+            .unwrap();
+        ConversationAgentBindingRecord::update_session_controls_selection(
+            &pool,
+            conversation_id,
+            Some("plan"),
+            Some(r#"{"model":"first-model"}"#),
+        )
+        .await
+        .unwrap();
+        let active =
+            ConversationAgentBindingRecord::active_for_conversation(&pool, conversation_id)
+                .await
+                .unwrap()
+                .unwrap();
+        assert_eq!(active.id, first.id);
+        assert_eq!(active.acp_session_id.as_deref(), Some("native-one"));
+        let bindings =
+            ConversationAgentBindingRecord::list_for_conversation(&pool, conversation_id)
+                .await
+                .unwrap();
+        assert_eq!(
+            bindings
+                .iter()
+                .find(|b| b.id == second.id)
+                .unwrap()
+                .current_mode,
+            None
+        );
+        ConversationAgentBindingRecord::invalidate_active(&pool, conversation_id, "rebind")
+            .await
+            .unwrap();
+        let invalidated =
+            ConversationAgentBindingRecord::active_for_conversation(&pool, conversation_id)
+                .await
+                .unwrap()
+                .unwrap();
+        assert!(!invalidated.resume_allowed);
+        assert_eq!(invalidated.acp_session_id.as_deref(), Some("native-one"));
+        assert!(
+            ConversationAgentBindingRecord::activate(&pool, conversation_id, first.id)
+                .await
+                .is_err()
+        );
+        let rebound = ConversationAgentBindingRecord::link_native_session(
+            &pool,
+            conversation_id,
+            &agent,
+            "/work",
+            "native-one",
+            "connection-three",
+        )
+        .await
+        .unwrap();
+        assert_ne!(
+            rebound.id, first.id,
+            "rebind must never resurrect an invalidated generation"
+        );
+        assert_eq!(rebound.current_mode.as_deref(), Some("plan"));
     }
 
     #[tokio::test]

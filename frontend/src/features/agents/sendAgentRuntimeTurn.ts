@@ -22,6 +22,7 @@ export type AgentRuntimeTurnInput = {
   workflowRefs?: ConversationWorkflowRef[];
   fileRefs?: ConversationInputPayload['fileRefs'];
   operationId?: string;
+  continuationPolicy?: 'portable' | 'fresh';
 };
 
 /**
@@ -45,8 +46,10 @@ export async function sendAgentRuntimeTurn({
   workflowRefs,
   fileRefs,
   operationId,
+  continuationPolicy,
 }: AgentRuntimeTurnInput): Promise<ConversationInputSubmission> {
   const payload: ConversationInputPayload = {
+    continuationPolicy,
     agentId: agentTypeFromExecutor(executorProfileId.executor),
     workspaceId,
     executorProfileId:

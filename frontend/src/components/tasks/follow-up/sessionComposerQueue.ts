@@ -1,4 +1,4 @@
-import type { ConversationInputView, ExecutorProfileId } from 'shared/types';
+import type { ConversationInputPayload, ConversationInputView, ExecutorProfileId } from 'shared/types';
 import type { SessionComposerPluginActionInvocation } from './sessionComposerStructuredTokens';
 
 export const QUEUE_STATUS_QUERY_KEY = 'conversation-inputs';
@@ -19,6 +19,7 @@ export type QueuedMessage = {
   created_at: string;
   updated_at: string;
   executorProfileId: ExecutorProfileId;
+  payload?: ConversationInputPayload;
   data: {
     message: string;
     agentMessage?: string;
@@ -60,6 +61,7 @@ export function inputViewToQueuedMessage(
     created_at: input.createdAt,
     updated_at: input.updatedAt,
     executorProfileId,
+    payload: input.payload,
     data: {
       message: displayText,
       agentMessage:

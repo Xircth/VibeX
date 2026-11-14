@@ -1,4 +1,4 @@
-use agents::{AgentId, AgentSessionId, ConversationInputPayload, conversation::ConversationEvent};
+use agents::{AgentId, ConversationInputPayload, conversation::ConversationEvent};
 use chrono::Utc;
 use db::models::{
     conversation::ConversationRecord,
@@ -176,66 +176,11 @@ impl ConversationSessionService {
                 return Err(error);
             }
         };
-        let pool = &self.ctx.deployment.db().pool;
-        if let Some(persisted_session) = Session::find_by_id(pool, conversation_id).await? {
-            if persisted_session
-                .agent_id
-                .as_ref()
-                .is_some_and(|existing| existing != &payload.agent_id)
-                && let Err(error) = self.detach_agent_session(conversation_id).await
-            {
-                inputs
-                    .release_claim(conversation_id, input_id, claim_token)
-                    .await?;
-                return Err(error);
-            }
-            if persisted_session.agent_id.as_ref() != Some(&payload.agent_id)
-                && let Err(error) = Session::update_agent_metadata(
-                    pool,
-                    conversation_id,
-                    None,
-                    Some(&payload.agent_id),
-                )
-                .await
-            {
-                inputs
-                    .release_claim(conversation_id, input_id, claim_token)
-                    .await?;
-                return Err(error.into());
-            }
-        }
-        let runtime_session_id = AgentSessionId(conversation_id);
-        if !self
-            .ctx
-            .agent_runtime
-            .has_bound_acp_session(runtime_session_id)
-            .await
-            && let Err(error) = self
-                .ensure_session_controls_locked(conversation_id, None)
-                .await
-        {
-            inputs
-                .release_claim(conversation_id, input_id, claim_token)
-                .await?;
-            return Err(error);
-        }
-        if !self
-            .ctx
-            .agent_runtime
-            .has_bound_acp_session(runtime_session_id)
-            .await
-        {
-            inputs
-                .release_claim(conversation_id, input_id, claim_token)
-                .await?;
-            return Err(ConversationServiceError::SessionUnavailable {
-                code: "acp_session_not_bound",
-                message: "ACP session is not bound on this connection".into(),
-            });
-        }
         let committed = match self
             .commit_new_turn(
                 ConversationStartTurnInput {
+                    continuation_policy: payload.continuation_policy,
+                    expected_binding_revision: None,
                     agent_id: payload.agent_id,
                     workspace_id: payload.workspace_id,
                     conversation_id,
@@ -330,6 +275,8 @@ pub(super) fn start_turn_input_payload(
     input: &ConversationStartTurnInput,
 ) -> Result<ConversationInputPayload, ConversationServiceError> {
     Ok(ConversationInputPayload {
+        continuation_policy: input.continuation_policy,
+        expected_binding_revision: input.expected_binding_revision,
         agent_id: input.agent_id.clone(),
         workspace_id: input.workspace_id,
         executor_profile_id: input

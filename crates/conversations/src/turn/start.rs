@@ -78,35 +78,41 @@ impl ConversationSessionService {
     ) -> Result<(ConversationTurnSnapshot, AgentPromptSnapshot), ConversationServiceError> {
         let CommittedTurnLaunch {
             input,
-            working_dir,
-            additional_directories,
-            agent_blocks,
-            display_blocks,
+            origin,
+            preparation_lock,
             turn_id,
             created_sequence,
-            smart_reminder,
         } = committed;
         let pool = &self.ctx.deployment.db().pool;
-
+        let _preparation_guard = preparation_lock.lock().await;
         if !self
             .turn_is_still_in_flight(input.conversation_id, turn_id)
             .await?
         {
+            crate::jsonl_history::preserve_unprompted_input(pool, input.conversation_id, turn_id)
+                .await?;
             return Err(ConversationServiceError::Conflict(
                 "Turn was cancelled before the Agent handshake".to_string(),
             ));
         }
 
-        let result = self
-            .send_turn_to_agent(
+        let mut smart_reminder = None;
+        let result = async {
+            let mut prepared = self.prepare_turn_prompt(&input, &origin).await?;
+            smart_reminder = prepared.smart_reminder.take();
+            self.prepare_turn_continuation(&input, turn_id, &mut prepared)
+                .await?;
+            self.send_turn_to_agent(
                 &input,
-                &working_dir,
-                &additional_directories,
-                agent_blocks,
-                display_blocks,
+                &prepared.working_dir,
+                &prepared.additional_directories,
+                prepared.agent_blocks,
+                prepared.display_blocks,
                 turn_id,
             )
-            .await;
+            .await
+        }
+        .await;
 
         if !self
             .turn_is_still_in_flight(input.conversation_id, turn_id)
@@ -142,11 +148,18 @@ impl ConversationSessionService {
                     self.drop_live_agent_connection(input.conversation_id).await;
                 }
             }
+            crate::jsonl_history::preserve_unprompted_input(pool, input.conversation_id, turn_id)
+                .await?;
             return Err(ConversationServiceError::Conflict(
                 "Turn was cancelled before the Agent handshake".to_string(),
             ));
         }
 
+        if result.is_err() {
+            crate::handoff::settle(pool, turn_id).await?;
+            crate::jsonl_history::preserve_unprompted_input(pool, input.conversation_id, turn_id)
+                .await?;
+        }
         match result {
             Ok(prompt) => {
                 if smart_reminder.is_some() {
@@ -165,8 +178,6 @@ impl ConversationSessionService {
                 )
                 .await?;
                 let prompt_uuid = prompt.id.0;
-                ConversationTurnRecord::set_prompt_id(pool, turn_id, &prompt.id.to_string())
-                    .await?;
                 self.update_runtime_state(input.conversation_id, |state| {
                     state.active_prompt_id = Some(prompt.id.to_string());
                 })
@@ -267,6 +278,8 @@ impl ConversationSessionService {
         })?;
         self.start_turn_under_lock(
             ConversationStartTurnInput {
+                continuation_policy: None,
+                expected_binding_revision: None,
                 agent_id,
                 workspace_id: session.workspace_id,
                 conversation_id,
@@ -313,10 +326,9 @@ impl ConversationSessionService {
             .live_connection_id(runtime_session_id)
             .await
             .ok_or(agents::AgentError::AcpSessionNotBound)?;
-        let bindings =
-            ConversationAgentBindingRecord::list_for_conversation(pool, input.conversation_id)
+        let latest_binding =
+            ConversationAgentBindingRecord::active_for_conversation(pool, input.conversation_id)
                 .await?;
-        let latest_binding = bindings.last().cloned();
         self.update_runtime_state(input.conversation_id, |state| {
             state.binding_id = latest_binding.as_ref().map(|binding| binding.id);
             state.connection_id = Some(connection_id.to_string());
@@ -369,6 +381,8 @@ impl ConversationSessionService {
             &prompt_overrides.config_overrides,
         )
         .await;
+        let turn_lock = self.turn_lock(input.conversation_id).await;
+        let _turn_guard = turn_lock.lock().await;
         if !self
             .turn_is_still_in_flight(input.conversation_id, turn_id)
             .await?
@@ -377,10 +391,14 @@ impl ConversationSessionService {
                 "Turn was cancelled before the Agent prompt".to_string(),
             ));
         }
+        let prompt_id = AgentPromptId::new();
+        ConversationTurnRecord::set_prompt_id(pool, turn_id, &prompt_id.to_string()).await?;
+        crate::handoff::sending(pool, turn_id).await?;
         let prompt = self
             .ctx
             .agent_runtime
-            .send_prompt_with_display_blocks(
+            .send_reserved_prompt(
+                prompt_id,
                 SendAgentPromptInput {
                     connection_id,
                     session_id: runtime_session_id,
@@ -421,13 +439,6 @@ impl ConversationSessionService {
             .bound_acp_session_id(AgentSessionId(input.conversation_id))
             .await;
         if let Some(existing) = ConversationRecord::find_by_id(pool, input.conversation_id).await? {
-            let _ = Session::update_agent_metadata(
-                pool,
-                input.conversation_id,
-                bound_acp_session_id.as_deref(),
-                Some(&input.agent_id),
-            )
-            .await;
             return Ok(existing);
         }
 

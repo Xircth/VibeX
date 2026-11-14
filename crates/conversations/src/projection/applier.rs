@@ -572,6 +572,7 @@ impl ConversationStateApplier {
                 ConversationAgentBindingRecord::update_negotiated_capabilities(
                     &mut *conn,
                     record.conversation_id,
+                    record.binding_id,
                     capabilities.load_session,
                     capabilities.resume_session,
                     capabilities.close_session,
@@ -729,8 +730,14 @@ impl ConversationProjector {
             let fold = Self::load_fold_from_snapshot(&mut *conn, conversation_id).await?;
             let timeline = fold.into_timeline(conversation_id);
             let mut body = crate::search::extract_searchable_text(&timeline);
-            if let Some(turns) =
-                crate::jsonl_history::read_existing_transcript_turns(conversation_id)
+            let manifest = crate::transcript_segments::read_on_connection(
+                conn,
+                &agents::acp_transcript::vibex_acp_transcripts_root(),
+                conversation_id,
+            )
+            .await?;
+            if let Some(turns) = manifest
+                .or_else(|| crate::jsonl_history::read_existing_transcript_turns(conversation_id))
             {
                 let jsonl_timeline =
                     crate::jsonl_history::timeline_from_turns(conversation_id, &turns);
@@ -914,6 +921,7 @@ mod tests {
                 agent_id: &agent_id,
                 working_dir: "/tmp/work",
                 acp_session_id: None,
+                continuation_key: None,
                 acp_protocol_version: None,
                 runtime_version: None,
                 acp_version: None,

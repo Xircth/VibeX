@@ -234,7 +234,11 @@ fn default_official_quick_origin(store: &HostTunnelStore) -> Option<String> {
     } else {
         load_or_create_host_id_sync().unwrap_or_else(|| "default".to_string())
     };
-    let scheme = if endpoint.port == 443 { "https" } else { "http" };
+    let scheme = if endpoint.port == 443 {
+        "https"
+    } else {
+        "http"
+    };
     Some(utils::tunnel::format_tenant_origin(
         scheme, &endpoint, &host_id,
     ))

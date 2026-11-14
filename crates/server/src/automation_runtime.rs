@@ -820,6 +820,8 @@ impl TurnLauncherPort for ServerTurnLauncher {
             conversations::ConversationSessionService::new(self.conversation_context.clone())
                 .start_turn_with_origin(
                     conversations::ConversationStartTurnInput {
+                        continuation_policy: None,
+                        expected_binding_revision: None,
                         agent_id: spec.agent.agent_id.clone(),
                         workspace_id: workspace.workspace_id,
                         conversation_id,

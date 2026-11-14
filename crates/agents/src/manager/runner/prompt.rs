@@ -121,6 +121,7 @@ impl AgentConnectionRunner {
                     self.cancel_pending_interactions(session_id).await;
                     match result {
                         Ok(response) => {
+                            self.emit(Some(session_id), Some(prompt_id), AgentEvent::PromptAccepted { prompt_id });
                             let mut usage = response.usage.as_ref().map(agent_usage_from_end_turn);
                             if let Some(ref mut resolved_usage) = usage {
                                 let mut controls = self.session_controls.write().await;
@@ -364,6 +365,9 @@ impl AgentConnectionRunner {
                     let _ = conn.send_notification(CancelNotification::new(SessionId::new(
                         acp_session_id.clone(),
                     )));
+                    self.emit(Some(session_id), Some(prompt_id), AgentEvent::SessionInvalidated {
+                        reason: "idle_timeout".into(),
+                    });
                     self.record_turn_end(
                         &acp_session_id,
                         session_id,
@@ -426,6 +430,9 @@ impl AgentConnectionRunner {
                                         command = cmd_rx.recv() => {
                                             match command {
                                                 Some(AgentConnectionCommand::Disconnect) | None => {
+                                                    self.emit(Some(session_id), Some(prompt_id), AgentEvent::SessionInvalidated {
+                                                        reason: "cancel_interrupted".into(),
+                                                    });
                                                     if let Ok(mut guard) = self.active_turn_probe.lock() {
                                                         *guard = None;
                                                     }
@@ -501,6 +508,9 @@ impl AgentConnectionRunner {
                                 false
                             };
                             if !acknowledged {
+                                self.emit(Some(session_id), Some(prompt_id), AgentEvent::SessionInvalidated {
+                                    reason: "cancel_timeout".into(),
+                                });
                                 // The prompt is still outstanding and the agent may
                                 // keep emitting for it. Unbind the ACP session so a
                                 // later turn re-establishes instead of interleaving

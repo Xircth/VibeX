@@ -468,6 +468,8 @@ export interface PendingDeviceConnectRequest {
   expires_at: string;
   /** Present when the host verified the request comes from its own VibeX account. */
   account_display_name?: string | null;
+  status?: 'pending' | 'approved' | 'rejected' | 'expired';
+  issued_device_id?: string | null;
 }
 
 export interface PortProbeResult {

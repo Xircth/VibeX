@@ -245,6 +245,13 @@ pub struct PendingDeviceConnectRequest {
     /// requests made without an account token.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub account_display_name: Option<String>,
+    /// `pending` while awaiting desktop confirmation; `approved` for recently auto-approved
+    /// same-account connections surfaced briefly so the desktop can show the SAS code & revoke action.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub status: Option<DeviceConnectRequestStatus>,
+    /// Issued device credential ID when `status == Some(Approved)`, allowing instant one-click revocation.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub issued_device_id: Option<DeviceId>,
 }
 
 #[derive(Clone, Deserialize, Eq, JsonSchema, PartialEq, Serialize, TS)]

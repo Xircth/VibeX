@@ -942,7 +942,7 @@ async fn create_connect_request<R>(
     Json(request): Json<CreateDeviceConnectRequest>,
 ) -> Response {
     let ip_address = extract_client_ip(&headers, state.config.listen_addr);
-    let account_display_name = match request
+    let (account_display_name, auto_approve) = match request
         .account_token
         .as_deref()
         .map(str::trim)
@@ -955,10 +955,10 @@ async fn create_connect_request<R>(
         )
         .await
         {
-            Ok(identity) => Some(identity.display_name),
+            Ok(verified) => (Some(verified.identity.display_name), verified.auto_approve),
             Err(error) => return account_link_error_response(&error),
         },
-        None => None,
+        None => (None, false),
     };
     match state
         .auth
@@ -967,6 +967,7 @@ async fn create_connect_request<R>(
             request,
             ip_address.as_deref(),
             account_display_name.as_deref(),
+            auto_approve,
         )
         .await
     {

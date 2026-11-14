@@ -537,10 +537,11 @@ export function WebServiceSettings({
                   <div className="settings-row">
                     <div>
                       <Label htmlFor="web-service-auto-connect">
-                        自动连接已配对设备
+                        同账号与已配对设备免确认直连
                       </Label>
                       <p className="settings-row__description">
-                        首次连接成功后，已配对的手机再次发起连接时自动允许接入
+                        两端登录同一 VibeX 账号或手机已配对时，免确认直连并显示
+                        4 位连接码供对比
                       </p>
                     </div>
                     <Switch

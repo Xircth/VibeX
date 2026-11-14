@@ -386,6 +386,7 @@ const DESKTOP_SHELL_COMMANDS: &[&str] = &[
     "respond_host_connect_request",
     "reveal_in_file_manager",
     "select_saved_host_tunnel",
+    "set_account_relay_lease",
     "set_host_tunnel_enabled",
     "start_create_host_tunnel",
     "take_tauri_inspector_capture",

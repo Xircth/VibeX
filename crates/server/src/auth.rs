@@ -387,6 +387,7 @@ pub trait ServerAuth: Send + Sync {
         _request: CreateDeviceConnectRequest,
         _ip_address: Option<&str>,
         _account_display_name: Option<&str>,
+        _auto_approve: bool,
     ) -> Result<PollDeviceConnectResponse, AuthStoreError> {
         Err(AuthStoreError::PairingUnavailable)
     }
@@ -952,6 +953,7 @@ impl ServerAuth for SqliteServerAuth {
         request: CreateDeviceConnectRequest,
         ip_address: Option<&str>,
         account_display_name: Option<&str>,
+        auto_approve: bool,
     ) -> Result<PollDeviceConnectResponse, AuthStoreError> {
         let device_name = request.device_name.trim();
         if device_name.is_empty() || device_name.len() > 128 {
@@ -984,6 +986,145 @@ impl ServerAuth for SqliteServerAuth {
         let expires_at = now.saturating_add(180);
         let host_name = utils::net::local_hostname();
         let incoming_pk = parsed_pubkey.as_ref().map(|(_, pk)| pk.as_str());
+
+        if auto_approve && account_display_name.is_some() {
+            let request_id = PairingId::new();
+            let request_id_str = request_id.to_string();
+            let host_bytes: [u8; 32] = Sha256::digest(host_id.as_bytes()).into();
+            let device_bytes: [u8; 32] = match parsed_pubkey {
+                Some((bytes, _)) => bytes,
+                None => Sha256::digest(device_name.as_bytes()).into(),
+            };
+            let nonce = request
+                .session_nonce
+                .as_deref()
+                .map(str::trim)
+                .filter(|v| !v.is_empty())
+                .unwrap_or(&request_id_str);
+            let sas_code = compute_sas_code(&host_bytes, &device_bytes, nonce);
+            let canonical_pubkey = parsed_pubkey.map(|(_, pk)| pk);
+
+            let owner = AuthenticatedCredential::host_console_owner();
+            let preset = if client_kind == "mobile" {
+                DevicePermissionPreset::Companion
+            } else {
+                DevicePermissionPreset::Workstation
+            };
+            let scopes = resolve_pairing_scopes(
+                &owner.scopes,
+                CreatePairingRequest {
+                    preset: Some(preset),
+                    requested_scopes: Vec::new(),
+                    ttl_seconds: None,
+                },
+            )?;
+            let device_id = DeviceId::new();
+            let access_token = format!(
+                "vbx_device_{}{}",
+                Uuid::new_v4().simple(),
+                Uuid::new_v4().simple()
+            );
+            let device_digest = TokenDigest::from_secret(&access_token);
+
+            let mut connection = self.pool.acquire().await?;
+            sqlx::query("BEGIN IMMEDIATE")
+                .execute(&mut *connection)
+                .await?;
+            let tx_result: Result<(), AuthStoreError> = async {
+                if client_kind == "mobile" {
+                    revoke_all_active_mobile_devices(&mut connection, now).await?;
+                } else if let Some(ref pubkey) = canonical_pubkey {
+                    sqlx::query(
+                        "UPDATE server_device_credentials
+                         SET revoked_at_unix = ?
+                         WHERE public_key_ed25519 = ? AND revoked_at_unix IS NULL",
+                    )
+                    .bind(now)
+                    .bind(pubkey)
+                    .execute(&mut *connection)
+                    .await?;
+                }
+
+                sqlx::query(
+                    "INSERT INTO server_device_credentials
+                     (id, token_hash, device_name, scopes_json, created_at_unix, client_kind,
+                      last_ip, last_connected_at_unix, public_key_ed25519)
+                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                )
+                .bind(device_id.to_string())
+                .bind(device_digest.as_bytes().as_slice())
+                .bind(device_name)
+                .bind(serde_json::to_string(&scopes).expect("scopes serialize"))
+                .bind(now)
+                .bind(&client_kind)
+                .bind(ip_address)
+                .bind(now)
+                .bind(&canonical_pubkey)
+                .execute(&mut *connection)
+                .await?;
+
+                sqlx::query(
+                    "INSERT INTO server_device_connect_requests
+                     (id, device_name, client_kind, ip_address, public_key_ed25519, sas_code,
+                      status, created_at_unix, expires_at_unix, responded_at_unix,
+                      account_display_name, issued_device_id)
+                     VALUES (?, ?, ?, ?, ?, ?, 'approved', ?, ?, ?, ?, ?)",
+                )
+                .bind(&request_id_str)
+                .bind(device_name)
+                .bind(&client_kind)
+                .bind(ip_address)
+                .bind(&canonical_pubkey)
+                .bind(&sas_code)
+                .bind(now)
+                .bind(expires_at)
+                .bind(now)
+                .bind(account_display_name)
+                .bind(device_id.to_string())
+                .execute(&mut *connection)
+                .await?;
+
+                sqlx::query(
+                    "INSERT INTO server_auth_audit_events
+                     (id, event_kind, actor_credential_id, actor_device_id, target_id, outcome,
+                      occurred_at_unix)
+                     VALUES (?, 'pairing_redeemed', ?, NULL, ?, 'succeeded', ?)",
+                )
+                .bind(Uuid::new_v4().to_string())
+                .bind(&owner.credential_id)
+                .bind(device_id.to_string())
+                .bind(now)
+                .execute(&mut *connection)
+                .await?;
+
+                Ok(())
+            }
+            .await;
+
+            match tx_result {
+                Ok(()) => {
+                    sqlx::query("COMMIT").execute(&mut *connection).await?;
+                }
+                Err(error) => {
+                    let _ = sqlx::query("ROLLBACK").execute(&mut *connection).await;
+                    return Err(error);
+                }
+            }
+
+            return Ok(PollDeviceConnectResponse {
+                request_id,
+                host_id: host_id.to_owned(),
+                host_name,
+                sas_code,
+                status: DeviceConnectRequestStatus::Approved,
+                expires_at: unix_timestamp(expires_at),
+                credential: Some(DeviceCredential {
+                    device_id,
+                    access_token,
+                    scopes,
+                }),
+            });
+        }
 
         if client_kind == "mobile" {
             let mut conn = self.pool.acquire().await?;
@@ -1171,14 +1312,26 @@ impl ServerAuth for SqliteServerAuth {
             return Err(AuthStoreError::Forbidden);
         }
         let now = self.now();
+        let recent_auto_cutoff = now.saturating_sub(15);
         let rows = sqlx::query(
-            "SELECT id, device_name, client_kind, ip_address, sas_code, created_at_unix, expires_at_unix,
-      account_display_name
-      FROM server_device_connect_requests
-             WHERE status = 'pending' AND expires_at_unix > ?
-             ORDER BY created_at_unix DESC",
+            "SELECT r.id, r.device_name, r.client_kind, r.ip_address, r.sas_code,
+                    r.status, r.created_at_unix, r.expires_at_unix,
+                    r.account_display_name, r.issued_device_id
+             FROM server_device_connect_requests r
+             WHERE (r.status = 'pending' AND r.expires_at_unix > ?)
+                OR (r.status = 'approved'
+                    AND r.account_display_name IS NOT NULL
+                    AND r.issued_device_id IS NOT NULL
+                    AND r.responded_at_unix >= ?
+                    AND EXISTS (
+                        SELECT 1 FROM server_device_credentials d
+                        WHERE d.id = r.issued_device_id AND d.revoked_at_unix IS NULL
+                    ))
+             ORDER BY CASE WHEN r.status = 'pending' THEN 0 ELSE 1 END ASC,
+                      r.created_at_unix DESC",
         )
         .bind(now)
+        .bind(recent_auto_cutoff)
         .fetch_all(&self.pool)
         .await?;
 
@@ -1190,6 +1343,17 @@ impl ServerAuth for SqliteServerAuth {
             };
             let created_at_unix: i64 = row.try_get("created_at_unix")?;
             let expires_at_unix: i64 = row.try_get("expires_at_unix")?;
+            let raw_status: String = row.try_get("status")?;
+            let status = if raw_status == "approved" {
+                Some(DeviceConnectRequestStatus::Approved)
+            } else {
+                Some(DeviceConnectRequestStatus::Pending)
+            };
+            let issued_device_id = row
+                .try_get::<Option<String>, _>("issued_device_id")
+                .ok()
+                .flatten()
+                .and_then(|raw| raw.parse::<DeviceId>().ok());
             items.push(PendingDeviceConnectRequest {
                 request_id,
                 device_name: row.try_get("device_name")?,
@@ -1203,6 +1367,8 @@ impl ServerAuth for SqliteServerAuth {
                 created_at: unix_timestamp(created_at_unix),
                 expires_at: unix_timestamp(expires_at_unix),
                 account_display_name: row.try_get("account_display_name")?,
+                status,
+                issued_device_id,
             });
         }
         Ok(items)
@@ -1331,11 +1497,13 @@ impl ServerAuth for SqliteServerAuth {
 
             let claimed = sqlx::query(
                 "UPDATE server_device_connect_requests
-                 SET status = 'approved', issued_credential_json = ?, responded_at_unix = ?
+                 SET status = 'approved', issued_credential_json = ?, responded_at_unix = ?,
+                     issued_device_id = ?
                  WHERE id = ? AND status = 'pending'",
             )
             .bind(credential_json)
             .bind(now)
+            .bind(device_id.to_string())
             .bind(&id_str)
             .execute(&mut *connection)
             .await?;
@@ -2030,10 +2198,16 @@ mod host_console_pairing_tests {
             client_kind: Some("mobile".to_owned()),
             ..Default::default()
         };
-        auth.create_connect_request("host-1", request("Alice iPhone"), None, Some("Alice"))
-            .await
-            .expect("account request");
-        auth.create_connect_request("host-1", request("Bob iPhone"), None, None)
+        auth.create_connect_request(
+            "host-1",
+            request("Alice iPhone"),
+            None,
+            Some("Alice"),
+            false,
+        )
+        .await
+        .expect("account request");
+        auth.create_connect_request("host-1", request("Bob iPhone"), None, None, false)
             .await
             .expect("plain request");
 
@@ -2046,5 +2220,87 @@ mod host_console_pairing_tests {
         };
         assert_eq!(account_of("Alice iPhone"), Some(Some("Alice".to_owned())));
         assert_eq!(account_of("Bob iPhone"), Some(None));
+    }
+
+    #[tokio::test]
+    async fn same_account_auto_approve_issues_credential_immediately_and_replaces_mobile() {
+        use remote_protocol::DeviceConnectRequestStatus;
+        let auth = auth().await;
+        let owner = AuthenticatedCredential::host_console_owner();
+        let request = |name: &str| remote_protocol::CreateDeviceConnectRequest {
+            device_name: name.to_owned(),
+            client_kind: Some("mobile".to_owned()),
+            ..Default::default()
+        };
+
+        let first = auth
+            .create_connect_request(
+                "host-1",
+                request("Alice iPhone 15"),
+                None,
+                Some("Alice"),
+                true,
+            )
+            .await
+            .expect("first same-account connect");
+        assert_eq!(first.status, DeviceConnectRequestStatus::Approved);
+        assert_eq!(first.sas_code.len(), 4);
+        let first_cred = first.credential.expect("immediate credential");
+        assert!(
+            auth.authenticate(&first_cred.access_token)
+                .await
+                .unwrap()
+                .is_some()
+        );
+
+        // A second same-account phone smoothly replaces the first without MobileDeviceConflict
+        let second = auth
+            .create_connect_request(
+                "host-1",
+                request("Alice iPhone 16"),
+                None,
+                Some("Alice"),
+                true,
+            )
+            .await
+            .expect("second same-account connect");
+        assert_eq!(second.status, DeviceConnectRequestStatus::Approved);
+        let second_cred = second.credential.expect("second credential");
+        assert!(
+            auth.authenticate(&first_cred.access_token)
+                .await
+                .unwrap()
+                .is_none()
+        );
+        assert!(
+            auth.authenticate(&second_cred.access_token)
+                .await
+                .unwrap()
+                .is_some()
+        );
+
+        // Host console sees the active auto-approved entry with SAS code and device ID
+        let listed = auth.list_connect_requests(&owner).await.expect("list");
+        assert_eq!(listed.len(), 1);
+        assert_eq!(listed[0].device_name, "Alice iPhone 16");
+        assert_eq!(listed[0].status, Some(DeviceConnectRequestStatus::Approved));
+        assert_eq!(listed[0].issued_device_id, Some(second_cred.device_id));
+        assert_eq!(listed[0].sas_code, second.sas_code);
+
+        // One-click disconnect from the desktop banner revokes the credential and hides the notice
+        auth.revoke_device(&owner, second_cred.device_id)
+            .await
+            .expect("revoke");
+        assert!(
+            auth.authenticate(&second_cred.access_token)
+                .await
+                .unwrap()
+                .is_none()
+        );
+        let after_revoke = auth
+            .list_connect_requests(&owner)
+            .await
+            .expect("list after revoke");
+        assert!(after_revoke.is_empty());
     }
 }

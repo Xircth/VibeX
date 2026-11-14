@@ -1,9 +1,10 @@
 //! Same-account device authorization.
 //!
-//! A device that presents a VibeX account token may ask this host for a connection when
-//! the token belongs to the account signed in on the host. The host never trusts the
-//! identity a device claims: both sides are resolved through the VibeX site. The request
-//! still waits for one-time approval on the desktop like any other connect request.
+//! A device that presents a VibeX account token may connect directly when the token belongs
+//! to the account signed in on the host. The host never trusts the identity a device claims:
+//! both sides are resolved through the VibeX site. When same-account auto-connect is enabled
+//! (the default), the host issues a Companion credential immediately and surfaces the 4-digit
+//! SAS connection code on both screens for non-blocking visual verification.
 
 use std::{path::Path, sync::OnceLock, time::Duration};
 
@@ -13,6 +14,7 @@ use serde_json::{Map, Value};
 /// Keys the desktop frontend writes into the host's `frontend` settings section.
 const HOST_ACCOUNT_TOKEN_KEY: &str = "__account_token_v1";
 const HOST_ACCOUNT_OWNER_KEY: &str = "__account_owner_v1";
+const HOST_SAME_ACCOUNT_AUTO_CONNECT_KEY: &str = "__same_account_auto_connect_v1";
 
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
 pub(crate) enum AccountLinkError {
@@ -41,6 +43,13 @@ impl AccountLinkError {
 pub(crate) struct AccountIdentity {
     pub username: String,
     pub display_name: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct VerifiedSameAccount {
+    pub identity: AccountIdentity,
+    /// Defaults to `true` unless the user explicitly turned off same-account auto-connect in Settings.
+    pub auto_approve: bool,
 }
 
 #[async_trait]
@@ -112,6 +121,7 @@ fn identity_from_user(user: Option<&Value>) -> Option<AccountIdentity> {
 struct HostAccount {
     owner_username: Option<String>,
     token: Option<String>,
+    auto_approve: bool,
 }
 
 async fn read_host_account(settings_path: &Path) -> HostAccount {
@@ -130,19 +140,25 @@ async fn read_host_account(settings_path: &Path) -> HostAccount {
     }
     .filter(|token| !token.is_empty())
     .map(ToOwned::to_owned);
+    let auto_approve = match frontend.get(HOST_SAME_ACCOUNT_AUTO_CONNECT_KEY) {
+        Some(Value::Bool(flag)) => *flag,
+        Some(Value::String(raw)) => !raw.trim().eq_ignore_ascii_case("false"),
+        _ => true,
+    };
     HostAccount {
         owner_username,
         token,
+        auto_approve,
     }
 }
 
 /// Verifies that `device_token` belongs to the account signed in on this host and returns
-/// that account's identity.
+/// that account's identity along with the host's auto-approve preference.
 pub(crate) async fn verify_same_account(
     settings_path: &Path,
     resolver: &dyn AccountResolver,
     device_token: &str,
-) -> Result<AccountIdentity, AccountLinkError> {
+) -> Result<VerifiedSameAccount, AccountLinkError> {
     let host = read_host_account(settings_path).await;
     if host.owner_username.is_none() && host.token.is_none() {
         return Err(AccountLinkError::HostSignedOut);
@@ -162,7 +178,10 @@ pub(crate) async fn verify_same_account(
         },
     };
     if device.username.eq_ignore_ascii_case(&owner_username) {
-        Ok(device)
+        Ok(VerifiedSameAccount {
+            identity: device,
+            auto_approve: host.auto_approve,
+        })
     } else {
         Err(AccountLinkError::Mismatch)
     }
@@ -213,17 +232,32 @@ mod tests {
     #[tokio::test]
     async fn accepts_device_of_the_host_owner() {
         let dir = settings_with(json!({
-        HOST_ACCOUNT_OWNER_KEY: { "username": "alice", "displayName": "Alice" },
-           }))
+            HOST_ACCOUNT_OWNER_KEY: { "username": "alice", "displayName": "Alice" },
+        }))
         .await;
-        let identity = verify_same_account(
+        let verified = verify_same_account(
             &dir.path().join("settings.json"),
             &resolver(),
             "tok-alice-2",
         )
         .await
         .unwrap();
-        assert_eq!(identity.username, "Alice");
+        assert_eq!(verified.identity.username, "Alice");
+        assert!(verified.auto_approve);
+
+        let manual_dir = settings_with(json!({
+            HOST_ACCOUNT_OWNER_KEY: { "username": "alice", "displayName": "Alice" },
+            HOST_SAME_ACCOUNT_AUTO_CONNECT_KEY: false,
+        }))
+        .await;
+        let manual = verify_same_account(
+            &manual_dir.path().join("settings.json"),
+            &resolver(),
+            "tok-alice-2",
+        )
+        .await
+        .unwrap();
+        assert!(!manual.auto_approve);
     }
 
     #[tokio::test]

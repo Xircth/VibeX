@@ -302,11 +302,21 @@ impl ConversationSessionService {
         &self,
         conversation_id: Uuid,
     ) -> Result<(), ConversationServiceError> {
-        self.ctx
+        let res = self
+            .ctx
             .agent_runtime
             .touch_session(AgentSessionId(conversation_id))
             .await
-            .map_err(Into::into)
+            .map_err(Into::into);
+        let _ = sqlx::query(
+            r#"UPDATE sessions
+               SET updated_at = datetime('now', 'subsec')
+               WHERE id = ? AND deleted_at IS NULL"#,
+        )
+        .bind(conversation_id)
+        .execute(&self.ctx.deployment.db().pool)
+        .await;
+        res
     }
 
     /// `watch` registers the on-screen surface. The runtime repeats the bump.
@@ -316,11 +326,23 @@ impl ConversationSessionService {
         conversation_id: Uuid,
         watch: bool,
     ) -> Result<(), ConversationServiceError> {
-        self.ctx
+        let res = self
+            .ctx
             .agent_runtime
             .set_session_keepalive(AgentSessionId(conversation_id), watch)
             .await
-            .map_err(Into::into)
+            .map_err(Into::into);
+        if watch {
+            let _ = sqlx::query(
+                r#"UPDATE sessions
+                   SET updated_at = datetime('now', 'subsec')
+                   WHERE id = ? AND deleted_at IS NULL"#,
+            )
+            .bind(conversation_id)
+            .execute(&self.ctx.deployment.db().pool)
+            .await;
+        }
+        res
     }
 
     pub(super) async fn ensure_session_controls_locked(

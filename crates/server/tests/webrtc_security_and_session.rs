@@ -566,6 +566,7 @@ async fn mobile_zero_config_connect_request_triggers_host_prompt_and_approves_wi
                         public_key_ed25519: Some(pubkey_b64.clone()),
                         session_nonce: Some("first-connect-nonce".to_owned()),
                         replace_existing_mobile: false,
+                        account_token: None,
                     })
                     .expect("serialize"),
                 ))

@@ -942,9 +942,33 @@ async fn create_connect_request<R>(
     Json(request): Json<CreateDeviceConnectRequest>,
 ) -> Response {
     let ip_address = extract_client_ip(&headers, state.config.listen_addr);
+    let (account_display_name, auto_approve) = match request
+        .account_token
+        .as_deref()
+        .map(str::trim)
+        .filter(|token| !token.is_empty())
+    {
+        Some(token) => match crate::account_link::verify_same_account(
+            &utils::assets::settings_path(),
+            crate::account_link::site_resolver(),
+            token,
+        )
+        .await
+        {
+            Ok(verified) => (Some(verified.identity.display_name), verified.auto_approve),
+            Err(error) => return account_link_error_response(&error),
+        },
+        None => (None, false),
+    };
     match state
         .auth
-        .create_connect_request(&state.config.host_id, request, ip_address.as_deref())
+        .create_connect_request(
+            &state.config.host_id,
+            request,
+            ip_address.as_deref(),
+            account_display_name.as_deref(),
+            auto_approve,
+        )
         .await
     {
         Ok(response) => (StatusCode::CREATED, Json(response)).into_response(),
@@ -1156,6 +1180,27 @@ fn status_for_error_code(code: ErrorCode) -> StatusCode {
         ErrorCode::Internal => StatusCode::INTERNAL_SERVER_ERROR,
         _ => StatusCode::INTERNAL_SERVER_ERROR,
     }
+}
+
+fn account_link_error_response(error: &crate::account_link::AccountLinkError) -> Response {
+    use crate::account_link::AccountLinkError;
+    let (status, code) = match error {
+        AccountLinkError::Mismatch => (StatusCode::FORBIDDEN, ErrorCode::Forbidden),
+        AccountLinkError::InvalidToken => (StatusCode::UNAUTHORIZED, ErrorCode::Unauthorized),
+        AccountLinkError::HostSignedOut => (StatusCode::CONFLICT, ErrorCode::Conflict),
+        AccountLinkError::Unavailable => (
+            StatusCode::SERVICE_UNAVAILABLE,
+            ErrorCode::CapabilityUnavailable,
+        ),
+    };
+    let envelope = ErrorEnvelope::new(
+        code,
+        error.to_string(),
+        matches!(error, AccountLinkError::Unavailable),
+        OperationId::new(),
+    )
+    .with_details(json!({ "reason": error.reason() }));
+    (status, Json(envelope)).into_response()
 }
 
 fn auth_error_response(error: AuthStoreError) -> Response {

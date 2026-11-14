@@ -24,6 +24,7 @@ members = [
     "crates/automation",
     "crates/workflows",
     "crates/remote-protocol",
+    "crates/relay-server",
     "crates/application",
     "crates/server",
     "src-tauri",

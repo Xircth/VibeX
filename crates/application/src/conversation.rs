@@ -205,6 +205,147 @@ fn parse_json_value(raw: Option<&str>) -> Option<serde_json::Value> {
     serde_json::from_str(text).ok()
 }
 
+fn enrich_catalog_agent_with_native_relay_models(agent: &mut ConversationCatalogAgent) {
+    let home = std::env::var_os("HOME")
+        .or_else(|| std::env::var_os("USERPROFILE"))
+        .map(std::path::PathBuf::from);
+    let Some(home) = home else {
+        return;
+    };
+
+    let mut extra_models: Vec<(String, String)> = Vec::new();
+    let mut preferred_default: Option<String> = None;
+
+    match agent.id.as_str() {
+        "claude_code" => {
+            if let Ok(raw) = std::fs::read_to_string(home.join(".claude").join("settings.json"))
+                && let Ok(val) = serde_json::from_str::<serde_json::Value>(&raw)
+            {
+                if let Some(model) = val
+                    .get("model")
+                    .and_then(serde_json::Value::as_str)
+                    .map(str::trim)
+                    .filter(|s| !s.is_empty())
+                {
+                    preferred_default = Some(model.to_string());
+                }
+                if let Some(env) = val.get("env").and_then(serde_json::Value::as_object) {
+                    for (env_key, tag) in [
+                        ("ANTHROPIC_MODEL", "主模型"),
+                        ("ANTHROPIC_DEFAULT_OPUS_MODEL", "Opus"),
+                        ("ANTHROPIC_DEFAULT_SONNET_MODEL", "Sonnet"),
+                        ("ANTHROPIC_DEFAULT_HAIKU_MODEL", "Haiku"),
+                        ("ANTHROPIC_CUSTOM_MODEL_OPTION", "自定义"),
+                    ] {
+                        if let Some(m) = env
+                            .get(env_key)
+                            .and_then(serde_json::Value::as_str)
+                            .map(str::trim)
+                            .filter(|s| !s.is_empty())
+                        {
+                            if preferred_default.is_none() && env_key == "ANTHROPIC_MODEL" {
+                                preferred_default = Some(m.to_string());
+                            }
+                            if !extra_models.iter().any(|(v, _)| v == m) {
+                                extra_models.push((m.to_string(), format!("{m} ({tag})")));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        "codex" => {
+            if let Ok(raw) =
+                std::fs::read_to_string(home.join(".codex").join("vibex-model-catalog.json"))
+                && let Ok(val) = serde_json::from_str::<serde_json::Value>(&raw)
+                && let Some(models) = val.get("models").and_then(serde_json::Value::as_array)
+            {
+                for item in models {
+                    if let Some(slug) = item
+                        .get("slug")
+                        .and_then(serde_json::Value::as_str)
+                        .map(str::trim)
+                        .filter(|s| !s.is_empty())
+                    {
+                        let label = item
+                            .get("display_name")
+                            .and_then(serde_json::Value::as_str)
+                            .map(str::trim)
+                            .filter(|s| !s.is_empty())
+                            .unwrap_or(slug);
+                        if !extra_models.iter().any(|(v, _)| v == slug) {
+                            extra_models.push((slug.to_string(), label.to_string()));
+                        }
+                    }
+                }
+            }
+        }
+        _ => {}
+    }
+
+    if extra_models.is_empty() {
+        return;
+    }
+
+    let mut options = agent
+        .session_config
+        .as_ref()
+        .and_then(serde_json::Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+
+    let model_opt_idx = options.iter().position(|opt| {
+        opt.get("category").and_then(serde_json::Value::as_str) == Some("model")
+            || opt.get("key").and_then(serde_json::Value::as_str) == Some("model")
+    });
+
+    if let Some(idx) = model_opt_idx {
+        if let Some(obj) = options[idx].as_object_mut() {
+            let mut choices = obj
+                .get("choices")
+                .and_then(serde_json::Value::as_array)
+                .cloned()
+                .unwrap_or_default();
+            for (val, label) in extra_models {
+                let exists = choices.iter().any(|c| {
+                    c.get("value")
+                        .and_then(serde_json::Value::as_str)
+                        .is_some_and(|v| v.eq_ignore_ascii_case(&val))
+                });
+                if !exists {
+                    choices.push(serde_json::json!({
+                        "value": val,
+                        "label": label,
+                    }));
+                }
+            }
+            obj.insert("choices".to_string(), serde_json::Value::Array(choices));
+        }
+    } else {
+        let default_val = preferred_default
+            .or_else(|| extra_models.first().map(|(v, _)| v.clone()))
+            .unwrap_or_default();
+        let choices: Vec<serde_json::Value> = extra_models
+            .into_iter()
+            .map(|(val, label)| serde_json::json!({ "value": val, "label": label }))
+            .collect();
+        options.insert(
+            0,
+            serde_json::json!({
+                "key": "model",
+                "label": "Model",
+                "category": "model",
+                "value": default_val,
+                "choices": choices,
+            }),
+        );
+    }
+
+    let updated = serde_json::Value::Array(options);
+    agent.session_config_json = serde_json::to_string(&updated).ok();
+    agent.session_config = Some(updated);
+}
+
 fn builtin_catalog_tags() -> Vec<ConversationCatalogTag> {
     vec![
         ConversationCatalogTag {
@@ -1037,8 +1178,7 @@ impl ConversationRepository for SqliteConversationRepository {
                     .modes_json
                     .filter(|value| !value.is_empty() && value != "[]");
             }
-            if agent.session_config.is_none()
-                && let Ok(Some(controls)) = self.catalog_agent_capability(&agent.id).await
+            if let Ok(Some(controls)) = self.catalog_agent_capability(&agent.id).await
                 && let Ok(value) = serde_json::from_str::<serde_json::Value>(&controls)
             {
                 let modes = value
@@ -1047,13 +1187,29 @@ impl ConversationRepository for SqliteConversationRepository {
                     .filter(|item| item != &serde_json::json!([]));
                 let options = value
                     .get("config_options")
+                    .or_else(|| value.get("configOptions"))
                     .cloned()
                     .filter(|item| item != &serde_json::json!([]));
-                if agent.session_modes.is_none() {
-                    agent.session_modes = modes;
+                let current_mode = value
+                    .get("current_mode")
+                    .or_else(|| value.get("currentMode"))
+                    .and_then(serde_json::Value::as_str)
+                    .map(str::trim)
+                    .filter(|s| !s.is_empty())
+                    .map(ToOwned::to_owned);
+                if agent.current_mode.is_none() {
+                    agent.current_mode = current_mode;
                 }
-                agent.session_config = options;
+                if agent.session_modes.is_none() && let Some(modes_val) = modes {
+                    agent.session_modes_json = serde_json::to_string(&modes_val).ok();
+                    agent.session_modes = Some(modes_val);
+                }
+                if agent.session_config.is_none() && let Some(options_val) = options {
+                    agent.session_config_json = serde_json::to_string(&options_val).ok();
+                    agent.session_config = Some(options_val);
+                }
             }
+            enrich_catalog_agent_with_native_relay_models(agent);
         }
         let mut tags = builtin_catalog_tags();
         if let Ok(rows) = db::models::tag::Tag::find_all(self.pool()).await {

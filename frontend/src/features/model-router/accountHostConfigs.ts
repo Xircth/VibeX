@@ -52,6 +52,15 @@ export const ACCOUNT_HOST_CONFIGS_STORAGE_KEY = 'vibex.account.hostConfigs.v1';
 export const DESKTOP_SHARED_HOST_CONFIGS_KEY = '__account_host_configs_v1';
 const ACCOUNT_HOST_CONFIGS_EVENT = 'vibex:account-host-configs-changed';
 const AUTO_SYNC_DEBOUNCE_MS = 800;
+/** Leases last 30 days; renewing on a timer keeps the relay up without relying on window focus. */
+const RELAY_LEASE_RENEW_INTERVAL_MS = 6 * 60 * 60 * 1000;
+/** Lease errors that mean the account or host can no longer use the relay; others are transient. */
+const RELAY_LEASE_TERMINAL_ERRORS = new Set([
+  'signed_out',
+  'account_disabled',
+  'host_id_conflict',
+  'invalid_host_id',
+]);
 
 export type AccountHostKind = 'local' | 'ssh' | 'remote' | 'web';
 
@@ -819,7 +828,9 @@ export async function reconcileRemoteHostAccount(
     rawHostId || null,
     rawHostId ? `host:${rawHostId}` : null,
     profile?.origin?.trim().replace(/\/+$/, '') || null,
-    profile?.origin ? `origin:${profile.origin.trim().replace(/\/+$/, '')}` : null,
+    profile?.origin
+      ? `origin:${profile.origin.trim().replace(/\/+$/, '')}`
+      : null,
   ];
 
   const remoteTokenRaw = remotePrefs?.[DESKTOP_SHARED_ACCOUNT_TOKEN_KEY];
@@ -929,8 +940,14 @@ async function issueAndApplyLocalRelayLease(input: {
       window.dispatchEvent(new Event('vibex:host-tunnel-updated'));
     }
     return true;
-  } catch {
-    await hostTunnelApi.setAccountLease(null).catch(() => undefined);
+  } catch (cause) {
+    // A network blip must not tear down a working relay; the stored lease stays valid.
+    if (
+      cause instanceof AccountError &&
+      RELAY_LEASE_TERMINAL_ERRORS.has(cause.code)
+    ) {
+      await hostTunnelApi.setAccountLease(null).catch(() => undefined);
+    }
     return false;
   }
 }
@@ -1487,20 +1504,28 @@ export function AccountHostConfigSyncBridge(): null {
   // Immediate sync upon login / account identity resolution, and debounced sync when Config changes.
   const hasInitialSyncForAccountRef = useRef<string | null>(null);
   useEffect(() => {
-    if (!accountKey || !user || loading || !config) {
-      if (!accountKey) {
-        hasInitialSyncForAccountRef.current = null;
-        resetStoreOnSignOut();
-      }
+    if (!isSignedIn) {
+      hasInitialSyncForAccountRef.current = null;
+      resetStoreOnSignOut();
       return;
     }
+    // While the account profile is still loading the relay lease stays in place.
+    if (!accountKey || !user || loading || !config) return;
     if (hasInitialSyncForAccountRef.current !== accountKey) {
       hasInitialSyncForAccountRef.current = accountKey;
       void syncAccountHostConfigs(user);
       return;
     }
     scheduleAutoSync();
-  }, [accountKey, config, loading, scheduleAutoSync, user]);
+  }, [accountKey, config, isSignedIn, loading, scheduleAutoSync, user]);
+
+  useEffect(() => {
+    if (!accountKey) return;
+    const timer = window.setInterval(() => {
+      void syncCurrentHostRelayLease();
+    }, RELAY_LEASE_RENEW_INTERVAL_MS);
+    return () => window.clearInterval(timer);
+  }, [accountKey]);
 
   // Listen for frontend preference changes & Agent enablement/reorder events on the current Host.
   useEffect(() => {

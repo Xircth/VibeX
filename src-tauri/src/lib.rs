@@ -763,6 +763,7 @@ pub fn run() {
         commands::web_service::list_host_connect_requests,
         commands::web_service::respond_host_connect_request,
         commands::web_service::revoke_host_device,
+        commands::web_service::revoke_account_linked_devices,
         commands::host_tunnel::get_host_tunnel,
         commands::host_tunnel::set_host_tunnel_enabled,
         commands::host_tunnel::check_existing_host_tunnel,

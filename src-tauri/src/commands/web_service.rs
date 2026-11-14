@@ -700,9 +700,17 @@ pub async fn create_host_device_pairing(
         &challenge,
         reachability,
     );
-    Ok(remote_protocol::IssuedPairingInvitation::from_payload(
-        challenge, payload,
-    ))
+    let issued = remote_protocol::IssuedPairingInvitation::from_payload(challenge, payload);
+    let code_for_beacon = issued.connection_code.clone();
+    let host_id_for_beacon = issued.host_id.clone();
+    tokio::spawn(async move {
+        crate::commands::host_tunnel::publish_pairing_code_beacon(
+            &code_for_beacon,
+            &host_id_for_beacon,
+        )
+        .await;
+    });
+    Ok(issued)
 }
 
 #[tauri::command]
@@ -775,6 +783,16 @@ pub async fn revoke_host_device(
     )
     .await
     .map_err(|error| AppError::Internal(error.to_string()))
+}
+
+/// Revokes the phones and computers admitted through the VibeX account of this Host, so
+/// signing out disconnects them on every path (LAN and relay).
+#[tauri::command]
+pub async fn revoke_account_linked_devices(app: tauri::AppHandle) -> Result<u64, AppError> {
+    let auth = server::SqliteServerAuth::new(app.state::<AppState>().deployment.db().pool.clone());
+    auth.revoke_account_linked_devices(&server::AuthenticatedCredential::host_console_owner())
+        .await
+        .map_err(|error| AppError::Internal(error.to_string()))
 }
 
 pub(crate) async fn listening_port() -> Option<u16> {

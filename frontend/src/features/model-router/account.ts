@@ -2,6 +2,7 @@ import { getSiteUrl } from '@/lib/branding';
 import {
   hostClientApi,
   hostTunnelApi,
+  webServiceApi,
   type SyncableHostProfile,
 } from '@/lib/api';
 import { isTauriClient } from '@/lib/desktopShell';
@@ -481,6 +482,8 @@ export const accountApi = {
     void hostTunnelApi.setAccountLease(null).catch(() => null);
     if (isTauriClient()) {
       void hostClientApi.setSyncAccount(null).catch(() => null);
+      // Phones were admitted because they share this account; signing out ends that trust.
+      void webServiceApi.revokeAccountLinkedDevices().catch(() => null);
     }
     if (typeof window !== 'undefined') {
       window.dispatchEvent(new Event('vibex:host-tunnel-updated'));

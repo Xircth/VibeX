@@ -245,14 +245,17 @@ fn default_official_quick_origin(store: &HostTunnelStore) -> Option<String> {
 }
 
 fn all_published_origin_strings(store: &HostTunnelStore) -> Vec<String> {
-    if !store.enabled {
-        return Vec::new();
-    }
     let mut origins = Vec::new();
-    if let Some(custom) = active_published_origin(store) {
-        origins.push(custom);
-    }
-    if let Some(quick) = default_official_quick_origin(store)
+    if store.enabled {
+        if let Some(custom) = active_published_origin(store) {
+            origins.push(custom);
+        }
+        if let Some(quick) = default_official_quick_origin(store)
+            && !origins.contains(&quick)
+        {
+            origins.push(quick);
+        }
+    } else if let Some(quick) = quick_tunnel_origin()
         && !origins.contains(&quick)
     {
         origins.push(quick);
@@ -602,11 +605,53 @@ async fn run_quick_tunnel_supervisor(local_port: u16) {
             let token = lease.lease_token.trim().to_string();
             let state = Arc::new(Mutex::new(RelayState::default()));
             let key = format!("{}:{}:official", host, port);
-            let _ = maintain_control(&host, port, &token, local_port, &key, &state).await;
+            if let Err(error) =
+                maintain_control(&host, port, &token, local_port, &key, &state).await
+                && let Some(reason) = terminal_lease_rejection(&error)
+            {
+                tracing::warn!(reason, "official relay rejected the account lease");
+                drop_rejected_account_lease(&token).await;
+            }
         } else {
             set_quick_tunnel_origin(None);
         }
         tokio::time::sleep(Duration::from_secs(3)).await;
+    }
+}
+
+const RELAY_REJECTION_PREFIX: &str = "relay rejected control session: ";
+
+/// Relay rejections that the same lease can never recover from (the computer was removed
+/// from the account, or the lease is no longer valid). Retrying them only loads the relay.
+fn terminal_lease_rejection(error: &str) -> Option<&str> {
+    let reason = error.strip_prefix(RELAY_REJECTION_PREFIX)?.trim();
+    matches!(
+        reason,
+        "host_revoked" | "lease_expired" | "invalid_lease_signature" | "lease_host_mismatch"
+    )
+    .then_some(reason)
+}
+
+/// Forgets a lease the relay rejected, unless the frontend already stored a newer one; the
+/// next lease renewal reconnects the relay.
+async fn drop_rejected_account_lease(rejected_token: &str) {
+    let Ok(mut store) = load_store().await else {
+        return;
+    };
+    let still_current = store
+        .account_lease
+        .as_ref()
+        .is_some_and(|lease| lease.lease_token.trim() == rejected_token);
+    if !still_current {
+        return;
+    }
+    store.account_lease = None;
+    set_quick_tunnel_origin(None);
+    if store.active_id.as_deref() == Some("auto-quick-tunnel") {
+        store.active_id = store.saved.first().map(|item| item.id.clone());
+    }
+    if let Err(error) = save_store(&store).await {
+        tracing::warn!(%error, "failed to forget the rejected relay lease");
     }
 }
 
@@ -623,19 +668,50 @@ fn sha256_hex(input: &str) -> String {
     out
 }
 
-const SHARED_CLOUD_DISCOVERY_TOPIC: &str = "vbx-cloud-hosts-v1";
-
 async fn publish_domestic_beacon(relay_host: &str, relay_port: u16, host_id: &str, origin: &str) {
-    let host_name = utils::net::local_hostname().unwrap_or_else(|| "VibeX Desktop".to_string());
     let payload = serde_json::json!({
         "v": 2,
         "host_id": host_id,
-        "name": host_name,
         "origin": origin,
         "ts": Utc::now().timestamp(),
     });
     let host_hash = &sha256_hex(&format!("vibex-host-v1:{host_id}"))[..32];
     let topic = format!("vbx-h-{host_hash}");
+    post_relay_beacon_topic(relay_host, relay_port, &topic, &payload).await;
+}
+
+pub async fn publish_pairing_code_beacon(connection_code: &str, host_id: &str) {
+    let clean_code: String = connection_code
+        .trim()
+        .chars()
+        .filter(|c| !c.is_whitespace() && *c != '-')
+        .collect::<String>()
+        .to_ascii_uppercase();
+    if clean_code.is_empty() || host_id.trim().is_empty() {
+        return;
+    }
+    let Some(endpoint) = utils::tunnel::official_relay_endpoint(None) else {
+        return;
+    };
+    let origin = quick_tunnel_origin()
+        .unwrap_or_else(|| utils::tunnel::format_tenant_origin("https", &endpoint, host_id));
+    let payload = serde_json::json!({
+        "v": 2,
+        "host_id": host_id,
+        "origin": origin,
+        "ts": Utc::now().timestamp(),
+    });
+    let code_hash = &sha256_hex(&format!("vibex-pair-code-v1:{clean_code}"))[..32];
+    let topic = format!("vbx-p-{code_hash}");
+    post_relay_beacon_topic(&endpoint.host, endpoint.port, &topic, &payload).await;
+}
+
+async fn post_relay_beacon_topic(
+    relay_host: &str,
+    relay_port: u16,
+    topic: &str,
+    payload: &serde_json::Value,
+) {
     let is_domain = relay_host.parse::<std::net::IpAddr>().is_err()
         && !relay_host.eq_ignore_ascii_case("localhost");
     let (base_url, target_port) = if is_domain && (relay_port == 80 || relay_port == 443) {
@@ -664,12 +740,7 @@ async fn publish_domestic_beacon(relay_host: &str, relay_port: u16, host_id: &st
     if let Ok(client) = builder.build() {
         let _ = client
             .post(format!("{base_url}/{topic}"))
-            .json(&payload)
-            .send()
-            .await;
-        let _ = client
-            .post(format!("{base_url}/{SHARED_CLOUD_DISCOVERY_TOPIC}"))
-            .json(&payload)
+            .json(payload)
             .send()
             .await;
     }
@@ -743,17 +814,13 @@ async fn maintain_control(
         .ok()
         .flatten()
         .unwrap_or_else(|| "default".to_string());
-    let host_name = utils::net::local_hostname().unwrap_or_else(|| "VibeX Desktop".to_string());
-    let lan_origins: Vec<String> = utils::net::advertised_http_origins(local_port, true)
-        .into_iter()
-        .filter(|origin| !remote_protocol::is_loopback_origin(origin))
-        .collect();
 
     let stream = connect_to_relay_host(host, port).await?;
     let (reader, mut writer) = stream.into_split();
 
-    let name_b64 = BASE64.encode(host_name.as_bytes());
-    let lan_b64 = BASE64.encode(serde_json::to_vec(&lan_origins).unwrap_or_default());
+    // Never transmit local hostname or internal LAN IPs to the public relay control plane.
+    let name_b64 = BASE64.encode(b"VibeX Desktop");
+    let lan_b64 = BASE64.encode(b"[]");
     writer
         .write_all(format!("VIBEX-CTRL v2 {host_id} {token} {name_b64} {lan_b64}\n").as_bytes())
         .await
@@ -803,7 +870,7 @@ async fn maintain_control(
         }
         if let Some(err_reason) = trimmed.strip_prefix("ERR ") {
             writer_task.abort();
-            return Err(format!("relay rejected control session: {err_reason}"));
+            return Err(format!("{RELAY_REJECTION_PREFIX}{err_reason}"));
         }
         // Backwards compatibility with v1 single-host relay script
         if let Some(id) = trimmed.strip_prefix("OPEN ") {
@@ -1509,6 +1576,25 @@ mod tests {
                 ("http://192.168.1.20:17891", "lan"),
             ]
         );
+    }
+
+    #[test]
+    fn only_unrecoverable_relay_rejections_drop_the_lease() {
+        assert_eq!(
+            super::terminal_lease_rejection("relay rejected control session: host_revoked"),
+            Some("host_revoked")
+        );
+        assert_eq!(
+            super::terminal_lease_rejection("relay rejected control session: lease_expired"),
+            Some("lease_expired")
+        );
+        assert_eq!(
+            super::terminal_lease_rejection(
+                "relay rejected control session: relay_lease_unconfigured"
+            ),
+            None
+        );
+        assert_eq!(super::terminal_lease_rejection("connection reset"), None);
     }
 
     #[test]

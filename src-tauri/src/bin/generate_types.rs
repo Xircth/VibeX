@@ -346,6 +346,7 @@ const DESKTOP_SHELL_COMMANDS: &[&str] = &[
     "update_tray_badge",
     "host_client_delete",
     "revoke_host_device",
+    "revoke_account_linked_devices",
     "fixture_delegate",
     "fixture_reset",
     // The asset protocol lives in the local webview, so the Host — which may be

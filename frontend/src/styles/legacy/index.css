@@ -572,20 +572,20 @@
     @apply border-border;
   }
 
-  /* Thumb only: Safari 18+ and Chromium 121+ paint a track when
-     `scrollbar-width` / `scrollbar-color` are set, and those properties
-     override ::-webkit-scrollbar. Keep the standard properties as a
-     Firefox fallback. */
+  /* A non-none `scrollbar-width` or a styled `::-webkit-scrollbar` width
+     becomes a classic gutter on Windows. That gutter appears only after
+     the content overflows and reflows the tab. Zero volume is set
+     unlayered below; do not restore `thin` here. */
   .legacy-design,
   .legacy-design * {
     scrollbar-gutter: auto;
+    scrollbar-width: none;
   }
 
   @supports not selector(::-webkit-scrollbar) {
     .legacy-design,
     .legacy-design * {
-      scrollbar-width: thin;
-      scrollbar-color: hsl(var(--muted-foreground) / 0.32) transparent;
+      scrollbar-width: none;
     }
   }
 
@@ -1171,6 +1171,36 @@
   .legacy-design .logo {
     @apply fill-foreground;
   }
+}
+
+/* Unlayered so a later component layer cannot put the gutter back.
+   Windows WebView2 gives a styled scrollbar layout width (6px here, 15px
+   for the OS bar). `scrollbar-width: none` keeps that width at 0 when the
+   page grows, so text does not reflow. `.overlay-scrollbar-thumb` is the
+   indicator and does not participate in layout. */
+.legacy-design,
+.legacy-design * {
+  scrollbar-width: none;
+}
+
+.overlay-scrollbar-thumb {
+  position: fixed;
+  z-index: 12000;
+  border-radius: 999px;
+  background: hsl(var(--muted-foreground) / 0.32);
+  opacity: 0;
+  pointer-events: none;
+  transition: background-color 120ms ease;
+}
+
+.overlay-scrollbar-thumb.is-visible {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.overlay-scrollbar-thumb:hover,
+.overlay-scrollbar-thumb.is-dragging {
+  background: hsl(var(--muted-foreground) / 0.48);
 }
 
 /* Unlayered: WebView2 paints Fluent/Win11 widgets for native <input>
@@ -4047,8 +4077,7 @@ html.dark {
 
   @supports not selector(::-webkit-scrollbar) {
     .composer-select-list {
-      scrollbar-width: thin;
-      scrollbar-color: hsl(var(--muted-foreground) / 0.28) transparent;
+      scrollbar-width: none;
     }
   }
 

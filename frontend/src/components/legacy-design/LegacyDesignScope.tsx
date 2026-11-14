@@ -5,6 +5,7 @@ import NiceModal from '@ebay/nice-modal-react';
 import { cn } from '@/lib/utils';
 import { useTheme } from '@/components/ThemeProvider';
 import { Theme as AstryxTheme } from '@astryxdesign/core/theme';
+import { OverlayScrollbar } from '@/components/legacy-design/OverlayScrollbar';
 import { NativeTitleTooltipHost } from '@/components/ui/native-title-tooltip-host';
 import { neutralTheme } from '@astryxdesign/theme-neutral/built';
 // Astryx CSS cascade: reset → component styles → theme token overrides.
@@ -53,6 +54,7 @@ export function LegacyDesignScope({
                 <NiceModal.Provider>
                   {children}
                   <NativeTitleTooltipHost />
+                  <OverlayScrollbar />
                 </NiceModal.Provider>
               </AstryxTheme>
             </WorkspaceOverlayProvider>

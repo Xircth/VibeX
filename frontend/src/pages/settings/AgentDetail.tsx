@@ -1,7 +1,10 @@
 import {
+  CheckCircle2,
   Download,
   ExternalLink,
+  KeyRound,
   Loader2,
+  Minus,
   RefreshCw,
   Stethoscope,
   Trash2,
@@ -19,6 +22,7 @@ import type {
 } from 'shared/types';
 
 import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
 import {
   Dialog,
   DialogDescription,
@@ -227,14 +231,18 @@ export function AgentDetail({
               <h2 className="text-base font-semibold text-foreground">
                 {agent.display_name}
               </h2>
-              <span
+              <Badge
+                variant="outline"
+                role="status"
+                data-auth={agent.authentication}
                 className={cn(
                   'agent-auth-status shrink-0',
                   authenticationTone(agent.authentication)
                 )}
               >
+                {authenticationIcon(agent.authentication)}
                 {authenticationLabel(t, agent.authentication)}
-              </span>
+              </Badge>
             </div>
             <p className="mt-0.5 text-xs text-muted-foreground">
               {agent.description}
@@ -335,7 +343,7 @@ export function AgentDetail({
 
       <section
         aria-labelledby="agent-preflight-heading"
-        className="settings-surface agent-preflight-surface"
+        className="agent-preflight-surface"
       >
         <AgentSectionHeading
           headingId="agent-preflight-heading"
@@ -542,21 +550,22 @@ export function AgentDetail({
           </div>
         </AgentSectionHeading>
 
-        {preflightExpanded ? (
-          <>
-            {operation ? (
-              <AgentOperationProgress
-                operation={operation}
-                onCancel={onCancelOperation}
-              />
-            ) : null}
+        {operation ? (
+          <AgentOperationProgress
+            operation={operation}
+            onCancel={onCancelOperation}
+          />
+        ) : null}
 
-            <ul className="agent-preflight-grid">
+        {preflightExpanded ? (
+          <div id="agent-preflight-heading-body">
+            <ul className="agent-preflight-chips">
               {items.map((item) => (
                 <AgentPreflightCard
                   key={item.id}
                   item={item}
                   busy={busy}
+                  layout="chip"
                   onUpdate={
                     onUpdatePreflightItem
                       ? () => onUpdatePreflightItem(item.id)
@@ -579,18 +588,18 @@ export function AgentDetail({
                 </Button>
               </div>
             ) : null}
-          </>
+          </div>
         ) : null}
       </section>
 
       {diagnostics.length > 0 ? (
         <details
-          className="settings-surface"
+          className="agent-diagnostics-surface"
           open={diagnosticsOpen}
           onToggle={(event) => setDiagnosticsOpen(event.currentTarget.open)}
         >
-          <summary className="flex cursor-pointer flex-wrap items-center justify-between gap-2 px-4 py-3 text-sm font-medium">
-            <span className="flex items-center gap-2">
+          <summary className="agent-section-heading cursor-pointer list-none [&::-webkit-details-marker]:hidden">
+            <span className="flex items-center gap-2 text-sm font-semibold text-foreground">
               {t('agents.diagnosticsTitle')} · {diagnostics.length}
               {unreadDiagnostics > 0 ? (
                 <span className="rounded-full bg-destructive/10 px-2 py-0.5 text-xs font-medium text-destructive">
@@ -626,7 +635,7 @@ export function AgentDetail({
             </span>
           </summary>
           {operationDiagnosticsEnabled ? (
-            <ul className="space-y-2 px-4 py-3">
+            <ul className="agent-diagnostics-list space-y-2">
               {diagnostics.slice(0, 20).map((diagnostic) => (
                 <li
                   className={cn(
@@ -844,6 +853,18 @@ function authenticationLabel(
     case 'not_required':
       return t('agents.authNotRequired');
   }
+}
+
+function authenticationIcon(
+  authentication: AgentManagementView['authentication']
+): ReactNode {
+  const Icon =
+    authentication === 'account' || authentication === 'api_key'
+      ? CheckCircle2
+      : authentication === 'not_logged_in'
+        ? KeyRound
+        : Minus;
+  return <Icon aria-hidden="true" className="size-3 shrink-0" />;
 }
 
 function authenticationTone(

@@ -1694,7 +1694,12 @@ describe('AgentSettings', () => {
 
     render(<AgentSettings />);
     await waitFor(() => expect(api.preflight).toHaveBeenCalledWith('codex'));
-    expect(await screen.findByTitle('1.1.0')).toBeInTheDocument();
+    const acpExpand = await screen.findByRole('button', {
+      name: '展开 ACP 适配器 的检查详情',
+    });
+    expect(screen.queryByTitle('1.1.0')).not.toBeInTheDocument();
+    await userEvent.click(acpExpand);
+    expect(screen.getByTitle('1.1.0')).toBeInTheDocument();
     expect(screen.queryByText('本地 Runtime')).not.toBeInTheDocument();
     expect(screen.queryByText('可更新')).not.toBeInTheDocument();
     expect(
@@ -1756,6 +1761,11 @@ describe('AgentSettings', () => {
     });
 
     render(<AgentSettings />);
+    await userEvent.click(
+      await screen.findByRole('button', {
+        name: '展开 ACP 适配器 的检查详情',
+      })
+    );
     await waitFor(() =>
       expect(
         screen.getByTitle('@agentclientprotocol/codex-acp 1.8.0')
@@ -2536,6 +2546,11 @@ describe('AgentSettings', () => {
     await screen.findByRole('button', { name: 'Codex' });
     await waitFor(() =>
       expect(listeners.has('agent-management-event')).toBe(true)
+    );
+    await userEvent.click(
+      await screen.findByRole('button', {
+        name: '展开 ACP 适配器 的检查详情',
+      })
     );
     expect(await screen.findByTitle('1.1.0')).toBeInTheDocument();
     api.preflight.mockClear();

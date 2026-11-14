@@ -567,7 +567,7 @@ describe('session hub data helpers', () => {
 });
 
 describe('session status colors', () => {
-  it('maps workbench columns to gray, yellow, red, and blue', () => {
+  it('maps workbench columns to shared lifecycle color tokens', () => {
     expect(SESSION_STATUS_LIGHT_COLORS).toEqual({
       todo: 'var(--session-status-todo)',
       inprogress: 'var(--session-status-inprogress)',

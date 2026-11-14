@@ -17,6 +17,7 @@ import { useUiPreferencesScratch } from '@/hooks/useUiPreferencesScratch';
 
 import { UserSystemProvider, useUserSystem } from '@/components/ConfigProvider';
 import { ThemeProvider, useTheme } from '@/components/ThemeProvider';
+import { StartupOverlayContext } from '@/contexts/StartupOverlayContext';
 import { SearchProvider } from '@/contexts/SearchContext';
 import { Toaster } from '@/components/ui/toast';
 import { ProjectWindowManager } from '@/components/layout/ProjectWindowManager';
@@ -117,12 +118,14 @@ function MainAppContent({ children }: { children: ReactNode }) {
       editor,
       defaultAgentId,
       skipped,
+      theme,
     }: {
       editor: NonNullable<typeof config>['editor'];
       defaultAgentId: NonNullable<
         typeof config
       >['executor_profile']['executor'];
       skipped: boolean;
+      theme?: NonNullable<typeof config>['theme'];
     }) => {
       // The guide stays mounted only while onboarding is unacknowledged.
       // Saving the choices here must not dismiss it; acknowledgement waits
@@ -133,6 +136,7 @@ function MainAppContent({ children }: { children: ReactNode }) {
       }
       const saved = await updateAndSaveConfig({
         editor,
+        ...(theme ? { theme } : {}),
         executor_profile: { executor: defaultAgentId, variant: null },
       });
       if (!saved) throw new Error(i18n.t('dialogs:onboarding.setupFailed'));
@@ -292,18 +296,23 @@ function MainAppContent({ children }: { children: ReactNode }) {
           {isTauri ? <TrayBadgeSync /> : null}
           {isTauri ? <DesktopWindowControls /> : null}
           <ThemedToaster />
-          {children}
-          {config && isTauri && startupPromptStep === 'first-run' ? (
-            <Suspense fallback={null}>
-              <FirstRunExperience
-                open
-                initialEditor={config.editor}
-                initialDefaultAgentId={config.executor_profile.executor}
-                onPersist={persistFirstRun}
-                onFinish={finishFirstRun}
-              />
-            </Suspense>
-          ) : null}
+          <StartupOverlayContext.Provider
+            value={
+              config && isTauri && startupPromptStep === 'first-run' ? (
+                <Suspense fallback={null}>
+                  <FirstRunExperience
+                    open
+                    initialEditor={config.editor}
+                    initialDefaultAgentId={config.executor_profile.executor}
+                    onPersist={persistFirstRun}
+                    onFinish={finishFirstRun}
+                  />
+                </Suspense>
+              ) : null
+            }
+          >
+            {children}
+          </StartupOverlayContext.Provider>
         </AgentWorkbenchProvider>
       </SearchProvider>
     </ThemeProvider>

@@ -13,6 +13,68 @@ export function onboardingHistoryPath(path: string): string {
     : normalized;
 }
 
+export function groupOnboardingHistory(
+  folders: LocalHistoryScanFolder[]
+): LocalHistoryScanFolder[] {
+  const grouped = new Map<string, LocalHistoryScanFolder>();
+  const projectsByPath = new Map(
+    folders
+      .filter((folder) => folder.project_id && folder.path)
+      .map((folder) => [onboardingHistoryPath(folder.path), folder.project_id])
+  );
+  for (const folder of folders) {
+    const projectId =
+      folder.project_id ??
+      projectsByPath.get(onboardingHistoryPath(folder.path));
+    const key = projectId
+      ? `project:${projectId}`
+      : `path:${onboardingHistoryPath(folder.path)}`;
+    const current = grouped.get(key);
+    if (!current) {
+      grouped.set(key, { ...folder, sessions: [...folder.sessions] });
+      continue;
+    }
+    current.project_id ??= folder.project_id;
+    current.project_name ??= folder.project_name;
+    current.workspace_id ??= folder.workspace_id;
+    const sessions = new Map(
+      current.sessions.map((session) => [
+        localHistorySessionKey(session),
+        session,
+      ])
+    );
+    for (const session of folder.sessions)
+      sessions.set(localHistorySessionKey(session), session);
+    current.sessions = [...sessions.values()];
+  }
+  for (const folder of grouped.values()) {
+    folder.sessions.sort(
+      (left, right) =>
+        (Date.parse(right.updated_at ?? '') || 0) -
+        (Date.parse(left.updated_at ?? '') || 0)
+    );
+  }
+  return [...grouped.values()];
+}
+
+export function filterOnboardingHistory(
+  folders: LocalHistoryScanFolder[],
+  days: number | null,
+  now = new Date()
+): LocalHistoryScanFolder[] {
+  const cutoff = days === null ? null : now.getTime() - days * 86_400_000;
+  return folders.flatMap((folder) => {
+    const sessions = folder.sessions.filter(
+      (session) =>
+        session.status === 'new' &&
+        (cutoff === null ||
+          (session.updated_at !== null &&
+            Date.parse(session.updated_at) >= cutoff))
+    );
+    return sessions.length ? [{ ...folder, sessions }] : [];
+  });
+}
+
 /** Register directories before resolving real import workspaces from the Host. */
 export async function prepareOnboardingHistoryImport(
   folders: LocalHistoryScanFolder[],

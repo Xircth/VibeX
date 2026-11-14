@@ -12,19 +12,11 @@ Plugin Platform 的目标是让一个可安装包以同一个身份、版本和�
 平台不把 Tauri plugin、Rust 动态库或任意前端模块加载器暴露为公共兼容面。它也不尝试
 把 Codex/Claude Code 原生插件的全部能力自动翻译成 VibeX App contribution。
 
-## 2. 现状根因
+## 2. 核心设计约束（ADR-0046 / 0047 / 0048 / 0069）
 
-当前 Office 路径证明问题来自所有权边界，而不是 UI 菜单：
-
-- `PluginPackage::inspect` 要求至少一个 Skill，App-only package 无法存在；
-- 严格 v2 manifest 与宽容 v3 manifest 同时描述 `vibex.office`；
-- `plugin_v2_*` 与 `plugin_control_*` 分别保存部分安装/启用事实；
-- `AppState` 同时持有 `OfficeRuntime` 和 `PluginControlPlane`；
-- Tauri command、conversation execution 和 React preview 按 Office ID/类型分派；
-- `ArtifactToolProvider` 已提供 lease seam，却只允许编译进 Host 的 provider adapter。
-
-因此重构必须把 package、runtime、activation 和 contribution publication 收敛到
-一个深模块，并让 Office 成为该 interface 的普通调用者。
+- **单一内核收敛**：Package 校验、安装快照、Runtime 锁探测、Activation Generation 发布与贡献点注册全部收敛在 `crates/plugins`（Plugin Kernel）一个深模块内，宿主命令与前端不再按特定插件 ID（如 `vibex.office`）写特判分支；
+- **非强制 Skill 约束**：插件包只需至少声明一项受支持的贡献（App-only、Provider-only、Theme-only 或 Agent-only 包均一等合法）；
+- **官方插件零特权**：官方插件与第三方插件使用同一套公开 SDK、清单 Schema 与 `ArtifactToolProvider` / `HostApiBridge` 租约接缝（由 `pnpm run plugin:no-privilege` 持续门禁校验）。
 
 ## 3. 运行拓扑
 

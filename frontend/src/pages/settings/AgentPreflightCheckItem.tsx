@@ -1,4 +1,9 @@
-import { CheckCircle2, ChevronDown, CircleAlert, Sparkles } from 'lucide-react';
+import {
+  CheckCircle2,
+  ChevronDown,
+  CircleAlert,
+  Sparkles,
+} from 'lucide-react';
 import { useId, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import type {
@@ -6,6 +11,7 @@ import type {
   AgentPreflightSource,
 } from 'shared/types';
 
+import { Badge, badgeVariants } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
 
 type AgentPreflightCheckItemProps = {
@@ -43,10 +49,12 @@ export function AgentPreflightCard({
   item,
   busy = false,
   onUpdate,
+  layout = 'row',
 }: {
   item: AgentPreflightItemView;
   busy?: boolean;
   onUpdate?: () => void;
+  layout?: 'row' | 'chip';
 }) {
   const { t, i18n } = useTranslation('settings');
   const passed = item.status === 'pass';
@@ -54,7 +62,7 @@ export function AgentPreflightCard({
   const english = i18n.resolvedLanguage?.startsWith('en') ?? false;
   const label = english ? humanizePreflightId(item.id) : item.label;
   const detail =
-    english && item.detail && /[\u3400-\u9fff]/u.test(item.detail)
+    english && item.detail && /[㐀-鿿]/u.test(item.detail)
       ? passed
         ? t('agents.preflightDetailPass', { label })
         : warning
@@ -69,6 +77,7 @@ export function AgentPreflightCard({
       detail={detail}
       item={item}
       label={label}
+      layout={layout}
       onUpdate={onUpdate}
     />
   );
@@ -80,10 +89,80 @@ export function AgentPreflightCheckItem({
   detail,
   busy = false,
   onUpdate,
-}: AgentPreflightCheckItemProps) {
+  layout = 'row',
+}: AgentPreflightCheckItemProps & { layout?: 'row' | 'chip' }) {
   const { t } = useTranslation('settings');
   const [expanded, setExpanded] = useState(false);
   const panelId = useId();
+
+  if (layout === 'chip') {
+    return (
+      <li
+        aria-label={t('agents.preflightResultAria', { label })}
+        className="agent-preflight-chip-row"
+        data-expanded={expanded}
+        data-status={item.status}
+        role="listitem"
+      >
+        <div className="agent-preflight-chip-head">
+          <button
+            aria-controls={panelId}
+            aria-expanded={expanded}
+            aria-label={t(
+              expanded
+                ? 'agents.preflightCollapseDetails'
+                : 'agents.preflightExpandDetails',
+              { label }
+            )}
+            className={cn('agent-preflight-chip', `is-${item.status}`)}
+            onClick={() => setExpanded((current) => !current)}
+            type="button"
+          >
+            <span className="agent-preflight-chip-label">{label}</span>
+            <span
+              className={cn(
+                badgeVariants({ variant: 'outline' }),
+                'agent-preflight-badge'
+              )}
+              data-status={item.status}
+              role="status"
+            >
+              <PreflightStatusIcon status={item.status} />
+              {statusLabel(t, item.status)}
+            </span>
+            <ChevronDown
+              aria-hidden="true"
+              className="agent-preflight-chip-chevron"
+            />
+          </button>
+          {item.update_available && onUpdate ? (
+            <button
+              className="agent-preflight-chip-update"
+              disabled={busy}
+              onClick={onUpdate}
+              type="button"
+            >
+              <Sparkles aria-hidden="true" className="size-3 shrink-0" />
+              <span>{t('agents.updateAvailableBadge')}</span>
+            </button>
+          ) : item.update_available ? (
+            <span className="agent-preflight-chip-update is-static">
+              <Sparkles aria-hidden="true" className="size-3 shrink-0" />
+              <span>{t('agents.updateAvailableBadge')}</span>
+            </span>
+          ) : null}
+        </div>
+        {expanded ? (
+          <PreflightDetailPanel
+            detail={detail}
+            id={panelId}
+            item={item}
+            label={label}
+          />
+        ) : null}
+      </li>
+    );
+  }
 
   return (
     <li
@@ -134,6 +213,79 @@ export function AgentPreflightCheckItem({
   );
 }
 
+function statusLabel(
+  t: ReturnType<typeof useTranslation>['t'],
+  status: CheckStatus
+): string {
+  return status === 'pass'
+    ? t('agents.available')
+    : status === 'warning'
+      ? t('agents.optionalWarning')
+      : t('agents.needsAction');
+}
+
+function PreflightStatusIcon({ status }: { status: CheckStatus }) {
+  const Icon = status === 'pass' ? CheckCircle2 : CircleAlert;
+  return <Icon aria-hidden="true" className="size-3 shrink-0" />;
+}
+
+function PreflightDetailPanel({
+  detail,
+  id,
+  item,
+  label,
+}: {
+  detail: string;
+  id: string;
+  item: AgentPreflightItemView;
+  label: string;
+}) {
+  const { t } = useTranslation('settings');
+  return (
+    <div
+      className="agent-preflight-detail-panel"
+      data-label={label}
+      id={id}
+    >
+      <dl
+        aria-label={t('agents.preflightInformationAria', { label })}
+        className="agent-preflight-information-list"
+        role="group"
+      >
+        <PreflightInformation
+          label={t('agents.version')}
+          value={item.version || t('agents.versionUnknown')}
+        />
+        {item.source ? (
+          <PreflightInformation
+            isDisclosureDetail
+            label={t('agents.source')}
+            monospace={false}
+            value={t('agents.sourceSystem')}
+          />
+        ) : null}
+        {item.path ? (
+          <PreflightInformation
+            isDisclosureDetail
+            isPath
+            label={t('agents.location')}
+            value={item.path}
+          />
+        ) : null}
+        {detail ? (
+          <PreflightInformation
+            isDetail
+            isDisclosureDetail
+            label={t('agents.preflightDetailLabel')}
+            monospace={false}
+            value={detail}
+          />
+        ) : null}
+      </dl>
+    </div>
+  );
+}
+
 function PreflightCheckIdentity({
   label,
   status,
@@ -141,14 +293,13 @@ function PreflightCheckIdentity({
   label: string;
   status: CheckStatus;
 }) {
-  const Icon = status === 'pass' ? CheckCircle2 : CircleAlert;
   return (
     <span className="agent-preflight-identity">
       <span
         aria-hidden="true"
         className={cn('agent-preflight-status-icon', `is-${status}`)}
       >
-        <Icon />
+        {status === 'pass' ? <CheckCircle2 /> : <CircleAlert />}
       </span>
       <strong>{label}</strong>
     </span>
@@ -169,16 +320,18 @@ function PreflightCheckStatus({
   const { t } = useTranslation('settings');
   return (
     <span className="agent-preflight-status-stack">
-      <span className={cn('agent-preflight-status', `is-${status}`)}>
-        {status === 'pass'
-          ? t('agents.available')
-          : status === 'warning'
-            ? t('agents.optionalWarning')
-            : t('agents.needsAction')}
-      </span>
+      <Badge
+        variant="outline"
+        role="status"
+        data-status={status}
+        className="agent-preflight-badge"
+      >
+        <PreflightStatusIcon status={status} />
+        {statusLabel(t, status)}
+      </Badge>
       {updateAvailable && onUpdate ? (
         <button
-          className="agent-preflight-status is-update inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-primary transition-colors hover:bg-foreground/10 hover:text-primary"
+          className="agent-preflight-update-button"
           disabled={busy}
           onClick={onUpdate}
           type="button"
@@ -187,7 +340,7 @@ function PreflightCheckStatus({
           <span>{t('agents.updateAvailableBadge')}</span>
         </button>
       ) : updateAvailable ? (
-        <span className="agent-preflight-status is-update inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-primary">
+        <span className="agent-preflight-update-badge">
           <Sparkles aria-hidden="true" className="size-3 shrink-0" />
           <span>{t('agents.updateAvailableBadge')}</span>
         </span>

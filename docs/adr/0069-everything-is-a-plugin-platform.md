@@ -1,5 +1,5 @@
 
-> **状态注记（2026-10-24）：** 协作空间已改为宿主内置组件，不再依赖插件 `vibex.multi-agent`。成员是身份、会话对用户隐藏；模型与接口见 [collaboration-member-identity.md](../collaboration-member-identity.md)。本文正文保留原决策语境，不改正文。
+> **状态注记（2026-11）：** 协作空间已改为宿主内置组件，不再依赖插件 `vibex.multi-agent`（成员身份与隐藏会话模型见 [docs/architecture.md#collaboration-member-identity](../architecture.md#collaboration-member-identity)）；同时自 `v0.4.4` 起，插件安装/启用阶段支持自动解析并安装声明的本地运行时依赖。本文正文保留原决策语境，不改正文。
 
 ---
 status: accepted
@@ -15,7 +15,7 @@ decision-makers:
 官方插件的分发与默认启用策略、安全基线、开发者体验闭环，以及分批次实施计划。
 
 依据：架构评审（2026-09-03，用户反馈十条）、开源依赖调研
-[`docs/research/2026-09-04-plugin-platform-oss-dependencies.md`](../research/2026-09-04-plugin-platform-oss-dependencies.md)、
+（`2026-09-04-plugin-platform-oss-dependencies`）、
 DeepSeek Harness 架构对标，以及产品所有者补充要求（2026-09-04）：官方能力插件化后
 以子仓库分发并默认启用、先底层后插件化、官方插件无特权、安全性保证、完整开发/测试/
 热更新支持、禁止插件对插件的叠加开发。

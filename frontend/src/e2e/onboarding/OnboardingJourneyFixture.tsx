@@ -8,10 +8,12 @@ import {
   EditorType,
   ThemeMode,
   type AgentManagementView,
+  type LocalHistoryScanPage,
   type Project,
 } from 'shared/types';
 import { ThemeProvider } from '@/components/ThemeProvider';
-import { LegacyDesignScope } from '@/components/legacy-design/LegacyDesignScope';
+import { MainLegacyScope } from '@/app/MainLegacyScope';
+import { StartupOverlayContext } from '@/contexts/StartupOverlayContext';
 import { FirstRunExperience } from '@/components/onboarding/FirstRunExperience';
 import {
   configureBackendTransport,
@@ -21,6 +23,15 @@ import '@/i18n';
 
 // Production components over an isolated Host boundary. All records are fixtures.
 bindExternalStoreHook(React.useSyncExternalStore);
+const stress =
+  new URLSearchParams(location.search).get('scenario') === 'stress';
+const authScenario =
+  new URLSearchParams(location.search).get('scenario') === 'auth';
+const historyScenario =
+  new URLSearchParams(location.search).get('scenario') === 'history';
+const noHistory =
+  new URLSearchParams(location.search).get('scenario') === 'no-history';
+let authMode = authScenario ? 'model_provider' : 'chatgpt_subscription';
 const names = {
   claude_code: 'Claude Code',
   codex: 'Codex',
@@ -70,9 +81,18 @@ const agents: AgentManagementView[] = Object.entries(names).map(
     icon_svg: null,
     active_operation: null,
     rollback_available: false,
-    settings_features: ['authentication_mode'],
+    settings_features: ['authentication_mode', 'reusable_model_providers'],
   })
 );
+if (stress) {
+  for (const agent of agents) {
+    if (['opencode', 'pi', 'kiro', 'claude_code'].includes(agent.agent_id))
+      continue;
+    agent.lifecycle = 'ready';
+    agent.acp_version = '1.0.0';
+    agent.authentication = 'account';
+  }
+}
 function project(id: string, name: string, home = false): Project {
   return {
     id,
@@ -160,7 +180,7 @@ const transport: BackendTransport = {
         available: true,
         fields: [],
         files: [],
-        settings_features: ['authentication_mode'],
+        settings_features: ['authentication_mode', 'reusable_model_providers'],
       };
     if (command === 'agent_management_actions')
       return { agent_id: id, actions: [] };
@@ -174,12 +194,24 @@ const transport: BackendTransport = {
         exit_code: null,
         authentication: null,
       };
-    if (command === 'agent_auth_mode')
+    if (command === 'agent_model_providers')
+      return { agent_id: id, providers: [], bound_provider_id: null };
+    if (command === 'agent_auth_mode_set') authMode = String(args.mode);
+    if (command === 'agent_auth_mode' || command === 'agent_auth_mode_set')
       return {
         agent_id: id,
-        mode: 'chatgpt_subscription',
-        modes: ['chatgpt_subscription', 'api_key'],
+        mode: authMode,
+        modes: ['chatgpt_subscription', 'api_key', 'model_provider'],
         options: [
+          {
+            value: 'model_provider',
+            kind: 'provider',
+            label_key: 'agents.providerTitle',
+            description_key: 'agents.providerTitle',
+            credential_env: null,
+            native_config_field_id: null,
+            credential_required: false,
+          },
           {
             value: 'chatgpt_subscription',
             kind: 'subscription',
@@ -208,20 +240,22 @@ const transport: BackendTransport = {
         agent_id: id,
         checked_at: new Date().toISOString(),
         items: [
-          {
-            id: 'acp',
-            label: 'ACP',
-            status: 'pass',
-            detail: 'Fixture handshake passed',
-            version: '1.0.0',
-            path: null,
-            source: null,
-            repairable: false,
-            update_available: false,
-            available_version: null,
-            update_group: null,
-          },
-        ],
+          ['membership', '运行入口'],
+          ['runtime', 'Agent'],
+          ['acp', 'ACP'],
+        ].map(([itemId, label]) => ({
+          id: itemId,
+          label,
+          status: 'pass',
+          detail: 'Fixture handshake passed',
+          version: '1.0.0',
+          path: null,
+          source: null,
+          repairable: false,
+          update_available: false,
+          available_version: null,
+          update_group: null,
+        })),
       };
     if (command === 'agent_management_set_enabled') {
       const agent = agents.find((item) => item.agent_id === id);
@@ -236,23 +270,50 @@ const transport: BackendTransport = {
       const operationId = `fixture-install-${id}`;
       const agent = agents.find((item) => item.agent_id === id);
       if (agent) agent.lifecycle = 'installing';
-      window.setTimeout(() => {
-        if (agent) {
-          agent.lifecycle = 'needs_auth';
-          agent.acp_version = '1.0.0';
-        }
-        emit('agent-management-event', {
-          operation_id: operationId,
-          agent_id: id,
-          kind: 'install',
-          status: 'succeeded',
-          stage: 'complete',
-          progress_percent: 100,
-          message: 'Fixture install completed',
-          sequence: ++sequence,
-        });
-        emit('agent-management-snapshot-invalidated', null);
-      }, 100);
+      if (stress) {
+        window.setTimeout(() => {
+          const failed = id === 'pi';
+          if (failed && agent) agent.lifecycle = 'needs_repair';
+          emit('agent-management-event', {
+            operation_id: operationId,
+            agent_id: id,
+            kind: 'install',
+            status: failed ? 'failed' : 'running',
+            progress_percent: 55,
+            message: failed
+              ? 'Fixture download failed'
+              : `https://fixture.invalid/download/${'long-path-'.repeat(35)}`,
+            sequence: ++sequence,
+          });
+        }, 50);
+        if (id === 'pi')
+          return {
+            operation_id: operationId,
+            agent_id: id,
+            kind: 'install',
+            status: 'queued',
+          };
+      }
+      window.setTimeout(
+        () => {
+          if (agent) {
+            agent.lifecycle = 'needs_auth';
+            agent.acp_version = '1.0.0';
+          }
+          emit('agent-management-event', {
+            operation_id: operationId,
+            agent_id: id,
+            kind: 'install',
+            status: 'succeeded',
+            stage: 'complete',
+            progress_percent: 100,
+            message: 'Fixture install completed',
+            sequence: ++sequence,
+          });
+          emit('agent-management-snapshot-invalidated', null);
+        },
+        stress ? 10_000 : 100
+      );
       return {
         operation_id: operationId,
         agent_id: id,
@@ -261,6 +322,10 @@ const transport: BackendTransport = {
       };
     }
     if (command === 'get_projects') return [...projects];
+    if (command === 'agent_discover_local_history_sources') {
+      if (noHistory) return [];
+      return historyScenario ? ['codex', 'claude_code'] : [];
+    }
     if (command === 'create_project') {
       const payload = args.payload as { name: string };
       const created = project('imported', payload.name);
@@ -268,8 +333,15 @@ const transport: BackendTransport = {
         projects.push(created);
       return created;
     }
-    if (command === 'agent_scan_local_history')
-      return {
+    if (command === 'agent_scan_local_history') {
+      if (historyScenario) {
+        emit('local-history-scan-progress', {
+          session_count: id === 'codex' ? 3 : 1,
+          bytes_scanned: 32768,
+        });
+        await new Promise((resolve) => window.setTimeout(resolve, 900));
+      }
+      const page: LocalHistoryScanPage = {
         folders:
           id === 'codex'
             ? [
@@ -309,6 +381,54 @@ const transport: BackendTransport = {
         total_sessions: id === 'codex' ? 1 : 0,
         importable_count: imported || id !== 'codex' ? 0 : 1,
       };
+      if (historyScenario && !imported) {
+        const session = {
+          agent_id: id,
+          external_session_id: `fixture-${id}`,
+          title:
+            id === 'codex'
+              ? 'Build the new onboarding'
+              : 'Review project architecture',
+          workspace_path: 'C:/Projects/VibeX',
+          message_count: 12,
+          updated_at: new Date().toISOString(),
+          status: 'new' as const,
+        };
+        page.folders = [
+          {
+            path: id === 'codex' ? 'C:/Projects/VibeX' : 'c:\\projects\\vibex',
+            name: 'VibeX',
+            project_id: projects.some((item) => item.id === 'imported')
+              ? 'imported'
+              : null,
+            project_name: null,
+            workspace_id: projects.some((item) => item.id === 'imported')
+              ? 'workspace-imported'
+              : null,
+            sessions: [session],
+          },
+        ];
+        if (id === 'codex') {
+          page.folders[0].sessions.push(
+            {
+              ...session,
+              external_session_id: 'fixture-older',
+              title: 'Explore the first prototype',
+              updated_at: new Date(Date.now() - 15 * 86_400_000).toISOString(),
+            },
+            {
+              ...session,
+              external_session_id: 'fixture-undated',
+              title: 'Notes from a previous workspace',
+              updated_at: null,
+            }
+          );
+        }
+        page.total_sessions = page.importable_count =
+          page.folders[0].sessions.length;
+      }
+      return page;
+    }
     if (command === 'agent_local_history_import_snapshot') return job;
     if (command === 'agent_import_local_history_batch') {
       job = { status: 'running', progress: null, result: null, log: [] };
@@ -342,22 +462,28 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
       <BrowserRouter>
         <HotkeysProvider>
           <ThemeProvider initialTheme={dark ? ThemeMode.DARK : ThemeMode.LIGHT}>
-            <LegacyDesignScope>
-              <FirstRunExperience
-                open
-                initialDefaultAgentId="codex"
-                initialEditor={{
-                  editor_type: EditorType.FILE_MANAGER,
-                  custom_command: null,
-                  remote_ssh_host: null,
-                  remote_ssh_user: null,
-                }}
-                onPersist={async () => undefined}
-                onFinish={async (ids) => {
-                  document.title = `Onboarding finished: ${ids?.join(',')}`;
-                }}
-              />
-            </LegacyDesignScope>
+            <StartupOverlayContext.Provider
+              value={
+                <FirstRunExperience
+                  open
+                  initialDefaultAgentId="codex"
+                  initialEditor={{
+                    editor_type: EditorType.FILE_MANAGER,
+                    custom_command: null,
+                    remote_ssh_host: null,
+                    remote_ssh_user: null,
+                  }}
+                  onPersist={async () => undefined}
+                  onFinish={async (ids) => {
+                    document.title = `Onboarding finished: ${ids?.join(',')}`;
+                  }}
+                />
+              }
+            >
+              <MainLegacyScope pageSuspense={false}>
+                <div aria-label="Background workspace">Fixture workspace</div>
+              </MainLegacyScope>
+            </StartupOverlayContext.Provider>
           </ThemeProvider>
         </HotkeysProvider>
       </BrowserRouter>

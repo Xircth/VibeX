@@ -1,14 +1,14 @@
-# Headless Server Deployment
+# Headless Server Deployment (`vibex-server`)
 
-`vibex-server` is a headless composition root over the same Application Core,
-SQLite data directory, Agent runtime, Delegation companion, Plugin/Artifact
-services, and Automation Engine used by desktop VibeX. It does not load Tauri.
+`vibex-server` is a headless composition root over the exact same Application Core, SQLite data directory, ACP `AgentRuntime`, Delegation & Collaboration Space companion, Plugin Kernel, Artifact service, and Automation Engine used by desktop VibeX (`vibex`). It does not load Tauri.
 
-## Distribution status
+See [`ADR-0054`](../adr/0054-host-family-distribution-and-client-surfaces.md) and [`docs/architecture.md`](../architecture.md) for the Host-family model.
 
-P0 ships a Host family directory: `vibex-server`, sibling `vibex-mcp`,
-`vibex-workflow-mcp`, production `web/`, and `vibex-plugin.json`. Official
-plugin packages are installed from the marketplace or a `.vxp`. Assemble it with:
+---
+
+## 1. Host Family Distribution & Quick Start
+
+The Server distribution ships a unified Host-family directory containing `vibex-server`, sibling `vibex-mcp` and `vibex-workflow-mcp`, production `web/` (`frontend/dist`), and `vibex-plugin.json`. Assemble locally with:
 
 ```bash
 node scripts/package-host-family.js \
@@ -20,34 +20,22 @@ node scripts/package-host-family.js \
   --output dist/host-family
 ```
 
-Apple Developer ID and Windows Authenticode are not required for this family.
-Publish SHA-256 checksums; attach a minisign `.sig` only when the updater key is
-present.
+`npx @omnione/vibex`, `install.sh`, and `install.ps1` download `VibeX-${VERSION}-{linux-x86_64,linux-aarch64,darwin-aarch64,windows-x86_64,windows-aarch64}-server.tar.gz` from the matching GitHub Release, verify both the outer `.sha256` sidecar and inner `SHA256SUMS`, and launch `vibex-server` with `VIBEX_STATIC_ROOT` pointed at `web/` (asset names derive from [`npx-cli/bin/release-assets.js`](../../npx-cli/bin/release-assets.js)).
 
-`npx @omnione/vibex`, `install.sh`, and `install.ps1` download
-`VibeX-${VERSION}-{linux-x86_64,linux-aarch64,darwin-aarch64,windows-x86_64,windows-aarch64}-server.tar.gz`
-from the matching GitHub Release, verify the sidecar `.sha256` and the inner
-`SHA256SUMS`, then run `vibex-server` with `VIBEX_STATIC_ROOT` set to `web/`.
-Those names are produced by `npx-cli/bin/release-assets.js`; CI and the
-installers all derive from it.
-
-Start the Web UI on the LAN and print the long-lived host token:
+### Launching WebUI & Pairing
 
 ```bash
-npx @omnione/vibex serve
+npx @omnione/vibex serve                 # Bind 0.0.0.0:17891, list origins, print long-lived host token
+npx @omnione/vibex serve --local         # Bind 127.0.0.1:17891 (loopback-only WebUI)
+npx @omnione/vibex serve --rotate-token  # Issue a new host token and invalidate old admin token
 ```
 
-`serve` (alias `web`) is the opt-in. It binds `0.0.0.0:17891`, lists reachable
-HTTP origins, and prints the host token. Loopback-only Web UI is
-`npx @omnione/vibex serve --local`. Replace the token with `npx @omnione/vibex serve --rotate-token`.
-The token is stored as `host.token` in the data directory (mode `0600` on Unix)
-so later `serve` runs print the same value. SQLite still stores only the hash.
+- `serve` (alias `web`) persists the long-lived admin token in `<VIBEX_DATA_DIR>/host.token` (`0600` on Unix) so subsequent `serve` runs print the same token, while SQLite stores only its SHA-256 digest.
+- Plain `npx @omnione/vibex` and `docker compose up -d` bind `127.0.0.1:17891` by default. Public internet exposure requires an external TLS reverse proxy (Caddy, Traefik, Nginx, or Tailscale Serve).
 
-Plain `npx @omnione/vibex` stays on loopback. Docker Compose still publishes
-`127.0.0.1:17891`. Public exposure still needs an external TLS proxy.
+### Installing Coding Agents on a Headless Host
 
-Install Agent Runtime and ACP into the Host machine's user environment
-without starting the HTTP server:
+Install ACP runtimes and adapters into the Host machine's user environment without starting the HTTP server:
 
 ```bash
 npx @omnione/vibex list
@@ -55,80 +43,70 @@ npx @omnione/vibex list --refresh
 npx @omnione/vibex install claude_code --yes
 ```
 
-`list` groups Built-in Agents above other ACP Registry entries. `install`
-writes `npm` / `uv` / Binary packages into the user environment, then binds
-the Installation lock used by later `serve` sessions. Pass `--yes` to skip
-the confirmation prompt. The remote control command `npx @omnione/vibex agent list`
-still talks to a running Host and is not this installer.
+`list` groups VibeX's 20 Built-in Agents above ACP Official Registry entries. `install` installs `npm` / `uv` / binary distributions into the user environment and records the verified `InstallationLock` used by subsequent `serve` sessions (`npx @omnione/vibex agent list` queries an already-running Host instead).
 
-In-place upgrade: verify `SHA256SUMS`, snapshot the data directory, then replace
-`vibex-server`, `vibex-mcp`, and `web/`. See `server::apply_host_upgrade`.
+---
 
-See [ADR-0054](../adr/0054-host-family-distribution-and-client-surfaces.md).
+## 2. Environment Variables & Network Policy
 
-## P1 distribution contract
+| Variable | Default | Policy |
+| --- | --- | --- |
+| `VIBEX_DATA_DIR` | Platform VibeX data directory | Only one Desktop or `vibex-server` owner may run against a data directory at a time. |
+| `VIBEX_SERVER_LISTEN` | `127.0.0.1:17891` | Non-loopback bind requires `VIBEX_SERVER_ALLOW_LAN=1` (set automatically by `vibex serve`). |
+| `VIBEX_SERVER_ALLOW_LAN` | Unset | Enable only behind a trusted LAN or external TLS/auth boundary. |
+| `VIBEX_SERVER_TOKEN` | Generated once | Optional override: ≥ 32 bytes with ≥ 12 distinct byte values. Supply via secret manager/env, never URL query strings. |
+| `VIBEX_STATIC_ROOT` | Unset | Path to production `frontend/dist` (`web/`). |
+| `VIBEX_SERVER_ALLOWED_ORIGINS` | Empty | Comma-separated exact browser origins for CORS (wildcards and reflected origins are rejected; same-origin needs no entry). |
 
-- Publish official Linux `amd64` and `arm64` container images to GHCR and provide
-  a Compose deployment with a persistent data volume, health check, graceful
-  shutdown, and a documented pre-upgrade backup step.
-- Publish signed, checksummed standalone `vibex-server` binaries for Windows x64,
-  macOS arm64/x64, and Linux amd64/arm64.
-- Installation helpers may download only an explicit release artifact and must
-  verify its signature or checksum before installation. They must not silently
-  select and execute an unverified latest build.
-- Keep loopback as the default. LAN or public exposure remains explicit and uses
-  an external TLS termination layer such as Caddy, Traefik, or Nginx.
-- Release documentation must cover first start, device pairing, upgrade, backup,
-  restore, rollback, and device revocation.
+### Security Boundaries
 
-P1 does not promise Kubernetes, multi-node or high-availability operation,
-managed cloud hosting, or built-in public TLS termination.
+- **Credentials**: HTTP requests pass `Authorization: Bearer <token>`; WebSocket `/api/v1/ws` negotiates `Sec-WebSocket-Protocol: vibex.token.<base64url>`. Query-string tokens are unconditionally rejected.
+- **Artifact & Preview Proxies**: Preview URLs carry a short-lived, capability-scoped lease pinned to a registered loopback upstream port and never forward host credentials.
+- **Scope**: `vibex-server` targets single-owner workstation/team-box deployments (`Server owner` in [`CONTEXT.md`](../../CONTEXT.md)); it does not implement multi-tenant user isolation, Kubernetes HA clustering, or built-in ACME public TLS termination.
 
-## Build and package smoke
+---
+
+## 3. Build Smoke, Upgrades & Rollback
+
+### Build & Package Smoke
 
 ```bash
 pnpm run server:package-smoke
 ```
 
-The smoke builds the production React tree and release Server binary, starts it
-against a temporary data directory on loopback, verifies authenticated and
-unauthenticated capability responses, and asserts that the supplied token does
-not appear in process output.
+Builds production `frontend/dist` and release `vibex-server`, boots against an isolated temporary data directory on loopback, validates authenticated/unauthenticated `/api/v1/capabilities`, and verifies zero token leakage in stdout/stderr logs.
 
-## Configuration
+### Safe Upgrade & Rollback Procedure
 
-| Variable | Default | Policy |
-|---|---|---|
-| `VIBEX_DATA_DIR` | platform VibeX data directory | One desktop/Server owner at a time runs Automation for this directory. |
-| `VIBEX_SERVER_LISTEN` | `127.0.0.1:17891` | Non-loopback is rejected unless LAN exposure is acknowledged. |
-| `VIBEX_SERVER_ALLOW_LAN` | unset | Set to `1` only with an external TLS/auth boundary and reviewed network policy. |
-| `VIBEX_SERVER_TOKEN` | generated once | Prefer generated credentials. Supplied values must be at least 32 bytes with at least 12 distinct byte values; use a secret manager, never a URL or command argument. |
-| `VIBEX_STATIC_ROOT` | unset | Point to the production `frontend/dist` tree. |
-| `VIBEX_SERVER_ALLOWED_ORIGINS` | empty | Comma-separated exact browser origins; same-origin requests need no entry. |
+1. **Quiesce**: Stop every Desktop (`vibex`) and `vibex-server` process using `VIBEX_DATA_DIR`.
+2. **Consistent Backup**: Snapshot `db.sqlite`, `db.sqlite-wal`, `db.sqlite-shm`, `host.token`, managed tool locks, and Artifact files together before replacing binaries.
+3. **Replace & Verify**: For automated upgrades, `server::apply_host_upgrade` verifies `SHA256SUMS`, snapshots the data directory, and swaps `vibex-server`, `vibex-mcp`, `vibex-workflow-mcp`, and `web/`.
+4. **Post-Start Check**: Boot a single Host, check `/health` and authenticated `/api/v1/capabilities`, and verify Automation startup reconciliation before connecting remote clients.
+5. **Rollback**: Stop the upgraded binary, restore the pre-upgrade data-directory snapshot alongside the previous Host-family release archive, and restart. Never run an older binary against a post-migration SQLite file without restoring the matching snapshot.
 
-SQLite stores only the SHA-256 digest. `serve` also writes `host.token` in the
-data directory so the same long-lived token can be printed again. Routine logs
-do not contain it.
+---
 
-## Network boundary
+## 4. Operational Troubleshooting
 
-- Keep the default loopback bind whenever the browser runs on the same host.
-- Terminate TLS before enabling LAN access; do not publish raw loopback-oriented
-  preview providers.
-- Allowlist exact CORS origins. Wildcards and reflected origins are unsupported.
-- Bearer tokens belong in `Authorization`; WebSocket tokens use the negotiated
-  subprotocol header. Query tokens are rejected.
-- Preview URLs contain a separate short-lived lease capability. The proxy pins
-  the upstream to the registered loopback port and never forwards credentials.
+### Authentication (`401`), Device Pairing & Revocation
 
-## Upgrade
+- **`401 Unauthorized` on HTTP or WebSocket close**: Confirm the token is sent in `Authorization: Bearer <token>` (or `Sec-WebSocket-Protocol: vibex.token.<base64url>`), never `?token=...`. Check whether `serve --rotate-token` rotated the admin token or whether the Paired Device was revoked in the Host Console.
+- **Pairing Invitation Rejected or Expired**: Pairing secrets are **single-redeem** and expire after **30 minutes** by default (configurable via `--ttl`, bounded up to 30 days). Already-paired devices merge updated `Reachability` origins from a fresh invitation without re-redeeming the secret; unpaired devices need a freshly issued invitation if the secret was already consumed or expired.
+- **Immediate Revocation**: Revoking a Paired Device invalidates both new HTTP calls and open `/api/v1/ws` streams immediately.
 
-1. Stop every desktop and Server process using the data directory.
-2. Back up `db.sqlite`, `db.sqlite-wal`, `db.sqlite-shm`, managed tools, and
-   Artifact files as one consistent snapshot.
-3. Run the migration rehearsal and release gates documented in
-   `docs/verification/agent-k-release-hardening.md`.
-4. Start one host, verify `/health`, authenticate `/api/v1/capabilities`, and
-   inspect Automation reconciliation before starting another desktop.
+### WebSocket Attach, Replay & Frame Limits
 
-Rollback is documented in `docs/release/platform-capability-v2.md`.
+- **Durable Reconnect (`after_sequence`)**: `/api/v1/ws` follows `ready → snapshot/replay → live`. Clients reconnect with their highest persisted `sequence`; if the gap exceeds the in-memory ring, the Host sends a fresh `snapshot` before resuming `live` events.
+- **`1 MiB` Frame Cap**: Oversized client frames are rejected by the WebSocket transport. Keep command payloads concise and attach large files via workspace paths or artifact uploads.
+- **Offline Cache**: When the Host is unreachable, Companion and Workstation clients surface cached timelines strictly as `read_only: true` and never queue blind offline mutations.
+
+### Automation Lease & Crash Recovery
+
+- **Single-Owner Engine Lease**: Only one Host process holds the SQLite Automation lease for a data directory. If Automation runs appear paused, check whether another Desktop or `vibex-server` instance still holds the directory.
+- **Orphaned Runs Marked `Interrupted`**: If the Host crashes or restarts mid-turn, startup recovery marks orphaned direct-Turn runs `interrupted` and reconciles in-progress Workflow runs **without re-triggering** side-effecting prompts. At most one missed schedule window is caught up after downtime.
+
+### Plugins, Runtime Locks & Preview Leases
+
+- **Runtime Lock Failures (e.g., `vibex.office` / `vibex.open-connector`)**: Plugins declaring `depends/runtimes/*.json` require HTTPS downloads matching their pinned `sha256` and a passing bounded `--version` probe before their Activation Generation can publish. Behind corporate proxies or offline hosts, pre-populate or verify outbound GitHub Release access and inspect `/plugins/<id>` diagnostics.
+- **Preview Stopped Responding**: `ArtifactPreviewLease` instances (such as `officecli watch`) shut down automatically after `idleTimeoutMinutes` or when the last preview tab closes; reopening the file acquires a fresh lease.
+- **Redacted Diagnostics**: Host logs and diagnostic bundles scrub bearer tokens, pairing secrets, and Model Provider API keys by design.

@@ -3,7 +3,7 @@ import type { AgentManagementView, AgentRegistryViewRow } from 'shared/types';
 
 import {
   buildOnboardingAgentOptions,
-  normalizeOnboardingAgentSelection,
+  onboardingAgentStatus,
 } from './onboardingAgentModel';
 
 function managed(
@@ -51,6 +51,92 @@ function registry(
 }
 
 describe('onboarding Agent model', () => {
+  it('requires a complete passing preflight and separates missing auth from broken installations', () => {
+    const [option] = buildOnboardingAgentOptions(
+      [
+        managed({
+          agent_id: 'codex',
+          display_name: 'Codex',
+          lifecycle: 'ready',
+          acp_version: '1',
+        }),
+      ],
+      []
+    );
+    const report = {
+      agent_id: 'codex',
+      checked_at: '',
+      items: [
+        {
+          id: 'acp',
+          status: 'pass',
+          label: 'ACP',
+          detail: '',
+          repairable: false,
+          version: null,
+          path: null,
+          source: null,
+          update_available: false,
+          available_version: null,
+          update_group: null,
+        },
+        {
+          id: 'authentication',
+          status: 'pass',
+          label: 'Auth',
+          detail: '',
+          repairable: false,
+          version: null,
+          path: null,
+          source: null,
+          update_available: false,
+          available_version: null,
+          update_group: null,
+        },
+      ],
+    } satisfies import('shared/types').AgentPreflightView;
+    expect(onboardingAgentStatus(option)).toBe('checking');
+    expect(onboardingAgentStatus(option, { report })).toBe('ready');
+    expect(
+      onboardingAgentStatus(option, { report: { ...report, items: [] } })
+    ).toBe('check_failed');
+    const noAuth = {
+      ...report,
+      items: report.items.map((item) =>
+        item.id === 'authentication'
+          ? { ...item, status: 'fail' as const }
+          : item
+      ),
+    };
+    expect(onboardingAgentStatus(option, { report: noAuth })).toBe(
+      'needs_auth'
+    );
+    const missingAcp = {
+      ...noAuth,
+      items: noAuth.items.map((item) =>
+        item.id === 'acp' ? { ...item, status: 'fail' as const } : item
+      ),
+    };
+    expect(onboardingAgentStatus(option, { report: missingAcp })).toBe(
+      'uninstalled'
+    );
+    expect(
+      onboardingAgentStatus(
+        { ...option, lifecycle: 'needs_repair' },
+        { report: missingAcp }
+      )
+    ).toBe('uninstalled');
+    expect(
+      onboardingAgentStatus(option, { report, installationFailed: true })
+    ).toBe('install_failed');
+    expect(
+      onboardingAgentStatus({
+        ...option,
+        needsInstallation: true,
+        lifecycle: 'uninstalled',
+      })
+    ).toBe('uninstalled');
+  });
   it('keeps platform-unsupported built-in Agents visible with their status', () => {
     const options = buildOnboardingAgentOptions(
       [
@@ -228,32 +314,6 @@ describe('onboarding Agent model', () => {
     expect(options[0]).toMatchObject({
       runtimeInstalled: true,
       needsInstallation: false,
-    });
-  });
-
-  it('keeps the default Agent enabled and chooses a new default when it is disabled', () => {
-    expect(
-      normalizeOnboardingAgentSelection({
-        enabledAgentIds: new Set(['claude_code']),
-        defaultAgentId: 'codex',
-        changedAgentId: 'codex',
-        enabled: true,
-      })
-    ).toEqual({
-      enabledAgentIds: new Set(['claude_code', 'codex']),
-      defaultAgentId: 'codex',
-    });
-
-    expect(
-      normalizeOnboardingAgentSelection({
-        enabledAgentIds: new Set(['claude_code', 'codex']),
-        defaultAgentId: 'codex',
-        changedAgentId: 'codex',
-        enabled: false,
-      })
-    ).toEqual({
-      enabledAgentIds: new Set(['claude_code']),
-      defaultAgentId: 'claude_code',
     });
   });
 });

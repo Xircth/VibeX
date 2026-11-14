@@ -1,3 +1,5 @@
+import { act, renderHook } from '@testing-library/react';
+import { useSyncExternalStore } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 import type { KanbanProjectSessionRecord } from '@/hooks/useKanbanProjectSessions';
 import { createCanvasSessionStore } from './canvasSessionStore';
@@ -30,6 +32,21 @@ function record(
 }
 
 describe('createCanvasSessionStore', () => {
+  it('publishes refreshed session data before notifying its mounted node', () => {
+    const store = createCanvasSessionStore();
+    const first = record('a', { fullName: 'Before refresh' });
+    store.replace(new Map([['a', first]]), true);
+    const observedNames: (string | undefined)[] = [];
+    store.subscribe('a', () => observedNames.push(store.get('a')?.fullName));
+
+    store.replace(
+      new Map([['a', { ...first, fullName: 'After refresh' }]]),
+      true
+    );
+
+    expect(observedNames).toEqual(['After refresh']);
+  });
+
   it('notifies only the session whose visible fields changed', () => {
     const store = createCanvasSessionStore();
     const first = record('a', { fullName: 'A' });
@@ -66,5 +83,41 @@ describe('createCanvasSessionStore', () => {
     store.replace(new Map([['a', first]]), true);
     store.replace(new Map([['a', { ...first }]]), true);
     expect(store.get('a')).toBe(first);
+  });
+
+  it('restores a mounted session when refreshed catalog data returns', () => {
+    const store = createCanvasSessionStore();
+    const first = record('a');
+    const other = record('b');
+    store.replace(
+      new Map([
+        ['a', first],
+        ['b', other],
+      ]),
+      true
+    );
+    const onOther = vi.fn();
+    store.subscribe('b', onOther);
+    const { result } = renderHook(() =>
+      useSyncExternalStore(
+        (notify) => store.subscribe('a', notify),
+        () => store.get('a')
+      )
+    );
+
+    act(() => store.replace(new Map([['b', other]]), true));
+    expect(result.current).toBeUndefined();
+    act(() =>
+      store.replace(
+        new Map([
+          ['a', first],
+          ['b', other],
+        ]),
+        true
+      )
+    );
+
+    expect(result.current).toBe(first);
+    expect(onOther).not.toHaveBeenCalled();
   });
 });

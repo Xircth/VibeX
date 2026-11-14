@@ -1,6 +1,6 @@
 # VibeX 插件开发文档
 
-对照 Host 0.1.3、协议 1.1、SDK 2.0 / 1.0 和当前仓库里的 CLI。开发、校验、链接、诊断只走命令行。
+对照当前 Host（`v0.4.x`）、Worker 协议 `1.1`、SDK `2.0`（向后兼容 `1.0`）与仓库内置 `vibex-plugin` CLI。开发、校验、链接、诊断统一走命令行。
 
 查工具链路径执行 `vibex-plugin toolchain`。它会打印 Host 版本、CLI、contract、JS / Python / Rust SDK 路径和模板名。没有 `vibex plugin toolchain`。先 `vibex plugin run server --http://127.0.0.1:17891 --token <token>`，再在插件目录里 `vibex plugin run dev`。
 

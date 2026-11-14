@@ -393,7 +393,7 @@ fn test_container(pool: SqlitePool) -> LocalContainerService {
     let msg_stores = Arc::new(RwLock::new(HashMap::<Uuid, Arc<MsgStore>>::new()));
     let config = Arc::new(RwLock::new(Config::default()));
     LocalContainerService {
-        db: DBService { pool: pool.clone() },
+        db: DBService::from_pool_for_tests(pool.clone()),
         child_store: Arc::new(RwLock::new(HashMap::new())),
         cancellation_tokens: Arc::new(RwLock::new(HashMap::new())),
         msg_stores: msg_stores.clone(),
@@ -622,7 +622,7 @@ async fn new_marks_orphaned_running_executions_failed() {
     let settings_dir = TempDir::new().unwrap();
     let msg_stores = Arc::new(RwLock::new(HashMap::<Uuid, Arc<MsgStore>>::new()));
     let _container = LocalContainerService::new(
-        DBService { pool: pool.clone() },
+        DBService::from_pool_for_tests(pool.clone()),
         msg_stores.clone(),
         Arc::new(RwLock::new(Config::default())),
         GitService::new(),
@@ -1172,7 +1172,7 @@ async fn new_marks_orphaned_coding_agent_session_and_task_in_review() {
     insert_stop_execution_context(&pool, &workspace, session_id, process_id, "setupscript").await;
     let msg_stores = Arc::new(RwLock::new(HashMap::<Uuid, Arc<MsgStore>>::new()));
     let _container = LocalContainerService::new(
-        DBService { pool: pool.clone() },
+        DBService::from_pool_for_tests(pool.clone()),
         msg_stores.clone(),
         Arc::new(RwLock::new(Config::default())),
         GitService::new(),

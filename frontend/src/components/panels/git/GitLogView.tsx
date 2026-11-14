@@ -21,6 +21,7 @@ import { GitContextMenu, type ContextMenuAction } from './GitContextMenu';
 import { useCommitDiffStore } from '@/stores/useCommitDiffStore';
 import { useOptionalPanelActionsContext } from '@/contexts/PanelActionsContext';
 import { ConfirmDialog } from '@/components/dialogs/shared/ConfirmDialog';
+import { PANEL_IDS } from '@/stores/useLayoutStore';
 import i18n from '@/i18n';
 
 interface GitLogViewProps {
@@ -69,6 +70,7 @@ const LogEntry = memo(function LogEntry({
   entry,
   isSelected,
   isHead,
+  workspaceId,
   onSelect,
   onContextMenu,
 }: {
@@ -76,6 +78,7 @@ const LogEntry = memo(function LogEntry({
   isSelected: boolean;
   isHead: boolean;
   isPushable: boolean;
+  workspaceId?: string | null;
   onSelect: (sha: string) => void;
   onContextMenu: (e: React.MouseEvent, entry: GitLogEntry) => void;
 }) {
@@ -85,6 +88,24 @@ const LogEntry = memo(function LogEntry({
       navigator.clipboard.writeText(entry.sha);
     },
     [entry.sha]
+  );
+
+  const handleDragStart = useCallback(
+    (e: React.DragEvent<HTMLDivElement>) => {
+      const payload = {
+        id: `git-commit:${workspaceId ?? ''}:${entry.sha}`,
+        component: PANEL_IDS.PREVIEW,
+        title: `${entry.sha.slice(0, 7)} — ${entry.summary}`,
+        params: { commitSha: entry.sha, mode: 'commit-diff' },
+        expanded: true,
+      };
+      e.dataTransfer.setData(
+        'application/x-vibex-panel',
+        JSON.stringify(payload)
+      );
+      e.dataTransfer.effectAllowed = 'copy';
+    },
+    [entry.sha, entry.summary, workspaceId]
   );
 
   const initial = entry.author.charAt(0).toUpperCase();
@@ -98,6 +119,8 @@ const LogEntry = memo(function LogEntry({
             ? 'bg-accent/20'
             : ''
       }`}
+      draggable
+      onDragStart={handleDragStart}
       onClick={() => onSelect(entry.sha)}
       onContextMenu={(e) => onContextMenu(e, entry)}
     >
@@ -599,6 +622,7 @@ export const GitLogView = memo(function GitLogView(props: GitLogViewProps) {
           isSelected={selectedSha === item.entry.sha}
           isHead={headSha === item.entry.sha}
           isPushable={item.isPushable}
+          workspaceId={workspaceId}
           onSelect={handleSelect}
           onContextMenu={handleContextMenu}
         />
@@ -612,6 +636,7 @@ export const GitLogView = memo(function GitLogView(props: GitLogViewProps) {
       headSha,
       handleSelect,
       handleContextMenu,
+      workspaceId,
     ]
   );
 

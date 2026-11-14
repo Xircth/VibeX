@@ -246,45 +246,45 @@ def hero() -> str:
     flows.append(dash(f"M600 {lower_bus_y} V248", 0.10, "#4F46E5"))
 
     acp_pills = [
-        (465, "Runtime 自动探测"),
-        (595, "托管安装与修复"),
-        (725, "原生鉴权与配置"),
-        (855, "JSONL 流式会话"),
-        (985, "工具 / 终端 / 权限桥"),
+        (465, "20+ 主流 Agent 接入"),
+        (595, "跨 Agent 会话无缝迁移"),
+        (725, "统一鉴权与用量看板"),
+        (855, "实时纠偏与无损分叉"),
+        (985, "全流程可视化追踪"),
     ]
     acp_pill_svg = []
     for px, ptext in acp_pills:
         acp_pill_svg.append(
             f'<g>'
             f'<rect x="{px}" y="266" width="120" height="32" rx="8" fill="#1E293B" stroke="#4F46E5" stroke-width="1"/>'
-            f'<text x="{px + 60}" y="286" text-anchor="middle" fill="#E0E7FF" font-size="11" font-weight="600">{ptext}</text>'
+            f'<text x="{px + 60}" y="286" text-anchor="middle" fill="#E0E7FF" font-size="10.5" font-weight="600">{ptext}</text>'
             f"</g>"
         )
 
     return f"""<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="880" viewBox="0 0 1200 880">
-  <title>VibeX IADE 全插件化系统架构</title>
-  <desc>16+ built-in and ACP Registry coding agents connect via ACP to VibeX Host (L0 Rust Core + L1/L2 Plugin Seams &amp; Slots + L3 Official Plugins), serving Desktop, WebUI, CLI, and Mobile APP.</desc>
+  <title>VibeX 一体化 Agent-Native 开发平台全景图</title>
+  <desc>VibeX unites 20+ coding agents with free-form tabs and infinite spatial canvas, multi-worktree engineering, 3-tier agent collaboration, everything-is-a-plugin Vibe Coding tools, and multi-Host connectivity across Desktop, WebUI, Server, Mobile, and IM.</desc>
   {DEFS}
   <rect width="1200" height="880" rx="24" fill="url(#bg-grad)" stroke="#CBD5E1" stroke-width="1.5"/>
 
   <g font-family="Inter, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif">
     <!-- Header -->
-    <text x="600" y="48" text-anchor="middle" fill="#0F172A" font-size="22" font-weight="800">VibeX 全插件化多 Agent 协同研发架构</text>
-    <text x="600" y="74" text-anchor="middle" fill="#475569" font-size="12.5" font-weight="500">主流 Coding Agent 经 ACP 统一接入 · L0 Rust 核心基座 + L1/L2 插件控制面 + L3 无特权插件生态 · 一套 Host 多端协同</text>
+    <text x="600" y="48" text-anchor="middle" fill="#0F172A" font-size="22" font-weight="800">VibeX 一体化 Agent-Native 开发平台全景</text>
+    <text x="600" y="74" text-anchor="middle" fill="#475569" font-size="12.5" font-weight="500">多 Agent 可视化调度 · 自由标签 / 无限画布空间 · 三层自由协作引擎 · 一切皆插件 · 多 Host 全端互联</text>
 
     <!-- Flow lines from Agents to ACP -->
     <g>{"".join(flows)}</g>
 
-    <!-- Layer 1: 16 Colored Agent Chips -->
+    <!-- Layer 1: 16 Representative Colored Agent Chips -->
     <g>{"".join(chips)}</g>
 
-    <!-- Layer 2: ACP Unified Gateway -->
+    <!-- Layer 2: Unified Agent Scheduling Layer -->
     <g filter="url(#card-shadow)">
       <rect x="76" y="248" width="1048" height="68" rx="18" fill="url(#acp-grad)" stroke="#4F46E5" stroke-width="1.5"/>
       <circle cx="114" cy="282" r="18" fill="#312E81" stroke="#818CF8" stroke-width="1.5"/>
       <path d="M114 273 v18 M105 282 h18" stroke="#FFFFFF" stroke-width="2" stroke-linecap="round"/>
-      <text x="144" y="278" fill="#FFFFFF" font-size="15" font-weight="800">ACP 统一协议网关</text>
-      <text x="144" y="297" fill="#A5B4FC" font-size="11.5" font-weight="500">Agent Client Protocol · Built-in &amp; Registry 同一管线</text>
+      <text x="144" y="278" fill="#FFFFFF" font-size="15" font-weight="800">多 Agent 统一接入与调度层</text>
+      <text x="144" y="297" fill="#A5B4FC" font-size="11.5" font-weight="500">独立 Agent 引擎深度适配优先 · 兼容 ACP 开放生态 · 历史一键导入</text>
       {"".join(acp_pill_svg)}
     </g>
 
@@ -293,7 +293,7 @@ def hero() -> str:
     {dash("M238 330 V344", 0.25, "#2563EB")}
     {dash("M962 330 V344", 0.28, "#059669")}
 
-    <!-- Layer 3: VibeX Host Container -->
+    <!-- Layer 3: VibeX Platform Core Container -->
     <g filter="url(#host-shadow)">
       <rect x="38" y="344" width="1124" height="392" rx="22" fill="#FFFFFF" stroke="#CBD5E1" stroke-width="1.5"/>
       <rect x="39" y="345" width="1122" height="48" rx="21" fill="url(#host-header-grad)"/>
@@ -302,92 +302,92 @@ def hero() -> str:
       <circle cx="66" cy="369" r="6" fill="#2563EB"/>
       <circle cx="84" cy="369" r="6" fill="#7C3AED"/>
       <circle cx="102" cy="369" r="6" fill="#10B981"/>
-      <text x="124" y="374" fill="#0F172A" font-size="14.5" font-weight="800">VibeX Host 宿主内核（Desktop 内置 Host / vibex-server 无头服务）</text>
+      <text x="124" y="374" fill="#0F172A" font-size="14.5" font-weight="800">VibeX 高性能本地优先核心（多 Agent 开发环境 × Vibe Coding 工具链）</text>
       <rect x="916" y="356" width="224" height="26" rx="13" fill="#0F172A"/>
-      <text x="1028" y="373" text-anchor="middle" fill="#F8FAFC" font-size="11" font-weight="700">Rust + Tauri 2 · 本地优先数据主权</text>
+      <text x="1028" y="373" text-anchor="middle" fill="#F8FAFC" font-size="11" font-weight="700">Rust 原生高性能 · 代码数据本地可控</text>
     </g>
 
-    <!-- Column 1: L0 Core Foundation -->
+    <!-- Column 1: Spatial Workspace & Session Control -->
     <g>
       <rect x="58" y="408" width="348" height="262" rx="16" fill="#F8FAFC" stroke="#BFDBFE" stroke-width="1.5"/>
       <rect x="58" y="408" width="348" height="44" rx="16" fill="#EFF6FF"/>
       <rect x="74" y="420" width="36" height="20" rx="6" fill="#2563EB"/>
-      <text x="92" y="434" text-anchor="middle" fill="#FFFFFF" font-size="11" font-weight="800">L0</text>
-      <text x="120" y="430" fill="#1E3A8A" font-size="13.5" font-weight="800">核心基座 · Core Foundation</text>
-      <text x="120" y="445" fill="#3B82F6" font-size="10.5" font-weight="600">宿主权威内核 · 会话历史与隔离边界 (Rust Crates)</text>
+      <text x="92" y="434" text-anchor="middle" fill="#FFFFFF" font-size="11" font-weight="800">01</text>
+      <text x="120" y="430" fill="#1E3A8A" font-size="13.5" font-weight="800">双形态空间工作台</text>
+      <text x="120" y="445" fill="#3B82F6" font-size="10.5" font-weight="600">多 Agent 可视化 · 跨 Agent 迁移 · 鉴权管理</text>
 
       <rect x="74" y="462" width="316" height="44" rx="10" fill="#FFFFFF" stroke="#DBEAFE" stroke-width="1"/>
-      <text x="88" y="481" fill="#0F172A" font-size="12" font-weight="700">多工作区与 Git Worktree 隔离引擎</text>
-      <text x="88" y="497" fill="#475569" font-size="10.5">项目根目录 / 并行 Worktree 隔离 · Diff 审查 · 变基与合并</text>
+      <text x="88" y="481" fill="#0F172A" font-size="12" font-weight="700">自由分栏标签页 ↔ 无限空间画布</text>
+      <text x="88" y="497" fill="#475569" font-size="10.5">一键无损切换 · 同屏平铺数十个实时会话、编辑器与浏览器</text>
 
       <rect x="74" y="514" width="316" height="44" rx="10" fill="#FFFFFF" stroke="#DBEAFE" stroke-width="1"/>
-      <text x="88" y="533" fill="#0F172A" font-size="12" font-weight="700">事件溯源会话核 (Conversation &amp; Turn Core)</text>
-      <text x="88" y="549" fill="#475569" font-size="10.5">JSONL 权威历史 · Turn 状态机 · 实时纠偏 (Steering) · 崩溃恢复</text>
+      <text x="88" y="533" fill="#0F172A" font-size="12" font-weight="700">跨 Agent 会话迁移 · 纠偏 · 分叉</text>
+      <text x="88" y="549" fill="#475569" font-size="10.5">不同 Agent 接力续写 · 运行中实时纠偏 · 任意节点一键分叉</text>
 
       <rect x="74" y="566" width="316" height="44" rx="10" fill="#FFFFFF" stroke="#DBEAFE" stroke-width="1"/>
-      <text x="88" y="585" fill="#0F172A" font-size="12" font-weight="700">内置协作空间 (VibeX-Bot &amp; Delegation)</text>
-      <text x="88" y="601" fill="#475569" font-size="10.5">多角色助手私聊与群聊 · @点名接力 · &amp;Agent 异步子会话委派</text>
+      <text x="88" y="585" fill="#0F172A" font-size="12" font-weight="700">多 Agent 鉴权与供应商一站式管理</text>
+      <text x="88" y="601" fill="#475569" font-size="10.5">官方订阅 / API / 供应商预设 · CC Switch 导入 · ModelRouter</text>
 
       <rect x="74" y="618" width="316" height="40" rx="10" fill="#FFFFFF" stroke="#DBEAFE" stroke-width="1"/>
-      <text x="88" y="636" fill="#0F172A" font-size="12" font-weight="700">集成研发工作台基座</text>
-      <text x="88" y="650" fill="#475569" font-size="10.5">文件树 · Dockview 多分栏 · ACP 终端进程 · 权限审批闭环</text>
+      <text x="88" y="636" fill="#0F172A" font-size="12" font-weight="700">精准上下文注入 &amp; 额度成本看板</text>
+      <text x="88" y="650" fill="#475569" font-size="10.5">@ 引用文件/会话/提交 · 套餐剩余额度与 Token 消耗统计</text>
     </g>
 
-    <!-- Column 2: L1 & L2 Plugin Platform -->
+    <!-- Column 2: Engineering & 3-Tier Collaboration -->
     <g>
       <rect x="426" y="408" width="348" height="262" rx="16" fill="#F8FAFC" stroke="#DDD6FE" stroke-width="1.5"/>
       <rect x="426" y="408" width="348" height="44" rx="16" fill="#F5F3FF"/>
-      <rect x="442" y="420" width="52" height="20" rx="6" fill="#7C3AED"/>
-      <text x="468" y="434" text-anchor="middle" fill="#FFFFFF" font-size="10.5" font-weight="800">L1 / L2</text>
-      <text x="504" y="430" fill="#4C1D95" font-size="13.5" font-weight="800">插件控制面 · Plugin Platform</text>
-      <text x="504" y="445" fill="#7C3AED" font-size="10.5" font-weight="600">一切皆插件：壳层贡献点 Slot + 宿主 Provider 能力缝</text>
+      <rect x="442" y="420" width="36" height="20" rx="6" fill="#7C3AED"/>
+      <text x="460" y="434" text-anchor="middle" fill="#FFFFFF" font-size="11" font-weight="800">02</text>
+      <text x="488" y="430" fill="#4C1D95" font-size="13.5" font-weight="800">工程化与三层协作引擎</text>
+      <text x="488" y="445" fill="#7C3AED" font-size="10.5" font-weight="600">多 Worktree 并行改码 · 多智能体自由组队</text>
 
       <rect x="442" y="462" width="316" height="44" rx="10" fill="#FFFFFF" stroke="#EDE9FE" stroke-width="1"/>
-      <text x="456" y="481" fill="#0F172A" font-size="12" font-weight="700">L2 壳层结构级贡献点 (UI Slots)</text>
-      <text x="456" y="497" fill="#475569" font-size="10.5">app.tab 顶级页签 · app.kanban.view 看板 · app.panel 面板</text>
+      <text x="456" y="481" fill="#0F172A" font-size="12" font-weight="700">多 Worktree 物理隔离并行开发</text>
+      <text x="456" y="497" fill="#475569" font-size="10.5">多路 Agent 并发改码互不覆盖 · 实时 Diff · 三栏冲突合并</text>
 
       <rect x="442" y="514" width="316" height="44" rx="10" fill="#FFFFFF" stroke="#EDE9FE" stroke-width="1"/>
-      <text x="456" y="533" fill="#0F172A" font-size="12" font-weight="700">L1 宿主能力提供者缝 (Provider Seams)</text>
-      <text x="456" y="549" fill="#475569" font-size="10.5">模型供应商目录 · 文件预览与编辑 · 系统 WebView · 用量源</text>
+      <text x="456" y="533" fill="#0F172A" font-size="12" font-weight="700">层一：会话内 &amp;Agent 随手委派</text>
+      <text x="456" y="549" fill="#475569" font-size="10.5">对话框直接点名专长 Agent 协办子任务 · 结果自动汇总</text>
 
       <rect x="442" y="566" width="316" height="44" rx="10" fill="#FFFFFF" stroke="#EDE9FE" stroke-width="1"/>
-      <text x="456" y="585" fill="#0F172A" font-size="12" font-weight="700">渲染三轨与原子激活代 (Activation Generation)</text>
-      <text x="456" y="601" fill="#475569" font-size="10.5">Descriptor 声明式 · Module Federation 面板 · App Surface</text>
+      <text x="456" y="585" fill="#0F172A" font-size="12" font-weight="700">层二：协作空间（AI 团队私聊与群聊）</text>
+      <text x="456" y="601" fill="#475569" font-size="10.5">定制架构 / 前端 / 测试角色助手 · 群组讨论、评审与接力</text>
 
       <rect x="442" y="618" width="316" height="40" rx="10" fill="#FFFFFF" stroke="#EDE9FE" stroke-width="1"/>
-      <text x="456" y="636" fill="#0F172A" font-size="12" font-weight="700">Agent 能力投影与 Node Worker 运行时</text>
-      <text x="456" y="650" fill="#475569" font-size="10.5">Host 托管插件 MCP · 跨 Agent Skill 投影 · 故障隔离与回滚</text>
+      <text x="456" y="636" fill="#0F172A" font-size="12" font-weight="700">层三：可视化 DAG 工作流与定时自动化</text>
+      <text x="456" y="650" fill="#475569" font-size="10.5">图形化编排多步流水线 · 人工确认门 · 断点调试与定时运行</text>
     </g>
 
-    <!-- Column 3: L3 Official & Marketplace Plugins -->
+    <!-- Column 3: Everything is a Plugin -->
     <g>
       <rect x="794" y="408" width="348" height="262" rx="16" fill="#F8FAFC" stroke="#A7F3D0" stroke-width="1.5"/>
       <rect x="794" y="408" width="348" height="44" rx="16" fill="#ECFDF5"/>
       <rect x="810" y="420" width="36" height="20" rx="6" fill="#059669"/>
-      <text x="828" y="434" text-anchor="middle" fill="#FFFFFF" font-size="11" font-weight="800">L3</text>
-      <text x="856" y="430" fill="#065F46" font-size="13.5" font-weight="800">无特权插件生态 · Ecosystem</text>
-      <text x="856" y="445" fill="#059669" font-size="10.5" font-weight="600">官方插件与第三方同权 · TS / JS / Python / Rust SDK</text>
+      <text x="828" y="434" text-anchor="middle" fill="#FFFFFF" font-size="11" font-weight="800">03</text>
+      <text x="856" y="430" fill="#065F46" font-size="13.5" font-weight="800">一切皆插件 · Vibe Coding 利器</text>
+      <text x="856" y="445" fill="#059669" font-size="10.5" font-weight="600">高度解耦设计 · 按需即插即用 · 跨 Agent 共享</text>
 
       <rect x="810" y="462" width="316" height="44" rx="10" fill="#FFFFFF" stroke="#D1FAE5" stroke-width="1"/>
-      <text x="824" y="481" fill="#0F172A" font-size="12" font-weight="700">多维看板视图插件 (kanban-views)</text>
-      <text x="824" y="497" fill="#475569" font-size="10.5">无限画布看板 · 四栏看板 · 固定看板 · Token 计量统计视图</text>
+      <text x="824" y="481" fill="#0F172A" font-size="12" font-weight="700">内置浏览器点选元素 &amp; 桌面电脑控制</text>
+      <text x="824" y="497" fill="#475569" font-size="10.5">点击网页元素直传 AI · 窗口级授权截图与键鼠自动化操控</text>
 
       <rect x="810" y="514" width="316" height="44" rx="10" fill="#FFFFFF" stroke="#D1FAE5" stroke-width="1"/>
-      <text x="824" y="533" fill="#0F172A" font-size="12" font-weight="700">工作流创作与自动化 (workflow-creator)</text>
-      <text x="824" y="549" fill="#475569" font-size="10.5">Workflow Studio · DAG 编排 · 不可变版本 · 定时触发</text>
+      <text x="824" y="533" fill="#0F172A" font-size="12" font-weight="700">AI 代码补全 · 语音输入 · 提示词增强</text>
+      <text x="824" y="549" fill="#475569" font-size="10.5">编辑器行内智能补全 · 实时流式听写润色 · 会话提问增强</text>
 
       <rect x="810" y="566" width="316" height="44" rx="10" fill="#FFFFFF" stroke="#D1FAE5" stroke-width="1"/>
-      <text x="824" y="585" fill="#0F172A" font-size="12" font-weight="700">研发与环境插件 (browser / computer-use / ssh)</text>
-      <text x="824" y="601" fill="#475569" font-size="10.5">内置浏览器与 DOM 拾取 · 桌面视觉操控 · Remote SSH 隧道</text>
+      <text x="824" y="585" fill="#0F172A" font-size="12" font-weight="700">Office 办公文档 &amp; 科研技能套件</text>
+      <text x="824" y="601" fill="#475569" font-size="10.5">Word / Excel / PPT 生成与实时预览 · 10 大领域科研技能</text>
 
       <rect x="810" y="618" width="316" height="40" rx="10" fill="#FFFFFF" stroke="#D1FAE5" stroke-width="1"/>
-      <text x="824" y="636" fill="#0F172A" font-size="12" font-weight="700">会话增强与办公科研 (session / office / science)</text>
-      <text x="824" y="650" fill="#475569" font-size="10.5">实时反馈与提问 · Provider 切换 · Office 预览 · 笔记与科研套件</text>
+      <text x="824" y="636" fill="#0F172A" font-size="12" font-weight="700">开放插件市场与多语言扩展工具链</text>
+      <text x="824" y="650" fill="#475569" font-size="10.5">SSH 远端一键接入 · 第三方应用连接器 · TS / Python / Rust 开发</text>
     </g>
 
-    <!-- Bottom Unified Application Core Bus inside Host -->
+    <!-- Bottom Multi-Host Connectivity Bus -->
     <rect x="58" y="682" width="1084" height="38" rx="11" fill="#0F172A"/>
-    <text x="600" y="705" text-anchor="middle" fill="#F8FAFC" font-size="12" font-weight="700">Application Core &amp; Remote Protocol · 桌面 IPC / HTTP / WebSocket / TLS 配对 · 全端共享会话、Agent、工作区与插件状态</text>
+    <text x="600" y="705" text-anchor="middle" fill="#F8FAFC" font-size="12" font-weight="700">多 Host 全端实时互联（本机桌面 · 远端 Server · 局域网 WebUI · SSH 直连 · 异地点对点端到端加密穿透）</text>
 
     <!-- Flow lines to 4 Surfaces -->
     {dash("M176 736 V770", 0.10, "#2563EB")}
@@ -400,30 +400,30 @@ def hero() -> str:
       <rect x="46" y="770" width="260" height="84" rx="16" fill="#FFFFFF" stroke="#93C5FD" stroke-width="1.5"/>
       <rect x="64" y="788" width="42" height="42" rx="11" fill="#EFF6FF" stroke="#BFDBFE" stroke-width="1"/>
       <path d="M74 800 h22 v14 h-22 z M80 818 h10" fill="none" stroke="#2563EB" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-      <text x="118" y="806" fill="#0F172A" font-size="14" font-weight="800">Desktop 桌面端</text>
+      <text x="118" y="806" fill="#0F172A" font-size="14" font-weight="800">原生桌面端</text>
       <text x="118" y="824" fill="#475569" font-size="11" font-weight="500">macOS · Windows · Linux</text>
-      <text x="118" y="840" fill="#2563EB" font-size="10.5" font-weight="600">内置完整 Host 与原生窗口体验</text>
+      <text x="118" y="840" fill="#2563EB" font-size="10.5" font-weight="600">本地开箱即用 · 亦可直连远端 Host</text>
 
       <rect x="328" y="770" width="260" height="84" rx="16" fill="#FFFFFF" stroke="#C7D2FE" stroke-width="1.5"/>
       <rect x="346" y="788" width="42" height="42" rx="11" fill="#EEF2FF" stroke="#C7D2FE" stroke-width="1"/>
       <path d="M356 798 h22 v18 h-22 z M356 804 h22" fill="none" stroke="#4F46E5" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-      <text x="400" y="806" fill="#0F172A" font-size="14" font-weight="800">Server + WebUI</text>
-      <text x="400" y="824" fill="#475569" font-size="11" font-weight="500">vibex-server 无头常驻服务</text>
-      <text x="400" y="840" fill="#4F46E5" font-size="10.5" font-weight="600">浏览器即开即用完整研发工作台</text>
+      <text x="400" y="806" fill="#0F172A" font-size="14" font-weight="800">WebUI &amp; 远端 Server</text>
+      <text x="400" y="824" fill="#475569" font-size="11" font-weight="500">浏览器即开即用 · Docker / 云主机</text>
+      <text x="400" y="840" fill="#4F46E5" font-size="10.5" font-weight="600">SSH 一键部署配对 · 多机算力协同</text>
 
       <rect x="612" y="770" width="260" height="84" rx="16" fill="#FFFFFF" stroke="#DDD6FE" stroke-width="1.5"/>
       <rect x="630" y="788" width="42" height="42" rx="11" fill="#F5F3FF" stroke="#DDD6FE" stroke-width="1"/>
-      <path d="M641 804 l6 5 -6 5 M650 814 h8" fill="none" stroke="#7C3AED" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-      <text x="684" y="806" fill="#0F172A" font-size="14" font-weight="800">CLI &amp; 插件工具链</text>
-      <text x="684" y="824" fill="#475569" font-size="11" font-weight="500">npx @omnione/vibex</text>
-      <text x="684" y="840" fill="#7C3AED" font-size="10.5" font-weight="600">一键校验拉起服务 · vibex-plugin</text>
+      <path d="M644 797 h14 v24 h-14 z M649 817 h4" fill="none" stroke="#7C3AED" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+      <text x="684" y="806" fill="#0F172A" font-size="14" font-weight="800">iOS / Android 手机端</text>
+      <text x="684" y="824" fill="#475569" font-size="11" font-weight="500">原生移动端随时随地接管</text>
+      <text x="684" y="840" fill="#7C3AED" font-size="10.5" font-weight="600">看进度 · 批权限 · 答提问 · 发新任务</text>
 
       <rect x="894" y="770" width="260" height="84" rx="16" fill="#FFFFFF" stroke="#A7F3D0" stroke-width="1.5"/>
       <rect x="912" y="788" width="42" height="42" rx="11" fill="#ECFDF5" stroke="#A7F3D0" stroke-width="1"/>
-      <path d="M926 797 h14 v24 h-14 z M931 817 h4" fill="none" stroke="#059669" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-      <text x="966" y="806" fill="#0F172A" font-size="14" font-weight="800">Mobile APP &amp; IM 渠道</text>
-      <text x="966" y="824" fill="#475569" font-size="11" font-weight="500">Android 伴随端 · 微信 / 企微 / TG</text>
-      <text x="966" y="840" fill="#059669" font-size="10.5" font-weight="600">移动看盘 · 远程下发指令与权限审批</text>
+      <path d="M923 804 l6 5 -6 5 M932 814 h8" fill="none" stroke="#059669" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+      <text x="966" y="806" fill="#0F172A" font-size="14" font-weight="800">IM 远程交互 &amp; CLI</text>
+      <text x="966" y="824" fill="#475569" font-size="11" font-weight="500">微信 / 飞书 / 企微 / QQ / TG / Discord</text>
+      <text x="966" y="840" fill="#059669" font-size="10.5" font-weight="600">聊天软件双向操控 · npx 命令行编排</text>
     </g>
   </g>
 </svg>
@@ -432,11 +432,11 @@ def hero() -> str:
 
 def flow() -> str:
     steps = [
-        (80, "01 · 提出需求", "选择项目与 Agent", "#2563EB", "#EFF6FF", "#BFDBFE", "M147 144 h16 v20 h-16 z M151 140 h8"),
-        (310, "02 · Worktree 隔离", "独立分支并行改码", "#4F46E5", "#EEF2FF", "#C7D2FE", "M373 143 h10 v22 h-10 z M387 143 h10 v22 h-10 z"),
-        (540, "03 · 多 Agent 协同", "VibeX-Bot / 委派 / DAG", "#7C3AED", "#F5F3FF", "#DDD6FE", "M603 150 a7 7 0 1 1 0.1 0 M625 144 a7 7 0 1 1 0.1 0 M625 164 a7 7 0 1 1 0.1 0"),
-        (770, "04 · 验证与审查", "Diff / 终端 / 内置浏览器", "#EA580C", "#FFF7ED", "#FED7AA", "M833 155 l8 8 16-18"),
-        (1000, "05 · 合并与交付", "一键回基 / Commit &amp; PR", "#059669", "#ECFDF5", "#A7F3D0", "M1063 154 h24 M1075 144 l12 10 -12 10"),
+        (80, "01 · 灵感与上下文", "@引用 / 网页点选 / 语音", "#2563EB", "#EFF6FF", "#BFDBFE", "M147 144 h16 v20 h-16 z M151 140 h8"),
+        (310, "02 · 多 Worktree 并行", "独立分支并发互不污染", "#4F46E5", "#EEF2FF", "#C7D2FE", "M373 143 h10 v22 h-10 z M387 143 h10 v22 h-10 z"),
+        (540, "03 · 三层 Agent 协作", "随手委派 / 群聊 / 工作流", "#7C3AED", "#F5F3FF", "#DDD6FE", "M603 150 a7 7 0 1 1 0.1 0 M625 144 a7 7 0 1 1 0.1 0 M625 164 a7 7 0 1 1 0.1 0"),
+        (770, "04 · 画布掌控与纠偏", "跨 Agent 续写 / 实时纠偏", "#EA580C", "#FFF7ED", "#FED7AA", "M833 155 l8 8 16-18"),
+        (1000, "05 · 合并与全端交付", "Diff 审阅 / 手机随时审批", "#059669", "#ECFDF5", "#A7F3D0", "M1063 154 h24 M1075 144 l12 10 -12 10"),
     ]
     cards = []
     for x, title, sub, color, bg, border, icon in steps:
@@ -454,13 +454,13 @@ def flow() -> str:
     for i, x in enumerate(xs):
         connectors.append(dash(f"M{x} 182 H{x + 80}", 0.12 * i, "#4F46E5"))
     return f"""<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="320" viewBox="0 0 1200 320">
-  <title>VibeX multi-agent collaboration flow</title>
-  <desc>A task moves from a session through an isolated worktree and multi-agent orchestration into review and delivery.</desc>
+  <title>VibeX Vibe Coding 工程化闭环</title>
+  <desc>From rich multimodal context to isolated Git worktrees, 3-tier multi-agent collaboration, infinite canvas steering, and anywhere review.</desc>
   {DEFS}
   <rect width="1200" height="320" rx="20" fill="url(#bg-grad)" stroke="#CBD5E1" stroke-width="1.2"/>
   <g font-family="Inter, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif">
-    <text x="600" y="46" text-anchor="middle" fill="#0F172A" font-size="18" font-weight="800">Multi-Agent 协同研发闭环</text>
-    <text x="600" y="70" text-anchor="middle" fill="#475569" font-size="12" font-weight="500">需求发起 · Worktree 隔离 · VibeX-Bot 群聊接力与 DAG 编排 · Diff 审查 · 合并交付</text>
+    <text x="600" y="46" text-anchor="middle" fill="#0F172A" font-size="18" font-weight="800">VibeX 多 Agent 协同与 Vibe Coding 研发流</text>
+    <text x="600" y="70" text-anchor="middle" fill="#475569" font-size="12" font-weight="500">精准上下文输入 · 多 Worktree 并行改码 · 三层 Agent 自由协作 · 跨 Agent 接力与实时纠偏 · 全端随时审批合并</text>
     {"".join(cards)}
   </g>
   <g>{"".join(connectors)}</g>
@@ -500,11 +500,11 @@ def hero_en() -> str:
     flows.append(dash(f"M600 {lower_bus_y} V248", 0.10, "#4F46E5"))
 
     acp_pills = [
-        (465, "Runtime Detection"),
-        (595, "Managed Install"),
-        (725, "Native Auth &amp; Config"),
-        (855, "JSONL Streaming"),
-        (985, "Tool &amp; Terminal Bridge"),
+        (465, "20+ Coding Agents"),
+        (595, "Cross-Agent Handoff"),
+        (725, "Unified Auth &amp; Quotas"),
+        (855, "Live Steer &amp; Fork"),
+        (985, "Visual Traceability"),
     ]
     acp_pill_svg = []
     for px, ptext in acp_pills:
@@ -516,29 +516,29 @@ def hero_en() -> str:
         )
 
     return f"""<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="880" viewBox="0 0 1200 880">
-  <title>VibeX Plugin-Native Multi-Agent Architecture</title>
-  <desc>16+ built-in and ACP Registry coding agents connect via ACP to VibeX Host (L0 Rust Core + L1/L2 Plugin Seams &amp; Slots + L3 Official Plugins), serving Desktop, WebUI, CLI, and Mobile APP.</desc>
+  <title>VibeX All-in-One Agent-Native Development Platform</title>
+  <desc>VibeX unites 20+ coding agents with free-form tabs and infinite spatial canvas, multi-worktree engineering, 3-tier agent collaboration, everything-is-a-plugin Vibe Coding tools, and multi-Host connectivity.</desc>
   {DEFS}
   <rect width="1200" height="880" rx="24" fill="url(#bg-grad)" stroke="#CBD5E1" stroke-width="1.5"/>
 
   <g font-family="Inter, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif">
     <!-- Header -->
-    <text x="600" y="48" text-anchor="middle" fill="#0F172A" font-size="22" font-weight="800">VibeX Plugin-Native Multi-Agent Architecture</text>
-    <text x="600" y="74" text-anchor="middle" fill="#475569" font-size="12.5" font-weight="500">Coding Agents Unified via ACP · L0 Rust Core + L1/L2 Plugin Platform + L3 Equal-Privilege Ecosystem · One Host Across All Surfaces</text>
+    <text x="600" y="48" text-anchor="middle" fill="#0F172A" font-size="22" font-weight="800">VibeX All-in-One Agent-Native Development Platform</text>
+    <text x="600" y="74" text-anchor="middle" fill="#475569" font-size="12.5" font-weight="500">Multi-Agent Visualization · Tabs &amp; Infinite Canvas · 3-Tier Collaboration · Everything is a Plugin · Multi-Host Everywhere</text>
 
     <!-- Flow lines from Agents to ACP -->
     <g>{"".join(flows)}</g>
 
-    <!-- Layer 1: 16 Colored Agent Chips -->
+    <!-- Layer 1: 16 Representative Colored Agent Chips -->
     <g>{"".join(chips)}</g>
 
-    <!-- Layer 2: ACP Unified Gateway -->
+    <!-- Layer 2: Unified Multi-Agent Layer -->
     <g filter="url(#card-shadow)">
       <rect x="76" y="248" width="1048" height="68" rx="18" fill="url(#acp-grad)" stroke="#4F46E5" stroke-width="1.5"/>
       <circle cx="114" cy="282" r="18" fill="#312E81" stroke="#818CF8" stroke-width="1.5"/>
       <path d="M114 273 v18 M105 282 h18" stroke="#FFFFFF" stroke-width="2" stroke-linecap="round"/>
-      <text x="144" y="278" fill="#FFFFFF" font-size="15" font-weight="800">ACP Unified Gateway</text>
-      <text x="144" y="297" fill="#A5B4FC" font-size="11.5" font-weight="500">Agent Client Protocol · Built-in &amp; Registry Pipeline</text>
+      <text x="144" y="278" fill="#FFFFFF" font-size="15" font-weight="800">Unified Multi-Agent Hub</text>
+      <text x="144" y="297" fill="#A5B4FC" font-size="11.5" font-weight="500">Dedicated Engine First · Open ACP Compatible · Instant History Import</text>
       {"".join(acp_pill_svg)}
     </g>
 
@@ -547,7 +547,7 @@ def hero_en() -> str:
     {dash("M238 330 V344", 0.25, "#2563EB")}
     {dash("M962 330 V344", 0.28, "#059669")}
 
-    <!-- Layer 3: VibeX Host Container -->
+    <!-- Layer 3: VibeX Platform Core Container -->
     <g filter="url(#host-shadow)">
       <rect x="38" y="344" width="1124" height="392" rx="22" fill="#FFFFFF" stroke="#CBD5E1" stroke-width="1.5"/>
       <rect x="39" y="345" width="1122" height="48" rx="21" fill="url(#host-header-grad)"/>
@@ -556,92 +556,92 @@ def hero_en() -> str:
       <circle cx="66" cy="369" r="6" fill="#2563EB"/>
       <circle cx="84" cy="369" r="6" fill="#7C3AED"/>
       <circle cx="102" cy="369" r="6" fill="#10B981"/>
-      <text x="124" y="374" fill="#0F172A" font-size="14.5" font-weight="800">VibeX Host Kernel (Desktop Embedded Host / Headless vibex-server)</text>
+      <text x="124" y="374" fill="#0F172A" font-size="14.5" font-weight="800">VibeX High-Performance Core (Multi-Agent Workspace × Vibe Coding Toolkit)</text>
       <rect x="886" y="356" width="254" height="26" rx="13" fill="#0F172A"/>
-      <text x="1013" y="373" text-anchor="middle" fill="#F8FAFC" font-size="10.5" font-weight="700">Rust + Tauri 2 · Local-First Ownership</text>
+      <text x="1013" y="373" text-anchor="middle" fill="#F8FAFC" font-size="10.5" font-weight="700">Native Rust Speed · Local-First Data</text>
     </g>
 
-    <!-- Column 1: L0 Core Foundation -->
+    <!-- Column 1: Spatial Workspace & Session Control -->
     <g>
       <rect x="58" y="408" width="348" height="262" rx="16" fill="#F8FAFC" stroke="#BFDBFE" stroke-width="1.5"/>
       <rect x="58" y="408" width="348" height="44" rx="16" fill="#EFF6FF"/>
       <rect x="74" y="420" width="36" height="20" rx="6" fill="#2563EB"/>
-      <text x="92" y="434" text-anchor="middle" fill="#FFFFFF" font-size="11" font-weight="800">L0</text>
-      <text x="120" y="430" fill="#1E3A8A" font-size="13.5" font-weight="800">Core Foundation</text>
-      <text x="120" y="445" fill="#3B82F6" font-size="10" font-weight="600">Authoritative Kernel · History &amp; Isolation (Rust)</text>
+      <text x="92" y="434" text-anchor="middle" fill="#FFFFFF" font-size="11" font-weight="800">01</text>
+      <text x="120" y="430" fill="#1E3A8A" font-size="13.5" font-weight="800">Dual Spatial Workspace</text>
+      <text x="120" y="445" fill="#3B82F6" font-size="10" font-weight="600">Visual Sessions · Cross-Agent Handoff · Unified Auth</text>
 
       <rect x="74" y="462" width="316" height="44" rx="10" fill="#FFFFFF" stroke="#DBEAFE" stroke-width="1"/>
-      <text x="88" y="481" fill="#0F172A" font-size="12" font-weight="700">Multi-Workspace &amp; Git Worktree Engine</text>
-      <text x="88" y="497" fill="#475569" font-size="10.5">Parallel Worktrees · Live Diff Review · Rebase &amp; Merge</text>
+      <text x="88" y="481" fill="#0F172A" font-size="12" font-weight="700">Free-Form Tabs ↔ Infinite Spatial Canvas</text>
+      <text x="88" y="497" fill="#475569" font-size="10.5">Instant toggle · Tile dozens of live sessions, editors &amp; previews</text>
 
       <rect x="74" y="514" width="316" height="44" rx="10" fill="#FFFFFF" stroke="#DBEAFE" stroke-width="1"/>
-      <text x="88" y="533" fill="#0F172A" font-size="12" font-weight="700">Event-Sourced Conversation &amp; Turn Core</text>
-      <text x="88" y="549" fill="#475569" font-size="10.5">JSONL History · Turn State Machine · Live Steering</text>
+      <text x="88" y="533" fill="#0F172A" font-size="12" font-weight="700">Cross-Agent Migration, Steer &amp; Fork</text>
+      <text x="88" y="549" fill="#475569" font-size="10.5">Continue across agents · Steer mid-run · Non-destructive Fork</text>
 
       <rect x="74" y="566" width="316" height="44" rx="10" fill="#FFFFFF" stroke="#DBEAFE" stroke-width="1"/>
-      <text x="88" y="585" fill="#0F172A" font-size="12" font-weight="700">Built-in Collaboration Space (VibeX-Bot)</text>
-      <text x="88" y="601" fill="#475569" font-size="10.5">Multi-Bot Group Spaces · @Mentions · &amp;Agent Delegation</text>
+      <text x="88" y="585" fill="#0F172A" font-size="12" font-weight="700">Unified Auth &amp; Provider Management</text>
+      <text x="88" y="601" fill="#475569" font-size="10.5">Subscriptions, API keys &amp; presets · CC Switch import · ModelRouter</text>
 
       <rect x="74" y="618" width="316" height="40" rx="10" fill="#FFFFFF" stroke="#DBEAFE" stroke-width="1"/>
-      <text x="88" y="636" fill="#0F172A" font-size="12" font-weight="700">Integrated Workbench Base</text>
-      <text x="88" y="650" fill="#475569" font-size="10.5">File Tree · Dockview Split Panes · Terminal · Approvals</text>
+      <text x="88" y="636" fill="#0F172A" font-size="12" font-weight="700">Precision Context &amp; Quota Analytics</text>
+      <text x="88" y="650" fill="#475569" font-size="10.5">@ File/Session/Commit references · Live plan quotas &amp; token spend</text>
     </g>
 
-    <!-- Column 2: L1 & L2 Plugin Platform -->
+    <!-- Column 2: Engineering & 3-Tier Collaboration -->
     <g>
       <rect x="426" y="408" width="348" height="262" rx="16" fill="#F8FAFC" stroke="#DDD6FE" stroke-width="1.5"/>
       <rect x="426" y="408" width="348" height="44" rx="16" fill="#F5F3FF"/>
-      <rect x="442" y="420" width="52" height="20" rx="6" fill="#7C3AED"/>
-      <text x="468" y="434" text-anchor="middle" fill="#FFFFFF" font-size="10.5" font-weight="800">L1 / L2</text>
-      <text x="504" y="430" fill="#4C1D95" font-size="13.5" font-weight="800">Plugin Control Plane</text>
-      <text x="504" y="445" fill="#7C3AED" font-size="10" font-weight="600">Everything is a Plugin · UI Slots + Provider Seams</text>
+      <rect x="442" y="420" width="36" height="20" rx="6" fill="#7C3AED"/>
+      <text x="460" y="434" text-anchor="middle" fill="#FFFFFF" font-size="11" font-weight="800">02</text>
+      <text x="488" y="430" fill="#4C1D95" font-size="13.5" font-weight="800">Worktrees &amp; 3-Tier Collaboration</text>
+      <text x="488" y="445" fill="#7C3AED" font-size="10" font-weight="600">Isolated Parallel Coding · Flexible Agent Teaming</text>
 
       <rect x="442" y="462" width="316" height="44" rx="10" fill="#FFFFFF" stroke="#EDE9FE" stroke-width="1"/>
-      <text x="456" y="481" fill="#0F172A" font-size="12" font-weight="700">L2 Structural Shell Slots (UI Slots)</text>
-      <text x="456" y="497" fill="#475569" font-size="10.5">app.tab Top Tabs · app.kanban.view Board · app.panel</text>
+      <text x="456" y="481" fill="#0F172A" font-size="12" font-weight="700">Multi-Worktree Parallel Engineering</text>
+      <text x="456" y="497" fill="#475569" font-size="10.5">Conflict-free parallel branches · Live Diff · 3-Pane Merge</text>
 
       <rect x="442" y="514" width="316" height="44" rx="10" fill="#FFFFFF" stroke="#EDE9FE" stroke-width="1"/>
-      <text x="456" y="533" fill="#0F172A" font-size="12" font-weight="700">L1 Host Capability Seams (Provider Seams)</text>
-      <text x="456" y="549" fill="#475569" font-size="10.5">Model Providers · File Preview &amp; Editors · Native WebView</text>
+      <text x="456" y="533" fill="#0F172A" font-size="12" font-weight="700">Tier 1: In-Session &amp;Agent Delegation</text>
+      <text x="456" y="549" fill="#475569" font-size="10.5">Mention specialist agents inline to parallelize subtasks</text>
 
       <rect x="442" y="566" width="316" height="44" rx="10" fill="#FFFFFF" stroke="#EDE9FE" stroke-width="1"/>
-      <text x="456" y="585" fill="#0F172A" font-size="12" font-weight="700">Triple Render Tracks &amp; Atomic Generation</text>
-      <text x="456" y="601" fill="#475569" font-size="10.5">Descriptors · Module Federation Panels · App Surfaces</text>
+      <text x="456" y="585" fill="#0F172A" font-size="12" font-weight="700">Tier 2: Collaboration Space (1:1 &amp; Group Rooms)</text>
+      <text x="456" y="601" fill="#475569" font-size="10.5">Persistent role assistants debating, reviewing &amp; handing off</text>
 
       <rect x="442" y="618" width="316" height="40" rx="10" fill="#FFFFFF" stroke="#EDE9FE" stroke-width="1"/>
-      <text x="456" y="636" fill="#0F172A" font-size="12" font-weight="700">Agent Capability Projection &amp; Worker Runtime</text>
-      <text x="456" y="650" fill="#475569" font-size="10.5">Host-Managed MCP · Cross-Agent Skills · Crash Rollback</text>
+      <text x="456" y="636" fill="#0F172A" font-size="12" font-weight="700">Tier 3: Visual DAG Workflows &amp; Automations</text>
+      <text x="456" y="650" fill="#475569" font-size="10.5">Reusable multi-step pipelines · Approval gates · Scheduled runs</text>
     </g>
 
-    <!-- Column 3: L3 Official & Marketplace Plugins -->
+    <!-- Column 3: Everything is a Plugin -->
     <g>
       <rect x="794" y="408" width="348" height="262" rx="16" fill="#F8FAFC" stroke="#A7F3D0" stroke-width="1.5"/>
       <rect x="794" y="408" width="348" height="44" rx="16" fill="#ECFDF5"/>
       <rect x="810" y="420" width="36" height="20" rx="6" fill="#059669"/>
-      <text x="828" y="434" text-anchor="middle" fill="#FFFFFF" font-size="11" font-weight="800">L3</text>
-      <text x="856" y="430" fill="#065F46" font-size="13.5" font-weight="800">Equal-Privilege Ecosystem</text>
-      <text x="856" y="445" fill="#059669" font-size="10" font-weight="600">Official &amp; 3rd-Party Parity · TS / JS / Py / Rust SDK</text>
+      <text x="828" y="434" text-anchor="middle" fill="#FFFFFF" font-size="11" font-weight="800">03</text>
+      <text x="856" y="430" fill="#065F46" font-size="13.5" font-weight="800">Everything is a Plugin</text>
+      <text x="856" y="445" fill="#059669" font-size="10" font-weight="600">Decoupled Architecture · Plug-and-Play Vibe Coding Tools</text>
 
       <rect x="810" y="462" width="316" height="44" rx="10" fill="#FFFFFF" stroke="#D1FAE5" stroke-width="1"/>
-      <text x="824" y="481" fill="#0F172A" font-size="12" font-weight="700">Multi-View Kanban Plugin (kanban-views)</text>
-      <text x="824" y="497" fill="#475569" font-size="10.5">Infinite Canvas Board · 4-Column Board · Token Analytics</text>
+      <text x="824" y="481" fill="#0F172A" font-size="12" font-weight="700">Built-in Browser &amp; Desktop Computer-Use</text>
+      <text x="824" y="497" fill="#475569" font-size="10.5">Pick live DOM elements · Window-scoped GUI automation</text>
 
       <rect x="810" y="514" width="316" height="44" rx="10" fill="#FFFFFF" stroke="#D1FAE5" stroke-width="1"/>
-      <text x="824" y="533" fill="#0F172A" font-size="12" font-weight="700">Workflow Studio (workflow-creator)</text>
-      <text x="824" y="549" fill="#475569" font-size="10.5">JSON DAG Orchestration · Immutable Versions · Triggers</text>
+      <text x="824" y="533" fill="#0F172A" font-size="12" font-weight="700">AI Code Completion, Voice &amp; Prompt Polish</text>
+      <text x="824" y="549" fill="#475569" font-size="10.5">Inline Ghost Text · Streaming voice dictation · Interactive Q&amp;A</text>
 
       <rect x="810" y="566" width="316" height="44" rx="10" fill="#FFFFFF" stroke="#D1FAE5" stroke-width="1"/>
-      <text x="824" y="585" fill="#0F172A" font-size="12" font-weight="700">Dev &amp; Environment Plugins (browser / ssh)</text>
-      <text x="824" y="601" fill="#475569" font-size="10.5">Built-in Browser &amp; DOM Picker · Computer Use · SSH</text>
+      <text x="824" y="585" fill="#0F172A" font-size="12" font-weight="700">Office Suite &amp; Scientific Research Skills</text>
+      <text x="824" y="601" fill="#475569" font-size="10.5">DOCX / XLSX / PPTX generation &amp; preview · Domain skill packs</text>
 
       <rect x="810" y="618" width="316" height="40" rx="10" fill="#FFFFFF" stroke="#D1FAE5" stroke-width="1"/>
-      <text x="824" y="636" fill="#0F172A" font-size="12" font-weight="700">Session, Office &amp; Science Suite</text>
-      <text x="824" y="650" fill="#475569" font-size="10.5">Live Feedback · Provider Switch · Office Preview · Science</text>
+      <text x="824" y="636" fill="#0F172A" font-size="12" font-weight="700">Open Marketplace &amp; Multi-Language SDK</text>
+      <text x="824" y="650" fill="#475569" font-size="10.5">1-Click Remote SSH · App Connectors · TS / Python / Rust SDK</text>
     </g>
 
-    <!-- Bottom Unified Application Core Bus inside Host -->
+    <!-- Bottom Multi-Host Connectivity Bus -->
     <rect x="58" y="682" width="1084" height="38" rx="11" fill="#0F172A"/>
-    <text x="600" y="705" text-anchor="middle" fill="#F8FAFC" font-size="12" font-weight="700">Application Core &amp; Remote Protocol · Desktop IPC / HTTP / WebSocket / TLS Pairing · Shared Sessions, Workspaces &amp; Plugins</text>
+    <text x="600" y="705" text-anchor="middle" fill="#F8FAFC" font-size="12" font-weight="700">Multi-Host Connectivity (Local Desktop · Remote Server · Browser WebUI · SSH Direct · P2P Encrypted Relay)</text>
 
     <!-- Flow lines to 4 Surfaces -->
     {dash("M176 736 V770", 0.10, "#2563EB")}
@@ -656,28 +656,28 @@ def hero_en() -> str:
       <path d="M74 800 h22 v14 h-22 z M80 818 h10" fill="none" stroke="#2563EB" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
       <text x="118" y="806" fill="#0F172A" font-size="14" font-weight="800">Desktop App</text>
       <text x="118" y="824" fill="#475569" font-size="11" font-weight="500">macOS · Windows · Linux</text>
-      <text x="118" y="840" fill="#2563EB" font-size="10.5" font-weight="600">Embedded Host &amp; Native Window</text>
+      <text x="118" y="840" fill="#2563EB" font-size="10.5" font-weight="600">Local Host or Remote Workstation</text>
 
       <rect x="328" y="770" width="260" height="84" rx="16" fill="#FFFFFF" stroke="#C7D2FE" stroke-width="1.5"/>
       <rect x="346" y="788" width="42" height="42" rx="11" fill="#EEF2FF" stroke="#C7D2FE" stroke-width="1"/>
       <path d="M356 798 h22 v18 h-22 z M356 804 h22" fill="none" stroke="#4F46E5" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-      <text x="400" y="806" fill="#0F172A" font-size="14" font-weight="800">Server + WebUI</text>
-      <text x="400" y="824" fill="#475569" font-size="11" font-weight="500">Headless vibex-server Daemon</text>
-      <text x="400" y="840" fill="#4F46E5" font-size="10.5" font-weight="600">Full Workbench in Any Browser</text>
+      <text x="400" y="806" fill="#0F172A" font-size="14" font-weight="800">WebUI &amp; Server</text>
+      <text x="400" y="824" fill="#475569" font-size="11" font-weight="500">Browser Workbench · Docker / Cloud</text>
+      <text x="400" y="840" fill="#4F46E5" font-size="10.5" font-weight="600">1-Click SSH Deploy &amp; Pairing</text>
 
       <rect x="612" y="770" width="260" height="84" rx="16" fill="#FFFFFF" stroke="#DDD6FE" stroke-width="1.5"/>
       <rect x="630" y="788" width="42" height="42" rx="11" fill="#F5F3FF" stroke="#DDD6FE" stroke-width="1"/>
-      <path d="M641 804 l6 5 -6 5 M650 814 h8" fill="none" stroke="#7C3AED" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-      <text x="684" y="806" fill="#0F172A" font-size="14" font-weight="800">CLI &amp; Plugin SDK</text>
-      <text x="684" y="824" fill="#475569" font-size="11" font-weight="500">npx @omnione/vibex</text>
-      <text x="684" y="840" fill="#7C3AED" font-size="10.5" font-weight="600">One-Command Launch · Plugin CLI</text>
+      <path d="M644 797 h14 v24 h-14 z M649 817 h4" fill="none" stroke="#7C3AED" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+      <text x="684" y="806" fill="#0F172A" font-size="14" font-weight="800">iOS &amp; Android Apps</text>
+      <text x="684" y="824" fill="#475569" font-size="11" font-weight="500">Native Mobile Companions</text>
+      <text x="684" y="840" fill="#7C3AED" font-size="10.5" font-weight="600">Monitor, Steer &amp; Approve Anywhere</text>
 
       <rect x="894" y="770" width="260" height="84" rx="16" fill="#FFFFFF" stroke="#A7F3D0" stroke-width="1.5"/>
       <rect x="912" y="788" width="42" height="42" rx="11" fill="#ECFDF5" stroke="#A7F3D0" stroke-width="1"/>
-      <path d="M926 797 h14 v24 h-14 z M931 817 h4" fill="none" stroke="#059669" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-      <text x="966" y="806" fill="#0F172A" font-size="14" font-weight="800">Mobile &amp; IM Channels</text>
-      <text x="966" y="824" fill="#475569" font-size="11" font-weight="500">Android Companion · WeChat / TG</text>
-      <text x="966" y="840" fill="#059669" font-size="10.5" font-weight="600">Remote Control &amp; Live Approvals</text>
+      <path d="M923 804 l6 5 -6 5 M932 814 h8" fill="none" stroke="#059669" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+      <text x="966" y="806" fill="#0F172A" font-size="14" font-weight="800">IM Channels &amp; CLI</text>
+      <text x="966" y="824" fill="#475569" font-size="11" font-weight="500">Telegram / WeChat / Feishu / Discord</text>
+      <text x="966" y="840" fill="#059669" font-size="10.5" font-weight="600">2-Way Chat Control · npx CLI</text>
     </g>
   </g>
 </svg>

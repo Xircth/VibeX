@@ -1,21 +1,18 @@
 ---
-status: accepted
+status: superseded in part by ADR-0087
 date: 2026-07-29
+amended: 2026-11-14
 decision-makers:
   - VibeX maintainers
 ---
 
-# Agent 管理能力采用 ACP 优先、本地补缺
+# Agent 管理能力采用 ACP 优先、本地补缺（优先级已由 ADR-0087 反转为独立引擎优先、ACP 次选）
 
-VibeX 对所有 Agent 使用同一套管理能力接口，并优先采用 Agent 通过 ACP 广告的认证
-状态、账户状态与订阅可见性。ACP 尚未提供某项状态能力时，Built-in Agent Profile
-可以通过统一 Provider 接口声明本地探测；
-普通 Registry Agent 不获得专用本地适配。ACP 只承担握手、状态探测与会话能力，不
+> **修订说明（2026-11-14）**：本文中「ACP 优先、本地补缺」的优先级规则已被 [ADR-0087](0087-dedicated-agent-engine-first-acp-fallback.md) 取代——现行规范为**独立 Agent 引擎与原生本地适配优先，ACP 为次选**。下文关于凭据掩码、订阅只读边界、事件驱动刷新以及纯 ACP 通道 Agent 的状态判定细则仍对相应场景有效。
+
+VibeX 对所有 Agent 使用同一套管理能力接口。在早期阶段曾优先采用 Agent 通过 ACP 广告的认证
+状态、账户状态与订阅可见性；按 [ADR-0087](0087-dedicated-agent-engine-first-acp-fallback.md)，具备独立引擎或已验证原生适配的内置 Agent 现优先使用独立引擎与原生状态探测，ACP 作为未覆盖项及普通 Registry Agent 的次选通道。ACP 不
 承担 VibeX 的持久配置写入。
-
-ACP 与本地 Provider 同时支持同一状态能力时只启用 ACP，避免双读和状态冲突；当 ACP
-后续新增等价状态能力时，本地探测自动退出。Provider 只补充共享界面的能力后端，不得
-引入 Agent 专属页面、安装状态机或会话运行分支。
 
 订阅相关能力限定为只读的账户套餐、额度、用量与重置时间展示。VibeX 不执行购买、
 升级、降级或取消订阅；需要改变订阅时只引导用户前往 Agent 官方渠道。

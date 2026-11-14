@@ -1545,11 +1545,18 @@ const AgentTimelineConversation = forwardRef<
     const list = virtualListRef.current;
     if (!container || !list) return;
     updateScrollMargin();
-    const observer = new ResizeObserver(() => updateScrollMargin());
+    let viewportHeight = container.clientHeight;
+    const observer = new ResizeObserver(() => {
+      updateScrollMargin();
+      const nextHeight = container.clientHeight;
+      if (nextHeight === viewportHeight) return;
+      viewportHeight = nextHeight;
+      if (nextHeight > 0 && followTailRef.current) pinToBottom('auto');
+    });
     observer.observe(container);
     observer.observe(list);
     return () => observer.disconnect();
-  }, [sideRows.length, updateScrollMargin]);
+  }, [pinToBottom, sideRows.length, updateScrollMargin]);
 
   useLayoutEffect(() => {
     updateActiveIndex();

@@ -25,8 +25,7 @@ Android 交付门槛不变。
 - 设备凭据存入 Keychain；iOS 专属 UI 状态不得进入 Remote Protocol，也不得要求 Server 提供
   专属端点。
 - 后台完成通知所需的摘要沿用 `notification.summary`；协议目前不连接 APNs，推送通道需另立 ADR。
-- 功能范围与 Android P1 对等，分期交付见
-  [iOS Companion 交付计划](../plans/2026-11-06-ios-companion.md)。
+- 功能范围与 Android P1 对等，客户端连接与事件契约见 [Companion 与远程客户端文档](../companion/README.md)。
 
 ## Considered Options
 

@@ -4,7 +4,11 @@ import { resolve } from 'node:path';
 import type { ComponentProps } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { AstryxMarkdown as Markdown } from './AstryxMarkdown';
+import {
+  AstryxMarkdown as Markdown,
+  getMarkdownBlockElementCacheStats,
+  resetMarkdownBlockElementCache,
+} from './AstryxMarkdown';
 
 const markdownStyles = readFileSync(
   resolve(process.cwd(), 'src/styles/conversation/conv-markdown.css'),
@@ -192,19 +196,19 @@ describe('Markdown', () => {
   it.each(['Status', 'docs/example.png'])(
     'opens the actual unavailable image rather than its label %s',
     async (label) => {
-    hostAssetMock.hostFileSrc.mockRejectedValueOnce(
-      new Error('File not found')
-    );
-    renderMarkdown(`![${label}](evidence/agent-runtime-status-zh.png)`);
+      hostAssetMock.hostFileSrc.mockRejectedValueOnce(
+        new Error('File not found')
+      );
+      renderMarkdown(`![${label}](evidence/agent-runtime-status-zh.png)`);
 
-    const link = await screen.findByRole('link', { name: label });
-    fireEvent.click(link);
+      const link = await screen.findByRole('link', { name: label });
+      fireEvent.click(link);
 
-    expect(link).not.toHaveAttribute('href');
-    expect(panelActionsMock.openFilePreview).toHaveBeenCalledWith(
-      'C:/workspace/project/evidence/agent-runtime-status-zh.png',
-      expect.any(Object)
-    );
+      expect(link).not.toHaveAttribute('href');
+      expect(panelActionsMock.openFilePreview).toHaveBeenCalledWith(
+        'C:/workspace/project/evidence/agent-runtime-status-zh.png',
+        expect.any(Object)
+      );
     }
   );
 
@@ -900,5 +904,143 @@ describe('Markdown raw HTML', () => {
     ) as HTMLElement | null;
     expect(paragraph).not.toBeNull();
     expect(paragraph?.style.getPropertyValue('--x-maxWidth')).toBe('100%');
+  });
+});
+
+describe('Markdown closed-block LRU cache', () => {
+  beforeEach(() => {
+    resetMarkdownBlockElementCache();
+  });
+
+  it('renders \\[...\\] and \\begin{align}...\\end{align} spanning blank lines as intact KaTeX blocks', async () => {
+    const { container } = renderMarkdown(
+      [
+        'Intro',
+        '',
+        '\\[',
+        'x_1 = a + b',
+        '',
+        '',
+        '',
+        'x_2 = c + d',
+        '\\]',
+        '',
+        '\\begin{align}',
+        'f(x) &= x^2 \\\\',
+        '',
+        'g(x) &= x^3',
+        '\\end{align}',
+      ].join('\n')
+    );
+
+    await waitFor(() => {
+      expect(container.querySelectorAll('.katex')).toHaveLength(2);
+    });
+    expect(container.querySelector('.katex-display')).toBeInTheDocument();
+    expect(container.querySelector('.katex-error')).toBeNull();
+  });
+
+  it('renders trailing ## Tag Reference appendix separately without caching it', () => {
+    resetMarkdownBlockElementCache();
+    const { container } = renderMarkdown(
+      [
+        'Main paragraph one.',
+        '',
+        'Main paragraph two.',
+        '',
+        '## Tag Reference',
+        '',
+        '- `#spec`: Phase 1.2 LRU cache',
+      ].join('\n')
+    );
+
+    expect(container.textContent).toContain('Main paragraph one.');
+    expect(container.textContent).toContain('Tag Reference');
+    expect(container.textContent).toContain('#spec');
+    expect(getMarkdownBlockElementCacheStats().entries).toBe(2);
+  });
+
+  it('achieves > 90% element cache hit rate and P99 < 8ms per frame during 10k-char streaming', () => {
+    const blocks = Array.from(
+      { length: 25 },
+      (_, idx) =>
+        `### Section ${idx}: Closed-Block Streaming Architecture\n` +
+        `Block ${idx} verifies that once a markdown section closes across a blank line boundary, its compiled ReactElement is stored in the 500k-character LRU cache and reused by reference on every subsequent frame. ` +
+        `Only the trailing active block (~500 characters) runs tag normalization, raw HTML protection, KaTeX math extraction, and member mention protection during live token streaming (${idx}).`
+    );
+    const tenKText = blocks.join('\n\n');
+    expect(tenKText.length).toBeGreaterThan(10_000);
+
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+
+    // Warm up JIT / StyleX once before resetting cache stats & timing
+    const warmup = render(
+      <QueryClientProvider client={queryClient}>
+        <Markdown
+          value="### Warmup\nWarmup paragraph.\n\nActive tail"
+          taskAttemptId="workspace-1"
+          workspacePath="C:/workspace/project"
+          isStreaming={true}
+        />
+      </QueryClientProvider>
+    );
+    warmup.unmount();
+    resetMarkdownBlockElementCache();
+
+    const step = 100;
+    const { rerender, container } = render(
+      <QueryClientProvider client={queryClient}>
+        <Markdown
+          value={tenKText.slice(0, step)}
+          taskAttemptId="workspace-1"
+          workspacePath="C:/workspace/project"
+          isStreaming={true}
+        />
+      </QueryClientProvider>
+    );
+
+    const frameDurations: number[] = [];
+    for (let cursor = step * 2; cursor <= tenKText.length; cursor += step) {
+      const nextSlice = tenKText.slice(0, cursor);
+      const t0 = performance.now();
+      rerender(
+        <QueryClientProvider client={queryClient}>
+          <Markdown
+            value={nextSlice}
+            taskAttemptId="workspace-1"
+            workspacePath="C:/workspace/project"
+            isStreaming={true}
+          />
+        </QueryClientProvider>
+      );
+      frameDurations.push(performance.now() - t0);
+    }
+
+    // Settle final stream frame
+    rerender(
+      <QueryClientProvider client={queryClient}>
+        <Markdown
+          value={tenKText}
+          taskAttemptId="workspace-1"
+          workspacePath="C:/workspace/project"
+          isStreaming={false}
+        />
+      </QueryClientProvider>
+    );
+
+    const stats = getMarkdownBlockElementCacheStats();
+    const hitRate = stats.hits / (stats.hits + stats.misses);
+    const sorted = [...frameDurations].sort((a, b) => a - b);
+    const p99 =
+      sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * 0.99))] ??
+      0;
+
+    expect(container.textContent).toContain('Section 0');
+    expect(container.textContent).toContain('Section 24');
+    expect(hitRate).toBeGreaterThan(0.95);
+    expect(stats.cachedChars).toBeLessThanOrEqual(500_000);
+    expect(p99).toBeLessThan(8);
   });
 });

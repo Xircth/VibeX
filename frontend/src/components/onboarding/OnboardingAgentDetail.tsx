@@ -1,4 +1,16 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from 'react';
+import type {
+  OnboardingAgentCheck,
+  OnboardingAgentStatus,
+} from './onboardingAgentModel';
+import { AgentPreflightCard } from '@/pages/settings/AgentPreflightCheckItem';
+import { presentPreflightItems } from '@/pages/settings/agentPreflightSnapshot';
 import { useTranslation } from 'react-i18next';
 import { Loader2, RefreshCw, X } from 'lucide-react';
 import type {
@@ -28,6 +40,7 @@ import { DshAuthPanel } from '@/pages/settings/DshAuthPanel';
 import { DshSessionDefaults } from '@/pages/settings/DshSessionDefaults';
 import { AgentOperationProgress } from '@/pages/settings/AgentOperationProgress';
 import { AgentEnvironmentEditor } from '@/pages/settings/AgentEnvironmentEditor';
+import { OnboardingAgentStatusBadge } from './OnboardingAgentStatusBadge';
 
 export function OnboardingAgentDetail({
   agent,
@@ -36,6 +49,11 @@ export function OnboardingAgentDetail({
   onRefresh,
   onClose,
   onDirtyChange,
+  checkState,
+  onCheck,
+  installing = false,
+  rosterAction,
+  status,
 }: {
   agent: AgentManagementView;
   operation?: AgentOperationState;
@@ -43,6 +61,11 @@ export function OnboardingAgentDetail({
   onRefresh: () => Promise<unknown>;
   onClose: () => void;
   onDirtyChange: (dirty: boolean) => void;
+  checkState?: OnboardingAgentCheck;
+  onCheck?: () => Promise<void>;
+  installing?: boolean;
+  rosterAction?: ReactNode;
+  status?: OnboardingAgentStatus;
 }) {
   const { t } = useTranslation(['dialogs', 'settings', 'common']);
   const [config, setConfig] = useState<AgentNativeConfigView | null>(null);
@@ -70,7 +93,8 @@ export function OnboardingAgentDetail({
     agent.lifecycle === 'platform_unsupported' ||
     agent.retired;
   const operationBusy = Boolean(
-    agent.active_operation ||
+    installing ||
+      agent.active_operation ||
       (operation &&
         ['queued', 'running', 'canceling'].includes(operation.status))
   );
@@ -144,15 +168,18 @@ export function OnboardingAgentDetail({
     setBusy(true);
     setError(null);
     try {
-      const report = await agentManagementApi.preflight(agent.agent_id);
-      if (active.current) setPreflight(report);
+      if (onCheck) await onCheck();
+      else {
+        const report = await agentManagementApi.preflight(agent.agent_id);
+        if (active.current) setPreflight(report);
+      }
       await refresh();
     } catch (cause) {
       if (active.current) reportError(cause);
     } finally {
       if (active.current) setBusy(false);
     }
-  }, [agent.agent_id, refresh, reportError]);
+  }, [agent.agent_id, onCheck, refresh, reportError]);
   useEffect(() => {
     active.current = true;
     void refresh().catch(reportError);
@@ -161,8 +188,8 @@ export function OnboardingAgentDetail({
     };
   }, [refresh, reportError]);
   useEffect(() => {
-    if (operation?.status === 'succeeded') void check();
-  }, [operation?.status, check]);
+    if (!onCheck && operation?.status === 'succeeded') void check();
+  }, [operation?.status, check, onCheck]);
   useEffect(() => {
     let stopped = false;
     let timer: number | undefined;
@@ -181,12 +208,12 @@ export function OnboardingAgentDetail({
         if (flow.status === 'failed')
           throw new Error(t('settings:agents.accountFlowCommandFailed'));
         if (flow.status === 'succeeded' || flow.status === 'idle') {
-          const report = await agentManagementApi.preflight(
-            agent.agent_id,
-            'authentication'
-          );
-          if (stopped) return;
-          setPreflight(report);
+          if (onCheck) await onCheck();
+          else {
+            const report = await agentManagementApi.preflight(agent.agent_id);
+            if (stopped) return;
+            setPreflight(report);
+          }
           await refresh();
           const view = (await agentManagementApi.bar()).find(
             (item) => item.agent_id === agent.agent_id
@@ -220,7 +247,7 @@ export function OnboardingAgentDetail({
       stopped = true;
       window.clearTimeout(timer);
     };
-  }, [actionRunning, agent.agent_id, refresh, reportError, t]);
+  }, [actionRunning, agent.agent_id, refresh, reportError, t, onCheck]);
   const changed = useCallback(() => {
     void check();
   }, [check]);
@@ -332,7 +359,7 @@ export function OnboardingAgentDetail({
     ) : null;
   return (
     <aside
-      className="onboarding-agent-detail settings-page"
+      className="onboarding-agent-detail onboarding-agent-settings settings-page"
       tabIndex={-1}
       ref={detailRef}
       aria-label={t('onboarding.agentDetail', { agent: agent.display_name })}
@@ -354,80 +381,99 @@ export function OnboardingAgentDetail({
           <X className="h-4 w-4" />
         </Button>
       </header>
-      <div className="flex flex-wrap items-center gap-2">
-        <span className="text-sm" role="status">
-          {t(`settings:agents.lifecycleStatus.${agent.lifecycle}`)}
-        </span>
-        <Button
-          size="sm"
-          variant="outline"
-          disabled={busy || operationBusy}
-          onClick={() => void check()}
-        >
-          <RefreshCw className="mr-2 h-3.5 w-3.5" />
-          {t('onboarding.recheck')}
-        </Button>
-        {agent.lifecycle !== 'platform_unsupported' &&
-        (locked || agent.lifecycle === 'needs_repair') ? (
+      <section
+        className="onboarding-agent-preflight"
+        aria-label={t('settings:agents.preflightTitle')}
+      >
+        <div className="onboarding-agent-preflight-actions">
+          <div className="mr-auto">
+            {status ? (
+              <OnboardingAgentStatusBadge status={status} />
+            ) : (
+              <span role="status">
+                {t(`settings:agents.lifecycleStatus.${agent.lifecycle}`)}
+              </span>
+            )}
+          </div>
           <Button
             size="sm"
-            disabled={busy || operationBusy}
-            onClick={() => {
-              setBusy(true);
-              void onInstall()
-                .catch(reportError)
-                .finally(() => setBusy(false));
-            }}
+            variant="outline"
+            disabled={busy || operationBusy || checkState?.checking}
+            onClick={() => void check()}
           >
-            {t(
-              agent.lifecycle === 'needs_repair'
-                ? 'onboarding.repairAgent'
-                : 'onboarding.installAgent'
-            )}
+            <RefreshCw className="mr-2 h-3.5 w-3.5" />
+            {t('onboarding.recheck')}
           </Button>
+          {agent.lifecycle !== 'platform_unsupported' &&
+          (status === 'uninstalled' ||
+            locked ||
+            agent.lifecycle === 'needs_repair' ||
+            checkState?.installationFailed) ? (
+            <Button
+              size="sm"
+              disabled={busy || operationBusy || checkState?.checking}
+              onClick={() => {
+                setBusy(true);
+                void onInstall()
+                  .catch(reportError)
+                  .finally(() => setBusy(false));
+              }}
+            >
+              {t(
+                checkState?.installationFailed
+                  ? 'onboarding.reinstall'
+                  : 'onboarding.installOneClick'
+              )}
+            </Button>
+          ) : null}
+          {busy ? (
+            <Loader2
+              className="h-4 w-4 motion-safe:animate-spin"
+              aria-label={t('onboarding.checking')}
+            />
+          ) : null}
+        </div>
+        {rosterAction}
+        {error || checkState?.error ? (
+          <p className="text-sm text-destructive" role="alert">
+            {error || checkState?.error}
+          </p>
         ) : null}
-        {busy ? (
-          <Loader2
-            className="h-4 w-4 motion-safe:animate-spin"
-            aria-label={t('onboarding.checking')}
+        {operation ? (
+          <AgentOperationProgress
+            operation={operation}
+            onCancel={
+              operationBusy
+                ? () =>
+                    void agentManagementApi
+                      .cancelOperation(agent.agent_id, operation.operationId)
+                      .catch(reportError)
+                : undefined
+            }
           />
         ) : null}
-      </div>
-      {error ? (
-        <p className="text-sm text-destructive" role="alert">
-          {error}
-        </p>
-      ) : null}
-      {operation ? (
-        <AgentOperationProgress
-          operation={operation}
-          onCancel={
-            operationBusy
-              ? () =>
-                  void agentManagementApi
-                    .cancelOperation(agent.agent_id, operation.operationId)
-                    .catch(reportError)
-              : undefined
-          }
-        />
-      ) : null}
-      {preflight ? (
-        <ul className="space-y-2 text-xs">
-          {preflight.items.map((item) => (
-            <li
-              key={item.id}
-              className={
-                item.status === 'fail'
-                  ? 'text-destructive'
-                  : 'text-muted-foreground'
-              }
-            >
-              <strong>{item.label}</strong>
-              {item.detail ? ` · ${item.detail}` : ''}
-            </li>
-          ))}
-        </ul>
-      ) : null}
+        {checkState?.report || preflight ? (
+          <ul className="agent-preflight-grid">
+            {presentPreflightItems(
+              (checkState?.report ?? preflight)!.items
+            ).map((item) => (
+              <AgentPreflightCard
+                key={item.id}
+                item={item}
+                busy={busy || Boolean(checkState?.checking)}
+              />
+            ))}
+          </ul>
+        ) : (
+          <p className="text-xs text-muted-foreground" role="status">
+            {t(
+              checkState?.checking
+                ? 'onboarding.checking'
+                : 'onboarding.preflightNotChecked'
+            )}
+          </p>
+        )}
+      </section>
       {agent.agent_id === 'deepseek_harness' ? (
         <>
           <DshAuthPanel
@@ -519,6 +565,7 @@ export function OnboardingAgentDetail({
         : null}
       <AgentEnvironmentEditor
         agentId={agent.agent_id}
+        togglePosition="trailing"
         disabled={locked || busy || operationBusy}
         onChanged={changed}
         onDirtyChange={environmentDirty}

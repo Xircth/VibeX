@@ -1,7 +1,8 @@
-import { Suspense, type ReactNode } from 'react';
+import { Suspense, useContext, type ReactNode } from 'react';
 
 import { LegacyDesignScope } from '@/components/legacy-design/LegacyDesignScope';
 import { Loader } from '@/components/ui/loader';
+import { StartupOverlayContext } from '@/contexts/StartupOverlayContext';
 
 export function RouteFallback() {
   return (
@@ -20,6 +21,7 @@ export function MainLegacyScope({
   className?: string;
   pageSuspense?: boolean;
 }) {
+  const startupOverlay = useContext(StartupOverlayContext);
   return (
     <LegacyDesignScope className={className}>
       {pageSuspense ? (
@@ -27,6 +29,7 @@ export function MainLegacyScope({
       ) : (
         children
       )}
+      {startupOverlay}
     </LegacyDesignScope>
   );
 }

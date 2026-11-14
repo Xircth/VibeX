@@ -365,6 +365,7 @@ domain_commands! {
     AgentImportLocalHistory => "agent_import_local_history" / "application.call",
     AgentImportLocalHistoryBatch => "agent_import_local_history_batch" / "application.call",
     AgentImportRemoteSession => "agent_import_remote_session" / "application.call",
+    AgentDiscoverLocalHistorySources => "agent_discover_local_history_sources" / "application.call",
     AgentListLocalHistory => "agent_list_local_history" / "application.call",
     AgentListRemoteSessions => "agent_list_remote_sessions" / "application.call",
     AgentListSessionCommands => "agent_list_session_commands" / "application.call",

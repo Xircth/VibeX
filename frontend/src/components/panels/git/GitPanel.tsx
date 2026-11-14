@@ -518,6 +518,7 @@ export function GitPanel() {
                   unstagedFiles={unstagedFiles}
                   selectedPath={selectedDiffPath}
                   viewMode={diffListView}
+                  workspaceId={workspaceId}
                   onSelectFile={handleSelectFile}
                   onDoubleClickFile={handleDoubleClickFile}
                   onStageFile={stageFile}

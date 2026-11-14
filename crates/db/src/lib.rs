@@ -515,19 +515,139 @@ mod tests {
             "newest duplicate project must remain visible"
         );
     }
+    #[tokio::test]
+    async fn projection_single_authority_migration_and_dual_pool_readonly_enforcement() {
+        let db = super::DBService::new_in_memory_for_tests()
+            .await
+            .expect("in-memory dual-pool db");
+
+        // Verify new columns and row-level trigram FTS5 table exist.
+        let timeline_cols: Vec<String> = sqlx::query_scalar(
+            "SELECT name FROM pragma_table_info('conversation_timeline_rows') ORDER BY cid",
+        )
+        .fetch_all(db.reader().as_pool())
+        .await
+        .expect("timeline columns");
+        assert!(timeline_cols.iter().any(|c| c == "deleted_sequence"));
+
+        let snapshot_cols: Vec<String> = sqlx::query_scalar(
+            "SELECT name FROM pragma_table_info('conversation_projection_snapshots') ORDER BY cid",
+        )
+        .fetch_all(db.reader().as_pool())
+        .await
+        .expect("snapshot columns");
+        assert!(
+            snapshot_cols
+                .iter()
+                .any(|c| c == "last_allocated_sequence")
+        );
+
+        let session_cols: Vec<String> =
+            sqlx::query_scalar("SELECT name FROM pragma_table_info('sessions') ORDER BY cid")
+                .fetch_all(db.reader().as_pool())
+                .await
+                .expect("session columns");
+        assert!(
+            session_cols
+                .iter()
+                .any(|c| c == "legacy_jsonl_migrated")
+        );
+
+        // WritePool succeeds on row-level trigram FTS5 writes; ReadPool sees committed rows.
+        sqlx::query(
+            "INSERT INTO conversation_fts (conversation_id, row_id, role, text)
+             VALUES (?1, ?2, ?3, ?4)",
+        )
+        .bind("conv-1")
+        .bind("turn-1:assistant")
+        .bind("assistant")
+        .bind("SQLite single authority trigram search verification")
+        .execute(db.writer().as_pool())
+        .await
+        .expect("fts insert on WritePool");
+
+        let matched_row_id: String = sqlx::query_scalar(
+            "SELECT row_id FROM conversation_fts WHERE conversation_fts MATCH '\"trigram\"'",
+        )
+        .fetch_one(db.reader().as_pool())
+        .await
+        .expect("fts read on ReadPool");
+        assert_eq!(matched_row_id, "turn-1:assistant");
+
+        // ReadPool MUST reject write statements with SQLITE_READONLY.
+        let readonly_err = sqlx::query(
+            "INSERT INTO conversation_fts (conversation_id, row_id, role, text)
+             VALUES ('conv-2', 'row-2', 'user', 'must fail')",
+        )
+        .execute(db.reader().as_pool())
+        .await
+        .expect_err("ReadPool must reject writes");
+        let db_err = readonly_err
+            .as_database_error()
+            .expect("expected sqlite database error");
+        let code = db_err.code().unwrap_or_default();
+        assert!(
+            code == "8" || db_err.message().to_ascii_lowercase().contains("readonly") || db_err.message().to_ascii_lowercase().contains("read-only"),
+            "expected SQLITE_READONLY (code 8), got code={code:?}, msg={}",
+            db_err.message()
+        );
+    }
 }
 
-fn sqlite_connect_options(database_path: &Path) -> SqliteConnectOptions {
+/// Process-wide single-connection write pool (`max_connections(1)`).
+///
+/// Serializes `BEGIN IMMEDIATE` write transactions in-process so writers never
+/// contend on `SQLITE_BUSY` against each other.
+#[derive(Clone, Debug)]
+pub struct WritePool(Pool<Sqlite>);
+
+impl WritePool {
+    pub fn as_pool(&self) -> &Pool<Sqlite> {
+        &self.0
+    }
+
+    pub fn into_inner(self) -> Pool<Sqlite> {
+        self.0
+    }
+
+    pub async fn acquire(&self) -> Result<sqlx::pool::PoolConnection<Sqlite>, Error> {
+        self.0.acquire().await
+    }
+
+    pub fn from_pool_for_tests(pool: Pool<Sqlite>) -> Self {
+        Self(pool)
+    }
+}
+
+/// Concurrent read-only pool (`max_connections(4)`, `.read_only(true)` / `query_only = ON`).
+///
+/// Any accidental `INSERT` / `UPDATE` / `DELETE` executed on [`ReadPool`] fails
+/// immediately with `SQLITE_READONLY`.
+#[derive(Clone, Debug)]
+pub struct ReadPool(Pool<Sqlite>);
+
+impl ReadPool {
+    pub fn as_pool(&self) -> &Pool<Sqlite> {
+        &self.0
+    }
+
+    pub fn into_inner(self) -> Pool<Sqlite> {
+        self.0
+    }
+
+    pub async fn acquire(&self) -> Result<sqlx::pool::PoolConnection<Sqlite>, Error> {
+        self.0.acquire().await
+    }
+
+    pub fn from_pool_for_tests(pool: Pool<Sqlite>) -> Self {
+        Self(pool)
+    }
+}
+
+fn sqlite_write_connect_options(database_path: &Path) -> SqliteConnectOptions {
     // WAL lets readers (git-status polls, conversation detail) run concurrently
-    // with the writer (the ACP event persistence sink, which writes rapidly
-    // while an agent streams). DELETE mode serialized every access and caused
-    // "database is locked" + pool-acquire timeouts once agents actually run.
-    // busy_timeout makes a contended write wait for the lock instead of
-    // erroring immediately. cache_size=-4000 is 4 MiB per connection. That is
-    // small enough for an idle desktop process and not zero, which would force
-    // every page read back to disk. Temporary tables stay on the default store.
-    //
-    // Use a filesystem path rather than interpolating `sqlite://{native path}`.
+    // with the single writer connection (`WritePool(1)`).
+    // Use a filesystem path rather than interpolating `sqlite://{native path}`:
     // Windows paths contain `:` and `\`, which URL parsers treat as a host.
     SqliteConnectOptions::new()
         .filename(database_path)
@@ -537,6 +657,19 @@ fn sqlite_connect_options(database_path: &Path) -> SqliteConnectOptions {
         .synchronous(SqliteSynchronous::Normal)
         .busy_timeout(Duration::from_secs(10))
         .pragma("cache_size", "-4000")
+        .pragma("temp_store", "MEMORY")
+        .pragma("journal_size_limit", "134217728")
+}
+
+fn sqlite_read_connect_options(database_path: &Path) -> SqliteConnectOptions {
+    SqliteConnectOptions::new()
+        .filename(database_path)
+        .read_only(true)
+        .foreign_keys(true)
+        .busy_timeout(Duration::from_secs(10))
+        .pragma("cache_size", "-4000")
+        .pragma("temp_store", "MEMORY")
+        .pragma("query_only", "ON")
 }
 
 type AfterConnectHook = Arc<
@@ -551,9 +684,80 @@ type AfterConnectHook = Arc<
 #[derive(Clone)]
 pub struct DBService {
     pub pool: Pool<Sqlite>,
+    pub writer: WritePool,
+    pub reader: ReadPool,
 }
 
 impl DBService {
+    pub fn writer(&self) -> &WritePool {
+        &self.writer
+    }
+
+    pub fn reader(&self) -> &ReadPool {
+        &self.reader
+    }
+
+    pub fn pool(&self) -> &Pool<Sqlite> {
+        &self.pool
+    }
+
+    /// Wrap an existing test pool into a `DBService` handle when a unit test constructs
+    /// its own isolated SQLite schema.
+    pub fn from_pool_for_tests(pool: Pool<Sqlite>) -> Self {
+        Self {
+            writer: WritePool(pool.clone()),
+            reader: ReadPool(pool.clone()),
+            pool,
+        }
+    }
+
+    /// Create an isolated shared-memory `DBService` with full migrations, `WritePool(1)`,
+    /// and a `ReadPool(4)` enforcing `query_only = ON` (`SQLITE_READONLY` on writes).
+    pub async fn new_in_memory_for_tests() -> Result<DBService, Error> {
+        use std::str::FromStr;
+
+        let uri = format!(
+            "sqlite:file:vibex_mem_{}?mode=memory&cache=shared",
+            uuid::Uuid::new_v4().simple()
+        );
+        let write_options = SqliteConnectOptions::from_str(&uri)?
+            .create_if_missing(true)
+            .foreign_keys(true)
+            .busy_timeout(Duration::from_secs(10))
+            .pragma("cache_size", "-4000")
+            .pragma("temp_store", "MEMORY");
+        let writer_pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .min_connections(1)
+            .idle_timeout(None)
+            .max_lifetime(None)
+            .acquire_timeout(Duration::from_secs(30))
+            .connect_with(write_options)
+            .await?;
+        run_migrations(&writer_pool).await?;
+
+        let read_options = SqliteConnectOptions::from_str(&uri)?
+            .foreign_keys(true)
+            .busy_timeout(Duration::from_secs(10))
+            .pragma("cache_size", "-4000")
+            .pragma("temp_store", "MEMORY")
+            .pragma("query_only", "ON");
+        let reader_pool = SqlitePoolOptions::new()
+            .max_connections(4)
+            .min_connections(1)
+            .idle_timeout(None)
+            .max_lifetime(None)
+            .acquire_timeout(Duration::from_secs(30))
+            .connect_with(read_options)
+            .await?;
+
+        Ok(DBService {
+            pool: writer_pool.clone(),
+            writer: WritePool(writer_pool),
+            reader: ReadPool(reader_pool),
+        })
+    }
+
     pub async fn new() -> Result<DBService, Error> {
         Self::new_at(asset_dir()).await
     }
@@ -564,23 +768,7 @@ impl DBService {
     /// migrations and SQLite concurrency settings cannot drift by host.
     pub async fn new_at(data_dir: impl AsRef<std::path::Path>) -> Result<DBService, Error> {
         std::fs::create_dir_all(data_dir.as_ref()).map_err(Error::Io)?;
-        let pool = Self::create_pool(data_dir.as_ref(), None).await?;
-        Ok(DBService { pool })
-    }
-
-    /// Create a lazy secondary handle to an already-migrated SQLite database
-    /// (for example, inside `after_connect` update-hook callbacks) without
-    /// opening a connection at startup or running `run_migrations` a second time.
-    pub fn new_lazy_at(data_dir: impl AsRef<std::path::Path>) -> Result<DBService, Error> {
-        std::fs::create_dir_all(data_dir.as_ref()).map_err(Error::Io)?;
-        let options = sqlite_connect_options(&data_dir.as_ref().join("db.sqlite"));
-        let pool = SqlitePoolOptions::new()
-            .max_connections(2)
-            .min_connections(0)
-            .idle_timeout(Duration::from_secs(30))
-            .acquire_timeout(Duration::from_secs(30))
-            .connect_lazy_with(options);
-        Ok(DBService { pool })
+        Self::create_pools(data_dir.as_ref(), None::<fn(ReadPool) -> AfterConnectHook>).await
     }
 
     pub async fn new_with_after_connect<F>(after_connect: F) -> Result<DBService, Error>
@@ -593,8 +781,8 @@ impl DBService {
             + Sync
             + 'static,
     {
-        let pool = Self::create_pool(asset_dir(), Some(Arc::new(after_connect))).await?;
-        Ok(DBService { pool })
+        let hook: AfterConnectHook = Arc::new(after_connect);
+        Self::create_pools(&asset_dir(), Some(move |_reader| hook)).await
     }
 
     pub async fn new_at_with_after_connect<F>(
@@ -611,46 +799,91 @@ impl DBService {
             + 'static,
     {
         std::fs::create_dir_all(data_dir.as_ref()).map_err(Error::Io)?;
-        let pool = Self::create_pool(data_dir.as_ref(), Some(Arc::new(after_connect))).await?;
-        Ok(DBService { pool })
+        let hook: AfterConnectHook = Arc::new(after_connect);
+        Self::create_pools(data_dir.as_ref(), Some(move |_reader| hook)).await
     }
 
-    async fn create_pool(
+    /// Open `WritePool(1)` + `ReadPool(4)` at `data_dir` and build the writer-only
+    /// `after_connect` hook from the freshly initialized [`ReadPool`], eliminating any
+    /// hidden third pool inside update hooks.
+    pub async fn new_at_with_reader_hook<MakeHook, F>(
         data_dir: impl AsRef<std::path::Path>,
-        after_connect: Option<AfterConnectHook>,
-    ) -> Result<Pool<Sqlite>, Error> {
-        let options = sqlite_connect_options(&data_dir.as_ref().join("db.sqlite"));
-        let pool_options = SqlitePoolOptions::new()
-            .max_connections(3)
+        make_hook: MakeHook,
+    ) -> Result<DBService, Error>
+    where
+        MakeHook: FnOnce(ReadPool) -> F,
+        F: for<'a> Fn(
+                &'a mut SqliteConnection,
+            ) -> std::pin::Pin<
+                Box<dyn std::future::Future<Output = Result<(), Error>> + Send + 'a>,
+            > + Send
+            + Sync
+            + 'static,
+    {
+        std::fs::create_dir_all(data_dir.as_ref()).map_err(Error::Io)?;
+        Self::create_pools(
+            data_dir.as_ref(),
+            Some(move |reader| Arc::new(make_hook(reader)) as AfterConnectHook),
+        )
+        .await
+    }
+
+    async fn create_pools<MakeHook>(
+        data_dir: &Path,
+        make_hook: Option<MakeHook>,
+    ) -> Result<DBService, Error>
+    where
+        MakeHook: FnOnce(ReadPool) -> AfterConnectHook,
+    {
+        let db_path = data_dir.join("db.sqlite");
+        let write_options = sqlite_write_connect_options(&db_path);
+        let read_options = sqlite_read_connect_options(&db_path);
+
+        // Run migrations on an unhooked single connection first so `db.sqlite` exists
+        // in WAL mode with the latest schema before opening `ReadPool(.read_only(true))`
+        // or attaching update hooks to `WritePool`.
+        let migration_pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .min_connections(1)
+            .acquire_timeout(Duration::from_secs(30))
+            .connect_with(write_options.clone())
+            .await?;
+        run_migrations(&migration_pool).await?;
+        migration_pool.close().await;
+
+        let reader_pool = SqlitePoolOptions::new()
+            .max_connections(4)
+            .min_connections(1)
+            .idle_timeout(Duration::from_secs(30))
+            .acquire_timeout(Duration::from_secs(30))
+            .connect_with(read_options)
+            .await?;
+        let reader = ReadPool(reader_pool);
+
+        let mut writer_builder = SqlitePoolOptions::new()
+            .max_connections(1)
             .min_connections(1)
             .idle_timeout(Duration::from_secs(30))
             .acquire_timeout(Duration::from_secs(30));
 
-        if let Some(hook) = after_connect {
-            let migration_pool = SqlitePoolOptions::new()
-                .max_connections(1)
-                .min_connections(1)
-                .acquire_timeout(Duration::from_secs(30))
-                .connect_with(options.clone())
-                .await?;
-            run_migrations(&migration_pool).await?;
-            migration_pool.close().await;
-
-            let pool = pool_options
-                .after_connect(move |conn, _meta| {
-                    let hook = hook.clone();
-                    Box::pin(async move {
-                        hook(conn).await?;
-                        Ok(())
-                    })
+        if let Some(make_hook) = make_hook {
+            let hook = make_hook(reader.clone());
+            writer_builder = writer_builder.after_connect(move |conn, _meta| {
+                let hook = hook.clone();
+                Box::pin(async move {
+                    hook(conn).await?;
+                    Ok(())
                 })
-                .connect_with(options)
-                .await?;
-            Ok(pool)
-        } else {
-            let pool = pool_options.connect_with(options).await?;
-            run_migrations(&pool).await?;
-            Ok(pool)
+            });
         }
+
+        let writer_pool = writer_builder.connect_with(write_options).await?;
+        let writer = WritePool(writer_pool.clone());
+
+        Ok(DBService {
+            pool: writer_pool,
+            writer,
+            reader,
+        })
     }
 }

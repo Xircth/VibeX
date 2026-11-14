@@ -29,7 +29,7 @@ describe('workspace session group layout', () => {
     const rail = declarationsFor('.workspace-session-rail');
     const railLine = declarationsFor('.workspace-session-rail::before');
 
-    expect(header.get('padding')).toBe('0.5rem 0.5rem');
+    expect(header.get('padding')).toBe('0.25rem 0.375rem');
     expect(header.get('overflow')).toBeUndefined();
     expect(rail.get('padding-left')).toBe('0.375rem');
     expect(rail.get('padding-right')).toBe('0.25rem');

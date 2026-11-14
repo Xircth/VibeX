@@ -79,15 +79,19 @@ export type AgentBarPaging = {
   expandedId: string | null;
   /** Natural width of the expanded name. */
   labelWidth: number;
+  /** Widths of names that stay visible regardless of selection. */
+  labelWidths?: Readonly<Record<string, number>>;
 };
 
 function agentWidth(
   agentId: string,
-  { expandedId, labelWidth }: AgentBarPaging
+  { expandedId, labelWidth, labelWidths }: AgentBarPaging
 ): number {
   const { itemSize, labelMaxWidth, labelInset } = AGENT_BAR_LAYOUT;
-  return agentId === expandedId
-    ? itemSize + Math.min(labelWidth, labelMaxWidth) + labelInset
+  const width =
+    labelWidths?.[agentId] ?? (agentId === expandedId ? labelWidth : undefined);
+  return width !== undefined
+    ? itemSize + Math.min(width, labelMaxWidth) + labelInset
     : itemSize;
 }
 

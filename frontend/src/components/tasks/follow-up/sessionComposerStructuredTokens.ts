@@ -5,11 +5,25 @@ import {
   type AgentMention,
 } from './AgentMention';
 import type { AtReferenceMember } from './composerAtReferences';
+import {
+  decodeQuoteTokenHeader,
+  encodeQuoteTokenHeader,
+  hasQuoteSourceAnchor,
+  serializeQuoteTokenForPrompt,
+  type QuoteTokenInputMetadata,
+  type QuoteTokenMetadata,
+} from './quoteTokenMetadata';
+
+export {
+  hasQuoteSourceAnchor,
+  type QuoteTokenInputMetadata,
+  type QuoteTokenMetadata,
+};
 
 const CONVERSATION_URI_PREFIX = 'vibex://conversation/';
 const COMMIT_URI_PREFIX = 'vibex://commit/';
 const PROJECT_URI_PREFIX = 'vibex://project/';
-const QUOTE_TOKEN_PREFIX = '[:quote](';
+const QUOTE_TOKEN_OPEN = '[:quote';
 const QUOTE_CHIP_CHARS = 4;
 
 function quotePreviewGraphemes(text: string): string[] {
@@ -120,6 +134,7 @@ export type SessionComposerStructuredToken = {
   title?: string;
   memberAvatar?: MemberBotAvatarConfig;
   mentionAll?: boolean;
+  quote?: QuoteTokenMetadata;
 };
 
 export type SessionComposerStructuredTokenSegment =
@@ -214,17 +229,25 @@ function parseQuoteTokenAt(
   start: number
 ): { token: SessionComposerStructuredToken; end: number } | null {
   if (
-    source.slice(start, start + QUOTE_TOKEN_PREFIX.length) !==
-    QUOTE_TOKEN_PREFIX
+    source.slice(start, start + QUOTE_TOKEN_OPEN.length) !== QUOTE_TOKEN_OPEN
   ) {
     return null;
   }
+  const delimiter = source.charAt(start + QUOTE_TOKEN_OPEN.length);
+  if (delimiter !== ']' && delimiter !== '|') {
+    return null;
+  }
 
-  const valuePart = readEscapedPart(
-    source,
-    start + QUOTE_TOKEN_PREFIX.length,
-    ')'
-  );
+  const headerPart = readEscapedPart(source, start + 1, ']');
+  if (!headerPart || source.charAt(headerPart.end + 1) !== '(') {
+    return null;
+  }
+  const decodedHeader = decodeQuoteTokenHeader(headerPart.value);
+  if (!decodedHeader.valid) {
+    return null;
+  }
+
+  const valuePart = readEscapedPart(source, headerPart.end + 2, ')');
   if (!valuePart) return null;
 
   const raw = source.slice(start, valuePart.end + 1);
@@ -237,6 +260,7 @@ function parseQuoteTokenAt(
       value: valuePart.value,
       raw,
       title: valuePart.value,
+      ...(decodedHeader.metadata ? { quote: decodedHeader.metadata } : {}),
     },
     end: valuePart.end + 1,
   };
@@ -779,8 +803,12 @@ export function formatSessionComposerCommand({
   )})`;
 }
 
-export function formatQuoteToken(context: string): string {
-  return `${QUOTE_TOKEN_PREFIX}${escapeCommandPart(context.trim(), ')')})`;
+export function formatQuoteToken(
+  context: string,
+  metadata?: QuoteTokenInputMetadata
+): string {
+  const header = escapeCommandPart(encodeQuoteTokenHeader(metadata), ']');
+  return `[${header}](${escapeCommandPart(context.trim(), ')')})`;
 }
 
 export function getSessionComposerStructuredTokenSegments(
@@ -1133,13 +1161,18 @@ export function serializeSessionComposerBackendMessage(value: string): string {
         ? segment.text
         : segment.token.kind === 'project'
           ? segment.token.value
-          : segment.token.kind === 'agent_mention' ||
-              segment.token.kind === 'member_mention' ||
-              segment.token.kind === 'conversation' ||
-              segment.token.kind === 'commit' ||
-              segment.token.kind === 'quote'
-            ? segment.token.raw
-            : segment.token.value
+          : segment.token.kind === 'quote'
+            ? serializeQuoteTokenForPrompt(
+                segment.token.value,
+                segment.token.quote,
+                (ctx) => `[:quote](${escapeCommandPart(ctx, ')')})`
+              )
+            : segment.token.kind === 'agent_mention' ||
+                segment.token.kind === 'member_mention' ||
+                segment.token.kind === 'conversation' ||
+                segment.token.kind === 'commit'
+              ? segment.token.raw
+              : segment.token.value
     )
     .join('');
 }
@@ -1298,16 +1331,48 @@ export function insertQuoteToken({
   selectionStart,
   selectionEnd,
   context,
+  metadata,
 }: {
   value: string;
   selectionStart: number;
   selectionEnd: number;
   context: string;
+  metadata?: QuoteTokenInputMetadata;
 }): { value: string; caretOffset: number } {
   return insertCommandToken({
     value,
     selectionStart,
     selectionEnd,
-    command: formatQuoteToken(context),
+    command: formatQuoteToken(context, metadata),
   });
+}
+
+export function updateQuoteTokenAnnotation(
+  value: string,
+  targetRaw: string,
+  annotation: string,
+  occurrenceIndex = 0
+): string {
+  let seenMatches = 0;
+  for (const segment of getSessionComposerStructuredTokenSegments(value)) {
+    if (
+      segment.kind === 'token' &&
+      segment.token.kind === 'quote' &&
+      segment.token.raw === targetRaw
+    ) {
+      if (seenMatches === occurrenceIndex) {
+        const updatedRaw = formatQuoteToken(segment.token.value, {
+          ...segment.token.quote,
+          annotation,
+        });
+        return (
+          value.slice(0, segment.start) +
+          updatedRaw +
+          value.slice(segment.end)
+        );
+      }
+      seenMatches += 1;
+    }
+  }
+  return value;
 }

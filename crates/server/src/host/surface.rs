@@ -357,6 +357,9 @@ impl ServerApplicationDomains {
             DomainCommand::AgentImportRemoteSession => self.agent_import_remote_session(args).await,
             DomainCommand::AgentResetToCheckpoint => self.agent_reset_to_checkpoint(args).await,
             DomainCommand::AgentListLocalHistory => self.agent_list_local_history(args).await,
+            DomainCommand::AgentDiscoverLocalHistorySources => serialize(
+                crate::host::local_history::discover_local_history_sources(&self.pool).await?,
+            ),
             DomainCommand::AgentScanLocalHistory => self.agent_scan_local_history(args).await,
             DomainCommand::AgentImportLocalHistory => self.agent_import_local_history(args).await,
             DomainCommand::AgentImportLocalHistoryBatch => {

@@ -252,7 +252,7 @@ export function AgentConfigurationAndDiagnostics({
         className={
           embedded
             ? 'agent-config-surface is-embedded'
-            : 'settings-surface agent-config-surface'
+            : 'agent-config-surface'
         }
       >
         {embedded ? null : (
@@ -273,7 +273,7 @@ export function AgentConfigurationAndDiagnostics({
           <>
             {conflictMessage ? (
               <div
-                className="mx-4 mb-4 flex flex-wrap items-center justify-between gap-3 rounded-md bg-warning/10 px-3 py-2 text-xs text-foreground"
+                className="mb-3 flex flex-wrap items-center justify-between gap-3 rounded-md bg-warning/10 px-3 py-2 text-xs text-foreground"
                 role="alert"
               >
                 <span>{conflictMessage}</span>
@@ -307,11 +307,11 @@ export function AgentConfigurationAndDiagnostics({
             ) : null}
 
             {!config ? (
-              <p className="px-4 pb-4 text-xs text-muted-foreground">
+              <p className="pb-2 text-xs text-muted-foreground">
                 {t('agents.configLoading')}
               </p>
             ) : !config.available ? (
-              <p className="px-4 pb-4 text-xs text-muted-foreground">
+              <p className="pb-2 text-xs text-muted-foreground">
                 {t('agents.configUnsupported')}
               </p>
             ) : (

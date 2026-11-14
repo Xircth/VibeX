@@ -1,10 +1,86 @@
-import { createLogger, defineConfig } from 'vite';
+import { createLogger, defineConfig, type Plugin } from 'vite';
 import react from '@vitejs/plugin-react';
+import fs from 'fs';
 import path from 'path';
 import pkg from './package.json';
 import { createManualChunks } from './vite.manualChunks';
 import { astryxRichtextCoreAlias } from './vite.astryx-richtext-core-alias';
 import { vxSourceAnnotation } from './vite.vx-source-annotation';
+
+const DEV_ONBOARDING_VIDEO_PREFIX = '/__dev/onboarding-videos/';
+const SIBLING_SITE_VIDEO_DIR = path.resolve(
+  __dirname,
+  '../../vibex-site/public/videos/onboarding'
+);
+
+function devOnboardingVideos(): Plugin {
+  return {
+    name: 'dev-onboarding-videos',
+    apply: 'serve',
+    configureServer(server) {
+      server.middlewares.use((req, res, next) => {
+        const rawUrl = req.url?.split('?')[0] ?? '';
+        if (!rawUrl.startsWith(DEV_ONBOARDING_VIDEO_PREFIX)) {
+          next();
+          return;
+        }
+        const fileName = rawUrl.slice(DEV_ONBOARDING_VIDEO_PREFIX.length);
+        if (!/^[a-z0-9-]+\.mp4$/.test(fileName)) {
+          res.statusCode = 404;
+          res.end();
+          return;
+        }
+        const filePath = path.join(SIBLING_SITE_VIDEO_DIR, fileName);
+        let stat: fs.Stats;
+        try {
+          stat = fs.statSync(filePath);
+        } catch {
+          res.statusCode = 404;
+          res.end();
+          return;
+        }
+        const total = stat.size;
+        const range = req.headers.range;
+        res.setHeader('Accept-Ranges', 'bytes');
+        res.setHeader('Content-Type', 'video/mp4');
+        res.setHeader('Cache-Control', 'no-cache');
+        if (range) {
+          const match = /^bytes=(\d*)-(\d*)$/.exec(range);
+          const start = match?.[1] ? Number.parseInt(match[1], 10) : 0;
+          const end = match?.[2] ? Number.parseInt(match[2], 10) : total - 1;
+          if (
+            !match ||
+            Number.isNaN(start) ||
+            Number.isNaN(end) ||
+            start > end ||
+            end >= total
+          ) {
+            res.statusCode = 416;
+            res.setHeader('Content-Range', `bytes */${total}`);
+            res.end();
+            return;
+          }
+          res.statusCode = 206;
+          res.setHeader('Content-Range', `bytes ${start}-${end}/${total}`);
+          res.setHeader('Content-Length', String(end - start + 1));
+          if (req.method === 'HEAD') {
+            res.end();
+            return;
+          }
+          fs.createReadStream(filePath, { start, end }).pipe(res);
+          return;
+        }
+        res.statusCode = 200;
+        res.setHeader('Content-Length', String(total));
+        if (req.method === 'HEAD') {
+          res.end();
+          return;
+        }
+        fs.createReadStream(filePath).pipe(res);
+      });
+    },
+  };
+}
 
 function createFilteredLogger() {
   const logger = createLogger();
@@ -42,6 +118,7 @@ export default defineConfig(({ command }) => ({
   },
   plugins: [
     astryxRichtextCoreAlias(),
+    devOnboardingVideos(),
     {
       name: 'react-refresh-preamble',
       apply: 'serve',
@@ -64,7 +141,9 @@ window.__vite_plugin_react_preamble_installed__ = true;`,
       babel: {
         compact: false,
         plugins: [
-          ...(command === 'serve' ? [vxSourceAnnotation(path.resolve(__dirname, '..'))] : []),
+          ...(command === 'serve'
+            ? [vxSourceAnnotation(path.resolve(__dirname, '..'))]
+            : []),
           [
             'babel-plugin-react-compiler',
             {

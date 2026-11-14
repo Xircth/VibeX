@@ -128,7 +128,7 @@ export function DshSessionDefaults({ onChanged, onDirtyChange }: Props) {
     <>
       <section
         aria-labelledby="dsh-session-heading"
-        className="settings-surface"
+        className="agent-config-surface"
       >
         <AgentSectionHeading
           headingId="dsh-session-heading"

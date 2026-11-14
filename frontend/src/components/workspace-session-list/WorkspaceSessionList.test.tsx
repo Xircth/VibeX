@@ -167,6 +167,9 @@ describe('WorkspaceSessionList', () => {
     )!;
     expect(workspaceLine).toHaveTextContent('VibeX');
     expect(
+      within(card as HTMLElement).getByRole('img', { name: '待办' })
+    ).toBeInTheDocument();
+    expect(
       workspaceLine.querySelector('.workspace-session-row-marker')
     ).not.toBeNull();
     expect(card.querySelectorAll('.workspace-session-row-marker')).toHaveLength(

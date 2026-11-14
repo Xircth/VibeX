@@ -48,6 +48,7 @@ impl ProjectionFold {
                 if let Some(turn_id) = record.turn_id {
                     ensure_turn(turns, turn_order, turn_id, record);
                     let turn = turns.get_mut(&turn_id).expect("turn exists");
+                    turn.user_revision = record.sequence;
                     turn.revision = record.sequence;
                     turn.user.blocks = blocks
                         .into_iter()
@@ -72,7 +73,7 @@ impl ProjectionFold {
                             }
                         })
                         .collect();
-                    touched_turn_rows = Some(TouchedTurnRows::All(turn_id));
+                    touched_turn_rows = Some(TouchedTurnRows::ChangedAt(turn_id, record.sequence));
                 }
             }
             ConversationEvent::UserTurnStarted => {
@@ -81,7 +82,7 @@ impl ProjectionFold {
                     let turn = turns.get_mut(&turn_id).expect("turn exists");
                     turn.revision = record.sequence;
                     turn.assistant.timestamp = record.created_at;
-                    touched_turn_rows = Some(TouchedTurnRows::All(turn_id));
+                    touched_turn_rows = Some(TouchedTurnRows::ChangedAt(turn_id, record.sequence));
                 }
             }
             ConversationEvent::AssistantContentAppended { block, .. } => {
@@ -393,9 +394,6 @@ impl ProjectionFold {
                         &usage,
                     ));
                     if turn.assistant.usage != next_usage {
-                        // Occupancy often arrives before the first text block, and a
-                        // repeated sample is dropped upstream. The live row has to
-                        // carry this update now; AppendText never includes usage.
                         turn.assistant.usage = next_usage;
                         turn.revision = record.sequence;
                         turn.usage_announced = true;
@@ -407,35 +405,30 @@ impl ProjectionFold {
                     }
                 }
             }
-            // ACP session metadata is preserved in the durable event log. It is
-            // intentionally not folded into VibeX conversation identity/title.
             ConversationEvent::AgentSessionInfoUpdated { .. } => {}
             ConversationEvent::TurnCompleted { .. } => {
                 let turn_id = settle_turn(turns, turn_order, record, "settled");
-                touched_turn_rows = Some(TouchedTurnRows::All(turn_id));
+                touched_turn_rows = Some(TouchedTurnRows::ChangedAt(turn_id, record.sequence));
                 clear_session_connect_notices(side_rows, &mut deleted_rows, record.sequence);
             }
             ConversationEvent::TurnCancelled { .. } => {
                 let turn_id = settle_turn(turns, turn_order, record, "cancelled");
-                touched_turn_rows = Some(TouchedTurnRows::All(turn_id));
+                touched_turn_rows = Some(TouchedTurnRows::ChangedAt(turn_id, record.sequence));
                 clear_session_connect_notices(side_rows, &mut deleted_rows, record.sequence);
             }
             ConversationEvent::TurnInterrupted { .. } => {
                 clear_session_connect_notices(side_rows, &mut deleted_rows, record.sequence);
-                // Mark the turn's phase so the timeline renders the "因重启中断" state
-                // with a one-click resend affordance (the user prompt lives on the
-                // turn's user row). Never auto-retried — ADR-0001.
                 if let Some(turn_id) = record.turn_id {
                     ensure_turn(turns, turn_order, turn_id, record);
                     let turn = turns.get_mut(&turn_id).expect("turn exists");
                     turn.phase = "interrupted".into();
-                    turn.revision = record.sequence;
-                    touched_turn_rows = Some(TouchedTurnRows::All(turn_id));
+                    turn.bump_all_segment_revisions(record.sequence);
+                    touched_turn_rows = Some(TouchedTurnRows::ChangedAt(turn_id, record.sequence));
                 }
             }
             ConversationEvent::TurnFailed { error } => {
                 let turn_id = settle_turn(turns, turn_order, record, "failed");
-                touched_turn_rows = Some(TouchedTurnRows::All(turn_id));
+                touched_turn_rows = Some(TouchedTurnRows::ChangedAt(turn_id, record.sequence));
                 if let Some(turn_id) = record.turn_id.or_else(|| turn_order.last().copied())
                     && let Some(turn) = turns.get_mut(&turn_id)
                     && assistant_content_is_turn_error_echo(&turn.assistant.blocks, &error)
@@ -467,8 +460,6 @@ impl ProjectionFold {
                     ensure_turn(turns, turn_order, expected_turn_id, record);
                     let turn = turns.get_mut(&expected_turn_id).expect("turn exists");
                     turn.pending_steering = Some((steering_id, content_blocks_from_input(&blocks)));
-                    turn.revision = record.sequence;
-                    touched_turn_rows = Some(TouchedTurnRows::All(expected_turn_id));
                 }
                 agents::ConversationSteeringEvent::Accepted {
                     steering_id,
@@ -477,7 +468,8 @@ impl ProjectionFold {
                     ensure_turn(turns, turn_order, expected_turn_id, record);
                     let turn = turns.get_mut(&expected_turn_id).expect("turn exists");
                     apply_accepted_steering(turn, steering_id, record);
-                    touched_turn_rows = Some(TouchedTurnRows::All(expected_turn_id));
+                    touched_turn_rows =
+                        Some(TouchedTurnRows::ChangedAt(expected_turn_id, record.sequence));
                 }
                 agents::ConversationSteeringEvent::Rejected {
                     expected_turn_id, ..
@@ -487,8 +479,6 @@ impl ProjectionFold {
                 } => {
                     if let Some(turn) = turns.get_mut(&expected_turn_id) {
                         turn.pending_steering = None;
-                        turn.revision = record.sequence;
-                        touched_turn_rows = Some(TouchedTurnRows::All(expected_turn_id));
                     }
                 }
             },
@@ -507,7 +497,7 @@ impl ProjectionFold {
                         vec![ContentBlock::Text { text }],
                         record,
                     );
-                    touched_turn_rows = Some(TouchedTurnRows::All(turn_id));
+                    touched_turn_rows = Some(TouchedTurnRows::ChangedAt(turn_id, record.sequence));
                 }
             }
             other => {
@@ -538,11 +528,14 @@ pub(super) struct ProjectedTurn {
     #[serde(default)]
     pub(super) prefix_segments: Vec<MessageTurn>,
     #[serde(default)]
+    pub(super) prefix_segment_revisions: Vec<i64>,
+    #[serde(default)]
     pub(super) pending_steering: Option<(Uuid, Vec<ContentBlock>)>,
     pub(super) phase: String,
-    /// Sequence of the latest event that touched this turn; the revision both message
-    /// rows carry. `#[serde(default)]` lets pre-v2 snapshots load (they are discarded
-    /// by the projection-version check, but be defensive).
+    /// Independent sequence of the latest event that touched `{turn_id}:user`.
+    #[serde(default)]
+    pub(super) user_revision: i64,
+    /// Sequence of the latest event that touched the active assistant segment.
     #[serde(default)]
     pub(super) revision: i64,
     /// True once a live row op has carried `assistant.usage`. A sample that
@@ -555,6 +548,39 @@ pub(super) struct ProjectedTurn {
     /// Count of internal messages already emitted for `trailing_raw_text`.
     #[serde(default)]
     pub(super) emitted_internal_count: usize,
+}
+
+impl ProjectedTurn {
+    pub(super) fn effective_user_revision(&self) -> i64 {
+        if self.user_revision > 0 {
+            self.user_revision
+        } else {
+            self.revision
+        }
+    }
+
+    pub(super) fn effective_user_phase(&self) -> String {
+        match self.phase.as_str() {
+            "interrupted" | "failed" | "cancelled" => self.phase.clone(),
+            _ => "settled".into(),
+        }
+    }
+
+    pub(super) fn prefix_segment_revision(&self, index: usize) -> i64 {
+        self.prefix_segment_revisions
+            .get(index)
+            .copied()
+            .filter(|rev| *rev > 0)
+            .unwrap_or(self.revision)
+    }
+
+    pub(super) fn bump_all_segment_revisions(&mut self, sequence: i64) {
+        self.user_revision = sequence;
+        self.revision = sequence;
+        for rev in &mut self.prefix_segment_revisions {
+            *rev = sequence;
+        }
+    }
 }
 
 pub(super) fn ensure_turn(
@@ -595,8 +621,10 @@ pub(super) fn ensure_turn(
                 agent_message_id: None,
             },
             prefix_segments: Vec::new(),
+            prefix_segment_revisions: Vec::new(),
             pending_steering: None,
             phase: "streaming".into(),
+            user_revision: record.sequence,
             revision: record.sequence,
             usage_announced: false,
             trailing_raw_text: String::new(),
@@ -653,9 +681,14 @@ fn settle_turn(
         }
         turn.emitted_internal_count = 0;
     }
-    turn.revision = record.sequence;
+    let prev_user_phase = turn.effective_user_phase();
     if !(turn.phase == "failed" && phase == "settled") {
         turn.phase = phase.into();
+    }
+    if turn.effective_user_phase() != prev_user_phase {
+        turn.bump_all_segment_revisions(record.sequence);
+    } else {
+        turn.revision = record.sequence;
     }
     turn.assistant.completed_at = Some(record.created_at);
     turn.assistant.duration_ms = Some(
@@ -760,6 +793,7 @@ fn insert_mid_turn_user_slice(
         let mut closed = turn.assistant.clone();
         closed.completed_at = Some(record.created_at);
         turn.prefix_segments.push(closed);
+        turn.prefix_segment_revisions.push(record.sequence);
         let next = turn.prefix_segments.len() + 1;
         turn.assistant = MessageTurn {
             id: format!("{}:assistant:{next}", turn.turn_id),
@@ -787,6 +821,7 @@ fn insert_mid_turn_user_slice(
             completed_at: Some(record.created_at),
             agent_message_id: None,
         });
+        turn.prefix_segment_revisions.push(record.sequence);
     }
     turn.revision = record.sequence;
 }

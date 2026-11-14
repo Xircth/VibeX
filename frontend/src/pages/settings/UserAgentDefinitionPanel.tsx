@@ -34,7 +34,7 @@ export function UserAgentDefinitionPanel({
 
   if (!definition) {
     return (
-      <section className="settings-surface px-4 py-5 text-xs text-muted-foreground">
+      <section className="py-2 text-xs text-muted-foreground">
         {t('agents.userDefinitionLoading')}
       </section>
     );
@@ -73,16 +73,13 @@ export function UserAgentDefinitionPanel({
   return (
     <section
       aria-labelledby="user-agent-definition-title"
-      className="settings-surface overflow-hidden"
+      className="agent-flat-section"
     >
-      <div className="flex flex-wrap items-start justify-between gap-3 border-b border-border/70 px-4 py-3.5">
+      <div className="agent-section-heading">
         <div className="flex flex-wrap items-center gap-2">
-          <h2
-            className="text-[15px] font-semibold text-foreground"
-            id="user-agent-definition-title"
-          >
+          <h3 id="user-agent-definition-title">
             {t('agents.userDefinitionTitle')}
-          </h2>
+          </h3>
           <span
             className={cn(
               'agent-registry-status',
@@ -109,28 +106,29 @@ export function UserAgentDefinitionPanel({
         </Button>
       </div>
 
-      {definition.reinstall_required ? (
-        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-warning/25 bg-warning/[0.08] px-4 py-3 text-xs">
-          <div className="flex min-w-0 items-start gap-2 text-warning">
-            <AlertTriangle
-              aria-hidden="true"
-              className="mt-0.5 h-3.5 w-3.5 shrink-0"
-            />
-            <span>{t('agents.userDefinitionReinstallWarning')}</span>
+      <div className="overflow-hidden rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-content)]">
+        {definition.reinstall_required ? (
+          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-warning/25 bg-warning/[0.08] px-4 py-3 text-xs">
+            <div className="flex min-w-0 items-start gap-2 text-warning">
+              <AlertTriangle
+                aria-hidden="true"
+                className="mt-0.5 h-3.5 w-3.5 shrink-0"
+              />
+              <span>{t('agents.userDefinitionReinstallWarning')}</span>
+            </div>
+            <Button
+              className="h-8 shrink-0"
+              disabled={operationActive}
+              size="sm"
+              onClick={onReinstall}
+            >
+              <RefreshCw aria-hidden="true" className="mr-1.5 h-3.5 w-3.5" />
+              {t('agents.userDefinitionReinstall')}
+            </Button>
           </div>
-          <Button
-            className="h-8 shrink-0"
-            disabled={operationActive}
-            size="sm"
-            onClick={onReinstall}
-          >
-            <RefreshCw aria-hidden="true" className="mr-1.5 h-3.5 w-3.5" />
-            {t('agents.userDefinitionReinstall')}
-          </Button>
-        </div>
-      ) : null}
+        ) : null}
 
-      <div className="grid gap-3 md:grid-cols-[minmax(0,1.45fr)_minmax(14rem,1fr)]">
+        <div className="grid gap-3 md:grid-cols-[minmax(0,1.45fr)_minmax(14rem,1fr)]">
         <div className="space-y-4 px-4 py-4">
           <div>
             <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
@@ -240,6 +238,7 @@ export function UserAgentDefinitionPanel({
             </dd>
           </div>
         </div>
+      </div>
       </div>
     </section>
   );

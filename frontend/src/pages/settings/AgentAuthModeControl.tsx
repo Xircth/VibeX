@@ -373,9 +373,9 @@ export function AgentAuthModeControl({
   return (
     <section
       aria-labelledby={`${agentId}-auth-mode-heading`}
-      className="settings-surface agent-auth-mode-surface"
+      className="agent-auth-mode-surface"
     >
-      <div className="agent-section-heading">
+      <div className="agent-section-heading agent-section-heading-flat">
         <h3 id={`${agentId}-auth-mode-heading`}>
           {t('settings:agents.authTitle')}
         </h3>
@@ -446,7 +446,7 @@ export function AgentAuthModeControl({
         </div>
       </div>
 
-      <div className="agent-auth-mode-frame">
+      <div className="agent-auth-mode-frame" data-panel={panel}>
         {loading && !view ? (
           <p className="agent-auth-mode-loading" aria-live="polite">
             {t('settings:agents.authLoading')}

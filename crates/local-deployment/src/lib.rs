@@ -125,14 +125,14 @@ impl LocalDeployment {
         let events_msg_store = Arc::new(MsgStore::new());
         let events_entry_count = Arc::new(RwLock::new(0));
 
-        // Create DB with event hooks
+        // Create DB with writer-only event hooks backed by ReadPool (no hidden third pool).
         let db = {
-            let hook = EventService::create_hook(
-                events_msg_store.clone(),
-                events_entry_count.clone(),
-                DBService::new_lazy_at(data_dir.as_ref())?, // Lazy DB service for the hook (avoids double migration)
-            );
-            DBService::new_at_with_after_connect(data_dir.as_ref(), hook).await?
+            let msg_store_for_hook = events_msg_store.clone();
+            let entry_count_for_hook = events_entry_count.clone();
+            DBService::new_at_with_reader_hook(data_dir.as_ref(), move |reader| {
+                EventService::create_hook(msg_store_for_hook, entry_count_for_hook, reader)
+            })
+            .await?
         };
 
         let image = ImageService::new(db.clone().pool)?;

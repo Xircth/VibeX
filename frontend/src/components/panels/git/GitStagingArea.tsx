@@ -17,6 +17,8 @@ interface GitStagingAreaProps {
   unstagedFiles: GitFileStatusEntry[];
   selectedPath: string | null;
   viewMode?: DiffListView;
+  workspaceId?: string | null;
+  repoRootPath?: string | null;
   onSelectFile: (path: string) => void;
   onDoubleClickFile?: (path: string) => void;
   onStageFile: (path: string) => void;
@@ -87,6 +89,8 @@ export const GitStagingArea = memo(function GitStagingArea({
   unstagedFiles,
   selectedPath,
   viewMode = 'flat',
+  workspaceId = null,
+  repoRootPath = null,
   onSelectFile,
   onDoubleClickFile,
   onStageFile,
@@ -297,6 +301,8 @@ export const GitStagingArea = memo(function GitStagingArea({
                     section="staged"
                     isActive={selectedPath === file.path}
                     isSelected={selectedPaths.has(file.path)}
+                    workspaceId={workspaceId}
+                    repoRootPath={repoRootPath}
                     onSelect={handleFileClick}
                     onReviewFile={onSelectFile}
                     onDoubleClick={onDoubleClickFile}
@@ -364,6 +370,8 @@ export const GitStagingArea = memo(function GitStagingArea({
                     section="unstaged"
                     isActive={selectedPath === file.path}
                     isSelected={selectedPaths.has(file.path)}
+                    workspaceId={workspaceId}
+                    repoRootPath={repoRootPath}
                     onSelect={handleFileClick}
                     onReviewFile={onSelectFile}
                     onDoubleClick={onDoubleClickFile}

@@ -275,6 +275,7 @@ export function WorkspaceSessionRow({
         className={cn(
           'workspace-session-row',
           appearance === 'full' && 'workspace-session-row--full',
+          showRowActions && !isEditing && 'has-actions',
           isSelected && 'is-selected',
           isDragging && 'is-dragging',
           overlay && 'is-overlay',
@@ -408,6 +409,12 @@ export function WorkspaceSessionRow({
                         />
                       ) : null}
                     </span>
+                    <span
+                      role="img"
+                      aria-label={statusLabel}
+                      title={statusLabel}
+                      className={`workspace-session-card-status workspace-session-status workspace-session-status--${tone}`}
+                    />
                     <span className="workspace-session-card-workspace">
                       {markerElement}
                       <span

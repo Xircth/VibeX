@@ -914,8 +914,6 @@ pub(super) async fn reconcile_orphaned_connecting_conversations_in_pool(
                 publisher.publish(&record).await;
             }
             closed_count += 1;
-        } else {
-            let _ = ConversationProjector::persist_fold_to_pool(pool, conversation_id, &fold).await;
         }
     }
     Ok(closed_count)

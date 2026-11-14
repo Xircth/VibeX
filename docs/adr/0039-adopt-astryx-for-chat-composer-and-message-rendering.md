@@ -181,4 +181,4 @@ Astryx（Meta 开源设计系统，`@astryxdesign/core`，MIT，GitHub `facebook
   移除 lexical；拆 2a/2b/2c 三个子里程碑。
 - 阶段 4 边界：按需替换（有对应物的 Radix 封装）；`ScrollArea`/`Slot` 保留；
   `cmdk` 残留直接删除。
-- 完整映射表与每阶段验收标准见 [升级计划](docs/plans/2026-08-07-astryx-upgrade.md)。
+- 各阶段映射与验收标准记录于历史实施计划（`2026-08-07-astryx-upgrade`）。

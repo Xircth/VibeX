@@ -1,0 +1,430 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>VibeX 移动端交互时序逻辑图</title>
+  <style>
+    *, *::before, *::after {
+      box-sizing: border-box;
+    }
+    html, body {
+      margin: 0;
+      padding: 0;
+      font-family: var(--font-sans, -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif);
+      color: var(--foreground, #0f172a);
+      font-variant-numeric: tabular-nums;
+    }
+    .diagram-root {
+      width: 100%;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    .legend-bar {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 8px 16px;
+      padding: 10px 14px;
+      background: var(--card, rgba(148, 163, 184, 0.08));
+      border: 1px solid var(--border, rgba(148, 163, 184, 0.28));
+      border-radius: var(--radius, 10px);
+      font-size: 12px;
+      color: var(--muted-foreground, #64748b);
+    }
+    .legend-item {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      white-space: nowrap;
+    }
+    .line-solid {
+      width: 18px;
+      height: 2px;
+      background: var(--foreground, #0f172a);
+      display: inline-block;
+    }
+    .line-dashed {
+      width: 18px;
+      height: 0;
+      border-top: 2px dashed var(--muted-foreground, #64748b);
+      display: inline-block;
+    }
+    .tag-alt {
+      padding: 1px 6px;
+      border-radius: 4px;
+      font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+      font-size: 10.5px;
+      font-weight: 600;
+      background: var(--info, #06b6d4);
+      color: #ffffff;
+    }
+    svg.seq-svg {
+      width: 100%;
+      height: auto;
+      display: block;
+      overflow: visible;
+    }
+    .actor-box {
+      fill: var(--card, #ffffff);
+      stroke: color-mix(in srgb, var(--foreground, #0f172a) 22%, var(--border, #94a3b8));
+      stroke-width: 1.4;
+    }
+    .actor-box-primary {
+      fill: var(--primary, #3b82f6);
+      fill-opacity: 0.13;
+      stroke: var(--primary, #3b82f6);
+      stroke-width: 1.55;
+    }
+    .actor-box-host {
+      fill: var(--success, #10b981);
+      fill-opacity: 0.13;
+      stroke: var(--success, #10b981);
+      stroke-width: 1.55;
+    }
+    .actor-title {
+      font-size: 12.5px;
+      font-weight: 600;
+      fill: var(--foreground, #0f172a);
+      text-anchor: middle;
+      dominant-baseline: central;
+    }
+    .actor-sub {
+      font-size: 10px;
+      fill: var(--muted-foreground, #64748b);
+      text-anchor: middle;
+      dominant-baseline: central;
+    }
+    .lifeline {
+      stroke: color-mix(in srgb, var(--foreground, #0f172a) 18%, var(--border, #94a3b8));
+      stroke-width: 1.2;
+      stroke-dasharray: 5 4;
+    }
+    .activation {
+      fill: var(--primary, #3b82f6);
+      fill-opacity: 0.16;
+      stroke: var(--primary, #3b82f6);
+      stroke-width: 1;
+    }
+    .frag-box {
+      fill: var(--card, rgba(148, 163, 184, 0.05));
+      fill-opacity: 0.42;
+      stroke: color-mix(in srgb, var(--foreground, #0f172a) 18%, var(--border, #94a3b8));
+      stroke-width: 1.2;
+    }
+    .frag-tab {
+      fill: var(--info, #06b6d4);
+      fill-opacity: 0.18;
+      stroke: var(--info, #06b6d4);
+      stroke-width: 1.1;
+    }
+    .frag-tab-text {
+      font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+      font-size: 10.5px;
+      font-weight: 700;
+      fill: var(--info, #06b6d4);
+      text-anchor: middle;
+      dominant-baseline: central;
+    }
+    .frag-title {
+      font-size: 11px;
+      font-weight: 600;
+      fill: var(--muted-foreground, #64748b);
+      dominant-baseline: central;
+    }
+    .frag-divider {
+      stroke: color-mix(in srgb, var(--foreground, #0f172a) 22%, var(--border, #94a3b8));
+      stroke-width: 1.15;
+      stroke-dasharray: 6 4;
+    }
+    .branch-badge {
+      fill: var(--secondary, rgba(148, 163, 184, 0.18));
+      stroke: color-mix(in srgb, var(--foreground, #0f172a) 18%, var(--border, #94a3b8));
+      stroke-width: 1;
+    }
+    .branch-text {
+      font-size: 10.5px;
+      font-weight: 600;
+      fill: var(--foreground, #0f172a);
+      text-anchor: middle;
+      dominant-baseline: central;
+    }
+    .stage-banner {
+      fill: var(--secondary, rgba(148, 163, 184, 0.16));
+      stroke: var(--border, rgba(148, 163, 184, 0.4));
+      stroke-width: 1;
+    }
+    .stage-banner-text {
+      font-size: 11px;
+      font-weight: 600;
+      fill: var(--foreground, #0f172a);
+      text-anchor: middle;
+      dominant-baseline: central;
+    }
+    .msg-req {
+      fill: none;
+      stroke: var(--foreground, #0f172a);
+      stroke-width: 1.45;
+    }
+    .msg-res {
+      fill: none;
+      stroke: var(--muted-foreground, #64748b);
+      stroke-width: 1.35;
+      stroke-dasharray: 5 3;
+    }
+    .msg-warn {
+      fill: none;
+      stroke: var(--warning, #f59e0b);
+      stroke-width: 1.5;
+    }
+    .msg-ok {
+      fill: none;
+      stroke: var(--success, #10b981);
+      stroke-width: 1.55;
+      stroke-dasharray: 5 3;
+    }
+    .msg-pri {
+      fill: none;
+      stroke: var(--primary, #3b82f6);
+      stroke-width: 1.6;
+    }
+    .msg-label {
+      font-size: 11px;
+      font-weight: 500;
+      fill: var(--foreground, #0f172a);
+      text-anchor: middle;
+      paint-order: stroke;
+      stroke: var(--background, #ffffff);
+      stroke-width: 5px;
+      stroke-linejoin: round;
+    }
+    .msg-label-muted {
+      font-size: 10.5px;
+      font-weight: 400;
+      fill: var(--muted-foreground, #64748b);
+      text-anchor: middle;
+      paint-order: stroke;
+      stroke: var(--background, #ffffff);
+      stroke-width: 5px;
+      stroke-linejoin: round;
+    }
+    .note-box {
+      fill: var(--card, #ffffff);
+      stroke: var(--info, #06b6d4);
+      stroke-width: 1.15;
+    }
+    .note-box-warn {
+      fill: var(--card, #ffffff);
+      stroke: var(--warning, #f59e0b);
+      stroke-width: 1.15;
+    }
+    .note-text {
+      font-size: 10.5px;
+      font-weight: 500;
+      fill: var(--foreground, #0f172a);
+      text-anchor: middle;
+      dominant-baseline: central;
+    }
+  </style>
+</head>
+<body>
+  <div class="diagram-root">
+    <div class="legend-bar">
+      <span class="legend-item"><span class="line-solid"></span>操作 / 请求调用</span>
+      <span class="legend-item"><span class="line-dashed"></span>异步响应 / 数据返回</span>
+      <span class="legend-item"><span class="tag-alt">ALT</span>条件分支块（登录 vs 免登录 / 双路径入会话）</span>
+    </div>
+
+    <svg class="seq-svg" viewBox="0 0 712 1152" role="img" aria-label="VibeX 移动端交互时序逻辑图">
+      <defs>
+        <marker id="seq-req" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto-start-reverse">
+          <path d="M 1 1.5 L 9 5 L 1 8.5 z" fill="var(--foreground, #0f172a)" />
+        </marker>
+        <marker id="seq-res" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto-start-reverse">
+          <path d="M 1.5 2 L 8.5 5 L 1.5 8" fill="none" stroke="var(--muted-foreground, #64748b)" stroke-width="1.6" />
+        </marker>
+        <marker id="seq-warn" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto-start-reverse">
+          <path d="M 1 1.5 L 9 5 L 1 8.5 z" fill="var(--warning, #f59e0b)" />
+        </marker>
+        <marker id="seq-ok" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto-start-reverse">
+          <path d="M 1 1.5 L 9 5 L 1 8.5 z" fill="var(--success, #10b981)" />
+        </marker>
+        <marker id="seq-pri" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto-start-reverse">
+          <path d="M 1 1.5 L 9 5 L 1 8.5 z" fill="var(--primary, #3b82f6)" />
+        </marker>
+      </defs>
+
+      <!-- ==================== 顶部参与者 (Lifeline Headers) ==================== -->
+      <rect class="actor-box" x="6" y="10" width="104" height="46" rx="8" />
+      <text class="actor-title" x="58" y="26">用户</text>
+      <text class="actor-sub" x="58" y="43">User</text>
+
+      <rect class="actor-box-primary" x="156" y="10" width="120" height="46" rx="8" />
+      <text class="actor-title" x="216" y="26">移动端 App</text>
+      <text class="actor-sub" x="216" y="43">VibeX Mobile</text>
+
+      <rect class="actor-box" x="308" y="10" width="116" height="46" rx="8" />
+      <text class="actor-title" x="366" y="26">本地存储</text>
+      <text class="actor-sub" x="366" y="43">历史记录 / 缓存</text>
+
+      <rect class="actor-box" x="452" y="10" width="124" height="46" rx="8" />
+      <text class="actor-title" x="514" y="26">账号与云中继</text>
+      <text class="actor-sub" x="514" y="43">Account &amp; Relay</text>
+
+      <rect class="actor-box-host" x="598" y="10" width="108" height="46" rx="8" />
+      <text class="actor-title" x="652" y="26">目标 Host</text>
+      <text class="actor-sub" x="652" y="43">VibeX Host</text>
+
+      <!-- 生命线虚线 -->
+      <line class="lifeline" x1="58" y1="56" x2="58" y2="1098" />
+      <line class="lifeline" x1="216" y1="56" x2="216" y2="1098" />
+      <line class="lifeline" x1="366" y1="56" x2="366" y2="1098" />
+      <line class="lifeline" x1="514" y1="56" x2="514" y2="1098" />
+      <line class="lifeline" x1="652" y1="56" x2="652" y2="1098" />
+
+      <!-- App 核心激活条 -->
+      <rect class="activation" x="212" y="126" width="8" height="960" rx="3" />
+
+      <!-- ==================== ALT 块 1：登录 vs 不登录 ==================== -->
+      <rect class="frag-box" x="12" y="72" width="688" height="462" rx="8" />
+      <rect class="frag-tab" x="12" y="72" width="44" height="22" rx="4" />
+      <text class="frag-tab-text" x="34" y="83">ALT</text>
+      <text class="frag-title" x="66" y="83">阶段一 · 进入 APP 身份选择与 Host 发现</text>
+
+      <!-- 分支 A：登录账号 -->
+      <rect class="branch-badge" x="22" y="102" width="124" height="20" rx="5" />
+      <text class="branch-text" x="84" y="112">[分支 A：登录账号]</text>
+
+      <!-- 1. 登录账号 -->
+      <line class="msg-req" x1="58" y1="142" x2="212" y2="142" marker-end="url(#seq-req)" />
+      <text class="msg-label" x="135" y="135">1. 登录账号</text>
+
+      <!-- 2. 拉取云端 Host 记录 -->
+      <line class="msg-req" x1="220" y1="174" x2="514" y2="174" marker-end="url(#seq-req)" />
+      <text class="msg-label" x="367" y="167">2. 拉取账号绑定的 Host 记录与活跃状态</text>
+
+      <line class="msg-res" x1="514" y1="204" x2="220" y2="204" marker-end="url(#seq-res)" />
+      <text class="msg-label-muted" x="367" y="197">返回账号 Host 记录</text>
+
+      <!-- 3. 合并本地历史 -->
+      <line class="msg-req" x1="220" y1="238" x2="366" y2="238" marker-end="url(#seq-req)" />
+      <text class="msg-label" x="293" y="231">3. 读取本地历史</text>
+
+      <line class="msg-res" x1="366" y1="268" x2="220" y2="268" marker-end="url(#seq-res)" />
+      <text class="msg-label-muted" x="293" y="261">合并检查 Host 列表</text>
+
+      <!-- 活跃状态分支说明 -->
+      <rect class="note-box" x="92" y="284" width="268" height="26" rx="6" />
+      <text class="note-text" x="226" y="297">有活跃 Host → 可直接连接 ｜ 无活跃 → 手动连接</text>
+
+      <!-- 4. 判定云中继权限 -->
+      <line class="msg-warn" x1="220" y1="338" x2="514" y2="338" marker-end="url(#seq-warn)" />
+      <text class="msg-label" x="367" y="331">4. 判定云中继权限（远程中继连接校验）</text>
+
+      <line class="msg-res" x1="514" y1="370" x2="220" y2="370" marker-end="url(#seq-res)" />
+      <text class="msg-label-muted" x="367" y="363">返回云中继通道凭证（或局域网直连放行）</text>
+
+      <!-- ELSE 分割线：不登录账号 -->
+      <line class="frag-divider" x1="12" y1="394" x2="700" y2="394" />
+      <rect class="branch-badge" x="22" y="404" width="136" height="20" rx="5" />
+      <text class="branch-text" x="90" y="414">[分支 B：不登录账号]</text>
+
+      <!-- 5. 不登录账号 -->
+      <line class="msg-req" x1="58" y1="444" x2="212" y2="444" marker-end="url(#seq-req)" />
+      <text class="msg-label" x="135" y="437">5. 选择不登录</text>
+
+      <!-- 6. 查询本地连接历史 -->
+      <line class="msg-req" x1="220" y1="474" x2="366" y2="474" marker-end="url(#seq-req)" />
+      <text class="msg-label" x="293" y="467">6. 查连接历史</text>
+
+      <line class="msg-res" x1="366" y1="504" x2="220" y2="504" marker-end="url(#seq-res)" />
+      <text class="msg-label-muted" x="293" y="497">有记录直接连 / 无记录手动连</text>
+
+      <!-- 7. 用户触发直连或手动连接 -->
+      <line class="msg-req" x1="58" y1="520" x2="212" y2="520" marker-end="url(#seq-req)" />
+      <text class="msg-label" x="135" y="513">7. 直接/手动连接</text>
+
+      <!-- ==================== 阶段二：连接 Host 成功与选择项目 ==================== -->
+      <rect class="stage-banner" x="12" y="548" width="688" height="24" rx="6" />
+      <text class="stage-banner-text" x="356" y="560">阶段二 · 连接 Host 成功与全局项目选择</text>
+
+      <!-- 8. 建立连接握手 -->
+      <line class="msg-pri" x1="220" y1="598" x2="652" y2="598" marker-end="url(#seq-pri)" />
+      <text class="msg-label" x="436" y="591">8. 建立连接握手（GET /api/v1/capabilities + WS 通道鉴权）</text>
+
+      <!-- 9. 连接 Host 成功 -->
+      <line class="msg-ok" x1="652" y1="632" x2="220" y2="632" marker-end="url(#seq-ok)" />
+      <text class="msg-label" x="436" y="625">9. 连接 Host 成功（返回 Host 身份、能力集与项目列表）</text>
+
+      <!-- 10. 更新历史 -->
+      <line class="msg-req" x1="220" y1="666" x2="366" y2="666" marker-end="url(#seq-req)" />
+      <text class="msg-label" x="293" y="659">10. 保存连接历史</text>
+
+      <!-- 11. 左上角选择项目 -->
+      <line class="msg-req" x1="58" y1="702" x2="212" y2="702" marker-end="url(#seq-req)" />
+      <text class="msg-label" x="135" y="695">11. 左上角选项目</text>
+
+      <!-- 12. 加载项目上下文并展示四模块 -->
+      <line class="msg-pri" x1="220" y1="736" x2="652" y2="736" marker-end="url(#seq-pri)" />
+      <text class="msg-label" x="436" y="729">12. 同步所选项目数据，就绪：会话列表 / 看板 / 协作空间 / 设置</text>
+
+      <!-- ==================== ALT 块 2：进入会话双路径 ==================== -->
+      <rect class="frag-box" x="12" y="762" width="688" height="252" rx="8" />
+      <rect class="frag-tab" x="12" y="762" width="44" height="22" rx="4" />
+      <text class="frag-tab-text" x="34" y="773">ALT</text>
+      <text class="frag-title" x="66" y="773">阶段三 · 主界面模块切换与下钻进入会话</text>
+
+      <!-- 路径 1：会话列表 -->
+      <rect class="branch-badge" x="22" y="792" width="124" height="20" rx="5" />
+      <text class="branch-text" x="84" y="802">[路径 1：会话列表]</text>
+
+      <line class="msg-req" x1="58" y1="832" x2="212" y2="832" marker-end="url(#seq-req)" />
+      <text class="msg-label" x="135" y="825">13a. 打开会话列表</text>
+
+      <rect class="note-box" x="232" y="818" width="232" height="26" rx="6" />
+      <text class="note-text" x="348" y="831">视图切换：状态分组视图 / 工作区视图</text>
+
+      <line class="msg-req" x1="58" y1="870" x2="212" y2="870" marker-end="url(#seq-req)" />
+      <text class="msg-label" x="135" y="863">14a. 点击目标会话</text>
+
+      <!-- ELSE 分割线：协作空间 -->
+      <line class="frag-divider" x1="12" y1="892" x2="700" y2="892" />
+      <rect class="branch-badge" x="22" y="902" width="124" height="20" rx="5" />
+      <text class="branch-text" x="84" y="912">[路径 2：协作空间]</text>
+
+      <line class="msg-req" x1="58" y1="940" x2="212" y2="940" marker-end="url(#seq-req)" />
+      <text class="msg-label" x="135" y="933">13b. 打开协作空间</text>
+
+      <line class="msg-req" x1="220" y1="968" x2="652" y2="968" marker-end="url(#seq-req)" />
+      <text class="msg-label" x="436" y="961">进入消息区，拉取并同步协作空间消息动态</text>
+
+      <line class="msg-req" x1="58" y1="998" x2="212" y2="998" marker-end="url(#seq-req)" />
+      <text class="msg-label" x="135" y="991">14b. 消息区进会话</text>
+
+      <!-- ==================== 汇聚：订阅会话事件流 ==================== -->
+      <line class="msg-pri" x1="220" y1="1042" x2="652" y2="1042" marker-end="url(#seq-pri)" />
+      <text class="msg-label" x="436" y="1035">15. 发送 attach(conversation_id, after_sequence) 订阅会话流</text>
+
+      <line class="msg-ok" x1="652" y1="1078" x2="220" y2="1078" marker-end="url(#seq-ok)" />
+      <text class="msg-label" x="436" y="1071">16. 进入会话（返回快照/增量 Timeline 事件流，开始实时交互）</text>
+
+      <!-- ==================== 底部参与者锚点 (Lifeline Footers) ==================== -->
+      <rect class="actor-box" x="6" y="1098" width="104" height="36" rx="7" />
+      <text class="actor-title" x="58" y="1116">用户</text>
+
+      <rect class="actor-box-primary" x="156" y="1098" width="120" height="36" rx="7" />
+      <text class="actor-title" x="216" y="1116">移动端 App</text>
+
+      <rect class="actor-box" x="308" y="1098" width="116" height="36" rx="7" />
+      <text class="actor-title" x="366" y="1116">本地存储</text>
+
+      <rect class="actor-box" x="452" y="1098" width="124" height="36" rx="7" />
+      <text class="actor-title" x="514" y="1116">账号与云中继</text>
+
+      <rect class="actor-box-host" x="598" y="1098" width="108" height="36" rx="7" />
+      <text class="actor-title" x="652" y="1116">目标 Host</text>
+    </svg>
+  </div>
+</body>
+</html>

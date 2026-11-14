@@ -1,207 +1,146 @@
-# VibeX
+# `@omnione/vibex` — VibeX Host & Control CLI
 
-> A visual project management tool for developers that integrates with git repositories and coding agents like Claude Code and Amp.
+Official CLI and Host-family launcher for **VibeX** — the **Integrated Agent Development Environment (IADE)** unifying **20 built-in Coding Agents** (Claude Code, Codex, DeepSeek Harness, Google Antigravity, Cursor, OpenCode, Pi, Grok, Cline, OpenClaw, Hermes, CodeBuddy, Kimi Code, Qoder, Kiro CLI, Auggie, TRAE CLI, Command Code, ZCode, OMP) and the **Official ACP Registry** on a single local-first Rust Host.
 
-## Quick Start
-
-`npx @omnione/vibex` launches the Host family `vibex-server` (not the Tauri desktop app).
-It downloads the GitHub Release tarball for this platform, verifies the
-sidecar SHA-256 and the inner `SHA256SUMS`, then starts `vibex-server` with
-`VIBEX_STATIC_ROOT` pointed at the packaged `web/` tree.
-
-```bash
-npx @omnione/vibex
-npx @omnione/vibex serve
-npx @omnione/vibex --mcp
-```
-
-`npx @omnione/vibex` starts the Host on loopback. `npx @omnione/vibex serve` opens the Web UI on
-the LAN and prints the long-lived host token. Use `--local` to keep loopback, or
-`--rotate-token` to replace the token.
-
-Artifacts:
-
-- `VibeX-${VERSION}-{linux-x86_64,linux-aarch64,darwin-aarch64,windows-x86_64,windows-aarch64}-server.tar.gz`
-- matching `.tar.gz.sha256`
-
-Pin a tag with `VIBEX_HOST_FAMILY_TAG=v0.1.3`. Point at an already extracted
-directory with `VIBEX_HOST_FAMILY_DIR`.
-
-Package a validated VibeX product plugin from its project directory:
-
-```bash
-npx @omnione/vibex plugin pack .
-```
-
-The default output is `dist/<plugin-id>-<version>.vxp`. Use
-`--output ./name.vxp` to choose another path.
-
-Install onto a running Desktop or Server Host:
-
-```bash
-npx @omnione/vibex plugin add --web https://github.com/Xircth/vibex-plugin-office#v1.0.0 -y
-npx @omnione/vibex plugin add --profile ./search.vxp
-npx @omnione/vibex plugin add --dev .
-npx @omnione/vibex plugin list
-npx @omnione/vibex plugin remove acme.search
-```
-
-## What is VibeX?
-
-VibeX is a modern project management tool designed specifically for developers. It helps you organize your coding projects with kanban-style task management while providing powerful integrations with git repositories and AI coding agents.
-
-### ✅ Key Features
-
-**🗂️ Project Management**
-
-- Add git repositories as projects (existing or create new ones)
-- Automatic git integration and repository validation
-- Project search functionality across all files
-- Custom setup and development scripts per project
-
-**📋 Task Management**
-
-- Create and manage tasks with kanban-style boards
-- Task status tracking (Todo, In Progress, Done)
-- Rich task descriptions and notes
-- Task execution with multiple AI agents
-
-**🤖 AI Agent Integration**
-
-- **Claude**: Advanced AI coding assistant
-- **Amp**: Powerful development agent
-- **Echo**: Simple testing/debugging agent
-- Create tasks and immediately start agent execution
-- Follow-up task execution for iterative development
-
-**⚙️ Development Workflow**
-
-- Create isolated git worktrees for each task attempt
-- View diffs of changes made by agents
-- Merge successful changes back to main branch
-- Rebase task branches to stay up-to-date
-- Manual file editing and deletion
-- Integrated development server support
-
-**🎛️ Developer Tools**
-
-- Browse and validate git repositories from filesystem
-- Open task worktrees in your preferred editor (VS Code, Cursor, Windsurf, IntelliJ, Zed)
-- Real-time execution monitoring and process control
-- Stop running processes individually or all at once
-- Sound notifications for task completion
-
-## How It Works
-
-1. **Add Projects**: Import existing git repositories or create new ones
-2. **Create Tasks**: Define what needs to be built or fixed
-3. **Execute with AI**: Let coding agents work on your tasks in isolated environments
-4. **Review Changes**: See exactly what was modified using git diffs
-5. **Merge Results**: Incorporate successful changes into your main codebase
-
-## Core Functionality
-
-VibeX provides a complete project management experience with these key capabilities:
-
-**Project Repository Management**
-
-- Full CRUD operations for managing coding projects
-- Automatic git repository detection and validation
-- Initialize new repositories or import existing ones
-- Project-wide file search functionality
-
-**Task Lifecycle Management**
-
-- Create, update, and delete tasks with rich descriptions
-- Track task progress through customizable status workflows
-- One-click task creation with immediate AI agent execution
-- Task attempt tracking with detailed execution history
-
-**AI Agent Execution Environment**
-
-- Isolated git worktrees for safe code experimentation
-- Real-time execution monitoring and activity logging
-- Process management with ability to stop individual or all processes
-- Support for follow-up executions to iterate on solutions
-
-**Code Change Management**
-
-- View detailed diffs of all changes made during task execution
-- Branch status monitoring to track divergence from main
-- One-click merging of successful changes back to main branch
-- Automatic rebasing to keep task branches up-to-date
-- Manual file deletion and cleanup capabilities
-
-**Development Integration**
-
-- Open task worktrees directly in your preferred code editor
-- Start and manage development servers for testing changes
-- Browse local filesystem to add new projects
-- Health monitoring for service availability
-
-## Configuration
-
-VibeX supports customization through its configuration system:
-
-- **Editor Integration**: Choose your preferred code editor
-- **Sound Notifications**: Customize completion sounds
-- **Project Defaults**: Set default setup and development scripts
-
-## Technical Architecture
-
-- **Backend**: Rust with Axum web framework
-- **Frontend**: React with TypeScript
-- **Database**: SQLite for local data storage
-- **Git Integration**: Native git operations for repository management
-- **Process Management**: Tokio-based async execution monitoring
-
-## Requirements
-
-- Node.js (for npx execution)
-- Git (for repository operations)
-- Your preferred code editor (optional, for opening task worktrees)
-
-## Supported Platforms
-
-- Linux x64 / ARM64
-- Windows x64
-- macOS x64 (Intel)
-- macOS ARM64 (Apple Silicon)
-
-## Use Cases
-
-**🔧 Bug Fixes**
-
-- Create a task describing the bug
-- Let an AI agent analyze and fix the issue
-- Review the proposed changes
-- Merge if satisfied, or provide follow-up instructions
-
-**✅ Feature Development**
-
-- Break down features into manageable tasks
-- Use agents for initial implementation
-- Iterate with follow-up executions
-- Test using integrated development servers
-
-**🚀 Project Setup**
-
-- Bootstrap new projects with AI assistance
-- Set up development environments
-- Configure build and deployment scripts
-
-**📚 Code Documentation**
-
-- Generate documentation for existing code
-- Create README files and API documentation
-- Maintain up-to-date project information
+- **Website**: [https://vibex.xforever.xin](https://vibex.xforever.xin)
+- **Documentation**: [https://vibex.xforever.xin/docs](https://vibex.xforever.xin/docs)
+- **Plugin Marketplace**: [https://vibex.xforever.xin/marketplace](https://vibex.xforever.xin/marketplace)
+- **GitHub**: [https://github.com/Xircth/VibeX](https://github.com/Xircth/VibeX)
 
 ---
 
-**Ready to supercharge your development workflow?**
+## What `@omnione/vibex` Does
+
+`npx @omnione/vibex` downloads and verifies (SHA-256 sidecar + inner `SHA256SUMS`) the matching platform **VibeX Host family** release bundle (`vibex-server`, `vibex-mcp`, `vibex-workflow-mcp`, and the production `web/` workbench), then gives you four workflows from one binary:
+
+1. **Launch `vibex-server` + WebUI** (`17891` default) on loopback or LAN—bringing the full Dual-Stage IDE + Infinite Spatial Canvas workbench to any browser or paired Desktop / iOS / Android client.
+2. **Discover & install Coding Agents** (`list`, `install`) directly into the Host machine's user environment (`npm`, `uv`, or verified binaries).
+3. **Drive a running Host headlessly** (`conversation`, `workflow`, `project`, `workspace`, `session`, `git`, `file`, `agent`) from scripts, CI, or external orchestrators.
+4. **Develop, link, pack, install, and publish v4 Plugins** (`plugin ...`).
+
+---
+
+## 1. Start VibeX Host & WebUI
 
 ```bash
+# Start VibeX Host on loopback (http://127.0.0.1:17891)
 npx @omnione/vibex
+
+# Start the WebUI on LAN (0.0.0.0:17891) and print the persistent Host token
+npx @omnione/vibex serve
+# Alias:
+npx @omnione/vibex web
+
+# Loopback-only WebUI, custom port, or token rotation
+npx @omnione/vibex serve --local --port 17891
+npx @omnione/vibex serve --rotate-token
+
+# Start the stdio MCP companion binary (vibex-mcp)
+npx @omnione/vibex --mcp
 ```
 
-_Start managing your projects with the power of AI coding agents today!_
+Or install globally:
+
+```bash
+npm install -g @omnione/vibex
+vibex serve
+```
+
+### Host Environment Overrides
+
+| Variable | Description |
+| :--- | :--- |
+| `VIBEX_HOST_FAMILY_TAG` | Pin an exact GitHub Release tag (for example `v0.4.4`). |
+| `VIBEX_HOST_FAMILY_DIR` | Use a pre-extracted local Host-family directory instead of downloading. |
+| `VIBEX_DATA_DIR` | Override the VibeX SQLite / transcript / plugin state directory. |
+| `VIBEX_SERVER_LISTEN` | Bind address and port (default `127.0.0.1:17891`). |
+| `VIBEX_URL` / `VIBEX_TOKEN` | Target Host URL and Bearer token for remote control subcommands. |
+
+---
+
+## 2. Manage Coding Agents on This Machine
+
+Install Agent runtimes and ACP adapters into your user environment without starting the HTTP server:
+
+```bash
+# List all 20 built-in agents and cached ACP Registry entries
+npx @omnione/vibex list
+
+# Refresh from the upstream Official ACP Registry first
+npx @omnione/vibex list --refresh --json
+
+# Install an agent into user environment (npm global prefix, uv tools, or ~/.local/bin)
+npx @omnione/vibex install claude_code --yes
+npx @omnione/vibex install codex --yes
+```
+
+---
+
+## 3. Headless Control Commands
+
+Point `VIBEX_URL` (default `http://127.0.0.1:17891`) and `VIBEX_TOKEN` at a running Desktop or Server Host:
+
+```bash
+# Projects, Workspaces (Git Worktrees), and Sessions
+vibex project list
+vibex project create --name my-service --path /path/to/repo
+vibex workspace list --project <project-id>
+vibex session create --workspace <workspace-id> --agent claude_code --prompt "Audit auth middleware"
+
+# Event-Sourced Conversations, Live Steering & Child Delegation
+vibex conversation create --workspace <workspace-id> --agent codex --prompt "Write integration tests"
+vibex conversation steer --conversation <conv-id> --turn <turn-id> --text "Focus on edge cases in token expiry"
+vibex conversation child --parent <conv-id> --agent claude_code --prompt "Review SQL queries"
+vibex conversation wait --conversation <conv-id> --timeout 300
+
+# Durable DAG Workflows
+vibex workflow validate --file ./release-check.vibex-workflow.json
+vibex workflow publish --file ./release-check.vibex-workflow.json
+vibex workflow run --version <version-id> --workspace <workspace-id>
+vibex workflow wait --run <run-id>
+vibex workflow resume --run <run-id> --decision accept --step <step-id>
+
+# Remote File & Git Operations
+vibex file tree --path src --depth 3
+vibex git status --workspace <workspace-id> --repo <repo-id>
+vibex git commit --workspace <workspace-id> --repo <repo-id> --message "feat: add session guard"
+```
+
+---
+
+## 4. Plugin Management & Developer Workflow
+
+Install `.vxp` archives, GitHub repositories, or live-linked development folders onto your local Desktop or Server Host:
+
+```bash
+# Install from GitHub / Marketplace URL, local .vxp archive, or linked dev directory
+vibex plugin add --web https://github.com/Xircth/vibex-plugin-office#v1.0.0 --yes
+vibex plugin add --profile ./dist/acme.search-1.0.0.vxp --yes
+vibex plugin add --dev ./my-plugin
+
+# Inspect, update, remove, and garbage-collect unreferenced Runtimes
+vibex plugin list
+vibex plugin update vibex.office --yes
+vibex plugin remove acme.search --delete-data
+vibex plugin gc-runtimes
+
+# Authoring loop (bind Host once, run HMR dev, test on Host, pack .vxp, publish)
+vibex plugin run server --http://127.0.0.1:17891 --token <token>
+vibex plugin run dev ./my-plugin
+vibex plugin run build ./my-plugin
+vibex plugin test --host ./my-plugin
+vibex plugin pack ./my-plugin
+vibex plugin publish ./dist/my-plugin-0.1.0.vxp
+```
+
+---
+
+## Supported Host-Family Platforms
+
+Release tarballs (`VibeX-${VERSION}-${PLATFORM}-server.tar.gz` + `.sha256`) are published for:
+
+- **macOS**: Apple Silicon (`darwin-aarch64`, automatic Rosetta detection)
+- **Windows**: `windows-x86_64`, `windows-aarch64`
+- **Linux**: `linux-x86_64`, `linux-aarch64`
+
+Run `npx @omnione/vibex help` or `npx @omnione/vibex help <topic>` (`serve`, `list`, `install`, `plugin`, `conversation`, `workflow`, `project`, `workspace`, `session`, `file`, `git`, `agent`) for complete option details.

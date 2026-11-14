@@ -1,41 +1,57 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useGSAP } from '@gsap/react';
 import gsap from 'gsap';
-import { ArrowLeft } from 'lucide-react';
+import { ArrowLeft, ChevronRight } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import {
-  EditorType,
+  ThemeMode,
   type AgentDiscoveryProgressView,
   type AgentId,
   type EditorConfig,
 } from 'shared/types';
 
-import { ExternalEditorPicker } from '@/components/settings/ExternalEditorPicker';
+import { Logo } from '@/components/Logo';
+import { Button } from '@/components/ui/button';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from '@/components/ui/dialog';
 import {
   agentManagementApi,
   agentManagementErrorMessage,
+  useAgentManagement,
 } from '@/features/agent-management';
+import { agentsApi } from '@/features/agents/api';
 import { backendListen } from '@/lib/backendTransport';
-import { sortAgentsForBar } from '@/pages/settings/agentBarOrder';
 
 import { OnboardingAgents } from './OnboardingAgents';
 import { OnboardingAccount } from './OnboardingAccount';
 import { useVibeXAccount } from '@/features/model-router/useVibeXAccount';
 import { useAccountDeviceLogin } from '@/pages/settings/useAccountDeviceLogin';
+import { OnboardingHistoryImport } from './OnboardingHistoryImport';
 import { OnboardingProjects } from './OnboardingProjects';
+import { OnboardingAppearance } from './OnboardingAppearance';
 import {
   OnboardingDisclaimerDialog,
   OnboardingDisclaimerNotice,
 } from './OnboardingDisclaimer';
-import type { AgentValidationError } from './AgentSetupPicker';
+import { useOnboardingAgentChecks } from './useOnboardingAgentChecks';
 import { AgentScatter } from './hero/AgentScatter';
 import { EquationLine } from './hero/EquationLine';
 import {
   buildOnboardingAgentOptions,
-  normalizeOnboardingAgentSelection,
-  selectDefaultOnboardingAgent,
+  onboardingAgentStatus,
+  canJoinOnboardingRoster,
   type OnboardingAgentOption,
 } from './onboardingAgentModel';
+import {
+  LocalAgentDetectedDialog,
+  findLocallyDetectedAgents,
+  type LocalDetectedAgent,
+} from './LocalAgentDetectedDialog';
 
 import './firstRunExperience.css';
 
@@ -43,16 +59,7 @@ gsap.registerPlugin(useGSAP);
 
 const AGENT_LIST_TIMEOUT_MS = 4_000;
 
-type FirstRunStep = 'intro' | 'configure' | 'projects';
-
-function fileManagerEditor(): EditorConfig {
-  return {
-    editor_type: EditorType.FILE_MANAGER,
-    custom_command: null,
-    remote_ssh_host: null,
-    remote_ssh_user: null,
-  };
-}
+type FirstRunStep = 'intro' | 'configure' | 'history' | 'projects' | 'appearance';
 
 function rejectAfter<T>(
   promise: Promise<T>,
@@ -82,6 +89,7 @@ export function FirstRunExperience({
     editor: EditorConfig;
     defaultAgentId: AgentId;
     skipped: boolean;
+    theme?: ThemeMode;
   }) => Promise<void>;
   onFinish: (projectIds?: string[]) => Promise<void> | void;
 }) {
@@ -91,14 +99,17 @@ export function FirstRunExperience({
   const [visible, setVisible] = useState(open);
   const [step, setStep] = useState<FirstRunStep>('intro');
   const [projectSetupStarted, setProjectSetupStarted] = useState(false);
+  const [historySources, setHistorySources] = useState<AgentId[] | null>(null);
+  const [importedProjectIds, setImportedProjectIds] = useState<string[]>([]);
+  const [projectIds, setProjectIds] = useState<string[]>([]);
   const [agents, setAgents] = useState<OnboardingAgentOption[]>([]);
   const [enabledAgentIds, setEnabledAgentIds] = useState<Set<AgentId>>(
     () => new Set()
   );
-  const [defaultAgentId, setDefaultAgentId] = useState<AgentId | null>(
-    initialDefaultAgentId
-  );
-  const [editor, setEditor] = useState<EditorConfig>(fileManagerEditor);
+  const management = useAgentManagement();
+  const editor = initialEditor;
+  const [failedNotice, setFailedNotice] = useState<string[] | null>(null);
+  const [pendingRoster, setPendingRoster] = useState<AgentId[]>([]);
   const [loadingAgents, setLoadingAgents] = useState(false);
   const [discoveryProgress, setDiscoveryProgress] =
     useState<AgentDiscoveryProgressView | null>(null);
@@ -106,31 +117,39 @@ export function FirstRunExperience({
   const [loadError, setLoadError] = useState<string | null>(null);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
-  const [validationError, setValidationError] =
-    useState<AgentValidationError>(null);
   const [disclaimerOpen, setDisclaimerOpen] = useState(false);
   const agentCheckStartedRef = useRef(false);
   const agentCatalogLoadedRef = useRef(false);
   const enabledAgentIdsRef = useRef<Set<AgentId>>(new Set());
-  const defaultAgentIdRef = useRef<AgentId | null>(initialDefaultAgentId);
   const userModifiedAgentIdsRef = useRef<Set<AgentId>>(new Set());
+  const userReorderedRosterRef = useRef(false);
   const agentLoadRequestRef = useRef(0);
   const agentLoadInFlightRef = useRef(false);
   const agentLoadPendingRef = useRef(false);
   const discoveryProgressRef = useRef<AgentDiscoveryProgressView | null>(null);
   const mountedRef = useRef(true);
   const [configurationDirty, setConfigurationDirty] = useState(false);
-  const account = useVibeXAccount();
-  const accountLogin = useAccountDeviceLogin(account);
-  const applyAgentSelection = useCallback(
-    (enabledIds: Set<AgentId>, selectedDefaultId: AgentId | null) => {
-      enabledAgentIdsRef.current = enabledIds;
-      defaultAgentIdRef.current = selectedDefaultId;
-      setEnabledAgentIds(enabledIds);
-      setDefaultAgentId(selectedDefaultId);
-    },
+  const [localAgentDialogOpen, setLocalAgentDialogOpen] = useState(false);
+  const [localAgentDialogDismissed, setLocalAgentDialogDismissed] =
+    useState(false);
+  const [detectedLocalAgents, setDetectedLocalAgents] = useState<
+    LocalDetectedAgent[]
+  >([]);
+  const [pendingAutoEnableIds, setPendingAutoEnableIds] = useState<AgentId[]>(
     []
   );
+  const consumeAutoEnableIds = useCallback(() => {
+    setPendingAutoEnableIds([]);
+  }, []);
+  const allowAutoRosterForAgent = useCallback((id: AgentId) => {
+    userModifiedAgentIdsRef.current.delete(id);
+  }, []);
+  const account = useVibeXAccount();
+  const accountLogin = useAccountDeviceLogin(account);
+  const applyAgentSelection = useCallback((enabledIds: Set<AgentId>) => {
+    enabledAgentIdsRef.current = enabledIds;
+    setEnabledAgentIds(enabledIds);
+  }, []);
 
   useEffect(() => {
     if (open) setVisible(true);
@@ -171,7 +190,13 @@ export function FirstRunExperience({
   useEffect(() => {
     if (!visible) return;
     window.requestAnimationFrame(() => {
-      rootRef.current?.querySelector<HTMLElement>('#onboarding-title')?.focus();
+      [
+        ...(rootRef.current?.querySelectorAll<HTMLElement>(
+          '#onboarding-title'
+        ) ?? []),
+      ]
+        .find((title) => !title.closest('[hidden]'))
+        ?.focus();
     });
   }, [step, visible]);
 
@@ -189,7 +214,6 @@ export function FirstRunExperience({
     const initialCatalogLoad = !agentCatalogLoadedRef.current;
     if (initialCatalogLoad) setLoadingAgents(true);
     if (initialCatalogLoad) setLoadError(null);
-    setValidationError(null);
     try {
       const managedAgents = await rejectAfter(
         agentManagementApi.bar(),
@@ -202,45 +226,7 @@ export function FirstRunExperience({
         throw new Error(t('dialogs:onboarding.agentCatalogEmpty'));
       }
       const options = buildOnboardingAgentOptions(managedAgents, []);
-      const configuredDefault = options.some(
-        (agent) => agent.agentId === initialDefaultAgentId
-      )
-        ? initialDefaultAgentId
-        : null;
-      const nextEnabled = new Set(
-        options
-          .filter((agent) => agent.runtimeInstalled && agent.platformSupported)
-          .map((agent) => agent.agentId)
-      );
-      const nextDefault =
-        configuredDefault && nextEnabled.has(configuredDefault)
-          ? configuredDefault
-          : (nextEnabled.values().next().value ?? null);
-
       setAgents(options);
-      if (initialCatalogLoad) {
-        applyAgentSelection(nextEnabled, nextDefault ?? null);
-      } else {
-        const mergedEnabled = new Set(enabledAgentIdsRef.current);
-        const availableAgentIds = new Set(
-          options.map((agent) => agent.agentId)
-        );
-        for (const agentId of mergedEnabled) {
-          if (!availableAgentIds.has(agentId)) mergedEnabled.delete(agentId);
-        }
-        for (const agent of options) {
-          if (userModifiedAgentIdsRef.current.has(agent.agentId)) continue;
-          if (agent.runtimeInstalled && agent.platformSupported)
-            mergedEnabled.add(agent.agentId);
-          else mergedEnabled.delete(agent.agentId);
-        }
-        const currentDefault = defaultAgentIdRef.current;
-        const mergedDefault =
-          currentDefault && mergedEnabled.has(currentDefault)
-            ? currentDefault
-            : (mergedEnabled.values().next().value ?? null);
-        applyAgentSelection(mergedEnabled, mergedDefault);
-      }
       agentCatalogLoadedRef.current = true;
 
       void agentManagementApi
@@ -312,7 +298,7 @@ export function FirstRunExperience({
         }
       }
     }
-  }, [applyAgentSelection, initialDefaultAgentId, t]);
+  }, [t]);
 
   useEffect(() => {
     // StrictMode performs a development-only setup/cleanup/setup cycle while
@@ -447,23 +433,171 @@ export function FirstRunExperience({
     { scope: rootRef, dependencies: [step, visible], revertOnUpdate: true }
   );
 
-  const toggleAgent = (agentId: AgentId, enabled: boolean) => {
-    const normalized = normalizeOnboardingAgentSelection({
-      enabledAgentIds,
-      defaultAgentId,
-      changedAgentId: agentId,
-      enabled,
-    });
-    userModifiedAgentIdsRef.current.add(agentId);
-    applyAgentSelection(normalized.enabledAgentIds, normalized.defaultAgentId);
-    setValidationError(null);
+  const displayAgents = useMemo(
+    () =>
+      agents.map((option) => {
+        const view = management.state.agents.find(
+          (item) => item.agent_id === option.agentId
+        );
+        const operation = management.state.operations[option.agentId];
+        const acpReady = view
+          ? Boolean(
+              view.acp_version ||
+                ['ready', 'needs_auth', 'needs_config'].includes(view.lifecycle)
+            )
+          : !option.needsInstallation;
+        const localDetected = view
+          ? Boolean(
+              view.local_runtime?.path ||
+                view.desktop_client?.path ||
+                option.localDetected
+            )
+          : option.localDetected;
+        const updated = view
+          ? {
+              ...option,
+              added: true,
+              enabled: view.enabled,
+              lifecycle: view.lifecycle,
+              localDetected,
+              runtimeInstalled: acpReady || Boolean(localDetected),
+              needsInstallation: !acpReady,
+              platformSupported:
+                view.lifecycle !== 'platform_unsupported' &&
+                option.platformSupported,
+            }
+          : option;
+        if (
+          operation &&
+          ['queued', 'running', 'canceling'].includes(operation.status)
+        )
+          return { ...updated, lifecycle: 'installing' as const };
+        return updated;
+      }),
+    [agents, management.state.agents, management.state.operations]
+  );
+  const health = useOnboardingAgentChecks(displayAgents, step === 'configure');
+  useEffect(() => {
+    const pendingDialogIds = new Set(
+      localAgentDialogOpen
+        ? detectedLocalAgents.map((agent) => agent.agentId)
+        : []
+    );
+    const eligible = new Set(
+      displayAgents
+        .filter(
+          (agent) =>
+            !pendingDialogIds.has(agent.agentId) &&
+            (canJoinOnboardingRoster(
+              onboardingAgentStatus(agent, health.checks[agent.agentId])
+            ) ||
+              (onboardingAgentStatus(agent, health.checks[agent.agentId]) ===
+                'checking' &&
+                enabledAgentIdsRef.current.has(agent.agentId)))
+        )
+        .map((agent) => agent.agentId)
+    );
+    const next = new Set(
+      [...enabledAgentIdsRef.current].filter((id) => eligible.has(id))
+    );
+    for (const id of eligible)
+      if (!userModifiedAgentIdsRef.current.has(id)) next.add(id);
+    const ordered = userReorderedRosterRef.current
+      ? next
+      : new Set(
+          [
+            initialDefaultAgentId,
+            ...displayAgents.map((agent) => agent.agentId),
+          ].filter((id) => next.has(id))
+        );
+    if ([...ordered].join('|') !== [...enabledAgentIdsRef.current].join('|'))
+      applyAgentSelection(ordered);
+  }, [
+    displayAgents,
+    health.checks,
+    initialDefaultAgentId,
+    applyAgentSelection,
+    localAgentDialogOpen,
+    detectedLocalAgents,
+  ]);
+  const changeRoster = (ids: AgentId[]) => {
+    userReorderedRosterRef.current = true;
+    for (const id of enabledAgentIdsRef.current)
+      if (!ids.includes(id)) userModifiedAgentIdsRef.current.add(id);
+    for (const id of ids) userModifiedAgentIdsRef.current.delete(id);
+    applyAgentSelection(new Set(ids));
   };
 
-  const selectDefault = (agentId: AgentId) => {
-    const normalized = selectDefaultOnboardingAgent(enabledAgentIds, agentId);
-    userModifiedAgentIdsRef.current.add(agentId);
-    applyAgentSelection(normalized.enabledAgentIds, normalized.defaultAgentId);
-    setValidationError(null);
+  /**
+   * Show the local-agent-detected dialog once after discovery completes and
+   * the agent catalog is loaded. Snapshot the detected list so background
+   * state updates never mutate or empty the open dialog.
+   */
+  useEffect(() => {
+    if (
+      step !== 'configure' ||
+      localAgentDialogDismissed ||
+      localAgentDialogOpen
+    )
+      return;
+    if (loadingAgents || !agentCatalogLoadedRef.current) return;
+    if (
+      discoverySnapshotStale ||
+      discoveryProgress == null ||
+      discoveryProgress.phase === 'pending' ||
+      discoveryProgress.phase === 'checking'
+    )
+      return;
+    const detected = findLocallyDetectedAgents(
+      displayAgents,
+      enabledAgentIdsRef.current
+    );
+    if (detected.length > 0) {
+      setDetectedLocalAgents(detected);
+      setLocalAgentDialogOpen(true);
+    }
+  }, [
+    step,
+    loadingAgents,
+    displayAgents,
+    discoveryProgress,
+    discoverySnapshotStale,
+    localAgentDialogDismissed,
+    localAgentDialogOpen,
+  ]);
+
+  const handleLocalAgentConfirm = (ids: AgentId[]) => {
+    const selectedSet = new Set(ids);
+    for (const agent of detectedLocalAgents) {
+      if (selectedSet.has(agent.agentId))
+        userModifiedAgentIdsRef.current.delete(agent.agentId);
+      else userModifiedAgentIdsRef.current.add(agent.agentId);
+    }
+    const kept = new Set(
+      [...enabledAgentIdsRef.current].filter(
+        (id) =>
+          !detectedLocalAgents.some((agent) => agent.agentId === id) ||
+          selectedSet.has(id)
+      )
+    );
+    applyAgentSelection(kept);
+    setLocalAgentDialogOpen(false);
+    setLocalAgentDialogDismissed(true);
+    if (ids.length > 0) setPendingAutoEnableIds(ids);
+  };
+
+  const handleLocalAgentSkip = () => {
+    for (const agent of detectedLocalAgents) {
+      userModifiedAgentIdsRef.current.add(agent.agentId);
+    }
+    const kept = new Set(
+      [...enabledAgentIdsRef.current].filter(
+        (id) => !detectedLocalAgents.some((agent) => agent.agentId === id)
+      )
+    );
+    applyAgentSelection(kept);
+    setLocalAgentDialogOpen(false);
+    setLocalAgentDialogDismissed(true);
   };
 
   const handleSkip = async () => {
@@ -486,94 +620,121 @@ export function FirstRunExperience({
     }
   };
 
-  const handleStartSetup = async () => {
-    if (submitting || !editorValid || configurationDirty) return;
-    if (enabledAgentIds.size === 0) {
-      setValidationError('enabled-required');
-      return;
+  /**
+   * Local history folders are a pre-check for the optional import step. A failed
+   * check is not "no history": open the history step so its retry stays visible.
+   */
+  const discoverHistorySources = useCallback(async (): Promise<
+    AgentId[] | null
+  > => {
+    try {
+      return await agentsApi.discoverLocalHistorySources();
+    } catch {
+      return null;
     }
-    if (!defaultAgentId) {
-      setValidationError('default-required');
-      return;
-    }
-    setValidationError(null);
+  }, []);
+
+  const persistSetup = async (ids: AgentId[]) => {
     setSubmitting(true);
     setSubmitError(null);
     try {
-      await Promise.all(
-        agents
-          .filter(
-            (agent) =>
-              agent.added &&
-              agent.enabled !== enabledAgentIds.has(agent.agentId)
-          )
+      const memberships = await agentManagementApi.bar();
+      const changes = await Promise.allSettled(
+        memberships
+          .filter((agent) => agent.enabled !== ids.includes(agent.agent_id))
           .map((agent) =>
             agentManagementApi.setEnabled(
-              agent.agentId,
-              enabledAgentIds.has(agent.agentId)
+              agent.agent_id,
+              ids.includes(agent.agent_id)
             )
           )
       );
-
-      const memberships = await agentManagementApi.bar();
-      const ordered = sortAgentsForBar(
-        memberships.map((agent) => ({
-          ...agent,
-          enabled: enabledAgentIds.has(agent.agent_id),
-        })),
-        defaultAgentId
-      ).map((agent) => agent.agent_id);
-      if (ordered.length > 0) {
-        await agentManagementApi.reorder(ordered);
-      }
-
-      const report = await agentManagementApi.preflight(defaultAgentId);
-      const failures = report.items.filter((item) => item.status === 'fail');
-      const checkedAgents = await agentManagementApi.bar();
-      const checkedDefault = checkedAgents.find(
-        (agent) => agent.agent_id === defaultAgentId
-      );
-      if (failures.length || checkedDefault?.lifecycle !== 'ready') {
+      const errors = changes.filter((result) => result.status === 'rejected');
+      if (errors.length)
         throw new Error(
-          t('dialogs:onboarding.defaultNotReady', {
-            agent: checkedDefault?.display_name ?? defaultAgentId,
-            detail:
-              failures.map((item) => item.detail || item.label).join(' · ') ||
-              t(
-                `settings:agents.lifecycleStatus.${checkedDefault?.lifecycle ?? 'uninstalled'}`
-              ),
-          })
+          errors
+            .map((result) =>
+              agentManagementErrorMessage(
+                result.reason,
+                t('dialogs:onboarding.setupFailed')
+              )
+            )
+            .join('; ')
         );
-      }
-
+      const ordered = [
+        ...ids,
+        ...memberships
+          .map((agent) => agent.agent_id)
+          .filter((id) => !ids.includes(id)),
+      ];
+      if (ordered.length) await agentManagementApi.reorder(ordered);
       await onPersist({
         editor,
-        defaultAgentId,
+        defaultAgentId: ids[0] ?? initialDefaultAgentId,
         skipped: false,
       });
+      setFailedNotice(null);
       setProjectSetupStarted(true);
-      setStep('projects');
+      const sources = await discoverHistorySources();
+      if (sources?.length) {
+        setHistorySources(sources);
+        setStep('history');
+      } else if (sources) {
+        setHistorySources([]);
+        setStep('projects');
+      } else {
+        setHistorySources(null);
+        setStep('history');
+      }
     } catch (error) {
+      setFailedNotice(null);
       setSubmitError(
         agentManagementErrorMessage(error, t('dialogs:onboarding.setupFailed'))
       );
-      setSubmitting(false);
     } finally {
       setSubmitting(false);
     }
   };
-
-  const editorValid =
-    editor.editor_type !== EditorType.CUSTOM ||
-    Boolean(editor.custom_command?.trim());
-
-  const historySourceAgentIds = useMemo(
-    () =>
-      agents
-        .filter((agent) => agent.builtIn && agent.runtimeInstalled)
-        .map((agent) => agent.agentId),
-    [agents]
-  );
+  const handleStartSetup = async () => {
+    if (submitting || configurationDirty) return;
+    setSubmitting(true);
+    setSubmitError(null);
+    try {
+      const ids = [...enabledAgentIds];
+      const reports = await Promise.all(ids.map((id) => health.check(id)));
+      const current = await agentManagementApi.bar();
+      const options = buildOnboardingAgentOptions(current, []);
+      const eligible = ids.filter((id, index) => {
+        const option = options.find((agent) => agent.agentId === id);
+        return (
+          option &&
+          canJoinOnboardingRoster(
+            onboardingAgentStatus(option, { report: reports[index] })
+          )
+        );
+      });
+      if (eligible.length !== ids.length) {
+        throw new Error(t('dialogs:onboarding.rosterCheckFailed'));
+      }
+      const failed = options
+        .filter(
+          (agent) =>
+            onboardingAgentStatus(agent, health.checks[agent.agentId]) ===
+            'install_failed'
+        )
+        .map((agent) => agent.displayName);
+      if (failed.length) {
+        setPendingRoster(eligible);
+        setFailedNotice(failed);
+      } else await persistSetup(eligible);
+    } catch (error) {
+      setSubmitError(
+        agentManagementErrorMessage(error, t('dialogs:onboarding.setupFailed'))
+      );
+    } finally {
+      setSubmitting(false);
+    }
+  };
 
   if (!visible) return null;
 
@@ -587,16 +748,16 @@ export function FirstRunExperience({
         data-tauri-drag-region
         className="window-chrome onboarding-window-chrome"
       />
-      <div
-        className="onboarding-hero-glow"
-        data-testid="onboarding-hero-glow"
-        aria-hidden="true"
-      />
 
       {step === 'intro' ? (
         <main className="onboarding-intro-step">
           <AgentScatter />
           <div className="onboarding-intro-hero">
+            <Logo
+              showText={false}
+              size="hero"
+              className="onboarding-welcome-logo"
+            />
             <div className="onboarding-step-copy onboarding-intro-copy">
               <h1
                 id="onboarding-title"
@@ -610,6 +771,7 @@ export function FirstRunExperience({
               <EquationLine locale={heroLocale} />
             </div>
 
+            <OnboardingAccount account={account} login={accountLogin} />
             <div className="onboarding-step-actions onboarding-intro-actions">
               <button
                 type="button"
@@ -628,7 +790,6 @@ export function FirstRunExperience({
               </button>
             </div>
           </div>
-          <OnboardingAccount account={account} login={accountLogin} />
           {submitError ? (
             <p className="onboarding-inline-error" role="alert">
               {submitError}
@@ -639,43 +800,75 @@ export function FirstRunExperience({
 
       {step === 'configure' ? (
         <main className="onboarding-config-step">
-          <header className="onboarding-page-heading">
-            <h1 id="onboarding-title" tabIndex={-1}>
-              {t('dialogs:onboarding.agentsTitle')}
-            </h1>
-            <p>{t('dialogs:onboarding.agentsDescription')}</p>
-          </header>
-          <div className="onboarding-config-body" inert={disclaimerOpen}>
+          <nav
+            className="onboarding-journey"
+            aria-label={t('dialogs:onboarding.stepsLabel')}
+            inert={
+              disclaimerOpen ||
+              failedNotice !== null ||
+              localAgentDialogOpen ||
+              submitting
+            }
+          >
+            <button
+              type="button"
+              disabled={submitting || configurationDirty}
+              onClick={() => setStep('intro')}
+            >
+              {t('dialogs:onboarding.welcomeStep')}
+            </button>
+            <ChevronRight aria-hidden="true" />
+            <span id="onboarding-title" tabIndex={-1} aria-current="step">
+              {t('dialogs:onboarding.agentStep')}
+            </span>
+            <ChevronRight aria-hidden="true" />
+            <span>{t('dialogs:onboarding.historyStep')}</span>
+            <ChevronRight aria-hidden="true" />
+            <span>{t('dialogs:onboarding.projectStep')}</span>
+            <ChevronRight aria-hidden="true" />
+            <span>{t('dialogs:onboarding.appearanceStep')}</span>
+          </nav>
+          <p className="onboarding-configure-description">
+            {t('dialogs:onboarding.agentStepDescription')}
+          </p>
+          <div
+            className="onboarding-config-body"
+            inert={
+              disclaimerOpen ||
+              failedNotice !== null ||
+              localAgentDialogOpen ||
+              submitting
+            }
+          >
             <OnboardingAgents
+              management={management}
+              health={health}
+              rosterIds={[...enabledAgentIds]}
+              onRosterChange={changeRoster}
               onDirtyChange={setConfigurationDirty}
+              pendingAutoEnableIds={pendingAutoEnableIds}
+              onConsumeAutoEnableIds={consumeAutoEnableIds}
+              onWillInstallAgent={allowAutoRosterForAgent}
               picker={{
-                agents,
-                enabledAgentIds,
-                defaultAgentId,
+                agents: displayAgents,
+                checks: health.checks,
                 loading: !loadError && loadingAgents,
                 discoveryProgress,
                 error: loadError,
-                validationError,
                 onRetry: () => void loadAgents(),
-                onEnabledChange: toggleAgent,
-                onDefaultChange: selectDefault,
               }}
-              editor={
-                <div className="onboarding-editor-field">
-                  <ExternalEditorPicker
-                    value={editor}
-                    onChange={setEditor}
-                    label={t('dialogs:onboarding.viewerLabel')}
-                    compact
-                    selectTriggerClassName="onboarding-editor-select"
-                    selectContentClassName="onboarding-popover-layer onboarding-editor-options !z-[13000]"
-                  />
-                </div>
-              }
             />
           </div>
 
-          <footer className="onboarding-config-footer" inert={disclaimerOpen}>
+          <footer
+            className="onboarding-config-footer"
+            inert={
+              disclaimerOpen ||
+              failedNotice !== null ||
+              localAgentDialogOpen ||
+              submitting
+            }
+          >
             <OnboardingDisclaimerNotice
               onOpen={() => setDisclaimerOpen(true)}
             />
@@ -693,7 +886,11 @@ export function FirstRunExperience({
               <button
                 type="button"
                 className="onboarding-back-button"
-                disabled={submitting || configurationDirty}
+                disabled={
+                  submitting ||
+                  configurationDirty ||
+                  pendingAutoEnableIds.length > 0
+                }
                 onClick={() => {
                   setDisclaimerOpen(false);
                   setStep('intro');
@@ -705,34 +902,126 @@ export function FirstRunExperience({
               <button
                 type="button"
                 className="onboarding-primary-button"
-                disabled={submitting || !editorValid || configurationDirty}
+                disabled={
+                  submitting ||
+                  configurationDirty ||
+                  pendingAutoEnableIds.length > 0 ||
+                  displayAgents.some(
+                    (agent) =>
+                      onboardingAgentStatus(
+                        agent,
+                        health.checks[agent.agentId]
+                      ) === 'installing' ||
+                      onboardingAgentStatus(
+                        agent,
+                        health.checks[agent.agentId]
+                      ) === 'checking'
+                  )
+                }
                 onClick={() => void handleStartSetup()}
               >
                 {t('dialogs:onboarding.next')}
               </button>
             </div>
           </footer>
+          <Dialog
+            open={failedNotice !== null}
+            uncloseable
+            className="onboarding-popover-layer"
+            aria-describedby="onboarding-failed-agents-description"
+          >
+            <DialogContent className="max-w-lg">
+              <DialogHeader>
+                <DialogTitle>
+                  {t('dialogs:onboarding.failedAgentsTitle')}
+                </DialogTitle>
+              </DialogHeader>
+              <p id="onboarding-failed-agents-description">
+                {t('dialogs:onboarding.failedAgentsDescription')}
+              </p>
+              <ul>
+                {failedNotice?.map((name) => (
+                  <li key={name}>{name}</li>
+                ))}
+              </ul>
+              <DialogFooter>
+                <Button
+                  autoFocus
+                  disabled={submitting}
+                  onClick={() => void persistSetup(pendingRoster)}
+                >
+                  {t('dialogs:onboarding.acknowledge')}
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
           <OnboardingDisclaimerDialog
             open={disclaimerOpen}
             onClose={() => setDisclaimerOpen(false)}
+          />
+          <LocalAgentDetectedDialog
+            open={localAgentDialogOpen}
+            detected={detectedLocalAgents}
+            onClose={handleLocalAgentSkip}
+            onConfirm={handleLocalAgentConfirm}
           />
         </main>
       ) : null}
 
       {projectSetupStarted ? (
-        <div
-          hidden={step !== 'projects'}
-          className={step === 'projects' ? 'contents' : 'hidden'}
-        >
-          <OnboardingProjects
-            sourceAgentIds={historySourceAgentIds}
+        <div hidden={step !== 'history'} inert={step !== 'history'}>
+          <OnboardingHistoryImport
+            sourceAgents={displayAgents}
+            active={step === 'history'}
             onBack={() => setStep('configure')}
-            onFinish={async (projectIds) => {
-              await onFinish(projectIds);
-              setVisible(false);
+            onFinish={async (ids) => {
+              setImportedProjectIds(ids);
+              setStep('projects');
             }}
           />
         </div>
+      ) : null}
+      {projectSetupStarted ? (
+        <div hidden={step !== 'projects'} inert={step !== 'projects'}>
+          <OnboardingProjects
+            initialProjectIds={importedProjectIds}
+            active={step === 'projects'}
+            onBack={() =>
+              setStep(
+                historySources && historySources.length ? 'history' : 'configure'
+              )
+            }
+            onFinish={async (ids) => {
+              setProjectIds(ids);
+              setStep('appearance');
+            }}
+          />
+        </div>
+      ) : null}
+      {step === 'appearance' ? (
+        <OnboardingAppearance
+          onBack={() => setStep('projects')}
+          onNavigateStep={(target) => {
+            if (
+              target === 'history' &&
+              (!historySources || !historySources.length)
+            ) {
+              setStep('configure');
+              return;
+            }
+            setStep(target);
+          }}
+          onContinue={async (theme) => {
+            await onPersist({
+              editor,
+              defaultAgentId: [...enabledAgentIds][0] ?? initialDefaultAgentId,
+              skipped: false,
+              theme,
+            });
+            await onFinish(projectIds);
+            setVisible(false);
+          }}
+        />
       ) : null}
     </div>
   );

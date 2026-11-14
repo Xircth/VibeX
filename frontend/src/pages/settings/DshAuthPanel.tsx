@@ -748,7 +748,7 @@ export function DshAuthPanel({
     <>
       <section
         aria-labelledby="dsh-auth-heading"
-        className="settings-surface agent-auth-mode-surface"
+        className="agent-auth-mode-surface"
       >
         <div className="agent-section-heading">
           <h3 id="dsh-auth-heading">{t('settings:agents.authTitle')}</h3>

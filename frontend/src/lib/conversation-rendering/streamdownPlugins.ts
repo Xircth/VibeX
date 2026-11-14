@@ -1,22 +1,34 @@
 import {
-  replaceTagReferenceMarkersWithMarkdownLinks,
-  stripTagReferenceAppendix,
-} from '@/lib/tagReferenceMarkers';
+  MarkdownBlockCache,
+  MAX_CACHED_CHARS,
+} from './markdownBlockCache';
+import {
+  splitFencedCodeSegments,
+  stabilizeUnclosedFencedCode,
+  type FenceSegment,
+} from './markdownFences';
+import {
+  preprocessForBlockSplit,
+  splitIntoBlocks,
+  type MarkdownBlockKind,
+} from './markdownPreprocess';
+import { normalizeLooseTableRowsInText } from './markdownTables';
 
 export type ConversationMarkdownOptions = {
   softBreaks?: boolean;
 };
 
-type FenceSegmentKind = 'text' | 'closedFence' | 'openFence';
-
-type FenceSegment = {
-  text: string;
-  kind: FenceSegmentKind;
+export type PreparedMarkdownBlockPart = {
+  hash: string;
+  source: string;
+  kind: MarkdownBlockKind;
+  prepared: string;
 };
 
 export type ConversationMarkdownPrepareCache = {
   softBreaks: boolean;
-  parts: Array<{ source: string; kind: FenceSegmentKind; prepared: string }>;
+  lru: MarkdownBlockCache<PreparedMarkdownBlockPart>;
+  parts: PreparedMarkdownBlockPart[];
 };
 
 function trimFilePathCandidate(value: string): string {
@@ -33,7 +45,14 @@ function isMarkdownImagePath(value: string): boolean {
   return /\.(png|jpe?g|gif|webp|svg|bmp|ico)(?:[?#].*)?$/i.test(candidate);
 }
 
+const IMAGE_EXTENSION_HINT_REGEX =
+  /\.(?:png|jpe?g|gif|webp|svg|bmp|ico)/i;
+
 function normalizeBareImageReferences(value: string): string {
+  if (!IMAGE_EXTENSION_HINT_REGEX.test(value)) {
+    return value;
+  }
+
   return value
     .split('\n')
     .map((line) => {
@@ -52,170 +71,6 @@ function normalizeBareImageReferences(value: string): string {
       return `${line.slice(0, line.indexOf(trimmed))}![${label}](${trimmed})`;
     })
     .join('\n');
-}
-
-function splitFencedCodeSegments(value: string): FenceSegment[] {
-  const segments: FenceSegment[] = [];
-  const lines = value.match(/[^\n]*(?:\n|$)/g) ?? [];
-  let buffer = '';
-  let inFence = false;
-  let fenceChar: '`' | '~' | null = null;
-  let fenceLength = 0;
-
-  const flush = (kind: FenceSegmentKind) => {
-    if (!buffer) return;
-    segments.push({ text: buffer, kind });
-    buffer = '';
-  };
-
-  for (const line of lines) {
-    if (!line) continue;
-    const fenceMatch = line.match(/^\s*(`{3,}|~{3,})/);
-
-    if (!inFence && fenceMatch) {
-      flush('text');
-      inFence = true;
-      fenceChar = fenceMatch[1][0] as '`' | '~';
-      fenceLength = fenceMatch[1].length;
-      buffer += line;
-      continue;
-    }
-
-    if (inFence) {
-      buffer += line;
-      if (
-        fenceMatch &&
-        fenceChar &&
-        fenceMatch[1][0] === fenceChar &&
-        fenceMatch[1].length >= fenceLength
-      ) {
-        flush('closedFence');
-        inFence = false;
-        fenceChar = null;
-        fenceLength = 0;
-      }
-      continue;
-    }
-
-    buffer += line;
-  }
-
-  flush(inFence ? 'openFence' : 'text');
-  return segments;
-}
-
-function markdownTableCells(line: string): string[] {
-  const trimmed = line.trim().replace(/^\|/, '').replace(/\|$/, '');
-  if (!trimmed.includes('|')) return [];
-
-  return trimmed.split(/(?<!\\)\|/u).map((cell) => cell.trim());
-}
-
-function isMarkdownTableSeparator(line: string, columnCount: number): boolean {
-  const cells = markdownTableCells(line);
-  return (
-    cells.length === columnCount &&
-    cells.every((cell) => /^:?-{3,}:?$/u.test(cell))
-  );
-}
-
-function normalizeLooseTableRowsInText(value: string): string {
-  const lines = value.split('\n');
-  const normalized: string[] = [];
-  let index = 0;
-
-  while (index < lines.length) {
-    const header = lines[index] ?? '';
-    const headerCells = markdownTableCells(header);
-    if (headerCells.length < 2) {
-      normalized.push(header);
-      index += 1;
-      continue;
-    }
-
-    let separatorIndex = index + 1;
-    while (lines[separatorIndex]?.trim() === '') separatorIndex += 1;
-    if (
-      separatorIndex >= lines.length ||
-      !isMarkdownTableSeparator(lines[separatorIndex] ?? '', headerCells.length)
-    ) {
-      normalized.push(header);
-      index += 1;
-      continue;
-    }
-
-    normalized.push(header, lines[separatorIndex] ?? '');
-    index = separatorIndex + 1;
-
-    while (index < lines.length) {
-      const gapStart = index;
-      while (lines[index]?.trim() === '') index += 1;
-      const row = lines[index];
-      if (row && markdownTableCells(row).length === headerCells.length) {
-        normalized.push(row);
-        index += 1;
-        continue;
-      }
-
-      normalized.push(...lines.slice(gapStart, index));
-      break;
-    }
-  }
-
-  return normalized.join('\n');
-}
-
-function stabilizeUnclosedFencedCode(value: string): string {
-  const lines = value.match(/[^\n]*(?:\n|$)/g) ?? [];
-  let inFence = false;
-  let fenceChar: '`' | '~' | null = null;
-  let fenceLength = 0;
-  let openFenceLineIndex = -1;
-  let openFenceInfo = '';
-
-  for (let index = 0; index < lines.length; index += 1) {
-    const line = lines[index];
-    if (!line) continue;
-    const fenceMatch = line.match(/^(\s*)(`{3,}|~{3,})([^\n\r]*)/);
-    if (!fenceMatch) continue;
-
-    const currentFence = fenceMatch[2];
-    if (!inFence) {
-      inFence = true;
-      fenceChar = currentFence[0] as '`' | '~';
-      fenceLength = currentFence.length;
-      openFenceLineIndex = index;
-      openFenceInfo = fenceMatch[3]?.trim() ?? '';
-      continue;
-    }
-
-    if (
-      fenceChar &&
-      currentFence[0] === fenceChar &&
-      currentFence.length >= fenceLength
-    ) {
-      inFence = false;
-      fenceChar = null;
-      fenceLength = 0;
-      openFenceLineIndex = -1;
-      openFenceInfo = '';
-    }
-  }
-
-  if (!inFence || !fenceChar || openFenceLineIndex < 0) {
-    return value;
-  }
-
-  if (/^mermaid\b/i.test(openFenceInfo)) {
-    lines[openFenceLineIndex] = lines[openFenceLineIndex].replace(
-      /^(\s*)(`{3,}|~{3,})([^\n\r]*)/,
-      '$1$2text'
-    );
-  }
-
-  const body = lines.join('');
-  const lineBreak = body.endsWith('\n') || body.length === 0 ? '' : '\n';
-  return `${body}${lineBreak}${fenceChar.repeat(fenceLength)}`;
 }
 
 function isSoftBreakBlockBoundary(line: string): boolean {
@@ -279,38 +134,69 @@ function transformSegment(
     : segment.text;
 }
 
+/**
+ * Prepare a single already-preprocessed markdown block (fence-safe image
+ * normalization, loose-table compaction, optional soft breaks, and open-fence
+ * stabilization).
+ */
+export function prepareSingleMarkdownBlock(
+  value: string,
+  options: ConversationMarkdownOptions = {}
+): string {
+  if (!value) return '';
+  const segments = splitFencedCodeSegments(value);
+  const transformed = segments
+    .map((segment) => transformSegment(segment, options))
+    .join('');
+  return stabilizeUnclosedFencedCode(transformed);
+}
+
 export function prepareConversationMarkdownCached(
   value: string,
   options: ConversationMarkdownOptions = {},
   cache: ConversationMarkdownPrepareCache | null = null
 ): { text: string; cache: ConversationMarkdownPrepareCache } {
-  const tagged = replaceTagReferenceMarkersWithMarkdownLinks(
-    stripTagReferenceAppendix(value)
-  );
-  const segments = splitFencedCodeSegments(tagged);
   const softBreaks = Boolean(options.softBreaks);
-  const reusableCache = cache?.softBreaks === softBreaks ? cache : null;
-  const parts = segments.map((segment, index) => {
-    const cached = reusableCache?.parts[index];
-    if (
-      cached &&
-      cached.source === segment.text &&
-      cached.kind === segment.kind
-    ) {
-      return cached;
+  const lru =
+    cache?.softBreaks === softBreaks
+      ? cache.lru
+      : new MarkdownBlockCache<PreparedMarkdownBlockPart>(MAX_CACHED_CHARS);
+
+  const { body, tagAppendix, mathSpans } = preprocessForBlockSplit(value);
+  const blocks = splitIntoBlocks(body, mathSpans, true);
+
+  const parts: PreparedMarkdownBlockPart[] = blocks.map((block) => {
+    if (block.closed) {
+      const cached = lru.hit(block.hash, block.text);
+      if (cached) {
+        return cached;
+      }
+      const created: PreparedMarkdownBlockPart = {
+        hash: block.hash,
+        source: block.text,
+        kind: block.kind,
+        prepared: prepareSingleMarkdownBlock(block.text, options),
+      };
+      lru.set(block.hash, block.text, created);
+      return created;
     }
+
     return {
-      source: segment.text,
-      kind: segment.kind,
-      prepared: transformSegment(segment, options),
+      hash: block.hash,
+      source: block.text,
+      kind: block.kind,
+      prepared: prepareSingleMarkdownBlock(block.text, options),
     };
   });
 
+  const preparedSections = parts.map((part) => part.prepared);
+  if (tagAppendix) {
+    preparedSections.push(prepareSingleMarkdownBlock(tagAppendix, options));
+  }
+
   return {
-    text: stabilizeUnclosedFencedCode(
-      parts.map((part) => part.prepared).join('')
-    ),
-    cache: { softBreaks, parts },
+    text: preparedSections.join('\n\n'),
+    cache: { softBreaks, lru, parts },
   };
 }
 

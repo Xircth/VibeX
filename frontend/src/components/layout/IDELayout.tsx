@@ -25,6 +25,7 @@ import {
 } from '@/components/layout/panels/PanelRegistry';
 import { WorkspaceActivityRail } from '@/components/layout/WorkspaceActivityRail';
 import { WorkspaceTabAddMenu } from '@/components/layout/panels/WorkspaceTabAddMenu';
+import { useOptionalPanelActionsContext } from '@/contexts/PanelActionsContext';
 import { useViews } from '@vibex/plugin-sdk';
 import { useUserSystem } from '@/components/ConfigProvider';
 import { PluginOverlays } from '@/components/plugins/PluginOverlays';
@@ -969,6 +970,61 @@ export function IDELayout({
     });
   }, []);
 
+  // Tab bar drop handler: accepts panel drag payloads from Zone A (file tree, git, sessions)
+  const panelActions = useOptionalPanelActionsContext();
+  const [isTabBarDragOver, setIsTabBarDragOver] = useState(false);
+
+  const handleTabBarDragOver = useCallback((event: React.DragEvent<HTMLDivElement>) => {
+    if (!event.dataTransfer.types.includes('application/x-vibex-panel')) {
+      return;
+    }
+    event.preventDefault();
+    event.dataTransfer.dropEffect = 'copy';
+    setIsTabBarDragOver(true);
+  }, []);
+
+  const handleTabBarDragLeave = useCallback((event: React.DragEvent<HTMLDivElement>) => {
+    // Only clear if leaving the container entirely
+    if (!event.currentTarget.contains(event.relatedTarget as Node)) {
+      setIsTabBarDragOver(false);
+    }
+  }, []);
+
+  const handleTabBarDrop = useCallback((event: React.DragEvent<HTMLDivElement>) => {
+    if (!event.dataTransfer.types.includes('application/x-vibex-panel')) {
+      return;
+    }
+    event.preventDefault();
+    setIsTabBarDragOver(false);
+
+    const rawData = event.dataTransfer.getData('application/x-vibex-panel');
+    if (!rawData || !panelActions) return;
+
+    try {
+      const payload = JSON.parse(rawData);
+
+      // Route to appropriate panel opener based on component type
+      if (payload.component === 'preview' && payload.params?.filePath) {
+        panelActions.openFilePreview(payload.params.filePath, {
+          title: payload.title,
+          activate: true,
+        });
+      } else if (payload.component === 'preview' && payload.params?.commitSha) {
+        // Commit diff - open as diff preview
+        panelActions.openFilePreview(payload.params.commitSha, {
+          title: payload.title,
+          activate: true,
+          mode: 'diff',
+        });
+      } else if (payload.component && payload.id) {
+        // Generic panel
+        panelActions.openOrFocusPanel(payload.id, payload.title, payload.params);
+      }
+    } catch (error) {
+      console.warn('[TabBarDrop] Failed to parse drop payload:', error);
+    }
+  }, [panelActions]);
+
   const handleReady = useCallback(
     (event: DockviewReadyEvent) => {
       const api = event.api;
@@ -1686,16 +1742,23 @@ export function IDELayout({
               }
               aria-hidden={effectiveActiveTab !== 'workspace'}
             >
-              <DockviewReact
-                components={panelComponents}
-                defaultTabComponent={WorkspaceDockviewTab}
-                leftHeaderActionsComponent={WorkspaceTabAddMenu}
-                onReady={handleReady}
-                className="dockview-theme-light dockview-theme-ayu"
-                disableAutoResizing={true}
-                disableFloatingGroups={true}
-                dndEdges={false}
-              />
+              <div
+                className={`tab-bar-drop-zone ${isTabBarDragOver ? 'is-drag-over' : ''}`}
+                onDragOver={handleTabBarDragOver}
+                onDragLeave={handleTabBarDragLeave}
+                onDrop={handleTabBarDrop}
+              >
+                <DockviewReact
+                  components={panelComponents}
+                  defaultTabComponent={WorkspaceDockviewTab}
+                  leftHeaderActionsComponent={WorkspaceTabAddMenu}
+                  onReady={handleReady}
+                  className="dockview-theme-light dockview-theme-ayu"
+                  disableAutoResizing={true}
+                  disableFloatingGroups={true}
+                  dndEdges={false}
+                />
+              </div>
             </div>
           ) : null}
 

@@ -1,0 +1,354 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>VibeX 移动端业务流程图</title>
+  <style>
+    *, *::before, *::after {
+      box-sizing: border-box;
+    }
+    html, body {
+      margin: 0;
+      padding: 0;
+      font-family: var(--font-sans, -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif);
+      color: var(--foreground, #0f172a);
+    }
+    .diagram-root {
+      width: 100%;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    .legend-bar {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 8px 14px;
+      padding: 10px 14px;
+      background: var(--card, rgba(148, 163, 184, 0.08));
+      border: 1px solid var(--border, rgba(148, 163, 184, 0.28));
+      border-radius: var(--radius, 10px);
+      font-size: 12px;
+      color: var(--muted-foreground, #64748b);
+    }
+    .legend-item {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      white-space: nowrap;
+    }
+    .swatch {
+      width: 10px;
+      height: 10px;
+      border-radius: 3px;
+      display: inline-block;
+    }
+    .swatch-primary { background: var(--primary, #3b82f6); }
+    .swatch-info { background: var(--info, #06b6d4); }
+    .swatch-warning { background: var(--warning, #f59e0b); }
+    .swatch-success { background: var(--success, #10b981); }
+    .swatch-muted {
+      background: var(--secondary, rgba(148, 163, 184, 0.2));
+      border: 1px solid color-mix(in srgb, var(--foreground, #0f172a) 28%, var(--border, #94a3b8));
+    }
+    svg.flowchart-svg {
+      width: 100%;
+      height: auto;
+      display: block;
+      overflow: visible;
+    }
+    .zone-box {
+      fill: var(--card, rgba(148, 163, 184, 0.06));
+      fill-opacity: 0.5;
+      stroke: color-mix(in srgb, var(--foreground, #0f172a) 16%, var(--border, #94a3b8));
+      stroke-width: 1;
+      stroke-dasharray: 5 4;
+    }
+    .zone-label {
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.03em;
+      fill: var(--muted-foreground, #64748b);
+    }
+    .node-base {
+      fill: var(--card, #ffffff);
+      stroke: color-mix(in srgb, var(--foreground, #0f172a) 22%, var(--border, #94a3b8));
+      stroke-width: 1.35;
+    }
+    .node-entry {
+      fill: var(--primary, #3b82f6);
+      fill-opacity: 0.14;
+      stroke: var(--primary, #3b82f6);
+      stroke-width: 1.6;
+    }
+    .node-auth {
+      fill: var(--info, #06b6d4);
+      fill-opacity: 0.12;
+      stroke: var(--info, #06b6d4);
+      stroke-width: 1.45;
+    }
+    .node-data {
+      fill: var(--secondary, rgba(148, 163, 184, 0.14));
+      stroke: var(--info, #06b6d4);
+      stroke-width: 1.25;
+      stroke-dasharray: 4 3;
+    }
+    .node-cond {
+      fill: var(--secondary, rgba(148, 163, 184, 0.16));
+      stroke: color-mix(in srgb, var(--foreground, #0f172a) 20%, var(--border, #94a3b8));
+      stroke-width: 1.25;
+    }
+    .node-gate {
+      fill: var(--warning, #f59e0b);
+      fill-opacity: 0.13;
+      stroke: var(--warning, #f59e0b);
+      stroke-width: 1.5;
+    }
+    .node-success {
+      fill: var(--success, #10b981);
+      fill-opacity: 0.14;
+      stroke: var(--success, #10b981);
+      stroke-width: 1.65;
+    }
+    .node-target {
+      fill: var(--primary, #3b82f6);
+      fill-opacity: 0.16;
+      stroke: var(--primary, #3b82f6);
+      stroke-width: 1.75;
+    }
+    .nav-bar-box {
+      fill: var(--secondary, rgba(148, 163, 184, 0.1));
+      stroke: var(--border, rgba(148, 163, 184, 0.38));
+      stroke-width: 1.2;
+    }
+    .pill-sub {
+      fill: var(--background, #ffffff);
+      fill-opacity: 0.7;
+      stroke: var(--border, rgba(148, 163, 184, 0.45));
+      stroke-width: 1;
+    }
+    .title-text {
+      font-size: 13px;
+      font-weight: 600;
+      fill: var(--foreground, #0f172a);
+      text-anchor: middle;
+      dominant-baseline: central;
+    }
+    .sub-text {
+      font-size: 10.5px;
+      font-weight: 400;
+      fill: var(--muted-foreground, #64748b);
+      text-anchor: middle;
+      dominant-baseline: central;
+    }
+    .cond-text {
+      font-size: 12px;
+      font-weight: 500;
+      fill: var(--foreground, #0f172a);
+      text-anchor: middle;
+      dominant-baseline: central;
+    }
+    .edge {
+      fill: none;
+      stroke: var(--muted-foreground, #64748b);
+      stroke-width: 1.5;
+    }
+    .edge-primary {
+      fill: none;
+      stroke: var(--primary, #3b82f6);
+      stroke-width: 1.65;
+    }
+    .edge-info {
+      fill: none;
+      stroke: var(--info, #06b6d4);
+      stroke-width: 1.4;
+      stroke-dasharray: 4 3;
+    }
+    .edge-success {
+      fill: none;
+      stroke: var(--success, #10b981);
+      stroke-width: 1.6;
+    }
+  </style>
+</head>
+<body>
+  <div class="diagram-root">
+    <div class="legend-bar">
+      <span class="legend-item"><span class="swatch swatch-primary"></span>核心入口 / 会话终点</span>
+      <span class="legend-item"><span class="swatch swatch-info"></span>身份分支与数据源</span>
+      <span class="legend-item"><span class="swatch swatch-muted"></span>条件判断 / 常规节点</span>
+      <span class="legend-item"><span class="swatch swatch-warning"></span>云中继权限校验</span>
+      <span class="legend-item"><span class="swatch swatch-success"></span>Host 连接就绪</span>
+    </div>
+
+    <svg class="flowchart-svg" viewBox="0 0 712 924" role="img" aria-label="VibeX 移动端业务流程图">
+      <defs>
+        <marker id="arrow-default" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto-start-reverse">
+          <path d="M 1 1.5 L 9 5 L 1 8.5 z" fill="var(--muted-foreground, #64748b)" />
+        </marker>
+        <marker id="arrow-primary" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto-start-reverse">
+          <path d="M 1 1.5 L 9 5 L 1 8.5 z" fill="var(--primary, #3b82f6)" />
+        </marker>
+        <marker id="arrow-info" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto-start-reverse">
+          <path d="M 1 1.5 L 9 5 L 1 8.5 z" fill="var(--info, #06b6d4)" />
+        </marker>
+        <marker id="arrow-success" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto-start-reverse">
+          <path d="M 1 1.5 L 9 5 L 1 8.5 z" fill="var(--success, #10b981)" />
+        </marker>
+      </defs>
+
+      <!-- ==================== 阶段一：启动与 Host 连接 ==================== -->
+      <rect class="zone-box" x="4" y="6" width="704" height="502" rx="12" />
+      <text class="zone-label" x="20" y="28">阶段一 · 启动与 Host 连接</text>
+
+      <!-- 进入 APP -->
+      <rect class="node-entry" x="292" y="22" width="128" height="38" rx="19" />
+      <text class="title-text" x="356" y="41">进入 APP</text>
+
+      <!-- 进入 APP 分流 -->
+      <path class="edge" d="M 356 60 L 356 74 Q 356 80 350 80 L 222 80 Q 216 80 216 86 L 216 94" marker-end="url(#arrow-default)" />
+      <path class="edge" d="M 356 60 L 356 74 Q 356 80 362 80 L 530 80 Q 536 80 536 86 L 536 94" marker-end="url(#arrow-default)" />
+
+      <!-- 左支：登录账号 -->
+      <rect class="node-auth" x="152" y="94" width="128" height="36" rx="8" />
+      <text class="title-text" x="216" y="112">登录账号</text>
+
+      <path class="edge" d="M 216 130 L 216 158" marker-end="url(#arrow-default)" />
+
+      <!-- 数据源：账号记录 + 历史 -->
+      <rect class="node-data" x="16" y="156" width="108" height="44" rx="8" />
+      <text class="cond-text" x="70" y="171" style="font-size:11.5px;">账号记录 + 历史</text>
+      <text class="sub-text" x="70" y="188">云端同步 + 本地</text>
+
+      <path class="edge-info" d="M 124 178 L 146 178" marker-end="url(#arrow-info)" />
+
+      <!-- 检查 Host 列表 -->
+      <rect class="node-base" x="146" y="158" width="140" height="40" rx="8" />
+      <text class="title-text" x="216" y="178">检查 Host 列表</text>
+
+      <!-- 检查 Host 列表分流 -->
+      <path class="edge" d="M 216 198 L 216 212 Q 216 218 210 218 L 102 218 Q 96 218 96 224 L 96 236" marker-end="url(#arrow-default)" />
+      <path class="edge" d="M 216 198 L 216 212 Q 216 218 222 218 L 250 218 Q 256 218 256 224 L 256 236" marker-end="url(#arrow-default)" />
+
+      <!-- 有活跃的 Host / 无活跃的 Host -->
+      <rect class="node-cond" x="24" y="236" width="144" height="36" rx="18" />
+      <text class="cond-text" x="96" y="254">有活跃的 Host</text>
+
+      <rect class="node-cond" x="184" y="236" width="144" height="36" rx="18" />
+      <text class="cond-text" x="256" y="254">无活跃的 Host</text>
+
+      <path class="edge" d="M 96 272 L 96 302" marker-end="url(#arrow-default)" />
+      <path class="edge" d="M 256 272 L 256 302" marker-end="url(#arrow-default)" />
+
+      <!-- 左支：可直接连接 / 手动连接 -->
+      <rect class="node-base" x="24" y="302" width="144" height="38" rx="8" />
+      <text class="title-text" x="96" y="321">可直接连接</text>
+
+      <rect class="node-base" x="184" y="302" width="144" height="38" rx="8" />
+      <text class="title-text" x="256" y="321">手动连接</text>
+
+      <!-- 汇合至判定云中继权限 -->
+      <path class="edge" d="M 96 340 L 96 354 Q 96 360 102 360 L 170 360 Q 176 360 176 366 L 176 376" marker-end="url(#arrow-default)" />
+      <path class="edge" d="M 256 340 L 256 354 Q 256 360 250 360 L 182 360 Q 176 360 176 366" />
+
+      <rect class="node-gate" x="80" y="376" width="192" height="44" rx="8" />
+      <text class="title-text" x="176" y="392">判定云中继权限</text>
+      <text class="sub-text" x="176" y="409">远程中继鉴权 / 局域网直连</text>
+
+      <!-- 右支：不登录账号 -->
+      <rect class="node-auth" x="472" y="94" width="128" height="36" rx="8" />
+      <text class="title-text" x="536" y="112">不登录账号</text>
+
+      <path class="edge" d="M 536 130 L 536 158" marker-end="url(#arrow-default)" />
+
+      <!-- Host 连接历史记录 -->
+      <rect class="node-base" x="452" y="158" width="168" height="40" rx="8" />
+      <text class="title-text" x="536" y="178">Host 连接历史记录</text>
+
+      <!-- 历史记录分流 -->
+      <path class="edge" d="M 536 198 L 536 212 Q 536 218 530 218 L 462 218 Q 456 218 456 224 L 456 236" marker-end="url(#arrow-default)" />
+      <path class="edge" d="M 536 198 L 536 212 Q 536 218 542 218 L 610 218 Q 616 218 616 224 L 616 236" marker-end="url(#arrow-default)" />
+
+      <rect class="node-cond" x="384" y="236" width="144" height="36" rx="18" />
+      <text class="cond-text" x="456" y="254">有记录</text>
+
+      <rect class="node-cond" x="544" y="236" width="144" height="36" rx="18" />
+      <text class="cond-text" x="616" y="254">无记录</text>
+
+      <path class="edge" d="M 456 272 L 456 302" marker-end="url(#arrow-default)" />
+      <path class="edge" d="M 616 272 L 616 302" marker-end="url(#arrow-default)" />
+
+      <rect class="node-base" x="384" y="302" width="144" height="38" rx="8" />
+      <text class="title-text" x="456" y="321">可直接连接</text>
+
+      <rect class="node-base" x="544" y="302" width="144" height="38" rx="8" />
+      <text class="title-text" x="616" y="321">手动连接</text>
+
+      <!-- 全路径汇合至：连接 Host 成功 -->
+      <path class="edge-success" d="M 176 420 L 176 430 Q 176 436 182 436 L 350 436 Q 356 436 356 442 L 356 452" marker-end="url(#arrow-success)" />
+      <path class="edge-success" d="M 456 340 L 456 356 Q 456 362 462 362 L 530 362 Q 536 362 536 368 L 536 430 Q 536 436 530 436 L 362 436 Q 356 436 356 442" />
+      <path class="edge-success" d="M 616 340 L 616 356 Q 616 362 610 362 L 542 362 Q 536 362 536 368" />
+
+      <rect class="node-success" x="252" y="452" width="208" height="44" rx="10" />
+      <text class="title-text" x="356" y="474">连接 Host 成功</text>
+
+      <!-- ==================== 阶段二：主界面导航与进入会话 ==================== -->
+      <rect class="zone-box" x="4" y="522" width="704" height="396" rx="12" />
+      <text class="zone-label" x="20" y="544">阶段二 · 主界面导航与会话流转</text>
+
+      <path class="edge-primary" d="M 356 496 L 356 544" marker-end="url(#arrow-primary)" />
+
+      <!-- 选择项目（保持在页面左上角） -->
+      <rect class="node-base" x="212" y="544" width="288" height="48" rx="10" />
+      <text class="title-text" x="356" y="562">选择项目</text>
+      <text class="sub-text" x="356" y="580">保持在页面左上角 · 全局项目切换器</text>
+
+      <path class="edge" d="M 356 592 L 356 626" marker-end="url(#arrow-default)" />
+
+      <!-- 四大主导航栏 -->
+      <rect class="nav-bar-box" x="20" y="626" width="672" height="66" rx="10" />
+
+      <rect class="node-auth" x="32" y="638" width="150" height="42" rx="8" />
+      <text class="title-text" x="107" y="659">会话列表</text>
+
+      <rect class="node-base" x="198" y="638" width="150" height="42" rx="8" />
+      <text class="title-text" x="273" y="659">看板</text>
+
+      <rect class="node-auth" x="364" y="638" width="150" height="42" rx="8" />
+      <text class="title-text" x="439" y="659">协作空间</text>
+
+      <rect class="node-base" x="530" y="638" width="150" height="42" rx="8" />
+      <text class="title-text" x="605" y="659">设置</text>
+
+      <!-- 下钻路径 1：会话列表 -> 状态分组视图 / 工作区视图 -> 进入会话 -->
+      <path class="edge-primary" d="M 107 680 L 107 732" marker-end="url(#arrow-primary)" />
+
+      <rect class="node-base" x="24" y="732" width="248" height="62" rx="9" />
+      <text class="sub-text" x="148" y="748">会话组织维度切换</text>
+      <rect class="pill-sub" x="36" y="760" width="106" height="24" rx="6" />
+      <text class="cond-text" x="89" y="772" style="font-size:11.5px;">状态分组视图</text>
+      <rect class="pill-sub" x="154" y="760" width="106" height="24" rx="6" />
+      <text class="cond-text" x="207" y="772" style="font-size:11.5px;">工作区视图</text>
+
+      <path class="edge-primary" d="M 148 794 L 148 846" marker-end="url(#arrow-primary)" />
+
+      <!-- 下钻路径 2：协作空间 -> 进入消息区 -> 进入会话 -->
+      <path class="edge-primary" d="M 439 680 L 439 738" marker-end="url(#arrow-primary)" />
+
+      <rect class="node-base" x="364" y="738" width="150" height="48" rx="9" />
+      <text class="title-text" x="439" y="756">进入消息区</text>
+      <text class="sub-text" x="439" y="774">协作消息与会话动态</text>
+
+      <!-- 消息区关联跳转至进入会话右侧 -->
+      <path class="edge-primary" d="M 439 786 L 439 862 Q 439 870 431 870 L 252 870" marker-end="url(#arrow-primary)" />
+      <text class="sub-text" x="352" y="858">点击关联会话跳转</text>
+
+      <!-- 核心终点：进入会话 -->
+      <rect class="node-target" x="44" y="846" width="208" height="48" rx="10" />
+      <text class="title-text" x="148" y="864">进入会话</text>
+      <text class="sub-text" x="148" y="882">实时消息流 · 审批问答 · 指令输入</text>
+    </svg>
+  </div>
+</body>
+</html>

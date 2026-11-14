@@ -1,4 +1,5 @@
 import {
+  Fragment,
   memo,
   useCallback,
   useEffect,
@@ -6,6 +7,7 @@ import {
   useRef,
   useState,
   type MouseEvent,
+  type ReactElement,
   type ReactNode,
 } from 'react';
 import {
@@ -41,9 +43,19 @@ import { HtmlPreviewBlock, isHtmlPreviewLanguage } from './HtmlPreviewBlock';
 import { MermaidDiagram } from './MermaidDiagram';
 import { parseTagReferenceHref } from '@/lib/tagReferenceMarkers';
 import {
-  prepareConversationMarkdownCached,
-  type ConversationMarkdownPrepareCache,
-} from '@/lib/conversation-rendering/streamdownPlugins';
+  MarkdownBlockCache,
+  MAX_CACHED_CHARS,
+  type MarkdownBlockCacheStats,
+} from '@/lib/conversation-rendering/markdownBlockCache';
+import {
+  decodeFenceInfoLanguage,
+  encodeFenceInfoLanguages,
+} from '@/lib/conversation-rendering/markdownFences';
+import {
+  preprocessForBlockSplit,
+  splitIntoBlocks,
+} from '@/lib/conversation-rendering/markdownPreprocess';
+import { prepareSingleMarkdownBlock } from '@/lib/conversation-rendering/streamdownPlugins';
 import {
   MATH_PLACEHOLDER_PATTERN,
   protectConversationMath,
@@ -196,7 +208,19 @@ function MarkdownImage({
 
   if (!imageUrl) {
     return (
-      <MarkdownResourceLink href={normalizedSrc} workspacePath={workspacePath}>
+      <MarkdownResourceLink
+        href={normalizedSrc}
+        workspacePath={workspacePath}
+        pathTarget={
+          fileSrcPath
+            ? {
+                path: fileSrcPath,
+                displayPath: normalizedSrc,
+                nodeType: 'file',
+              }
+            : undefined
+        }
+      >
         {label}
       </MarkdownResourceLink>
     );
@@ -220,26 +244,6 @@ type MarkdownComponentContext = {
   workspacePath?: string | null;
   isStreaming?: boolean;
 };
-
-function encodeFenceInfoLanguages(markdownText: string): string {
-  return markdownText.replace(
-    /^(`{3,}|~{3,})([A-Za-z0-9_+-]+)/gm,
-    (_match, fence: string, lang: string) => {
-      if (!lang.includes('-') && !lang.includes('+')) {
-        return `${fence}${lang}`;
-      }
-      const encoded = lang
-        .replace(/-/g, '__vx_dash__')
-        .replace(/\+/g, '__vx_plus__');
-      return `${fence}${encoded}`;
-    }
-  );
-}
-
-function decodeFenceInfoLanguage(language?: string): string | undefined {
-  if (!language) return language;
-  return language.replace(/__vx_dash__/g, '-').replace(/__vx_plus__/g, '+');
-}
 
 function MarkdownCodeSwitch({
   code,
@@ -459,6 +463,123 @@ function arePropsEqual(prev: AstryxMarkdownProps, next: AstryxMarkdownProps) {
   );
 }
 
+const markdownBlockElementCache = new MarkdownBlockCache<ReactElement>(
+  MAX_CACHED_CHARS
+);
+
+export function getMarkdownBlockElementCacheStats(): MarkdownBlockCacheStats {
+  return markdownBlockElementCache.stats();
+}
+
+export function resetMarkdownBlockElementCache(): void {
+  markdownBlockElementCache.clear();
+  markdownBlockElementCache.resetStats();
+}
+
+type CompileMarkdownBlockOptions = {
+  softBreaks?: boolean;
+  rawHtml?: boolean;
+  workspacePath?: string | null;
+  enableMemberMentions: boolean;
+  knownNicknames: readonly string[];
+  isStreaming?: boolean;
+  components: MarkdownProps['components'];
+};
+
+function buildBlockElementCacheKey(
+  blockHash: string,
+  blockText: string,
+  options: {
+    softBreaks?: boolean;
+    rawHtml?: boolean;
+    workspacePath?: string | null;
+    taskAttemptId?: string;
+    taskId?: string;
+    enableMemberMentions: boolean;
+    knownNicknames: readonly string[];
+  }
+): string {
+  const mentionSignature =
+    options.enableMemberMentions && blockText.includes('@')
+      ? `1:${options.knownNicknames.join('\u0001')}`
+      : '0';
+  return `${blockHash}|s=${options.softBreaks ? 1 : 0}|h=${options.rawHtml !== false ? 1 : 0}|w=${options.workspacePath ?? ''}|a=${options.taskAttemptId ?? ''}|t=${options.taskId ?? ''}|m=${mentionSignature}`;
+}
+
+function compileMarkdownBlockElement(
+  blockText: string,
+  options: CompileMarkdownBlockOptions
+): ReactElement {
+  const prepared = prepareSingleMarkdownBlock(blockText, {
+    softBreaks: options.softBreaks,
+  });
+  // Astryx drops link nodes with empty destinations (`[text]()`), so rewrite
+  // empty targets to `#` — the link component resolves workspace paths from label.
+  const withLinks = prepared.replace(/\[([^\]\n]+)\]\(\)/g, '[$1](#)');
+  // Raw HTML is protected before math so `$…$` inside an HTML region stays literal.
+  const protectedHtml =
+    options.rawHtml !== false
+      ? protectRawHtml(withLinks)
+      : { text: withLinks, html: [] };
+  const withMath = protectConversationMath(protectedHtml.text);
+  const withMentions = options.enableMemberMentions
+    ? protectMemberMentions(withMath.text, options.knownNicknames)
+    : { text: withMath.text, mentions: [] };
+  const finalText = encodeFenceInfoLanguages(withMentions.text);
+
+  const inlinePlugins: NonNullable<MarkdownProps['inlinePlugins']> = [];
+  if (withMath.math.length > 0) {
+    inlinePlugins.push({
+      pattern: MATH_PLACEHOLDER_PATTERN,
+      render: (match: RegExpMatchArray, key: string) => {
+        const math = withMath.math[Number(match[1])];
+        if (!math) return null;
+        return <KatexMath key={key} tex={math.tex} display={math.display} />;
+      },
+    });
+  }
+  if (protectedHtml.html.length > 0) {
+    inlinePlugins.push({
+      pattern: HTML_PLACEHOLDER_PATTERN,
+      render: (match: RegExpMatchArray, key: string) => {
+        const entry = protectedHtml.html[Number(match[1])];
+        if (!entry) return null;
+        return (
+          <RawHtmlElement
+            key={key}
+            html={entry.html}
+            block={entry.block}
+            workspacePath={options.workspacePath}
+          />
+        );
+      },
+    });
+  }
+  if (withMentions.mentions.length > 0) {
+    inlinePlugins.push({
+      pattern: MEMBER_PLACEHOLDER_PATTERN,
+      render: (match: RegExpMatchArray, key: string) => {
+        const nickname = withMentions.mentions[Number(match[1])];
+        if (!nickname) return null;
+        return <MemberMentionChip key={key} nickname={nickname} />;
+      },
+    });
+  }
+
+  return (
+    <AstryxMarkdownBase
+      display="block"
+      autolink="gfm"
+      contentWidth="100%"
+      components={options.components}
+      inlinePlugins={inlinePlugins.length > 0 ? inlinePlugins : undefined}
+      isStreaming={options.isStreaming}
+    >
+      {finalText}
+    </AstryxMarkdownBase>
+  );
+}
+
 export const AstryxMarkdown = memo(function AstryxMarkdown({
   value,
   className,
@@ -470,117 +591,138 @@ export const AstryxMarkdown = memo(function AstryxMarkdown({
   rawHtml,
 }: AstryxMarkdownProps) {
   const memberMentionCtx = useCollaborationMemberMention();
-  const prepareCacheRef = useRef<ConversationMarkdownPrepareCache | null>(null);
-  const normalizedValue = useMemo(() => {
-    const { text: prepared, cache } = prepareConversationMarkdownCached(
-      value,
-      { softBreaks },
-      prepareCacheRef.current
-    );
-    prepareCacheRef.current = cache;
-    // Astryx drops link nodes with empty destinations (`[text]()`), so
-    // rewrite empty targets to `#` — the link component then resolves the
-    // workspace path from the link text (non-path text stays inert).
-    const withLinks = prepared.replace(/\[([^\]\n]+)\]\(\)/g, '[$1](#)');
-    // Raw HTML is protected before math so `$…$` inside an HTML region stays
-    // literal (HTML blocks are opaque). With `rawHtml={false}`, an empty
-    // allowlist means nothing is captured and `<` stays literal.
-    const protectedHtml =
-      rawHtml !== false
-        ? protectRawHtml(withLinks)
-        : { text: withLinks, html: [] };
-    const withMath = protectConversationMath(protectedHtml.text);
-    const withMentions = memberMentionCtx.enableMemberMentions
-      ? protectMemberMentions(withMath.text, memberMentionCtx.knownNicknames)
-      : { text: withMath.text, mentions: [] };
-    return {
-      text: encodeFenceInfoLanguages(withMentions.text),
-      math: withMath.math,
-      html: protectedHtml.html,
-      mentions: withMentions.mentions,
-    };
-  }, [
-    memberMentionCtx.enableMemberMentions,
-    memberMentionCtx.knownNicknames,
-    rawHtml,
-    softBreaks,
-    value,
-  ]);
 
-  const inlinePlugins = useMemo(
-    () => [
-      {
-        pattern: MATH_PLACEHOLDER_PATTERN,
-        render: (match: RegExpMatchArray, key: string) => {
-          const index = Number(match[1]);
-          const math = normalizedValue.math[index];
-          if (!math) return null;
-          return <KatexMath key={key} tex={math.tex} display={math.display} />;
-        },
-      },
-      {
-        pattern: HTML_PLACEHOLDER_PATTERN,
-        render: (match: RegExpMatchArray, key: string) => {
-          const index = Number(match[1]);
-          const entry = normalizedValue.html[index];
-          if (!entry) return null;
-          return (
-            <RawHtmlElement
-              key={key}
-              html={entry.html}
-              block={entry.block}
-              workspacePath={workspacePath}
-            />
-          );
-        },
-      },
-      {
-        pattern: MEMBER_PLACEHOLDER_PATTERN,
-        render: (match: RegExpMatchArray, key: string) => {
-          const nickname = normalizedValue.mentions[Number(match[1])];
-          if (!nickname) return null;
-          return (
-            <MemberMentionChip
-              key={key}
-              nickname={nickname}
-              avatar={memberMentionCtx.resolveMemberAvatar(nickname)}
-            />
-          );
-        },
-      },
-    ],
-    [
-      memberMentionCtx,
-      normalizedValue.html,
-      normalizedValue.math,
-      normalizedValue.mentions,
-      workspacePath,
-    ]
-  );
-
-  const components = useMemo<MarkdownProps['components']>(
+  const settledComponents = useMemo<MarkdownProps['components']>(
     () =>
       createMarkdownComponents({
         taskAttemptId,
         taskId,
         workspacePath,
-        isStreaming,
+        isStreaming: false,
       }),
-    [isStreaming, taskAttemptId, taskId, workspacePath]
+    [taskAttemptId, taskId, workspacePath]
   );
+
+  const activeComponents = useMemo<MarkdownProps['components']>(
+    () =>
+      isStreaming
+        ? createMarkdownComponents({
+            taskAttemptId,
+            taskId,
+            workspacePath,
+            isStreaming: true,
+          })
+        : settledComponents,
+    [isStreaming, settledComponents, taskAttemptId, taskId, workspacePath]
+  );
+
+  const renderedBlocks = useMemo(() => {
+    const { body, tagAppendix, mathSpans } = preprocessForBlockSplit(value);
+    const blocks = splitIntoBlocks(body, mathSpans, Boolean(isStreaming));
+    const elements: ReactElement[] = [];
+
+    for (const block of blocks) {
+      if (block.closed) {
+        const cacheKey = buildBlockElementCacheKey(block.hash, block.text, {
+          softBreaks,
+          rawHtml,
+          workspacePath,
+          taskAttemptId,
+          taskId,
+          enableMemberMentions: memberMentionCtx.enableMemberMentions,
+          knownNicknames: memberMentionCtx.knownNicknames,
+        });
+        const cached = markdownBlockElementCache.hit(cacheKey, block.text);
+        if (cached) {
+          elements.push(cached);
+          continue;
+        }
+        const compiled = compileMarkdownBlockElement(block.text, {
+          softBreaks,
+          rawHtml,
+          workspacePath,
+          enableMemberMentions: memberMentionCtx.enableMemberMentions,
+          knownNicknames: memberMentionCtx.knownNicknames,
+          isStreaming: false,
+          components: settledComponents,
+        });
+        markdownBlockElementCache.set(cacheKey, block.text, compiled);
+        elements.push(compiled);
+        continue;
+      }
+
+      elements.push(
+        compileMarkdownBlockElement(block.text, {
+          softBreaks,
+          rawHtml,
+          workspacePath,
+          enableMemberMentions: memberMentionCtx.enableMemberMentions,
+          knownNicknames: memberMentionCtx.knownNicknames,
+          isStreaming: Boolean(isStreaming),
+          components: activeComponents,
+        })
+      );
+    }
+
+    if (tagAppendix) {
+      elements.push(
+        compileMarkdownBlockElement(tagAppendix, {
+          softBreaks,
+          rawHtml,
+          workspacePath,
+          enableMemberMentions: memberMentionCtx.enableMemberMentions,
+          knownNicknames: memberMentionCtx.knownNicknames,
+          isStreaming: Boolean(isStreaming),
+          components: activeComponents,
+        })
+      );
+    }
+
+    return elements;
+  }, [
+    activeComponents,
+    isStreaming,
+    memberMentionCtx.enableMemberMentions,
+    memberMentionCtx.knownNicknames,
+    rawHtml,
+    settledComponents,
+    softBreaks,
+    taskAttemptId,
+    taskId,
+    value,
+    workspacePath,
+  ]);
+
+  const prevKeyedBlocksRef = useRef<
+    Array<{ raw: ReactElement; keyed: ReactElement }>
+  >([]);
+
+  const keyedBlocks = useMemo(() => {
+    const previous = prevKeyedBlocksRef.current;
+    const next: Array<{ raw: ReactElement; keyed: ReactElement }> = new Array(
+      renderedBlocks.length
+    );
+
+    for (let index = 0; index < renderedBlocks.length; index += 1) {
+      const raw = renderedBlocks[index]!;
+      const prevEntry = previous[index];
+      if (prevEntry && prevEntry.raw === raw) {
+        next[index] = prevEntry;
+      } else {
+        next[index] = {
+          raw,
+          keyed: <Fragment key={`block-${index}`}>{raw}</Fragment>,
+        };
+      }
+    }
+
+    prevKeyedBlocksRef.current = next;
+    return next.map((entry) => entry.keyed);
+  }, [renderedBlocks]);
 
   return (
     <div className={`conv-markdown${className ? ` ${className}` : ''}`}>
-      <AstryxMarkdownBase
-        display="block"
-        autolink="gfm"
-        contentWidth="100%"
-        components={components}
-        inlinePlugins={inlinePlugins}
-        isStreaming={isStreaming}
-      >
-        {normalizedValue.text}
-      </AstryxMarkdownBase>
+      {keyedBlocks}
     </div>
   );
 }, arePropsEqual);

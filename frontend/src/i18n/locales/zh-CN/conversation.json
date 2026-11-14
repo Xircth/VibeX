@@ -409,9 +409,33 @@
   "composer": {
     "promptSuggestion": "{{suggestion}}　Tab 采纳"
   },
+  "quoteAnchor": {
+    "annotate": "批注",
+    "editAnnotation": "编辑批注",
+    "annotationPlaceholder": "添加批注…",
+    "saveAnnotation": "保存批注",
+    "clearAnnotation": "清除批注",
+    "jumpToSource": "跳转到原文"
+  },
+  "composerStash": {
+    "stashDraft": "暂存草稿",
+    "menuLabel": "暂存草稿（{{count}}）",
+    "title": "暂存草稿",
+    "restore": "恢复草稿",
+    "delete": "删除草稿",
+    "clearAll": "清空全部",
+    "moveUp": "上移",
+    "moveDown": "下移",
+    "justNow": "刚刚",
+    "minutesAgo": "{{count}} 分钟前",
+    "hoursAgo": "{{count}} 小时前",
+    "daysAgo": "{{count}} 天前"
+  },
   "messageNav": {
     "railLabel": "消息导航",
-    "jumpToMessage": "跳转到第 {{ordinal}} 条消息"
+    "jumpToMessage": "跳转到第 {{ordinal}} 条消息",
+    "userRole": "用户",
+    "assistantRole": "助手"
   },
   "planCard": {
     "label": "计划",

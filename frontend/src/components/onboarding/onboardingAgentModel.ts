@@ -3,7 +3,62 @@ import type {
   AgentLifecycleState,
   AgentManagementView,
   AgentRegistryViewRow,
+  AgentPreflightView,
 } from 'shared/types';
+import {
+  isAuthPreflightItem,
+  presentPreflightItems,
+} from '@/pages/settings/agentPreflightSnapshot';
+
+export type OnboardingAgentCheck = {
+  report?: AgentPreflightView;
+  checking?: boolean;
+  error?: string;
+  installationFailed?: boolean;
+};
+export type OnboardingAgentStatus =
+  | 'uninstalled'
+  | 'ready'
+  | 'needs_auth'
+  | 'install_failed'
+  | 'installing'
+  | 'checking'
+  | 'check_failed'
+  | 'unsupported';
+
+export function onboardingAgentStatus(
+  agent: OnboardingAgentOption,
+  check?: OnboardingAgentCheck
+): OnboardingAgentStatus {
+  if (!agent.platformSupported) return 'unsupported';
+  if (
+    ['queued', 'installing', 'updating', 'repairing'].includes(agent.lifecycle)
+  )
+    return 'installing';
+  if (check?.installationFailed) return 'install_failed';
+  if (check?.checking) return 'checking';
+  if (agent.needsInstallation) return 'uninstalled';
+  if (!check) return 'checking';
+  if (check.error || !check.report) return 'check_failed';
+  const items = presentPreflightItems(check.report.items);
+  if (items.length === 0) return 'check_failed';
+  const environment = items.filter((item) => !isAuthPreflightItem(item));
+  if (environment.some((item) => item.status !== 'pass')) return 'uninstalled';
+  if (
+    agent.lifecycle === 'needs_auth' ||
+    items.some((item) => isAuthPreflightItem(item) && item.status !== 'pass')
+  )
+    return 'needs_auth';
+  return items.every((item) => item.status === 'pass')
+    ? 'ready'
+    : 'uninstalled';
+}
+
+export function canJoinOnboardingRoster(
+  status: OnboardingAgentStatus
+): boolean {
+  return status === 'ready' || status === 'needs_auth';
+}
 
 export type OnboardingAgentOption = {
   agentId: AgentId;
@@ -18,6 +73,7 @@ export type OnboardingAgentOption = {
   enabled: boolean;
   platformSupported: boolean;
   runtimeInstalled: boolean;
+  localDetected?: boolean;
   lifecycle: AgentLifecycleState;
   needsInstallation: boolean;
 };
@@ -62,14 +118,13 @@ export function buildOnboardingAgentOptions(
       const sessionInstalled =
         Boolean(registry?.installed) ||
         COMPLETE_INSTALLATION_STATES.has(lifecycle);
-      // Session launch still requires an ACP command (ADR-0010). First-run
-      // selection treats a discovered vendor CLI as present so Windows users
-      // who already installed `claude` / `codex` / `pi` are auto-enabled;
-      // continuing setup still writes the ACP adapter when it is missing.
+      // A detected vendor CLI affects display order; readiness still requires
+      // its ACP adapter (ADR-0010) and a passing preflight.
       const acpReady = Boolean(managed?.acp_version || sessionInstalled);
       const cliDetected = Boolean(managed?.local_runtime?.path);
       const desktopDetected = Boolean(managed?.desktop_client?.path);
-      const runtimeInstalled = acpReady || cliDetected || desktopDetected;
+      const localDetected = cliDetected || desktopDetected;
+      const runtimeInstalled = acpReady || localDetected;
 
       return {
         agentId,
@@ -86,6 +141,7 @@ export function buildOnboardingAgentOptions(
           lifecycle !== 'platform_unsupported' &&
           (registry?.platform_supported ?? true),
         runtimeInstalled,
+        localDetected,
         lifecycle,
         needsInstallation: !acpReady,
       };
@@ -104,45 +160,4 @@ export function buildOnboardingAgentOptions(
       if (left.builtIn !== right.builtIn) return left.builtIn ? -1 : 1;
       return left.displayName.localeCompare(right.displayName);
     });
-}
-
-export function normalizeOnboardingAgentSelection({
-  enabledAgentIds,
-  defaultAgentId,
-  changedAgentId,
-  enabled,
-}: {
-  enabledAgentIds: ReadonlySet<AgentId>;
-  defaultAgentId: AgentId | null;
-  changedAgentId: AgentId;
-  enabled: boolean;
-}): {
-  enabledAgentIds: Set<AgentId>;
-  defaultAgentId: AgentId | null;
-} {
-  const nextEnabled = new Set(enabledAgentIds);
-  if (enabled) nextEnabled.add(changedAgentId);
-  else nextEnabled.delete(changedAgentId);
-
-  let nextDefault = defaultAgentId;
-  if (enabled && defaultAgentId === changedAgentId) {
-    nextDefault = changedAgentId;
-  } else if (!enabled && defaultAgentId === changedAgentId) {
-    nextDefault = nextEnabled.values().next().value ?? null;
-  }
-
-  return {
-    enabledAgentIds: nextEnabled,
-    defaultAgentId: nextDefault,
-  };
-}
-
-export function selectDefaultOnboardingAgent(
-  enabledAgentIds: ReadonlySet<AgentId>,
-  agentId: AgentId
-): { enabledAgentIds: Set<AgentId>; defaultAgentId: AgentId } {
-  return {
-    enabledAgentIds: new Set([...enabledAgentIds, agentId]),
-    defaultAgentId: agentId,
-  };
 }

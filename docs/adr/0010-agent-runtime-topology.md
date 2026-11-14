@@ -1,12 +1,14 @@
 ---
 status: accepted
 date: 2026-07-28
-amended: 2026-09-02
+amended: 2026-11-14 (ADR-0087)
 ---
 
-# 本地 Runtime 按原生 ACP 与适配器型 ACP 建模
+# 本地 Runtime 拓扑：独立引擎优先，ACP 通道按原生 ACP 与适配器型 ACP 建模
 
-“使用本地 Agent runtime”不等于每个 Agent 都必须在 ACP server 之外再有一个程序。VibeX 区分原生 ACP agent（同一安装物同时提供 Agent runtime 与 ACP）和适配器型 ACP agent（ACP 桥接独立的本地 Agent runtime）。Built-in Agent Profile 声明拓扑，以及适配器是否自带可用的 vendor CLI。
+> **修订说明（[ADR-0087](0087-dedicated-agent-engine-first-acp-fallback.md)）**：VibeX 现采用**独立 Agent 引擎适配优先，ACP 为次选**。已提供独立引擎驱动（直连官方 SDK 或原生 `app-server` 协议）的 Agent 直接验证并启动其原生引擎，不依赖 `*-acp` 包装包。本文下述 `NativeAcp` 与 `AdapterBacked` 拓扑规则适用于走次选 ACP 通道的 Agent。
+
+在次选 ACP 通道内，“使用本地 Agent runtime”不等于每个 Agent 都必须在 ACP server 之外再有一个程序。VibeX 在 ACP 通道中区分原生 ACP agent（同一安装物同时提供 Agent runtime 与 ACP）和适配器型 ACP agent（ACP 桥接独立的本地 Agent runtime）。Built-in Agent Profile 声明所采用的引擎驱动或 ACP 拓扑。
 
 适配器自带 vendor CLI 的内置 Agent（当前为 Claude Code 与 Codex）：会话只验证并启动 ACP 适配器；适配器使用其分发内的 CLI。PATH 上的 vendor CLI 只作可选本地证据（诊断、原生配置目录），不是会话启动门，也不得经 `CLAUDE_CODE_EXECUTABLE` / `CODEX_PATH` 注入。安装不得强制再写入一份独立的 vendor CLI 包。
 

@@ -409,9 +409,33 @@
   "composer": {
     "promptSuggestion": "{{suggestion}}  Tab to accept"
   },
+  "quoteAnchor": {
+    "annotate": "Annotate",
+    "editAnnotation": "Edit note",
+    "annotationPlaceholder": "Add note…",
+    "saveAnnotation": "Save note",
+    "clearAnnotation": "Clear note",
+    "jumpToSource": "Jump to source"
+  },
+  "composerStash": {
+    "stashDraft": "Stash draft",
+    "menuLabel": "Stashed drafts ({{count}})",
+    "title": "Stashed drafts",
+    "restore": "Restore draft",
+    "delete": "Delete draft",
+    "clearAll": "Clear all",
+    "moveUp": "Move up",
+    "moveDown": "Move down",
+    "justNow": "Just now",
+    "minutesAgo": "{{count}}m ago",
+    "hoursAgo": "{{count}}h ago",
+    "daysAgo": "{{count}}d ago"
+  },
   "messageNav": {
     "railLabel": "Message navigation",
-    "jumpToMessage": "Jump to message {{ordinal}}"
+    "jumpToMessage": "Jump to message {{ordinal}}",
+    "userRole": "User",
+    "assistantRole": "Assistant"
   },
   "planCard": {
     "label": "Plan",

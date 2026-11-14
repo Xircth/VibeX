@@ -75,6 +75,9 @@ export type AgentSessionDefaultsView = {
 };
 
 export const agentsApi = {
+  discoverLocalHistorySources: (): Promise<string[]> =>
+    backendCall('agent_discover_local_history_sources'),
+
   /** Last matching persisted catalog, including TTL-expired rows. Freshness is a separate read. */
   capabilityCatalog: (
     agentId: string

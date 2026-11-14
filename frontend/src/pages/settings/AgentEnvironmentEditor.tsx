@@ -23,6 +23,7 @@ type Props = {
   onChanged?: () => void | Promise<void>;
   onDirtyChange?: (dirty: boolean) => void;
   onPendingChange?: (pending: boolean) => void;
+  togglePosition?: 'leading' | 'trailing';
 };
 
 export type EnvironmentRow = {
@@ -39,6 +40,7 @@ export function AgentEnvironmentEditor({
   onChanged,
   onDirtyChange,
   onPendingChange,
+  togglePosition = 'leading',
 }: Props) {
   const { t } = useTranslation('settings');
   const nextKey = useRef(1);
@@ -194,7 +196,7 @@ export function AgentEnvironmentEditor({
   return (
     <section
       aria-labelledby={`${agentId}-environment-heading`}
-      className="settings-surface"
+      className="agent-environment-surface"
     >
       <AgentSectionHeading
         headingId={`${agentId}-environment-heading`}
@@ -202,6 +204,7 @@ export function AgentEnvironmentEditor({
         expanded={expanded}
         onToggle={() => setExpanded((current) => !current)}
         summary={t('agents.environmentCount', { count: rows.length })}
+        togglePosition={togglePosition}
       >
         <Button
           className="h-8"
@@ -228,7 +231,10 @@ export function AgentEnvironmentEditor({
       </AgentSectionHeading>
 
       {expanded ? (
-        <div className="space-y-2 px-4 pb-4">
+        <div
+          id={`${agentId}-environment-heading-body`}
+          className="agent-environment-body space-y-2"
+        >
           {loading && !view ? (
             <p className="flex items-center gap-2 text-xs text-muted-foreground">
               <Loader2

@@ -1,16 +1,18 @@
 ---
 status: accepted
 date: 2026-07-29
+amended: 2026-11-14 (ADR-0087)
 decision-makers:
   - VibeX maintainers
 ---
 
-# 内置 Agent 与普通 Agent 使用同一管线
+# 内置 Agent 与普通 Agent 使用同一产品管线
 
-所有 Agent 使用同一套设置页面、状态模型、预检查、安装、认证、配置、更新、卸载
-和会话运行管线，不为 Codex、Claude Code、OpenCode 或 Pi 编写专属配置面板、
-安装流程或会话逻辑。Agent 来源只提供归一化的声明数据：普通 Agent 来自官方
-Registry，内置 Agent 来自 VibeX 预置的 Built-in Agent Profile。
+> **修订说明（[ADR-0087](0087-dedicated-agent-engine-first-acp-fallback.md)）**：用户侧统一产品模型保持不变，但底层运行时接入改为**独立 Agent 引擎适配优先，ACP 为次选**——内置主力 Agent 可在 `crates/agents` 内拥有直接对接官方 SDK / 原生协议的独立引擎驱动，不再强制统一绕行 ACP 适配器。
+
+所有 Agent 在产品层共享统一的设置页面骨架、状态模型、预检查、安装、认证、配置、更新、卸载
+与会话控制面投影；Agent 来源提供归一化的声明数据：普通 Agent 来自官方
+Registry（走次选 ACP 通道），内置 Agent 来自 VibeX 预置的 Built-in Agent Profile（优先走独立 Agent 引擎适配，无独立引擎时走 ACP 通道）。
 
 统一详情页以状态驱动的分组呈现：顶部摘要与启用控制、预检查、运行环境与安装、认证
 与账户、配置、诊断与高级操作。非就绪或正在操作时自动展开预检查，就绪时将其折叠为

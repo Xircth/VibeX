@@ -1,4 +1,4 @@
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, HashMap};
 
 use agents::{
     HistoryPathDestination, HistoryScanEntry, LocalHistoryDestination, LocalHistoryScanPage,
@@ -14,6 +14,36 @@ use db::models::{
 };
 use sqlx::SqlitePool;
 use uuid::Uuid;
+
+/// Discover only source roots. Parsing session files starts after source selection.
+pub async fn discover_local_history_sources(
+    pool: &SqlitePool,
+) -> Result<Vec<String>, application::ApplicationError> {
+    let settings = sqlx::query_as::<_, (String, Option<String>)>(
+        "SELECT agent_type, env_json FROM agent_setting",
+    )
+    .fetch_all(pool)
+    .await
+    .map_err(crate::domains::internal_error)?;
+    tokio::task::spawn_blocking(move || {
+        let environments: HashMap<_, _> = settings.into_iter().collect();
+        agents::AgentKind::built_in_bar_order()
+            .filter(|kind| {
+                let environment = environments
+                    .get(kind.as_str())
+                    .and_then(|raw| raw.as_deref())
+                    .and_then(|raw| serde_json::from_str::<HashMap<String, String>>(raw).ok())
+                    .unwrap_or_default();
+                agents::configured_history_sources(*kind, &environment)
+                    .iter()
+                    .any(|source| source.path.exists())
+            })
+            .map(|kind| kind.as_str().to_owned())
+            .collect()
+    })
+    .await
+    .map_err(crate::domains::internal_error)
+}
 
 pub async fn assemble_local_history_scan_page(
     pool: &SqlitePool,
@@ -284,6 +314,31 @@ mod tests {
             .await
             .expect("disable foreign keys");
         pool
+    }
+
+    #[tokio::test]
+    async fn discovers_configured_source_roots_without_parsing_history_or_creating_workspaces() {
+        let pool = migrated_pool().await;
+        let root = tempfile::tempdir().expect("history root");
+        let projects = root.path().join("projects");
+        std::fs::create_dir(&projects).expect("source directory");
+        std::fs::write(projects.join("broken.jsonl"), "not a session").expect("invalid history");
+        let environment = serde_json::json!({ "CLAUDE_CONFIG_DIR": root.path().to_str().unwrap() });
+        sqlx::query("UPDATE agent_setting SET env_json = ? WHERE agent_type = 'claude_code'")
+            .bind(environment.to_string())
+            .execute(&pool)
+            .await
+            .expect("configured source");
+        let sources = discover_local_history_sources(&pool)
+            .await
+            .expect("source discovery");
+        assert!(sources.iter().any(|id| id == "claude_code"));
+        assert!(!sources.iter().any(|id| id == "zcode"));
+        let workspaces: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM workspaces")
+            .fetch_one(&pool)
+            .await
+            .expect("workspace count");
+        assert_eq!(workspaces, 0);
     }
 
     #[tokio::test]

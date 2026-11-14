@@ -19,6 +19,7 @@ pub mod input;
 pub mod isolated_workspace;
 pub mod jsonl_history;
 mod legacy_transcript_checkpoint;
+pub mod live_pipeline;
 pub mod member_memory;
 pub mod projection;
 pub mod relation;
@@ -59,6 +60,9 @@ pub use input::{
     ConversationInputState, ConversationInputStatus, ConversationInputSubmission,
     ConversationInputView, ReorderConversationInput, SubmitConversationInput,
     UpdateConversationInput,
+};
+pub use live_pipeline::{
+    ConversationEventSink, ConversationLivePipeline, WorkspaceSessionsChanged,
 };
 pub use projection::{
     CONVERSATION_PROJECTION_VERSION, CachedRowProjector, ConversationEventAppender,

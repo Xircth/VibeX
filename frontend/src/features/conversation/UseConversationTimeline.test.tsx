@@ -833,6 +833,45 @@ describe('useConversationTimeline', () => {
     expect(result.current.error).toBe('ACP connection failed');
   });
 
+  it.each(['refresh', 'reconnectAndReload', 'resetAndReload'] as const)(
+    'isolates %s from another mounted conversation',
+    async (action) => {
+      detailMock.mockImplementation(async (conversationId: string) => ({
+        ...detail(),
+        summary: { ...detail().summary, id: conversationId, message_count: 1n },
+        timeline: {
+          ...detail().timeline,
+          conversation_id: conversationId,
+          last_sequence: 1n,
+          rows: [userRow(`${conversationId}-turn`, conversationId, 1n)],
+        },
+      }));
+      const { result } = renderHook(() => ({
+        first: useConversationTimeline(CONVERSATION_ID),
+        other: useConversationTimeline('conversation-2'),
+      }));
+      await waitFor(() => {
+        expect(result.current.first.sessionBindReady).toBe(true);
+        expect(result.current.other.sessionBindReady).toBe(true);
+      });
+      const otherBefore = result.current.other;
+      detailMock.mockClear();
+      ensureSessionControlsMock.mockClear();
+
+      await act(async () => {
+        await result.current.first[action]();
+      });
+
+      expect(result.current.other).toBe(otherBefore);
+      expect(result.current.other.timeline).toHaveLength(1);
+      expect(detailMock).toHaveBeenCalledTimes(1);
+      expect(detailMock.mock.calls[0]?.[0]).toBe(CONVERSATION_ID);
+      for (const call of ensureSessionControlsMock.mock.calls) {
+        expect(call[0]).toBe(CONVERSATION_ID);
+      }
+    }
+  );
+
   it('auto-connects a newly created conversation before its first turn', async () => {
     detailMock.mockResolvedValue({
       ...detail(),
@@ -1300,14 +1339,14 @@ describe('useConversationTimeline', () => {
   it('computes adaptive streamFlushDelayMs from live character count', () => {
     expect(streamFlushDelayMs(0)).toBe(16);
     expect(streamFlushDelayMs(1024)).toBe(16);
-    expect(streamFlushDelayMs(8192)).toBe(16);
-    expect(streamFlushDelayMs(8193)).toBe(32);
-    expect(streamFlushDelayMs(16384)).toBe(32);
-    expect(streamFlushDelayMs(16385)).toBe(48);
-    expect(streamFlushDelayMs(120000)).toBe(192);
+    expect(streamFlushDelayMs(16384)).toBe(16);
+    expect(streamFlushDelayMs(16385)).toBe(32);
+    expect(streamFlushDelayMs(32768)).toBe(32);
+    expect(streamFlushDelayMs(32769)).toBe(48);
+    expect(streamFlushDelayMs(120000)).toBe(96);
   });
 
-  it('widens the flush window when liveText exceeds 8192 chars and flushes immediately on terminal op', async () => {
+  it('widens the flush window when liveText exceeds 16384 chars and flushes immediately on terminal op', async () => {
     detailMock.mockResolvedValue(detail());
 
     const scheduledTimeouts: Array<{
@@ -1362,9 +1401,9 @@ describe('useConversationTimeline', () => {
         flushFrames();
       });
 
-      // Stream > 8192 chars of pure append_text: should schedule adaptive setTimeout (32ms)
-      const chunk1 = 'a'.repeat(5000);
-      const chunk2 = 'b'.repeat(5000);
+      // Stream > 16384 chars of pure append_text: should schedule adaptive setTimeout (32ms)
+      const chunk1 = 'a'.repeat(10000);
+      const chunk2 = 'b'.repeat(10000);
       act(() => {
         listeners[0]?.(
           batch(
@@ -1400,7 +1439,7 @@ describe('useConversationTimeline', () => {
       expect(activeTimeouts).toHaveLength(1);
       expect(activeTimeouts[0]?.delay).toBe(32);
 
-      // Firing the adaptive timer flushes the 10,000-char coalesced overlay
+      // Firing the adaptive timer flushes the 20,000-char coalesced overlay
       act(() => {
         activeTimeouts[0]?.cb();
       });
@@ -1412,7 +1451,7 @@ describe('useConversationTimeline', () => {
         { type: 'text', text: chunk1 + chunk2 },
       ]);
 
-      // Next pure append_text while liveText is 10,000 chars arms another adaptive timer,
+      // Next pure append_text while liveText is 20,000 chars arms another adaptive timer,
       // and a terminal upsert immediately cancels that timer and flushes in the same turn.
       const chunk3 = 'c'.repeat(2000);
       act(() => {

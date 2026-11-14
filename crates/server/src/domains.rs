@@ -334,6 +334,7 @@ impl ServerApplicationDomains {
             | DomainCommand::AgentImportRemoteSession
             | DomainCommand::AgentResetToCheckpoint
             | DomainCommand::AgentListLocalHistory
+            | DomainCommand::AgentDiscoverLocalHistorySources
             | DomainCommand::AgentImportLocalHistory
             | DomainCommand::AgentImportLocalHistoryBatch
             | DomainCommand::AgentLocalHistoryImportSnapshot

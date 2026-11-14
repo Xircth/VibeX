@@ -58,8 +58,14 @@ type AgentBarProps = {
   actions?: ReactNode;
   onSelect: (agentId: string) => void;
   onReorder: (agentIds: string[]) => void;
+  /** Optional roster behavior: dropping outside the bar temporarily disables an Agent. */
+  onRemove?: (agentId: string) => void;
   onAdd?: () => void;
   onRefresh?: () => void;
+  /** Keep icons at a fixed gap instead of distributing spare row width. */
+  spacing?: 'distributed' | 'compact';
+  /** Always show names in the sortable horizontal bar. */
+  showLabels?: boolean;
   orientation?: 'horizontal' | 'vertical';
   /** Page with the settings chevrons, without drag, add, or refresh. */
   pagingOnly?: boolean;
@@ -366,8 +372,11 @@ function AgentBarHorizontal({
   actions,
   onSelect,
   onReorder,
+  onRemove,
   onAdd,
   onRefresh,
+  spacing = 'distributed',
+  showLabels = false,
 }: AgentBarProps) {
   const { t } = useTranslation('settings');
   const sensors = useSensors(
@@ -439,17 +448,25 @@ function AgentBarHorizontal({
   const expandedId = registryOpen ? null : selectedAgentId;
   const labelWidth = expandedId ? getLabelWidth(expandedId) : 0;
   const paging = useMemo(
-    () => ({ viewportWidth, expandedId, labelWidth }),
-    [viewportWidth, expandedId, labelWidth]
+    () => ({
+      viewportWidth,
+      expandedId,
+      labelWidth,
+      labelWidths: showLabels
+        ? Object.fromEntries(order.map((id) => [id, getLabelWidth(id)]))
+        : undefined,
+    }),
+    [viewportWidth, expandedId, labelWidth, showLabels, order, getLabelWidth]
   );
   const pages = useMemo(() => agentBarPages(order, paging), [order, paging]);
   const pageGaps = useMemo(() => {
     if (pages.length === 0) return [];
+    if (spacing === 'compact') return pages.map(() => AGENT_BAR_LAYOUT.itemGap);
     const baseGap = agentBarPageGap(pages[0] ?? [], paging);
     return pages.map((pageAgentIds, index) =>
       index === 0 ? baseGap : agentBarPageGap(pageAgentIds, paging, baseGap)
     );
-  }, [pages, paging]);
+  }, [pages, paging, spacing]);
   const page = Math.min(requestedPage, pages.length - 1);
   const pagingRef = useRef(paging);
   const pagesRef = useRef(pages);
@@ -515,22 +532,34 @@ function AgentBarHorizontal({
       ?.focus();
   }, [order]);
 
-  const collisionDetection = useCallback<CollisionDetection>((args) => {
-    const pagerHits = pointerWithin({
-      ...args,
-      droppableContainers: args.droppableContainers.filter((container) =>
-        PAGER_DROPPABLE_ID_SET.has(String(container.id))
-      ),
-    });
-    if (pagerHits.length > 0) return pagerHits;
-    const visible = new Set(visibleIdsRef.current);
-    return closestCenter({
-      ...args,
-      droppableContainers: args.droppableContainers.filter((container) =>
-        visible.has(String(container.id))
-      ),
-    });
-  }, []);
+  const collisionDetection = useCallback<CollisionDetection>(
+    (args) => {
+      if (onRemove && args.pointerCoordinates && viewportRef.current) {
+        const rect = (
+          viewportRef.current.closest('.agent-management-bar') ??
+          viewportRef.current
+        ).getBoundingClientRect();
+        const { x, y } = args.pointerCoordinates;
+        if (x < rect.left || x > rect.right || y < rect.top || y > rect.bottom)
+          return [];
+      }
+      const pagerHits = pointerWithin({
+        ...args,
+        droppableContainers: args.droppableContainers.filter((container) =>
+          PAGER_DROPPABLE_ID_SET.has(String(container.id))
+        ),
+      });
+      if (pagerHits.length > 0) return pagerHits;
+      const visible = new Set(visibleIdsRef.current);
+      return closestCenter({
+        ...args,
+        droppableContainers: args.droppableContainers.filter((container) =>
+          visible.has(String(container.id))
+        ),
+      });
+    },
+    [onRemove]
+  );
 
   const persistOrder = useCallback(
     (next: string[] | null) => {
@@ -596,6 +625,7 @@ function AgentBarHorizontal({
     ({ active, over }: DragEndEvent) => {
       if (!over) {
         finishDrag(null);
+        onRemove?.(String(active.id));
         return;
       }
       finishDrag(
@@ -606,7 +636,7 @@ function AgentBarHorizontal({
         ) ?? orderRef.current
       );
     },
-    [finishDrag]
+    [finishDrag, onRemove]
   );
 
   const handleDragCancel = useCallback(() => {
@@ -674,11 +704,13 @@ function AgentBarHorizontal({
                         key={agent.agent_id}
                         agent={agent}
                         labelWidth={getLabelWidth(agent.agent_id)}
+                        showLabel={showLabels}
                         selected={
                           !registryOpen && selectedAgentId === agent.agent_id
                         }
                         onSelect={onSelect}
                         onNudge={handleNudge}
+                        onRemove={onRemove}
                       />
                     );
                   })}
@@ -707,6 +739,7 @@ function AgentBarHorizontal({
               <AgentBarMark
                 agent={activeAgent}
                 labelWidth={getLabelWidth(activeAgent.agent_id)}
+                showLabel={showLabels}
                 selected={
                   !registryOpen && selectedAgentId === activeAgent.agent_id
                 }
@@ -744,6 +777,7 @@ export function AgentBarTailGroup({
   actions,
 }: AgentBarTailGroupProps) {
   const { t } = useTranslation('settings');
+  if (!actions && !onAdd && !onRefresh && !nextPageVisible) return null;
 
   return (
     <div
@@ -908,15 +942,19 @@ function PagerArrow({
 function AgentBarItem({
   agent,
   labelWidth,
+  showLabel,
   selected,
   onSelect,
   onNudge,
+  onRemove,
 }: {
   agent: AgentManagementView;
   labelWidth: number;
+  showLabel?: boolean;
   selected: boolean;
   onSelect: (agentId: string) => void;
   onNudge: (agentId: string, direction: -1 | 1) => void;
+  onRemove?: (agentId: string) => void;
 }) {
   const { t } = useTranslation('settings');
   const {
@@ -958,6 +996,7 @@ function AgentBarItem({
         aria-describedby={statusDescriptionId}
         className={cn(
           'agent-management-bar-item',
+          showLabel && 'has-label',
           selected && 'is-selected',
           !agent.enabled && 'is-disabled',
           isDragging && 'is-placeholder'
@@ -968,6 +1007,14 @@ function AgentBarItem({
         }}
         onClick={() => onSelect(agent.agent_id)}
         onKeyDown={(event) => {
+          if (
+            onRemove &&
+            (event.key === 'Delete' || event.key === 'Backspace')
+          ) {
+            event.preventDefault();
+            onRemove(agent.agent_id);
+            return;
+          }
           dragKeyDown?.(event);
           if (!event.altKey) return;
           if (event.key === 'ArrowLeft') {
@@ -992,11 +1039,13 @@ function AgentBarItem({
 function AgentBarMark({
   agent,
   labelWidth,
+  showLabel,
   selected,
   overlay = false,
 }: {
   agent: AgentManagementView;
   labelWidth?: number;
+  showLabel?: boolean;
   selected: boolean;
   overlay?: boolean;
 }) {
@@ -1004,6 +1053,7 @@ function AgentBarMark({
     <div
       className={cn(
         'agent-management-bar-item',
+        showLabel && 'has-label',
         selected && 'is-selected',
         !agent.enabled && 'is-disabled',
         overlay && 'is-dragging'

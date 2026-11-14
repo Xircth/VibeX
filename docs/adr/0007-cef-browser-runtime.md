@@ -1,7 +1,6 @@
 # Web Preview 采用独立 CEF Browser Runtime
 
-> **Superseded in product path** by
-> [`docs/specs/codeg-browser-plugin/design.md`](../specs/codeg-browser-plugin/design.md):
+> **Superseded in product path** (`codeg-browser-plugin` design):
 > desktop preview is `crates/browser-host` + official plugin `vibex.browser`.
 > CEF is not initialized, linked, or bundled.
 

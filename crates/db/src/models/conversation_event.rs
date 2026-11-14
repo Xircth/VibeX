@@ -202,6 +202,31 @@ impl ConversationEventRecord {
         .fetch_all(executor)
         .await
     }
+
+    /// Fetch all raw events for a single turn in causal sequence order using
+    /// `idx_conversation_events_turn_seq (conversation_id, turn_id, sequence)`.
+    ///
+    /// Used by `CachedRowProjector` on LRU eviction / process restart to reconstruct
+    /// an active `ProjectedTurn` losslessly without deserializing truncated `row_json`.
+    pub async fn events_for_turn<'e, E>(
+        executor: E,
+        conversation_id: Uuid,
+        turn_id: Uuid,
+    ) -> Result<Vec<Self>, sqlx::Error>
+    where
+        E: Executor<'e, Database = Sqlite>,
+    {
+        sqlx::query_as::<_, Self>(&format!(
+            r#"SELECT {EVENT_COLUMNS}
+               FROM conversation_events
+               WHERE conversation_id = ? AND turn_id = ?
+               ORDER BY sequence ASC"#
+        ))
+        .bind(conversation_id)
+        .bind(turn_id)
+        .fetch_all(executor)
+        .await
+    }
 }
 
 pub async fn append_conversation_event(
@@ -250,7 +275,8 @@ pub async fn find_conversation_event_by_idempotency(
     .await
 }
 
-/// Allocate the next sequence and insert a fresh event (no idempotency check).
+/// Allocate the next monotonic sequence via `last_allocated_sequence` and insert a fresh
+/// event (no idempotency check).
 ///
 /// Callers must run this inside a `BEGIN IMMEDIATE` transaction (and check
 /// idempotency first) so sequence allocation is serialized.
@@ -258,15 +284,21 @@ pub async fn insert_conversation_event(
     conn: &mut SqliteConnection,
     input: AppendConversationEvent<'_>,
 ) -> Result<ConversationEventRecord, sqlx::Error> {
-    let sequence: i64 = sqlx::query_scalar(
-        r#"SELECT COALESCE(MAX(sequence), 0) + 1
-           FROM conversation_events
-           WHERE conversation_id = ?"#,
+    let sequence = crate::models::conversation_snapshot::ConversationProjectionSnapshotRecord::allocate_next_sequence(
+        conn,
+        input.conversation_id,
+        0,
     )
-    .bind(input.conversation_id)
-    .fetch_one(&mut *conn)
     .await?;
 
+    insert_conversation_event_with_sequence(conn, input, sequence).await
+}
+
+pub async fn insert_conversation_event_with_sequence(
+    conn: &mut SqliteConnection,
+    input: AppendConversationEvent<'_>,
+    sequence: i64,
+) -> Result<ConversationEventRecord, sqlx::Error> {
     let mut turn_id = input.turn_id;
     if let Some(candidate) = turn_id {
         let exists: bool =

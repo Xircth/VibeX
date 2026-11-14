@@ -395,9 +395,21 @@
     --status-paused: var(--warning);
     --status-paused-foreground: var(--warning-foreground);
     --session-status-todo: var(--text-muted);
-    --session-status-inprogress: hsl(var(--warning));
-    --session-status-inreview: hsl(var(--destructive));
-    --session-status-done: var(--usage-blue-fg);
+    --session-status-inprogress: color-mix(
+      in srgb,
+      var(--usage-blue-fg) 85%,
+      var(--text-strong)
+    );
+    --session-status-inreview: color-mix(
+      in srgb,
+      var(--status-warning-text) 85%,
+      var(--text-strong)
+    );
+    --session-status-done: color-mix(
+      in srgb,
+      var(--usage-green-fg) 80%,
+      var(--text-strong)
+    );
     /* Kanban 会话色条：必须是 HSL 分量，供 hsl(var(--session-slot-N)) 使用。 */
     --session-slot-purple: 265 60% 60%;
     --session-slot-1: var(--_primary);
@@ -6066,7 +6078,7 @@ html.dark {
     align-items: center;
     gap: 0.5rem;
     border-radius: var(--radius);
-    padding: 0.5rem 0.5rem;
+    padding: 0.25rem 0.375rem;
     background: transparent;
     border: 0;
     color: var(--text-strong);
@@ -6076,7 +6088,7 @@ html.dark {
   }
 
   .workspace-session-group-header:hover {
-    color: var(--text-primary);
+    background: var(--surface-control-hover);
   }
 
   .workspace-session-group-header:focus-visible {
@@ -6090,8 +6102,8 @@ html.dark {
     align-items: center;
     justify-content: center;
     border-radius: 999px;
-    background: var(--surface-content);
-    color: var(--text-secondary);
+    background: hsl(var(--warning) / 0.18);
+    color: hsl(var(--warning-foreground));
     font-size: 0.6875rem;
     font-weight: 600;
     line-height: 1;
@@ -6102,30 +6114,6 @@ html.dark {
   .workspace-session-group {
     min-width: 0;
     max-width: 100%;
-    border: 1px solid var(--border-subtle);
-    border-radius: var(--radius);
-    padding: 0.25rem 0.125rem 0.375rem;
-    background: transparent;
-  }
-
-  :is(.workspace-session-group, .workspace-session-status-label)[data-status='todo'] {
-    --workspace-session-group-color: var(--session-status-todo);
-  }
-
-  :is(.workspace-session-group, .workspace-session-status-label)[data-status='inprogress'] {
-    --workspace-session-group-color: var(--session-status-inprogress);
-  }
-
-  :is(.workspace-session-group, .workspace-session-status-label)[data-status='inreview'] {
-    --workspace-session-group-color: var(--session-status-inreview);
-  }
-
-  :is(.workspace-session-group, .workspace-session-status-label)[data-status='done'] {
-    --workspace-session-group-color: var(--session-status-done);
-  }
-
-  .workspace-session-group[data-status] {
-    border-color: var(--workspace-session-group-color);
   }
 
   .workspace-session-status-label {
@@ -6133,40 +6121,15 @@ html.dark {
     max-width: 100%;
     align-items: center;
     gap: 0.375rem;
-    padding: 0.25rem 0.5rem;
-    border: 1px solid color-mix(in srgb, var(--workspace-session-group-color) 45%, transparent);
-    border-radius: 999px;
-    color: var(--text-strong);
-    font-size: 0.75rem;
-    line-height: 1;
     white-space: nowrap;
   }
 
-  .workspace-session-group + .workspace-session-group {
-    margin-top: 1rem;
-  }
-
   .workspace-session-subgroups {
-    padding: 0 0.25rem 0.125rem;
-  }
-
-  .workspace-session-group--nested {
-    border: 0;
-    border-radius: 0;
-    padding: 0;
+    padding-left: 0.375rem;
   }
 
   .workspace-session-group--nested > .workspace-session-group-header {
-    padding: 0.375rem;
-    border: 0;
-    border-radius: 0;
-    background: transparent;
-    border-bottom: 1px solid var(--workspace-session-group-color);
     font-size: 0.75rem;
-  }
-
-  .workspace-session-group--nested + .workspace-session-group--nested {
-    margin-top: 0.5rem;
   }
 
   .workspace-session-group-chevron {
@@ -6180,7 +6143,7 @@ html.dark {
     gap: 0.25rem;
     min-width: 0;
     max-width: 100%;
-    margin-top: 0.375rem;
+    margin-top: 0.125rem;
     padding-left: 0.375rem;
     padding-right: 0.25rem;
   }
@@ -6224,7 +6187,7 @@ html.dark {
 
   .workspace-session-row--full .workspace-session-row-main:not(.is-editing) {
     display: grid;
-    grid-template-columns: 1rem minmax(0, 1fr);
+    grid-template-columns: 1rem minmax(0, 1fr) 0.5rem;
     gap: 0.375rem 0.5rem;
     width: 100%;
     max-width: 100%;
@@ -6261,7 +6224,6 @@ html.dark {
     gap: 0.625rem;
     min-width: 0;
     height: 1.25rem;
-    padding-right: 4.25rem;
     color: var(--text-secondary);
     font-size: 0.6875rem;
     line-height: 1.5;
@@ -6269,6 +6231,23 @@ html.dark {
 
   .workspace-session-row--full .workspace-session-row-marker {
     margin-left: 0.375rem;
+  }
+
+  .workspace-session-row--full.has-actions:is(.is-hovered, :hover, :focus-within)
+    .workspace-session-card-workspace {
+    padding-right: 4.25rem;
+  }
+
+  .workspace-session-row--full .workspace-session-card-status {
+    grid-column: 3;
+    grid-row: 1;
+    justify-self: end;
+    width: 0.5rem;
+    height: 0.5rem;
+  }
+
+  .workspace-session-card-status.workspace-session-status--inprogress {
+    background: var(--session-status-inprogress);
   }
 
   .workspace-session-row--full .workspace-session-row-actions {
@@ -9327,7 +9306,7 @@ html.dark {
 }
 
 .settings-page .pi-configuration-panel {
-  margin: -8px 16px 16px;
+  margin: 0 0 12px;
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius);
   background: var(--surface-content);
@@ -10141,7 +10120,7 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
 }
 
 :is(.settings-page, .plan-usage-page)
-  .agent-management-bar-item.is-selected
+  :is(.agent-management-bar-item.is-selected, .agent-management-bar-item.has-label)
   .agent-management-bar-label {
   max-width: var(--agent-label-width, var(--agent-bar-label-max));
   margin: 0 4px 0 6px;
@@ -10462,29 +10441,32 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
 }
 
 .settings-page .agent-auth-status {
-  display: inline-flex;
-  min-height: 20px;
-  align-items: center;
-  padding: 0 7px;
-  border: 1px solid var(--border-content);
-  border-radius: 999px;
+  gap: 4px;
+  padding: 2px 6px;
+  border-color: var(--border-subtle);
   color: var(--text-muted);
-  background: var(--surface-control);
-  font-size: 0.75rem;
+  font-size: var(--type-caption, 0.6875rem);
   font-weight: 500;
-  line-height: 1;
+  line-height: 1.4;
+  white-space: nowrap;
 }
 
 .settings-page .agent-auth-status.is-success {
   border-color: hsl(var(--success) / 0.32);
-  color: hsl(var(--success));
-  background: hsl(var(--success) / 0.08);
+  background: hsl(var(--success) / 0.1);
+  color: hsl(var(--success-foreground));
 }
 
 .settings-page .agent-auth-status.is-warning {
   border-color: hsl(var(--warning) / 0.34);
-  color: hsl(var(--warning));
-  background: hsl(var(--warning) / 0.08);
+  background: hsl(var(--warning) / 0.12);
+  color: var(--status-warning-text);
+}
+
+.settings-page .agent-auth-status.is-neutral {
+  border-color: var(--border-subtle);
+  background: var(--surface-control);
+  color: var(--text-muted);
 }
 
 .settings-page .agent-detail-enable {
@@ -10570,7 +10552,7 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
 }
 
 .settings-page .agent-auth-mode-frame {
-  margin: 0 16px 16px;
+  margin: 0;
   padding: 12px;
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius);
@@ -10746,6 +10728,234 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
   font-size: 0.75rem;
   font-weight: 500;
   line-height: 1.25;
+}
+
+/* ── Preflight badges: match onboarding-agent-status ── */
+.settings-page .agent-preflight-badge {
+  gap: 4px;
+  padding: 2px 6px;
+  border-color: var(--border-subtle);
+  color: var(--text-muted);
+  font-size: var(--type-caption, 0.6875rem);
+  font-weight: 500;
+  line-height: 1.4;
+  white-space: nowrap;
+}
+
+.settings-page .agent-preflight-badge[data-status='pass'] {
+  border-color: hsl(var(--success) / 0.32);
+  background: hsl(var(--success) / 0.1);
+  color: hsl(var(--success-foreground));
+}
+
+.settings-page .agent-preflight-badge[data-status='warning'] {
+  border-color: hsl(var(--warning) / 0.34);
+  background: hsl(var(--warning) / 0.12);
+  color: var(--status-warning-text);
+}
+
+.settings-page .agent-preflight-badge[data-status='fail'] {
+  border-color: hsl(var(--destructive) / 0.34);
+  background: hsl(var(--destructive) / 0.1);
+  color: hsl(var(--destructive));
+}
+
+.settings-page .agent-preflight-update-button,
+.settings-page .agent-preflight-update-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 6px;
+  border: 0;
+  border-radius: var(--radius-inner, var(--radius));
+  background: transparent;
+  color: hsl(var(--primary));
+  font-size: 0.6875rem;
+  font-weight: 500;
+  line-height: 1.4;
+  white-space: nowrap;
+}
+
+.settings-page button.agent-preflight-update-button {
+  cursor: pointer;
+  transition: background-color 160ms ease;
+}
+
+.settings-page button.agent-preflight-update-button:hover:not(:disabled) {
+  background: hsl(var(--primary) / 0.06);
+}
+
+.settings-page button.agent-preflight-update-button:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+
+/* ── Preflight chips: single-line horizontal bar, expandable per item ── */
+.settings-page .agent-preflight-chips {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 12px;
+  min-height: 44px;
+  margin: 0;
+  padding: 6px 8px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius);
+  background: var(--surface-content);
+  list-style: none;
+}
+
+.settings-page .agent-preflight-chip-row {
+  display: contents;
+}
+
+.settings-page .agent-preflight-chip-head {
+  order: 0;
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  gap: 4px;
+}
+
+.settings-page .agent-preflight-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 30px;
+  padding: 3px 8px;
+  border: 1px solid transparent;
+  border-radius: calc(var(--radius) - 2px);
+  background: transparent;
+  color: var(--text-strong);
+  font: inherit;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  line-height: 1.4;
+  cursor: pointer;
+  transition:
+    background-color 160ms ease,
+    border-color 160ms ease;
+}
+
+.settings-page .agent-preflight-chip:hover {
+  background: var(--surface-control);
+}
+
+.settings-page .agent-preflight-chip:focus-visible {
+  outline: 2px solid hsl(var(--primary) / 0.55);
+  outline-offset: 1px;
+}
+
+.settings-page .agent-preflight-chip[aria-expanded='true'] {
+  background: var(--surface-control);
+  border-color: var(--border-subtle);
+}
+
+.settings-page .agent-preflight-chip-label {
+  color: var(--text-strong);
+  white-space: nowrap;
+}
+
+.settings-page .agent-preflight-chip-chevron {
+  width: 13px;
+  height: 13px;
+  flex: 0 0 13px;
+  color: var(--text-muted);
+  transition: transform 180ms ease;
+}
+
+.settings-page .agent-preflight-chip[aria-expanded='true']
+  .agent-preflight-chip-chevron {
+  transform: rotate(180deg);
+}
+
+.settings-page .agent-preflight-chip-update {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 6px;
+  border: 0;
+  border-radius: var(--radius-inner, var(--radius));
+  background: transparent;
+  color: hsl(var(--primary));
+  font: inherit;
+  font-size: 0.6875rem;
+  font-weight: 500;
+  line-height: 1.4;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.settings-page span.agent-preflight-chip-update {
+  cursor: default;
+}
+
+.settings-page button.agent-preflight-chip-update:hover:not(:disabled) {
+  background: hsl(var(--primary) / 0.06);
+}
+
+.settings-page button.agent-preflight-chip-update:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+
+.settings-page .agent-preflight-detail-panel {
+  order: 1;
+  display: grid;
+  flex: 0 0 100%;
+  width: 100%;
+  min-width: 0;
+  gap: 8px;
+  margin-top: 2px;
+  padding: 10px 8px 4px;
+  border-top: 1px solid var(--border-subtle);
+  animation: agent-preflight-reveal 180ms ease-out;
+}
+
+.settings-page .agent-preflight-detail-panel[data-label]::before {
+  content: attr(data-label);
+  color: var(--text-muted);
+  font-size: 0.6875rem;
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+/* ── Flat section headings & full-width inner cards (no gray outer box) ── */
+.settings-page .agent-section-heading-flat {
+  padding-inline: 0;
+}
+
+.settings-page .agent-auth-mode-surface,
+.settings-page .agent-preflight-surface,
+.settings-page .agent-config-surface,
+.settings-page .agent-environment-surface,
+.settings-page .agent-diagnostics-surface,
+.settings-page .agent-flat-section {
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.settings-page
+  :is(
+    .agent-auth-mode-surface,
+    .agent-preflight-surface,
+    .agent-config-surface,
+    .agent-environment-surface,
+    .agent-diagnostics-surface,
+    .agent-flat-section
+  )
+  > .agent-section-heading {
+  padding: 4px 0 8px;
+}
+
+.settings-page .agent-environment-body,
+.settings-page .agent-diagnostics-list {
+  margin: 0;
+  padding: 12px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius);
+  background: var(--surface-content);
 }
 
 .settings-page button.agent-preflight-status {
@@ -11009,7 +11219,7 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
 }
 
 .settings-page .agent-auth-mode-official-url {
-  margin: 0 16px 8px;
+  margin: 0 0 8px;
   color: var(--text-muted);
   font-size: 0.75rem;
   font-family: var(--font-mono, monospace);
@@ -11023,7 +11233,7 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
   align-items: center;
   gap: 3px;
   padding: 3px;
-  margin: 0 16px 10px;
+  margin: 0 0 10px;
   border-radius: 999px;
   background-color: var(--surface-track);
 }
@@ -11197,7 +11407,7 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
 }
 
 .settings-page .agent-auth-mode-loading {
-  padding: 0 16px 16px;
+  padding: 0;
 }
 
 .settings-page .agent-inline-error {
@@ -11205,7 +11415,7 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  margin: 0 16px 16px;
+  margin: 0;
   padding: 9px 10px;
   border: 1px solid hsl(var(--destructive) / 0.25);
   border-radius: var(--radius);
@@ -11223,7 +11433,7 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
 }
 
 .settings-page .agent-provider-import {
-  margin: 0 16px 14px;
+  margin: 0 0 14px;
 }
 
 .settings-page .agent-provider-import .agent-model-provider-import-preview {
@@ -11231,7 +11441,7 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
 }
 
 .settings-page .agent-provider-catalog {
-  margin: 0 16px 16px;
+  margin: 0 0 16px;
   padding-top: 14px;
   border-top: 1px solid var(--border-subtle);
 }
@@ -11405,7 +11615,7 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius);
   background: var(--surface-content);
-  margin: 0 16px 16px;
+  margin: 0 0 16px;
   padding: 0;
 }
 
@@ -11501,7 +11711,7 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
 }
 
 .settings-page .agent-provider-form {
-  margin: 0 16px 16px;
+  margin: 0 0 16px;
   padding-top: 14px;
   border-top: 1px solid var(--border-subtle);
 }
@@ -11786,7 +11996,7 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
 }
 
 .settings-page .agent-plugin-list {
-  margin: 0 16px;
+  margin: 0;
   overflow: hidden;
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius);
@@ -11894,17 +12104,31 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
   align-items: center;
   justify-content: center;
   margin: 0;
-  padding: 0 16px 16px;
+  padding: 12px;
   color: var(--text-muted);
   font-size: 0.75rem;
   text-align: center;
 }
 
-.settings-page .dsh-auth-fields,
+.settings-page .agent-section-body > .agent-plugin-empty {
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius);
+  background: var(--surface-content);
+}
+
+.settings-page .dsh-auth-fields {
+  display: grid;
+  gap: 14px;
+  padding: 0;
+}
+
 .settings-page .dsh-session-body {
   display: grid;
   gap: 14px;
-  padding: 0 16px 16px;
+  padding: 12px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius);
+  background: var(--surface-content);
 }
 
 .settings-page .dsh-auth-fields .agent-model-provider-secret {
@@ -12008,9 +12232,9 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
   display: grid;
   grid-template-columns: 1fr;
   gap: 8px;
-  margin: 0 16px 16px;
-  padding-top: 14px;
-  border-top: 1px solid var(--border-subtle);
+  margin: 12px 0 0;
+  padding-top: 0;
+  border-top: 0;
 }
 
 .settings-page .agent-plugin-path {
@@ -12120,7 +12344,10 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
 }
 
 .settings-page .agent-operation-progress {
-  margin: 0 16px 14px;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  margin: 0 0 12px;
   padding: 14px 14px 12px;
   border: 1px solid hsl(var(--primary) / 0.2);
   border-radius: var(--radius);
@@ -12128,11 +12355,11 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
 }
 
 .settings-page .agent-custom-version {
-  margin: 0 16px 14px;
+  margin: 0 0 12px;
   padding: 10px 12px;
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius);
-  background: hsl(var(--background) / 0.28);
+  background: var(--surface-content);
 }
 
 .settings-page .agent-custom-version > summary {
@@ -12202,12 +12429,15 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
 }
 
 .settings-page .agent-operation-progress-heading {
+  flex-wrap: wrap;
   justify-content: space-between;
   gap: 16px;
 }
 
 .settings-page .agent-operation-progress-copy {
   min-width: 0;
+  max-width: 100%;
+  flex: 1 1 180px;
   gap: 10px;
 }
 
@@ -12415,6 +12645,11 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
   border-top: 1px solid var(--border-subtle);
 }
 
+.settings-page .agent-preflight-surface .agent-install-actions {
+  padding: 10px 0 0;
+  border-top: 0;
+}
+
 .settings-page .agent-registry-toolbar {
   display: flex;
   flex-wrap: wrap;
@@ -12527,7 +12762,7 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
 .settings-page .agent-config-groups {
   display: grid;
   gap: 16px;
-  padding: 0 16px 16px;
+  padding: 0;
 }
 
 .settings-page .agent-config-surface.is-embedded .agent-config-groups {
@@ -12562,7 +12797,7 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
   gap: 8px 16px;
-  margin: 0 16px 12px;
+  margin: 0 0 12px;
   padding: 12px;
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius);
@@ -12660,10 +12895,14 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
 }
 
 .settings-page .agent-config-block {
-  margin: 0 16px 16px;
+  margin: 0 0 12px;
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius);
   background: var(--surface-content);
+}
+
+.settings-page .agent-config-block:last-child {
+  margin-bottom: 0;
 }
 
 .settings-page .agent-config-block > summary {
@@ -12714,7 +12953,7 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
 .settings-page .agent-opencode-plans {
   display: grid;
   gap: 10px;
-  margin: 0 16px 16px;
+  margin: 0 0 12px;
   padding: 0;
   list-style: none;
 }
@@ -17195,22 +17434,20 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
   100% {
     border-color: color-mix(
       in srgb,
-      var(--session-status-inprogress) 70%,
+      var(--session-status-inprogress) 45%,
       transparent
     );
-    box-shadow:
-      0 0 0 0
-        color-mix(in srgb, var(--session-status-inprogress) 55%, transparent),
-      0 0 0 0
-        color-mix(in srgb, var(--session-status-inprogress) 28%, transparent);
+    box-shadow: 0 0 0 0
+      color-mix(in srgb, var(--session-status-inprogress) 18%, transparent);
   }
   50% {
-    border-color: var(--session-status-inprogress);
-    box-shadow:
-      0 0 0 3px
-        color-mix(in srgb, var(--session-status-inprogress) 70%, transparent),
-      0 0 16px 2px
-        color-mix(in srgb, var(--session-status-inprogress) 45%, transparent);
+    border-color: color-mix(
+      in srgb,
+      var(--session-status-inprogress) 80%,
+      transparent
+    );
+    box-shadow: 0 0 0 1px
+      color-mix(in srgb, var(--session-status-inprogress) 30%, transparent);
   }
 }
 
@@ -17219,22 +17456,20 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
   100% {
     border-color: color-mix(
       in srgb,
-      var(--session-status-inreview) 75%,
+      var(--session-status-inreview) 45%,
       transparent
     );
-    box-shadow:
-      0 0 0 0
-        color-mix(in srgb, var(--session-status-inreview) 55%, transparent),
-      0 0 0 0
-        color-mix(in srgb, var(--session-status-inreview) 28%, transparent);
+    box-shadow: 0 0 0 0
+      color-mix(in srgb, var(--session-status-inreview) 18%, transparent);
   }
   50% {
-    border-color: var(--session-status-inreview);
-    box-shadow:
-      0 0 0 3px
-        color-mix(in srgb, var(--session-status-inreview) 75%, transparent),
-      0 0 16px 2px
-        color-mix(in srgb, var(--session-status-inreview) 50%, transparent);
+    border-color: color-mix(
+      in srgb,
+      var(--session-status-inreview) 80%,
+      transparent
+    );
+    box-shadow: 0 0 0 1px
+      color-mix(in srgb, var(--session-status-inreview) 30%, transparent);
   }
 }
 
@@ -19135,4 +19370,38 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
   justify-content: flex-end;
   gap: 6px;
   margin-top: 2px;
+}
+
+/* ──────────────────────────────────────────────────────────────────────────
+ * Tab Bar Drop Zone
+ * Accepts panel drag payloads from Zone A (file tree, git, sessions)
+ * ────────────────────────────────────────────────────────────────────────── */
+.tab-bar-drop-zone {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  transition: background-color 0.2s ease, border-color 0.2s ease;
+}
+
+.tab-bar-drop-zone.is-drag-over {
+  background-color: hsl(var(--accent) / 0.1);
+  border: 2px dashed hsl(var(--primary) / 0.6);
+  border-radius: 4px;
+}
+
+.tab-bar-drop-zone.is-drag-over::after {
+  content: '拖放到此打开标签页';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  font-size: 14px;
+  color: hsl(var(--primary));
+  background-color: hsl(var(--accent) / 0.15);
+  padding: 8px 16px;
+  border-radius: 6px;
+  pointer-events: none;
+  z-index: 1000;
+  white-space: nowrap;
+  font-weight: 500;
 }

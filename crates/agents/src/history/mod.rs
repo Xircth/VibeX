@@ -1222,6 +1222,60 @@ fn parse_cline_task(
     Ok(sessions)
 }
 
+/// Derive the project path from a Claude Code session file's location.
+///
+/// Claude Code stores sessions under `~/.claude/projects/<encoded-path>/`.
+/// The directory name encodes the filesystem path: `--` maps to `:\` (the
+/// drive separator on Windows) and `-` maps to `\` (path separator). On
+/// POSIX systems the first segment maps to `/`. Returns `None` when the
+/// file is not inside a `projects/` directory or the encoding cannot be
+/// decoded.
+fn claude_project_path_from_file(file: &Path, agent_type: AgentKind) -> Option<PathBuf> {
+    if !matches!(
+        agent_type,
+        AgentKind::ClaudeCode | AgentKind::Codebuddy | AgentKind::Qoder
+    ) {
+        return None;
+    }
+    // Walk up from the session file looking for a "projects" ancestor.
+    let current = file.parent()?;
+    let mut project_dir_name = None;
+    for ancestor in current.ancestors() {
+        if ancestor
+            .file_name()
+            .and_then(|name| name.to_str())
+            .map(|name| name.eq_ignore_ascii_case("projects"))
+            .unwrap_or(false)
+        {
+            break;
+        }
+        project_dir_name = ancestor.file_name().and_then(|name| name.to_str());
+    }
+    let encoded = project_dir_name?;
+    Some(decode_claude_project_dir(encoded))
+}
+
+/// Decode a Claude Code project directory name back to a filesystem path.
+///
+/// The encoding replaces the Windows drive separator (`C:\`) with `C--`
+/// and path separators (`\`) with `-`. On POSIX the leading `/` is also
+/// encoded as `-`, so `/home/user/projects` becomes `-home-user-projects`.
+fn decode_claude_project_dir(encoded: &str) -> PathBuf {
+    if encoded.len() >= 2 && encoded.as_bytes()[1] == b'-' && encoded.as_bytes()[0].is_ascii_alphabetic()
+    {
+        // Windows-style: "C--Users-18190-Documents-projects-VibeX"
+        // Drive letter + "--" → "C:\" then "-" → "\"
+        let drive = &encoded[..1];
+        let rest = &encoded[2..];
+        let decoded = rest.replace('-', "\\");
+        PathBuf::from(format!("{drive}:\\{decoded}"))
+    } else {
+        // POSIX-style: "-home-user-projects-VibeX" → "/home/user/projects/VibeX"
+        let decoded = encoded.replace('-', "/");
+        PathBuf::from(decoded)
+    }
+}
+
 fn parse_structured_jsonl(
     agent_type: AgentKind,
     path: &Path,
@@ -1238,28 +1292,36 @@ fn parse_structured_jsonl(
             })
         })
         .unwrap_or_else(|| history_file_session_id(path));
-    let workspace_path = values
+    let cwd_from_records = values
         .iter()
         .find_map(|value| string_at_any(value, &["cwd", "workspace", "workspace_path"]))
-        .map(PathBuf::from)
-        .or_else(|| {
-            (agent_type == AgentKind::Openclaw)
-                .then(|| {
-                    values.iter().find_map(|value| {
-                        value
-                            .pointer("/message/content")
-                            .and_then(content_value_text)
-                            .or_else(|| {
-                                value
-                                    .pointer("/message/content")
-                                    .and_then(serde_json::Value::as_str)
-                                    .map(str::to_string)
-                            })
-                            .and_then(|text| openclaw_working_dir(&text))
-                    })
+        .map(PathBuf::from);
+    let workspace_path = cwd_from_records.clone().or_else(|| {
+        (agent_type == AgentKind::Openclaw)
+            .then(|| {
+                values.iter().find_map(|value| {
+                    value
+                        .pointer("/message/content")
+                        .and_then(content_value_text)
+                        .or_else(|| {
+                            value
+                                .pointer("/message/content")
+                                .and_then(serde_json::Value::as_str)
+                                .map(str::to_string)
+                        })
+                        .and_then(|text| openclaw_working_dir(&text))
                 })
-                .flatten()
-        });
+            })
+            .flatten()
+    });
+    // Claude Code stores sessions under ~/.claude/projects/<encoded-path>/.
+    // The cwd recorded in session records is often just the home directory,
+    // which collapses distinct projects into one folder during import.
+    // Derive the real project path from the session file's parent directory
+    // and prefer it when the recorded cwd is no more specific than home.
+    let workspace_path = workspace_path
+        .or_else(|| claude_project_path_from_file(path, agent_type))
+        .or(cwd_from_records);
     let mut messages = Vec::new();
     for value in &values {
         messages.extend(match agent_type {
@@ -4201,5 +4263,45 @@ mod tests {
         .unwrap();
 
         assert!(sessions.is_empty());
+    }
+
+    #[test]
+    fn decode_claude_project_dir_windows_encoding() {
+        // "C--Users-18190-Documents-projects-VibeX" → "C:\Users\18190\Documents\projects\VibeX"
+        let decoded = decode_claude_project_dir("C--Users-18190-Documents-projects-VibeX");
+        assert_eq!(
+            decoded,
+            PathBuf::from(r"C:\Users\18190\Documents\projects\VibeX")
+        );
+    }
+
+    #[test]
+    fn decode_claude_project_dir_simple_home() {
+        // "C--Users-18190" → "C:\Users\18190"
+        let decoded = decode_claude_project_dir("C--Users-18190");
+        assert_eq!(decoded, PathBuf::from(r"C:\Users\18190"));
+    }
+
+    #[test]
+    fn decode_claude_project_dir_unix_encoding() {
+        // "-home-user-projects-VibeX" → "/home/user/projects/VibeX"
+        let decoded = decode_claude_project_dir("-home-user-projects-VibeX");
+        assert_eq!(decoded.to_string_lossy(), "/home/user/projects/VibeX");
+    }
+
+    #[test]
+    fn claude_project_path_from_file_extracts_project_dir() {
+        let file = Path::new(
+            r"C:\Users\18190\.claude\projects\C--Users-18190-Documents-projects-VibeX\session.jsonl",
+        );
+        let path = claude_project_path_from_file(file, AgentKind::ClaudeCode)
+            .expect("should extract project path");
+        assert_eq!(path, PathBuf::from(r"C:\Users\18190\Documents\projects\VibeX"));
+    }
+
+    #[test]
+    fn claude_project_path_from_file_ignores_non_project_agents() {
+        let file = Path::new(r"C:\Users\18190\.claude\projects\C--Users-18190\session.jsonl");
+        assert!(claude_project_path_from_file(file, AgentKind::Codex).is_none());
     }
 }

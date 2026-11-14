@@ -155,6 +155,15 @@ describe('agent bar paging', () => {
     ]);
   });
 
+  it('reserves each visible name when paging a labeled roster', () => {
+    expect(
+      agentBarPages(['a', 'b', 'c'], {
+        ...paging(240, 'a', 40),
+        labelWidths: { a: 40, b: 80, c: 30 },
+      })
+    ).toEqual([['a', 'b'], ['c']]);
+  });
+
   it('caps the reserved name width', () => {
     expect(agentBarPages(ids, paging(400, 'a', 500))).toEqual(
       agentBarPages(ids, paging(400, 'a', 128))

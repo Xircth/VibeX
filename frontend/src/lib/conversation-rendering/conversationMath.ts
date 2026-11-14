@@ -14,7 +14,7 @@ export const MATH_PLACEHOLDER_PATTERN = /\uE000MATH(\d+)\uE000/g;
 
 const MATH_FENCE_LANGUAGES = new Set(['math', 'latex', 'tex', 'katex']);
 
-const MATH_ENVIRONMENTS = new Set([
+export const MATH_ENVIRONMENTS: ReadonlySet<string> = new Set([
   'align',
   'align*',
   'aligned',

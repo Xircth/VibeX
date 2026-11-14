@@ -17,8 +17,7 @@ decision-makers:
 「完全访问」自己变回「Approve for me」、重发失败后重新发送导致并行对话、AI 输出
 结束后停止按钮不肯变回发送按钮。
 
-这七个现象不是七个 bug，而是五个根因在事件溯源会话核心上的组合表现。诊断记录见
-[`.scratch/conversation-turn-integrity/PRD.md`](../../.scratch/conversation-turn-integrity/PRD.md)。
+这七个现象不是七个 bug，而是五个根因在事件溯源会话核心上的组合表现（诊断记录于 `.scratch/conversation-turn-integrity/PRD.md`）。
 本 ADR 固定其中四条不可回退的语义约束。
 
 它不改变 [ADR-0044](0044-conversation-control-plane-and-durable-inputs.md) 的

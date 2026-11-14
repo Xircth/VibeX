@@ -1,16 +1,19 @@
 ---
 status: accepted
 date: 2026-07-30
+amended: 2026-11-14 (ADR-0087)
 decision-makers:
   - VibeX maintainers
 ---
 
 # ACP Registry 以可验证证据为权威，并通过兼容层接入 `auth/status`
 
+> **修订说明（[ADR-0087](0087-dedicated-agent-engine-first-acp-fallback.md)）**：VibeX 已将全项目规范由「ACP 优先」调整为**「独立 Agent 引擎适配优先，ACP 为次选」**。本文中关于 ACP 进程运行、ACP 能力协商与 `auth/status` 优先的规则仅适用于走次选 ACP 兼容通道的 Agent；具备独立引擎适配的 Agent 以其原生引擎与原生状态探测为准。
+
 ## Context
 
-ADR-0010 至 ADR-0029 已经定义了开放 Agent 身份、官方 Registry、版本锁、Binary
-完整性、有限并发、Agent 原生配置以及 ACP-first 管理原则。首轮实现证明统一管线
+ADR-0010 至 ADR-0029 曾定义了早期的开放 Agent 身份、官方 Registry、版本锁、Binary
+完整性、有限并发、Agent 原生配置以及早期 ACP-first 管理原则。首轮实现证明统一管线
 可行，但代码审查发现实现仍在若干关键路径依赖进程内状态、历史 probe、可变 Registry
 快照和硬编码能力值。这些依赖破坏了既有决策中的核心不变量：
 

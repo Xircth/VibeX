@@ -43,6 +43,7 @@ pub struct AppState {
     /// of re-projecting the turn every frame. Bounded by least recent use, and dropped
     /// when a conversation closes (`forget_conversation_runtime`).
     pub conversation_row_projectors: conversations::ConversationRowProjectors,
+    pub conversation_event_publisher: Arc<dyn conversations::ConversationEventPublisher>,
     pub plugin_control_plane: Arc<plugins::PluginControlPlane>,
     pub plugin_worker_runtime: Arc<plugins::PluginWorkerRuntimeProvider>,
     pub plugin_capability_broker: Arc<plugins::HostCapabilityBroker>,
@@ -136,13 +137,20 @@ impl AppState {
         let conversation_turn_locks = Arc::new(Mutex::new(HashMap::new()));
         let conversation_runtime_states = Arc::new(Mutex::new(HashMap::new()));
         let conversation_row_projectors = Arc::new(Mutex::new(HashMap::new()));
+        let conversation_event_publisher: Arc<dyn conversations::ConversationEventPublisher> =
+            Arc::new(server::ChatDeliveryPublisher::new(Arc::new(
+                crate::conversation_service::AppConversationEventPublisher::new(
+                    deployment.clone(),
+                    conversation_row_projectors.clone(),
+                ),
+            )));
         let conversation_context = Self::build_conversation_context(
-            &app_handle,
             &deployment,
             &agent_runtime,
             &conversation_turn_locks,
             &conversation_runtime_states,
             &conversation_row_projectors,
+            &conversation_event_publisher,
             &plugin_control_plane,
         );
         plugin_control_plane
@@ -266,6 +274,7 @@ impl AppState {
             conversation_turn_locks,
             conversation_runtime_states,
             conversation_row_projectors,
+            conversation_event_publisher,
             plugin_control_plane,
             plugin_worker_runtime,
             plugin_capability_broker,
@@ -276,12 +285,12 @@ impl AppState {
     }
 
     fn build_conversation_context(
-        app_handle: &tauri::AppHandle,
         deployment: &Arc<dyn Deployment>,
         agent_runtime: &Arc<AgentRuntime>,
         turn_locks: &ConversationTurnLockMap,
         runtime_states: &ConversationRuntimeStateMap,
         row_projectors: &conversations::ConversationRowProjectors,
+        event_publisher: &Arc<dyn conversations::ConversationEventPublisher>,
         plugin_control_plane: &Arc<plugins::PluginControlPlane>,
     ) -> conversations::ConversationContext {
         conversations::ConversationContext {
@@ -293,13 +302,7 @@ impl AppState {
             host: Arc::new(crate::conversation_service::AppConversationHost {
                 official_mcp: plugin_control_plane.official_product_mcp_gate(),
             }),
-            event_publisher: Arc::new(server::ChatDeliveryPublisher::new(Arc::new(
-                crate::conversation_service::AppConversationEventPublisher {
-                    app_handle: app_handle.clone(),
-                    deployment: deployment.clone(),
-                    row_projectors: row_projectors.clone(),
-                },
-            ))),
+            event_publisher: event_publisher.clone(),
         }
     }
 
@@ -307,12 +310,12 @@ impl AppState {
     /// injecting the src-tauri-coupled [`AppConversationHost`]. Cheap (Arc clones).
     pub fn conversation_context(&self) -> conversations::ConversationContext {
         Self::build_conversation_context(
-            &self.app_handle,
             &self.deployment,
             &self.agent_runtime,
             &self.conversation_turn_locks,
             &self.conversation_runtime_states,
             &self.conversation_row_projectors,
+            &self.conversation_event_publisher,
             &self.plugin_control_plane,
         )
     }

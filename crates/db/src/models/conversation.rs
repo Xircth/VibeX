@@ -398,6 +398,37 @@ impl ConversationRecord {
         .await
     }
 
+    pub async fn is_legacy_jsonl_migrated<'e, E>(
+        executor: E,
+        id: Uuid,
+    ) -> Result<Option<bool>, sqlx::Error>
+    where
+        E: sqlx::Executor<'e, Database = sqlx::Sqlite>,
+    {
+        let value = sqlx::query_scalar::<_, i64>(
+            "SELECT legacy_jsonl_migrated FROM sessions WHERE id = ? AND deleted_at IS NULL",
+        )
+        .bind(id)
+        .fetch_optional(executor)
+        .await?;
+        Ok(value.map(|flag| flag != 0))
+    }
+
+    pub async fn mark_legacy_jsonl_migrated_on_connection(
+        conn: &mut SqliteConnection,
+        id: Uuid,
+    ) -> Result<bool, sqlx::Error> {
+        let res = sqlx::query(
+            "UPDATE sessions
+                SET legacy_jsonl_migrated = 1
+              WHERE id = ? AND legacy_jsonl_migrated = 0",
+        )
+        .bind(id)
+        .execute(&mut *conn)
+        .await?;
+        Ok(res.rows_affected() > 0)
+    }
+
     pub async fn find_by_id(pool: &SqlitePool, id: Uuid) -> Result<Option<Self>, sqlx::Error> {
         sqlx::query_as::<_, Self>(&format!(
             r#"SELECT {CONVERSATION_COLUMNS}

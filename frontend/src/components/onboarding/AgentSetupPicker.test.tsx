@@ -4,7 +4,7 @@ import { resolve } from 'node:path';
 import { parse } from 'postcss';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import '@/i18n';
+import i18n from '@/i18n';
 
 import { AgentSetupPicker } from './AgentSetupPicker';
 import type { OnboardingAgentOption } from './onboardingAgentModel';
@@ -83,15 +83,13 @@ describe('AgentSetupPicker icons', () => {
             displayName: 'Codex',
           }),
         ]}
-        enabledAgentIds={new Set()}
-        defaultAgentId={null}
+        checks={{}}
+        onInspect={() => undefined}
+        onInstall={() => undefined}
         loading={false}
         discoveryProgress={null}
         error={null}
-        validationError={null}
         onRetry={() => undefined}
-        onEnabledChange={() => undefined}
-        onDefaultChange={() => undefined}
       />
     );
 
@@ -106,7 +104,9 @@ describe('AgentSetupPicker icons', () => {
 
     const artworks = ['Cursor', 'CodeBuddy', 'Codex'].map((name) =>
       screen
-        .getByRole('checkbox', { name: `启用 ${name}` })
+        .getByRole('button', {
+          name: i18n.t('dialogs:onboarding.agentDetail', { agent: name }),
+        })
         .closest('article')
         ?.querySelector('.onboarding-agent-icon svg')
     );
@@ -119,9 +119,9 @@ describe('AgentSetupPicker icons', () => {
     expect(document.querySelector('.onboarding-agent-icon img')).toBeNull();
   });
 
-  it('inspects an Agent independently of enabling it', () => {
+  it('offers authentication configuration without an enable checkbox', () => {
     const onInspect = vi.fn();
-    const onEnabledChange = vi.fn();
+    const onInstall = vi.fn();
     render(
       <AgentSetupPicker
         agents={[
@@ -130,25 +130,52 @@ describe('AgentSetupPicker icons', () => {
             displayName: 'Codex',
             lifecycle: 'needs_auth',
             runtimeInstalled: true,
+            needsInstallation: false,
           }),
         ]}
-        enabledAgentIds={new Set()}
-        defaultAgentId={null}
+        checks={{
+          codex: {
+            report: {
+              agent_id: 'codex',
+              checked_at: '',
+              items: [
+                {
+                  id: 'acp',
+                  label: 'ACP',
+                  status: 'pass',
+                  detail: '',
+                  version: null,
+                  path: null,
+                  source: null,
+                  repairable: false,
+                  update_available: false,
+                  available_version: null,
+                  update_group: null,
+                },
+              ],
+            },
+          },
+        }}
         loading={false}
         discoveryProgress={null}
         error={null}
-        validationError={null}
         onRetry={() => undefined}
-        onDefaultChange={() => undefined}
         onInspect={onInspect}
-        onEnabledChange={onEnabledChange}
+        onInstall={onInstall}
       />
     );
-    fireEvent.click(screen.getByRole('button', { name: '配置 Codex' }));
+    fireEvent.click(
+      screen.getByRole('button', {
+        name: i18n.t('dialogs:onboarding.configureAuthAria', {
+          agent: 'Codex',
+        }),
+      })
+    );
     expect(onInspect).toHaveBeenCalledWith('codex');
-    expect(onEnabledChange).not.toHaveBeenCalled();
-    fireEvent.click(screen.getByRole('checkbox', { name: '启用 Codex' }));
-    expect(onEnabledChange).toHaveBeenCalledWith('codex', true);
-    expect(screen.getByText('需要登录')).toBeInTheDocument();
+    expect(onInstall).not.toHaveBeenCalled();
+    expect(screen.queryByRole('checkbox')).not.toBeInTheDocument();
+    expect(
+      screen.getByText(i18n.t('dialogs:onboarding.agentStatus.needs_auth'))
+    ).toBeInTheDocument();
   });
 });

@@ -65,7 +65,7 @@ const preflight: AgentPreflightView = {
 };
 
 describe('AgentDetail', () => {
-  it('keeps the version row on the same grid line while details expand', async () => {
+  it('keeps preflight chips on a single row and reveals version and details only on expand', async () => {
     const stylesheet = readFileSync(
       resolve(process.cwd(), 'src/styles/legacy/index.css'),
       'utf8'
@@ -80,11 +80,10 @@ describe('AgentDetail', () => {
           "button:not([role='switch']):not([role='checkbox'])"
         ) ||
         rule.selector.includes('.astryx-button') ||
-        rule.selector === '.settings-page .agent-preflight-layout' ||
-        rule.selector.includes("data-expanded='true'") ||
-        rule.selector === '.settings-page .agent-preflight-trigger' ||
-        rule.selector === '.settings-page .agent-preflight-identity' ||
-        rule.selector === '.settings-page .agent-preflight-identity strong' ||
+        rule.selector.includes('.agent-preflight-chips') ||
+        rule.selector.includes('.agent-preflight-chip') ||
+        rule.selector.includes('.agent-preflight-badge') ||
+        rule.selector.includes('.agent-preflight-detail-panel') ||
         rule.selector === '.settings-page .agent-preflight-information-list' ||
         rule.selector === '.settings-page .agent-preflight-information' ||
         rule.selector === '.settings-page .agent-preflight-information-label' ||
@@ -121,28 +120,41 @@ describe('AgentDetail', () => {
     );
 
     try {
+      const chipsList = rendered.container.querySelector(
+        '.agent-preflight-chips'
+      );
       const runtimeResult = screen.getByRole('listitem', {
         name: 'ACP 适配器 检查结果',
       });
-      const runtimeToggle = runtimeResult.querySelector(
-        '.agent-preflight-trigger'
+      const chipHead = runtimeResult.querySelector(
+        '.agent-preflight-chip-head'
       );
-      const layout = runtimeResult.querySelector('.agent-preflight-layout');
-      expect(layout).not.toBeNull();
-      expect(runtimeToggle).not.toBeNull();
-      expect(getComputedStyle(layout!).minHeight).toBe('52px');
-      expect(getComputedStyle(layout!).alignItems).toBe('center');
-      expect(getComputedStyle(runtimeToggle!).alignSelf).toBe('center');
-      expect(getComputedStyle(layout!).gridTemplateColumns).toBe(
-        '160px minmax(0, 1fr) auto'
-      );
+      const statusBadge = runtimeResult.querySelector('.agent-preflight-badge');
+
+      expect(chipsList).not.toBeNull();
+      expect(getComputedStyle(chipsList!).display).toBe('flex');
+      expect(getComputedStyle(chipsList!).flexWrap).toBe('wrap');
+      expect(getComputedStyle(runtimeResult).display).toBe('contents');
+      expect(chipHead).not.toBeNull();
+      expect(getComputedStyle(chipHead!).order).toBe('0');
+      expect(statusBadge).toHaveAttribute('data-status', 'pass');
       expect(
         getComputedStyle(screen.getByRole('button', { name: '立即检查' }))
           .minHeight
       ).toBe('2rem');
-      expect(
-        getComputedStyle(screen.getByText('ACP 适配器')).overflowWrap
-      ).toBe('anywhere');
+      expect(within(runtimeResult).queryByTitle('1.1.0')).toBeNull();
+
+      await userEvent.click(
+        screen.getByRole('button', { name: '展开 ACP 适配器 的检查详情' })
+      );
+
+      expect(getComputedStyle(chipHead!).order).toBe('0');
+      const detailPanel = runtimeResult.querySelector(
+        '.agent-preflight-detail-panel'
+      );
+      expect(detailPanel).not.toBeNull();
+      expect(getComputedStyle(detailPanel!).order).toBe('1');
+      expect(getComputedStyle(detailPanel!).width).toBe('100%');
       expect(
         getComputedStyle(within(runtimeResult).getByTitle('1.1.0')).whiteSpace
       ).toBe('normal');
@@ -150,30 +162,10 @@ describe('AgentDetail', () => {
       const informationStack = within(runtimeResult).getByRole('group', {
         name: 'ACP 适配器 完整检查信息',
       });
-      const versionToken = within(informationStack).getByText('版本');
-      const versionRow = versionToken.parentElement!;
       expect(getComputedStyle(informationStack).display).toBe('grid');
       expect(getComputedStyle(informationStack).gridTemplateColumns).toBe(
         '1fr'
       );
-      expect(getComputedStyle(versionRow).gridTemplateColumns).toBe(
-        '64px minmax(0, 1fr)'
-      );
-
-      await userEvent.click(
-        screen.getByRole('button', { name: '展开 ACP 适配器 的检查详情' })
-      );
-      expect(getComputedStyle(layout!).alignItems).toBe('start');
-      expect(getComputedStyle(runtimeToggle!).alignSelf).toBe('start');
-      expect(getComputedStyle(layout!).gridTemplateColumns).toBe(
-        '160px minmax(0, 1fr) auto'
-      );
-      expect(within(runtimeResult).getByText('版本')).toBe(versionToken);
-      expect(
-        getComputedStyle(
-          within(runtimeResult).getByText('ACP 适配器').parentElement!
-        ).alignSelf
-      ).toBe('stretch');
 
       const informationRows = Array.from(informationStack.children);
       expect(
@@ -233,7 +225,7 @@ describe('AgentDetail', () => {
     ).toBeInTheDocument();
   });
 
-  it('does not show a local Runtime row when only the ACP adapter is present', () => {
+  it('does not show a local Runtime row when only the ACP adapter is present', async () => {
     render(
       <AgentDetail
         agent={{
@@ -267,6 +259,12 @@ describe('AgentDetail', () => {
       name: '运行入口 检查结果',
     });
     expect(within(runtimeEntry).getByText('可用')).toBeInTheDocument();
+    expect(within(runtimeEntry).queryByTitle('1.7.0')).toBeNull();
+    await userEvent.click(
+      within(runtimeEntry).getByRole('button', {
+        name: '展开 运行入口 的检查详情',
+      })
+    );
     expect(within(runtimeEntry).getByTitle('1.7.0')).toBeInTheDocument();
     expect(within(runtimeEntry).queryByTitle('未知')).toBeNull();
     expect(
@@ -318,9 +316,7 @@ describe('AgentDetail', () => {
     const acpResult = screen.getByRole('listitem', {
       name: 'ACP 适配器 检查结果',
     });
-    expect(within(acpResult).getByTitle('1.1.0')).toHaveClass(
-      'agent-preflight-evidence-value'
-    );
+    expect(within(acpResult).queryByTitle('1.1.0')).not.toBeInTheDocument();
     expect(
       within(acpResult).queryByTitle('/opt/vibex/bin/codex-acp')
     ).not.toBeInTheDocument();
@@ -330,6 +326,9 @@ describe('AgentDetail', () => {
     expect(acpToggle).toHaveAttribute('aria-expanded', 'false');
     await userEvent.click(acpToggle);
     expect(acpToggle).toHaveAttribute('aria-expanded', 'true');
+    expect(within(acpResult).getByTitle('1.1.0')).toHaveClass(
+      'agent-preflight-evidence-value'
+    );
     expect(within(acpResult).getByText('位置')).toBeInTheDocument();
     expect(
       within(acpResult).getByTitle('/opt/vibex/bin/codex-acp')

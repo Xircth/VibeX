@@ -423,8 +423,7 @@ ADR-0029 的显式 Session rebind，不能伪造上下文连续。
 
 ## Delivery and release policy
 
-实施必须遵循配套的
-[ACP V1 → V2 迁移与架构改进计划](../plans/2026-08-02-acp-v2-migration.md)。总体门禁为：
+实施遵循配套的 ACP V1 → V2 迁移门禁（`2026-08-02-acp-v2-migration`）。总体门禁为：
 
 1. 先建立 V1 characterization fixture，再提取 Adapter；
 2. 先让 V1 通过新 seam，再增加 V2，不同时重写核心和接入新协议；

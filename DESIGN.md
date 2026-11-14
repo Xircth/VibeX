@@ -250,7 +250,12 @@ A restrained, system-adaptive neutral palette with one user-configurable accent 
 
 - **Ayu Green** — success, passed checks, healthy terminal.
 - **Ayu Amber** — warning, queued, pending; attention without danger.
-- **Review Red** — destructive actions, failures, deleted diff state, irreversible warnings.
+- **Error Red** — destructive actions, failures, deleted diff state, irreversible warnings.
+
+Session lifecycle colors share `--session-status-*` across lists, canvas nodes,
+and collaboration: gray for not started, blue for in progress, amber for review
+or confirmation, and green for done. Red remains reserved for errors. Keep status
+labels and the running spinner so color is never the only cue.
 
 ### Neutrals
 
@@ -388,7 +393,7 @@ The workhorse content surface: an opaque `.settings-surface` card with a quiet h
 
 - **Switch**: Ink track with a white thumb when on in light. Dark mode uses the resolved accent fill (Pearl Ink by default) with a contrasting thumb. Keep a clear off state and never use the switch as the only signal for a meaningful change.
 - **Secondary / outline buttons and selects**: opaque white in light mode, `#262626` in dark mode, a 1px hairline border, no drop shadow, and `14px` radius.
-- **Inputs / fields**: the same opaque surface, 1px hairline, `14px` radius, `32px` compact height; accent focus ring at low opacity; error state in Review Red **with a text explanation**.
+- **Inputs / fields**: the same opaque surface, 1px hairline, `14px` radius, `32px` compact height; accent focus ring at low opacity; error state in Error Red **with a text explanation**.
 
 #### Single control frame rule
 

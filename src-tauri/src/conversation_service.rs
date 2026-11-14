@@ -14,9 +14,9 @@ use agents::AgentContentBlock;
 pub use conversations::{
     ConversationServiceError, ConversationSessionService, ConversationStartTurnInput,
 };
+use conversations::{ConversationLivePipeline, ConversationRowProjectors};
 use db::models::{conversation_event::ConversationEventRecord, repo::Repo, workspace::Workspace};
 use sqlx::SqlitePool;
-use tauri::AppHandle;
 
 /// src-tauri-coupled host operations for the conversation turn lifecycle. Implements
 /// [`conversations::ConversationHost`] so the orchestration core stays decoupled from
@@ -28,32 +28,37 @@ pub struct AppConversationHost {
 /// Desktop projection publisher injected at the conversation-core commit boundary.
 /// Awaiting this publisher makes a committed user event visible before the core can
 /// dispatch the causally-later Agent prompt.
+///
+/// The fold/lock/batch work is the shared [`ConversationLivePipeline`]; this type only
+/// pins it to the desktop transport ([`crate::events::TauriEventSink`]) and the app's
+/// write connection.
 pub struct AppConversationEventPublisher {
-    pub app_handle: AppHandle,
-    pub deployment: Arc<dyn deployment::Deployment>,
-    pub row_projectors: crate::events::ConversationRowProjectors,
+    pipeline: ConversationLivePipeline,
+}
+
+impl AppConversationEventPublisher {
+    pub fn new(
+        deployment: Arc<dyn deployment::Deployment>,
+        row_projectors: ConversationRowProjectors,
+    ) -> Self {
+        Self {
+            pipeline: ConversationLivePipeline::new(
+                deployment.db().pool.clone(),
+                row_projectors,
+                Arc::new(crate::events::TauriEventSink),
+            ),
+        }
+    }
 }
 
 #[async_trait::async_trait]
 impl conversations::ConversationEventPublisher for AppConversationEventPublisher {
     async fn publish(&self, record: &ConversationEventRecord) {
-        crate::events::emit_conversation_row_ops_after(
-            &self.app_handle,
-            &self.row_projectors,
-            &self.deployment.db().pool,
-            record.conversation_id,
-            record.sequence - 1,
-        )
-        .await;
+        self.pipeline.publish(record).await;
     }
 
     async fn publish_unpersisted(&self, record: &ConversationEventRecord) {
-        crate::events::emit_unpersisted_row_op(
-            &self.row_projectors,
-            &self.deployment.db().pool,
-            record,
-        )
-        .await;
+        self.pipeline.publish_unpersisted(record).await;
     }
 }
 

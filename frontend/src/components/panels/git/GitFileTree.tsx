@@ -64,6 +64,8 @@ interface GitFileTreeProps {
   section: FileSection;
   selectedPath: string | null;
   selectedPaths?: Set<string>;
+  workspaceId?: string | null;
+  repoRootPath?: string | null;
   onSelectFile: (path: string, e?: React.MouseEvent) => void;
   onReviewFile?: (path: string) => void;
   onDoubleClick?: (path: string) => void;
@@ -78,6 +80,8 @@ export const GitFileTree = memo(function GitFileTree({
   section,
   selectedPath,
   selectedPaths,
+  workspaceId = null,
+  repoRootPath = null,
   onSelectFile,
   onReviewFile,
   onDoubleClick,
@@ -96,6 +100,8 @@ export const GitFileTree = memo(function GitFileTree({
         section={section}
         selectedPath={selectedPath}
         selectedPaths={selectedPaths}
+        workspaceId={workspaceId}
+        repoRootPath={repoRootPath}
         onSelectFile={onSelectFile}
         onReviewFile={onReviewFile}
         onDoubleClick={onDoubleClick}
@@ -115,6 +121,8 @@ interface TreeNodeRendererProps {
   section: FileSection;
   selectedPath: string | null;
   selectedPaths?: Set<string>;
+  workspaceId?: string | null;
+  repoRootPath?: string | null;
   onSelectFile: (path: string, e?: React.MouseEvent) => void;
   onReviewFile?: (path: string) => void;
   onDoubleClick?: (path: string) => void;
@@ -131,6 +139,8 @@ function TreeNodeRenderer({
   section,
   selectedPath,
   selectedPaths,
+  workspaceId = null,
+  repoRootPath = null,
   onSelectFile,
   onReviewFile,
   onDoubleClick,
@@ -212,6 +222,8 @@ function TreeNodeRenderer({
               section={section}
               selectedPath={selectedPath}
               selectedPaths={selectedPaths}
+              workspaceId={workspaceId}
+              repoRootPath={repoRootPath}
               onSelectFile={onSelectFile}
               onReviewFile={onReviewFile}
               onDoubleClick={onDoubleClick}
@@ -229,6 +241,8 @@ function TreeNodeRenderer({
               isActive={selectedPath === file.path}
               isSelected={selectedPaths?.has(file.path)}
               indentPx={(isRoot ? 0 : depth + 1) * 12}
+              workspaceId={workspaceId}
+              repoRootPath={repoRootPath}
               onSelect={onSelectFile}
               onReviewFile={onReviewFile}
               onDoubleClick={onDoubleClick}

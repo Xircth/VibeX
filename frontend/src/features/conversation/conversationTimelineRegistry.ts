@@ -41,8 +41,8 @@ const EMPTY_CONFIG_OPTIONS: AgentSessionConfigOption[] = [];
 const EMPTY_ASYNC_TASKS: AsyncTaskRecord[] = [];
 
 export const STREAM_FLUSH_FRAME_MS = 16;
-export const STREAM_FLUSH_MAX_MS = 192;
-export const STREAM_FLUSH_CHARS_PER_FRAME = 8 * 1024;
+export const STREAM_FLUSH_MAX_MS = 96;
+export const STREAM_FLUSH_CHARS_PER_FRAME = 16 * 1024;
 export const STREAM_FLUSH_BLOCK_CHARS = 128;
 const STREAM_QUEUE_CAP = 256;
 

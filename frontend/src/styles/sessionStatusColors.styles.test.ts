@@ -29,15 +29,18 @@ function declarationsFor(
 }
 
 describe('session status colors', () => {
-  it('assigns gray, yellow, red, and blue workbench tokens', () => {
-    expect(legacyCss).toContain('--session-status-todo: var(--text-muted);');
-    expect(legacyCss).toContain(
-      '--session-status-inprogress: hsl(var(--warning));'
+  it('assigns gray, blue, amber, and green workbench tokens', () => {
+    const tokens = declarationsFor(legacyCss, '.legacy-design');
+    expect(tokens['--session-status-todo']).toBe('var(--text-muted)');
+    expect(tokens['--session-status-inprogress'].replace(/\s+/g, ' ')).toBe(
+      'color-mix( in srgb, var(--usage-blue-fg) 85%, var(--text-strong) )'
     );
-    expect(legacyCss).toContain(
-      '--session-status-inreview: hsl(var(--destructive));'
+    expect(tokens['--session-status-inreview'].replace(/\s+/g, ' ')).toBe(
+      'color-mix( in srgb, var(--status-warning-text) 85%, var(--text-strong) )'
     );
-    expect(legacyCss).toContain('--session-status-done: var(--usage-blue-fg);');
+    expect(tokens['--session-status-done'].replace(/\s+/g, ' ')).toBe(
+      'color-mix( in srgb, var(--usage-green-fg) 80%, var(--text-strong) )'
+    );
   });
 
   it('paints status dots from those tokens', () => {
@@ -60,7 +63,7 @@ describe('session status colors', () => {
     ).toBe('var(--session-status-done)');
   });
 
-  it('paints collaboration review dots red instead of warning yellow', () => {
+  it('shares lifecycle colors with collaboration status dots', () => {
     expect(collaborationCss).toContain('var(--session-status-inreview)');
     expect(collaborationCss).toContain('var(--session-status-inprogress)');
     expect(collaborationCss).toContain('var(--session-status-done)');

@@ -396,6 +396,28 @@ export function openWindowSessionIds(
   return ids;
 }
 
+export function placedCanvasSessionIds(
+  nodes: readonly SessionCanvasNode[]
+): string[] {
+  const ids: string[] = [];
+  const seen = new Set<string>();
+  const sessionNodes = nodes
+    .filter(
+      (node) =>
+        node.kind !== 'group' && node.sessionId.length > 0
+    )
+    .sort(
+      (left, right) =>
+        left.createdAt - right.createdAt || left.id.localeCompare(right.id)
+    );
+  for (const node of sessionNodes) {
+    if (seen.has(node.sessionId)) continue;
+    seen.add(node.sessionId);
+    ids.push(node.sessionId);
+  }
+  return ids;
+}
+
 export function canvasWindowSlotIndex(
   sessionId: string,
   windowSessionIds: readonly string[]

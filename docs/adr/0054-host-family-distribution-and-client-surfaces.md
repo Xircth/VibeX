@@ -17,6 +17,8 @@ VibeX 只发行一个执行面：**VibeX Host**。手机 App、IM 渠道、其�
 Developer ID 与 Windows Authenticode 不是本阶段发行门槛；updater 签名与
 SHA-256 校验仍然需要。
 
+> **状态注记（2026-11）：** 原生 Android Companion（[ADR-0041](0041-native-kotlin-compose-android-companion.md)）与原生 SwiftUI iOS Companion（[ADR-0084](0084-native-swiftui-ios-companion.md)）均已纳入仓库 `mobile/` 目录并复用同一 Remote Protocol v1。
+
 ## 拓扑
 
 同一数据目录同一时刻只有一个 Host。Host 可以是 VibeX.app 或 `vibex-server`。

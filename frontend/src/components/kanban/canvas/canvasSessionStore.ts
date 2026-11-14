@@ -54,6 +54,7 @@ export function createCanvasSessionStore(): CanvasSessionStore {
       const prev = sessions;
       const updated = new Map<string, KanbanProjectRecordSnapshot>();
       const seen = new Set<string>();
+      const changed = new Set<string>();
       for (const [id, session] of next) {
         seen.add(id);
         const revision = sessionRevision(session);
@@ -63,19 +64,20 @@ export function createCanvasSessionStore(): CanvasSessionStore {
           continue;
         }
         updated.set(id, { session, revision });
-        if (!previous || previous.revision !== revision) notify(id);
+        changed.add(id);
       }
       for (const id of prev.keys()) {
         if (seen.has(id)) continue;
-        notify(id);
+        changed.add(id);
       }
       sessions = updated;
       if (sessionsReady !== nextReady) {
         sessionsReady = nextReady;
-        for (const id of listeners.keys()) notify(id);
+        for (const id of listeners.keys()) changed.add(id);
       } else {
         sessionsReady = nextReady;
       }
+      for (const id of changed) notify(id);
     },
     subscribe(sessionId, onChange) {
       let subs = listeners.get(sessionId);

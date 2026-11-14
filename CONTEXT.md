@@ -2,55 +2,6 @@
 
 Glossary of domain terms. Keep entries implementation-free; link decisions to ADRs in `docs/adr/`.
 
-## Agent Skill 使用规则
-
-### 总则
-
-1. 开始分析、设计、实现、测试或发布前，Agent 必须将任务与下列场景匹配；直接命中时，**先完整阅读对应 `SKILL.md`，再执行任务**。
-2. 专用 Skill 优先，且只选择覆盖任务所需的最小集合；跨层改动应组合使用。例如新增 Tauri command 的前端入口，必须同时覆盖 IPC、前后端集成与测试。
-3. 动手前先读本文件与相关 ADR。用户可见界面还必须读 `DESIGN.md`、`frontend/CLAUDE.md`，并执行相应设计 Skill。
-4. 已安装不等于强制使用：只有任务直接匹配时触发。无法读取 Skill 时说明原因，并采用最接近的安全替代方案。
-
-### 设计与前端
-
-- **新建或重设计 UI、视觉层级和交互**：[`frontend-design`](/Users/sean/.agents/skills/frontend-design/SKILL.md) 与 [`impeccable`](/Users/sean/Documents/Projetcs/VibeX/.agents/skills/impeccable/SKILL.md)。
-- **macOS/Tahoe 原生体验、平台交互或窗口外观**：[`apple-design`](/Users/sean/.agents/skills/apple-design/SKILL.md)、[`macos-app-design`](/Users/sean/.agents/skills/macos-app-design/SKILL.md)。
-- **探索多个 UI 方向**：[`design-an-interface`](/Users/sean/.agents/skills/design-an-interface/SKILL.md)。**审查可用性、可访问性与 Web 规范**：[`web-design-guidelines`](/Users/sean/.agents/skills/web-design-guidelines/SKILL.md)。
-- **浏览器自动化和前端 E2E 验证**：[`webapp-testing`](/Users/sean/.agents/skills/webapp-testing/SKILL.md)、[`e2e-testing-patterns`](/Users/sean/.agents/skills/e2e-testing-patterns/SKILL.md)。
-
-### Tauri、Rust 与桌面能力
-
-- **任意 Tauri v2 能力或架构变更**：[`tauri-v2`](/Users/sean/.agents/skills/tauri-v2/SKILL.md)、[`understanding-tauri-architecture`](/Users/sean/.agents/skills/understanding-tauri-architecture/SKILL.md)。
-- **Rust command 与前端 `invoke`**：[`calling-rust-from-tauri-frontend`](/Users/sean/.agents/skills/calling-rust-from-tauri-frontend/SKILL.md)、[`calling-frontend-from-tauri-rust`](/Users/sean/.agents/skills/calling-frontend-from-tauri-rust/SKILL.md)、[`integrating-tauri-js-frontends`](/Users/sean/.agents/skills/integrating-tauri-js-frontends/SKILL.md)、[`integrating-tauri-rust-frontends`](/Users/sean/.agents/skills/integrating-tauri-rust-frontends/SKILL.md)。**事件**：[`listening-to-tauri-events`](/Users/sean/.agents/skills/listening-to-tauri-events/SKILL.md)。
-- **IPC、进程模型、生命周期、runtime authority 或安全**：[`understanding-tauri-ipc`](/Users/sean/.agents/skills/understanding-tauri-ipc/SKILL.md)、[`understanding-tauri-process-model`](/Users/sean/.agents/skills/understanding-tauri-process-model/SKILL.md)、[`understanding-tauri-lifecycle-security`](/Users/sean/.agents/skills/understanding-tauri-lifecycle-security/SKILL.md)、[`understanding-tauri-runtime-authority`](/Users/sean/.agents/skills/understanding-tauri-runtime-authority/SKILL.md)、[`understanding-tauri-ecosystem-security`](/Users/sean/.agents/skills/understanding-tauri-ecosystem-security/SKILL.md)。
-- **Capabilities、permissions、scopes、CSP、HTTP headers**：[`configuring-tauri-capabilities`](/Users/sean/.agents/skills/configuring-tauri-capabilities/SKILL.md)、[`configuring-tauri-permissions`](/Users/sean/.agents/skills/configuring-tauri-permissions/SKILL.md)、[`configuring-tauri-scopes`](/Users/sean/.agents/skills/configuring-tauri-scopes/SKILL.md)、[`configuring-tauri-csp`](/Users/sean/.agents/skills/configuring-tauri-csp/SKILL.md)、[`configuring-tauri-http-headers`](/Users/sean/.agents/skills/configuring-tauri-http-headers/SKILL.md)。
-- **窗口、托盘、启动屏、资源、插件、sidecar**：[`customizing-tauri-windows`](/Users/sean/.agents/skills/customizing-tauri-windows/SKILL.md)、[`adding-tauri-system-tray`](/Users/sean/.agents/skills/adding-tauri-system-tray/SKILL.md)、[`adding-tauri-splashscreen`](/Users/sean/.agents/skills/adding-tauri-splashscreen/SKILL.md)、[`managing-tauri-app-resources`](/Users/sean/.agents/skills/managing-tauri-app-resources/SKILL.md)、[`developing-tauri-plugins`](/Users/sean/.agents/skills/developing-tauri-plugins/SKILL.md)、[`managing-tauri-plugin-permissions`](/Users/sean/.agents/skills/managing-tauri-plugin-permissions/SKILL.md)、[`embedding-tauri-sidecars`](/Users/sean/.agents/skills/embedding-tauri-sidecars/SKILL.md)、[`running-nodejs-sidecar-in-tauri`](/Users/sean/.agents/skills/running-nodejs-sidecar-in-tauri/SKILL.md)。
-- **配置、初始化、迁移、调试和依赖更新**：[`configuring-tauri-apps`](/Users/sean/.agents/skills/configuring-tauri-apps/SKILL.md)、[`setting-up-tauri-projects`](/Users/sean/.agents/skills/setting-up-tauri-projects/SKILL.md)、[`migrating-tauri-apps`](/Users/sean/.agents/skills/migrating-tauri-apps/SKILL.md)、[`debugging-tauri-apps`](/Users/sean/.agents/skills/debugging-tauri-apps/SKILL.md)、[`updating-tauri-dependencies`](/Users/sean/.agents/skills/updating-tauri-dependencies/SKILL.md)。
-- **平台打包、签名、CI 或体积优化**：[`distributing-tauri-for-macos`](/Users/sean/.agents/skills/distributing-tauri-for-macos/SKILL.md)、[`distributing-tauri-for-windows`](/Users/sean/.agents/skills/distributing-tauri-for-windows/SKILL.md)、[`packaging-tauri-for-linux`](/Users/sean/.agents/skills/packaging-tauri-for-linux/SKILL.md)、[`distributing-tauri-for-ios`](/Users/sean/.agents/skills/distributing-tauri-for-ios/SKILL.md)、[`distributing-tauri-for-android`](/Users/sean/.agents/skills/distributing-tauri-for-android/SKILL.md)、[`signing-tauri-apps`](/Users/sean/.agents/skills/signing-tauri-apps/SKILL.md)、[`building-tauri-with-github-actions`](/Users/sean/.agents/skills/building-tauri-with-github-actions/SKILL.md)、[`using-crabnebula-cloud-with-tauri`](/Users/sean/.agents/skills/using-crabnebula-cloud-with-tauri/SKILL.md)、[`optimizing-tauri-binary-size`](/Users/sean/.agents/skills/optimizing-tauri-binary-size/SKILL.md)。
-
-### 测试、诊断与质量
-
-1. 新增行为或修复回归：先用 [`tdd`](/Users/sean/.agents/skills/tdd/SKILL.md) 编写失败测试，再实现最小改动。
-2. Tauri API、IPC、窗口、事件或桌面流程：使用 [`testing-tauri-apps`](/Users/sean/.agents/skills/testing-tauri-apps/SKILL.md)；前端单测优先 mock IPC，E2E 按目标平台可行性选择。
-3. Rust 单测与集成测试：[`rust-testing`](/Users/sean/.agents/skills/rust-testing/SKILL.md)。复杂缺陷与性能问题：[`diagnosing-bugs`](/Users/sean/.agents/skills/diagnosing-bugs/SKILL.md)。交付前审查：[`code-review`](/Users/sean/.agents/skills/code-review/SKILL.md)。
-4. 类型断言迁移：[`migrate-to-shoehorn`](/Users/sean/.agents/skills/migrate-to-shoehorn/SKILL.md)。提交前 hooks：[`setup-pre-commit`](/Users/sean/.agents/skills/setup-pre-commit/SKILL.md)。Git 安全防护：[`git-guardrails-claude-code`](/Users/sean/.agents/skills/git-guardrails-claude-code/SKILL.md)。
-
-### 规格、实现与架构
-
-- **需求澄清、PRD 与规格驱动**：[`grill-me`](/Users/sean/.agents/skills/grill-me/SKILL.md)、[`grilling`](/Users/sean/.agents/skills/grilling/SKILL.md)、[`loop-me`](/Users/sean/.agents/skills/loop-me/SKILL.md)、[`to-prd`](/Users/sean/.agents/skills/to-prd/SKILL.md)、[`spec-driven-development`](/Users/sean/.agents/skills/spec-driven-development/SKILL.md)、[`spec-driven-workflow`](/Users/sean/.agents/skills/spec-driven-workflow/SKILL.md)。
-- **按已确认 PRD 实现、拆 issue、QA、分诊与路径探索**：[`implement`](/Users/sean/.agents/skills/implement/SKILL.md)、[`to-issues`](/Users/sean/.agents/skills/to-issues/SKILL.md)、[`qa`](/Users/sean/.agents/skills/qa/SKILL.md)、[`triage`](/Users/sean/.agents/skills/triage/SKILL.md)、[`wayfinder`](/Users/sean/.agents/skills/wayfinder/SKILL.md)。
-- **领域术语、架构审查与重构计划**：[`domain-modeling`](/Users/sean/.agents/skills/domain-modeling/SKILL.md)、[`ubiquitous-language`](/Users/sean/.agents/skills/ubiquitous-language/SKILL.md)、[`codebase-design`](/Users/sean/.agents/skills/codebase-design/SKILL.md)、[`improve-codebase-architecture`](/Users/sean/.agents/skills/improve-codebase-architecture/SKILL.md)、[`request-refactor-plan`](/Users/sean/.agents/skills/request-refactor-plan/SKILL.md)。
-- **原型、worktree、合并冲突、交接和工程技能初始化**：[`prototype`](/Users/sean/.agents/skills/prototype/SKILL.md)、[`using-git-worktrees`](/Users/sean/.agents/skills/using-git-worktrees/SKILL.md)、[`resolving-merge-conflicts`](/Users/sean/.agents/skills/resolving-merge-conflicts/SKILL.md)、[`handoff`](/Users/sean/.agents/skills/handoff/SKILL.md)、[`setup-matt-pocock-skills`](/Users/sean/.agents/skills/setup-matt-pocock-skills/SKILL.md)。
-
-### 其他本机 Skill
-
-以下 Skill 也可用，但仅在用户任务明确匹配时触发：
-
-- **Skill 发现、创建、教学**：[`find-skills`](/Users/sean/.agents/skills/find-skills/SKILL.md)、[`ask-matt`](/Users/sean/.agents/skills/ask-matt/SKILL.md)、[`skill-creator`](/Users/sean/.agents/skills/skill-creator/SKILL.md)、[`writing-great-skills`](/Users/sean/.agents/skills/writing-great-skills/SKILL.md)、[`teach`](/Users/sean/.agents/skills/teach/SKILL.md)、[`scaffold-exercises`](/Users/sean/.agents/skills/scaffold-exercises/SKILL.md)。
-- **写作、知识库、Apple 文档与交互脚本**：[`edit-article`](/Users/sean/.agents/skills/edit-article/SKILL.md)、[`writing-beats`](/Users/sean/.agents/skills/writing-beats/SKILL.md)、[`writing-fragments`](/Users/sean/.agents/skills/writing-fragments/SKILL.md)、[`writing-shape`](/Users/sean/.agents/skills/writing-shape/SKILL.md)、[`obsidian-vault`](/Users/sean/.agents/skills/obsidian-vault/SKILL.md)、[`sosumi`](/Users/sean/.agents/skills/sosumi/SKILL.md)、[`wizard`](/Users/sean/.agents/skills/wizard/SKILL.md)。
-- **项目能力总览**：用户要求理解本项目的能力、结构或状态时，使用 [`understand-dashboard`](/Users/sean/Documents/Projetcs/VibeX/.agents/skills/understand-dashboard/SKILL.md)。
-- **Lark/飞书资源**：认证与通用能力使用 [`lark-shared`](/Users/sean/.agents/skills/lark-shared/SKILL.md)；当用户明确请求操作审批、应用、考勤、Base、日历、通讯录、文档、云盘、事件、IM、邮件、Markdown、妙记、会议纪要、OKR、OpenAPI、表格、幻灯片、任务、视频会议、白板、知识库或报告时，使用对应同名的 [`lark-*`](/Users/sean/.agents/skills) Skill。
-
 ## Conversation domain
 
 - **Conversation（会话）** — 用户与 Agent 交互的持久对话；可以顺序更换 Agent 绑定，同一时刻至多一个 Turn 在途。用户看见的历史以 JSONL 或 vendor 会话文件为权威，与任何 Agent 进程的存活无关。见 [ADR-0082](docs/adr/0082-jsonl-transcript-window.md) 与 [ADR-0086](docs/adr/0086-conversation-binding-generations-and-history-segments.md)。
@@ -92,7 +43,7 @@ Glossary of domain terms. Keep entries implementation-free; link decisions to AD
 
 代码标识符不改名；「bot」只用于开发文档，界面上写「助手」。
 
-- **Bot（代码中为 member）** — 协作空间中的长期身份。名下有一族隐藏会话：私聊一条、每个群组各一条。UI 展示 bot 与聊天，不暴露会话。权威定义见 [docs/collaboration-member-identity.md](docs/collaboration-member-identity.md)。
+- **Bot（代码中为 member）** — 协作空间中的长期身份。名下有一族隐藏会话：私聊一条、每个群组各一条。UI 展示 bot 与聊天，不暴露会话。权威定义见 [docs/architecture.md#collaboration-member-identity](docs/architecture.md#collaboration-member-identity)。
 - **私聊（direct thread）** — 和 bot 一对一聊天的场景，id 为 `direct:<member_id>`。新建 bot 时只创建这一条会话。
 - **群组（代码中为 space / group thread）** — 多个 bot 与用户所在的群；「群聊」指在群组里聊天这一场景，不是对象名。
 - **Contact group（联系人分组）** — 联系人列表里私聊与群组的归档；无分组时平铺，「未分组」由前端生成。
@@ -101,7 +52,7 @@ Glossary of domain terms. Keep entries implementation-free; link decisions to AD
 - **Spawned conversation（派生会话）** — 用 `create_conversation` 留下的一等 Conversation。它和父 Conversation 只有导航关系：不级联取消，也不套用一次性委派的先到终态。
 - **Delayed input（延时输入）** — 尚未进入普通队列的定时输入。到期后才提升为排队输入。它不是排队输入，也不是 Steering。
 - **Same-workspace send（同工作区发送）** — 协同写路径可以提交到同一工作区里的自己、子孙和其它会话。其它工作区、已删除或已归档的会话表现为不存在。
-- **Collaboration space（协作空间）** — 私聊与群组所在的内置 IM 界面；群组共享房间日志，按收件人向各 bot 的隐藏会话各提交一次。它不是 Conversation，也不是任务图。见 [docs/collaboration-member-identity.md](docs/collaboration-member-identity.md)。
+- **Collaboration space（协作空间）** — 私聊与群组所在的内置 IM 界面；群组共享房间日志，按收件人向各 bot 的隐藏会话各提交一次。它不是 Conversation，也不是任务图。见 [docs/architecture.md#collaboration-member-identity](docs/architecture.md#collaboration-member-identity)。
 - **Space member seat（空间座位）** — 群组里的一个昵称座位，绑定该 bot 在该 thread 的隐藏会话。用户座位对 Agent 不可见。
 - **Space message（空间消息）** — 房间日志里的一条记录，带单调序号。它不是任一成员会话的历史。
 - **Delivery receipt（投递回执）** — 一条空间消息对一个 bot 会话的提交结果。存储态为 `queued` → `processing` → `{replied|passed|timed_out|cancelled}`；`failed` 由传输层 `status='failed'` 在读取时派生，`limit_reached` 由 queued + wake 推迟键派生。
@@ -120,7 +71,7 @@ Glossary of domain terms. Keep entries implementation-free; link decisions to AD
 聚焦已有会话面板见
 [ADR-0042](docs/adr/0042-conversations-are-first-class-dockview-panels.md)。
 协作空间 bot 身份、术语对照与接口见
-[docs/collaboration-member-identity.md](docs/collaboration-member-identity.md)。
+[docs/architecture.md#collaboration-member-identity](docs/architecture.md#collaboration-member-identity)。
 角色模板与历史插件化决策见
 [ADR-0057](docs/adr/0057-session-enhance-and-multi-agent-plugins.md)
 与
@@ -280,7 +231,7 @@ _Avoid_: 连接, 隧道, 服务器地址（单独拿来当 Host 身份）
 - **Remote disconnect（远程断开）** — 只结束 Server-bound window 的当前网络连接，不删除 Server Profile、缓存、device credential 或 Paired device 关系；关闭窗口、退出应用和临时断网都属于这一语义。
 - **Forget server（忘记服务器）** — 用户要求客户端删除一个远端 Server Profile、其只读缓存与系统凭据的本地操作；它与 Remote disconnect 不同，并应在可达时先请求撤销本设备。
 - **Remote coding loop（远程编码闭环）** — 用户在 Server-bound window 中从选择 Project/Workspace 到运行 Agent、处理交互、编辑文件、审阅 Diff、操作 Git 与终端的完整日常任务；它是远程桌面首版的产品完成边界，不等于所有桌面专属能力的协议镜像。
-- **Mobile companion（移动伴随端）** — 连接在线 VibeX Host、观察并控制远端工作的薄客户端，不在移动设备上运行 Agent、Git worktree 或 Artifact 工具；没有 Host 在线时只能读取离线缓存。首个交付平台为 Android，iOS 复用同一 Remote protocol 后续交付。
+- **Mobile companion（移动伴随端）** — 连接在线 VibeX Host、观察并控制远端工作的薄客户端，不在移动设备上运行 Agent、Git worktree 或 Artifact 工具；没有 Host 在线时只能读取离线缓存。Android（[ADR-0041](docs/adr/0041-native-kotlin-compose-android-companion.md)）与 iOS（[ADR-0084](docs/adr/0084-native-swiftui-ios-companion.md)）均复用同一 Remote Protocol v1。
 - **Remote protocol（远程协议）** — `remote-protocol` 的版本化稳定 ID、error envelope、capabilities、typed command 与 durable subscription DTO。v1 Schema/OpenAPI 位于 `docs/protocol/v1/`。
 - **Durable attach（持久订阅附着）** — 以 Conversation sequence 为权威的 ready → snapshot/replay → high-water → live 契约；sequence 去重，未知 event kind 必须可保留或忽略。
 - **Pairing invitation（配对邀请）** — 本机控制台出示的短时邀请，携带 Host 身份、设备权限预设、当前全部 Reachability（不含 loopback）以及仅供未配对设备使用的一次性 secret。已持有该 Host 身份凭证的设备只合并 Reachability，不重新兑换；secret 过期后仍可从新出示的邀请收下 origin。长期 device credential 不得出现在邀请或 URL 里。见 [ADR-0059](docs/adr/0059-host-identity-and-pairing-invitation.md)。
@@ -300,12 +251,15 @@ _Avoid_: 连接, 隧道, 服务器地址（单独拿来当 Host 身份）
 - **Agent source（Agent 来源）** — VibeX 获取 Agent 接入契约的受控来源；允许 VibeX Built-in Agent Profile、ACP 官方 Registry 与用户声明的 Registry-compatible distribution。用户声明来源不等于官方来源，且不包含任意启动命令、自定义 Registry URL 或 PATH 自动发现。
 - **User-declared agent definition（用户声明 Agent 定义）** — 用户为官方 Registry 尚未收录的本地 ACP Agent 提供的版本化接入契约；只接受 Binary、npx 或 uvx 的 Registry-compatible distribution，保存稳定 Agent id、明确分发方式与定义 digest，并复用统一冻结安装计划、Installation lock 和 LaunchGate。
 - **Community ACP preset（社区 ACP 预设）** — VibeX 为官方 Registry 尚未收录、但已有成熟开源 ACP 适配器的 Agent 提供的 Registry-compatible 分发模板；它出现在 ACP 注册表「手动添加」页，添加后走用户声明定义同一管线，不得显示为官方 Registry 或 VibeX 已验证。已提升为内置 Agent 的预设只展示已内置状态，不能再以同一身份重复添加。
-- **Agent profile（Agent 档案）** — 驱动统一 Agent 管线的声明式接入契约，描述身份、运行拓扑、分发、检测和版本信息；来源不同不会改变安装、配置或运行语义。
-- **Built-in agent（内置 agent）** — 由 VibeX 预先加入并给予默认展示策略的 Agent；当前成员为 Claude Code、Codex、Pi、Grok、Cursor、DeepSeek Harness、Google Antigravity、Cline、OpenClaw、Hermes、CodeBuddy、Kimi Code、Qoder、Kiro CLI、Auggie、TRAE CLI、Command Code、ZCode 与 OMP。它们与其他 Agent 使用同一安装、探测和会话管线，但可由档案声明各自的官方账号、订阅、Provider 与原生插件管理动作。ZCode 的账号留在官方应用内。
-- **Built-in agent profile（内置 agent 档案）** — VibeX 为内置 Agent 提供的 Agent 档案，可声明其本地 Runtime、ACP 适配器、检测候选、依赖环境、验证组合、原生配置与白名单管理动作，但不能改变统一 Agent 管线的语义。
+- **Dedicated agent engine（独立 Agent 引擎适配）** — 针对目标 Agent 的官方原生 SDK、原生服务协议（如 `app-server`）及原生会话/状态机制直接构建的一等引擎适配；是 VibeX 接入与深化 Agent 能力的**首选方式**，完整保留精确用量、缓存周期、限流恢复、在途纠偏、协同回退与子代理流等原生控制面语义。见 [ADR-0087](docs/adr/0087-dedicated-agent-engine-first-acp-fallback.md)。
+_Avoid_: ACP 优先, 统一走 ACP 包装器, ACP-only
+- **ACP compatibility channel（ACP 次选兼容通道）** — 基于 Agent Client Protocol（ACP）的通用标准接入通道；作为**次选方案**服务于尚未提供独立 Agent 引擎适配的内置 Agent、ACP 官方 Registry 条目与用户声明分发。见 [ADR-0087](docs/adr/0087-dedicated-agent-engine-first-acp-fallback.md)。
+- **Agent profile（Agent 档案）** — 驱动 Agent 产品模型的声明式接入契约，描述身份、引擎适配模式（独立引擎或次选 ACP 拓扑）、分发、检测和版本信息；底层走独立引擎还是 ACP 通道不改变用户侧统一的产品概念。
+- **Built-in agent（内置 agent）** — 由 VibeX 预先加入并给予默认展示策略的 Agent；当前成员为 Claude Code、Codex、Pi、OpenCode、Grok、Cursor、DeepSeek Harness、Google Antigravity、Cline、OpenClaw、Hermes、CodeBuddy、Kimi Code、Qoder、Kiro CLI、Auggie、TRAE CLI、Command Code、ZCode 与 OMP（共 20 个）。它们优先采用独立 Agent 引擎深度适配，尚未提供独立引擎时走次选 ACP 通道，并可由档案声明各自的官方账号、订阅、Provider 与原生插件管理动作。ZCode 的账号留在官方应用内。
+- **Built-in agent profile（内置 agent 档案）** — VibeX 为内置 Agent 提供的 Agent 档案，可声明其独立引擎驱动或次选 ACP 适配器、本地 Runtime、检测候选、依赖环境、验证组合、原生配置与白名单管理动作。
 - **Agent management capability（Agent 管理能力）** — Agent 在统一设置界面中提供的认证状态、账户状态、订阅入口、Provider 连接以及官方登录、注销和初始化动作。管理动作必须由 Built-in Agent Profile 完整声明，不能接受用户提供的程序、参数、URL 或任意 shell 文本。
 - **Profile management action（档案管理动作）** — Built-in Agent Profile 固定声明的登录、注销、初始化或订阅入口；VibeX 只解析当前安装锁或 PATH 中的同名官方可执行文件，并在用户点击后于可见终端中启动，或打开固定官方 URL。
-- **Local management fallback（本地管理补缺）** — 当 ACP 未提供某项状态管理能力时，Built-in Agent Profile 可以提供的等价本地状态探测；同一状态能力由 ACP 优先。持久配置始终通过已适配的 Agent 原生配置文件编辑，不属于补缺切换。
+- **Native management priority（原生管理与状态优先）** — 同一项状态探测、配额、模型目录或会话管理能力，优先由独立 Agent 引擎适配与 Built-in Agent Profile 已验证的原生本地机制提供；通用 ACP 状态通告仅作为无独立引擎或未覆盖项的次选补充（取代旧「本地管理补缺 / ACP 优先」口径）。持久配置始终通过已适配的 Agent 原生配置文件编辑。见 [ADR-0087](docs/adr/0087-dedicated-agent-engine-first-acp-fallback.md)。
 - **Subscription visibility（订阅可见性）** — 对 Agent 账户套餐、额度、用量与重置时间的呈现，并可由档案动作打开固定官方订阅页面；购买、升级、降级和取消仍由官方页面完成。
 - **Authentication status（认证状态）** — VibeX 对 Agent 当前认证来源的判断：已通过账号登录、已通过 API Key 登录或暂未登录；用户可从设置页显式启动 Built-in Agent Profile 声明的官方登录或注销流程。
 - **Credential ownership（凭据所有权）** — 表明认证凭据由 Agent Runtime 配置或用户外部环境中的哪一方持有。VibeX 可启动官方 Agent 的账号流程，也可编辑 Profile 明确认识的本地凭据字段或 Provider 文档，但不采集终端交互内容、不自动生成凭据，也不删除 Profile 范围外的外部环境凭据。
@@ -331,8 +285,8 @@ _Avoid_: 与 CC Switch 同步, 接管 CC Switch, 直接覆盖当前绑定
 - **Provider catalog template（供应商预置目录模板）** — 插件向供应商鉴权模式新建表单贡献的无密钥填表模板。点选只填充该表面草稿；用户保存之前它不是 Model Provider preset，也不是外部供应商导入。它不是 OpenCode Provider catalog，也不是对已填端点的模型探测。官方目录以独立市场插件交付、默认禁用，不是能力等价插件。见 [ADR-0079](docs/adr/0079-provider-catalog-templates-are-not-import-sources.md)。
 _Avoid_: 导入源, CC Switch, 已保存连接, 能力等价插件
 - **New-session default（新会话默认偏好）** — VibeX 为某个 Agent 全局记忆、并在创建会话时尝试应用的 ACP 会话配置选择；它不是 Project 设置或 Agent 原生配置，也不会改变已经存在的会话。
-- **Native ACP agent（原生 ACP agent）** — 本地 agent runtime 与 ACP server 由同一个安装物提供的 agent；它只有一个需安装和验证的运行组件。
-- **Adapter-backed ACP agent（适配器型 ACP agent）** — ACP server 只负责桥接、实际能力由 vendor CLI 提供的 agent。预检查与会话只验证 ACP 启动命令（Claude/Codex 为适配器包，Pi 为 `pi-acp`）。PATH 上的 vendor CLI 不是健康项，也不是启动门；原生 ACP 的 Runtime 与 ACP 是同一安装物，预检查只保留一条启动入口。见 [ADR-0010](docs/adr/0010-agent-runtime-topology.md)。
+- **Native ACP agent（原生 ACP agent）** — 在次选 ACP 通道中，本地 agent runtime 与 ACP server 由同一个安装物提供的 agent；它只有一个需安装和验证的运行组件。
+- **Adapter-backed ACP agent（适配器型 ACP agent）** — 在次选 ACP 通道中，ACP server 负责桥接、实际能力由 vendor CLI 提供的 agent。已升级为独立 Agent 引擎适配的内置 Agent 不再走此桥接拓扑。见 [ADR-0010](docs/adr/0010-agent-runtime-topology.md) 与 [ADR-0087](docs/adr/0087-dedicated-agent-engine-first-acp-fallback.md)。
 - **User-environment agent installation（用户环境 Agent 安装）** — 本地 Runtime 与 ACP 只存在于用户环境（PATH、npm 全局前缀、uv tools、用户 bin）。平台安装也写入该环境，再按 PATH 探测接入；Installation lock 只记录这次观察，不是另一份托管产物。见 [ADR-0060](docs/adr/0060-agent-installs-use-user-environment.md)。
 - **External agent installation（外部 Agent 安装）** — 历史用语，现与用户环境安装同义：VibeX 绑定并校验用户环境中的 CLI，不再维护独立托管树。
 - **Installation attempt（安装尝试）** — 一次把 Agent 的托管组件安装、修复或更新到目标版本的有界操作；它可以完成、失败、由用户取消或因宿主退出而中断，其终态不改变 Agent 的已添加关系。
@@ -359,14 +313,16 @@ _Avoid_: 导入源, CC Switch, 已保存连接, 能力等价插件
 - **History import（历史导入）** — 把外部工具（Claude Code、Codex 等）的本地会话历史接管进 VibeX 会话体系的行为。
 - **Session fork（会话分叉）** — 从一条**已完成** assistant 消息所属 Turn（或会话尾部）分出一个新 Conversation：新会话是切点及之前历史的独立副本（非破坏性，原会话不受影响），此后独立演化。`tail` 是整段会话最后一个 assistant（含在途）。无 `session/fork` 或未命名的非尾部切点不创建 Conversation。合法 insert 之后 Agent 上下文无法延续时为 `history_only`。成功后面板切到 child。语义决策见 ADR-0005。
 
-## ACP 官方参考文档
+## ACP 官方参考文档（仅适用于次选 ACP 兼容通道）
+
+> **适用范围（[ADR-0087](docs/adr/0087-dedicated-agent-engine-first-acp-fallback.md)）**：VibeX 遵循**独立 Agent 引擎适配优先，ACP 为次选**。设计或演进主力 Agent 能力时以各 Agent 官方 SDK / 原生协议为准；以下索引仅在维护**次选 ACP 兼容通道**与 ACP Registry 接入时查阅。
 
 来源：ACP 官方文档索引（[llms.txt](https://agentclientprotocol.com/llms.txt)）。最后核对：2026-08-02。
 
-### v2 Draft（新架构与方案设计优先参考）
+### v2 Draft（ACP 次选通道兼容参考）
 
-ACP v2 当前仍是 Draft，不应被当作已经稳定的生产协议。VibeX 设计新能力时以 v2
-语义为目标，但实现与发布必须通过版本协商和功能开关保留 v1 并行兼容；同一连接只使用
+ACP v2 当前仍是 Draft，不应被当作已经稳定的生产协议。在次选 ACP 通道中设计协议兼容时可参考 v2
+语义，但实现与发布必须通过版本协商和功能开关保留 v1 并行兼容；同一连接只使用
 协商完成后的一个协议版本。迁移背景与上线约束见
 [v2 Draft 公告](https://agentclientprotocol.com/announcements/acp-v2-draft)与
 [v1 → v2 迁移指南](https://agentclientprotocol.com/protocol/v2/migration)。
@@ -396,9 +352,7 @@ v1 仍是当前稳定兼容基线，排查旧 Agent 行为时参考
 [v1 概览](https://agentclientprotocol.com/protocol/v1/overview)与
 [v1 Schema](https://agentclientprotocol.com/protocol/v1/schema)。
 
-VibeX 的采用决策见
-[ADR-0035](docs/adr/0035-acp-v2-dual-protocol-session-items.md)，分阶段落地与发布门禁见
-[ACP V1 → V2 迁移与架构改进计划](docs/plans/2026-08-02-acp-v2-migration.md)。
+VibeX 的双协议协商与采用决策见 [ADR-0035](docs/adr/0035-acp-v2-dual-protocol-session-items.md)。
 
 ### 入门、生态与实现库
 

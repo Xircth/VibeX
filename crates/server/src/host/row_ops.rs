@@ -1,346 +1,84 @@
-use agents::conversation::{
-    ConversationEvent, ConversationPromptSuggestion, ConversationRowOpBatch,
-    ConversationSessionGoal, ConversationSessionModes,
-};
-use async_trait::async_trait;
+//! Host-side conversation live pipeline.
+//!
+//! The fold/lock/batch logic lives in [`conversations::ConversationLivePipeline`];
+//! this module is only the Host transport adapter plus the thin
+//! [`ConversationEventPublisher`] shim the orchestration core expects.
+
+use std::sync::Arc;
+
+use agents::conversation::ConversationRowOpBatch;
 use conversations::{
-    CachedRowProjector, ConversationEventPublisher, ConversationRowProjectors,
-    IncrementalRowProjector, evict_least_recently_used_projectors,
+    ConversationEventPublisher, ConversationEventSink, ConversationLivePipeline,
+    ConversationRowProjectors, WorkspaceSessionsChanged,
 };
-use db::models::{conversation_event::ConversationEventRecord, session::Session};
-use serde::Serialize;
+use db::models::conversation_event::ConversationEventRecord;
 use sqlx::SqlitePool;
 use uuid::Uuid;
 
 use crate::host::events::HostEventBus;
 
-#[derive(Debug, Clone, Serialize)]
-struct WorkspaceSessionsChangedPayload {
-    workspace_id: Uuid,
-    conversation_id: Uuid,
+/// [`ConversationEventSink`] backed by a [`HostEventBus`].
+///
+/// Used by both the headless server (holds the bus directly) and the Tauri desktop
+/// (bus installed into a process-global). Channel names match the established
+/// `conversation-events` / `conversation-events:{id}` / `workspace-sessions-changed`
+/// protocol so both transports stay identical.
+pub struct HostBusSink {
+    bus: Arc<HostEventBus>,
 }
 
+impl HostBusSink {
+    pub fn new(bus: Arc<HostEventBus>) -> Self {
+        Self { bus }
+    }
+}
+
+impl ConversationEventSink for HostBusSink {
+    fn emit_conversation_batch(&self, conversation_id: Uuid, batch: &ConversationRowOpBatch) {
+        self.bus
+            .emit(format!("conversation-events:{conversation_id}"), batch);
+    }
+
+    fn emit_global_batch(&self, batch: &ConversationRowOpBatch) {
+        self.bus.emit("conversation-events", batch);
+    }
+
+    fn emit_workspaces_sessions_changed(&self, payload: WorkspaceSessionsChanged) {
+        self.bus.emit("workspace-sessions-changed", payload);
+    }
+}
+
+/// Host `ConversationEventPublisher` — a thin delegation to the shared
+/// [`ConversationLivePipeline`]. Kept as a named type so `composition` wiring and
+/// tests read the same as before the pipeline was extracted.
 pub struct HostRowOpPublisher {
-    pool: SqlitePool,
-    projectors: ConversationRowProjectors,
-    events: std::sync::Arc<HostEventBus>,
-    conversation_locks:
-        std::sync::Mutex<std::collections::HashMap<Uuid, std::sync::Arc<tokio::sync::Mutex<()>>>>,
+    pipeline: ConversationLivePipeline,
 }
 
 impl HostRowOpPublisher {
     pub fn new(
         pool: SqlitePool,
         projectors: ConversationRowProjectors,
-        events: std::sync::Arc<HostEventBus>,
+        events: Arc<HostEventBus>,
     ) -> Self {
         Self {
-            pool,
-            projectors,
-            events,
-            conversation_locks: std::sync::Mutex::new(std::collections::HashMap::new()),
+            pipeline: ConversationLivePipeline::new(
+                pool,
+                projectors,
+                Arc::new(HostBusSink::new(events)),
+            ),
         }
-    }
-
-    fn conversation_lock(&self, conversation_id: Uuid) -> std::sync::Arc<tokio::sync::Mutex<()>> {
-        let mut map = self
-            .conversation_locks
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        map.entry(conversation_id)
-            .or_insert_with(|| std::sync::Arc::new(tokio::sync::Mutex::new(())))
-            .clone()
-    }
-
-    fn prune_conversation_locks(
-        &self,
-        active: &std::collections::HashMap<Uuid, CachedRowProjector>,
-    ) {
-        let mut map = self
-            .conversation_locks
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        map.retain(|id, lock| active.contains_key(id) || std::sync::Arc::strong_count(lock) > 1);
     }
 }
 
-#[async_trait]
+#[async_trait::async_trait]
 impl ConversationEventPublisher for HostRowOpPublisher {
     async fn publish(&self, record: &ConversationEventRecord) {
-        let conversation_id = record.conversation_id;
-        let conv_lock = self.conversation_lock(conversation_id);
-        let _conv_guard = conv_lock.lock().await;
-
-        let after_sequence = record.sequence.saturating_sub(1);
-        let (mut publish_after, mut has_projector) = {
-            let mut map = self.projectors.lock().await;
-            match map.get_mut(&conversation_id) {
-                Some(entry) => {
-                    entry.sync_if_rebuilt(conversation_id);
-                    (entry.db_cursor, true)
-                }
-                None => (after_sequence, false),
-            }
-        };
-        let mut new_records = match ConversationEventRecord::events_since(
-            &self.pool,
-            conversation_id,
-            publish_after,
-            2000,
-        )
-        .await
-        {
-            Ok(records) => records,
-            Err(error) => {
-                tracing::warn!(%conversation_id, %error, "row-op emit: reading events failed");
-                return;
-            }
-        };
-        if new_records.is_empty()
-            && has_projector
-            && after_sequence < publish_after
-            && let Ok(max_seq) =
-                ConversationEventRecord::max_sequence(&self.pool, conversation_id).await
-            && max_seq < publish_after
-        {
-            self.projectors.lock().await.remove(&conversation_id);
-            publish_after = after_sequence;
-            has_projector = false;
-            new_records = match ConversationEventRecord::events_since(
-                &self.pool,
-                conversation_id,
-                publish_after,
-                2000,
-            )
-            .await
-            {
-                Ok(records) => records,
-                Err(error) => {
-                    tracing::warn!(%conversation_id, %error, "row-op emit: reading events failed");
-                    return;
-                }
-            };
-        }
-        if new_records.is_empty() && record.sequence > publish_after {
-            new_records.push(record.clone());
-        }
-        if new_records.is_empty() {
-            return;
-        }
-
-        let mut session_modes = None;
-        let mut session_config_options = None;
-        let mut available_commands = None;
-        let mut session_goal = None;
-        let mut async_tasks = None;
-        let mut prompt_suggestion = None;
-        for item in &new_records {
-            if let Ok(event) = serde_json::from_str::<ConversationEvent>(&item.normalized_json) {
-                match event {
-                    ConversationEvent::SessionModeUpdated { current, modes } => {
-                        session_modes = Some(ConversationSessionModes { current, modes });
-                    }
-                    ConversationEvent::SessionConfigOptionsUpdated { options } => {
-                        session_config_options = Some(options);
-                    }
-                    ConversationEvent::AvailableCommandsUpdated { commands } => {
-                        available_commands = Some(commands);
-                    }
-                    ConversationEvent::SessionGoalUpdated { goal, actions } => {
-                        session_goal = Some(ConversationSessionGoal { goal, actions });
-                    }
-                    ConversationEvent::AsyncTasksUpdated { tasks } => {
-                        async_tasks = Some(tasks);
-                    }
-                    ConversationEvent::PromptSuggestionUpdated { suggestion } => {
-                        prompt_suggestion = Some(ConversationPromptSuggestion { suggestion });
-                    }
-                    _ => {}
-                }
-            }
-        }
-        let queue_changed = new_records
-            .iter()
-            .any(|item| item.event_kind == "conversation_input");
-
-        let loaded_projector = if !has_projector {
-            match IncrementalRowProjector::load(&self.pool, conversation_id, publish_after).await {
-                Ok(projector) => Some(CachedRowProjector::new(projector)),
-                Err(error) => {
-                    tracing::warn!(%conversation_id, %error, "row-op emit: projector load failed");
-                    return;
-                }
-            }
-        } else {
-            None
-        };
-
-        let mut ops = Vec::new();
-        let should_emit = {
-            let mut map = self.projectors.lock().await;
-            if let Some(projector) = loaded_projector {
-                map.entry(conversation_id).or_insert(projector);
-            }
-            let entry = map
-                .get_mut(&conversation_id)
-                .expect("projector present after insert");
-            entry.touch();
-            let previous_sequence = entry.last_emitted_sequence;
-            for item in &new_records {
-                match entry.apply_persisted(item) {
-                    Ok(Some(record_ops)) => {
-                        conversations::extend_coalesced_row_ops(&mut ops, record_ops)
-                    }
-                    Ok(None) => {}
-                    Err(error) => {
-                        tracing::warn!(sequence = item.sequence, %error, "row-op emit: fold failed");
-                    }
-                }
-            }
-            let last_sequence = entry.db_cursor;
-            let will_emit = !(ops.is_empty()
-                && session_modes.is_none()
-                && session_config_options.is_none()
-                && available_commands.is_none()
-                && session_goal.is_none()
-                && async_tasks.is_none()
-                && prompt_suggestion.is_none()
-                && !queue_changed);
-            let result = if will_emit {
-                entry.last_emitted_sequence = last_sequence;
-                Some((previous_sequence, last_sequence))
-            } else {
-                None
-            };
-            evict_least_recently_used_projectors(&mut map, conversation_id);
-            self.prune_conversation_locks(&map);
-            result
-        };
-
-        if let Some((previous_sequence, last_sequence)) = should_emit {
-            let emit_global = !ops.iter().all(|op| {
-                matches!(
-                    op,
-                    agents::conversation::ConversationRowOp::AppendText { .. }
-                )
-            }) || session_modes.is_some()
-                || session_config_options.is_some()
-                || available_commands.is_some()
-                || session_goal.is_some()
-                || async_tasks.is_some()
-                || prompt_suggestion.is_some()
-                || queue_changed;
-            let batch = ConversationRowOpBatch {
-                conversation_id,
-                last_sequence,
-                previous_sequence: Some(previous_sequence),
-                ops,
-                session_modes,
-                session_config_options,
-                available_commands,
-                session_goal,
-                async_tasks,
-                prompt_suggestion,
-            };
-            self.events
-                .emit(format!("conversation-events:{conversation_id}"), &batch);
-            if emit_global {
-                self.events.emit("conversation-events", &batch);
-            }
-        }
-
-        let workbench_changed = new_records.iter().any(|item| {
-            matches!(
-                item.event_kind.as_str(),
-                "user_turn_queued"
-                    | "user_turn_started"
-                    | "turn_blocked"
-                    | "turn_completed"
-                    | "turn_failed"
-                    | "turn_cancelled"
-                    | "turn_interrupted"
-                    | "conversation_input"
-                    | "user_turn_created"
-            )
-        });
-        if workbench_changed
-            && let Ok(Some(session)) = Session::find_by_id(&self.pool, conversation_id).await
-        {
-            self.events.emit(
-                "workspace-sessions-changed",
-                WorkspaceSessionsChangedPayload {
-                    workspace_id: session.workspace_id,
-                    conversation_id,
-                },
-            );
-        }
+        self.pipeline.publish(record).await;
     }
 
     async fn publish_unpersisted(&self, record: &ConversationEventRecord) {
-        let conversation_id = record.conversation_id;
-        let conv_lock = self.conversation_lock(conversation_id);
-        let _conv_guard = conv_lock.lock().await;
-
-        let has_projector = self.projectors.lock().await.contains_key(&conversation_id);
-        let loaded_projector = if !has_projector {
-            match IncrementalRowProjector::load_through_latest(&self.pool, conversation_id).await {
-                Ok(projector) => Some(CachedRowProjector::new(projector)),
-                Err(error) => {
-                    tracing::warn!(%conversation_id, %error, "row-op emit: projector load failed");
-                    return;
-                }
-            }
-        } else {
-            None
-        };
-        let (cursor, ops) = {
-            let mut map = self.projectors.lock().await;
-            if let Some(projector) = loaded_projector {
-                map.entry(conversation_id).or_insert(projector);
-            }
-            let entry = map
-                .get_mut(&conversation_id)
-                .expect("projector present after insert");
-            entry.touch();
-            let cursor = entry.last_emitted_sequence;
-            let ops = match entry.apply_unpersisted(record) {
-                Ok(ops) => ops,
-                Err(error) => {
-                    tracing::warn!(%error, "row-op emit: unpersisted fold failed");
-                    return;
-                }
-            };
-            evict_least_recently_used_projectors(&mut map, conversation_id);
-            self.prune_conversation_locks(&map);
-            (cursor, ops)
-        };
-        let mut prompt_suggestion = None;
-        if let Ok(ConversationEvent::PromptSuggestionUpdated { suggestion }) =
-            serde_json::from_str::<ConversationEvent>(&record.normalized_json)
-        {
-            prompt_suggestion = Some(ConversationPromptSuggestion { suggestion });
-        }
-        if ops.is_empty() && prompt_suggestion.is_none() {
-            return;
-        }
-        let emit_global = prompt_suggestion.is_some();
-        let batch = ConversationRowOpBatch {
-            conversation_id,
-            last_sequence: cursor,
-            previous_sequence: Some(cursor),
-            ops,
-            session_modes: None,
-            session_config_options: None,
-            available_commands: None,
-            session_goal: None,
-            async_tasks: None,
-            prompt_suggestion,
-        };
-        self.events
-            .emit(format!("conversation-events:{conversation_id}"), &batch);
-        if emit_global {
-            self.events.emit("conversation-events", &batch);
-        }
+        self.pipeline.publish_unpersisted(record).await;
     }
 }
 

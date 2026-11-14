@@ -52,11 +52,12 @@ impl EventService {
         Ok(())
     }
 
-    /// Creates the hook function that should be used with DBService::new_with_after_connect
+    /// Creates the writer-only `after_connect` hook function using [`db::ReadPool`]
+    /// directly so update hooks never allocate a hidden secondary SQLite pool.
     pub fn create_hook(
         msg_store: Arc<MsgStore>,
         entry_count: Arc<RwLock<usize>>,
-        db_service: DBService,
+        reader: db::ReadPool,
     ) -> impl for<'a> Fn(
         &'a mut sqlx::sqlite::SqliteConnection,
     ) -> std::pin::Pin<
@@ -67,7 +68,7 @@ impl EventService {
         move |conn: &mut sqlx::sqlite::SqliteConnection| {
             let msg_store_for_hook = msg_store.clone();
             let entry_count_for_hook = entry_count.clone();
-            let db_for_hook = db_service.clone();
+            let reader_for_hook = reader.clone();
             Box::pin(async move {
                 let mut handle = conn.lock_handle().await?;
                 let runtime_handle = tokio::runtime::Handle::current();
@@ -125,7 +126,7 @@ impl EventService {
                     let runtime_handle = runtime_handle.clone();
                     let entry_count_for_hook = entry_count_for_hook.clone();
                     let msg_store_for_hook = msg_store_for_hook.clone();
-                    let db = db_for_hook.clone();
+                    let read_pool = reader_for_hook.as_pool().clone();
 
                     if let Ok(table) = HookTables::from_str(hook.table) {
                         let rowid = hook.rowid;
@@ -139,7 +140,7 @@ impl EventService {
                                     return;
                                 }
                                 (HookTables::Projects, _) => {
-                                    match Project::find_by_rowid(&db.pool, rowid).await {
+                                    match Project::find_by_rowid(&read_pool, rowid).await {
                                         Ok(Some(project)) => RecordTypes::Project(project),
                                         Ok(None) => RecordTypes::DeletedProject {
                                             rowid,
@@ -152,7 +153,7 @@ impl EventService {
                                     }
                                 }
                                 (HookTables::Workspaces, _) => {
-                                    match Workspace::find_by_rowid(&db.pool, rowid).await {
+                                    match Workspace::find_by_rowid(&read_pool, rowid).await {
                                         Ok(Some(workspace)) => RecordTypes::Workspace(workspace),
                                         Ok(None) => RecordTypes::DeletedWorkspace { rowid },
                                         Err(e) => {
@@ -165,7 +166,7 @@ impl EventService {
                                     }
                                 }
                                 (HookTables::ExecutionProcesses, _) => {
-                                    match ExecutionProcess::find_by_rowid(&db.pool, rowid).await {
+                                    match ExecutionProcess::find_by_rowid(&read_pool, rowid).await {
                                         Ok(Some(process)) => RecordTypes::ExecutionProcess(process),
                                         Ok(None) => RecordTypes::DeletedExecutionProcess {
                                             rowid,
@@ -182,7 +183,7 @@ impl EventService {
                                     }
                                 }
                                 (HookTables::Scratch, _) => {
-                                    match Scratch::find_by_rowid(&db.pool, rowid).await {
+                                    match Scratch::find_by_rowid(&read_pool, rowid).await {
                                         Ok(Some(scratch)) => RecordTypes::Scratch(scratch),
                                         Ok(None) => RecordTypes::DeletedScratch {
                                             rowid,
@@ -234,7 +235,7 @@ impl EventService {
                                 RecordTypes::Workspace(workspace) => {
                                     // Emit workspace patch with status
                                     if let Ok(Some(workspace_with_status)) =
-                                        Workspace::find_by_id_with_status(&db.pool, workspace.id)
+                                        Workspace::find_by_id_with_status(&read_pool, workspace.id)
                                             .await
                                     {
                                         let patch = match hook.operation {
@@ -274,7 +275,7 @@ impl EventService {
                                     if affects_workspace_status
                                         && let Err(err) =
                                             EventService::push_workspace_update_for_session(
-                                                &db.pool,
+                                                &read_pool,
                                                 msg_store_for_hook.clone(),
                                                 process.session_id,
                                             )
@@ -299,7 +300,7 @@ impl EventService {
                                     if let Some(session_id) = session_id
                                         && let Err(err) =
                                             EventService::push_workspace_update_for_session(
-                                                &db.pool,
+                                                &read_pool,
                                                 msg_store_for_hook.clone(),
                                                 *session_id,
                                             )

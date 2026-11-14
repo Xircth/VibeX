@@ -4,6 +4,7 @@ import { ButtonGroup } from '@astryxdesign/core/ButtonGroup';
 import { IconButton } from '@astryxdesign/core/IconButton';
 import type { GitFileStatusEntry } from 'shared/types';
 import FileIcon from '@/components/FileIcon';
+import { PANEL_IDS } from '@/stores/useLayoutStore';
 import { GitStatusBadge } from './GitStatusBadge';
 import { GitChangeStats } from './GitChangeStats';
 
@@ -15,6 +16,8 @@ interface GitFileRowProps {
   isActive: boolean;
   isSelected?: boolean;
   indentPx?: number;
+  workspaceId?: string | null;
+  repoRootPath?: string | null;
   onSelect: (path: string, e?: React.MouseEvent) => void;
   onReviewFile?: (path: string) => void;
   onDoubleClick?: (path: string) => void;
@@ -36,6 +39,8 @@ export const GitFileRow = memo(function GitFileRow({
   isActive,
   isSelected = false,
   indentPx = 0,
+  workspaceId = null,
+  repoRootPath = null,
   onSelect,
   onReviewFile,
   onDoubleClick,
@@ -59,6 +64,27 @@ export const GitFileRow = memo(function GitFileRow({
     [file.path, onContextMenu]
   );
 
+  const handleDragStart = useCallback(
+    (e: React.DragEvent<HTMLDivElement>) => {
+      const absolutePath = repoRootPath
+        ? `${repoRootPath}/${file.path.replace(/\\/g, '/')}`
+        : file.path;
+      const payload = {
+        id: `git-diff:${workspaceId ?? ''}:${file.path}`,
+        component: PANEL_IDS.PREVIEW,
+        title: name,
+        params: { filePath: absolutePath, mode: 'diff' },
+        expanded: true,
+      };
+      e.dataTransfer.setData(
+        'application/x-vibex-panel',
+        JSON.stringify(payload)
+      );
+      e.dataTransfer.effectAllowed = 'copy';
+    },
+    [file.path, name, repoRootPath, workspaceId]
+  );
+
   const stop = (e: React.MouseEvent) => e.stopPropagation();
 
   const highlight = isSelected || isActive;
@@ -71,6 +97,8 @@ export const GitFileRow = memo(function GitFileRow({
       style={indentPx > 0 ? { paddingLeft: `${8 + indentPx}px` } : undefined}
       role="button"
       tabIndex={0}
+      draggable
+      onDragStart={handleDragStart}
       onClick={handleClick}
       onDoubleClick={handleDoubleClick}
       onContextMenu={handleContextMenu}

@@ -124,6 +124,7 @@ import {
   displayedCanvasNodes,
   flowNodeBox,
   openWindowSessionIds,
+  placedCanvasSessionIds,
   preferLiveKanbanSessions,
   removeCanvasNode,
   resetNodeSize,
@@ -189,7 +190,10 @@ export interface SessionCanvasApi {
   addOrFocus: (session: KanbanProjectSessionRecord) => void;
   addSession: (
     sessionId: string,
-    options?: string | null | { parentNodeId?: string | null; expanded?: boolean }
+    options?:
+      | string
+      | null
+      | { parentNodeId?: string | null; expanded?: boolean }
   ) => SessionCanvasNode;
   dropSessionAt: (
     sessionId: string,
@@ -544,6 +548,7 @@ function SessionCanvasFlow({
   const runningIdsRef = useRef<ReadonlySet<string>>(new Set());
   const reviewIdsRef = useRef<ReadonlySet<string>>(new Set());
   const windowSessionIdsRef = useRef<readonly string[]>([]);
+  const placedSessionIdsRef = useRef<readonly string[]>([]);
   const presentIdsKeyRef = useRef('');
   const windowIdsKeyRef = useRef('');
   const saveTimer = useRef<number | null>(null);
@@ -692,6 +697,11 @@ function SessionCanvasFlow({
     openWindowSessionIds(nodes)
   );
   windowSessionIdsRef.current = windowSessionIds;
+  const allPlacedSessionIds = reuseStringListIfEqual(
+    placedSessionIdsRef.current,
+    placedCanvasSessionIds(nodes)
+  );
+  placedSessionIdsRef.current = allPlacedSessionIds;
   const runningSessionIds = (() => {
     const ids = new Set<string>();
     for (const session of sessionsById.values()) {
@@ -710,7 +720,9 @@ function SessionCanvasFlow({
     reviewIdsRef.current = stable;
     return stable;
   })();
-  sessionStoreRef.current.replace(sessionsById, sessionsReady);
+  useLayoutEffect(() => {
+    sessionStoreRef.current.replace(sessionsById, sessionsReady);
+  }, [sessionsById, sessionsReady]);
   const sessionsByIdRef = useRef(sessionsById);
   sessionsByIdRef.current = sessionsById;
   const onSelectedSessionChangeRef = useRef(onSelectedSessionChange);
@@ -860,7 +872,7 @@ function SessionCanvasFlow({
         lookups,
         selectedIds,
         dropHint,
-        windowSessionIds,
+        allPlacedSessionIds,
         runningSessionIds
       );
       const overlaid = applyDragOverlayToFlowNode(built, dragOverlay);
@@ -1066,11 +1078,7 @@ function SessionCanvasFlow({
         const targetSide = handleEl.getAttribute(
           'data-canvas-handle-side'
         ) as CanvasHandleSide | null;
-        if (
-          targetNodeId &&
-          targetSide &&
-          targetNodeId !== active.sourceId
-        ) {
+        if (targetNodeId && targetSide && targetNodeId !== active.sourceId) {
           addLinkToDocument(
             active.sourceId,
             targetNodeId,
@@ -1539,11 +1547,12 @@ function SessionCanvasFlow({
   }, [nodes, onPresentIdsChange]);
 
   useEffect(() => {
-    const key = windowSessionIds.join('\0');
+    const allPlacedIds = placedCanvasSessionIds(nodes);
+    const key = allPlacedIds.join('\0');
     if (key === windowIdsKeyRef.current) return;
     windowIdsKeyRef.current = key;
-    onWindowSessionIdsChange?.([...windowSessionIds]);
-  }, [onWindowSessionIdsChange, windowSessionIds]);
+    onWindowSessionIdsChange?.(allPlacedIds);
+  }, [nodes, onWindowSessionIdsChange]);
 
   const expandCard = useCallback(
     (instanceId: string) => {
@@ -1742,7 +1751,8 @@ function SessionCanvasFlow({
         dropSessionAt(sessionId, client, cardWidth),
       dropPanelAt: (request, client) => dropPanelAt(request, client),
       closeNode: (instanceId) => removeCard(instanceId),
-      closeOtherNodes: (keepInstanceId) => closeOtherCanvasNodes(keepInstanceId),
+      closeOtherNodes: (keepInstanceId) =>
+        closeOtherCanvasNodes(keepInstanceId),
       closeAllNodes: () => closeAllCanvasNodes(),
       duplicateNode: (instanceId) => duplicateCanvasNode(instanceId),
     });
@@ -2425,12 +2435,40 @@ function SessionCanvasFlow({
     return { start, end: connectingState.currentFlowPoint };
   }, [connectingState, liveNodes]);
 
+  const handleNativeDrop = useCallback(
+    (event: React.DragEvent<HTMLDivElement>) => {
+      const rawData = event.dataTransfer.getData('application/x-vibex-panel');
+      if (!rawData) return;
+      event.preventDefault();
+      try {
+        const request: OpenCanvasPanelRequest = JSON.parse(rawData);
+        dropPanelAt(request, { x: event.clientX, y: event.clientY });
+      } catch {
+        // Ignore malformed drag payloads.
+      }
+    },
+    [dropPanelAt]
+  );
+
+  const handleNativeDragOver = useCallback(
+    (event: React.DragEvent<HTMLDivElement>) => {
+      if (!event.dataTransfer.types.includes('application/x-vibex-panel')) {
+        return;
+      }
+      event.preventDefault();
+      event.dataTransfer.dropEffect = 'copy';
+    },
+    []
+  );
+
   return (
     <SessionCanvasViewProvider value={viewContext}>
       <div
         ref={surfaceRef}
         data-canvas-drop="true"
         className="canvas-surface relative h-full w-full"
+        onDragOver={handleNativeDragOver}
+        onDrop={handleNativeDrop}
       >
         <div className="h-full w-full" data-context-menu-zone="forbidden">
           <ReactFlow
@@ -2584,11 +2622,7 @@ function SessionCanvasFlow({
                   const from = nodeById(liveNodes, link.sourceId);
                   const to = nodeById(liveNodes, link.targetId);
                   if (!from || !to) return null;
-                  const start = linkAnchor(
-                    liveNodes,
-                    from,
-                    link.sourceHandle
-                  );
+                  const start = linkAnchor(liveNodes, from, link.sourceHandle);
                   const end = linkAnchor(liveNodes, to, link.targetHandle);
                   const midX = (start.x + end.x) / 2;
                   const midY = (start.y + end.y) / 2;

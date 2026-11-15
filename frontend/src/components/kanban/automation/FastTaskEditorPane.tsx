@@ -1,13 +1,24 @@
 import { useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { Banner } from '@astryxdesign/core/Banner';
+import { Button as AstryxButton } from '@astryxdesign/core/Button';
+import { DropdownMenu } from '@astryxdesign/core/DropdownMenu';
+import { Icon } from '@astryxdesign/core/Icon';
+import { HStack, StackItem, VStack } from '@astryxdesign/core/Layout';
+import { MetadataList, MetadataListItem } from '@astryxdesign/core/MetadataList';
 import {
-  AlertCircle,
-  CheckCircle2,
+  SegmentedControl,
+  SegmentedControlItem,
+} from '@astryxdesign/core/SegmentedControl';
+import { Heading, Text } from '@astryxdesign/core/Text';
+import {
   GitFork,
+  MoreHorizontal,
   Play,
   Rocket,
   Save,
   Trash2,
+  X,
   Zap,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -126,6 +137,7 @@ export interface FastTaskEditorPaneProps {
   onDeleteTask: () => void;
   onJumpCreateSource: () => void;
   onOpenWorkflowStudio: (definitionId?: string | null) => void;
+  onClose?: () => void;
 }
 
 export function FastTaskEditorPane({
@@ -155,6 +167,7 @@ export function FastTaskEditorPane({
   onDeleteTask,
   onJumpCreateSource,
   onOpenWorkflowStudio,
+  onClose,
 }: FastTaskEditorPaneProps) {
   const { t } = useTranslation('panels');
   const [showSampleEnvelope, setShowSampleEnvelope] = useState(false);
@@ -173,60 +186,76 @@ export function FastTaskEditorPane({
     return (
       <div
         data-testid={`workflow-task-inspector-${selectedWorkflowTask.workflowId}`}
-        className="flex flex-1 flex-col gap-4 p-4"
       >
-        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border pb-3">
-          <div className="flex items-center gap-2">
-            <h3 className="text-sm font-semibold text-foreground">
-              {selectedWorkflowTask.name}
-            </h3>
-            <TaskStatusBadge status={selectedWorkflowTask.status} />
-          </div>
-          <Button
-            type="button"
-            size="sm"
+        <VStack gap={4}>
+          <HStack gap={2} vAlign="center">
+            <StackItem size="fill">
+              <TaskStatusBadge status={selectedWorkflowTask.status} />
+            </StackItem>
+            {onClose ? (
+              <AstryxButton
+                label={t('pulseDeck.workbench.actions.closePanel')}
+                variant="ghost"
+                size="sm"
+                icon={<Icon icon={X} size="sm" />}
+                isIconOnly
+                data-testid="automation-detail-close-btn"
+                onClick={onClose}
+              />
+            ) : null}
+          </HStack>
+
+          <VStack gap={1}>
+            <Heading level={3}>{selectedWorkflowTask.name}</Heading>
+            <Text type="supporting" color="secondary">
+              {t('pulseDeck.workbench.tasks.workflowInspectorHint')}
+            </Text>
+          </VStack>
+
+          <AstryxButton
+            label={t('pulseDeck.workbench.tasks.openStudio')}
+            variant="primary"
+            size="md"
+            width="100%"
+            icon={<Icon icon={GitFork} size="sm" />}
             data-testid={`workflow-inspector-open-${selectedWorkflowTask.workflowId}`}
-            onClick={() =>
-              onOpenWorkflowStudio(selectedWorkflowTask.workflowId)
-            }
-          >
-            <GitFork className="mr-1.5 h-3.5 w-3.5" />
-            {t('pulseDeck.workbench.tasks.openStudio')}
-          </Button>
-        </div>
+            onClick={() => onOpenWorkflowStudio(selectedWorkflowTask.workflowId)}
+          />
 
-        <p className="text-xs text-muted-foreground">
-          {t('pulseDeck.workbench.tasks.workflowInspectorHint')}
-        </p>
-
-        <div className="grid gap-2 sm:grid-cols-2">
-          <div className="rounded-md border border-border bg-[var(--surface-panel)] px-3 py-2">
-            <div className="text-2xs text-muted-foreground">
-              {t('pulseDeck.workbench.tasks.workflowTriggerLabel')}
-            </div>
-            <div className="mt-0.5 text-xs font-medium text-foreground">
+          <MetadataList label={{ position: 'start' }}>
+            <MetadataListItem
+              label={t('pulseDeck.workbench.tasks.workflowTriggerLabel')}
+            >
               {selectedWorkflowTask.triggerRule
                 ? selectedWorkflowTask.triggerRule.spec.name
                 : t('pulseDeck.workbench.tasks.workflowDraft')}
-            </div>
-          </div>
-          <div className="rounded-md border border-border bg-[var(--surface-panel)] px-3 py-2">
-            <div className="text-2xs text-muted-foreground">
-              {t('pulseDeck.workbench.tasks.workflowUpdatedAt')}
-            </div>
-            <div className="mt-0.5 text-xs font-medium tabular-nums text-foreground">
-              {selectedWorkflowTask.updatedAt
-                ? selectedWorkflowTask.updatedAt.slice(0, 19).replace('T', ' ')
-                : '-'}
-            </div>
-          </div>
-        </div>
+            </MetadataListItem>
+            {selectedWorkflowTask.versionLabel ? (
+              <MetadataListItem label="Version">
+                <span className="tabular-nums">
+                  {t('pulseDeck.workbench.tasks.workflowVersion', {
+                    version: selectedWorkflowTask.versionLabel,
+                  })}
+                </span>
+              </MetadataListItem>
+            ) : null}
+            <MetadataListItem
+              label={t('pulseDeck.workbench.tasks.workflowUpdatedAt')}
+            >
+              <span className="tabular-nums">
+                {selectedWorkflowTask.updatedAt
+                  ? selectedWorkflowTask.updatedAt.slice(0, 19).replace('T', ' ')
+                  : '—'}
+              </span>
+            </MetadataListItem>
+          </MetadataList>
 
-        <FastTaskRecordsPane
-          rule={selectedWorkflowTask.triggerRule}
-          capturedEvents={capturedEvents}
-          recentOutbox={recentOutbox}
-        />
+          <FastTaskRecordsPane
+            rule={selectedWorkflowTask.triggerRule}
+            capturedEvents={capturedEvents}
+            recentOutbox={recentOutbox}
+          />
+        </VStack>
       </div>
     );
   }
@@ -252,177 +281,170 @@ export function FastTaskEditorPane({
   const scheduleKind = draftSpec.temporal?.kind ?? 'none';
 
   return (
-    <div
-      data-testid="fasttask-editor-pane"
-      className="flex min-h-0 flex-1 flex-col"
-    >
-      {/* Editor Top Bar */}
-      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border bg-[var(--surface-panel)] px-4 py-2.5">
-        <div className="flex min-w-0 flex-1 items-center gap-2">
-          <Input
-            aria-label={t('pulseDeck.workbench.editor.taskNameAria')}
-            data-testid="fasttask-name-input"
-            placeholder={t('pulseDeck.workbench.editor.taskNamePlaceholder')}
-            value={draftSpec.name}
-            onChange={(e) =>
-              onSpecChange({ ...draftSpec, name: e.target.value })
-            }
-            className="h-8 max-w-xs text-xs font-medium"
-          />
-          <TaskStatusBadge
-            status={status}
-            testId="fasttask-editor-status-badge"
-          />
-        </div>
+    <div data-testid="fasttask-editor-pane">
+      <VStack gap={4}>
+        {/* Detail Header matching Astryx TaskDetailPanel */}
+        <HStack gap={2} vAlign="center">
+          <StackItem size="fill">
+            <TaskStatusBadge
+              status={status}
+              testId="fasttask-editor-status-badge"
+            />
+          </StackItem>
 
-        <div className="flex flex-wrap items-center gap-1.5">
-          <Button
-            type="button"
-            size="sm"
-            variant="outline"
-            disabled={saving}
-            data-testid="fasttask-save-btn"
-            onClick={onSaveDraft}
-          >
-            <Save className="mr-1 h-3.5 w-3.5" />
-            {saving
-              ? t('pulseDeck.workbench.editor.saving')
-              : t('pulseDeck.workbench.editor.saveDraft')}
-          </Button>
-
-          <Button
-            type="button"
-            size="sm"
-            variant="outline"
-            disabled={testing}
-            data-testid="fasttask-test-btn"
-            onClick={onTestTask}
-          >
-            <Play className="mr-1 h-3.5 w-3.5" />
-            {testing
-              ? t('pulseDeck.workbench.editor.testing')
-              : t('pulseDeck.workbench.editor.testTask')}
-          </Button>
-
-          <Button
-            type="button"
-            size="sm"
-            disabled={publishing}
-            data-testid="fasttask-publish-btn"
-            onClick={onPublishTask}
-          >
-            <Rocket className="mr-1 h-3.5 w-3.5" />
-            {publishing
-              ? t('pulseDeck.workbench.editor.publishing')
-              : t('pulseDeck.workbench.editor.publish')}
-          </Button>
-
-          <Button
-            type="button"
-            size="sm"
-            variant="ghost"
-            disabled={converting}
-            data-testid="fasttask-convert-workflow-btn"
-            onClick={onConvertToWorkflow}
-          >
-            <GitFork className="mr-1 h-3.5 w-3.5" />
-            {converting
-              ? t('pulseDeck.workbench.editor.converting')
-              : t('pulseDeck.workbench.editor.convertToWorkflow')}
-          </Button>
-
-          {draftRuleId ? (
-            <Button
-              type="button"
+          <HStack gap={1.5} vAlign="center">
+            <AstryxButton
+              label={
+                saving
+                  ? t('pulseDeck.workbench.editor.saving')
+                  : t('pulseDeck.workbench.editor.saveDraft')
+              }
+              variant="secondary"
               size="sm"
-              variant="ghost"
-              data-testid="fasttask-delete-btn"
-              onClick={onDeleteTask}
-              className="text-destructive hover:text-destructive"
+              isDisabled={saving}
+              icon={<Icon icon={Save} size="sm" />}
+              data-testid="fasttask-save-btn"
+              onClick={onSaveDraft}
+            />
+            <AstryxButton
+              label={
+                testing
+                  ? t('pulseDeck.workbench.editor.testing')
+                  : t('pulseDeck.workbench.editor.testTask')
+              }
+              variant="secondary"
+              size="sm"
+              isDisabled={testing}
+              icon={<Icon icon={Play} size="sm" />}
+              data-testid="fasttask-test-btn"
+              onClick={onTestTask}
+            />
+            <AstryxButton
+              label={
+                publishing
+                  ? t('pulseDeck.workbench.editor.publishing')
+                  : t('pulseDeck.workbench.editor.publish')
+              }
+              variant="primary"
+              size="sm"
+              isDisabled={publishing}
+              icon={<Icon icon={Rocket} size="sm" />}
+              data-testid="fasttask-publish-btn"
+              onClick={onPublishTask}
+            />
+
+            <DropdownMenu
+              alignment="end"
+              hasChevron={false}
+              button={{
+                label: t('pulseDeck.workbench.actions.moreActions'),
+                variant: 'ghost',
+                size: 'sm',
+                icon: <Icon icon={MoreHorizontal} size="sm" />,
+                isIconOnly: true,
+              }}
+              items={[
+                {
+                  label: converting
+                    ? t('pulseDeck.workbench.editor.converting')
+                    : t('pulseDeck.workbench.editor.convertToWorkflow'),
+                  icon: GitFork,
+                  isDisabled: converting,
+                  onClick: onConvertToWorkflow,
+                },
+                ...(draftRuleId
+                  ? [
+                      { type: 'divider' as const },
+                      {
+                        label: t('pulseDeck.workbench.editor.delete'),
+                        icon: Trash2,
+                        onClick: onDeleteTask,
+                      },
+                    ]
+                  : []),
+              ]}
+            />
+
+            {onClose ? (
+              <AstryxButton
+                label={t('pulseDeck.workbench.actions.closePanel')}
+                variant="ghost"
+                size="sm"
+                icon={<Icon icon={X} size="sm" />}
+                isIconOnly
+                data-testid="automation-detail-close-btn"
+                onClick={onClose}
+              />
+            ) : null}
+          </HStack>
+        </HStack>
+
+        {/* Task Name */}
+        <Input
+          aria-label={t('pulseDeck.workbench.editor.taskNameAria')}
+          data-testid="fasttask-name-input"
+          placeholder={t('pulseDeck.workbench.editor.taskNamePlaceholder')}
+          value={draftSpec.name}
+          onChange={(e) => onSpecChange({ ...draftSpec, name: e.target.value })}
+          className="h-8 text-xs font-semibold"
+        />
+
+        {/* Validation & Test Banners */}
+        {validationErrors.length > 0 ? (
+          <div data-testid="fasttask-validation-errors">
+            <Banner
+              status="error"
+              container="card"
+              title={t('pulseDeck.workbench.editor.validationTitle')}
+              defaultIsExpanded
             >
-              <Trash2 className="h-3.5 w-3.5" />
-              <span className="sr-only">
-                {t('pulseDeck.workbench.editor.delete')}
-              </span>
-            </Button>
-          ) : null}
-        </div>
-      </div>
-
-      {/* Validation & Test Banners */}
-      {validationErrors.length > 0 ? (
-        <div
-          role="alert"
-          data-testid="fasttask-validation-errors"
-          className="border-b border-destructive/30 bg-destructive/10 px-4 py-2 text-xs text-destructive"
-        >
-          <div className="flex items-center gap-1.5 font-medium">
-            <AlertCircle className="h-3.5 w-3.5 shrink-0" />
-            {t('pulseDeck.workbench.editor.validationTitle')}
+              <ul className="list-inside list-disc space-y-0.5 text-xs">
+                {validationErrors.map((err, idx) => (
+                  <li key={idx}>{err}</li>
+                ))}
+              </ul>
+            </Banner>
           </div>
-          <ul className="mt-1 list-inside list-disc space-y-0.5">
-            {validationErrors.map((err, idx) => (
-              <li key={idx}>{err}</li>
-            ))}
-          </ul>
-        </div>
-      ) : null}
+        ) : null}
 
-      {lastTestReport ? (
-        <div
-          data-testid="fasttask-test-report"
-          className={cn(
-            'border-b px-4 py-2 text-xs',
-            lastTestReport.valid && lastTestReport.matched
-              ? 'border-success/30 bg-success/10 text-foreground'
-              : 'border-warning/30 bg-warning/10 text-foreground'
-          )}
-        >
-          <div className="flex items-center gap-1.5 font-medium">
-            <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-success" />
-            {lastTestReport.valid && lastTestReport.matched
-              ? t('pulseDeck.workbench.editor.testPassedBanner')
-              : t('pulseDeck.workbench.editor.testFilteredBanner')}
+        {lastTestReport ? (
+          <div data-testid="fasttask-test-report">
+            <Banner
+              status={
+                lastTestReport.valid && lastTestReport.matched
+                  ? 'success'
+                  : 'warning'
+              }
+              container="card"
+              title={
+                lastTestReport.valid && lastTestReport.matched
+                  ? t('pulseDeck.workbench.editor.testPassedBanner')
+                  : t('pulseDeck.workbench.editor.testFilteredBanner')
+              }
+              description={lastTestReport.renderedPreviews[0] ?? undefined}
+            />
           </div>
-          {lastTestReport.renderedPreviews[0] ? (
-            <div className="mt-1 truncate font-mono text-2xs text-muted-foreground">
-              {lastTestReport.renderedPreviews[0]}
-            </div>
-          ) : null}
-        </div>
-      ) : null}
+        ) : null}
 
-      {/* 5 Sub-Tabs */}
-      <div
-        role="tablist"
-        aria-label={t('pulseDeck.workbench.editor.subTabs.aria')}
-        className="flex items-center gap-1 overflow-x-auto border-b border-border bg-[var(--surface-panel)] px-4 py-1.5"
-      >
-        {subTabs.map((tab) => {
-          const active = activeSubTab === tab.id;
-          return (
-            <button
+        {/* Clean Borderless SegmentedControl for 5 Configuration Stages */}
+        <SegmentedControl
+          value={activeSubTab}
+          onChange={(val) => onSubTabChange(val as FastTaskEditorTab)}
+          label={t('pulseDeck.workbench.editor.subTabs.aria')}
+          layout="fill"
+          size="sm"
+        >
+          {subTabs.map((tab) => (
+            <SegmentedControlItem
               key={tab.id}
-              type="button"
-              role="tab"
-              aria-selected={active}
+              value={tab.id}
+              label={tab.label}
               data-testid={`fasttask-subtab-${tab.id}`}
-              onClick={() => onSubTabChange(tab.id)}
-              className={cn(
-                'rounded-md px-2.5 py-1 text-xs font-medium transition-colors',
-                active
-                  ? 'bg-primary text-primary-foreground'
-                  : 'text-muted-foreground hover:bg-[var(--surface-control)] hover:text-foreground'
-              )}
-            >
-              {tab.label}
-            </button>
-          );
-        })}
-      </div>
+            />
+          ))}
+        </SegmentedControl>
 
-      {/* Sub-Tab Body */}
-      <div className="flex-1 overflow-y-auto p-4">
+        {/* Stage Content — clean whitespace spacing, zero redundant horizontal lines */}
         {activeSubTab === 'event' ? (
           <div className="space-y-4" data-testid="fasttask-event-editor">
             <div className="space-y-1.5">
@@ -503,10 +525,10 @@ export function FastTaskEditorPane({
                         })
                       }
                       className={cn(
-                        'inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-2xs font-medium transition-colors',
+                        'inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-2xs font-medium transition-colors',
                         selected
-                          ? 'border-primary bg-primary text-primary-foreground'
-                          : 'border-border bg-[var(--surface-control)] text-muted-foreground hover:text-foreground'
+                          ? 'bg-primary text-primary-foreground'
+                          : 'bg-[var(--color-background-muted)] text-muted-foreground hover:text-foreground'
                       )}
                     >
                       <Zap className="h-3 w-3 shrink-0" />
@@ -541,14 +563,17 @@ export function FastTaskEditorPane({
               />
             </div>
 
-            {/* Temporal Schedule Editor */}
-            <div className="space-y-2 border-t border-border pt-3">
+            <div className="space-y-2">
               <Label htmlFor="fasttask-schedule-mode" className="text-xs">
                 {t('pulseDeck.workbench.editor.event.scheduleModeLabel')}
               </Label>
               <select
                 id="fasttask-schedule-mode"
-                value={scheduleKind === 'cron' || scheduleKind === 'interval' ? scheduleKind : 'none'}
+                value={
+                  scheduleKind === 'cron' || scheduleKind === 'interval'
+                    ? scheduleKind
+                    : 'none'
+                }
                 onChange={(e) => {
                   const val = e.target.value;
                   if (val === 'cron') {
@@ -698,7 +723,7 @@ export function FastTaskEditorPane({
             {showSampleEnvelope ? (
               <div
                 data-testid="fasttask-event-sample-json"
-                className="rounded-md border border-border bg-[var(--surface-panel)] p-2.5"
+                className="rounded-md bg-[var(--color-background-muted)] p-2.5"
               >
                 <div className="mb-1 text-2xs font-medium text-foreground">
                   {t('pulseDeck.workbench.editor.event.samplePreviewTitle')}
@@ -713,36 +738,23 @@ export function FastTaskEditorPane({
 
         {activeSubTab === 'rule' ? (
           <div className="space-y-4" data-testid="fasttask-rule-editor">
-            <div className="flex items-center gap-1.5">
-              <button
-                type="button"
+            <SegmentedControl
+              value={ruleMode}
+              onChange={(val) => setRuleMode(val as 'inline' | 'template')}
+              label={t('pulseDeck.workbench.editor.subTabs.rule')}
+              size="sm"
+            >
+              <SegmentedControlItem
+                value="inline"
+                label={t('pulseDeck.workbench.editor.rule.modeInline')}
                 data-testid="fasttask-rule-mode-inline"
-                aria-pressed={ruleMode === 'inline'}
-                onClick={() => setRuleMode('inline')}
-                className={cn(
-                  'rounded-md border px-2.5 py-1 text-xs font-medium transition-colors',
-                  ruleMode === 'inline'
-                    ? 'border-primary bg-primary text-primary-foreground'
-                    : 'border-border bg-[var(--surface-control)] text-muted-foreground hover:text-foreground'
-                )}
-              >
-                {t('pulseDeck.workbench.editor.rule.modeInline')}
-              </button>
-              <button
-                type="button"
+              />
+              <SegmentedControlItem
+                value="template"
+                label={t('pulseDeck.workbench.editor.rule.modeTemplate')}
                 data-testid="fasttask-rule-mode-template"
-                aria-pressed={ruleMode === 'template'}
-                onClick={() => setRuleMode('template')}
-                className={cn(
-                  'rounded-md border px-2.5 py-1 text-xs font-medium transition-colors',
-                  ruleMode === 'template'
-                    ? 'border-primary bg-primary text-primary-foreground'
-                    : 'border-border bg-[var(--surface-control)] text-muted-foreground hover:text-foreground'
-                )}
-              >
-                {t('pulseDeck.workbench.editor.rule.modeTemplate')}
-              </button>
-            </div>
+              />
+            </SegmentedControl>
 
             {ruleMode === 'template' ? (
               <div className="space-y-1.5">
@@ -801,7 +813,7 @@ export function FastTaskEditorPane({
                       value: 'failure',
                     })
                   }
-                  className="rounded-full border border-border bg-[var(--surface-control)] px-2.5 py-1 text-2xs text-muted-foreground hover:text-foreground"
+                  className="rounded-full bg-[var(--color-background-muted)] px-2.5 py-1 text-2xs text-muted-foreground hover:text-foreground"
                 >
                   + {t('pulseDeck.workbench.editor.rule.chipCiFailure')}
                 </button>
@@ -815,7 +827,7 @@ export function FastTaskEditorPane({
                       value: 'main',
                     })
                   }
-                  className="rounded-full border border-border bg-[var(--surface-control)] px-2.5 py-1 text-2xs text-muted-foreground hover:text-foreground"
+                  className="rounded-full bg-[var(--color-background-muted)] px-2.5 py-1 text-2xs text-muted-foreground hover:text-foreground"
                 >
                   + {t('pulseDeck.workbench.editor.rule.chipBranchMain')}
                 </button>
@@ -823,7 +835,7 @@ export function FastTaskEditorPane({
                   type="button"
                   data-testid="fasttask-chip-human-only"
                   onClick={() => addQuickCondition({ op: 'not_bot_actor' })}
-                  className="rounded-full border border-border bg-[var(--surface-control)] px-2.5 py-1 text-2xs text-muted-foreground hover:text-foreground"
+                  className="rounded-full bg-[var(--color-background-muted)] px-2.5 py-1 text-2xs text-muted-foreground hover:text-foreground"
                 >
                   + {t('pulseDeck.workbench.editor.rule.chipHumanOnly')}
                 </button>
@@ -837,7 +849,7 @@ export function FastTaskEditorPane({
                       needle: 'urgent',
                     })
                   }
-                  className="rounded-full border border-border bg-[var(--surface-control)] px-2.5 py-1 text-2xs text-muted-foreground hover:text-foreground"
+                  className="rounded-full bg-[var(--color-background-muted)] px-2.5 py-1 text-2xs text-muted-foreground hover:text-foreground"
                 >
                   + {t('pulseDeck.workbench.editor.rule.chipUrgentText')}
                 </button>
@@ -853,7 +865,7 @@ export function FastTaskEditorPane({
               }
             />
 
-            <div className="flex flex-wrap items-center gap-2 border-t border-border pt-3">
+            <div className="flex flex-wrap items-center gap-2 pt-1">
               <Button
                 type="button"
                 size="sm"
@@ -906,7 +918,7 @@ export function FastTaskEditorPane({
             recentOutbox={recentOutbox}
           />
         ) : null}
-      </div>
+      </VStack>
     </div>
   );
 }

@@ -1,129 +1,47 @@
-import { useCallback, useRef, useState, type ReactNode } from 'react';
+import type { CSSProperties, ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
-import { cn } from '@/lib/utils';
+import { DropdownMenu } from '@astryxdesign/core/DropdownMenu';
+import { Icon } from '@astryxdesign/core/Icon';
+import {
+  HStack,
+  Layout,
+  LayoutContent,
+  LayoutPanel,
+} from '@astryxdesign/core/Layout';
+import { ResizeHandle, useResizable } from '@astryxdesign/core/Resizable';
+import { StatusDot } from '@astryxdesign/core/StatusDot';
+import { Text } from '@astryxdesign/core/Text';
+import { GitFork, Plus, Zap } from 'lucide-react';
 import type { AutomationTaskStatus } from './automationModels';
 
-export function AutomationSplitFrame({
-  master,
-  detail,
-  defaultMasterPercent = 45,
-  testId,
-  className,
-}: {
-  master: ReactNode;
-  detail: ReactNode;
-  defaultMasterPercent?: number;
-  testId?: string;
-  className?: string;
-}) {
-  const { t } = useTranslation('panels');
-  const containerRef = useRef<HTMLDivElement | null>(null);
-  const [masterPercent, setMasterPercent] = useState(defaultMasterPercent);
+/**
+ * Exact group-header cell style from `@astryxdesign/cli template table-grouped`.
+ * Placed on the `colSpan` TableCell so the muted background spans the full row.
+ */
+export const groupHeaderCell: CSSProperties = {
+  cursor: 'pointer',
+  backgroundColor: 'var(--color-background-muted)',
+  padding: 'var(--spacing-2) var(--spacing-4)',
+};
 
-  const handlePointerDown = useCallback(
-    (event: React.PointerEvent<HTMLDivElement>) => {
-      const container = containerRef.current;
-      if (!container) return;
-      event.preventDefault();
-      const target = event.currentTarget;
-      target.setPointerCapture?.(event.pointerId);
+export const selectedTableRowStyle: CSSProperties = {
+  backgroundColor: 'var(--color-background-muted)',
+};
 
-      const onMove = (moveEvent: PointerEvent) => {
-        const rect = container.getBoundingClientRect();
-        if (rect.width <= 0) return;
-        const raw = ((moveEvent.clientX - rect.left) / rect.width) * 100;
-        const clamped = Math.min(56, Math.max(36, Math.round(raw * 10) / 10));
-        setMasterPercent(clamped);
-      };
+export const interactiveRowStyle: CSSProperties = {
+  cursor: 'pointer',
+};
 
-      const onUp = () => {
-        window.removeEventListener('pointermove', onMove);
-        window.removeEventListener('pointerup', onUp);
-      };
-
-      window.addEventListener('pointermove', onMove);
-      window.addEventListener('pointerup', onUp);
-    },
-    []
-  );
-
-  return (
-    <div
-      ref={containerRef}
-      data-testid={testId}
-      style={
-        {
-          '--automation-master-width': `${masterPercent}%`,
-        } as React.CSSProperties
-      }
-      className={cn(
-        'flex min-h-0 flex-1 flex-col overflow-hidden bg-[var(--surface-panel)] lg:flex-row',
-        className
-      )}
-    >
-      <div
-        data-testid={testId ? `${testId}-master` : undefined}
-        className="flex min-h-[240px] flex-col overflow-hidden border-b border-border bg-[var(--surface-panel)] lg:min-h-0 lg:w-[var(--automation-master-width)] lg:shrink-0 lg:border-r lg:border-b-0"
-      >
-        {master}
-      </div>
-
-      <div
-        role="separator"
-        aria-orientation="vertical"
-        aria-label={t('pulseDeck.workbench.split.resizeAria')}
-        tabIndex={0}
-        onPointerDown={handlePointerDown}
-        onKeyDown={(event) => {
-          if (event.key === 'ArrowLeft') {
-            event.preventDefault();
-            setMasterPercent((prev) => Math.max(36, prev - 2));
-          } else if (event.key === 'ArrowRight') {
-            event.preventDefault();
-            setMasterPercent((prev) => Math.min(56, prev + 2));
-          }
-        }}
-        className="hidden w-1 shrink-0 cursor-col-resize bg-transparent transition-colors hover:bg-primary/25 focus-visible:bg-primary/35 focus-visible:outline-none lg:block"
-      />
-
-      <div
-        data-testid={testId ? `${testId}-detail` : undefined}
-        className="flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto bg-[var(--surface-elevated)]"
-      >
-        {detail}
-      </div>
-    </div>
-  );
-}
-
-const STATUS_STYLE_MAP: Record<
+export const STATUS_DOT_VARIANT: Record<
   AutomationTaskStatus,
-  { dot: string; chip: string }
+  'accent' | 'warning' | 'success' | 'neutral'
 > = {
-  running: {
-    dot: 'bg-primary animate-pulse',
-    chip: 'border-primary/35 bg-primary/10 text-primary',
-  },
-  testing: {
-    dot: 'bg-warning animate-pulse',
-    chip: 'border-warning/35 bg-warning/10 text-foreground',
-  },
-  publishing: {
-    dot: 'bg-primary animate-pulse',
-    chip: 'border-primary/35 bg-primary/10 text-primary',
-  },
-  published: {
-    dot: 'bg-success',
-    chip: 'border-success/35 bg-success/10 text-foreground',
-  },
-  pending_test: {
-    dot: 'bg-warning',
-    chip: 'border-warning/35 bg-warning/10 text-foreground',
-  },
-  editing: {
-    dot: 'bg-muted-foreground/70',
-    chip: 'border-border bg-[var(--surface-control)] text-muted-foreground',
-  },
+  running: 'accent',
+  testing: 'warning',
+  publishing: 'accent',
+  published: 'success',
+  pending_test: 'warning',
+  editing: 'neutral',
 };
 
 export function TaskStatusBadge({
@@ -134,17 +52,136 @@ export function TaskStatusBadge({
   testId?: string;
 }) {
   const { t } = useTranslation('panels');
-  const style = STATUS_STYLE_MAP[status];
+  const label = t(`pulseDeck.workbench.status.${status}`);
+  const isPulsing =
+    status === 'running' || status === 'testing' || status === 'publishing';
+
   return (
-    <span
+    <HStack gap={1.5} vAlign="center" data-testid={testId}>
+      <StatusDot
+        variant={STATUS_DOT_VARIANT[status]}
+        label={label}
+        isPulsing={isPulsing}
+      />
+      <Text type="supporting" color="secondary" maxLines={1}>
+        {label}
+      </Text>
+    </HStack>
+  );
+}
+
+/**
+ * Unified "新建" (New) menu button combining "任务" (Task) and "工作流" (Workflow)
+ * into a single control instead of rendering two separate buttons.
+ */
+export function NewAutomationMenuButton({
+  onNewFastTask,
+  onNewWorkflow,
+  size = 'md',
+  testId = 'automation-new-menu-btn',
+}: {
+  onNewFastTask: () => void;
+  onNewWorkflow: () => void;
+  size?: 'sm' | 'md' | 'lg';
+  testId?: string;
+}) {
+  const { t } = useTranslation('panels');
+
+  return (
+    <DropdownMenu
+      alignment="end"
       data-testid={testId}
-      className={cn(
-        'inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-2xs font-medium',
-        style.chip
-      )}
+      button={{
+        label: t('pulseDeck.workbench.actions.newMenu'),
+        variant: 'primary',
+        size,
+        icon: <Icon icon={Plus} size="sm" />,
+      }}
+      items={[
+        {
+          label: t('pulseDeck.workbench.actions.newTaskItem'),
+          icon: Zap,
+          onClick: onNewFastTask,
+        },
+        {
+          label: t('pulseDeck.workbench.actions.newWorkflowItem'),
+          icon: GitFork,
+          onClick: onNewWorkflow,
+        },
+      ]}
+    />
+  );
+}
+
+/**
+ * Astryx `table-grouped` content + collapsible resizable complementary panel shell.
+ * When `detail` is null/undefined, `LayoutContent` fills 100% width with no side divider.
+ */
+export function AutomationSplitFrame({
+  header,
+  master,
+  detail,
+  defaultDetailSize = 440,
+  minDetailSize = 340,
+  maxDetailSize = 640,
+  panelLabel,
+  testId,
+}: {
+  header?: ReactNode;
+  master: ReactNode;
+  detail?: ReactNode | null;
+  defaultDetailSize?: number;
+  minDetailSize?: number;
+  maxDetailSize?: number;
+  panelLabel?: string;
+  testId?: string;
+}) {
+  const { t } = useTranslation('panels');
+  const detailPanel = useResizable({
+    defaultSize: defaultDetailSize,
+    minSizePx: minDetailSize,
+    maxSizePx: maxDetailSize,
+  });
+
+  return (
+    <div
+      data-testid={testId}
+      className="flex h-full min-h-0 flex-1 flex-col overflow-hidden"
     >
-      <span className={cn('h-1.5 w-1.5 rounded-full', style.dot)} />
-      {t(`pulseDeck.workbench.status.${status}`)}
-    </span>
+      <Layout
+        height="fill"
+        header={header}
+        content={
+          <LayoutContent
+            role="main"
+            padding={0}
+            data-testid={testId ? `${testId}-master` : undefined}
+          >
+            {master}
+          </LayoutContent>
+        }
+        end={
+          detail ? (
+            <>
+              <ResizeHandle
+                resizable={detailPanel.props}
+                isReversed
+                isAlwaysVisible={false}
+              />
+              <LayoutPanel
+                hasDivider
+                resizable={detailPanel.props}
+                padding={4}
+                role="complementary"
+                label={panelLabel ?? t('pulseDeck.workbench.editor.panelAria')}
+                data-testid={testId ? `${testId}-detail` : undefined}
+              >
+                {detail}
+              </LayoutPanel>
+            </>
+          ) : undefined
+        }
+      />
+    </div>
   );
 }

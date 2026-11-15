@@ -1,7 +1,30 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from 'react';
 import { useTranslation } from 'react-i18next';
+import { Badge } from '@astryxdesign/core/Badge';
+import { Button as AstryxButton } from '@astryxdesign/core/Button';
+import { Icon } from '@astryxdesign/core/Icon';
+import { HStack, VStack } from '@astryxdesign/core/Layout';
+import { StatusDot } from '@astryxdesign/core/StatusDot';
+import {
+  proportional,
+  resolveColumnWidths,
+  Table,
+  TableBody,
+  TableCell,
+  TableRow,
+  type TableColumn,
+} from '@astryxdesign/core/Table';
+import { Text } from '@astryxdesign/core/Text';
 import {
   CheckCircle2,
+  ChevronDown,
+  ChevronRight,
   Play,
   Plus,
   Radio,
@@ -10,7 +33,6 @@ import {
   XCircle,
 } from 'lucide-react';
 import type { WorkflowDefinitionSummary } from 'shared/types';
-import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useManagedAgentOptions } from '@/features/agent-management';
@@ -23,7 +45,12 @@ import type {
   PulseSubscriptionView,
 } from '@/lib/api/pulse';
 import { cn } from '@/lib/utils';
-import { AutomationSplitFrame } from './AutomationSplitFrame';
+import {
+  AutomationSplitFrame,
+  groupHeaderCell,
+  interactiveRowStyle,
+  selectedTableRowStyle,
+} from './AutomationSplitFrame';
 import { buildWebhookCurlSnippet } from './automationModels';
 import { SourceConnectorFields } from './SourceConnectorFields';
 
@@ -68,6 +95,10 @@ function readNumberConfig(
 }
 
 export interface AutomationSourcesTabProps {
+  renderHeader?: (
+    toolbarRow?: ReactNode,
+    contextualAction?: ReactNode
+  ) => ReactNode;
   sources: readonly PulseSourceView[];
   subscriptions: readonly PulseSubscriptionView[];
   workflows: readonly WorkflowDefinitionSummary[];
@@ -89,6 +120,7 @@ export interface AutomationSourcesTabProps {
 }
 
 export function AutomationSourcesTab({
+  renderHeader,
   sources,
   subscriptions,
   workflows,
@@ -99,7 +131,7 @@ export function AutomationSourcesTab({
   onSubscribeThread,
   onUnsubscribeThread,
 }: AutomationSourcesTabProps) {
-  const { t } = useTranslation('panels');
+  const { t, i18n } = useTranslation('panels');
   const managedAgents = useManagedAgentOptions(undefined, true);
 
   const [selectedSourceId, setSelectedSourceId] = useState<string | null>(
@@ -107,6 +139,9 @@ export function AutomationSourcesTab({
   );
   const [creatingNew, setCreatingNew] = useState(
     initialAddingNew || sources.length === 0
+  );
+  const [expandedGroups, setExpandedGroups] = useState<Set<string>>(
+    () => new Set(['sources', 'subscriptions'])
   );
   const hydratedSourceIdRef = useRef<string | null>(null);
 
@@ -190,6 +225,15 @@ export function AutomationSourcesTab({
       }
     }
   }, [creatingNew, initialAddingNew, selectedSourceId, sources]);
+
+  const toggleGroup = (key: string) => {
+    setExpandedGroups((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  };
 
   const selectedSource = creatingNew
     ? null
@@ -311,396 +355,499 @@ export function AutomationSourcesTab({
         ];
   }, [managedAgents, subKind, workflows]);
 
+  const columns = useMemo<TableColumn<Record<string, unknown>>[]>(
+    () => [
+      {
+        key: 'source',
+        header: t('pulseDeck.workbench.sources.colSource'),
+        width: proportional(1.1),
+      },
+      {
+        key: 'health',
+        header: t('pulseDeck.workbench.sources.colHealth'),
+        width: proportional(1),
+      },
+      {
+        key: 'volume',
+        header: t('pulseDeck.workbench.sources.colVolume'),
+        width: proportional(0.8),
+      },
+    ],
+    [t, i18n.language]
+  );
+
+  const resolvedWidths = useMemo(
+    () => resolveColumnWidths(columns),
+    [columns]
+  );
+
+  const addSourceAction = (
+    <AstryxButton
+      label={t('pulseDeck.workbench.sources.addSourceBtn')}
+      variant="secondary"
+      size="md"
+      icon={<Icon icon={Plus} size="sm" />}
+      data-testid="sources-add-btn"
+      onClick={() => {
+        hydratedSourceIdRef.current = null;
+        setCreatingNew(true);
+        setSelectedSourceId(null);
+        setKind('github');
+        setTitle('GitHub CI/CD');
+        setGithubMode('poll');
+        setSigningSecret('');
+        setTestResult(null);
+      }}
+    />
+  );
+
   const masterPane = (
-    <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
-      <div className="flex items-center justify-between gap-2 border-b border-border px-3 py-2">
-        <span className="text-xs font-medium text-foreground">
-          {t('pulseDeck.workbench.sources.sourcesHeader')}
-        </span>
-        <Button
-          type="button"
-          size="sm"
-          variant="outline"
-          data-testid="sources-add-btn"
-          onClick={() => {
-            hydratedSourceIdRef.current = null;
-            setCreatingNew(true);
-            setSelectedSourceId(null);
-            setKind('github');
-            setTitle('GitHub CI/CD');
-            setGithubMode('poll');
-            setSigningSecret('');
-            setTestResult(null);
-          }}
-          className="h-7 px-2.5 text-2xs"
-        >
-          <Plus className="mr-1 h-3 w-3" />
-          {t('pulseDeck.workbench.sources.addSourceBtn')}
-        </Button>
-      </div>
-
-      <div
-        data-testid="pulse-deck-sources-strip"
-        className="divide-y divide-border border-b border-border"
+    <div data-testid="pulse-deck-sources-strip" className="min-h-0 flex-1">
+      <Table
+        columns={columns}
+        density="balanced"
+        dividers="rows"
+        textOverflow="truncate"
+        hasHover
       >
-        {sources.map((src) => {
-          const active = !creatingNew && selectedSourceId === src.id;
-          const statusLabel = !src.enabled
-            ? t('pulseDeck.sourceDisabled')
-            : src.healthy
-              ? t('pulseDeck.sourceHealthy')
-              : t('pulseDeck.sourceUnhealthy');
-          const watermarkText = src.cursorWatermark
-            ? `${statusLabel} · ${t('pulseDeck.sourceCursor', {
-                cursor: src.cursorWatermark,
-              })}`
-            : statusLabel;
+        <colgroup>
+          {columns.map((col) => (
+            <col
+              key={col.key}
+              style={resolvedWidths.columns.get(col.key)?.style}
+            />
+          ))}
+        </colgroup>
+        <TableBody>
+          {/* Group 1: Connected Event Sources */}
+          <TableRow
+            role="button"
+            tabIndex={0}
+            onClick={() => toggleGroup('sources')}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                toggleGroup('sources');
+              }
+            }}
+          >
+            <TableCell colSpan={columns.length} style={groupHeaderCell}>
+              <HStack gap={2} vAlign="center">
+                <Icon
+                  icon={
+                    expandedGroups.has('sources') ? ChevronDown : ChevronRight
+                  }
+                  size="sm"
+                  color="secondary"
+                />
+                <Text type="body" weight="bold">
+                  {t('pulseDeck.workbench.sources.groupConnected')}
+                </Text>
+                <Badge
+                  variant="neutral"
+                  label={String(sources.length)}
+                  className="tabular-nums"
+                />
+              </HStack>
+            </TableCell>
+          </TableRow>
 
-          return (
-            <button
-              key={src.id}
-              type="button"
-              data-testid={`source-row-${src.id}`}
-              onClick={() => {
-                setCreatingNew(false);
-                setSelectedSourceId(src.id);
-                hydrateFromSource(src);
-              }}
-              className={cn(
-                'flex w-full flex-col items-start gap-1 px-3 py-2.5 text-left transition-colors',
-                active
-                  ? 'bg-[var(--surface-elevated)]'
-                  : 'hover:bg-[var(--surface-control)]/50'
-              )}
-            >
-              <div className="flex w-full items-center justify-between gap-2">
-                <span className="flex items-center gap-1.5 truncate text-xs font-medium text-foreground">
-                  <span
-                    className={cn(
-                      'h-2 w-2 shrink-0 rounded-full',
-                      !src.enabled
-                        ? 'bg-muted-foreground/50'
-                        : src.healthy
-                          ? 'bg-success'
-                          : 'bg-destructive'
-                    )}
-                  />
-                  {src.title}
-                </span>
-                <span
-                  data-testid={`pulse-source-counts-${src.id}`}
-                  className="shrink-0 text-2xs tabular-nums text-muted-foreground"
-                >
-                  {t('pulseDeck.sourceReceived24h', {
-                    count: src.receivedCount24h,
-                  })}
-                  {src.rejectedCount24h > 0
-                    ? ` · ${t('pulseDeck.sourceRejected24h', {
-                        count: src.rejectedCount24h,
-                      })}`
-                    : ''}
-                </span>
-              </div>
-              <span
-                data-testid={`pulse-source-watermark-${src.id}`}
-                className="text-2xs tabular-nums text-muted-foreground"
-              >
-                {watermarkText}
-              </span>
-            </button>
-          );
-        })}
-      </div>
+          {expandedGroups.has('sources') &&
+            sources.map((src) => {
+              const active = !creatingNew && selectedSourceId === src.id;
+              const statusLabel = !src.enabled
+                ? t('pulseDeck.sourceDisabled')
+                : src.healthy
+                  ? t('pulseDeck.sourceHealthy')
+                  : t('pulseDeck.sourceUnhealthy');
+              const watermarkText = src.cursorWatermark
+                ? `${statusLabel} · ${t('pulseDeck.sourceCursor', {
+                    cursor: src.cursorWatermark,
+                  })}`
+                : statusLabel;
+              const rowStyle = active
+                ? { ...interactiveRowStyle, ...selectedTableRowStyle }
+                : interactiveRowStyle;
 
-      {/* Active Thread Subscriptions List */}
-      <div className="px-3 py-2">
-        <div className="mb-2 text-xs font-medium text-foreground">
-          {t('pulseDeck.workbench.sources.subscriptionsHeader')}
-        </div>
-        {subscriptions.length === 0 ? (
-          <p className="text-2xs text-muted-foreground">
-            {t('pulseDeck.subscriptionsEmpty')}
-          </p>
-        ) : (
-          <div className="divide-y divide-border rounded-md border border-border bg-[var(--surface-panel)]">
-            {subscriptions.map((sub) => (
-              <div
-                key={sub.id}
-                className="flex items-center justify-between gap-2 px-2.5 py-1.5 text-xs"
-              >
-                <div className="min-w-0">
-                  <div className="truncate font-mono text-xs text-foreground">
-                    {sub.threadKey}
-                  </div>
-                  <div className="truncate text-2xs text-muted-foreground">
-                    {sub.subscriberKind} · {sub.subscriberId}
-                  </div>
-                </div>
-                <button
-                  type="button"
-                  data-testid={`pulse-deck-unsubscribe-${sub.id}`}
-                  aria-label={t('pulseDeck.unsubscribeAria', {
-                    threadKey: sub.threadKey,
-                  })}
-                  onClick={() => void onUnsubscribeThread(sub.id)}
-                  className="rounded p-1 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+              return (
+                <TableRow
+                  key={src.id}
+                  data-testid={`source-row-${src.id}`}
+                  style={rowStyle}
+                  onClick={() => {
+                    setCreatingNew(false);
+                    setSelectedSourceId(src.id);
+                    hydrateFromSource(src);
+                  }}
                 >
-                  <Trash2 className="h-3.5 w-3.5" />
-                </button>
-              </div>
+                  <TableCell>
+                    <HStack gap={2} vAlign="center">
+                      <StatusDot
+                        variant={
+                          !src.enabled
+                            ? 'neutral'
+                            : src.healthy
+                              ? 'success'
+                              : 'error'
+                        }
+                        label={statusLabel}
+                      />
+                      <Text type="body" weight="medium" maxLines={1}>
+                        {src.title}
+                      </Text>
+                    </HStack>
+                  </TableCell>
+                  <TableCell>
+                    <span
+                      data-testid={`pulse-source-watermark-${src.id}`}
+                      className="text-xs tabular-nums text-muted-foreground"
+                    >
+                      {watermarkText}
+                    </span>
+                  </TableCell>
+                  <TableCell>
+                    <span
+                      data-testid={`pulse-source-counts-${src.id}`}
+                      className="text-xs tabular-nums text-muted-foreground"
+                    >
+                      {t('pulseDeck.sourceReceived24h', {
+                        count: src.receivedCount24h,
+                      })}
+                      {src.rejectedCount24h > 0
+                        ? ` · ${t('pulseDeck.sourceRejected24h', {
+                            count: src.rejectedCount24h,
+                          })}`
+                        : ''}
+                    </span>
+                  </TableCell>
+                </TableRow>
+              );
+            })}
+
+          {/* Group 2: Thread Subscriptions */}
+          <TableRow
+            role="button"
+            tabIndex={0}
+            onClick={() => toggleGroup('subscriptions')}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                toggleGroup('subscriptions');
+              }
+            }}
+          >
+            <TableCell colSpan={columns.length} style={groupHeaderCell}>
+              <HStack gap={2} vAlign="center">
+                <Icon
+                  icon={
+                    expandedGroups.has('subscriptions')
+                      ? ChevronDown
+                      : ChevronRight
+                  }
+                  size="sm"
+                  color="secondary"
+                />
+                <Icon icon={Radio} size="sm" color="secondary" />
+                <Text type="body" weight="bold">
+                  {t('pulseDeck.workbench.sources.groupSubscriptions')}
+                </Text>
+                <Badge
+                  variant="neutral"
+                  label={String(subscriptions.length)}
+                  className="tabular-nums"
+                />
+              </HStack>
+            </TableCell>
+          </TableRow>
+
+          {expandedGroups.has('subscriptions') &&
+            (subscriptions.length === 0 ? (
+              <TableRow>
+                <TableCell colSpan={columns.length}>
+                  <Text type="supporting" color="secondary">
+                    {t('pulseDeck.subscriptionsEmpty')}
+                  </Text>
+                </TableCell>
+              </TableRow>
+            ) : (
+              subscriptions.map((sub) => (
+                <TableRow key={sub.id}>
+                  <TableCell>
+                    <span className="font-mono text-xs text-foreground">
+                      {sub.threadKey}
+                    </span>
+                  </TableCell>
+                  <TableCell>
+                    <Text type="supporting" color="secondary" maxLines={1}>
+                      {sub.subscriberKind} · {sub.subscriberId}
+                    </Text>
+                  </TableCell>
+                  <TableCell>
+                    <AstryxButton
+                      label={t('pulseDeck.unsubscribeAria', {
+                        threadKey: sub.threadKey,
+                      })}
+                      variant="ghost"
+                      size="sm"
+                      isIconOnly
+                      icon={<Icon icon={Trash2} size="sm" />}
+                      data-testid={`pulse-deck-unsubscribe-${sub.id}`}
+                      onClick={() => void onUnsubscribeThread(sub.id)}
+                    />
+                  </TableCell>
+                </TableRow>
+              ))
             ))}
-          </div>
-        )}
-      </div>
+        </TableBody>
+      </Table>
     </div>
   );
 
   const curlSnippet = buildWebhookCurlSnippet(webhookUrl, signingSecret, kind);
 
   const detailPane = (
-    <div
-      data-testid="automation-source-editor"
-      className="flex flex-1 flex-col gap-4 p-4"
-    >
-      {/* Connector Kind Picker + Title */}
-      <div className="space-y-3 border-b border-border pb-3">
-        <div className="flex flex-wrap gap-1.5">
-          {SOURCE_KIND_OPTIONS.map((opt) => {
-            const active = kind === opt.kind;
-            return (
-              <button
-                key={opt.kind}
-                type="button"
-                data-testid={`source-kind-${opt.kind}`}
-                aria-pressed={active}
-                onClick={() => {
-                  setKind(opt.kind);
-                  if (creatingNew) {
-                    setTitle(t(opt.labelKey));
-                  }
-                  setTestResult(null);
-                }}
-                className={cn(
-                  'rounded-full border px-2.5 py-1 text-2xs font-medium transition-colors',
-                  active
-                    ? 'border-primary bg-primary text-primary-foreground'
-                    : 'border-border bg-[var(--surface-control)] text-muted-foreground hover:text-foreground'
-                )}
-              >
-                {t(opt.labelKey)}
-              </button>
-            );
-          })}
-        </div>
-
-        <div className="flex flex-wrap items-end justify-between gap-2">
-          <div className="min-w-[200px] flex-1 space-y-1">
-            <Label htmlFor="source-title-input" className="text-xs">
-              {t('pulseDeck.sourceTitleLabel')}
-            </Label>
-            <Input
-              id="source-title-input"
-              data-testid="source-title-input"
-              placeholder={t('pulseDeck.sourceTitlePlaceholder')}
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              className="h-8 text-xs"
-            />
-          </div>
-
-          {selectedSource && !selectedSource.id.startsWith('placeholder-') ? (
-            <Button
-              type="button"
-              size="sm"
-              variant="ghost"
-              data-testid="source-delete-btn"
-              onClick={() => void onDeleteSource(selectedSource.id)}
-              className="text-destructive hover:text-destructive"
-            >
-              <Trash2 className="mr-1 h-3.5 w-3.5" />
-              {t('pulseDeck.workbench.sources.deleteSourceBtn')}
-            </Button>
-          ) : null}
-        </div>
-      </div>
-
-      <SourceConnectorFields
-        kind={kind}
-        webhookUrl={webhookUrl}
-        curlSnippet={curlSnippet}
-        signingSecret={signingSecret}
-        onSigningSecretChange={setSigningSecret}
-        allowUnsigned={allowUnsigned}
-        onAllowUnsignedChange={setAllowUnsigned}
-        copiedKey={copiedKey}
-        onCopy={copyText}
-        githubMode={githubMode}
-        onGithubModeChange={setGithubMode}
-        githubRepo={githubRepo}
-        onGithubRepoChange={setGithubRepo}
-        githubPollSeconds={githubPollSeconds}
-        onGithubPollSecondsChange={setGithubPollSeconds}
-        githubToken={githubToken}
-        onGithubTokenChange={setGithubToken}
-        githubBranch={githubBranch}
-        onGithubBranchChange={setGithubBranch}
-        feishuMode={feishuMode}
-        onFeishuModeChange={setFeishuMode}
-        feishuBotOpenId={feishuBotOpenId}
-        onFeishuBotOpenIdChange={setFeishuBotOpenId}
-        cronExpression={cronExpression}
-        onCronExpressionChange={setCronExpression}
-        intervalSeconds={intervalSeconds}
-        onIntervalSecondsChange={setIntervalSeconds}
-      />
-
-      {/* Save & Live Self-Test Bar */}
-      <div className="flex flex-wrap items-center gap-2 border-t border-border pt-3">
-        <Button
-          type="button"
-          size="sm"
-          disabled={savingAndTesting}
-          data-testid="source-save-and-test-btn"
-          onClick={() => void handleSaveAndTest(false)}
-        >
-          <Save className="mr-1.5 h-3.5 w-3.5" />
-          {savingAndTesting
-            ? t('pulseDeck.workbench.sources.testingBtn')
-            : t('pulseDeck.workbench.sources.saveAndTestBtn')}
-        </Button>
-
-        <Button
-          type="button"
-          size="sm"
-          variant="outline"
-          disabled={savingAndTesting}
-          data-testid="source-emit-live-test-btn"
-          onClick={() => void handleSaveAndTest(true)}
-        >
-          <Play className="mr-1.5 h-3.5 w-3.5" />
-          {kind === 'feishu'
-            ? t('pulseDeck.workbench.sources.feishuSelfTestBtn')
-            : kind === 'webhook_standard' || kind === 'webhook_custom'
-              ? t('pulseDeck.workbench.sources.sendTestRequestBtn')
-              : t('pulseDeck.workbench.sources.emitLiveTestBtn')}
-        </Button>
-      </div>
-
-      {/* Live Test Result Output */}
-      {testResult ? (
-        <div
-          data-testid="source-test-result"
-          className={cn(
-            'rounded-md border p-3 text-xs',
-            testResult.ok
-              ? 'border-success/35 bg-success/10 text-foreground'
-              : 'border-destructive/35 bg-destructive/10 text-destructive'
-          )}
-        >
-          <div className="flex items-center gap-1.5 font-medium">
-            {testResult.ok ? (
-              <CheckCircle2 className="h-3.5 w-3.5 text-success" />
-            ) : (
-              <XCircle className="h-3.5 w-3.5 text-destructive" />
-            )}
-            <span>
-              {testResult.ok
-                ? t('pulseDeck.workbench.sources.testResultOk')
-                : t('pulseDeck.workbench.sources.testResultFail')}
-              {' · '}
-              {testResult.message}
-            </span>
-          </div>
-          {testResult.sampleEnvelope ? (
-            <pre className="mt-2 max-h-48 overflow-auto rounded border border-border bg-[var(--surface-panel)] p-2 font-mono text-2xs text-muted-foreground">
-              {JSON.stringify(testResult.sampleEnvelope, null, 2)}
-            </pre>
-          ) : null}
-        </div>
-      ) : null}
-
-      {/* Thread Subscriptions Sub-Form */}
-      <div className="space-y-2.5 border-t border-border pt-4">
-        <div className="flex items-center gap-1.5 text-xs font-medium text-foreground">
-          <Radio className="h-3.5 w-3.5 text-primary" />
-          {t('pulseDeck.subscriptionsTitle')}
-        </div>
-
-        <div className="flex flex-wrap items-center gap-1.5">
-          <Input
-            aria-label={t('pulseDeck.subscriptionThreadKeyAria')}
-            placeholder="github:org/repo#12"
-            value={subThreadKey}
-            onChange={(e) => setSubThreadKey(e.target.value)}
-            className="h-8 min-w-[160px] flex-1 font-mono text-xs"
-          />
-
-          <div className="inline-flex items-center rounded-md border border-border bg-[var(--surface-control)] p-0.5">
-            {(['session', 'bot', 'group', 'workflow'] as const).map((k) => {
-              const active = subKind === k;
+    <div data-testid="automation-source-editor">
+      <VStack gap={4}>
+        {/* Connector Kind Picker + Title */}
+        <VStack gap={3}>
+          <div className="flex flex-wrap gap-1.5">
+            {SOURCE_KIND_OPTIONS.map((opt) => {
+              const active = kind === opt.kind;
               return (
                 <button
-                  key={k}
+                  key={opt.kind}
                   type="button"
-                  data-testid={`deck-sub-kind-${k}`}
+                  data-testid={`source-kind-${opt.kind}`}
                   aria-pressed={active}
-                  onClick={() => setSubKind(k)}
+                  onClick={() => {
+                    setKind(opt.kind);
+                    if (creatingNew) {
+                      setTitle(t(opt.labelKey));
+                    }
+                    setTestResult(null);
+                  }}
                   className={cn(
-                    'rounded px-2 py-0.5 text-2xs font-medium transition-colors',
+                    'rounded-full px-2.5 py-1 text-2xs font-medium transition-colors',
                     active
-                      ? 'bg-background text-foreground'
-                      : 'text-muted-foreground hover:text-foreground'
+                      ? 'bg-primary text-primary-foreground'
+                      : 'bg-[var(--color-background-muted)] text-muted-foreground hover:text-foreground'
                   )}
                 >
-                  {t(`pulseDeck.subscriberKinds.${k}`)}
+                  {t(opt.labelKey)}
                 </button>
               );
             })}
           </div>
 
-          <Input
-            aria-label={t('pulseDeck.subscriberIdAria')}
-            list="pulse-sub-target-suggestions"
-            placeholder={t('pulseDeck.workbench.sources.subTargetPlaceholder')}
-            value={subTargetId}
-            onChange={(e) => setSubTargetId(e.target.value)}
-            className="h-8 w-44 font-mono text-xs"
-          />
-          <datalist id="pulse-sub-target-suggestions">
-            {subTargetSuggestions.map((opt) => (
-              <option key={opt.id} value={opt.id}>
-                {opt.label}
-              </option>
-            ))}
-          </datalist>
+          <div className="flex flex-wrap items-end justify-between gap-2">
+            <div className="min-w-[200px] flex-1 space-y-1">
+              <Label htmlFor="source-title-input" className="text-xs">
+                {t('pulseDeck.sourceTitleLabel')}
+              </Label>
+              <Input
+                id="source-title-input"
+                data-testid="source-title-input"
+                placeholder={t('pulseDeck.sourceTitlePlaceholder')}
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
+                className="h-8 text-xs"
+              />
+            </div>
 
-          <Button
-            type="button"
+            {selectedSource &&
+            !selectedSource.id.startsWith('placeholder-') ? (
+              <AstryxButton
+                label={t('pulseDeck.workbench.sources.deleteSourceBtn')}
+                variant="ghost"
+                size="sm"
+                icon={<Icon icon={Trash2} size="sm" />}
+                data-testid="source-delete-btn"
+                onClick={() => void onDeleteSource(selectedSource.id)}
+              />
+            ) : null}
+          </div>
+        </VStack>
+
+        <SourceConnectorFields
+          kind={kind}
+          webhookUrl={webhookUrl}
+          curlSnippet={curlSnippet}
+          signingSecret={signingSecret}
+          onSigningSecretChange={setSigningSecret}
+          allowUnsigned={allowUnsigned}
+          onAllowUnsignedChange={setAllowUnsigned}
+          copiedKey={copiedKey}
+          onCopy={copyText}
+          githubMode={githubMode}
+          onGithubModeChange={setGithubMode}
+          githubRepo={githubRepo}
+          onGithubRepoChange={setGithubRepo}
+          githubPollSeconds={githubPollSeconds}
+          onGithubPollSecondsChange={setGithubPollSeconds}
+          githubToken={githubToken}
+          onGithubTokenChange={setGithubToken}
+          githubBranch={githubBranch}
+          onGithubBranchChange={setGithubBranch}
+          feishuMode={feishuMode}
+          onFeishuModeChange={setFeishuMode}
+          feishuBotOpenId={feishuBotOpenId}
+          onFeishuBotOpenIdChange={setFeishuBotOpenId}
+          cronExpression={cronExpression}
+          onCronExpressionChange={setCronExpression}
+          intervalSeconds={intervalSeconds}
+          onIntervalSecondsChange={setIntervalSeconds}
+        />
+
+        {/* Save & Live Self-Test Bar */}
+        <HStack gap={2} vAlign="center" wrap="wrap">
+          <AstryxButton
+            label={
+              savingAndTesting
+                ? t('pulseDeck.workbench.sources.testingBtn')
+                : t('pulseDeck.workbench.sources.saveAndTestBtn')
+            }
+            variant="primary"
             size="sm"
-            variant="outline"
-            data-testid="pulse-deck-subscribe-btn"
-            onClick={() => {
-              if (!subThreadKey.trim() || !subTargetId.trim()) return;
-              void onSubscribeThread(
-                subThreadKey.trim(),
-                subKind as 'session' | 'bot' | 'group' | 'workflow',
-                subTargetId.trim()
-              ).then(() => {
-                setSubThreadKey('');
-                setSubTargetId('');
-              });
-            }}
+            isDisabled={savingAndTesting}
+            icon={<Icon icon={Save} size="sm" />}
+            data-testid="source-save-and-test-btn"
+            onClick={() => void handleSaveAndTest(false)}
+          />
+
+          <AstryxButton
+            label={
+              kind === 'feishu'
+                ? t('pulseDeck.workbench.sources.feishuSelfTestBtn')
+                : kind === 'webhook_standard' || kind === 'webhook_custom'
+                  ? t('pulseDeck.workbench.sources.sendTestRequestBtn')
+                  : t('pulseDeck.workbench.sources.emitLiveTestBtn')
+            }
+            variant="secondary"
+            size="sm"
+            isDisabled={savingAndTesting}
+            icon={<Icon icon={Play} size="sm" />}
+            data-testid="source-emit-live-test-btn"
+            onClick={() => void handleSaveAndTest(true)}
+          />
+        </HStack>
+
+        {/* Live Test Result Output */}
+        {testResult ? (
+          <div
+            data-testid="source-test-result"
+            className={cn(
+              'rounded-md p-3 text-xs',
+              testResult.ok
+                ? 'bg-success/10 text-foreground'
+                : 'bg-destructive/10 text-destructive'
+            )}
           >
-            {t('pulseDeck.bindBtn')}
-          </Button>
+            <div className="flex items-center gap-1.5 font-medium">
+              {testResult.ok ? (
+                <CheckCircle2 className="h-3.5 w-3.5 text-success" />
+              ) : (
+                <XCircle className="h-3.5 w-3.5 text-destructive" />
+              )}
+              <span>
+                {testResult.ok
+                  ? t('pulseDeck.workbench.sources.testResultOk')
+                  : t('pulseDeck.workbench.sources.testResultFail')}
+                {' · '}
+                {testResult.message}
+              </span>
+            </div>
+            {testResult.sampleEnvelope ? (
+              <pre className="mt-2 max-h-48 overflow-auto rounded bg-background p-2 font-mono text-2xs text-muted-foreground">
+                {JSON.stringify(testResult.sampleEnvelope, null, 2)}
+              </pre>
+            ) : null}
+          </div>
+        ) : null}
+
+        {/* Thread Subscriptions Sub-Form */}
+        <div className="space-y-2.5 rounded-lg bg-[var(--color-background-muted)] p-3">
+          <div className="flex items-center gap-1.5 text-xs font-medium text-foreground">
+            <Radio className="h-3.5 w-3.5 text-primary" />
+            {t('pulseDeck.subscriptionsTitle')}
+          </div>
+
+          <div className="flex flex-wrap items-center gap-1.5">
+            <Input
+              aria-label={t('pulseDeck.subscriptionThreadKeyAria')}
+              placeholder="github:org/repo#12"
+              value={subThreadKey}
+              onChange={(e) => setSubThreadKey(e.target.value)}
+              className="h-8 min-w-[160px] flex-1 bg-background font-mono text-xs"
+            />
+
+            <div className="inline-flex items-center rounded-md bg-background p-0.5">
+              {(['session', 'bot', 'group', 'workflow'] as const).map((k) => {
+                const active = subKind === k;
+                return (
+                  <button
+                    key={k}
+                    type="button"
+                    data-testid={`deck-sub-kind-${k}`}
+                    aria-pressed={active}
+                    onClick={() => setSubKind(k)}
+                    className={cn(
+                      'rounded px-2 py-0.5 text-2xs font-medium transition-colors',
+                      active
+                        ? 'bg-[var(--color-background-muted)] text-foreground'
+                        : 'text-muted-foreground hover:text-foreground'
+                    )}
+                  >
+                    {t(`pulseDeck.subscriberKinds.${k}`)}
+                  </button>
+                );
+              })}
+            </div>
+
+            <Input
+              aria-label={t('pulseDeck.subscriberIdAria')}
+              list="pulse-sub-target-suggestions"
+              placeholder={t(
+                'pulseDeck.workbench.sources.subTargetPlaceholder'
+              )}
+              value={subTargetId}
+              onChange={(e) => setSubTargetId(e.target.value)}
+              className="h-8 w-44 bg-background font-mono text-xs"
+            />
+            <datalist id="pulse-sub-target-suggestions">
+              {subTargetSuggestions.map((opt) => (
+                <option key={opt.id} value={opt.id}>
+                  {opt.label}
+                </option>
+              ))}
+            </datalist>
+
+            <AstryxButton
+              label={t('pulseDeck.bindBtn')}
+              variant="secondary"
+              size="sm"
+              data-testid="pulse-deck-subscribe-btn"
+              onClick={() => {
+                if (!subThreadKey.trim() || !subTargetId.trim()) return;
+                void onSubscribeThread(
+                  subThreadKey.trim(),
+                  subKind as 'session' | 'bot' | 'group' | 'workflow',
+                  subTargetId.trim()
+                ).then(() => {
+                  setSubThreadKey('');
+                  setSubTargetId('');
+                });
+              }}
+            />
+          </div>
         </div>
-      </div>
+      </VStack>
     </div>
   );
 
   return (
     <AutomationSplitFrame
       testId="automation-tab-sources-split"
+      header={renderHeader?.(undefined, addSourceAction)}
       master={masterPane}
       detail={detailPane}
     />

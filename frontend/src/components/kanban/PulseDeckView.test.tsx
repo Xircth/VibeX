@@ -1,3 +1,5 @@
+import { Theme as AstryxTheme } from '@astryxdesign/core/theme';
+import { neutralTheme } from '@astryxdesign/theme-neutral/built';
 import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -10,6 +12,14 @@ import { BoundHostTransport } from '@/lib/transport/boundHostTransport';
 import type { RemoteDesktopTransport } from '@/lib/transport/remoteDesktopTransport';
 import { PulseDeckView } from './PulseDeckView';
 import { stashPendingWorkflowStudioOpen } from './pulseDeckEvents';
+
+function renderDeck(projectId = 'proj-1') {
+  return render(
+    <AstryxTheme theme={neutralTheme} mode="light">
+      <PulseDeckView projectId={projectId} />
+    </AstryxTheme>
+  );
+}
 
 vi.mock('@/features/workflow/WorkflowStudioDockPanel', () => ({
   WorkflowStudioDockPanel: () => (
@@ -275,13 +285,13 @@ describe('PulseDeckView (Track A2 Automation Tasks Master-Detail Workbench)', ()
       version: 1n,
     } as unknown as WorkflowVersionView);
 
-    render(<PulseDeckView projectId="proj-1" />);
+    renderDeck('proj-1');
 
     // 4 primary tabs exist with Task List active by default
     expect(await screen.findByText('自动化任务')).toBeInTheDocument();
     expect(screen.getByTestId('pulse-deck-tab-tasks')).toHaveAttribute(
-      'aria-selected',
-      'true'
+      'aria-current',
+      'page'
     );
     expect(screen.getByTestId('pulse-deck-tab-pending')).toHaveTextContent(
       '待办事件'
@@ -293,15 +303,32 @@ describe('PulseDeckView (Track A2 Automation Tasks Master-Detail Workbench)', ()
       '事件源与订阅'
     );
 
-    // Master-detail split panes rendered
+    // Unified single "新建" menu button instead of two separate creation buttons
+    expect(screen.getByTestId('automation-new-menu-btn')).toHaveTextContent(
+      '新建'
+    );
+    expect(
+      screen.queryByTestId('automation-new-fasttask-btn')
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByTestId('automation-new-workflow-btn')
+    ).not.toBeInTheDocument();
+
+    // Master pane fills full width initially; detail LayoutPanel stays closed until selection
     expect(
       screen.getByTestId('automation-tab-tasks-split-master')
     ).toBeInTheDocument();
     expect(
-      screen.getByTestId('automation-tab-tasks-split-detail')
-    ).toBeInTheDocument();
+      screen.queryByTestId('automation-tab-tasks-split-detail')
+    ).not.toBeInTheDocument();
 
-    // Unified list has FastTask + Workflow (without duplicating workflow trigger rule or reusable template)
+    // table-grouped separates 任务 and 工作流 into distinct collapsible group sections
+    expect(
+      await screen.findByTestId('automation-group-header-fast_task')
+    ).toHaveTextContent('任务');
+    expect(
+      await screen.findByTestId('automation-group-header-workflow')
+    ).toHaveTextContent('工作流');
     expect(
       await screen.findByTestId('automation-task-row-rule-1')
     ).toBeInTheDocument();
@@ -315,13 +342,26 @@ describe('PulseDeckView (Track A2 Automation Tasks Master-Detail Workbench)', ()
       screen.queryByTestId('automation-task-row-rule-tpl-1')
     ).not.toBeInTheDocument();
 
+    // Collapsing and expanding the 任务 group header toggles its rows cleanly
+    await user.click(screen.getByTestId('automation-group-header-fast_task'));
+    expect(
+      screen.queryByTestId('automation-task-row-rule-1')
+    ).not.toBeInTheDocument();
+    await user.click(screen.getByTestId('automation-group-header-fast_task'));
+    expect(
+      await screen.findByTestId('automation-task-row-rule-1')
+    ).toBeInTheDocument();
+
     // Status badge shows 待测试 initially for rule-1
     expect(
       screen.getByTestId('automation-task-status-rule-1')
     ).toHaveTextContent('待测试');
 
-    // Clicking each segment of the 4-segment FastTask pipeline switches the right-pane editor sub-tab
+    // Clicking each segment of the 4-segment FastTask pipeline opens the collapsible detail LayoutPanel on that stage
     await user.click(screen.getByTestId('automation-seg-rule-rule-1'));
+    expect(
+      screen.getByTestId('automation-tab-tasks-split-detail')
+    ).toBeInTheDocument();
     expect(screen.getByTestId('fasttask-rule-editor')).toBeInTheDocument();
 
     await user.click(screen.getByTestId('automation-seg-target-rule-1'));
@@ -366,6 +406,12 @@ describe('PulseDeckView (Track A2 Automation Tasks Master-Detail Workbench)', ()
       await screen.findByTestId('automation-task-status-rule-1')
     ).toHaveTextContent('已发布');
 
+    // Closing the complementary detail panel restores full-width table view
+    await user.click(screen.getByTestId('automation-detail-close-btn'));
+    expect(
+      screen.queryByTestId('automation-tab-tasks-split-detail')
+    ).not.toBeInTheDocument();
+
     // Clicking Workflow row Info opens embedded Workflow Studio inside Automation Tasks
     await user.click(screen.getByTestId('automation-workflow-info-wf-triage'));
     expect(
@@ -382,19 +428,26 @@ describe('PulseDeckView (Track A2 Automation Tasks Master-Detail Workbench)', ()
     ).toBeInTheDocument();
   });
 
-  it('displays 执行中 status when busyRuleIds contains the task rule and 编辑中 when creating a new FastTask', async () => {
+  it('displays 执行中 status when busyRuleIds contains the task rule and opens 编辑中 / Workflow Studio from the unified 新建 menu', async () => {
     const user = userEvent.setup();
     const busySnapshot = makeSnapshot();
     busySnapshot.busyRuleIds = ['rule-1'];
     vi.mocked(pulseApi.deckSnapshot).mockResolvedValue(busySnapshot);
 
-    render(<PulseDeckView projectId="proj-1" />);
+    renderDeck('proj-1');
 
     expect(
       await screen.findByTestId('automation-task-status-rule-1')
     ).toHaveTextContent('执行中');
 
-    await user.click(screen.getByTestId('automation-new-fasttask-btn'));
+    // Open unified "新建" menu -> shows "任务" and "工作流"
+    await user.click(screen.getByTestId('automation-new-menu-btn'));
+    const newTaskItem = await screen.findByRole('menuitem', { name: '任务' });
+    expect(
+      screen.getByRole('menuitem', { name: '工作流' })
+    ).toBeInTheDocument();
+    await user.click(newTaskItem);
+
     expect(
       screen.getByTestId('fasttask-editor-status-badge')
     ).toHaveTextContent('编辑中');
@@ -406,6 +459,13 @@ describe('PulseDeckView (Track A2 Automation Tasks Master-Detail Workbench)', ()
     expect(
       screen.getByTestId('fasttask-validation-errors')
     ).toHaveTextContent('请填写任务名称。');
+
+    // Open unified "新建" menu -> choose "工作流" to open embedded Workflow Studio
+    await user.click(screen.getByTestId('automation-new-menu-btn'));
+    await user.click(await screen.findByRole('menuitem', { name: '工作流' }));
+    expect(
+      await screen.findByTestId('automation-embedded-workflow-studio')
+    ).toBeInTheDocument();
   });
 
   it('configures GitHub (Poll + Webhook) and Feishu (Long-connection + Webhook) sources, copies Webhook URL, runs testSource, and manages subscriptions', async () => {
@@ -439,7 +499,7 @@ describe('PulseDeckView (Track A2 Automation Tasks Master-Detail Workbench)', ()
     });
     vi.mocked(pulseApi.unsubscribeThread).mockResolvedValue(undefined);
 
-    render(<PulseDeckView projectId="proj-1" />);
+    renderDeck('proj-1');
     await screen.findByText('自动化任务');
 
     await user.click(screen.getByTestId('pulse-deck-tab-sources'));
@@ -569,7 +629,7 @@ describe('PulseDeckView (Track A2 Automation Tasks Master-Detail Workbench)', ()
       }
     );
 
-    render(<PulseDeckView projectId="proj-1" />);
+    renderDeck('proj-1');
     await screen.findByText('自动化任务');
 
     await user.click(screen.getByTestId('pulse-deck-tab-pending'));
@@ -625,15 +685,15 @@ describe('PulseDeckView (Track A2 Automation Tasks Master-Detail Workbench)', ()
     await user.click(screen.getByTestId('rule-create-fasttask-btn'));
 
     expect(screen.getByTestId('pulse-deck-tab-tasks')).toHaveAttribute(
-      'aria-selected',
-      'true'
+      'aria-current',
+      'page'
     );
     expect(screen.getByTestId('fasttask-target-editor')).toBeInTheDocument();
   });
 
   it('switches Automation Tasks copy dynamically between zh-CN and en without residue', async () => {
     try {
-      render(<PulseDeckView projectId="proj-1" />);
+      renderDeck('proj-1');
 
       expect(await screen.findByText('自动化任务')).toBeInTheDocument();
       expect(screen.getByTestId('pulse-deck-engine-badge')).toHaveTextContent(
@@ -642,6 +702,15 @@ describe('PulseDeckView (Track A2 Automation Tasks Master-Detail Workbench)', ()
       expect(screen.getByTestId('pulse-deck-tab-tasks')).toHaveTextContent(
         '任务列表'
       );
+      expect(screen.getByTestId('automation-new-menu-btn')).toHaveTextContent(
+        '新建'
+      );
+      expect(
+        await screen.findByTestId('automation-group-header-fast_task')
+      ).toHaveTextContent('任务');
+      expect(
+        screen.getByTestId('automation-group-header-workflow')
+      ).toHaveTextContent('工作流');
 
       await act(async () => {
         await i18n.changeLanguage('en');
@@ -654,6 +723,15 @@ describe('PulseDeckView (Track A2 Automation Tasks Master-Detail Workbench)', ()
       expect(screen.getByTestId('pulse-deck-tab-tasks')).toHaveTextContent(
         'Task List'
       );
+      expect(screen.getByTestId('automation-new-menu-btn')).toHaveTextContent(
+        'New'
+      );
+      expect(
+        screen.getByTestId('automation-group-header-fast_task')
+      ).toHaveTextContent('Tasks');
+      expect(
+        screen.getByTestId('automation-group-header-workflow')
+      ).toHaveTextContent('Workflows');
     } finally {
       await act(async () => {
         await i18n.changeLanguage('zh-CN');

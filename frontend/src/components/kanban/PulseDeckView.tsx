@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { WorkflowDefinitionSummary } from 'shared/types';
 import { workflowsApi } from '@/features/workflow/workflowApi';
@@ -232,23 +232,6 @@ export function PulseDeckView({
     ]
   );
 
-  // Auto-select first FastTask when snapshot loads and nothing is selected yet
-  useEffect(() => {
-    if (selectedTaskKey !== null) return;
-    const firstFast = unifiedTasks.find((item) => item.kind === 'fast_task');
-    if (firstFast && firstFast.kind === 'fast_task') {
-      setSelectedTaskKey(firstFast.key);
-      setDraftRuleId(firstFast.rule.id);
-      setDraftSpec(firstFast.rule.spec);
-      setHasUnsavedDraftEdits(false);
-      return;
-    }
-    const firstWf = unifiedTasks.find((item) => item.kind === 'workflow');
-    if (firstWf) {
-      setSelectedTaskKey(firstWf.key);
-    }
-  }, [selectedTaskKey, unifiedTasks]);
-
   const selectedWorkflowTask = useMemo(() => {
     const found = unifiedTasks.find((item) => item.key === selectedTaskKey);
     return found?.kind === 'workflow' ? found : null;
@@ -271,9 +254,6 @@ export function PulseDeckView({
   const pendingEventsCount =
     (snapshot?.pendingInteractions?.length ?? 0) +
     (snapshot?.observedCandidates?.filter((c) => !c.promoted).length ?? 0);
-  const connectedSourcesCount = (snapshot?.sources ?? []).filter(
-    (s) => s.enabled
-  ).length;
   const errorMessage = actionError || (queryError ? queryError.message : '');
 
   const upsertRuleIntoSnapshot = useCallback(
@@ -582,44 +562,51 @@ export function PulseDeckView({
     );
   }
 
+  const renderHeader = (
+    toolbarRow?: ReactNode,
+    contextualAction?: ReactNode
+  ) => (
+    <AutomationHeaderBar
+      engineActive={snapshot?.engineActive !== false}
+      totalTasksCount={unifiedTasks.length}
+      pendingEventsCount={pendingEventsCount}
+      activeTab={activeTab}
+      isRefreshing={isLoading || isFetching}
+      errorMessage={errorMessage}
+      toolbarRow={toolbarRow}
+      contextualAction={contextualAction}
+      onSelectTab={(tab) => {
+        setSourcesInitialAdding(false);
+        setActiveTab(tab);
+      }}
+      onNewFastTask={handleStartNewFastTask}
+      onNewWorkflow={() => handleOpenStudio(null)}
+      onRefresh={() => {
+        setActionError('');
+        void loadAuxiliaryCatalog();
+        void refetch();
+      }}
+      onRetryError={() => {
+        setActionError('');
+        void refetch();
+      }}
+    />
+  );
+
   return (
     <div
       data-testid="pulse-deck-view"
       className={cn(
-        'flex h-full min-h-0 flex-col bg-[var(--surface-panel)] text-foreground',
+        'flex h-full min-h-0 flex-col bg-background text-foreground',
         className
       )}
     >
-      <AutomationHeaderBar
-        engineActive={snapshot?.engineActive !== false}
-        totalTasksCount={unifiedTasks.length}
-        pendingEventsCount={pendingEventsCount}
-        connectedSourcesCount={connectedSourcesCount}
-        activeTab={activeTab}
-        isRefreshing={isLoading || isFetching}
-        errorMessage={errorMessage}
-        onSelectTab={(tab) => {
-          setSourcesInitialAdding(false);
-          setActiveTab(tab);
-        }}
-        onNewFastTask={handleStartNewFastTask}
-        onNewWorkflow={() => handleOpenStudio(null)}
-        onRefresh={() => {
-          setActionError('');
-          void loadAuxiliaryCatalog();
-          void refetch();
-        }}
-        onRetryError={() => {
-          setActionError('');
-          void refetch();
-        }}
-      />
-
-      {/* Active Tab Master-Detail Body */}
       {activeTab === 'tasks' ? (
         <AutomationTasksTab
+          renderHeader={(toolbarRow) => renderHeader(toolbarRow)}
           tasks={unifiedTasks}
           selectedTaskKey={selectedTaskKey}
+          onCloseDetail={() => setSelectedTaskKey(null)}
           onSelectFastTask={handleSelectFastTask}
           onSelectWorkflowTask={(wfTask) => setSelectedTaskKey(wfTask.key)}
           onStartNewFastTask={handleStartNewFastTask}
@@ -687,6 +674,7 @@ export function PulseDeckView({
 
       {activeTab === 'pending' ? (
         <AutomationPendingTab
+          renderHeader={renderHeader}
           pendingInteractions={snapshot?.pendingInteractions ?? []}
           observedCandidates={snapshot?.observedCandidates ?? []}
           inspectedCandidateId={inspectedCandidateId}
@@ -795,6 +783,7 @@ export function PulseDeckView({
 
       {activeTab === 'rules' ? (
         <AutomationRulesTab
+          renderHeader={renderHeader}
           projectId={projectId}
           rules={snapshot?.rules ?? []}
           capturedEvents={capturedEvents}
@@ -859,6 +848,7 @@ export function PulseDeckView({
 
       {activeTab === 'sources' ? (
         <AutomationSourcesTab
+          renderHeader={renderHeader}
           sources={displayedSources}
           subscriptions={snapshot?.subscriptions ?? []}
           workflows={workflowDefinitions}

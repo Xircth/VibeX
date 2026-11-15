@@ -1,16 +1,47 @@
-import { useEffect, useMemo, useState } from 'react';
+import { Fragment, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Bell, Eye, Play, Rocket } from 'lucide-react';
-import { Button } from '@/components/ui/button';
+import { Badge } from '@astryxdesign/core/Badge';
+import { Button as AstryxButton } from '@astryxdesign/core/Button';
+import { EmptyState } from '@astryxdesign/core/EmptyState';
+import { Icon } from '@astryxdesign/core/Icon';
+import { HStack, VStack } from '@astryxdesign/core/Layout';
+import {
+  SegmentedControl,
+  SegmentedControlItem,
+} from '@astryxdesign/core/SegmentedControl';
+import { StatusDot } from '@astryxdesign/core/StatusDot';
+import {
+  pixel,
+  proportional,
+  resolveColumnWidths,
+  Table,
+  TableBody,
+  TableCell,
+  TableRow,
+  type TableColumn,
+} from '@astryxdesign/core/Table';
+import { Heading, Text } from '@astryxdesign/core/Text';
+import {
+  Bell,
+  ChevronDown,
+  ChevronRight,
+  Eye,
+  Play,
+  Rocket,
+} from 'lucide-react';
 import type {
   EventEnvelope,
   PulseDryRunReport,
   PulseObservedCandidateView,
   PulseUserInteractionView,
 } from '@/lib/api/pulse';
-import { cn } from '@/lib/utils';
 import { PulseInteractionCard } from '../pulseInteractionForm';
-import { AutomationSplitFrame } from './AutomationSplitFrame';
+import {
+  AutomationSplitFrame,
+  groupHeaderCell,
+  interactiveRowStyle,
+  selectedTableRowStyle,
+} from './AutomationSplitFrame';
 
 type QueueFilter = 'all' | 'interactions' | 'observed';
 
@@ -61,6 +92,10 @@ export function buildCandidateEnvelope(
 }
 
 export interface AutomationPendingTabProps {
+  renderHeader?: (
+    toolbarRow?: ReactNode,
+    contextualAction?: ReactNode
+  ) => ReactNode;
   pendingInteractions: readonly PulseUserInteractionView[];
   observedCandidates: readonly PulseObservedCandidateView[];
   inspectedCandidateId: string | null;
@@ -72,6 +107,7 @@ export interface AutomationPendingTabProps {
 }
 
 export function AutomationPendingTab({
+  renderHeader,
   pendingInteractions,
   observedCandidates,
   inspectedCandidateId,
@@ -81,9 +117,12 @@ export function AutomationPendingTab({
   onPromoteAndEditTask,
   onInteractionResolved,
 }: AutomationPendingTabProps) {
-  const { t } = useTranslation('panels');
+  const { t, i18n } = useTranslation('panels');
   const [filter, setFilter] = useState<QueueFilter>('all');
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
+  const [expandedGroups, setExpandedGroups] = useState<Set<string>>(
+    () => new Set(['interaction', 'observed'])
+  );
 
   const items = useMemo<PendingQueueItem[]>(() => {
     const list: PendingQueueItem[] = [];
@@ -123,218 +162,319 @@ export function AutomationPendingTab({
   const selectedItem =
     items.find((item) => item.key === selectedKey) ?? items[0] ?? null;
 
+  const grouped = useMemo(() => {
+    const map = new Map<'interaction' | 'observed', PendingQueueItem[]>([
+      ['interaction', []],
+      ['observed', []],
+    ]);
+    for (const item of items) {
+      map.get(item.kind)?.push(item);
+    }
+    return map;
+  }, [items]);
+
+  const toggleGroup = (key: string) => {
+    setExpandedGroups((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  };
+
+  const columns = useMemo<TableColumn<Record<string, unknown>>[]>(
+    () => [
+      {
+        key: 'title',
+        header: t('pulseDeck.workbench.pending.colItem'),
+        width: proportional(1.2),
+      },
+      {
+        key: 'source',
+        header: t('pulseDeck.workbench.pending.colSource'),
+        width: proportional(1),
+      },
+      {
+        key: 'time',
+        header: t('pulseDeck.workbench.pending.colTime'),
+        width: pixel(104),
+      },
+    ],
+    [t, i18n.language]
+  );
+
+  const resolvedWidths = useMemo(
+    () => resolveColumnWidths(columns),
+    [columns]
+  );
+
+  const filterControl = (
+    <SegmentedControl
+      size="sm"
+      value={filter}
+      onChange={(val) => setFilter(val as QueueFilter)}
+      label={t('pulseDeck.workbench.primaryTabs.pending')}
+    >
+      <SegmentedControlItem
+        value="all"
+        label={t('pulseDeck.workbench.pending.filterAll')}
+        data-testid="pending-filter-all"
+      />
+      <SegmentedControlItem
+        value="interactions"
+        label={t('pulseDeck.workbench.pending.filterInteractions')}
+        data-testid="pending-filter-interactions"
+      />
+      <SegmentedControlItem
+        value="observed"
+        label={t('pulseDeck.workbench.pending.filterObserved')}
+        data-testid="pending-filter-observed"
+      />
+    </SegmentedControl>
+  );
+
   const masterPane = (
-    <div className="flex min-h-0 flex-1 flex-col">
-      <div className="flex items-center justify-between gap-2 border-b border-border px-3 py-2">
-        <div className="inline-flex items-center rounded-md border border-border bg-[var(--surface-control)] p-0.5">
-          {(
-            [
-              {
-                id: 'all',
-                label: t('pulseDeck.workbench.pending.filterAll'),
-              },
-              {
-                id: 'interactions',
-                label: t('pulseDeck.workbench.pending.filterInteractions'),
-              },
-              {
-                id: 'observed',
-                label: t('pulseDeck.workbench.pending.filterObserved'),
-              },
-            ] as const
-          ).map((tab) => {
-            const active = filter === tab.id;
-            return (
-              <button
-                key={tab.id}
-                type="button"
-                data-testid={`pending-filter-${tab.id}`}
-                aria-pressed={active}
-                onClick={() => setFilter(tab.id)}
-                className={cn(
-                  'rounded px-2 py-0.5 text-2xs font-medium transition-colors',
-                  active
-                    ? 'bg-background text-foreground'
-                    : 'text-muted-foreground hover:text-foreground'
-                )}
-              >
-                {tab.label}
-              </button>
-            );
-          })}
+    <div data-testid="automation-pending-queue" className="min-h-0 flex-1">
+      {items.length === 0 ? (
+        <div className="p-8">
+          <EmptyState
+            icon={<Icon icon={Bell} size="lg" color="secondary" />}
+            title={t('pulseDeck.workbench.pending.emptyQueue')}
+          />
         </div>
-        <span className="text-2xs font-medium tabular-nums text-muted-foreground">
-          {items.length}
-        </span>
-      </div>
+      ) : (
+        <Table
+          columns={columns}
+          density="balanced"
+          dividers="rows"
+          textOverflow="truncate"
+          hasHover
+        >
+          <colgroup>
+            {columns.map((col) => (
+              <col
+                key={col.key}
+                style={resolvedWidths.columns.get(col.key)?.style}
+              />
+            ))}
+          </colgroup>
+          <TableBody>
+            {(['interaction', 'observed'] as const).map((groupKey) => {
+              const groupItems = grouped.get(groupKey);
+              if (!groupItems || groupItems.length === 0) return null;
+              const isExpanded = expandedGroups.has(groupKey);
+              const groupTitle =
+                groupKey === 'interaction'
+                  ? t('pulseDeck.workbench.pending.groupInteractions')
+                  : t('pulseDeck.workbench.pending.groupObserved');
 
-      <div
-        data-testid="automation-pending-queue"
-        className="flex-1 divide-y divide-border overflow-y-auto"
-      >
-        {items.length === 0 ? (
-          <div className="p-5 text-xs text-muted-foreground">
-            {t('pulseDeck.workbench.pending.emptyQueue')}
-          </div>
-        ) : (
-          items.map((item) => {
-            const active = selectedItem?.key === item.key;
-            if (item.kind === 'interaction') {
-              const ix = item.interaction;
               return (
-                <button
-                  key={item.key}
-                  type="button"
-                  data-testid={`pending-item-ix-${ix.id}`}
-                  onClick={() => setSelectedKey(item.key)}
-                  className={cn(
-                    'flex w-full flex-col items-start gap-1 px-3 py-2.5 text-left transition-colors',
-                    active
-                      ? 'bg-[var(--surface-elevated)]'
-                      : 'hover:bg-[var(--surface-control)]/50'
-                  )}
-                >
-                  <div className="flex w-full items-center justify-between gap-2">
-                    <span className="inline-flex items-center gap-1 rounded border border-warning/35 bg-warning/10 px-1.5 py-0.5 text-2xs font-medium text-foreground">
-                      <Bell className="h-3 w-3 shrink-0" />
-                      {t('pulseDeck.workbench.pending.badgeInteraction')}
-                    </span>
-                    <span className="font-mono text-2xs tabular-nums text-muted-foreground">
-                      {ix.createdAt.slice(11, 19)}
-                    </span>
-                  </div>
-                  <div className="w-full truncate text-xs font-medium text-foreground">
-                    {ix.title}
-                  </div>
-                  {ix.body ? (
-                    <div className="w-full truncate text-2xs text-muted-foreground">
-                      {ix.body}
-                    </div>
-                  ) : null}
-                </button>
-              );
-            }
+                <Fragment key={groupKey}>
+                  <TableRow
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => toggleGroup(groupKey)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        toggleGroup(groupKey);
+                      }
+                    }}
+                  >
+                    <TableCell
+                      colSpan={columns.length}
+                      style={groupHeaderCell}
+                    >
+                      <HStack gap={2} vAlign="center">
+                        <Icon
+                          icon={isExpanded ? ChevronDown : ChevronRight}
+                          size="sm"
+                          color="secondary"
+                        />
+                        <Icon
+                          icon={groupKey === 'interaction' ? Bell : Eye}
+                          size="sm"
+                          color="secondary"
+                        />
+                        <Text type="body" weight="bold">
+                          {groupTitle}
+                        </Text>
+                        <Badge
+                          variant={
+                            groupKey === 'interaction' ? 'warning' : 'neutral'
+                          }
+                          label={String(groupItems.length)}
+                          className="tabular-nums"
+                        />
+                      </HStack>
+                    </TableCell>
+                  </TableRow>
 
-            const cand = item.candidate;
-            return (
-              <button
-                key={item.key}
-                type="button"
-                data-testid={`pending-item-cand-${cand.id}`}
-                onClick={() => setSelectedKey(item.key)}
-                className={cn(
-                  'flex w-full flex-col items-start gap-1 px-3 py-2.5 text-left transition-colors',
-                  active
-                    ? 'bg-[var(--surface-elevated)]'
-                    : 'hover:bg-[var(--surface-control)]/50'
-                )}
-              >
-                <div className="flex w-full items-center justify-between gap-2">
-                  <span className="inline-flex items-center gap-1 rounded border border-border bg-[var(--surface-control)] px-1.5 py-0.5 text-2xs font-medium text-foreground">
-                    <Eye className="h-3 w-3 shrink-0" />
-                    {t('pulseDeck.workbench.pending.badgeObserved')}
-                  </span>
-                  <span className="font-mono text-2xs tabular-nums text-muted-foreground">
-                    {cand.occurredAt.slice(11, 19)}
-                  </span>
-                </div>
-                <div className="w-full truncate text-xs font-medium text-foreground">
-                  {cand.summary}
-                </div>
-                <div className="w-full truncate font-mono text-2xs text-muted-foreground">
-                  {cand.ruleName} · {cand.eventType}
-                </div>
-              </button>
-            );
-          })
-        )}
-      </div>
+                  {isExpanded &&
+                    groupItems.map((item) => {
+                      const active = selectedItem?.key === item.key;
+                      const rowStyle = active
+                        ? { ...interactiveRowStyle, ...selectedTableRowStyle }
+                        : interactiveRowStyle;
+
+                      if (item.kind === 'interaction') {
+                        const ix = item.interaction;
+                        return (
+                          <TableRow
+                            key={item.key}
+                            data-testid={`pending-item-ix-${ix.id}`}
+                            style={rowStyle}
+                            onClick={() => setSelectedKey(item.key)}
+                          >
+                            <TableCell>
+                              <HStack gap={2} vAlign="center">
+                                <StatusDot
+                                  variant="warning"
+                                  label={t(
+                                    'pulseDeck.workbench.pending.badgeInteraction'
+                                  )}
+                                />
+                                <Text
+                                  type="body"
+                                  weight="medium"
+                                  maxLines={1}
+                                >
+                                  {ix.title}
+                                </Text>
+                              </HStack>
+                            </TableCell>
+                            <TableCell>
+                              <Text
+                                type="supporting"
+                                color="secondary"
+                                maxLines={1}
+                              >
+                                {ix.body || ix.kind}
+                              </Text>
+                            </TableCell>
+                            <TableCell>
+                              <span className="font-mono text-2xs tabular-nums text-muted-foreground">
+                                {ix.createdAt.slice(11, 19)}
+                              </span>
+                            </TableCell>
+                          </TableRow>
+                        );
+                      }
+
+                      const cand = item.candidate;
+                      return (
+                        <TableRow
+                          key={item.key}
+                          data-testid={`pending-item-cand-${cand.id}`}
+                          style={rowStyle}
+                          onClick={() => setSelectedKey(item.key)}
+                        >
+                          <TableCell>
+                            <HStack gap={2} vAlign="center">
+                              <StatusDot
+                                variant="accent"
+                                label={t(
+                                  'pulseDeck.workbench.pending.badgeObserved'
+                                )}
+                              />
+                              <Text type="body" weight="medium" maxLines={1}>
+                                {cand.summary}
+                              </Text>
+                            </HStack>
+                          </TableCell>
+                          <TableCell>
+                            <Text
+                              type="supporting"
+                              color="secondary"
+                              maxLines={1}
+                            >
+                              {cand.ruleName} · {cand.eventType}
+                            </Text>
+                          </TableCell>
+                          <TableCell>
+                            <span className="font-mono text-2xs tabular-nums text-muted-foreground">
+                              {cand.occurredAt.slice(11, 19)}
+                            </span>
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
+                </Fragment>
+              );
+            })}
+          </TableBody>
+        </Table>
+      )}
     </div>
   );
 
-  const detailPane = (
-    <div className="flex flex-1 flex-col gap-4 p-4">
-      {!selectedItem ? (
-        <div className="text-xs text-muted-foreground">
-          {t('pulseDeck.workbench.pending.selectHint')}
+  const detailPane = selectedItem ? (
+    selectedItem.kind === 'interaction' ? (
+      <div
+        data-testid="pulse-deck-interactions-section"
+        className="space-y-4"
+      >
+        <PulseInteractionCard
+          key={selectedItem.interaction.id}
+          interaction={selectedItem.interaction}
+          onResolved={onInteractionResolved}
+        />
+        <div className="space-y-1.5">
+          <h4 className="text-xs font-medium text-foreground">
+            {t('pulseDeck.workbench.pending.payloadTitle')}
+          </h4>
+          <pre className="max-h-64 overflow-auto rounded-md bg-[var(--color-background-muted)] p-3 font-mono text-2xs text-muted-foreground">
+            {JSON.stringify(selectedItem.interaction, null, 2)}
+          </pre>
         </div>
-      ) : selectedItem.kind === 'interaction' ? (
-        <div
-          data-testid="pulse-deck-interactions-section"
-          className="space-y-4"
-        >
-          <PulseInteractionCard
-            key={selectedItem.interaction.id}
-            interaction={selectedItem.interaction}
-            onResolved={onInteractionResolved}
-          />
-          <div className="space-y-1.5">
-            <h4 className="text-xs font-medium text-foreground">
-              {t('pulseDeck.workbench.pending.payloadTitle')}
-            </h4>
-            <pre className="max-h-64 overflow-auto rounded-md border border-border bg-[var(--surface-panel)] p-3 font-mono text-2xs text-muted-foreground">
-              {JSON.stringify(selectedItem.interaction, null, 2)}
-            </pre>
-          </div>
-        </div>
-      ) : (
-        <div
-          data-testid={`pending-candidate-detail-${selectedItem.candidate.id}`}
-          className="space-y-4"
-        >
-          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border pb-3">
-            <div>
-              <h3 className="text-sm font-semibold text-foreground">
-                {selectedItem.candidate.summary}
-              </h3>
-              <p className="font-mono text-2xs text-muted-foreground">
-                {selectedItem.candidate.ruleName} ·{' '}
-                {selectedItem.candidate.eventType}
-                {selectedItem.candidate.threadKey
-                  ? ` · ${selectedItem.candidate.threadKey}`
-                  : ''}
-              </p>
-            </div>
+      </div>
+    ) : (
+      <div
+        data-testid={`pending-candidate-detail-${selectedItem.candidate.id}`}
+      >
+        <VStack gap={4}>
+          <VStack gap={1}>
+            <Heading level={3}>{selectedItem.candidate.summary}</Heading>
+            <Text type="supporting" color="secondary">
+              {selectedItem.candidate.ruleName} ·{' '}
+              {selectedItem.candidate.eventType}
+              {selectedItem.candidate.threadKey
+                ? ` · ${selectedItem.candidate.threadKey}`
+                : ''}
+            </Text>
+          </VStack>
 
-            <div className="flex flex-wrap items-center gap-1.5">
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                data-testid={`pulse-candidate-inspect-${selectedItem.candidate.id}`}
-                onClick={() =>
-                  onInspectCandidateDryRun(selectedItem.candidate)
-                }
-              >
-                <Play className="mr-1 h-3.5 w-3.5" />
-                {t('pulseDeck.inspectDryRun')}
-              </Button>
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                data-testid={`pulse-candidate-promote-${selectedItem.candidate.id}`}
-                onClick={() => onPromoteCandidate(selectedItem.candidate)}
-              >
-                <Rocket className="mr-1 h-3.5 w-3.5" />
-                {t('pulseDeck.promoteToAuto')}
-              </Button>
-              <Button
-                type="button"
-                size="sm"
-                data-testid={`pulse-candidate-create-task-${selectedItem.candidate.id}`}
-                onClick={() => onPromoteAndEditTask(selectedItem.candidate)}
-              >
-                {t('pulseDeck.workbench.pending.promoteCreateTask')}
-              </Button>
-            </div>
-          </div>
+          <HStack gap={2} vAlign="center" wrap="wrap">
+            <AstryxButton
+              label={t('pulseDeck.inspectDryRun')}
+              variant="secondary"
+              size="sm"
+              icon={<Icon icon={Play} size="sm" />}
+              data-testid={`pulse-candidate-inspect-${selectedItem.candidate.id}`}
+              onClick={() => onInspectCandidateDryRun(selectedItem.candidate)}
+            />
+            <AstryxButton
+              label={t('pulseDeck.promoteToAuto')}
+              variant="secondary"
+              size="sm"
+              icon={<Icon icon={Rocket} size="sm" />}
+              data-testid={`pulse-candidate-promote-${selectedItem.candidate.id}`}
+              onClick={() => onPromoteCandidate(selectedItem.candidate)}
+            />
+            <AstryxButton
+              label={t('pulseDeck.workbench.pending.promoteCreateTask')}
+              variant="primary"
+              size="sm"
+              data-testid={`pulse-candidate-create-task-${selectedItem.candidate.id}`}
+              onClick={() => onPromoteAndEditTask(selectedItem.candidate)}
+            />
+          </HStack>
 
           {inspectedCandidateId === selectedItem.candidate.id &&
           inspectedReport ? (
             <div
               data-testid={`pulse-candidate-dryrun-${selectedItem.candidate.id}`}
-              className="rounded-md border border-border bg-[var(--surface-panel)] p-3 text-xs"
+              className="rounded-md bg-[var(--color-background-muted)] p-3 text-xs"
             >
               <div className="font-medium text-foreground">
                 {t('pulseDeck.dryRunEvaluation')} ·{' '}
@@ -357,7 +497,7 @@ export function AutomationPendingTab({
             <h4 className="text-xs font-medium text-foreground">
               {t('pulseDeck.workbench.pending.payloadTitle')}
             </h4>
-            <pre className="max-h-72 overflow-auto rounded-md border border-border bg-[var(--surface-panel)] p-3 font-mono text-2xs text-muted-foreground">
+            <pre className="max-h-72 overflow-auto rounded-md bg-[var(--color-background-muted)] p-3 font-mono text-2xs text-muted-foreground">
               {JSON.stringify(
                 buildCandidateEnvelope(selectedItem.candidate),
                 null,
@@ -365,14 +505,15 @@ export function AutomationPendingTab({
               )}
             </pre>
           </div>
-        </div>
-      )}
-    </div>
-  );
+        </VStack>
+      </div>
+    )
+  ) : null;
 
   return (
     <AutomationSplitFrame
       testId="automation-tab-pending-split"
+      header={renderHeader?.(undefined, filterControl)}
       master={masterPane}
       detail={detailPane}
     />

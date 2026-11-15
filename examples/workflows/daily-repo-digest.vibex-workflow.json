@@ -1,0 +1,59 @@
+{
+  "formatVersion": 1,
+  "name": "每日代码进展与风险晨报",
+  "description": "每工作日 09:30 自动汇总昨日代码提交、未合并 PR 与潜在阻塞风险，推送桌面通知卡片。",
+  "inputSchema": {
+    "type": "object"
+  },
+  "policy": {
+    "maxConcurrentAgentSteps": 2,
+    "maxAgentCalls": 8,
+    "deadlineSeconds": 1800,
+    "maxOutputBytes": 65536
+  },
+  "steps": [
+    {
+      "id": "morning-schedule",
+      "dependsOn": [],
+      "phase": "[vibex-studio:v1]{\"hasOrchestratorPreset\":true,\"orchestratorPreset\":\"window_aggregator\",\"trigger\":{\"title\":\"每工作日 09:30 定时触发\",\"triggerKind\":\"temporal\",\"sourceKind\":\"time_cron\",\"eventType\":\"pulse.timer.fired\",\"evalMode\":\"auto\",\"hasTemporal\":true,\"temporal\":{\"kind\":\"cron\",\"expression\":\"30 9 * * 1-5\",\"weekdaysOnly\":true},\"filter\":{\"sourceKinds\":[\"time_cron\"],\"sourceInstanceIds\":[],\"eventTypes\":[],\"allowedActors\":[],\"conditions\":[]}},\"userPhase\":null}",
+      "inputBindings": {},
+      "kind": "notify",
+      "title": "[pulse-trigger] 每工作日 09:30 定时触发"
+    },
+    {
+      "id": "digest-bot",
+      "dependsOn": ["morning-schedule"],
+      "phase": "[vibex-studio:v1]{\"bot\":{\"hasOutputDescription\":true,\"outputDescription\":\"整理过去 24 小时关键提交、待审 PR 与风险提示\",\"hasOutputSchema\":true},\"userPhase\":null}",
+      "inputBindings": {},
+      "kind": "bot",
+      "memberId": "release-bot",
+      "conversationScope": "fixed_primary",
+      "mailboxPolicy": "coalesce_batch",
+      "promptTemplate": "汇总过去 24 小时仓库提交进展、活跃分支状态与需要关注的风险项，输出精炼晨报。",
+      "completion": "automatic",
+      "outputSchema": {
+        "type": "object",
+        "required": ["summary"],
+        "properties": {
+          "summary": { "type": "string" }
+        }
+      }
+    },
+    {
+      "id": "notify-owner",
+      "dependsOn": ["digest-bot"],
+      "phase": "[vibex-studio:v1]{\"userGate\":{\"hasSeverity\":true,\"severity\":\"info\"},\"userPhase\":null}",
+      "inputBindings": {
+        "digest": {
+          "source": "step_output",
+          "stepId": "digest-bot",
+          "pointer": "/summary"
+        }
+      },
+      "kind": "user_gate",
+      "interactionKind": "notify",
+      "titleTemplate": "向我推送今日代码进展晨报",
+      "bodyTemplate": "{{steps.digest-bot.output.summary}}"
+    }
+  ]
+}

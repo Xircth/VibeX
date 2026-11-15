@@ -284,6 +284,10 @@ impl WorkflowCore {
         self.store.definitions(limit).await
     }
 
+    pub async fn delete_definition(&self, definition_id: Uuid) -> Result<bool, WorkflowError> {
+        self.store.delete_definition(definition_id).await
+    }
+
     pub async fn versions(
         &self,
         definition_id: Uuid,

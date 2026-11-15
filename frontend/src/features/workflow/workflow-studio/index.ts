@@ -43,6 +43,9 @@ export {
 } from './presetTemplates';
 export {
   describeStepPresentation,
+  formatOutboxActionLabel,
+  formatWorkflowEventSource,
+  formatWorkflowTemporalBadge,
   resolveNodeCategory,
   switchExecutionPrimitive,
   toBackendWorkflowDefinition,

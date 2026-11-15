@@ -324,6 +324,13 @@ impl WorkflowExecutionPort for WorkflowStoreExecutionPort {
         self.core.definitions(limit).await.map_err(map_error)
     }
 
+    async fn delete_definition(&self, definition_id: Uuid) -> Result<bool, ApplicationError> {
+        self.core
+            .delete_definition(definition_id)
+            .await
+            .map_err(map_error)
+    }
+
     async fn versions(
         &self,
         definition_id: Uuid,

@@ -1,9 +1,11 @@
 import { useState } from 'react';
 import { fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { beforeEach, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { WorkflowDefinition } from 'shared/types';
 
+import { resolveMemberBotAvatar } from '@/features/collaboration/MemberBotAvatar';
+import { sessionsApi } from '@/lib/api/sessions';
 import { WorkflowStudio } from './WorkflowStudio';
 
 const userSystem = vi.hoisted(() => ({
@@ -24,6 +26,26 @@ vi.mock('@/components/ConfigProvider', () => ({
       : null,
 }));
 
+vi.mock('@/lib/api/sessions', () => ({
+  sessionsApi: {
+    createProject: vi.fn().mockResolvedValue({
+      conversation: { id: 'conv-step-edit-1' },
+    }),
+  },
+}));
+
+vi.mock('@/lib/api/projects', () => ({
+  projectsApi: {
+    getAll: vi.fn().mockResolvedValue([
+      {
+        id: 'proj-1',
+        name: 'VibeX',
+        default_agent_working_dir: '/repo/vibex',
+      },
+    ]),
+  },
+}));
+
 const definition: WorkflowDefinition = {
   formatVersion: 1,
   name: 'Visible workflow',
@@ -37,7 +59,7 @@ const definition: WorkflowDefinition = {
       inputBindings: {},
       kind: 'agent',
       agentId: 'codex',
-      prompt: 'Start',
+      prompt: 'Inspect repository modules',
       executorProfileId: null,
       modeOverride: null,
       configOverrides: {},
@@ -69,6 +91,7 @@ const connectedDefinition: WorkflowDefinition = {
         { kind: 'agent' }
       >),
       id: 'finish',
+      prompt: 'Summarize verified findings',
       dependsOn: ['start'],
       inputBindings: {
         predecessor: {
@@ -82,8 +105,9 @@ const connectedDefinition: WorkflowDefinition = {
   ],
 };
 
-describe('WorkflowStudio', () => {
+describe('WorkflowStudio (Semantic Human-Centric Canvas & Simple Side Card)', () => {
   beforeEach(() => {
+    vi.clearAllMocks();
     userSystem.defaultAgentId = 'grok';
     HTMLElement.prototype.hasPointerCapture = vi.fn(() => false);
     HTMLElement.prototype.setPointerCapture = vi.fn();
@@ -99,7 +123,7 @@ describe('WorkflowStudio', () => {
       />
     );
 
-    expect(screen.getByText('start')).toBeInTheDocument();
+    expect(screen.getByText('Inspect repository modules')).toBeInTheDocument();
     expect(container.querySelector('.react-flow')?.parentElement).toHaveClass(
       'min-h-0',
       'flex-1'
@@ -112,25 +136,72 @@ describe('WorkflowStudio', () => {
     );
   });
 
-  it('selects a node, anchors an inspector tether, and keeps confirmation on the node', async () => {
+  it('selects a node, anchors an inspector tether, opens the simple 2-tab side card, and supports light tweaks + Agent step edits', async () => {
+    const user = userEvent.setup();
+    const onDefinitionChange = vi.fn();
     render(
       <WorkflowStudio
         definition={definition}
-        onDefinitionChange={() => undefined}
+        onDefinitionChange={onDefinitionChange}
+        projectId="proj-1"
+        agentOptions={[
+          { value: 'codex', label: 'Codex', runnable: true },
+          { value: 'grok', label: 'Grok', runnable: true },
+        ]}
       />
     );
 
-    fireEvent.click(screen.getByRole('button', { name: /start/i }));
+    const deckBtn = screen.getByTestId('workflow-node-deck-start');
+    fireEvent.click(deckBtn);
 
-    expect(screen.getByRole('button', { name: /start/i })).toHaveAttribute(
-      'aria-pressed',
-      'true'
-    );
+    expect(deckBtn).toHaveAttribute('aria-pressed', 'true');
     expect(screen.getByTestId('workflow-inspector-tether')).toBeInTheDocument();
-    expect(screen.getByText(/完成后|after completion/i)).toBeInTheDocument();
+    expect(screen.getByTestId('inspector-simple-overview')).toBeInTheDocument();
+    expect(screen.getByTestId('inspector-tab-info')).toHaveTextContent(
+      /节点概览|Overview/
+    );
+    expect(screen.getByTestId('inspector-tab-conversation')).toHaveTextContent(
+      /执行记录|Records/
+    );
+
+    // Light tweak 1: swap Execution Agent
+    await user.selectOptions(screen.getByTestId('inspector-step-agent'), 'grok');
+    expect(onDefinitionChange).toHaveBeenCalledWith(
+      expect.objectContaining({
+        steps: [expect.objectContaining({ id: 'start', agentId: 'grok' })],
+      })
+    );
+
+    // Light tweak 2: edit natural-language task instructions
+    fireEvent.change(screen.getByTestId('inspector-step-prompt'), {
+      target: { value: 'Check failing unit tests and propose fix' },
+    });
+    expect(onDefinitionChange).toHaveBeenCalledWith(
+      expect.objectContaining({
+        steps: [
+          expect.objectContaining({
+            id: 'start',
+            prompt: 'Check failing unit tests and propose fix',
+          }),
+        ],
+      })
+    );
+
+    // Pinned "让 Agent 修改此步" dispatches a contextual Agent session
+    await user.type(
+      screen.getByTestId('inspector-agent-step-input'),
+      '在此步完成后增加我的人工审批门控'
+    );
+    await user.click(screen.getByTestId('inspector-agent-step-submit'));
+    expect(sessionsApi.createProject).toHaveBeenCalledWith(
+      expect.objectContaining({
+        project_id: 'proj-1',
+        initial_prompt: expect.stringContaining('start'),
+      })
+    );
   });
 
-  it('shows live graph metrics and exposes undo as an editor action', async () => {
+  it('shows live graph metrics and exposes undo as an editor action without manual node-add clutter', async () => {
     const user = userEvent.setup();
     const onUndo = vi.fn();
     render(
@@ -144,8 +215,9 @@ describe('WorkflowStudio', () => {
     );
 
     expect(screen.getByText(/1.*节点|1.*node/i)).toBeInTheDocument();
-    expect(screen.queryByText(/1.*Agent/i)).toBeNull();
-    expect(screen.queryByText('v0.4')).toBeNull();
+    expect(
+      screen.queryByRole('button', { name: /添加节点|add node/i })
+    ).toBeNull();
 
     await user.hover(
       screen.getByRole('button', { name: /预览信息|preview information/i })
@@ -178,260 +250,7 @@ describe('WorkflowStudio', () => {
     );
   });
 
-  it('creates the selected node type from the add-node popover', async () => {
-    const user = userEvent.setup();
-    const onDefinitionChange = vi.fn();
-    render(
-      <WorkflowStudio
-        definition={definition}
-        onDefinitionChange={onDefinitionChange}
-      />
-    );
-
-    await user.click(
-      screen.getByRole('button', { name: /添加节点|add node/i })
-    );
-    await user.click(
-      screen.getByRole('menuitem', { name: /通知节点|notification/i })
-    );
-
-    expect(onDefinitionChange).toHaveBeenCalledWith(
-      expect.objectContaining({
-        steps: expect.arrayContaining([
-          expect.objectContaining({ kind: 'notify' }),
-        ]),
-      })
-    );
-  });
-
-  it('creates an Agent node with the user default Agent', async () => {
-    const user = userEvent.setup();
-    const onDefinitionChange = vi.fn();
-    render(
-      <WorkflowStudio
-        definition={definition}
-        onDefinitionChange={onDefinitionChange}
-        agentOptions={[
-          { value: 'codex', label: 'Codex', runnable: true },
-          { value: 'grok', label: 'Grok', runnable: true },
-          { value: 'claude_code', label: 'Claude Code', runnable: false },
-        ]}
-      />
-    );
-
-    await user.click(
-      screen.getByRole('button', { name: /添加节点|add node/i })
-    );
-    await user.click(screen.getByRole('menuitem', { name: /Agent|代理/i }));
-
-    expect(onDefinitionChange).toHaveBeenCalledWith(
-      expect.objectContaining({
-        steps: expect.arrayContaining([
-          expect.objectContaining({ kind: 'agent', agentId: 'grok' }),
-        ]),
-      })
-    );
-  });
-
-  it('shows enabled Agents and greys out Agents that are not ready', async () => {
-    const user = userEvent.setup();
-    render(
-      <WorkflowStudio
-        definition={definition}
-        onDefinitionChange={() => undefined}
-        agentOptions={[
-          { value: 'codex', label: 'Codex', runnable: true },
-          { value: 'claude_code', label: 'Claude Code', runnable: false },
-        ]}
-      />
-    );
-
-    fireEvent.click(screen.getByRole('button', { name: /start codex/i }));
-    await user.click(screen.getAllByRole('combobox')[0]);
-
-    expect(
-      await screen.findByRole('option', { name: /Claude Code/i })
-    ).toHaveAttribute('data-disabled');
-    expect(screen.getByRole('option', { name: /Codex/i })).not.toHaveAttribute(
-      'data-disabled'
-    );
-  });
-
-  it('shows read-only graph relations and edits the node id from the title', async () => {
-    render(
-      <WorkflowStudio
-        definition={connectedDefinition}
-        onDefinitionChange={() => undefined}
-        agentOptions={[
-          { value: 'codex', label: 'Codex' },
-          { value: 'claude_code', label: 'Claude Code' },
-        ]}
-      />
-    );
-
-    fireEvent.click(screen.getByRole('button', { name: /start codex/i }));
-
-    expect(screen.queryByText(/节点 ID|step id/i)).not.toBeInTheDocument();
-    expect(screen.getByText(/前置节点|predecessors/i)).toBeInTheDocument();
-    expect(screen.getByText(/后置节点|successors/i)).toBeInTheDocument();
-    expect(screen.getAllByText('finish')).not.toHaveLength(0);
-    expect(
-      screen.getByRole('textbox', { name: /节点名称|node name/i })
-    ).toHaveValue('start');
-    expect(screen.getByText(/完成后|after completion/i)).toBeInTheDocument();
-    expect(
-      screen.getByText(/输出要求|output requirement/i)
-    ).toBeInTheDocument();
-    expect(
-      screen.getByRole('button', { name: /严格|strict/i })
-    ).toBeInTheDocument();
-    expect(screen.queryByText(/工作区访问|workspace access/i)).toBeNull();
-  });
-
-  it('switches the output requirement between brief description and strict JSON Schema tabs', async () => {
-    const user = userEvent.setup();
-    const onDefinitionChange = vi.fn();
-    render(
-      <WorkflowStudio
-        definition={definition}
-        onDefinitionChange={onDefinitionChange}
-      />
-    );
-
-    fireEvent.click(screen.getByRole('button', { name: /start codex/i }));
-
-    expect(
-      screen.getByRole('button', { name: /严格|strict/i })
-    ).toBeInTheDocument();
-    await user.click(screen.getByRole('button', { name: /简要|brief/i }));
-
-    const description = screen.getByRole('textbox', {
-      name: /输出要求|output requirement/i,
-    });
-    fireEvent.change(description, {
-      target: { value: 'a one-paragraph brief' },
-    });
-    fireEvent.blur(description);
-
-    expect(onDefinitionChange).toHaveBeenCalledWith(
-      expect.objectContaining({
-        steps: expect.arrayContaining([
-          expect.objectContaining({
-            id: 'start',
-            outputDescription: 'a one-paragraph brief',
-            outputSchema: null,
-          }),
-        ]),
-      })
-    );
-  });
-
-  it('clears the default JSON Schema when switching an Agent step to a brief output requirement', async () => {
-    const user = userEvent.setup();
-    const onDefinitionChange = vi.fn();
-    const schemaDefinition: WorkflowDefinition = {
-      ...definition,
-      steps: [
-        {
-          ...(definition.steps[0] as Extract<
-            WorkflowDefinition['steps'][number],
-            { kind: 'agent' }
-          >),
-          outputSchema: {
-            type: 'object',
-            required: ['summary'],
-            properties: { summary: { type: 'string' } },
-          },
-        },
-      ],
-    };
-    render(
-      <WorkflowStudio
-        definition={schemaDefinition}
-        onDefinitionChange={onDefinitionChange}
-      />
-    );
-
-    fireEvent.click(screen.getByRole('button', { name: /start codex/i }));
-    await user.click(screen.getByRole('button', { name: /简要|brief/i }));
-
-    expect(onDefinitionChange).toHaveBeenCalledWith(
-      expect.objectContaining({
-        steps: expect.arrayContaining([
-          expect.objectContaining({
-            id: 'start',
-            outputSchema: null,
-          }),
-        ]),
-      })
-    );
-  });
-
-  it('shows Grok model, effort, and permission in the node inspector summary', async () => {
-    const grokDefinition: WorkflowDefinition = {
-      ...definition,
-      steps: [
-        {
-          ...(definition.steps[0] as Extract<
-            WorkflowDefinition['steps'][number],
-            { kind: 'agent' }
-          >),
-          agentId: 'grok',
-        },
-      ],
-    };
-    render(
-      <WorkflowStudio
-        definition={grokDefinition}
-        onDefinitionChange={() => undefined}
-        agentOptions={[{ value: 'grok', label: 'Grok' }]}
-        loadAgentSessionControls={async () => ({
-          current_mode: 'default',
-          modes: [
-            { id: 'default', label: 'Ask', description: null },
-            { id: 'bypassPermissions', label: 'Bypass', description: null },
-          ],
-          config_options: [
-            {
-              key: 'model',
-              label: 'Model',
-              category: 'model',
-              value: 'grok-4.6',
-              choices: [
-                { value: 'grok-4.6', label: 'Grok 4.6' },
-                { value: 'grok-4.5', label: 'Grok 4.5' },
-              ],
-            },
-            {
-              key: 'effort',
-              label: '推理强度',
-              category: 'thought_level',
-              value: 'high',
-              choices: [
-                { value: 'high', label: 'High Effort' },
-                { value: 'medium', label: 'Medium Effort' },
-              ],
-            },
-          ],
-        })}
-      />
-    );
-
-    fireEvent.click(screen.getByRole('button', { name: /start grok/i }));
-    const summary = await screen.findByTestId('session-settings-summary');
-    expect(summary).toHaveAttribute(
-      'aria-label',
-      expect.stringMatching(/Grok 4\.6/)
-    );
-    expect(summary).toHaveAttribute('aria-label', expect.stringMatching(/高/));
-    expect(summary).toHaveAttribute('aria-label', expect.stringMatching(/Ask/));
-    expect(screen.getAllByRole('img', { name: 'Grok' })[0]).toHaveAttribute(
-      'src',
-      '/agents/grok.svg'
-    );
-  });
-
-  it('renders Kimi brand artwork instead of the generic glyph', () => {
+  it('renders Agent brand artwork (Kimi / Grok) on semantic node chips instead of generic bot glyphs', () => {
     const kimiDefinition: WorkflowDefinition = {
       ...definition,
       steps: [
@@ -453,35 +272,12 @@ describe('WorkflowStudio', () => {
     );
 
     expect(
+      screen.getByTestId('workflow-node-category-badge-start')
+    ).toHaveTextContent('Kimi Code');
+    expect(
       screen.getAllByRole('img', { name: 'Kimi Code' })[0]
     ).toHaveAttribute('src', '/agents/kimi.svg');
     expect(document.querySelector('.lucide-bot')).not.toBeInTheDocument();
-  });
-
-  it('keeps the native session controls request alive across parent rerenders', async () => {
-    const loadControls = vi.fn().mockResolvedValue({
-      current_mode: 'agent-full-access',
-      modes: [{ id: 'agent-full-access', label: '完全访问' }],
-      config_options: [],
-    });
-    const view = (name: string) => (
-      <WorkflowStudio
-        definition={{ ...definition, name }}
-        onDefinitionChange={() => undefined}
-        loadAgentSessionControls={(agentId) => loadControls(agentId)}
-      />
-    );
-    const { rerender } = render(view('First render'));
-
-    fireEvent.click(screen.getByRole('button', { name: /start codex/i }));
-    expect(
-      await screen.findByRole('button', {
-        name: /本次会话: 完全访问|This session: Full Access/i,
-      })
-    ).toBeInTheDocument();
-
-    rerender(view('Parent rerender'));
-    expect(loadControls).toHaveBeenCalledTimes(1);
   });
 
   it('opens a visual execution log from the node status control', async () => {
@@ -574,33 +370,27 @@ describe('WorkflowStudio', () => {
     );
   });
 
-  it('duplicates an Agent node from the node context menu and hides copy on confirmation', async () => {
+  it('opens overview or records from the lightweight node context menu without manual duplicate clutter', async () => {
     const user = userEvent.setup();
-    const onDefinitionChange = vi.fn();
     const { container } = render(
       <WorkflowStudio
-        definition={definition}
-        onDefinitionChange={onDefinitionChange}
+        definition={connectedDefinition}
+        onDefinitionChange={() => undefined}
       />
     );
 
-    fireEvent.contextMenu(screen.getByRole('button', { name: /start/i }));
-    await user.click(screen.getByRole('menuitem', { name: /复制|duplicate/i }));
-    expect(onDefinitionChange).toHaveBeenCalledWith(
-      expect.objectContaining({
-        steps: expect.arrayContaining([
-          expect.objectContaining({ id: 'start' }),
-          expect.objectContaining({ kind: 'agent' }),
-        ]),
-      })
+    fireEvent.contextMenu(screen.getByTestId('workflow-node-deck-start'));
+    expect(
+      screen.queryByRole('menuitem', { name: /复制|duplicate/i })
+    ).toBeNull();
+    await user.click(
+      screen.getByRole('menuitem', { name: /显示记录|show records/i })
     );
+    expect(screen.getByTestId('workflow-node-log-start')).toBeInTheDocument();
 
     fireEvent.contextMenu(
       container.querySelector('.workflow-confirmation-node')!
     );
-    expect(
-      screen.queryByRole('menuitem', { name: /复制|duplicate/i })
-    ).toBeNull();
     expect(
       screen.getByRole('menuitem', { name: /显示记录|show records/i })
     ).toBeInTheDocument();
@@ -715,7 +505,7 @@ describe('WorkflowStudio', () => {
     expect(container.querySelector('.react-flow__attribution')).toBeNull();
   });
 
-  it('renders the conversation as a message stream with the shared chat composer', () => {
+  it('renders the conversation stream in the Records tab with the shared chat composer', () => {
     const { container } = render(
       <WorkflowStudio
         definition={definition}
@@ -723,16 +513,12 @@ describe('WorkflowStudio', () => {
       />
     );
 
-    fireEvent.click(screen.getByRole('button', { name: /start codex/i }));
-    fireEvent.click(screen.getByRole('button', { name: /对话|conversation/i }));
+    fireEvent.click(screen.getByTestId('workflow-node-deck-start'));
+    fireEvent.click(screen.getByTestId('inspector-tab-conversation'));
 
     expect(
       container.querySelector('.workflow-step-chat-composer')
     ).toBeInTheDocument();
-    expect(screen.queryByText(/自动提示词|automatic prompt/i)).toBeNull();
-    expect(
-      screen.queryByPlaceholderText(/为此节点补充指导|additional guidance/i)
-    ).toBeNull();
   });
 
   it('removes a dependency when its edge is double-clicked', () => {
@@ -760,48 +546,12 @@ describe('WorkflowStudio', () => {
       })
     );
   });
-
-  it('renames dependent bindings atomically with the node id', () => {
-    const onDefinitionChange = vi.fn();
-    render(
-      <WorkflowStudio
-        definition={connectedDefinition}
-        onDefinitionChange={onDefinitionChange}
-      />
-    );
-
-    fireEvent.click(screen.getByRole('button', { name: /start codex/i }));
-    fireEvent.change(
-      screen.getByRole('textbox', { name: /节点名称|node name/i }),
-      { target: { value: 'inventory' } }
-    );
-
-    expect(onDefinitionChange).toHaveBeenCalledWith(
-      expect.objectContaining({
-        steps: expect.arrayContaining([
-          expect.objectContaining({ id: 'inventory' }),
-          expect.objectContaining({
-            id: 'finish',
-            dependsOn: ['inventory'],
-            inputBindings: {
-              predecessor: {
-                source: 'step_output',
-                step_id: 'inventory',
-                pointer: '',
-              },
-            },
-          }),
-        ]),
-      })
-    );
-  });
 });
 
-describe('Track U2: Bilingual zh-CN/en Localization & Group/Gate Inspector Metadata', () => {
-  it('switches cleanly between en and zh-CN across Toolbar, Replay Popover, all 9 node badges, Inspector fields, and DockPanel starter name', async () => {
+describe('Bilingual zh-CN/en Localization & Semantic Node Presentation', () => {
+  it('switches cleanly between en and zh-CN across Toolbar, all 9 semantic node cards, Simple Side Card, and DockPanel', async () => {
     const i18n = (await import('@/i18n')).default;
     const { act, within, waitFor } = await import('@testing-library/react');
-    const { BUILT_IN_SAMPLE_EVENTS } = await import('@/features/pulse');
     const { BackendTransportProvider } = await import('@/lib/transport');
     const { WorkflowStudioDockPanel } = await import(
       './WorkflowStudioDockPanel'
@@ -832,7 +582,7 @@ describe('Track U2: Bilingual zh-CN/en Localization & Group/Gate Inspector Metad
           triggerKind: 'platform',
           sourceKind: 'github',
           eventType: 'github.ci.failed',
-          evalMode: 'observe',
+          evalMode: 'auto',
           temporal: null,
           filter: {
             sourceKinds: ['github'],
@@ -849,7 +599,7 @@ describe('Track U2: Bilingual zh-CN/en Localization & Group/Gate Inspector Metad
           inputBindings: {},
           kind: 'session',
           agentId: 'codex',
-          prompt: 'Analyze {{threadKey}}',
+          prompt: 'Analyze {{threadKey}} root cause',
           workspaceIsolation: 'isolated_worktree',
           executorProfileId: null,
           modeOverride: null,
@@ -868,7 +618,7 @@ describe('Track U2: Bilingual zh-CN/en Localization & Group/Gate Inspector Metad
           memberId: 'sre-bot',
           conversationScope: 'fixed_primary',
           mailboxPolicy: 'coalesce_batch',
-          prompt: 'Summarize {{threadKey}}',
+          prompt: 'Summarize {{threadKey}} service impact',
         },
         {
           id: 'n-group',
@@ -880,7 +630,7 @@ describe('Track U2: Bilingual zh-CN/en Localization & Group/Gate Inspector Metad
           dispatchMode: { type: 'specific_seat', memberId: 'lead-bot' },
           rounds: 3,
           quorumCount: 2,
-          prompt: 'Converge on plan',
+          prompt: 'Converge on rollout plan',
         },
         {
           id: 'n-loop',
@@ -941,7 +691,7 @@ describe('Track U2: Bilingual zh-CN/en Localization & Group/Gate Inspector Metad
       ],
     };
 
-    // Verify lossless round-trip of group_stage.rounds/quorumCount and user_gate.severity
+    // Lossless round-trip of group_stage.rounds/quorumCount and user_gate.severity
     const roundTripped = toStudioWorkflowDefinition(
       toBackendWorkflowDefinition(showcase)
     );
@@ -956,92 +706,63 @@ describe('Track U2: Bilingual zh-CN/en Localization & Group/Gate Inspector Metad
         await i18n.changeLanguage('en');
       });
 
-      const user = userEvent.setup();
       const { unmount } = render(
         <WorkflowStudio
           studioMode
+          dirty
           definition={showcase}
           onDefinitionChange={vi.fn()}
-          capturedEvents={BUILT_IN_SAMPLE_EVENTS}
+          onSave={vi.fn()}
+          agentOptions={[{ value: 'codex', label: 'Codex' }]}
+          bots={[
+            {
+              memberId: 'sre-bot',
+              displayName: 'SRE Duty Bot',
+              avatar: resolveMemberBotAvatar({
+                identityMemberId: 'sre-bot',
+                nickname: 'SRE Duty Bot',
+              }),
+            },
+          ]}
         />
       );
 
-      // English assertions
-      expect(screen.getByTestId('workflow-presets-trigger')).toHaveTextContent(
-        'Templates'
+      expect(screen.getByTestId('workflow-toolbar-save-btn')).toHaveTextContent(
+        'Save changes'
       );
-      expect(screen.getByText('Hybrid Pipeline')).toBeInTheDocument();
-      expect(screen.getByTestId('workflow-replay-trigger')).toHaveTextContent(
-        'Event Replay'
-      );
-
-      await user.click(screen.getByRole('button', { name: /^Add node$/i }));
-      for (const label of [
-        'Event Trigger',
-        'Ephemeral Session',
-        'Persistent Bot',
-        'Group Stage',
-        'User Gate',
-        'Condition Branch',
-        'Bounded Loop',
-        'Wait For Event',
-        'Outbox Action',
-      ]) {
-        expect(screen.getByRole('menuitem', { name: label })).toBeInTheDocument();
-      }
-      await user.keyboard('{Escape}');
 
       for (const [id, badge] of [
-        ['n-trigger', 'TRIGGER'],
-        ['n-session', 'SESSION'],
-        ['n-bot', 'BOT'],
-        ['n-group', 'GROUP'],
+        ['n-trigger', 'GitHub'],
+        ['n-session', 'Codex'],
+        ['n-bot', 'SRE Duty Bot'],
+        ['n-group', 'eng-council'],
         ['n-loop', 'LOOP'],
         ['n-wait', 'WAIT'],
         ['n-branch', 'BRANCH'],
-        ['n-gate', 'GATE'],
-        ['n-outbox', 'OUTBOX'],
+        ['n-gate', 'Approval'],
+        ['n-outbox', 'GitHub Comment'],
       ] as const) {
         expect(
           screen.getByTestId(`workflow-node-category-badge-${id}`)
         ).toHaveTextContent(badge);
       }
+
+      // Raw {{threadKey}} noise is stripped from card headlines
       expect(
-        within(screen.getByTestId('workflow-node-n-group')).getByText(
-          'Max 3x · Quorum 2'
+        within(screen.getByTestId('workflow-node-n-session')).getByText(
+          'Analyze root cause'
         )
-      ).toHaveClass('tabular-nums');
+      ).toBeInTheDocument();
       expect(
         within(screen.getByTestId('workflow-node-n-loop')).getByText('Max 4x')
       ).toHaveClass('tabular-nums');
 
-      fireEvent.click(screen.getByTestId('workflow-replay-trigger'));
-      fireEvent.click(
-        screen.getByTestId(
-          `workflow-replay-sample-${BUILT_IN_SAMPLE_EVENTS[2].eventId}`
-        )
+      fireEvent.click(screen.getByTestId('workflow-node-deck-n-session'));
+      expect(screen.getByTestId('inspector-tab-info')).toHaveTextContent(
+        'Overview'
       );
-      expect(
-        within(screen.getByTestId('workflow-trigger-replay-n-trigger')).getByText(
-          'Matched'
-        )
-      ).toBeVisible();
-
-      fireEvent.click(
-        within(screen.getByTestId('workflow-node-n-group')).getByRole('button', {
-          name: /n-group/i,
-        })
-      );
-      expect(screen.getByLabelText('Max Rounds')).toHaveValue(3);
-      expect(screen.getByLabelText('Quorum Seats')).toHaveValue(2);
-
-      fireEvent.click(
-        within(screen.getByTestId('workflow-node-n-gate')).getByRole('button', {
-          name: /n-gate/i,
-        })
-      );
-      expect(screen.getByTestId('inspector-user-gate-severity')).toHaveTextContent(
-        'Urgent'
+      expect(screen.getByTestId('inspector-tab-conversation')).toHaveTextContent(
+        'Records'
       );
 
       // Switch live to zh-CN
@@ -1049,48 +770,34 @@ describe('Track U2: Bilingual zh-CN/en Localization & Group/Gate Inspector Metad
         await i18n.changeLanguage('zh-CN');
       });
 
-      expect(screen.getByTestId('workflow-presets-trigger')).toHaveTextContent(
-        '场景模板'
-      );
-      expect(screen.getByText('混合交付流水线')).toBeInTheDocument();
-      expect(screen.getByTestId('workflow-replay-trigger')).toHaveTextContent(
-        '事件回放演练'
+      expect(screen.getByTestId('workflow-toolbar-save-btn')).toHaveTextContent(
+        '保存修改'
       );
       for (const [id, badge] of [
-        ['n-trigger', '触发器'],
-        ['n-session', '临时会话'],
-        ['n-bot', 'Bot 助手'],
-        ['n-group', '群组协作'],
+        ['n-trigger', 'GitHub'],
+        ['n-session', 'Codex'],
+        ['n-bot', 'SRE Duty Bot'],
+        ['n-group', 'eng-council'],
         ['n-loop', '循环'],
         ['n-wait', '等待事件'],
         ['n-branch', '条件分支'],
-        ['n-gate', '人工门控'],
-        ['n-outbox', '回写动作'],
+        ['n-gate', '人工审批'],
+        ['n-outbox', 'GitHub 评论'],
       ] as const) {
         expect(
           screen.getByTestId(`workflow-node-category-badge-${id}`)
         ).toHaveTextContent(badge);
       }
       expect(
-        within(screen.getByTestId('workflow-node-n-group')).getByText(
-          '最多 3 轮 · 法定 2 席'
-        )
-      ).toBeInTheDocument();
-      expect(
         within(screen.getByTestId('workflow-node-n-loop')).getByText('最多 4 轮')
       ).toBeInTheDocument();
-      expect(
-        within(screen.getByTestId('workflow-trigger-replay-n-trigger')).getByText(
-          '命中'
-        )
-      ).toBeVisible();
-      expect(screen.getByTestId('inspector-user-gate-severity')).toHaveTextContent(
-        '紧急'
+      expect(screen.getByTestId('inspector-tab-info')).toHaveTextContent(
+        '节点概览'
       );
 
       unmount();
 
-      // Verify DockPanel bilingual starter workflow name & Pulse Rules shortcut label
+      // Verify DockPanel bilingual starter workflow name & Automation Tasks shortcut
       await act(async () => {
         await i18n.changeLanguage('en');
       });
@@ -1099,6 +806,7 @@ describe('Track U2: Bilingual zh-CN/en Localization & Group/Gate Inspector Metad
         call: vi.fn(async (cmd: string) => {
           if (cmd === 'workflow_list') return [];
           if (cmd === 'pulse_captured_events') return [];
+          if (cmd === 'pulse_sources_list') return [];
           return null;
         }),
       };
@@ -1122,10 +830,6 @@ describe('Track U2: Bilingual zh-CN/en Localization & Group/Gate Inspector Metad
       expect(
         screen.getByTestId('workflow-studio-open-pulse-deck')
       ).toHaveTextContent('自动化任务');
-      fireEvent.click(screen.getByRole('button', { name: '新建工作流' }));
-      expect(screen.getByRole('textbox', { name: '名称' })).toHaveValue(
-        '新建工作流'
-      );
     } finally {
       await act(async () => {
         await i18n.changeLanguage('zh-CN');
@@ -1134,11 +838,10 @@ describe('Track U2: Bilingual zh-CN/en Localization & Group/Gate Inspector Metad
   });
 });
 
-describe('Track A3: Multi-Port Semantic Branching, Fan-In/Fan-Out Badges & Inspector Edge Controls', () => {
-  it('renders semantic multi-port handles, tabular-nums fan-in/fan-out badges, Delete-key edge removal, and Inspector join/predecessor controls', async () => {
+describe('Multi-Port Semantic Branching & Fan-In/Fan-Out Badges', () => {
+  it('renders semantic multi-port handles, tabular-nums fan-in/fan-out badges, and Delete-key edge removal', async () => {
     const i18n = (await import('@/i18n')).default;
-    const { act, waitFor, within } = await import('@testing-library/react');
-    const { useState } = await import('react');
+    const { act, waitFor } = await import('@testing-library/react');
 
     const initialGraph: import('./WorkflowStudio').StudioWorkflowDefinition = {
       formatVersion: 1,
@@ -1162,7 +865,7 @@ describe('Track A3: Multi-Port Semantic Branching, Fan-In/Fan-Out Badges & Inspe
           triggerKind: 'platform',
           sourceKind: 'github',
           eventType: 'github.pr.opened',
-          evalMode: 'observe',
+          evalMode: 'auto',
           temporal: null,
           filter: {
             sourceKinds: ['github'],
@@ -1221,163 +924,63 @@ describe('Track A3: Multi-Port Semantic Branching, Fan-In/Fan-Out Badges & Inspe
       );
     }
 
-    try {
-      await act(async () => {
-        await i18n.changeLanguage('zh-CN');
-      });
+    await act(async () => {
+      await i18n.changeLanguage('zh-CN');
+    });
 
-      const { container } = render(<StatefulHarness />);
+    const { container } = render(<StatefulHarness />);
 
-      // Trigger has source port only (no target port)
-      expect(
-        screen.queryByTestId('workflow-port-intake-target')
-      ).not.toBeInTheDocument();
-      expect(
-        screen.getByTestId('workflow-port-intake-source')
-      ).toHaveClass('nodrag', 'nopan', 'workflow-port-handle');
-
-      // Intake fans out to 2 downstream nodes (cond-1 & gate-1) -> tabular-nums fan-out badge ×2
-      const fanOutBadge = screen.getByTestId('workflow-fan-out-badge-intake');
-      expect(fanOutBadge).toHaveTextContent('×2');
-      expect(fanOutBadge).toHaveClass('tabular-nums');
-
-      // Condition, Approval Gate, and Bounded Loop render 2 semantic output ports each
-      expect(
-        screen.getByTestId('workflow-port-pill-cond-1-branch:true')
-      ).toHaveTextContent('满足 (True)');
-      expect(
-        screen.getByTestId('workflow-port-pill-cond-1-branch:false')
-      ).toHaveTextContent('不满足 (False)');
-      expect(
-        screen.getByTestId('workflow-port-pill-gate-1-branch:approved')
-      ).toHaveTextContent('批准 (Approved)');
-      expect(
-        screen.getByTestId('workflow-port-pill-gate-1-branch:rejected')
-      ).toHaveTextContent('驳回 (Rejected)');
-      expect(
-        screen.getByTestId('workflow-port-pill-loop-1-branch:loop_body')
-      ).toHaveTextContent('循环体 (Loop)');
-      expect(
-        screen.getByTestId('workflow-port-pill-loop-1-branch:loop_exit')
-      ).toHaveTextContent('完成退出 (Exit)');
-
-      // Gate-1 has 2 predecessors -> Fan-In Join Badge with tabular-nums
-      const fanInBadge = screen.getByTestId('workflow-fan-in-badge-gate-1');
-      expect(fanInBadge).toHaveTextContent('汇合 ×2 · 全部');
-      expect(fanInBadge).toHaveClass('tabular-nums');
-
-      // Select gate-1 to open Inspector and toggle Join Mode ALL -> ANY, reorder, and disconnect
-      fireEvent.click(
-        within(screen.getByTestId('workflow-node-gate-1')).getByRole('button', {
-          name: /gate-1/i,
-        })
-      );
-      expect(screen.getByTestId('inspector-join-mode')).toBeInTheDocument();
-      fireEvent.click(screen.getByTestId('inspector-join-mode-any'));
-      expect(screen.getByTestId('workflow-fan-in-badge-gate-1')).toHaveTextContent(
-        '汇合 ×2 · 任一'
-      );
-
-      // Switch branch port on cond-1 predecessor in Inspector
-      const portSelect = screen.getByTestId(
-        'inspector-predecessor-port-cond-1'
-      ) as HTMLSelectElement;
-      expect(portSelect.value).toBe('branch:true');
-      fireEvent.change(portSelect, { target: { value: 'branch:false' } });
-      expect(portSelect.value).toBe('branch:false');
-
-      // Reorder predecessors (move cond-1 up before intake)
-      fireEvent.click(screen.getByTestId('inspector-predecessor-up-cond-1'));
-
-      // Disconnect intake from gate-1 via Inspector button
-      fireEvent.click(
-        screen.getByTestId('inspector-predecessor-disconnect-intake')
-      );
-      expect(
-        screen.queryByTestId('workflow-fan-in-badge-gate-1')
-      ).not.toBeInTheDocument();
-      expect(
-        screen.queryByTestId('workflow-fan-out-badge-intake')
-      ).not.toBeInTheDocument();
-
-      // Verify rendered edges & semantic branch edge pill labels exist in DOM without static node.handles
-      expect(
-        screen.getByTestId('workflow-edge-label-cond-1->gate-1')
-      ).toHaveTextContent('不满足');
-      const renderedEdgesBefore = container.querySelectorAll('.react-flow__edge');
-      expect(renderedEdgesBefore.length).toBeGreaterThanOrEqual(3);
-
-      // Select an edge on canvas and press Delete to remove the connection
-      const targetEdge = container.querySelector(
-        '[data-id="cond-1->gate-1"]'
-      ) as HTMLElement;
-      expect(targetEdge).toBeTruthy();
-      fireEvent.click(targetEdge);
-      fireEvent.keyDown(targetEdge, { key: 'Delete', code: 'Delete' });
-      fireEvent.keyUp(targetEdge, { key: 'Delete', code: 'Delete' });
-      await waitFor(() => {
-        expect(
-          screen.queryByTestId('workflow-edge-label-cond-1->gate-1')
-        ).not.toBeInTheDocument();
-      });
-    } finally {
-      await act(async () => {
-        await i18n.changeLanguage('zh-CN');
-      });
-    }
-  });
-
-  it('renders two-tier tactile node cards with inline variable tokens and leaf quick-continue action', () => {
-    const templatedFlow: WorkflowDefinition = {
-      ...connectedDefinition,
-      steps: [
-        connectedDefinition.steps[0],
-        {
-          ...(connectedDefinition.steps[1] as Extract<
-            WorkflowDefinition['steps'][number],
-            { kind: 'agent' }
-          >),
-          prompt: 'Summarize {{event.repo}} changes for {{actor.login}}',
-        },
-      ],
-    };
-
-    function Harness() {
-      const [current, setCurrent] = useState(templatedFlow);
-      return (
-        <WorkflowStudio
-          definition={current}
-          onDefinitionChange={setCurrent}
-        />
-      );
-    }
-
-    const { container } = render(<Harness />);
-
-    expect(screen.getByTestId('workflow-node-caption-finish')).toHaveTextContent(
-      'finish'
+    expect(
+      screen.queryByTestId('workflow-port-intake-target')
+    ).not.toBeInTheDocument();
+    expect(screen.getByTestId('workflow-port-intake-source')).toHaveClass(
+      'nodrag',
+      'nopan',
+      'workflow-port-handle'
     );
-    expect(screen.getByTestId('workflow-node-deck-finish')).toBeInTheDocument();
-    expect(screen.getByTestId('workflow-node-tray-finish')).toBeInTheDocument();
 
-    const inlineTokens = Array.from(
-      container.querySelectorAll('.workflow-node-inline-tag')
-    ).map((el) => el.textContent);
-    expect(inlineTokens).toEqual(['event.repo', 'actor.login']);
+    const fanOutBadge = screen.getByTestId('workflow-fan-out-badge-intake');
+    expect(fanOutBadge).toHaveTextContent('×2');
+    expect(fanOutBadge).toHaveClass('tabular-nums');
 
-    // Start has a successor (and manual confirmation), so only leaf 'finish' renders the quick-continue '+' button
     expect(
-      screen.queryByTestId('workflow-quick-add-start')
-    ).not.toBeInTheDocument();
-    const quickAddLeaf = screen.getByTestId('workflow-quick-add-finish');
-    fireEvent.click(quickAddLeaf);
+      screen.getByTestId('workflow-port-pill-cond-1-branch:true')
+    ).toHaveTextContent('满足 (True)');
+    expect(
+      screen.getByTestId('workflow-port-pill-cond-1-branch:false')
+    ).toHaveTextContent('不满足 (False)');
+    expect(
+      screen.getByTestId('workflow-port-pill-gate-1-branch:approved')
+    ).toHaveTextContent('批准 (Approved)');
+    expect(
+      screen.getByTestId('workflow-port-pill-gate-1-branch:rejected')
+    ).toHaveTextContent('驳回 (Rejected)');
+    expect(
+      screen.getByTestId('workflow-port-pill-loop-1-branch:loop_body')
+    ).toHaveTextContent('循环体 (Loop)');
+    expect(
+      screen.getByTestId('workflow-port-pill-loop-1-branch:loop_exit')
+    ).toHaveTextContent('完成退出 (Exit)');
 
-    expect(screen.getByTestId('workflow-node-session-3')).toBeInTheDocument();
+    const fanInBadge = screen.getByTestId('workflow-fan-in-badge-gate-1');
+    expect(fanInBadge).toHaveTextContent('汇合 ×2 · 全部');
+    expect(fanInBadge).toHaveClass('tabular-nums');
+
     expect(
-      screen.queryByTestId('workflow-quick-add-finish')
-    ).not.toBeInTheDocument();
-    expect(
-      screen.getByTestId('workflow-quick-add-session-3')
-    ).toBeInTheDocument();
+      screen.getByTestId('workflow-edge-label-cond-1->gate-1')
+    ).toHaveTextContent('满足');
+
+    const targetEdge = container.querySelector(
+      '[data-id="cond-1->gate-1"]'
+    ) as HTMLElement;
+    expect(targetEdge).toBeTruthy();
+    fireEvent.click(targetEdge);
+    fireEvent.keyDown(targetEdge, { key: 'Delete', code: 'Delete' });
+    fireEvent.keyUp(targetEdge, { key: 'Delete', code: 'Delete' });
+    await waitFor(() => {
+      expect(
+        screen.queryByTestId('workflow-edge-label-cond-1->gate-1')
+      ).not.toBeInTheDocument();
+    });
   });
 });

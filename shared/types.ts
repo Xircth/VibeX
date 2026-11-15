@@ -2248,7 +2248,7 @@ export type CompletionPolicy = "automatic" | "manual";
 
 export type DebugRunScope = "node" | "downstream";
 
-export type WorkflowDefinitionSummary = { id: string, name: string, latestVersionId: string | null, latestVersion: bigint | null, updatedAt: string, };
+export type WorkflowDefinitionSummary = { id: string, name: string, latestVersionId: string | null, latestVersion: bigint | null, latestNormalizedJson?: string | null, updatedAt: string, };
 
 export type CommunityAcpPresetView = { preset_id: string, agent_id: AgentId, display_name: string, description: string, authors: Array<string>, repository: string | null, version: string, distribution_kind: UserAgentDistributionKind, distribution_json: string, icon_light: string | null, icon_dark: string | null, built_in: boolean, added: boolean, };
 

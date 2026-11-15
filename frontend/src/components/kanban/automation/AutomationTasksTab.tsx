@@ -2,7 +2,6 @@ import { Fragment, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Badge } from '@astryxdesign/core/Badge';
 import { Button } from '@astryxdesign/core/Button';
-import { DropdownMenu } from '@astryxdesign/core/DropdownMenu';
 import { EmptyState } from '@astryxdesign/core/EmptyState';
 import { Icon } from '@astryxdesign/core/Icon';
 import { HStack, StackItem, VStack } from '@astryxdesign/core/Layout';
@@ -13,7 +12,7 @@ import {
   type PowerSearchFilter,
 } from '@astryxdesign/core/PowerSearch';
 import { RadioList, RadioListItem } from '@astryxdesign/core/RadioList';
-import { Switch } from '@astryxdesign/core/Switch';
+import { Switch } from '@/components/ui/switch';
 import {
   pixel,
   proportional,
@@ -26,57 +25,93 @@ import {
 } from '@astryxdesign/core/Table';
 import { Text } from '@astryxdesign/core/Text';
 import {
+  ArrowRight,
+  Bell,
   ChevronDown,
   ChevronRight,
-  Eye,
-  GitFork,
-  MoreHorizontal,
-  Pencil,
+  Clock3,
+  GitPullRequest,
+  Loader2,
+  MessageSquare,
   Play,
-  Rocket,
+  Sparkles,
+  Ticket,
   Trash2,
+  Users,
+  Webhook,
   Zap,
+  type LucideIcon,
 } from 'lucide-react';
+
+import { MemberBotAvatar } from '@/features/collaboration/MemberBotAvatar';
+import type { CollaborationBotOption } from '@/features/workflow/useCollaborationBotRoster';
+import type { WorkflowStudioAgentOption } from '@/features/workflow/workflowAgent';
+import { StudioAgentIcon } from '@/features/workflow/workflow-studio/StudioAgentIcon';
 import type {
-  EventEnvelope,
-  PulseDryRunReport,
-  PulseOutboxEntryView,
-  PulseRuleSpec,
-  PulseRuleView,
+  EventSourceKind,
   PulseSourceView,
+  PulseUserInteractionView,
 } from '@/lib/api/pulse';
-import { cn } from '@/lib/utils';
+
+import { PulseInteractionCard } from '../pulseInteractionForm';
+import { AutomationAgentComposerPopover } from './AutomationAgentComposerPopover';
+import {
+  CANONICAL_WORKFLOW_STARTERS,
+  type CanonicalWorkflowStarter,
+  type DispatchedAutomationAgentSession,
+} from './automationAgentBridge';
 import {
   AutomationSplitFrame,
   groupHeaderCell,
   interactiveRowStyle,
-  NewAutomationMenuButton,
-  selectedTableRowStyle,
   TaskStatusBadge,
 } from './AutomationSplitFrame';
-import {
-  summarizeFastTaskSegments,
-  type AutomationTaskStatus,
-  type FastTaskEditorTab,
-  type UnifiedAutomationTask,
+import type {
+  AutomationGovernanceGroup,
+  AutomationTaskStatus,
+  TaskChainActor,
+  UnifiedAutomationTask,
 } from './automationModels';
-import { FastTaskEditorPane } from './FastTaskEditorPane';
 
-type TaskGroupBy = 'kind' | 'status' | 'none';
+type TaskGroupBy = 'governance' | 'none';
 
-const KIND_GROUP_ORDER: readonly UnifiedAutomationTask['kind'][] = [
-  'fast_task',
-  'workflow',
+const GOVERNANCE_GROUP_ORDER: readonly AutomationGovernanceGroup[] = [
+  'needs_attention',
+  'active',
+  'paused',
 ];
 
-const STATUS_GROUP_ORDER: readonly AutomationTaskStatus[] = [
+const STATUS_FILTER_ORDER: readonly AutomationTaskStatus[] = [
+  'awaiting_approval',
   'running',
-  'testing',
-  'publishing',
-  'published',
-  'pending_test',
-  'editing',
+  'active',
+  'paused',
+  'draft',
 ];
+
+function resolveSourceIcon(kind: EventSourceKind | (string & {})): LucideIcon {
+  switch (kind) {
+    case 'github':
+      return GitPullRequest;
+    case 'feishu':
+      return MessageSquare;
+    case 'jira':
+      return Ticket;
+    case 'time_cron':
+    case 'time_interval':
+    case 'time_once':
+    case 'time_sla':
+    case 'timer':
+      return Clock3;
+    case 'webhook_standard':
+    case 'webhook_custom':
+      return Webhook;
+    case 'sdk_custom':
+    case 'system_internal':
+    default:
+      return Sparkles;
+  }
+}
 
 function groupAutomationTasks(
   tasks: readonly UnifiedAutomationTask[],
@@ -87,60 +122,73 @@ function groupAutomationTasks(
     map.set('all', [...tasks]);
     return map;
   }
-  const order = groupBy === 'kind' ? KIND_GROUP_ORDER : STATUS_GROUP_ORDER;
-  for (const key of order) {
+  for (const key of GOVERNANCE_GROUP_ORDER) {
     map.set(key, []);
   }
   for (const task of tasks) {
-    const key = groupBy === 'kind' ? task.kind : task.status;
-    const bucket = map.get(key) ?? [];
+    const bucket = map.get(task.governanceGroup) ?? [];
     bucket.push(task);
-    map.set(key, bucket);
+    map.set(task.governanceGroup, bucket);
   }
   return map;
 }
 
+function SemanticActorChip({
+  actor,
+  agentOptions,
+}: {
+  actor: TaskChainActor;
+  agentOptions: WorkflowStudioAgentOption[];
+}) {
+  if (actor.kind === 'bot') {
+    return (
+      <span className="inline-flex max-w-[160px] items-center gap-1.5 rounded-md bg-muted/60 px-2 py-0.5 text-xs font-medium text-foreground">
+        <MemberBotAvatar
+          config={actor.avatar}
+          animated={false}
+          className="size-4 shrink-0"
+        />
+        <span className="truncate">{actor.label}</span>
+      </span>
+    );
+  }
+
+  if (actor.kind === 'group') {
+    return (
+      <span className="inline-flex max-w-[160px] items-center gap-1.5 rounded-md bg-muted/60 px-2 py-0.5 text-xs font-medium text-foreground">
+        <Users className="size-3.5 shrink-0 text-primary" />
+        <span className="truncate">{actor.label}</span>
+      </span>
+    );
+  }
+
+  return (
+    <span className="inline-flex max-w-[160px] items-center gap-1.5 rounded-md bg-muted/60 px-2 py-0.5 text-xs font-medium text-foreground">
+      <StudioAgentIcon
+        agentId={actor.agentId}
+        agentOptions={agentOptions}
+        className="size-3.5 shrink-0"
+      />
+      <span className="truncate">{actor.label}</span>
+    </span>
+  );
+}
+
 export interface AutomationTasksTabProps {
   renderHeader?: (toolbarRow: ReactNode) => ReactNode;
+  projectId?: string | null;
   tasks: readonly UnifiedAutomationTask[];
-  selectedTaskKey: string | null;
-  onCloseDetail: () => void;
-  onSelectFastTask: (rule: PulseRuleView, subTab?: FastTaskEditorTab) => void;
-  onSelectWorkflowTask: (
-    task: Extract<UnifiedAutomationTask, { kind: 'workflow' }>
-  ) => void;
-  onStartNewFastTask: () => void;
-  onOpenWorkflowStudio: (definitionId?: string | null) => void;
-  onToggleTaskEnabled: (task: UnifiedAutomationTask) => void;
-  onQuickTestFastTask: (rule: PulseRuleView) => void;
-  onQuickPublishFastTask: (rule: PulseRuleView) => void;
-  onQuickDeleteFastTask: (rule: PulseRuleView) => void;
-  // Right-pane editor props
-  selectedWorkflowTask: Extract<UnifiedAutomationTask, { kind: 'workflow' }> | null;
-  draftRuleId: string | null;
-  draftSpec: PulseRuleSpec;
-  existingRule: PulseRuleView | null;
-  editorStatus: AutomationTaskStatus;
-  activeSubTab: FastTaskEditorTab;
-  onSubTabChange: (tab: FastTaskEditorTab) => void;
-  onSpecChange: (next: PulseRuleSpec) => void;
+  pendingInteractions: readonly PulseUserInteractionView[];
   sources: readonly PulseSourceView[];
-  allRules: readonly PulseRuleView[];
-  capturedEvents: readonly EventEnvelope[];
-  recentOutbox: readonly PulseOutboxEntryView[];
-  validationErrors: readonly string[];
-  lastTestReport: PulseDryRunReport | null;
-  saving: boolean;
-  testing: boolean;
-  publishing: boolean;
-  converting: boolean;
-  onSaveDraft: () => void;
-  onTestTask: () => void;
-  onEmitLiveSample: () => void;
-  onPublishTask: () => void;
-  onConvertToWorkflow: () => void;
-  onDeleteTask: () => void;
-  onJumpCreateSource: () => void;
+  agentOptions: WorkflowStudioAgentOption[];
+  bots: readonly CollaborationBotOption[];
+  applyingStarterId?: string | null;
+  onOpenTaskCanvas: (task: UnifiedAutomationTask) => void;
+  onToggleTaskEnabled: (task: UnifiedAutomationTask) => void;
+  onDeleteTask: (task: UnifiedAutomationTask) => void;
+  onApplyStarter: (starter: CanonicalWorkflowStarter) => void;
+  onInteractionResolved: (interactionId: string) => void;
+  onAgentDispatched?: (session: DispatchedAutomationAgentSession) => void;
 }
 
 export function AutomationTasksTab(props: AutomationTasksTabProps) {
@@ -148,9 +196,9 @@ export function AutomationTasksTab(props: AutomationTasksTabProps) {
   const [powerSearchFilters, setPowerSearchFilters] = useState<
     ReadonlyArray<PowerSearchFilter>
   >([]);
-  const [groupBy, setGroupBy] = useState<TaskGroupBy>('kind');
+  const [groupBy, setGroupBy] = useState<TaskGroupBy>('governance');
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(
-    () => new Set([...KIND_GROUP_ORDER, ...STATUS_GROUP_ORDER])
+    () => new Set(GOVERNANCE_GROUP_ORDER)
   );
 
   const powerSearchConfig = useMemo<PowerSearchConfig>(
@@ -159,38 +207,15 @@ export function AutomationTasksTab(props: AutomationTasksTabProps) {
       contentSearchFieldKey: 'query',
       fields: [
         {
-          key: 'kind',
-          label: t('pulseDeck.workbench.tasks.searchFieldKind'),
-          operators: [
-            {
-              key: 'is',
-              label: t('pulseDeck.workbench.tasks.operatorIs'),
-              value: {
-                type: 'enum',
-                values: [
-                  {
-                    value: 'fast_task',
-                    label: t('pulseDeck.workbench.tasks.typeFastTask'),
-                  },
-                  {
-                    value: 'workflow',
-                    label: t('pulseDeck.workbench.tasks.typeWorkflow'),
-                  },
-                ],
-              },
-            },
-          ],
-        },
-        {
           key: 'status',
-          label: t('pulseDeck.workbench.tasks.searchFieldStatus'),
+          label: t('pulseDeck.workbench.tasks.fieldStatus'),
           operators: [
             {
               key: 'is',
-              label: t('pulseDeck.workbench.tasks.operatorIs'),
+              label: t('pulseDeck.workbench.tasks.opIs'),
               value: {
                 type: 'enum',
-                values: STATUS_GROUP_ORDER.map((st) => ({
+                values: STATUS_FILTER_ORDER.map((st) => ({
                   value: st,
                   label: t(`pulseDeck.workbench.status.${st}`),
                 })),
@@ -200,11 +225,11 @@ export function AutomationTasksTab(props: AutomationTasksTabProps) {
         },
         {
           key: 'query',
-          label: t('pulseDeck.workbench.tasks.searchFieldQuery'),
+          label: t('pulseDeck.workbench.tasks.fieldQuery'),
           operators: [
             {
               key: 'contains',
-              label: t('pulseDeck.workbench.tasks.operatorContains'),
+              label: t('pulseDeck.workbench.tasks.opContains'),
               value: { type: 'string' },
             },
           ],
@@ -220,22 +245,21 @@ export function AutomationTasksTab(props: AutomationTasksTabProps) {
     }
     return props.tasks.filter((task) => {
       for (const filter of powerSearchFilters) {
-        if (filter.field === 'kind' && filter.value.type === 'enum') {
-          if (task.kind !== filter.value.value) return false;
-        } else if (filter.field === 'status' && filter.value.type === 'enum') {
+        if (filter.field === 'status' && filter.value.type === 'enum') {
           if (task.status !== filter.value.value) return false;
         } else if (filter.field === 'query' && filter.value.type === 'string') {
           const q = filter.value.value.trim().toLowerCase();
           if (!q) continue;
-          const nameHit = task.name.toLowerCase().includes(q);
-          const detailHit =
-            task.kind === 'fast_task'
-              ? task.rule.spec.filter.eventTypes
-                  .join(' ')
-                  .toLowerCase()
-                  .includes(q)
-              : task.workflowId.toLowerCase().includes(q);
-          if (!nameHit && !detailHit) return false;
+          const haystack = [
+            task.name,
+            task.description ?? '',
+            task.chain.sourceSummary,
+            task.chain.outcomeSummary,
+            ...task.chain.actors.map((actor) => actor.label),
+          ]
+            .join(' ')
+            .toLowerCase();
+          if (!haystack.includes(q)) return false;
         }
       }
       return true;
@@ -272,48 +296,39 @@ export function AutomationTasksTab(props: AutomationTasksTabProps) {
   };
 
   const getGroupLabel = (key: string): string => {
-    if (groupBy === 'kind') {
-      return key === 'fast_task'
-        ? t('pulseDeck.workbench.tasks.groupTasksTitle')
-        : t('pulseDeck.workbench.tasks.groupWorkflowsTitle');
+    switch (key as AutomationGovernanceGroup) {
+      case 'needs_attention':
+        return t('pulseDeck.workbench.tasks.groupNeedsAttention');
+      case 'active':
+        return t('pulseDeck.workbench.tasks.groupActive');
+      case 'paused':
+        return t('pulseDeck.workbench.tasks.groupPaused');
+      default:
+        return '';
     }
-    if (groupBy === 'status') {
-      return t(`pulseDeck.workbench.status.${key}`);
-    }
-    return '';
   };
 
   const columns = useMemo<TableColumn<Record<string, unknown>>[]>(
     () => [
       {
-        key: 'enabled',
-        header: t('pulseDeck.workbench.tasks.colEnabled'),
-        width: pixel(68),
-      },
-      {
-        key: 'status',
-        header: t('pulseDeck.workbench.tasks.colStatus'),
-        width: pixel(108),
-      },
-      {
         key: 'name',
         header: t('pulseDeck.workbench.tasks.colName'),
-        width: proportional(1),
+        width: proportional(1.05),
       },
       {
         key: 'pipeline',
         header: t('pulseDeck.workbench.tasks.colPipeline'),
-        width: proportional(1.4),
+        width: proportional(1.75),
       },
       {
-        key: 'records',
-        header: t('pulseDeck.workbench.tasks.colRecords'),
-        width: pixel(88),
+        key: 'status',
+        header: t('pulseDeck.workbench.tasks.colStatus'),
+        width: pixel(164),
       },
       {
         key: 'actions',
-        header: '',
-        width: pixel(52),
+        header: t('pulseDeck.workbench.tasks.colActions'),
+        width: pixel(228),
       },
     ],
     [t, i18n.language]
@@ -344,8 +359,8 @@ export function AutomationTasksTab(props: AutomationTasksTabProps) {
       <Popover
         placement="below"
         alignment="end"
-        width={280}
-        label={t('pulseDeck.workbench.tasks.groupByAria')}
+        width={240}
+        label={t('pulseDeck.workbench.tasks.groupOptionsAria')}
         content={
           <VStack gap={3}>
             <RadioList
@@ -354,11 +369,7 @@ export function AutomationTasksTab(props: AutomationTasksTabProps) {
               onChange={(val) => setGroupBy(val as TaskGroupBy)}
             >
               <RadioListItem
-                value="kind"
-                label={t('pulseDeck.workbench.tasks.groupByKind')}
-              />
-              <RadioListItem
-                value="status"
+                value="governance"
                 label={t('pulseDeck.workbench.tasks.groupByStatus')}
               />
               <RadioListItem
@@ -382,26 +393,117 @@ export function AutomationTasksTab(props: AutomationTasksTabProps) {
   const masterPane = (
     <div
       data-testid="automation-tasks-list"
-      className="flex h-full min-h-0 flex-1 flex-col"
+      className="flex h-full min-h-0 flex-1 flex-col overflow-y-auto"
     >
+      {props.pendingInteractions.length > 0 ? (
+        <div
+          data-testid="automation-pending-approvals-strip"
+          className="border-b border-border/70 bg-muted/30 px-4 py-3"
+        >
+          <div className="mb-2 flex items-center gap-2">
+            <Bell className="size-3.5 text-warning" />
+            <Text type="body" weight="semibold">
+              {t('pulseDeck.workbench.tasks.pendingApprovalsTitle')}
+            </Text>
+            <Badge
+              variant="warning"
+              label={String(props.pendingInteractions.length)}
+              className="tabular-nums"
+            />
+          </div>
+          <div className="grid gap-2 md:grid-cols-2">
+            {props.pendingInteractions.map((interaction) => (
+              <PulseInteractionCard
+                key={interaction.id}
+                interaction={interaction}
+                onResolved={props.onInteractionResolved}
+              />
+            ))}
+          </div>
+        </div>
+      ) : null}
+
       {filteredTasks.length === 0 ? (
         <div
           data-testid="automation-tasks-empty"
-          className="flex flex-1 items-center justify-center p-8"
+          className="flex flex-1 flex-col items-center justify-center gap-8 p-8"
         >
           <EmptyState
             icon={<Icon icon={Zap} size="lg" color="secondary" />}
             title={t('pulseDeck.workbench.tasks.emptyTitle')}
             description={t('pulseDeck.workbench.tasks.emptyDesc')}
             actions={
-              <NewAutomationMenuButton
-                onNewFastTask={props.onStartNewFastTask}
-                onNewWorkflow={() => props.onOpenWorkflowStudio(null)}
-                size="md"
-                testId="automation-empty-new-menu-btn"
+              <AutomationAgentComposerPopover
+                mode="create"
+                projectId={props.projectId}
+                sources={props.sources}
+                bots={props.bots}
+                buttonSize="md"
+                testId="automation-empty-agent-create-btn"
+                onDispatched={props.onAgentDispatched}
               />
             }
           />
+
+          {props.tasks.length === 0 ? (
+            <div
+              data-testid="automation-starter-gallery"
+              className="w-full max-w-3xl space-y-3"
+            >
+              <div className="flex items-center justify-between px-1">
+                <Text type="supporting" weight="medium" color="secondary">
+                  {t('pulseDeck.workbench.agent.starterGalleryTitle')}
+                </Text>
+              </div>
+              <div className="grid gap-3 sm:grid-cols-2">
+                {CANONICAL_WORKFLOW_STARTERS.map((starter) => {
+                  const StarterIcon = resolveSourceIcon(starter.sourceKind);
+                  const isApplying = props.applyingStarterId === starter.id;
+                  return (
+                    <div
+                      key={starter.id}
+                      data-testid={`automation-starter-card-${starter.id}`}
+                      className="flex flex-col justify-between gap-3 rounded-lg border border-border bg-card p-4 transition-colors hover:border-foreground/25"
+                    >
+                      <div className="space-y-1.5">
+                        <div className="flex items-center gap-2">
+                          <StarterIcon className="size-4 shrink-0 text-primary" />
+                          <Text type="body" weight="semibold" maxLines={1}>
+                            {t(starter.titleKey)}
+                          </Text>
+                        </div>
+                        <Text type="supporting" color="secondary" maxLines={2}>
+                          {t(starter.summaryKey)}
+                        </Text>
+                      </div>
+
+                      <HStack gap={2} vAlign="center">
+                        <Button
+                          label={
+                            isApplying
+                              ? t('pulseDeck.workbench.agent.applyingStarterBtn')
+                              : t('pulseDeck.workbench.agent.applyStarterBtn')
+                          }
+                          variant="secondary"
+                          size="sm"
+                          isDisabled={Boolean(props.applyingStarterId)}
+                          data-testid={`automation-apply-starter-${starter.id}`}
+                          icon={
+                            isApplying ? (
+                              <Loader2 className="size-3.5 animate-spin" />
+                            ) : (
+                              <Icon icon={Play} size="xsm" />
+                            )
+                          }
+                          onClick={() => props.onApplyStarter(starter)}
+                        />
+                      </HStack>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          ) : null}
         </div>
       ) : (
         <Table
@@ -449,22 +551,15 @@ export function AutomationTasksTab(props: AutomationTasksTabProps) {
                             size="sm"
                             color="secondary"
                           />
-                          {groupBy === 'kind' ? (
-                            <Icon
-                              icon={groupKey === 'fast_task' ? Zap : GitFork}
-                              size="sm"
-                              color={
-                                groupKey === 'fast_task'
-                                  ? 'accent'
-                                  : 'secondary'
-                              }
-                            />
-                          ) : null}
                           <Text type="body" weight="bold">
                             {getGroupLabel(groupKey)}
                           </Text>
                           <Badge
-                            variant="neutral"
+                            variant={
+                              groupKey === 'needs_attention'
+                                ? 'warning'
+                                : 'neutral'
+                            }
                             label={String(groupItems.length)}
                             className="tabular-nums"
                           />
@@ -475,370 +570,143 @@ export function AutomationTasksTab(props: AutomationTasksTabProps) {
 
                   {(groupBy === 'none' || isExpanded) &&
                     groupItems.map((task) => {
-                      const selected = props.selectedTaskKey === task.key;
-                      const rowStyle = selected
-                        ? { ...interactiveRowStyle, ...selectedTableRowStyle }
-                        : interactiveRowStyle;
-
-                      if (task.kind === 'fast_task') {
-                        const segments = summarizeFastTaskSegments(
-                          task.rule.spec,
-                          props.sources,
-                          t
-                        );
-                        return (
-                          <TableRow
-                            key={task.key}
-                            data-testid={`automation-task-row-${task.id}`}
-                            style={rowStyle}
-                            onClick={() => props.onSelectFastTask(task.rule)}
-                          >
-                            <TableCell>
-                              <div onClick={(e) => e.stopPropagation()}>
-                                <Switch
-                                  size="sm"
-                                  isLabelHidden
-                                  label={t(
-                                    'pulseDeck.workbench.tasks.switchAria',
-                                    { name: task.name }
-                                  )}
-                                  value={task.enabled}
-                                  onChange={() =>
-                                    props.onToggleTaskEnabled(task)
-                                  }
-                                  data-testid={`automation-task-switch-${task.id}`}
-                                />
-                              </div>
-                            </TableCell>
-
-                            <TableCell>
-                              <TaskStatusBadge
-                                status={task.status}
-                                testId={`automation-task-status-${task.id}`}
-                              />
-                            </TableCell>
-
-                            <TableCell>
-                              <HStack gap={2} vAlign="center">
-                                <Icon icon={Zap} size="sm" color="accent" />
-                                <Text
-                                  type="body"
-                                  weight="medium"
-                                  maxLines={1}
-                                >
-                                  {task.name}
-                                </Text>
-                                {groupBy !== 'kind' ? (
-                                  <Badge
-                                    variant="neutral"
-                                    label={t(
-                                      'pulseDeck.workbench.tasks.typeFastTask'
-                                    )}
-                                    data-testid={`automation-task-type-${task.id}`}
-                                  />
-                                ) : null}
-                              </HStack>
-                            </TableCell>
-
-                            <TableCell>
-                              <div
-                                data-testid={`automation-task-pipeline-${task.id}`}
-                                className="flex min-w-0 items-center gap-1 overflow-hidden text-xs"
-                              >
-                                <button
-                                  type="button"
-                                  data-testid={`automation-seg-event-${task.id}`}
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    props.onSelectFastTask(task.rule, 'event');
-                                  }}
-                                  className={cn(
-                                    'truncate rounded px-1.5 py-0.5 transition-colors',
-                                    selected && props.activeSubTab === 'event'
-                                      ? 'bg-primary/10 font-medium text-primary'
-                                      : 'text-muted-foreground hover:bg-[var(--color-background-muted)] hover:text-foreground'
-                                  )}
-                                >
-                                  {segments.eventSummary}
-                                </button>
-                                <span className="shrink-0 text-muted-foreground/50">
-                                  ›
-                                </span>
-                                <button
-                                  type="button"
-                                  data-testid={`automation-seg-rule-${task.id}`}
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    props.onSelectFastTask(task.rule, 'rule');
-                                  }}
-                                  className={cn(
-                                    'truncate rounded px-1.5 py-0.5 tabular-nums transition-colors',
-                                    selected && props.activeSubTab === 'rule'
-                                      ? 'bg-primary/10 font-medium text-primary'
-                                      : 'text-muted-foreground hover:bg-[var(--color-background-muted)] hover:text-foreground'
-                                  )}
-                                >
-                                  {segments.ruleSummary}
-                                </button>
-                                <span className="shrink-0 text-muted-foreground/50">
-                                  ›
-                                </span>
-                                <button
-                                  type="button"
-                                  data-testid={`automation-seg-target-${task.id}`}
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    props.onSelectFastTask(task.rule, 'target');
-                                  }}
-                                  className={cn(
-                                    'truncate rounded px-1.5 py-0.5 transition-colors',
-                                    selected && props.activeSubTab === 'target'
-                                      ? 'bg-primary/10 font-medium text-primary'
-                                      : 'text-muted-foreground hover:bg-[var(--color-background-muted)] hover:text-foreground'
-                                  )}
-                                >
-                                  {segments.targetSummary}
-                                </button>
-                                <span className="shrink-0 text-muted-foreground/50">
-                                  ›
-                                </span>
-                                <button
-                                  type="button"
-                                  data-testid={`automation-seg-callback-${task.id}`}
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    props.onSelectFastTask(
-                                      task.rule,
-                                      'callback'
-                                    );
-                                  }}
-                                  className={cn(
-                                    'truncate rounded px-1.5 py-0.5 transition-colors',
-                                    selected &&
-                                      props.activeSubTab === 'callback'
-                                      ? 'bg-primary/10 font-medium text-primary'
-                                      : 'text-muted-foreground hover:bg-[var(--color-background-muted)] hover:text-foreground'
-                                  )}
-                                >
-                                  {segments.callbackSummary ??
-                                    t(
-                                      'pulseDeck.workbench.tasks.segAddCallback'
-                                    )}
-                                </button>
-                              </div>
-                            </TableCell>
-
-                            <TableCell>
-                              <button
-                                type="button"
-                                data-testid={`automation-task-records-${task.id}`}
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  props.onSelectFastTask(task.rule, 'records');
-                                }}
-                                className="rounded px-1.5 py-0.5 text-xs tabular-nums text-muted-foreground transition-colors hover:bg-[var(--color-background-muted)] hover:text-foreground"
-                              >
-                                {t('pulseDeck.workbench.tasks.recordsCount', {
-                                  count: task.recordCount,
-                                })}
-                              </button>
-                            </TableCell>
-
-                            <TableCell>
-                              <div onClick={(e) => e.stopPropagation()}>
-                                <DropdownMenu
-                                  hasChevron={false}
-                                  alignment="end"
-                                  data-testid={`automation-task-actions-${task.id}`}
-                                  button={{
-                                    label: t(
-                                      'pulseDeck.workbench.tasks.moreActionsAria',
-                                      { name: task.name }
-                                    ),
-                                    variant: 'ghost',
-                                    size: 'sm',
-                                    icon: (
-                                      <Icon icon={MoreHorizontal} size="sm" />
-                                    ),
-                                    isIconOnly: true,
-                                  }}
-                                  items={[
-                                    {
-                                      label: t(
-                                        'pulseDeck.workbench.tasks.inspectBtn'
-                                      ),
-                                      icon: Pencil,
-                                      onClick: () =>
-                                        props.onSelectFastTask(task.rule),
-                                    },
-                                    {
-                                      label: t(
-                                        'pulseDeck.workbench.tasks.quickTest'
-                                      ),
-                                      icon: Play,
-                                      onClick: () =>
-                                        props.onQuickTestFastTask(task.rule),
-                                    },
-                                    {
-                                      label: t(
-                                        'pulseDeck.workbench.tasks.quickPublish'
-                                      ),
-                                      icon: Rocket,
-                                      onClick: () =>
-                                        props.onQuickPublishFastTask(task.rule),
-                                    },
-                                    { type: 'divider' },
-                                    {
-                                      label: t(
-                                        'pulseDeck.workbench.tasks.quickDelete'
-                                      ),
-                                      icon: Trash2,
-                                      onClick: () =>
-                                        props.onQuickDeleteFastTask(task.rule),
-                                    },
-                                  ]}
-                                />
-                              </div>
-                            </TableCell>
-                          </TableRow>
-                        );
-                      }
-
-                      // Workflow row
-                      const triggerInfo = task.triggerRule
-                        ? task.triggerRule.spec.filter.eventTypes[0] ||
-                          task.triggerRule.spec.name
-                        : t('pulseDeck.workbench.tasks.workflowDraft');
+                      const SourceIcon = resolveSourceIcon(
+                        task.chain.sourceKind
+                      );
+                      const visibleActors = task.chain.actors.slice(0, 2);
+                      const extraActorCount =
+                        task.chain.actors.length - visibleActors.length;
 
                       return (
                         <TableRow
                           key={task.key}
-                          data-testid={`automation-workflow-row-${task.workflowId}`}
-                          style={rowStyle}
-                          onClick={() => props.onSelectWorkflowTask(task)}
+                          data-testid={`automation-task-row-${task.id}`}
+                          style={interactiveRowStyle}
+                          onClick={() => props.onOpenTaskCanvas(task)}
                         >
+                          {/* Column 1: Task Name + 1-line summary */}
                           <TableCell>
-                            <div onClick={(e) => e.stopPropagation()}>
-                              <Switch
-                                size="sm"
-                                isLabelHidden
-                                label={t(
-                                  'pulseDeck.workbench.tasks.switchAria',
-                                  { name: task.name }
-                                )}
-                                value={task.enabled}
-                                onChange={() => props.onToggleTaskEnabled(task)}
-                                data-testid={`automation-workflow-switch-${task.workflowId}`}
-                              />
-                            </div>
-                          </TableCell>
-
-                          <TableCell>
-                            <TaskStatusBadge
-                              status={task.status}
-                              testId={`automation-workflow-status-${task.workflowId}`}
-                            />
-                          </TableCell>
-
-                          <TableCell>
-                            <HStack gap={2} vAlign="center">
-                              <Icon
-                                icon={GitFork}
-                                size="sm"
-                                color="secondary"
-                              />
+                            <div className="min-w-0 py-0.5">
                               <Text type="body" weight="medium" maxLines={1}>
                                 {task.name}
                               </Text>
-                              {groupBy !== 'kind' ? (
-                                <Badge
-                                  variant="purple"
-                                  label={t(
-                                    'pulseDeck.workbench.tasks.typeWorkflow'
-                                  )}
-                                  data-testid={`automation-workflow-type-${task.workflowId}`}
-                                />
+                              {task.description ? (
+                                <Text
+                                  type="supporting"
+                                  color="secondary"
+                                  maxLines={1}
+                                >
+                                  {task.description}
+                                </Text>
                               ) : null}
-                            </HStack>
+                            </div>
                           </TableCell>
 
+                          {/* Column 2: Semantic Chain [从哪来] → [触发谁] → [结果给谁] */}
                           <TableCell>
-                            <button
-                              type="button"
-                              data-testid={`automation-workflow-info-${task.workflowId}`}
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                props.onOpenWorkflowStudio(task.workflowId);
-                              }}
-                              className="inline-flex max-w-full items-center gap-2 truncate rounded px-1.5 py-0.5 text-left text-xs text-muted-foreground transition-colors hover:bg-[var(--color-background-muted)] hover:text-foreground"
+                            <div
+                              data-testid={`automation-task-pipeline-${task.id}`}
+                              className="flex min-w-0 items-center gap-1.5 overflow-hidden text-xs"
                             >
-                              <span className="truncate">{triggerInfo}</span>
-                              {task.versionLabel ? (
-                                <span className="shrink-0 font-mono tabular-nums text-muted-foreground/80">
+                              <span className="inline-flex max-w-[180px] items-center gap-1.5 truncate text-muted-foreground">
+                                <SourceIcon className="size-3.5 shrink-0 text-foreground/75" />
+                                <span className="truncate">
+                                  {task.chain.sourceSummary}
+                                </span>
+                              </span>
+
+                              <ArrowRight className="size-3 shrink-0 text-muted-foreground/50" />
+
+                              {visibleActors.length > 0 ? (
+                                <div className="flex shrink-0 items-center gap-1">
+                                  {visibleActors.map((actor) => (
+                                    <SemanticActorChip
+                                      key={`${actor.kind}-${actor.kind === 'agent' ? actor.agentId : actor.kind === 'bot' ? actor.memberId : actor.spaceId}`}
+                                      actor={actor}
+                                      agentOptions={props.agentOptions}
+                                    />
+                                  ))}
+                                  {extraActorCount > 0 ? (
+                                    <span className="text-[11px] tabular-nums text-muted-foreground">
+                                      +{extraActorCount}
+                                    </span>
+                                  ) : null}
+                                </div>
+                              ) : null}
+
+                              {visibleActors.length > 0 ? (
+                                <ArrowRight className="size-3 shrink-0 text-muted-foreground/50" />
+                              ) : null}
+
+                              <span className="truncate text-muted-foreground">
+                                {task.chain.outcomeSummary}
+                              </span>
+                            </div>
+                          </TableCell>
+
+                          {/* Column 3: Status + Trigger count */}
+                          <TableCell>
+                            <div className="flex items-center gap-2">
+                              <TaskStatusBadge
+                                status={task.status}
+                                testId={`automation-task-status-${task.id}`}
+                              />
+                              {task.recordCount > 0 ? (
+                                <span
+                                  data-testid={`automation-task-records-${task.id}`}
+                                  className="text-xs tabular-nums text-muted-foreground"
+                                >
                                   ·{' '}
                                   {t(
-                                    'pulseDeck.workbench.tasks.workflowVersion',
-                                    { version: task.versionLabel }
+                                    'pulseDeck.workbench.tasks.triggeredCount',
+                                    { count: task.recordCount }
                                   )}
                                 </span>
                               ) : null}
-                            </button>
+                            </div>
                           </TableCell>
 
+                          {/* Column 4: Switch + Ask Agent to Edit + Delete */}
                           <TableCell>
-                            <button
-                              type="button"
-                              data-testid={`automation-workflow-records-${task.workflowId}`}
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                props.onSelectWorkflowTask(task);
-                              }}
-                              className="rounded px-1.5 py-0.5 text-xs tabular-nums text-muted-foreground transition-colors hover:bg-[var(--color-background-muted)] hover:text-foreground"
+                            <div
+                              onClick={(e) => e.stopPropagation()}
+                              className="flex shrink-0 items-center justify-end gap-2"
                             >
-                              {t('pulseDeck.workbench.tasks.recordsCount', {
-                                count: task.recordCount,
-                              })}
-                            </button>
-                          </TableCell>
-
-                          <TableCell>
-                            <div onClick={(e) => e.stopPropagation()}>
-                              <DropdownMenu
-                                hasChevron={false}
-                                alignment="end"
-                                data-testid={`automation-workflow-actions-${task.workflowId}`}
-                                button={{
-                                  label: t(
-                                    'pulseDeck.workbench.tasks.moreActionsAria',
-                                    { name: task.name }
-                                  ),
-                                  variant: 'ghost',
-                                  size: 'sm',
-                                  icon: (
-                                    <Icon icon={MoreHorizontal} size="sm" />
-                                  ),
-                                  isIconOnly: true,
-                                }}
-                                items={[
-                                  {
-                                    label: t(
-                                      'pulseDeck.workbench.tasks.openStudio'
-                                    ),
-                                    icon: GitFork,
-                                    onClick: () =>
-                                      props.onOpenWorkflowStudio(
-                                        task.workflowId
-                                      ),
-                                  },
-                                  {
-                                    label: t(
-                                      'pulseDeck.workbench.tasks.inspectBtn'
-                                    ),
-                                    icon: Eye,
-                                    onClick: () =>
-                                      props.onSelectWorkflowTask(task),
-                                  },
-                                ]}
+                              <Switch
+                                aria-label={t(
+                                  'pulseDeck.workbench.tasks.switchAria',
+                                  { name: task.name }
+                                )}
+                                checked={task.enabled}
+                                onCheckedChange={() =>
+                                  props.onToggleTaskEnabled(task)
+                                }
+                                data-testid={`automation-task-switch-${task.id}`}
+                              />
+                              <AutomationAgentComposerPopover
+                                mode="edit_workflow"
+                                projectId={props.projectId}
+                                definitionId={task.workflowId}
+                                sourceRuleId={task.linkedRule?.id ?? null}
+                                currentDefinition={task.studioDefinition}
+                                sources={props.sources}
+                                bots={props.bots}
+                                buttonVariant="ghost"
+                                buttonSize="sm"
+                                buttonLabel={t(
+                                  'pulseDeck.workbench.agent.editShortBtn'
+                                )}
+                                testId={`automation-task-agent-edit-${task.id}`}
+                                onDispatched={props.onAgentDispatched}
+                              />
+                              <Button
+                                label={t('pulseDeck.workbench.tasks.quickDelete')}
+                                variant="ghost"
+                                size="sm"
+                                isIconOnly
+                                icon={<Icon icon={Trash2} size="sm" />}
+                                data-testid={`automation-task-delete-${task.id}`}
+                                onClick={() => props.onDeleteTask(task)}
                               />
                             </div>
                           </TableCell>
@@ -854,45 +722,12 @@ export function AutomationTasksTab(props: AutomationTasksTabProps) {
     </div>
   );
 
-  const detailPane =
-    props.selectedTaskKey !== null ? (
-      <FastTaskEditorPane
-        selectedWorkflowTask={props.selectedWorkflowTask}
-        draftRuleId={props.draftRuleId}
-        draftSpec={props.draftSpec}
-        existingRule={props.existingRule}
-        status={props.editorStatus}
-        activeSubTab={props.activeSubTab}
-        onSubTabChange={props.onSubTabChange}
-        onSpecChange={props.onSpecChange}
-        sources={props.sources}
-        allRules={props.allRules}
-        capturedEvents={props.capturedEvents}
-        recentOutbox={props.recentOutbox}
-        validationErrors={props.validationErrors}
-        lastTestReport={props.lastTestReport}
-        saving={props.saving}
-        testing={props.testing}
-        publishing={props.publishing}
-        converting={props.converting}
-        onSaveDraft={props.onSaveDraft}
-        onTestTask={props.onTestTask}
-        onEmitLiveSample={props.onEmitLiveSample}
-        onPublishTask={props.onPublishTask}
-        onConvertToWorkflow={props.onConvertToWorkflow}
-        onDeleteTask={props.onDeleteTask}
-        onJumpCreateSource={props.onJumpCreateSource}
-        onOpenWorkflowStudio={props.onOpenWorkflowStudio}
-        onClose={props.onCloseDetail}
-      />
-    ) : null;
-
   return (
     <AutomationSplitFrame
       testId="automation-tab-tasks-split"
       header={props.renderHeader?.(toolbarRow)}
       master={masterPane}
-      detail={detailPane}
+      detail={null}
     />
   );
 }

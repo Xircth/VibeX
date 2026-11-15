@@ -1,25 +1,12 @@
 import {
   ArrowLeft,
-  Bell,
-  Bot,
   ChevronDown,
   CirclePause,
   CirclePlay,
-  Clock,
-  GitBranch,
-  Layers,
-  Plus,
-  Repeat,
   RotateCcw,
-  Send,
-  ShieldCheck,
   SlidersHorizontal,
-  Sparkles,
   Square,
-  Terminal,
   Undo2,
-  Users,
-  Zap,
 } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
@@ -27,18 +14,12 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { Input } from '@/components/ui/input';
 
-import { resolveWorkflowAgentId } from '../workflowAgent';
-import { getWorkflowPresetTemplates } from './presetTemplates';
-import { StudioAgentIcon } from './StudioAgentIcon';
 import type { WorkflowStudioView } from './useWorkflowStudio';
 import { WorkflowMetrics } from './WorkflowMetrics';
-import { WorkflowReplayPopover } from './WorkflowReplayPopover';
 
 export function WorkflowStudioToolbar({
   studio,
@@ -47,6 +28,7 @@ export function WorkflowStudioToolbar({
 }) {
   const {
     t,
+    studioMode,
     onBack,
     onDefinitionChange,
     editorName,
@@ -59,10 +41,6 @@ export function WorkflowStudioToolbar({
     setWorkspaceOpen,
     setSelectedStepId,
     workspaceSummary,
-    addStep,
-    applyPreset,
-    agentOptions,
-    config,
     onUndo,
     canUndo,
     showStopActions,
@@ -79,7 +57,6 @@ export function WorkflowStudioToolbar({
     resetDisabled,
     onSave,
     saving,
-    unsavedStepIds,
     validationIssues,
     onPublish,
     publishing,
@@ -87,7 +64,7 @@ export function WorkflowStudioToolbar({
     onPauseRun,
     onResumeRun,
   } = studio;
-  const presets = getWorkflowPresetTemplates(t);
+
   const hasValidationIssues = validationIssues.length > 0;
   const validationTooltip = hasValidationIssues
     ? t('studio.fixValidationIssuesTooltip', {
@@ -115,7 +92,7 @@ export function WorkflowStudioToolbar({
         {onDefinitionChange ? (
           <Input
             aria-label={t('studio.name')}
-            className="h-8 w-40 border-transparent bg-transparent text-sm font-semibold"
+            className="h-8 w-44 border-transparent bg-transparent text-sm font-semibold"
             value={editorName ?? definition.name}
             onChange={(event) => onEditorNameChange?.(event.target.value)}
           />
@@ -124,16 +101,6 @@ export function WorkflowStudioToolbar({
             {definition.name}
           </span>
         )}
-        {definition.orchestratorPreset ? (
-          <span
-            data-testid="workflow-preset-pill"
-            className="rounded-full border border-border bg-muted/70 px-2 py-0.5 text-2xs font-medium text-foreground"
-          >
-            {t(`studio.orchestrators.${definition.orchestratorPreset}`, {
-              defaultValue: definition.orchestratorPreset,
-            })}
-          </span>
-        ) : null}
       </div>
 
       <WorkflowMetrics
@@ -165,116 +132,6 @@ export function WorkflowStudioToolbar({
               </Button>
             ) : null}
 
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  data-testid="workflow-presets-trigger"
-                >
-                  <Layers className="mr-1 size-3.5" />
-                  {t('studio.templates')}
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent
-                align="start"
-                sideOffset={8}
-                className="w-72"
-              >
-                {presets.map((preset) => (
-                  <DropdownMenuItem
-                    key={preset.id}
-                    data-testid={`workflow-preset-${preset.id}`}
-                    onSelect={() => applyPreset(preset.id)}
-                    className="flex flex-col items-start gap-0.5 py-2"
-                  >
-                    <span className="flex items-center gap-1.5 text-xs font-semibold text-foreground">
-                      <Sparkles className="size-3.5 text-primary" />
-                      {preset.label}
-                    </span>
-                    <span className="text-2xs leading-4 text-muted-foreground">
-                      {preset.summary}
-                    </span>
-                  </DropdownMenuItem>
-                ))}
-              </DropdownMenuContent>
-            </DropdownMenu>
-
-            <WorkflowReplayPopover studio={studio} />
-
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button size="sm" variant="ghost">
-                  <Plus className="mr-1 size-3.5" /> {t('studio.addNode')}
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="start" sideOffset={8} className="w-56">
-                <DropdownMenuLabel className="px-2 py-1 text-2xs font-medium text-muted-foreground">
-                  {t('studio.addMenuSections.triggersAndPrimitives')}
-                </DropdownMenuLabel>
-                <DropdownMenuItem onSelect={() => addStep('trigger')}>
-                  <Zap className="size-4" />
-                  {t('studio.nodeTypes.trigger')}
-                </DropdownMenuItem>
-                <DropdownMenuItem onSelect={() => addStep('session')}>
-                  <Terminal className="size-4" />
-                  {t('studio.nodeTypes.session')}
-                </DropdownMenuItem>
-                <DropdownMenuItem onSelect={() => addStep('bot')}>
-                  <Bot className="size-4" />
-                  {t('studio.nodeTypes.bot')}
-                </DropdownMenuItem>
-
-                <DropdownMenuSeparator />
-                <DropdownMenuLabel className="px-2 py-1 text-2xs font-medium text-muted-foreground">
-                  {t('studio.addMenuSections.collaborationAndFlow')}
-                </DropdownMenuLabel>
-                <DropdownMenuItem onSelect={() => addStep('group_stage')}>
-                  <Users className="size-4" />
-                  {t('studio.nodeTypes.group_stage')}
-                </DropdownMenuItem>
-                <DropdownMenuItem onSelect={() => addStep('user_gate')}>
-                  <ShieldCheck className="size-4" />
-                  {t('studio.nodeTypes.user_gate')}
-                </DropdownMenuItem>
-                <DropdownMenuItem onSelect={() => addStep('condition_branch')}>
-                  <GitBranch className="size-4" />
-                  {t('studio.nodeTypes.condition_branch')}
-                </DropdownMenuItem>
-                <DropdownMenuItem onSelect={() => addStep('bounded_loop')}>
-                  <Repeat className="size-4" />
-                  {t('studio.nodeTypes.bounded_loop')}
-                </DropdownMenuItem>
-                <DropdownMenuItem onSelect={() => addStep('wait_for_event')}>
-                  <Clock className="size-4" />
-                  {t('studio.nodeTypes.wait_for_event')}
-                </DropdownMenuItem>
-                <DropdownMenuItem onSelect={() => addStep('outbox_action')}>
-                  <Send className="size-4" />
-                  {t('studio.nodeTypes.outbox_action')}
-                </DropdownMenuItem>
-
-                <DropdownMenuSeparator />
-                <DropdownMenuLabel className="px-2 py-1 text-2xs font-medium text-muted-foreground">
-                  {t('studio.addMenuSections.legacySteps')}
-                </DropdownMenuLabel>
-                <DropdownMenuItem onSelect={() => addStep('agent')}>
-                  <StudioAgentIcon
-                    agentId={resolveWorkflowAgentId(
-                      agentOptions,
-                      config?.executor_profile?.executor
-                    )}
-                    agentOptions={agentOptions}
-                    className="size-4"
-                  />
-                  {t('studio.agentStep')}
-                </DropdownMenuItem>
-                <DropdownMenuItem onSelect={() => addStep('notify')}>
-                  <Bell className="size-4" /> {t('studio.notify')}
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-
             <Button
               size="icon"
               variant="ghost"
@@ -286,6 +143,7 @@ export function WorkflowStudioToolbar({
             >
               <Undo2 className="size-3.5" />
             </Button>
+
             {showStopActions || onStopRun || onTerminateRun ? (
               <div className="raised-control inline-flex h-7 items-center overflow-hidden rounded-lg">
                 <button
@@ -338,6 +196,7 @@ export function WorkflowStudioToolbar({
                 </DropdownMenu>
               </div>
             ) : null}
+
             {showStopActions || onReset ? (
               <Button
                 size="sm"
@@ -357,6 +216,7 @@ export function WorkflowStudioToolbar({
                 {t('studio.reset')}
               </Button>
             ) : null}
+
             {hasValidationIssues ? (
               <span
                 data-testid="workflow-toolbar-validation-badge"
@@ -368,40 +228,53 @@ export function WorkflowStudioToolbar({
                 })}
               </span>
             ) : null}
-            <span title={validationTooltip} className="inline-flex">
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={onSave}
-                title={validationTooltip}
-                disabled={
-                  !dirty ||
-                  saving ||
-                  unsavedStepIds.size > 0 ||
-                  hasValidationIssues
-                }
-              >
-                {saving ? t('studio.saving') : t('studio.save')}
-              </Button>
-            </span>
-            <span title={validationTooltip} className="inline-flex">
-              <Button
-                size="sm"
-                onClick={onPublish}
-                title={validationTooltip}
-                disabled={
-                  publishing ||
-                  unsavedStepIds.size > 0 ||
-                  hasValidationIssues
-                }
-              >
-                {publishing ? t('studio.publishing') : t('studio.publish')}
-              </Button>
-            </span>
+
+            {studioMode ? (
+              <span title={validationTooltip} className="inline-flex">
+                <Button
+                  size="sm"
+                  data-testid="workflow-toolbar-save-btn"
+                  onClick={onSave ?? onPublish}
+                  title={validationTooltip}
+                  disabled={
+                    !dirty || saving || publishing || hasValidationIssues
+                  }
+                >
+                  {saving || publishing
+                    ? t('studio.saving')
+                    : t('studio.saveChanges')}
+                </Button>
+              </span>
+            ) : (
+              <>
+                <span title={validationTooltip} className="inline-flex">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={onSave}
+                    title={validationTooltip}
+                    disabled={!dirty || saving || hasValidationIssues}
+                  >
+                    {saving ? t('studio.saving') : t('studio.save')}
+                  </Button>
+                </span>
+                {onPublish ? (
+                  <span title={validationTooltip} className="inline-flex">
+                    <Button
+                      size="sm"
+                      onClick={onPublish}
+                      title={validationTooltip}
+                      disabled={publishing || hasValidationIssues}
+                    >
+                      {publishing ? t('studio.publishing') : t('studio.publish')}
+                    </Button>
+                  </span>
+                ) : null}
+              </>
+            )}
           </>
         ) : (
           <>
-            <WorkflowReplayPopover studio={studio} />
             {run && run.controlState === 'active' ? (
               <Button size="sm" variant="outline" onClick={onPauseRun}>
                 <CirclePause className="mr-1.5 size-3.5" /> {t('studio.pause')}

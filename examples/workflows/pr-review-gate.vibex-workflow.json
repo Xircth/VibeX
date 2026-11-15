@@ -1,0 +1,93 @@
+{
+  "formatVersion": 1,
+  "name": "PR 代码审查与人工放行",
+  "description": "当收到新的 Pull Request 时，先由审查 Bot 检查风险并由编码 Agent 跑通验证，通过人工确认后再在 PR 下发布放行结论。",
+  "inputSchema": {
+    "type": "object"
+  },
+  "policy": {
+    "maxConcurrentAgentSteps": 4,
+    "maxAgentCalls": 24,
+    "deadlineSeconds": 3600,
+    "maxOutputBytes": 65536
+  },
+  "steps": [
+    {
+      "id": "pr-opened",
+      "dependsOn": [],
+      "phase": "[vibex-studio:v1]{\"hasOrchestratorPreset\":true,\"orchestratorPreset\":\"hybrid_pipeline\",\"trigger\":{\"title\":\"GitHub 新建或更新 PR 时\",\"triggerKind\":\"platform\",\"sourceKind\":\"github\",\"eventType\":\"github.pull_request.opened\",\"evalMode\":\"auto\",\"hasTemporal\":true,\"temporal\":null,\"filter\":{\"sourceKinds\":[\"github\"],\"sourceInstanceIds\":[],\"eventTypes\":[\"github.pull_request.opened\",\"github.pull_request.synchronize\"],\"allowedActors\":[],\"conditions\":[{\"op\":\"not_bot_actor\"}]}},\"userPhase\":null}",
+      "inputBindings": {},
+      "kind": "notify",
+      "title": "[pulse-trigger] GitHub 新建或更新 PR 时"
+    },
+    {
+      "id": "review-bot",
+      "dependsOn": ["pr-opened"],
+      "phase": "[vibex-studio:v1]{\"bot\":{\"hasOutputDescription\":true,\"outputDescription\":\"对照架构规范审查变更影响面与潜在回归点\",\"hasOutputSchema\":true},\"userPhase\":null}",
+      "inputBindings": {},
+      "kind": "bot",
+      "memberId": "reviewer-bot",
+      "conversationScope": "per_thread",
+      "mailboxPolicy": "fifo_serial",
+      "promptTemplate": "审查当前 PR 变更内容与架构影响面，列出关键风险点与验证建议。",
+      "completion": "automatic",
+      "outputSchema": {
+        "type": "object",
+        "required": ["summary"],
+        "properties": {
+          "summary": { "type": "string" }
+        }
+      }
+    },
+    {
+      "id": "verify-session",
+      "dependsOn": ["review-bot"],
+      "phase": "[vibex-studio:v1]{\"session\":{\"workspaceIsolation\":\"isolated_worktree\",\"executorProfileId\":null,\"modeOverride\":null,\"configOverrides\":{},\"outputLanguage\":\"zh-CN\",\"outputDescription\":\"在隔离工作树运行类型检查与相关单元测试\"},\"userPhase\":null}",
+      "inputBindings": {
+        "review": {
+          "source": "step_output",
+          "stepId": "review-bot",
+          "pointer": "/summary"
+        }
+      },
+      "kind": "session",
+      "agentId": "claude-code",
+      "promptTemplate": "基于审查建议在隔离分支执行类型检查与关键单元测试，输出验证摘要：{{steps.review-bot.output.summary}}",
+      "workspaceAccess": "write_isolated",
+      "modelOverride": null,
+      "subscribeThread": false,
+      "completion": "automatic",
+      "outputSchema": {
+        "type": "object",
+        "required": ["summary", "approved"],
+        "properties": {
+          "summary": { "type": "string" },
+          "approved": { "type": "boolean" }
+        }
+      }
+    },
+    {
+      "id": "human-signoff",
+      "dependsOn": ["verify-session"],
+      "phase": "[vibex-studio:v1]{\"userGate\":{\"hasSeverity\":true,\"severity\":\"warning\",\"hasApproverScope\":true,\"approverScope\":\"workflow.approve\"},\"userPhase\":null}",
+      "inputBindings": {},
+      "kind": "user_gate",
+      "interactionKind": "approval",
+      "titleTemplate": "等待我确认是否发布审查放行结论",
+      "bodyTemplate": "{{steps.verify-session.output.summary}}"
+    },
+    {
+      "id": "publish-review",
+      "dependsOn": ["human-signoff"],
+      "phase": "[vibex-studio:v1]{\"outbox\":{\"actionKind\":\"github_comment\",\"title\":\"在 PR 下发布最终审查意见\",\"payloadTemplate\":\"审查与验证已通过人工确认：{{steps.verify-session.output.summary}}\"},\"userPhase\":null}",
+      "inputBindings": {},
+      "kind": "outbox_action",
+      "actionKind": "reply_channel",
+      "targetTemplate": "{{threadKey}}",
+      "payloadTemplate": {
+        "channelHint": "github_comment",
+        "message": "审查与验证已通过人工确认：{{steps.verify-session.output.summary}}"
+      }
+    }
+  ]
+}

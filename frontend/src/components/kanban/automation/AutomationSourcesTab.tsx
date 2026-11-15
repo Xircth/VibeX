@@ -27,24 +27,21 @@ import {
   ChevronRight,
   Play,
   Plus,
-  Radio,
   Save,
   Trash2,
   XCircle,
 } from 'lucide-react';
-import type { WorkflowDefinitionSummary } from 'shared/types';
+
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { useManagedAgentOptions } from '@/features/agent-management';
 import type {
   EventSourceKind,
   PulseSourceTestResult,
   PulseSourceUpsertInput,
   PulseSourceView,
-  PulseSubscriberKind,
-  PulseSubscriptionView,
 } from '@/lib/api/pulse';
 import { cn } from '@/lib/utils';
+
 import {
   AutomationSplitFrame,
   groupHeaderCell,
@@ -100,8 +97,6 @@ export interface AutomationSourcesTabProps {
     contextualAction?: ReactNode
   ) => ReactNode;
   sources: readonly PulseSourceView[];
-  subscriptions: readonly PulseSubscriptionView[];
-  workflows: readonly WorkflowDefinitionSummary[];
   initialAddingNew?: boolean;
   onUpsertSource: (
     input: PulseSourceUpsertInput
@@ -111,38 +106,25 @@ export interface AutomationSourcesTabProps {
     id: string,
     ingest: boolean
   ) => Promise<PulseSourceTestResult | null>;
-  onSubscribeThread: (
-    threadKey: string,
-    kind: 'session' | 'bot' | 'group' | 'workflow',
-    subscriberId: string
-  ) => Promise<void>;
-  onUnsubscribeThread: (subscriptionId: string) => Promise<void>;
 }
 
 export function AutomationSourcesTab({
   renderHeader,
   sources,
-  subscriptions,
-  workflows,
   initialAddingNew = false,
   onUpsertSource,
   onDeleteSource,
   onTestSource,
-  onSubscribeThread,
-  onUnsubscribeThread,
 }: AutomationSourcesTabProps) {
   const { t, i18n } = useTranslation('panels');
-  const managedAgents = useManagedAgentOptions(undefined, true);
 
-  const [selectedSourceId, setSelectedSourceId] = useState<string | null>(
-    () => (initialAddingNew ? null : (sources[0]?.id ?? null))
+  const [selectedSourceId, setSelectedSourceId] = useState<string | null>(() =>
+    initialAddingNew ? null : (sources[0]?.id ?? null)
   );
   const [creatingNew, setCreatingNew] = useState(
     initialAddingNew || sources.length === 0
   );
-  const [expandedGroups, setExpandedGroups] = useState<Set<string>>(
-    () => new Set(['sources', 'subscriptions'])
-  );
+  const [sourcesExpanded, setSourcesExpanded] = useState(true);
   const hydratedSourceIdRef = useRef<string | null>(null);
 
   // Connector form states
@@ -175,11 +157,6 @@ export function AutomationSourcesTab({
   const [testResult, setTestResult] = useState<PulseSourceTestResult | null>(
     null
   );
-
-  // Thread Subscription states
-  const [subThreadKey, setSubThreadKey] = useState('');
-  const [subKind, setSubKind] = useState<PulseSubscriberKind>('session');
-  const [subTargetId, setSubTargetId] = useState('');
 
   const hydrateFromSource = (src: PulseSourceView) => {
     const cfg = src.configJson;
@@ -225,15 +202,6 @@ export function AutomationSourcesTab({
       }
     }
   }, [creatingNew, initialAddingNew, selectedSourceId, sources]);
-
-  const toggleGroup = (key: string) => {
-    setExpandedGroups((prev) => {
-      const next = new Set(prev);
-      if (next.has(key)) next.delete(key);
-      else next.add(key);
-      return next;
-    });
-  };
 
   const selectedSource = creatingNew
     ? null
@@ -330,37 +298,12 @@ export function AutomationSourcesTab({
     }
   };
 
-  const subTargetSuggestions = useMemo(() => {
-    if (subKind === 'workflow') {
-      return workflows.map((wf) => ({
-        id: wf.id,
-        label: `${wf.name} (${wf.id})`,
-      }));
-    }
-    if (subKind === 'bot') {
-      return [
-        { id: 'triage-bot', label: 'triage-bot' },
-        { id: 'release-bot', label: 'release-bot' },
-        { id: 'oncall-bot', label: 'oncall-bot' },
-      ];
-    }
-    if (subKind === 'group') {
-      return [{ id: 'eng-council', label: 'eng-council' }];
-    }
-    return managedAgents.length > 0
-      ? managedAgents.map((a) => ({ id: a.value, label: a.label }))
-      : [
-          { id: 'sess-main', label: 'sess-main' },
-          { id: 'claude-code', label: 'Claude Code' },
-        ];
-  }, [managedAgents, subKind, workflows]);
-
   const columns = useMemo<TableColumn<Record<string, unknown>>[]>(
     () => [
       {
         key: 'source',
         header: t('pulseDeck.workbench.sources.colSource'),
-        width: proportional(1.1),
+        width: proportional(1.2),
       },
       {
         key: 'health',
@@ -419,29 +362,26 @@ export function AutomationSourcesTab({
           ))}
         </colgroup>
         <TableBody>
-          {/* Group 1: Connected Event Sources */}
           <TableRow
             role="button"
             tabIndex={0}
-            onClick={() => toggleGroup('sources')}
+            onClick={() => setSourcesExpanded((prev) => !prev)}
             onKeyDown={(e) => {
               if (e.key === 'Enter' || e.key === ' ') {
                 e.preventDefault();
-                toggleGroup('sources');
+                setSourcesExpanded((prev) => !prev);
               }
             }}
           >
             <TableCell colSpan={columns.length} style={groupHeaderCell}>
               <HStack gap={2} vAlign="center">
                 <Icon
-                  icon={
-                    expandedGroups.has('sources') ? ChevronDown : ChevronRight
-                  }
+                  icon={sourcesExpanded ? ChevronDown : ChevronRight}
                   size="sm"
                   color="secondary"
                 />
                 <Text type="body" weight="bold">
-                  {t('pulseDeck.workbench.sources.groupConnected')}
+                  {t('pulseDeck.workbench.sources.sourcesHeader')}
                 </Text>
                 <Badge
                   variant="neutral"
@@ -452,7 +392,7 @@ export function AutomationSourcesTab({
             </TableCell>
           </TableRow>
 
-          {expandedGroups.has('sources') &&
+          {sourcesExpanded &&
             sources.map((src) => {
               const active = !creatingNew && selectedSourceId === src.id;
               const statusLabel = !src.enabled
@@ -460,11 +400,12 @@ export function AutomationSourcesTab({
                 : src.healthy
                   ? t('pulseDeck.sourceHealthy')
                   : t('pulseDeck.sourceUnhealthy');
-              const watermarkText = src.cursorWatermark
-                ? `${statusLabel} · ${t('pulseDeck.sourceCursor', {
-                    cursor: src.cursorWatermark,
-                  })}`
-                : statusLabel;
+              const watermarkText =
+                src.enabled && src.cursorWatermark && src.cursorWatermark !== '0'
+                  ? `${statusLabel} · ${t('pulseDeck.sourceCursor', {
+                      cursor: src.cursorWatermark,
+                    })}`
+                  : statusLabel;
               const rowStyle = active
                 ? { ...interactiveRowStyle, ...selectedTableRowStyle }
                 : interactiveRowStyle;
@@ -523,81 +464,6 @@ export function AutomationSourcesTab({
                 </TableRow>
               );
             })}
-
-          {/* Group 2: Thread Subscriptions */}
-          <TableRow
-            role="button"
-            tabIndex={0}
-            onClick={() => toggleGroup('subscriptions')}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' || e.key === ' ') {
-                e.preventDefault();
-                toggleGroup('subscriptions');
-              }
-            }}
-          >
-            <TableCell colSpan={columns.length} style={groupHeaderCell}>
-              <HStack gap={2} vAlign="center">
-                <Icon
-                  icon={
-                    expandedGroups.has('subscriptions')
-                      ? ChevronDown
-                      : ChevronRight
-                  }
-                  size="sm"
-                  color="secondary"
-                />
-                <Icon icon={Radio} size="sm" color="secondary" />
-                <Text type="body" weight="bold">
-                  {t('pulseDeck.workbench.sources.groupSubscriptions')}
-                </Text>
-                <Badge
-                  variant="neutral"
-                  label={String(subscriptions.length)}
-                  className="tabular-nums"
-                />
-              </HStack>
-            </TableCell>
-          </TableRow>
-
-          {expandedGroups.has('subscriptions') &&
-            (subscriptions.length === 0 ? (
-              <TableRow>
-                <TableCell colSpan={columns.length}>
-                  <Text type="supporting" color="secondary">
-                    {t('pulseDeck.subscriptionsEmpty')}
-                  </Text>
-                </TableCell>
-              </TableRow>
-            ) : (
-              subscriptions.map((sub) => (
-                <TableRow key={sub.id}>
-                  <TableCell>
-                    <span className="font-mono text-xs text-foreground">
-                      {sub.threadKey}
-                    </span>
-                  </TableCell>
-                  <TableCell>
-                    <Text type="supporting" color="secondary" maxLines={1}>
-                      {sub.subscriberKind} · {sub.subscriberId}
-                    </Text>
-                  </TableCell>
-                  <TableCell>
-                    <AstryxButton
-                      label={t('pulseDeck.unsubscribeAria', {
-                        threadKey: sub.threadKey,
-                      })}
-                      variant="ghost"
-                      size="sm"
-                      isIconOnly
-                      icon={<Icon icon={Trash2} size="sm" />}
-                      data-testid={`pulse-deck-unsubscribe-${sub.id}`}
-                      onClick={() => void onUnsubscribeThread(sub.id)}
-                    />
-                  </TableCell>
-                </TableRow>
-              ))
-            ))}
         </TableBody>
       </Table>
     </div>
@@ -608,7 +474,6 @@ export function AutomationSourcesTab({
   const detailPane = (
     <div data-testid="automation-source-editor">
       <VStack gap={4}>
-        {/* Connector Kind Picker + Title */}
         <VStack gap={3}>
           <div className="flex flex-wrap gap-1.5">
             {SOURCE_KIND_OPTIONS.map((opt) => {
@@ -698,7 +563,6 @@ export function AutomationSourcesTab({
           onIntervalSecondsChange={setIntervalSeconds}
         />
 
-        {/* Save & Live Self-Test Bar */}
         <HStack gap={2} vAlign="center" wrap="wrap">
           <AstryxButton
             label={
@@ -731,7 +595,6 @@ export function AutomationSourcesTab({
           />
         </HStack>
 
-        {/* Live Test Result Output */}
         {testResult ? (
           <div
             data-testid="source-test-result"
@@ -763,83 +626,6 @@ export function AutomationSourcesTab({
             ) : null}
           </div>
         ) : null}
-
-        {/* Thread Subscriptions Sub-Form */}
-        <div className="space-y-2.5 rounded-lg bg-[var(--color-background-muted)] p-3">
-          <div className="flex items-center gap-1.5 text-xs font-medium text-foreground">
-            <Radio className="h-3.5 w-3.5 text-primary" />
-            {t('pulseDeck.subscriptionsTitle')}
-          </div>
-
-          <div className="flex flex-wrap items-center gap-1.5">
-            <Input
-              aria-label={t('pulseDeck.subscriptionThreadKeyAria')}
-              placeholder="github:org/repo#12"
-              value={subThreadKey}
-              onChange={(e) => setSubThreadKey(e.target.value)}
-              className="h-8 min-w-[160px] flex-1 bg-background font-mono text-xs"
-            />
-
-            <div className="inline-flex items-center rounded-md bg-background p-0.5">
-              {(['session', 'bot', 'group', 'workflow'] as const).map((k) => {
-                const active = subKind === k;
-                return (
-                  <button
-                    key={k}
-                    type="button"
-                    data-testid={`deck-sub-kind-${k}`}
-                    aria-pressed={active}
-                    onClick={() => setSubKind(k)}
-                    className={cn(
-                      'rounded px-2 py-0.5 text-2xs font-medium transition-colors',
-                      active
-                        ? 'bg-[var(--color-background-muted)] text-foreground'
-                        : 'text-muted-foreground hover:text-foreground'
-                    )}
-                  >
-                    {t(`pulseDeck.subscriberKinds.${k}`)}
-                  </button>
-                );
-              })}
-            </div>
-
-            <Input
-              aria-label={t('pulseDeck.subscriberIdAria')}
-              list="pulse-sub-target-suggestions"
-              placeholder={t(
-                'pulseDeck.workbench.sources.subTargetPlaceholder'
-              )}
-              value={subTargetId}
-              onChange={(e) => setSubTargetId(e.target.value)}
-              className="h-8 w-44 bg-background font-mono text-xs"
-            />
-            <datalist id="pulse-sub-target-suggestions">
-              {subTargetSuggestions.map((opt) => (
-                <option key={opt.id} value={opt.id}>
-                  {opt.label}
-                </option>
-              ))}
-            </datalist>
-
-            <AstryxButton
-              label={t('pulseDeck.bindBtn')}
-              variant="secondary"
-              size="sm"
-              data-testid="pulse-deck-subscribe-btn"
-              onClick={() => {
-                if (!subThreadKey.trim() || !subTargetId.trim()) return;
-                void onSubscribeThread(
-                  subThreadKey.trim(),
-                  subKind as 'session' | 'bot' | 'group' | 'workflow',
-                  subTargetId.trim()
-                ).then(() => {
-                  setSubThreadKey('');
-                  setSubTargetId('');
-                });
-              }}
-            />
-          </div>
-        </div>
       </VStack>
     </div>
   );
@@ -847,6 +633,7 @@ export function AutomationSourcesTab({
   return (
     <AutomationSplitFrame
       testId="automation-tab-sources-split"
+      panelLabel={t('pulseDeck.workbench.sources.panelAria')}
       header={renderHeader?.(undefined, addSourceAction)}
       master={masterPane}
       detail={detailPane}

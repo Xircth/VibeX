@@ -8,6 +8,10 @@ import type {
 import type { EventEnvelope, PulseEvalMode } from '@/lib/api/pulse';
 import { cn } from '@/lib/utils';
 
+import type {
+  CollaborationBotOption,
+  CollaborationSpaceOption,
+} from '../useCollaborationBotRoster';
 import type { WorkflowStudioAgentOption } from '../workflowAgent';
 import {
   CONFIRMATION_NODE_HEIGHT,
@@ -203,7 +207,9 @@ export function layoutNodes(
   onToggleLog: (stepId: string) => void,
   replayEnvelope?: EventEnvelope | null,
   onTriggerEvalModeChange?: (stepId: string, evalMode: PulseEvalMode) => void,
-  onQuickAddStep?: (parentStepId: string) => void
+  onQuickAddStep?: (parentStepId: string) => void,
+  bots?: readonly CollaborationBotOption[],
+  spaces?: readonly CollaborationSpaceOption[]
 ): StudioNode[] {
   const eventsByStepId =
     'size' in eventsInput
@@ -330,6 +336,8 @@ export function layoutNodes(
         }),
         events: eventsByStepId.get(step.id) ?? EMPTY_EVENTS,
         agentOptions,
+        bots,
+        spaces,
         selected: selectedStepId === step.id,
         logExpanded: logStepId === step.id,
         mode,
@@ -406,6 +414,8 @@ export function layoutNodes(
           predecessorRuns: [],
           events: EMPTY_EVENTS,
           agentOptions,
+          bots,
+          spaces,
           selected: selectedStepId === step.id,
           logExpanded: false,
           mode,
@@ -550,6 +560,8 @@ export function buildWorkflowGraph(params: {
   onSelect?: (stepId: string) => void;
   events?: WorkflowEventRecord[] | ReadonlyMap<string, WorkflowEventRecord[]>;
   agentOptions?: WorkflowStudioAgentOption[];
+  bots?: readonly CollaborationBotOption[];
+  spaces?: readonly CollaborationSpaceOption[];
   logStepId?: string | null;
   onToggleLog?: (stepId: string) => void;
   replayEnvelope?: EventEnvelope | null;
@@ -572,7 +584,9 @@ export function buildWorkflowGraph(params: {
       params.onToggleLog ?? noop,
       params.replayEnvelope,
       params.onTriggerEvalModeChange,
-      params.onQuickAddStep
+      params.onQuickAddStep,
+      params.bots,
+      params.spaces
     ),
     edges: buildEdges(params.definition, latest, params.t),
   };

@@ -252,6 +252,19 @@ where
         self.workflows.definitions(limit).await
     }
 
+    pub async fn delete_workflow_definition(
+        &self,
+        principal: &Principal,
+        definition_id: Uuid,
+    ) -> Result<bool, ApplicationError> {
+        if !principal.allows("workflow.write") {
+            return Err(ApplicationError::forbidden(
+                "principal lacks workflow.write",
+            ));
+        }
+        self.workflows.delete_definition(definition_id).await
+    }
+
     pub async fn workflow_versions(
         &self,
         principal: &Principal,

@@ -90,6 +90,7 @@ pub enum RegisteredCommand {
     WorkflowPauseStep,
     WorkflowStepInput,
     WorkflowFork,
+    WorkflowDelete,
     Domain(DomainCommand),
 }
 
@@ -148,6 +149,7 @@ impl RegisteredCommand {
             Self::WorkflowPauseStep => "workflow_pause_step",
             Self::WorkflowStepInput => "workflow_step_input",
             Self::WorkflowFork => "workflow_fork",
+            Self::WorkflowDelete => "workflow_delete",
             Self::Domain(command) => command.as_str(),
         }
     }
@@ -206,6 +208,7 @@ impl RegisteredCommand {
             RegisteredCommand::WorkflowPauseStep,
             RegisteredCommand::WorkflowStepInput,
             RegisteredCommand::WorkflowFork,
+            RegisteredCommand::WorkflowDelete,
         ];
         CORE.iter()
             .map(|command| command.as_str())
@@ -260,7 +263,7 @@ impl RegisteredCommand {
             | Self::WorkflowVersions
             | Self::WorkflowSteps
             | Self::WorkflowEvents => "workflow.read",
-            Self::WorkflowPublish | Self::WorkflowValidate => "workflow.write",
+            Self::WorkflowPublish | Self::WorkflowValidate | Self::WorkflowDelete => "workflow.write",
             Self::WorkflowStart
             | Self::WorkflowDebug
             | Self::WorkflowCompleteStep
@@ -362,6 +365,7 @@ impl FromStr for RegisteredCommand {
             "workflow_pause_step" => Ok(Self::WorkflowPauseStep),
             "workflow_step_input" => Ok(Self::WorkflowStepInput),
             "workflow_fork" => Ok(Self::WorkflowFork),
+            "workflow_delete" => Ok(Self::WorkflowDelete),
             "plugin.command.invoke" => Ok(Self::Domain(DomainCommand::PluginCommandInvoke)),
             "cancel_prompt_enhancement" => Ok(Self::Domain(DomainCommand::CancelEnhancePrompt)),
             _ => DomainCommand::from_str(value).map(Self::Domain),
@@ -585,6 +589,11 @@ struct WorkflowVersionsArgs {
     definition_id: uuid::Uuid,
     #[serde(default = "default_workflow_list_limit")]
     limit: u32,
+}
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct WorkflowDeleteArgs {
+    definition_id: uuid::Uuid,
 }
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -1478,6 +1487,15 @@ where
                 let result = self
                     .core
                     .fork_workflow_from_step(principal, operation_id.as_uuid(), args.request)
+                    .await
+                    .map_err(|error| with_operation_id(error, operation_id))?;
+                serialize_result(command, operation_id, result)?
+            }
+            RegisteredCommand::WorkflowDelete => {
+                let args = parse_args::<WorkflowDeleteArgs>(command, operation_id, args)?;
+                let result = self
+                    .core
+                    .delete_workflow_definition(principal, args.definition_id)
                     .await
                     .map_err(|error| with_operation_id(error, operation_id))?;
                 serialize_result(command, operation_id, result)?

@@ -25,10 +25,15 @@ import type {
   GroupDispatchMode,
   PresetOrchestratorKind,
   PulseEvalMode,
+  PulseSourceView,
   PulseTemporalSpec,
   PulseWorkspaceIsolation,
 } from '@/lib/api/pulse';
 
+import type {
+  CollaborationBotOption,
+  CollaborationSpaceOption,
+} from '../useCollaborationBotRoster';
 import type { WorkflowStudioAgentOption } from '../workflowAgent';
 
 export type StudioMode = 'edit' | 'run';
@@ -212,6 +217,8 @@ export type StudioNodeData = {
   predecessorRuns: WorkflowStepView[];
   events: WorkflowEventRecord[];
   agentOptions: WorkflowStudioAgentOption[];
+  bots?: readonly CollaborationBotOption[];
+  spaces?: readonly CollaborationSpaceOption[];
   selected: boolean;
   logExpanded: boolean;
   mode: StudioMode;
@@ -252,6 +259,13 @@ export type WorkflowStudioProps<
   editorName?: string;
   onEditorNameChange?: (name: string) => void;
   agentOptions?: WorkflowStudioAgentOption[];
+  bots?: readonly CollaborationBotOption[];
+  spaces?: readonly CollaborationSpaceOption[];
+  sources?: readonly PulseSourceView[];
+  projectId?: string | null;
+  definitionId?: string | null;
+  sourceRuleId?: string | null;
+  onAgentDispatched?: () => void;
   loadAgentSessionControls?: (
     agentId: string
   ) => Promise<AgentSessionControlsSnapshot | null>;

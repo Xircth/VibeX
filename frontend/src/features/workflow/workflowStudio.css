@@ -468,7 +468,22 @@
   overflow: hidden;
   border-radius: var(--radius);
   border-color: hsl(var(--border));
+  background-color: hsl(var(--card));
   box-shadow: var(--shadow-card);
+}
+
+.workflow-studio .react-flow__controls-button {
+  background-color: hsl(var(--card));
+  color: hsl(var(--foreground));
+  border-bottom-color: hsl(var(--border));
+}
+
+.workflow-studio .react-flow__controls-button:hover {
+  background-color: hsl(var(--muted));
+}
+
+.workflow-studio .react-flow__controls-button svg {
+  fill: currentColor;
 }
 
 @keyframes workflow-node-pulse {

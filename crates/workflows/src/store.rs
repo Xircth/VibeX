@@ -349,6 +349,8 @@ pub struct WorkflowDefinitionSummary {
     pub name: String,
     pub latest_version_id: Option<Uuid>,
     pub latest_version: Option<i64>,
+    #[serde(default)]
+    pub latest_normalized_json: Option<String>,
     pub updated_at: DateTime<Utc>,
 }
 
@@ -613,7 +615,7 @@ impl WorkflowStore {
             }
             sqlx::query(
                 "INSERT INTO workflow_definitions (id, name) VALUES (?, ?)
-                 ON CONFLICT(id) DO NOTHING",
+                 ON CONFLICT(id) DO UPDATE SET name = excluded.name",
             )
             .bind(definition_id)
             .bind(&definition.name)
@@ -780,6 +782,7 @@ impl WorkflowStore {
             "SELECT definition.id, definition.name,
                     latest.id AS latest_version_id,
                     latest.version AS latest_version,
+                    latest.normalized_json AS latest_normalized_json,
                     MAX(definition.created_at,
                         COALESCE(latest.created_at, definition.created_at)) AS updated_at
              FROM workflow_definitions definition
@@ -799,6 +802,29 @@ impl WorkflowStore {
         .fetch_all(&self.pool)
         .await
         .map_err(WorkflowError::from)
+    }
+
+    pub async fn delete_definition(&self, definition_id: Uuid) -> Result<bool, WorkflowError> {
+        let mut conn = self.begin_immediate().await?;
+        let result = async {
+            sqlx::query(
+                "DELETE FROM workflow_runs
+                 WHERE definition_version_id IN (
+                     SELECT id FROM workflow_definition_versions WHERE definition_id = ?
+                 )",
+            )
+            .bind(definition_id)
+            .execute(&mut *conn)
+            .await?;
+
+            let deleted = sqlx::query("DELETE FROM workflow_definitions WHERE id = ?")
+                .bind(definition_id)
+                .execute(&mut *conn)
+                .await?;
+            Ok(deleted.rows_affected() > 0)
+        }
+        .await;
+        self.finish(conn, result).await
     }
 
     pub async fn versions(

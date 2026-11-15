@@ -13,6 +13,10 @@ import type { WorkflowEventRecord, WorkflowStepView } from 'shared/types';
 import type { EventEnvelope, PulseEvalMode } from '@/lib/api/pulse';
 
 import { latestWorkflowStepAttempts } from '../workflowProjection';
+import type {
+  CollaborationBotOption,
+  CollaborationSpaceOption,
+} from '../useCollaborationBotRoster';
 import type { WorkflowStudioAgentOption } from '../workflowAgent';
 import {
   CONFIRMATION_OFFSET,
@@ -181,6 +185,8 @@ export function useWorkflowStudioGraph({
   steps,
   events,
   agentOptions,
+  bots,
+  spaces,
   mode,
   replayEnvelope,
   onTriggerEvalModeChange,
@@ -192,6 +198,8 @@ export function useWorkflowStudioGraph({
   steps: WorkflowStepView[];
   events: WorkflowEventRecord[];
   agentOptions: WorkflowStudioAgentOption[];
+  bots?: readonly CollaborationBotOption[];
+  spaces?: readonly CollaborationSpaceOption[];
   mode: StudioMode;
   replayEnvelope?: EventEnvelope | null;
   onTriggerEvalModeChange?: (stepId: string, evalMode: PulseEvalMode) => void;
@@ -228,10 +236,13 @@ export function useWorkflowStudioGraph({
         toggleLog,
         replayEnvelope,
         onTriggerEvalModeChange,
-        onQuickAddStep
+        onQuickAddStep,
+        bots,
+        spaces
       ),
     [
       agentOptions,
+      bots,
       definition,
       eventsByStepId,
       latest,
@@ -241,6 +252,7 @@ export function useWorkflowStudioGraph({
       onTriggerEvalModeChange,
       replayEnvelope,
       selectedStepId,
+      spaces,
       toggleLog,
     ]
   );

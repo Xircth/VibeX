@@ -1,45 +1,43 @@
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+  type ReactNode,
+} from 'react';
 import { useTranslation } from 'react-i18next';
 import type { WorkflowDefinitionSummary } from 'shared/types';
+
+import { toast } from '@/components/ui/toast';
+import { useManagedAgentOptions } from '@/features/agent-management';
+import { toStudioWorkflowDefinition } from '@/features/workflow/WorkflowStudio';
+import { useCollaborationBotRoster } from '@/features/workflow/useCollaborationBotRoster';
 import { workflowsApi } from '@/features/workflow/workflowApi';
 import { usePulseDeckSnapshot } from '@/hooks/usePulseDeckSnapshot';
 import {
   pulseApi,
-  type EventEnvelope,
   type EventSourceKind,
-  type PulseDryRunReport,
-  type PulseEvalMode,
-  type PulseObservedCandidateView,
   type PulseRuleSaveInput,
-  type PulseRuleSpec,
   type PulseRuleView,
   type PulseSourceTestResult,
   type PulseSourceUpsertInput,
   type PulseSourceView,
-  type PulseSubscriptionView,
 } from '@/lib/api/pulse';
-import { evaluatePulseRuleLocally } from '@/lib/pulseFilterEvaluator';
 import { cn } from '@/lib/utils';
+
 import {
   AutomationHeaderBar,
   EmbeddedWorkflowStudioShell,
 } from './automation/AutomationHeaderBar';
-import {
-  AutomationPendingTab,
-  buildCandidateEnvelope,
-} from './automation/AutomationPendingTab';
-import { AutomationRulesTab } from './automation/AutomationRulesTab';
 import { AutomationSourcesTab } from './automation/AutomationSourcesTab';
 import { AutomationTasksTab } from './automation/AutomationTasksTab';
 import {
-  buildDefaultFastTaskSpec,
-  buildSampleEnvelopeForRule,
-  convertFastTaskToWorkflowDefinition,
-  resolveRuleTaskStatus,
+  buildWorkflowTriggerRuleSpec,
+  type CanonicalWorkflowStarter,
+} from './automation/automationAgentBridge';
+import {
   unifyAutomationTasks,
-  validateFastTaskForPublish,
   type AutomationPrimaryTab,
-  type FastTaskEditorTab,
   type UnifiedAutomationTask,
 } from './automation/automationModels';
 import {
@@ -59,7 +57,9 @@ const DEFAULT_SOURCE_KINDS: readonly EventSourceKind[] = [
   'jira',
 ];
 
-async function invokeSaveRule(input: PulseRuleSaveInput): Promise<PulseRuleView> {
+async function invokeSaveRule(
+  input: PulseRuleSaveInput
+): Promise<PulseRuleView> {
   const apiRecord = pulseApi as unknown as Record<
     string,
     ((arg: unknown) => Promise<PulseRuleView>) | undefined
@@ -81,6 +81,10 @@ export function PulseDeckView({
   className?: string;
 }) {
   const { t, i18n } = useTranslation('panels');
+  const language = i18n.resolvedLanguage ?? i18n.language ?? 'zh-CN';
+  const agentOptions = useManagedAgentOptions(undefined, true);
+  const { bots, spaces } = useCollaborationBotRoster();
+
   const {
     snapshot,
     isLoading,
@@ -104,60 +108,40 @@ export function PulseDeckView({
   const [workflowDefinitions, setWorkflowDefinitions] = useState<
     WorkflowDefinitionSummary[]
   >([]);
-  const [capturedEvents, setCapturedEvents] = useState<EventEnvelope[]>([]);
   const [actionError, setActionError] = useState('');
-
-  // Task List & FastTask Editor state
-  const [selectedTaskKey, setSelectedTaskKey] = useState<string | null>(null);
-  const [draftRuleId, setDraftRuleId] = useState<string | null>(null);
-  const [draftSpec, setDraftSpec] = useState<PulseRuleSpec>(() =>
-    buildDefaultFastTaskSpec(
-      t('pulseDeck.workbench.tasks.newFastTaskDefaultName'),
-      'claude-code',
-      projectId
-    )
-  );
-  const [hasUnsavedDraftEdits, setHasUnsavedDraftEdits] = useState(false);
-  const [activeSubTab, setActiveSubTab] = useState<FastTaskEditorTab>('event');
-  const [validationErrors, setValidationErrors] = useState<string[]>([]);
-  const [lastTestReport, setLastTestReport] =
-    useState<PulseDryRunReport | null>(null);
-  const [savingTask, setSavingTask] = useState(false);
-  const [testingTaskKey, setTestingTaskKey] = useState<string | null>(null);
-  const [publishingTaskKey, setPublishingTaskKey] = useState<string | null>(
+  const [sourcesInitialAdding, setSourcesInitialAdding] = useState(false);
+  const [applyingStarterId, setApplyingStarterId] = useState<string | null>(
     null
   );
-  const [convertingToWorkflow, setConvertingToWorkflow] = useState(false);
-  const [sourcesInitialAdding, setSourcesInitialAdding] = useState(false);
-
-  // Pending tab candidate dry-run state
-  const [inspectedCandidateId, setInspectedCandidateId] = useState<
-    string | null
-  >(null);
-  const [inspectedReport, setInspectedReport] =
-    useState<PulseDryRunReport | null>(null);
+  const [agentWatchUntil, setAgentWatchUntil] = useState<number>(0);
 
   const loadAuxiliaryCatalog = useCallback(async () => {
-    const wfPromise =
-      typeof workflowsApi?.listDefinitions === 'function'
-        ? workflowsApi.listDefinitions(100).catch(() => [])
-        : Promise.resolve([]);
-    const evtPromise =
-      typeof pulseApi?.listCapturedEvents === 'function'
-        ? pulseApi.listCapturedEvents(25).catch(() => [])
-        : Promise.resolve([]);
-    const [wfList, evtList] = await Promise.all([wfPromise, evtPromise]);
+    if (typeof workflowsApi?.listDefinitions !== 'function') {
+      return;
+    }
+    const wfList = await workflowsApi.listDefinitions(100).catch(() => []);
     if (Array.isArray(wfList)) {
       setWorkflowDefinitions(wfList);
-    }
-    if (Array.isArray(evtList)) {
-      setCapturedEvents(evtList);
     }
   }, []);
 
   useEffect(() => {
     void loadAuxiliaryCatalog();
   }, [loadAuxiliaryCatalog]);
+
+  // Auto-refresh workflow & rule list while a dispatched Agent session is authoring/updating a workflow
+  useEffect(() => {
+    if (agentWatchUntil <= Date.now()) return undefined;
+    const timer = window.setInterval(() => {
+      if (Date.now() > agentWatchUntil) {
+        window.clearInterval(timer);
+        return;
+      }
+      void loadAuxiliaryCatalog();
+      void refetch();
+    }, 4000);
+    return () => window.clearInterval(timer);
+  }, [agentWatchUntil, loadAuxiliaryCatalog, refetch]);
 
   // Listen for embedded Workflow Studio open/close events
   useEffect(() => {
@@ -204,56 +188,35 @@ export function PulseDeckView({
       rejectedCount24h: 0,
       updatedAt: '',
     }));
-  }, [snapshot?.sources, t, i18n.language]);
-
-  const dirtyTaskKeys = useMemo(() => {
-    const set = new Set<string>();
-    if (hasUnsavedDraftEdits && draftRuleId) {
-      set.add(`fast:${draftRuleId}`);
-    }
-    return set;
-  }, [draftRuleId, hasUnsavedDraftEdits]);
+  }, [snapshot?.sources, t, language]);
 
   const unifiedTasks = useMemo(
     () =>
       unifyAutomationTasks(snapshot?.rules ?? [], workflowDefinitions, {
         busyRuleIds: snapshot?.busyRuleIds,
-        testingTaskKey,
-        publishingTaskKey,
-        dirtyTaskKeys,
+        pendingInteractions: snapshot?.pendingInteractions,
+        sources: snapshot?.sources,
+        agentOptions,
+        bots,
+        spaces,
+        t,
+        language,
       }),
     [
-      dirtyTaskKeys,
-      publishingTaskKey,
+      agentOptions,
+      bots,
+      language,
       snapshot?.busyRuleIds,
+      snapshot?.pendingInteractions,
       snapshot?.rules,
-      testingTaskKey,
+      snapshot?.sources,
+      spaces,
+      t,
       workflowDefinitions,
     ]
   );
 
-  const selectedWorkflowTask = useMemo(() => {
-    const found = unifiedTasks.find((item) => item.key === selectedTaskKey);
-    return found?.kind === 'workflow' ? found : null;
-  }, [selectedTaskKey, unifiedTasks]);
-
-  const existingDraftRule = useMemo(
-    () => (snapshot?.rules ?? []).find((r) => r.id === draftRuleId) ?? null,
-    [draftRuleId, snapshot?.rules]
-  );
-
-  const currentEditorTaskKey = draftRuleId ? `fast:${draftRuleId}` : 'fast:new';
-  const editorStatus = resolveRuleTaskStatus(existingDraftRule, {
-    busyRuleIds: snapshot?.busyRuleIds,
-    testingTaskKey,
-    publishingTaskKey,
-    hasUnsavedChanges: hasUnsavedDraftEdits,
-    taskKey: currentEditorTaskKey,
-  });
-
-  const pendingEventsCount =
-    (snapshot?.pendingInteractions?.length ?? 0) +
-    (snapshot?.observedCandidates?.filter((c) => !c.promoted).length ?? 0);
+  const pendingApprovalsCount = snapshot?.pendingInteractions?.length ?? 0;
   const errorMessage = actionError || (queryError ? queryError.message : '');
 
   const upsertRuleIntoSnapshot = useCallback(
@@ -282,260 +245,37 @@ export function PulseDeckView({
     [setSnapshotData]
   );
 
-  const handleStartNewFastTask = () => {
-    setActiveTab('tasks');
-    setSelectedTaskKey('fast:new');
-    setDraftRuleId(null);
-    setDraftSpec(
-      buildDefaultFastTaskSpec(
-        t('pulseDeck.workbench.tasks.newFastTaskDefaultName'),
-        'claude-code',
-        projectId
-      )
-    );
-    setHasUnsavedDraftEdits(true);
-    setActiveSubTab('event');
-    setValidationErrors([]);
-    setLastTestReport(null);
-  };
-
-  const handleOpenStudio = (definitionId?: string | null) => {
-    requestOpenWorkflowStudio({ definitionId: definitionId ?? null });
-  };
-
-  const handleSelectFastTask = (
-    rule: PulseRuleView,
-    subTab?: FastTaskEditorTab
-  ) => {
-    setSelectedTaskKey(`fast:${rule.id}`);
-    setDraftRuleId(rule.id);
-    setDraftSpec(rule.spec);
-    setHasUnsavedDraftEdits(false);
-    setValidationErrors([]);
-    setLastTestReport(null);
-    if (subTab) {
-      setActiveSubTab(subTab);
-    }
-  };
-
-  const handleSaveFastTaskDraft = async () => {
-    if (savingTask) return;
-    setSavingTask(true);
-    setActionError('');
-    setValidationErrors([]);
-    try {
-      const nextSpec: PulseRuleSpec = {
-        ...draftSpec,
-        projectId: draftSpec.projectId ?? projectId ?? null,
-        taskMeta: {
-          ...draftSpec.taskMeta,
-          taskKind: 'fast_task',
-          lifecycleState: 'pending_test',
-        },
-      };
-      const saved = await invokeSaveRule({
-        id: draftRuleId,
-        enabled: existingDraftRule?.enabled ?? false,
-        draftOnly: false,
-        spec: nextSpec,
-      });
-      upsertRuleIntoSnapshot(saved);
-      setDraftRuleId(saved.id);
-      setDraftSpec(saved.spec);
-      setSelectedTaskKey(`fast:${saved.id}`);
-      setHasUnsavedDraftEdits(false);
-    } catch (err) {
-      setActionError(
-        err instanceof Error ? err.message : t('pulseDeck.errSaveRule')
-      );
-    } finally {
-      setSavingTask(false);
-    }
-  };
-
-  const runTestForRule = async (
-    targetRuleId: string | null,
-    specToTest: PulseRuleSpec
-  ) => {
-    const taskKey = targetRuleId ? `fast:${targetRuleId}` : 'fast:new';
-    setTestingTaskKey(taskKey);
-    setActionError('');
-    setValidationErrors([]);
-    const sample = buildSampleEnvelopeForRule(specToTest);
-    let report = evaluatePulseRuleLocally(specToTest, sample);
-    try {
-      if (typeof pulseApi.dryRunRule === 'function') {
-        report = await pulseApi.dryRunRule(specToTest, sample);
-      }
-      setLastTestReport(report);
-      const testedSpec: PulseRuleSpec = {
-        ...specToTest,
-        projectId: specToTest.projectId ?? projectId ?? null,
-        taskMeta: {
-          ...specToTest.taskMeta,
-          taskKind: 'fast_task',
-          lifecycleState:
-            specToTest.taskMeta?.lifecycleState === 'published'
-              ? 'published'
-              : 'pending_test',
-          lastTestedAt: new Date().toISOString(),
-          lastTestPassed: report.valid && report.matched,
-        },
-      };
-      setDraftSpec(testedSpec);
-      if (targetRuleId) {
-        const saved = await invokeSaveRule({
-          id: targetRuleId,
-          enabled: existingDraftRule?.enabled ?? false,
-          draftOnly: false,
-          spec: testedSpec,
-        });
-        upsertRuleIntoSnapshot(saved);
-        setHasUnsavedDraftEdits(false);
-      }
-    } catch (err) {
-      setActionError(
-        err instanceof Error ? err.message : t('pulseDeck.errSaveRule')
-      );
-    } finally {
-      setTestingTaskKey(null);
-    }
-  };
-
-  const publishSpec = async (
-    targetRuleId: string | null,
-    specToPublish: PulseRuleSpec
-  ) => {
-    const errors = validateFastTaskForPublish(specToPublish, t);
-    setValidationErrors(errors);
-    if (errors.length > 0) {
-      return;
-    }
-    const taskKey = targetRuleId ? `fast:${targetRuleId}` : 'fast:new';
-    setPublishingTaskKey(taskKey);
-    setActionError('');
-    try {
-      const publishedSpec: PulseRuleSpec = {
-        ...specToPublish,
-        projectId: specToPublish.projectId ?? projectId ?? null,
-        evalMode: 'auto',
-        taskMeta: {
-          ...specToPublish.taskMeta,
-          taskKind: 'fast_task',
-          lifecycleState: 'published',
-        },
-      };
-      const saved = await invokeSaveRule({
-        id: targetRuleId,
-        enabled: true,
-        draftOnly: false,
-        spec: publishedSpec,
-      });
-      upsertRuleIntoSnapshot(saved);
-      setDraftRuleId(saved.id);
-      setDraftSpec(saved.spec);
-      setSelectedTaskKey(`fast:${saved.id}`);
-      setHasUnsavedDraftEdits(false);
-    } catch (err) {
-      setActionError(
-        err instanceof Error ? err.message : t('pulseDeck.errSaveRule')
-      );
-    } finally {
-      setPublishingTaskKey(null);
-    }
-  };
-
-  const handleConvertToWorkflow = async () => {
-    if (convertingToWorkflow) return;
-    setConvertingToWorkflow(true);
-    setActionError('');
-    try {
-      const backendDef = convertFastTaskToWorkflowDefinition(
-        draftSpec,
-        i18n.resolvedLanguage ?? i18n.language ?? 'zh-CN'
-      );
-      let createdDefId: string | null = null;
-      if (typeof workflowsApi?.publish === 'function') {
-        const published = await workflowsApi.publish(backendDef);
-        createdDefId = published?.definitionId ?? null;
-      }
-      await loadAuxiliaryCatalog();
-      handleOpenStudio(createdDefId);
-    } catch (err) {
-      setActionError(
-        err instanceof Error ? err.message : t('pulseDeck.errSaveRule')
-      );
-    } finally {
-      setConvertingToWorkflow(false);
-    }
-  };
-
-  const handleDeleteRule = async (ruleId: string) => {
-    setActionError('');
-    try {
-      if (typeof pulseApi.deleteRule === 'function') {
-        await pulseApi.deleteRule(ruleId);
-      }
-      setSnapshotData((prev) =>
-        prev
-          ? {
-              ...prev,
-              rules: prev.rules.filter((item) => item.id !== ruleId),
-            }
-          : null
-      );
-      if (draftRuleId === ruleId) {
-        setDraftRuleId(null);
-        setSelectedTaskKey(null);
-      }
-    } catch (err) {
-      setActionError(
-        err instanceof Error ? err.message : t('pulseDeck.errSaveRule')
-      );
-    }
+  const handleOpenTaskCanvas = (task: UnifiedAutomationTask) => {
+    requestOpenWorkflowStudio({
+      definitionId: task.workflowId,
+      initialDefinition: task.studioDefinition,
+      sourceRuleId: task.linkedRule?.id ?? null,
+    });
   };
 
   const handleToggleTaskEnabled = async (task: UnifiedAutomationTask) => {
     setActionError('');
     try {
-      if (task.kind === 'fast_task') {
-        const updated = await pulseApi.setRuleEnabled(task.id, !task.enabled);
+      if (task.linkedRule) {
+        const updated = await pulseApi.setRuleEnabled(
+          task.linkedRule.id,
+          !task.enabled
+        );
         upsertRuleIntoSnapshot(updated);
         return;
       }
-      if (task.triggerRule) {
-        const updated = await pulseApi.setRuleEnabled(
-          task.triggerRule.id,
-          !task.triggerRule.enabled
-        );
-        upsertRuleIntoSnapshot(updated);
-      } else {
+
+      if (task.workflowId) {
         const createdTrigger = await invokeSaveRule({
           enabled: !task.enabled,
           draftOnly: false,
-          spec: {
-            name: task.name,
-            projectId: projectId ?? null,
-            evalMode: !task.enabled ? 'auto' : 'off',
-            filter: {
-              sourceKinds: ['webhook_standard'],
-              sourceInstanceIds: [],
-              eventTypes: ['workflow.trigger'],
-              allowedActors: [],
-              conditions: [],
-            },
-            targets: [
-              {
-                kind: 'workflow',
-                workflowId: task.workflowId,
-                pinnedVersion: Number(task.versionLabel ?? 1) || 1,
-              },
-            ],
-            taskMeta: {
-              taskKind: 'workflow_trigger',
-              lifecycleState: 'published',
-            },
-          },
+          spec: buildWorkflowTriggerRuleSpec({
+            studio: task.studioDefinition,
+            workflowId: task.workflowId,
+            pinnedVersion: Number(task.versionLabel ?? 1) || 1,
+            projectId,
+            enabled: !task.enabled,
+          }),
         });
         upsertRuleIntoSnapshot(createdTrigger);
       }
@@ -546,12 +286,96 @@ export function PulseDeckView({
     }
   };
 
+  const handleDeleteTask = async (task: UnifiedAutomationTask) => {
+    setActionError('');
+    try {
+      if (
+        task.workflowId &&
+        typeof workflowsApi?.deleteDefinition === 'function'
+      ) {
+        await workflowsApi.deleteDefinition(task.workflowId);
+        setWorkflowDefinitions((prev) =>
+          prev.filter((item) => item.id !== task.workflowId)
+        );
+      }
+      if (task.linkedRule && typeof pulseApi?.deleteRule === 'function') {
+        await pulseApi.deleteRule(task.linkedRule.id);
+        const deletedRuleId = task.linkedRule.id;
+        setSnapshotData((prev) =>
+          prev
+            ? {
+                ...prev,
+                rules: prev.rules.filter((item) => item.id !== deletedRuleId),
+              }
+            : null
+        );
+      }
+    } catch (err) {
+      setActionError(
+        err instanceof Error ? err.message : t('pulseDeck.errDeleteTask')
+      );
+    }
+  };
+
+  const handleApplyStarter = async (starter: CanonicalWorkflowStarter) => {
+    if (applyingStarterId) return;
+    setApplyingStarterId(starter.id);
+    setActionError('');
+    try {
+      const studio = toStudioWorkflowDefinition(starter.definition);
+      let createdDefId = `wf-${starter.id}`;
+      let createdVersion = 1;
+      if (typeof workflowsApi?.publish === 'function') {
+        const published = await workflowsApi.publish(starter.definition);
+        if (published?.definitionId) {
+          createdDefId = published.definitionId;
+        }
+        if (published?.version != null) {
+          createdVersion = Math.max(1, Number(published.version));
+        }
+      }
+
+      const savedRule = await invokeSaveRule({
+        enabled: true,
+        draftOnly: false,
+        spec: buildWorkflowTriggerRuleSpec({
+          studio,
+          workflowId: createdDefId,
+          pinnedVersion: createdVersion,
+          projectId,
+          enabled: true,
+        }),
+      });
+      upsertRuleIntoSnapshot(savedRule);
+      await loadAuxiliaryCatalog();
+      toast.success(
+        t('pulseDeck.workbench.agent.starterAppliedToast', {
+          name: starter.definition.name,
+        })
+      );
+    } catch (err) {
+      setActionError(
+        err instanceof Error ? err.message : t('pulseDeck.errSaveRule')
+      );
+    } finally {
+      setApplyingStarterId(null);
+    }
+  };
+
+  const handleAgentDispatched = () => {
+    setAgentWatchUntil(Date.now() + 60_000);
+  };
+
   if (embeddedStudio !== null) {
     return (
       <EmbeddedWorkflowStudioShell
         embeddedStudio={embeddedStudio}
         workflowDefinitions={workflowDefinitions}
+        projectId={projectId}
+        sources={snapshot?.sources ?? []}
+        bots={bots}
         className={className}
+        onAgentDispatched={handleAgentDispatched}
         onBackToTaskList={() => {
           stashPendingWorkflowStudioOpen(null);
           setEmbeddedStudio(null);
@@ -569,18 +393,20 @@ export function PulseDeckView({
     <AutomationHeaderBar
       engineActive={snapshot?.engineActive !== false}
       totalTasksCount={unifiedTasks.length}
-      pendingEventsCount={pendingEventsCount}
+      pendingApprovalsCount={pendingApprovalsCount}
       activeTab={activeTab}
       isRefreshing={isLoading || isFetching}
       errorMessage={errorMessage}
+      projectId={projectId}
+      sources={snapshot?.sources ?? []}
+      bots={bots}
       toolbarRow={toolbarRow}
       contextualAction={contextualAction}
       onSelectTab={(tab) => {
         setSourcesInitialAdding(false);
         setActiveTab(tab);
       }}
-      onNewFastTask={handleStartNewFastTask}
-      onNewWorkflow={() => handleOpenStudio(null)}
+      onAgentDispatched={handleAgentDispatched}
       onRefresh={() => {
         setActionError('');
         void loadAuxiliaryCatalog();
@@ -604,163 +430,18 @@ export function PulseDeckView({
       {activeTab === 'tasks' ? (
         <AutomationTasksTab
           renderHeader={(toolbarRow) => renderHeader(toolbarRow)}
+          projectId={projectId}
           tasks={unifiedTasks}
-          selectedTaskKey={selectedTaskKey}
-          onCloseDetail={() => setSelectedTaskKey(null)}
-          onSelectFastTask={handleSelectFastTask}
-          onSelectWorkflowTask={(wfTask) => setSelectedTaskKey(wfTask.key)}
-          onStartNewFastTask={handleStartNewFastTask}
-          onOpenWorkflowStudio={handleOpenStudio}
-          onToggleTaskEnabled={(task) => void handleToggleTaskEnabled(task)}
-          onQuickTestFastTask={(rule) => {
-            handleSelectFastTask(rule);
-            void runTestForRule(rule.id, rule.spec);
-          }}
-          onQuickPublishFastTask={(rule) => {
-            handleSelectFastTask(rule);
-            void publishSpec(rule.id, rule.spec);
-          }}
-          onQuickDeleteFastTask={(rule) => void handleDeleteRule(rule.id)}
-          selectedWorkflowTask={selectedWorkflowTask}
-          draftRuleId={draftRuleId}
-          draftSpec={draftSpec}
-          existingRule={existingDraftRule}
-          editorStatus={editorStatus}
-          activeSubTab={activeSubTab}
-          onSubTabChange={setActiveSubTab}
-          onSpecChange={(nextSpec) => {
-            setDraftSpec(nextSpec);
-            setHasUnsavedDraftEdits(true);
-            setValidationErrors([]);
-          }}
-          sources={snapshot?.sources ?? []}
-          allRules={snapshot?.rules ?? []}
-          capturedEvents={capturedEvents}
-          recentOutbox={snapshot?.recentOutbox ?? []}
-          validationErrors={validationErrors}
-          lastTestReport={lastTestReport}
-          saving={savingTask}
-          testing={testingTaskKey === currentEditorTaskKey}
-          publishing={publishingTaskKey === currentEditorTaskKey}
-          converting={convertingToWorkflow}
-          onSaveDraft={() => void handleSaveFastTaskDraft()}
-          onTestTask={() => void runTestForRule(draftRuleId, draftSpec)}
-          onEmitLiveSample={() => {
-            if (typeof pulseApi.emitCustomEvent === 'function') {
-              const sample = buildSampleEnvelopeForRule(draftSpec);
-              void pulseApi
-                .emitCustomEvent({
-                  eventType: sample.eventType,
-                  threadKey: sample.threadKey,
-                  payload: sample.payload,
-                })
-                .then(() => loadAuxiliaryCatalog())
-                .catch(() => undefined);
-            }
-          }}
-          onPublishTask={() => void publishSpec(draftRuleId, draftSpec)}
-          onConvertToWorkflow={() => void handleConvertToWorkflow()}
-          onDeleteTask={() => {
-            if (draftRuleId) {
-              void handleDeleteRule(draftRuleId);
-            }
-          }}
-          onJumpCreateSource={() => {
-            setSourcesInitialAdding(true);
-            setActiveTab('sources');
-          }}
-        />
-      ) : null}
-
-      {activeTab === 'pending' ? (
-        <AutomationPendingTab
-          renderHeader={renderHeader}
           pendingInteractions={snapshot?.pendingInteractions ?? []}
-          observedCandidates={snapshot?.observedCandidates ?? []}
-          inspectedCandidateId={inspectedCandidateId}
-          inspectedReport={inspectedReport}
-          onInspectCandidateDryRun={(candidate) => {
-            const envelope = buildCandidateEnvelope(candidate);
-            const matchingRule = snapshot?.rules.find(
-              (r) => r.id === candidate.ruleId
-            );
-            setInspectedCandidateId(candidate.id);
-            if (!matchingRule) {
-              setInspectedReport({
-                valid: true,
-                matched: true,
-                violations: [],
-                unmatchedConditions: [],
-                renderedPreviews: [candidate.summary],
-              });
-              return;
-            }
-            const local = evaluatePulseRuleLocally(matchingRule.spec, envelope);
-            setInspectedReport(local);
-            if (typeof pulseApi.dryRunRule === 'function') {
-              void pulseApi
-                .dryRunRule(matchingRule.spec, envelope)
-                .then((remote) => setInspectedReport(remote))
-                .catch(() => undefined);
-            }
-          }}
-          onPromoteCandidate={(candidate: PulseObservedCandidateView) => {
-            setActionError('');
-            void pulseApi
-              .promoteObservedCandidate(candidate.id)
-              .then(() => {
-                setSnapshotData((prev) =>
-                  prev
-                    ? {
-                        ...prev,
-                        observedCandidates: prev.observedCandidates.map((c) =>
-                          c.id === candidate.id ? { ...c, promoted: true } : c
-                        ),
-                        rules: prev.rules.map((r) =>
-                          r.id === candidate.ruleId
-                            ? { ...r, spec: { ...r.spec, evalMode: 'auto' } }
-                            : r
-                        ),
-                      }
-                    : null
-                );
-              })
-              .catch((err) =>
-                setActionError(
-                  err instanceof Error
-                    ? err.message
-                    : t('pulseDeck.errPromote')
-                )
-              );
-          }}
-          onPromoteAndEditTask={(candidate) => {
-            const matchingRule = snapshot?.rules.find(
-              (r) => r.id === candidate.ruleId
-            );
-            if (matchingRule) {
-              handleSelectFastTask(matchingRule);
-              setActiveTab('tasks');
-              return;
-            }
-            setDraftRuleId(null);
-            setDraftSpec({
-              ...buildDefaultFastTaskSpec(
-                candidate.ruleName || candidate.eventType,
-                'claude-code',
-                projectId
-              ),
-              filter: {
-                sourceKinds: [candidate.sourceKind],
-                sourceInstanceIds: [],
-                eventTypes: [candidate.eventType],
-                allowedActors: [],
-                conditions: [],
-              },
-            });
-            setSelectedTaskKey('fast:new');
-            setHasUnsavedDraftEdits(true);
-            setActiveTab('tasks');
-          }}
+          sources={snapshot?.sources ?? []}
+          agentOptions={agentOptions}
+          bots={bots}
+          applyingStarterId={applyingStarterId}
+          onOpenTaskCanvas={handleOpenTaskCanvas}
+          onToggleTaskEnabled={(task) => void handleToggleTaskEnabled(task)}
+          onDeleteTask={(task) => void handleDeleteTask(task)}
+          onApplyStarter={(starter) => void handleApplyStarter(starter)}
+          onAgentDispatched={handleAgentDispatched}
           onInteractionResolved={(interactionId) => {
             setSnapshotData((prev) =>
               prev
@@ -781,77 +462,10 @@ export function PulseDeckView({
         />
       ) : null}
 
-      {activeTab === 'rules' ? (
-        <AutomationRulesTab
-          renderHeader={renderHeader}
-          projectId={projectId}
-          rules={snapshot?.rules ?? []}
-          capturedEvents={capturedEvents}
-          onSetRuleMode={(rule: PulseRuleView, mode: PulseEvalMode) => {
-            setActionError('');
-            void pulseApi
-              .setRuleMode(rule.id, mode)
-              .then((updated) => upsertRuleIntoSnapshot(updated))
-              .catch((err) =>
-                setActionError(
-                  err instanceof Error
-                    ? err.message
-                    : t('pulseDeck.errUpdateMode')
-                )
-              );
-          }}
-          onSaveRule={async (ruleId, spec, enabled) => {
-            setActionError('');
-            try {
-              const saved = await invokeSaveRule({
-                id: ruleId,
-                enabled,
-                draftOnly: false,
-                spec: {
-                  ...spec,
-                  projectId: spec.projectId ?? projectId ?? null,
-                },
-              });
-              upsertRuleIntoSnapshot(saved);
-              return saved;
-            } catch (err) {
-              setActionError(
-                err instanceof Error ? err.message : t('pulseDeck.errSaveRule')
-              );
-              return null;
-            }
-          }}
-          onDeleteRule={(ruleId) => void handleDeleteRule(ruleId)}
-          onCreateFastTaskFromRule={(ruleSpec, templateId) => {
-            setSelectedTaskKey('fast:new');
-            setDraftRuleId(null);
-            setDraftSpec({
-              ...buildDefaultFastTaskSpec(
-                ruleSpec.name ||
-                  t('pulseDeck.workbench.tasks.newFastTaskDefaultName'),
-                'claude-code',
-                projectId
-              ),
-              filter: ruleSpec.filter,
-              taskMeta: {
-                taskKind: 'fast_task',
-                lifecycleState: 'editing',
-                boundRuleTemplateId: templateId ?? null,
-              },
-            });
-            setHasUnsavedDraftEdits(true);
-            setActiveSubTab('target');
-            setActiveTab('tasks');
-          }}
-        />
-      ) : null}
-
       {activeTab === 'sources' ? (
         <AutomationSourcesTab
           renderHeader={renderHeader}
           sources={displayedSources}
-          subscriptions={snapshot?.subscriptions ?? []}
-          workflows={workflowDefinitions}
           initialAddingNew={sourcesInitialAdding}
           onUpsertSource={async (input: PulseSourceUpsertInput) => {
             setActionError('');
@@ -924,54 +538,6 @@ export function PulseDeckView({
                   : t('pulseDeck.errSaveSource')
               );
               return null;
-            }
-          }}
-          onSubscribeThread={async (threadKey, kind, subscriberId) => {
-            setActionError('');
-            try {
-              const created: PulseSubscriptionView =
-                await pulseApi.subscribeThread(threadKey, kind, subscriberId);
-              setSnapshotData((prev) =>
-                prev
-                  ? {
-                      ...prev,
-                      subscriptions: [
-                        created,
-                        ...prev.subscriptions.filter(
-                          (item) => item.id !== created.id
-                        ),
-                      ],
-                    }
-                  : null
-              );
-            } catch (err) {
-              setActionError(
-                err instanceof Error
-                  ? err.message
-                  : t('pulseDeck.errSubscribe')
-              );
-            }
-          }}
-          onUnsubscribeThread={async (subscriptionId) => {
-            setActionError('');
-            try {
-              await pulseApi.unsubscribeThread(subscriptionId);
-              setSnapshotData((prev) =>
-                prev
-                  ? {
-                      ...prev,
-                      subscriptions: prev.subscriptions.filter(
-                        (item) => item.id !== subscriptionId
-                      ),
-                    }
-                  : null
-              );
-            } catch (err) {
-              setActionError(
-                err instanceof Error
-                  ? err.message
-                  : t('pulseDeck.errUnsubscribe')
-              );
             }
           }}
         />

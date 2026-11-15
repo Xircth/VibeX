@@ -318,6 +318,10 @@ export interface ApplicationCommandMap {
     };
     result: WorkflowRunView;
   };
+  workflow_delete: {
+    args: { definitionId: string };
+    result: boolean;
+  };
   conversation_respond_permission: {
     args: {
       request: {

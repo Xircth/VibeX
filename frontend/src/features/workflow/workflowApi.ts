@@ -90,6 +90,8 @@ export function createWorkflowApi(transport: BackendTransport) {
       callApplicationCommand(transport, 'workflow_list', { limit }),
     listDefinitions: (limit = 100) =>
       callApplicationCommand(transport, 'workflow_list', { limit }),
+    deleteDefinition: (definitionId: string) =>
+      callApplicationCommand(transport, 'workflow_delete', { definitionId }),
     versions: (definitionId: string, limit = 100) =>
       callApplicationCommand(transport, 'workflow_versions', {
         definitionId,

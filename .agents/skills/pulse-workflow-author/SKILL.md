@@ -49,6 +49,21 @@ Scaffold with `{ "op": "apply_preset", "preset": "<kind>", "params": { "agentId"
 4. **`event_saga`**: `prepare_session` (`session`) -> `await_ci_signal` (`wait_for_event` on `github.ci.passed` / `github.pr.approved`, `onTimeoutStepId: "sla_escalation_gate"`) -> `finalize_bot` (`bot`), with `sla_escalation_gate` (`user_gate`) handling timeouts.
 5. **`window_aggregator`**: `digest_bot` (`bot`, `mailboxPolicy: "coalesce_batch"`) -> `notify_digest` (`user_gate`, `notify`).
 
+## Canonical ground-truth examples (`examples/workflows/`)
+
+Read the closest example before authoring a new workflow so trigger metadata, loop guards (`not_bot_actor`), and human-readable summaries match the Workbench contract:
+
+- `examples/workflows/github-ci-autofix.vibex-workflow.json` — GitHub CI failure -> isolated `session` fix -> PR reply (`outbox_action`).
+- `examples/workflows/feishu-mention-triage.vibex-workflow.json` — Feishu `@mention` -> `bot` triage -> `session` code check -> Feishu reply.
+- `examples/workflows/daily-repo-digest.vibex-workflow.json` — Weekday cron `30 9 * * 1-5` -> `bot` digest -> desktop `notify` (`user_gate`).
+- `examples/workflows/pr-review-gate.vibex-workflow.json` — GitHub PR -> `bot` review -> `session` verification -> human `approval` (`user_gate`) -> PR comment.
+
+## Human-semantic card summaries & atomic trigger sync
+
+- **Every automation task is a Workflow**: Even 2-3 step reflexes are authored as `WorkflowDefinition` graphs (`[trigger] -> [session | bot | group_stage] -> [outbox_action | user_gate]`) so humans inspect a single visual topology.
+- **Write human-first card copy**: Populate `[vibex-studio:v1]` `trigger.title`, `session.outputDescription`, `bot.outputDescription`, `user_gate.titleTemplate`, and `outbox.title` with concise natural-language phrases (never raw `{{payload.*}}` expressions or internal step IDs).
+- **Sync trigger rule on publish**: After `workflow_publish`, always upsert the matching `PulseRuleSpec` (`taskMeta: { taskKind: "workflow_trigger" }`, `targets: [{ kind: "workflow", workflowId, pinnedVersion }]`, including `not_bot_actor` on external webhooks) so enabling/disabling in the Task List works immediately.
+
 ## Graph hygiene & CAS rules
 
 - **Keep `dependsOn` acyclic**: `workflow_graph_patch` runs Kahn topological validation across `dependsOn`; express iterative back-edges exclusively via `bounded_loop.bodyStepIds`, never cyclic `dependsOn`.

@@ -16,6 +16,7 @@ import type {
 } from '@/lib/api/pulse';
 import { showDesktopToast } from '@/lib/desktopToast';
 
+import { useCollaborationBotRoster } from '../useCollaborationBotRoster';
 import { resolveWorkflowAgentId } from '../workflowAgent';
 import { getWorkflowPresetTemplates } from './presetTemplates';
 import {
@@ -63,6 +64,13 @@ export function useWorkflowStudio<
   editorName,
   onEditorNameChange,
   agentOptions = EMPTY_AGENT_OPTIONS,
+  bots: propBots,
+  spaces: propSpaces,
+  sources,
+  projectId,
+  definitionId,
+  sourceRuleId,
+  onAgentDispatched,
   loadAgentSessionControls,
   onStopRun,
   onTerminateRun,
@@ -86,6 +94,11 @@ export function useWorkflowStudio<
   className,
 }: WorkflowStudioProps<TDef>) {
   const { t, i18n } = useTranslation('workflow');
+  const language = i18n.resolvedLanguage ?? i18n.language ?? 'zh-CN';
+  const fallbackRoster = useCollaborationBotRoster('default', language);
+  const bots = propBots ?? fallbackRoster.bots;
+  const spaces = propSpaces ?? fallbackRoster.spaces;
+
   const studioModeInput = useMemo(
     () => rawStudioMode ?? isStudioOnlyDefinition(rawDefinition),
     [rawDefinition, rawStudioMode]
@@ -145,7 +158,6 @@ export function useWorkflowStudio<
       stepId: string,
       update: (step: StudioWorkflowStep) => StudioWorkflowStep
     ) => {
-      setUnsavedStepIds((current) => new Set(current).add(stepId));
       onDefinitionChange?.({
         ...definition,
         steps: definition.steps.map((step) =>
@@ -166,25 +178,20 @@ export function useWorkflowStudio<
     [onDefinitionChange, updateStep]
   );
 
-  const addStepRef = useRef<
-    (kind: StudioAddableStepKind, dependsOn?: string[]) => void
-  >(() => undefined);
-  const quickAddAfterStep = useCallback((parentStepId: string) => {
-    addStepRef.current('session', [parentStepId]);
-  }, []);
-
   const graph = useWorkflowStudioGraph({
     definition,
     onDefinitionChange,
     steps,
     events,
     agentOptions,
+    bots,
+    spaces,
     mode,
     replayEnvelope,
     onTriggerEvalModeChange: onDefinitionChange
       ? updateTriggerEvalMode
       : undefined,
-    onQuickAddStep: onDefinitionChange ? quickAddAfterStep : undefined,
+    onQuickAddStep: undefined,
     t,
   });
   const { selectedStepId, setSelectedStepId, latest } = graph;
@@ -343,16 +350,14 @@ export function useWorkflowStudio<
       kind,
       common,
       defaultAgentId,
-      i18n.resolvedLanguage ?? i18n.language ?? 'en',
+      language,
       t('studio.newNotify'),
       t
     );
     onDefinitionChange({ ...definition, steps: [...definition.steps, step] });
-    setUnsavedStepIds((current) => new Set(current).add(step.id));
     setSelectedStepId(step.id);
     setInspectorTab('info');
   };
-  addStepRef.current = addStep;
 
   const applyPreset = (presetId: PresetOrchestratorKind) => {
     if (!onDefinitionChange) return;
@@ -377,7 +382,6 @@ export function useWorkflowStudio<
       ...definition,
       steps: [...definition.steps, copy],
     });
-    setUnsavedStepIds((current) => new Set(current).add(copy.id));
     setSelectedStepId(copy.id);
   };
 
@@ -420,6 +424,7 @@ export function useWorkflowStudio<
   return {
     definition,
     onDefinitionChange,
+    studioMode: studioModeInput,
     run,
     events,
     dirty,
@@ -436,8 +441,15 @@ export function useWorkflowStudio<
     editorName,
     onEditorNameChange,
     agentOptions,
+    bots,
+    spaces,
+    sources,
+    projectId,
+    definitionId,
+    sourceRuleId,
+    onAgentDispatched,
     defaultAgentId,
-    outputLanguage: i18n.resolvedLanguage ?? i18n.language ?? 'en',
+    outputLanguage: language,
     onStopRun,
     onTerminateRun,
     onReset,

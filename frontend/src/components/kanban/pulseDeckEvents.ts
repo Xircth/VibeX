@@ -1,3 +1,4 @@
+import type { StudioWorkflowDefinition } from '@/features/workflow/WorkflowStudio';
 import { useLayoutStore } from '@/stores/useLayoutStore';
 import { useProjectViewStateStore } from '@/stores/useProjectViewStateStore';
 
@@ -12,6 +13,8 @@ export interface OpenPulseDeckEventDetail {
 export interface PendingWorkflowStudioOpenDetail {
   definitionId?: string | null;
   presetId?: string | null;
+  initialDefinition?: StudioWorkflowDefinition | null;
+  sourceRuleId?: string | null;
 }
 
 interface PulseWindowState extends Window {

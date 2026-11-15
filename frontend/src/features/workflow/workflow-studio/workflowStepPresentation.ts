@@ -1,5 +1,6 @@
 import type { WorkflowEventRecord } from 'shared/types';
 
+import type { MemberBotAvatarConfig } from '@/features/collaboration/MemberBotAvatar';
 import i18n from '@/i18n';
 import type {
   BotMailboxPolicy,
@@ -9,6 +10,11 @@ import type {
   PulseWorkspaceIsolation,
 } from '@/lib/api/pulse';
 
+import {
+  resolveStaticBotIdentity,
+  type CollaborationBotOption,
+  type CollaborationSpaceOption,
+} from '../useCollaborationBotRoster';
 import type { WorkflowStudioAgentOption } from '../workflowAgent';
 import {
   DEFAULT_GATE_FILTER,
@@ -157,11 +163,14 @@ export function formatWorkflowGroupDispatch(
 }
 
 export function formatOutboxActionLabel(
-  kind: OutboxActionKind,
+  kind: OutboxActionKind | (string & {}) | undefined,
   t?: WorkflowTranslateFn
 ): string {
   const tr = getWorkflowTranslator(t);
-  return tr(`nodes.outboxKinds.${kind}`);
+  const safeKind = kind && String(kind).trim() ? String(kind).trim() : 'feishu_reply';
+  return tr(`nodes.outboxKinds.${safeKind}`, {
+    defaultValue: tr('nodes.defaults.outboxTitle'),
+  });
 }
 
 export function formatWorkflowOrchestratorLabel(
@@ -190,7 +199,10 @@ export function tokenizeStepSegments(text: string): StepTextSegment[] {
   return segments;
 }
 
-function distinctFromId(candidate: string | undefined | null, stepId: string): string | undefined {
+function distinctFromId(
+  candidate: string | undefined | null,
+  stepId: string
+): string | undefined {
   const trimmed = candidate?.trim();
   if (!trimmed) return undefined;
   if (trimmed.toLowerCase() === stepId.trim().toLowerCase()) {
@@ -199,17 +211,36 @@ function distinctFromId(candidate: string | undefined | null, stepId: string): s
   return trimmed;
 }
 
-function summarizePromptLine(prompt: string | undefined | null, stepId: string): string | undefined {
-  const firstLine = prompt
-    ?.split(/\r?\n/)
-    .map((line) => line.trim())
-    .find((line) => line.length > 0);
+export function cleanHumanStepSummary(
+  candidate: string | undefined | null,
+  stepId: string
+): string | undefined {
+  if (!candidate) return undefined;
+  const firstLine = candidate
+    .split(/\r?\n/)
+    .map((line) =>
+      line
+        .replace(/^#+\s*/, '')
+        .replace(/["“”]?\{\{[^{}]+\}\}["“”]?/g, '')
+        .replace(/\s{2,}/g, ' ')
+        .replace(/^[\s·—\-:：,，]+|[\s·—\-:：,，]+$/g, '')
+        .trim()
+    )
+    .find((line) => line.length >= 2);
   return distinctFromId(firstLine, stepId);
 }
+
+export type StepPresentationRoster = {
+  bots?: readonly CollaborationBotOption[];
+  spaces?: readonly CollaborationSpaceOption[];
+  language?: string;
+};
 
 export type StepPresentationMeta = {
   category: StudioNodeCategory;
   categoryBadge: string;
+  identityBadge: string;
+  botAvatar?: MemberBotAvatarConfig;
   detailBadge?: string;
   headline: string;
   headlineHint?: string;
@@ -217,6 +248,7 @@ export type StepPresentationMeta = {
   subline?: string;
   secondaryBadge?: string;
   tabularBadge?: string;
+  humanRoleSummary: string;
   accessibleSummary: string;
 };
 
@@ -224,27 +256,42 @@ export function describeStepPresentation(
   step: StudioWorkflowStep,
   agentOptions: WorkflowStudioAgentOption[],
   fallbackNotifyLabel?: string,
-  t?: WorkflowTranslateFn
+  t?: WorkflowTranslateFn,
+  roster?: StepPresentationRoster
 ): StepPresentationMeta {
   const tr = getWorkflowTranslator(t);
   const notifyFallback = fallbackNotifyLabel ?? tr('studio.notify');
+  const lang =
+    roster?.language ?? i18n.resolvedLanguage ?? i18n.language ?? 'zh-CN';
 
   switch (step.kind) {
     case 'trigger': {
-      const triggerSourceLabel =
-        step.triggerKind === 'temporal' && step.temporal
+      const isTemporal = step.triggerKind === 'temporal' && Boolean(step.temporal);
+      const sourceBadge = isTemporal
+        ? tr('nodes.triggerKinds.temporal')
+        : formatWorkflowEventSource(step.sourceKind, tr);
+      const scheduleOrEvent =
+        isTemporal && step.temporal
           ? formatWorkflowTemporalBadge(step.temporal, tr)
-          : `${formatWorkflowEventSource(step.sourceKind, tr)} · ${step.eventType || tr('nodes.eventFallback')}`;
-      const triggerDetail = tr(`nodes.triggerKinds.${step.triggerKind}`);
-      const customTitle = distinctFromId(step.title, step.id);
+          : step.eventType || tr('nodes.eventFallback');
+      const customTitle = cleanHumanStepSummary(step.title, step.id);
+      const headline = customTitle ?? scheduleOrEvent;
       return {
         category: 'trigger',
-        categoryBadge: tr('nodes.badges.trigger'),
-        detailBadge: triggerDetail,
-        headline: customTitle ?? triggerSourceLabel,
-        primarySubtitle: triggerSourceLabel,
-        subline: customTitle ? triggerSourceLabel : undefined,
-        accessibleSummary: step.title || triggerDetail,
+        categoryBadge: sourceBadge,
+        identityBadge: sourceBadge,
+        detailBadge: isTemporal ? scheduleOrEvent : undefined,
+        headline,
+        primarySubtitle: scheduleOrEvent,
+        humanRoleSummary: isTemporal
+          ? tr('inspector.summaries.triggerTemporal', {
+              schedule: scheduleOrEvent,
+            })
+          : tr('inspector.summaries.triggerEvent', {
+              source: sourceBadge,
+              event: scheduleOrEvent,
+            }),
+        accessibleSummary: headline,
       };
     }
     case 'session':
@@ -252,165 +299,181 @@ export function describeStepPresentation(
       const agentLabel =
         agentOptions.find((agent) => agent.value === step.agentId)?.label ??
         step.agentId;
-      const isolation = resolveSessionIsolation(step);
+      const actionSummary =
+        cleanHumanStepSummary(step.outputDescription, step.id) ??
+        cleanHumanStepSummary(step.prompt, step.id) ??
+        tr('inspector.summaries.defaultAgentAction');
       return {
         category: 'session',
-        categoryBadge: tr('nodes.badges.session'),
-        detailBadge: tr('nodes.sessionResetDetail'),
-        headline: distinctFromId(agentLabel, step.id) ?? tr('nodes.badges.session'),
-        headlineHint: summarizePromptLine(step.prompt, step.id),
+        categoryBadge: agentLabel,
+        identityBadge: agentLabel,
+        headline: actionSummary,
         primarySubtitle: agentLabel,
-        secondaryBadge: tr(`nodes.isolation.${isolation}`),
-        accessibleSummary: step.agentId,
+        humanRoleSummary: tr('inspector.summaries.session', {
+          agent: agentLabel,
+        }),
+        accessibleSummary: `${agentLabel} ${actionSummary}`,
       };
     }
     case 'bot': {
-      const botTarget = step.memberId || tr('nodes.unsetBot');
+      const botIdentity = resolveStaticBotIdentity(
+        step.memberId || 'triage-bot',
+        roster?.bots,
+        lang
+      );
+      const actionSummary =
+        cleanHumanStepSummary(step.outputDescription, step.id) ??
+        cleanHumanStepSummary(step.prompt, step.id) ??
+        tr('inspector.summaries.defaultBotAction');
       return {
         category: 'bot',
-        categoryBadge: tr('nodes.badges.bot'),
-        detailBadge: tr('nodes.botMemoryDetail'),
-        headline: distinctFromId(botTarget, step.id) ?? tr('nodes.badges.bot'),
-        headlineHint: summarizePromptLine(step.prompt, step.id),
-        primarySubtitle: botTarget,
-        secondaryBadge: formatWorkflowMailboxPolicy(step.mailboxPolicy, tr),
-        accessibleSummary: step.memberId || tr('nodes.badges.bot'),
+        categoryBadge: botIdentity.displayName,
+        identityBadge: botIdentity.displayName,
+        botAvatar: botIdentity.avatar,
+        headline: actionSummary,
+        primarySubtitle: botIdentity.displayName,
+        humanRoleSummary: tr('inspector.summaries.bot', {
+          bot: botIdentity.displayName,
+        }),
+        accessibleSummary: `${botIdentity.displayName} ${actionSummary}`,
       };
     }
     case 'group_stage': {
+      const spaceLabel =
+        roster?.spaces?.find((item) => item.spaceId === step.spaceId)
+          ?.displayName ||
+        step.spaceId ||
+        tr('nodes.unsetGroup');
+      const actionSummary =
+        cleanHumanStepSummary(step.prompt, step.id) ?? spaceLabel;
       const parts = [
         step.rounds != null && step.rounds > 0
           ? tr('nodes.maxRounds', { count: step.rounds })
           : null,
-        step.quorumCount != null && step.quorumCount > 0
-          ? tr('nodes.quorumCount', { count: step.quorumCount })
-          : null,
       ].filter((item): item is string => Boolean(item));
-      const groupTarget = step.spaceId || tr('nodes.unsetGroup');
       return {
         category: 'group_stage',
-        categoryBadge: tr('nodes.badges.group'),
-        headline: distinctFromId(groupTarget, step.id) ?? tr('nodes.badges.group'),
-        headlineHint: summarizePromptLine(step.prompt, step.id),
-        primarySubtitle: groupTarget,
-        secondaryBadge: formatWorkflowGroupDispatch(step.dispatchMode, tr),
+        categoryBadge: spaceLabel,
+        identityBadge: spaceLabel,
+        headline: actionSummary,
+        primarySubtitle: spaceLabel,
         tabularBadge: parts.length > 0 ? parts.join(' · ') : undefined,
-        accessibleSummary: step.spaceId || tr('nodes.badges.group'),
+        humanRoleSummary: tr('inspector.summaries.group', {
+          space: spaceLabel,
+        }),
+        accessibleSummary: `${spaceLabel} ${actionSummary}`,
       };
     }
     case 'user_gate': {
       const gateKindLabel = tr(`nodes.gateKinds.${step.interactionKind}`);
-      const primarySubtitle = step.title.trim() || gateKindLabel;
+      const headline =
+        cleanHumanStepSummary(step.title, step.id) ?? gateKindLabel;
       return {
         category: 'user_gate',
-        categoryBadge: tr('nodes.badges.gate'),
-        detailBadge: gateKindLabel,
-        headline: distinctFromId(primarySubtitle, step.id) ?? gateKindLabel,
-        primarySubtitle,
-        secondaryBadge: step.severity
-          ? tr(`inspector.userGate.severities.${step.severity}`)
-          : undefined,
-        tabularBadge: step.slaTimeoutSeconds
-          ? tr('nodes.slaSeconds', { seconds: step.slaTimeoutSeconds })
-          : undefined,
-        accessibleSummary: step.title || gateKindLabel,
+        categoryBadge: gateKindLabel,
+        identityBadge: gateKindLabel,
+        headline,
+        primarySubtitle: headline,
+        humanRoleSummary:
+          step.interactionKind === 'notify'
+            ? tr('inspector.summaries.notify')
+            : tr('inspector.summaries.approval'),
+        accessibleSummary: headline,
       };
     }
     case 'approval': {
       const approvalLabel = tr('nodes.gateKinds.approval');
-      const primarySubtitle = step.title.trim() || approvalLabel;
+      const headline =
+        cleanHumanStepSummary(step.title, step.id) ?? approvalLabel;
       return {
         category: 'user_gate',
-        categoryBadge: tr('nodes.badges.gate'),
-        detailBadge: approvalLabel,
-        headline: distinctFromId(primarySubtitle, step.id) ?? approvalLabel,
-        primarySubtitle,
-        tabularBadge: step.slaTimeoutSeconds
-          ? tr('nodes.slaSeconds', { seconds: step.slaTimeoutSeconds })
-          : undefined,
-        accessibleSummary: step.title || approvalLabel,
+        categoryBadge: approvalLabel,
+        identityBadge: approvalLabel,
+        headline,
+        primarySubtitle: headline,
+        humanRoleSummary: tr('inspector.summaries.approval'),
+        accessibleSummary: headline,
       };
     }
     case 'notify': {
       const notifyKindLabel = tr('nodes.gateKinds.notify');
-      const primarySubtitle = step.title.trim() || notifyFallback;
+      const headline =
+        cleanHumanStepSummary(step.title, step.id) ?? notifyFallback;
       return {
         category: 'user_gate',
-        categoryBadge: tr('nodes.badges.gate'),
-        detailBadge: notifyKindLabel,
-        headline: distinctFromId(primarySubtitle, step.id) ?? notifyFallback,
-        primarySubtitle,
-        tabularBadge: step.slaTimeoutSeconds
-          ? tr('nodes.slaSeconds', { seconds: step.slaTimeoutSeconds })
-          : undefined,
-        accessibleSummary: step.title || notifyFallback,
+        categoryBadge: notifyKindLabel,
+        identityBadge: notifyKindLabel,
+        headline,
+        primarySubtitle: headline,
+        humanRoleSummary: tr('inspector.summaries.notify'),
+        accessibleSummary: headline,
       };
     }
     case 'control': {
       if (step.controlKind === 'bounded_loop') {
         const maxIter = step.maxIterations ?? 3;
-        const loopTargetLabel = step.loopTargetStepId
-          ? tr('nodes.loopTarget', { target: step.loopTargetStepId })
-          : undefined;
-        const primarySubtitle =
-          loopTargetLabel ?? (step.title || tr('studio.nodeTypes.bounded_loop'));
-        const customTitle = distinctFromId(step.title, step.id);
+        const badge = tr('nodes.badges.loop');
+        const headline =
+          cleanHumanStepSummary(step.title, step.id) ??
+          tr('studio.nodeTypes.bounded_loop');
         return {
           category: 'control',
-          categoryBadge: tr('nodes.badges.loop'),
-          headline:
-            customTitle ??
-            distinctFromId(primarySubtitle, step.id) ??
-            tr('studio.nodeTypes.bounded_loop'),
-          primarySubtitle,
-          subline: customTitle && loopTargetLabel ? loopTargetLabel : undefined,
+          categoryBadge: badge,
+          identityBadge: badge,
+          headline,
+          primarySubtitle: headline,
           tabularBadge: tr('nodes.maxRounds', { count: maxIter }),
-          accessibleSummary: step.title || tr('studio.nodeTypes.bounded_loop'),
+          humanRoleSummary: tr('inspector.summaries.boundedLoop', {
+            count: maxIter,
+          }),
+          accessibleSummary: headline,
         };
       }
       if (step.controlKind === 'wait_for_event') {
+        const badge = tr('nodes.badges.wait');
         const waitEvent = step.waitEventType || 'event.correlated';
-        const customTitle = distinctFromId(step.title, step.id);
+        const headline =
+          cleanHumanStepSummary(step.title, step.id) ?? waitEvent;
         return {
           category: 'control',
-          categoryBadge: tr('nodes.badges.wait'),
-          headline: customTitle ?? waitEvent,
+          categoryBadge: badge,
+          identityBadge: badge,
+          headline,
           primarySubtitle: waitEvent,
-          subline: customTitle ? waitEvent : undefined,
-          secondaryBadge: step.threadKeyTemplate || '{{threadKey}}',
-          tabularBadge: step.timeoutSeconds
-            ? tr('nodes.slaSeconds', { seconds: step.timeoutSeconds })
-            : undefined,
-          accessibleSummary: step.title || tr('studio.nodeTypes.wait_for_event'),
+          humanRoleSummary: tr('inspector.summaries.waitForEvent', {
+            event: waitEvent,
+          }),
+          accessibleSummary: headline,
         };
       }
-      const expr = distinctFromId(step.expression, step.id);
-      const customTitle = distinctFromId(step.title, step.id);
-      const primarySubtitle =
-        step.expression || step.title || tr('nodes.branchCondition');
+      const badge = tr('nodes.badges.branch');
+      const headline =
+        cleanHumanStepSummary(step.title, step.id) ??
+        tr('nodes.branchCondition');
       return {
         category: 'control',
-        categoryBadge: tr('nodes.badges.branch'),
-        headline: customTitle ?? expr ?? tr('nodes.branchCondition'),
-        primarySubtitle,
-        subline: customTitle && expr ? expr : undefined,
-        accessibleSummary:
-          step.title || tr('studio.nodeTypes.condition_branch'),
+        categoryBadge: badge,
+        identityBadge: badge,
+        headline,
+        primarySubtitle: step.expression || headline,
+        humanRoleSummary: tr('inspector.summaries.condition'),
+        accessibleSummary: headline,
       };
     }
     case 'outbox_action': {
       const outboxLabel = formatOutboxActionLabel(step.actionKind, tr);
-      const customTitle = distinctFromId(step.title, step.id);
-      const destination = distinctFromId(step.destination, step.id);
-      const primarySubtitle = step.destination || step.title || outboxLabel;
+      const headline =
+        cleanHumanStepSummary(step.title, step.id) ?? outboxLabel;
       return {
         category: 'outbox_action',
-        categoryBadge: tr('nodes.badges.outbox'),
-        detailBadge: outboxLabel,
-        headline: customTitle ?? destination ?? outboxLabel,
-        primarySubtitle,
-        subline: customTitle && destination ? destination : undefined,
-        accessibleSummary: step.title || outboxLabel,
+        categoryBadge: outboxLabel,
+        identityBadge: outboxLabel,
+        headline,
+        primarySubtitle: outboxLabel,
+        humanRoleSummary: tr('inspector.summaries.outbox', {
+          target: outboxLabel,
+        }),
+        accessibleSummary: headline,
       };
     }
   }
@@ -437,7 +500,7 @@ export function createDefaultStepForKind(
         triggerKind: 'platform',
         sourceKind: 'github',
         eventType: 'github.pr.opened',
-        evalMode: 'observe',
+        evalMode: 'auto',
         temporal: null,
         filter: {
           ...DEFAULT_GATE_FILTER,

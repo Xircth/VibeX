@@ -1,7 +1,5 @@
 import type { CSSProperties, ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
-import { DropdownMenu } from '@astryxdesign/core/DropdownMenu';
-import { Icon } from '@astryxdesign/core/Icon';
 import {
   HStack,
   Layout,
@@ -11,7 +9,7 @@ import {
 import { ResizeHandle, useResizable } from '@astryxdesign/core/Resizable';
 import { StatusDot } from '@astryxdesign/core/StatusDot';
 import { Text } from '@astryxdesign/core/Text';
-import { GitFork, Plus, Zap } from 'lucide-react';
+
 import type { AutomationTaskStatus } from './automationModels';
 
 /**
@@ -36,12 +34,11 @@ export const STATUS_DOT_VARIANT: Record<
   AutomationTaskStatus,
   'accent' | 'warning' | 'success' | 'neutral'
 > = {
+  awaiting_approval: 'warning',
   running: 'accent',
-  testing: 'warning',
-  publishing: 'accent',
-  published: 'success',
-  pending_test: 'warning',
-  editing: 'neutral',
+  active: 'success',
+  paused: 'neutral',
+  draft: 'warning',
 };
 
 export function TaskStatusBadge({
@@ -53,8 +50,7 @@ export function TaskStatusBadge({
 }) {
   const { t } = useTranslation('panels');
   const label = t(`pulseDeck.workbench.status.${status}`);
-  const isPulsing =
-    status === 'running' || status === 'testing' || status === 'publishing';
+  const isPulsing = status === 'running' || status === 'awaiting_approval';
 
   return (
     <HStack gap={1.5} vAlign="center" data-testid={testId}>
@@ -71,49 +67,6 @@ export function TaskStatusBadge({
 }
 
 /**
- * Unified "新建" (New) menu button combining "任务" (Task) and "工作流" (Workflow)
- * into a single control instead of rendering two separate buttons.
- */
-export function NewAutomationMenuButton({
-  onNewFastTask,
-  onNewWorkflow,
-  size = 'md',
-  testId = 'automation-new-menu-btn',
-}: {
-  onNewFastTask: () => void;
-  onNewWorkflow: () => void;
-  size?: 'sm' | 'md' | 'lg';
-  testId?: string;
-}) {
-  const { t } = useTranslation('panels');
-
-  return (
-    <DropdownMenu
-      alignment="end"
-      data-testid={testId}
-      button={{
-        label: t('pulseDeck.workbench.actions.newMenu'),
-        variant: 'primary',
-        size,
-        icon: <Icon icon={Plus} size="sm" />,
-      }}
-      items={[
-        {
-          label: t('pulseDeck.workbench.actions.newTaskItem'),
-          icon: Zap,
-          onClick: onNewFastTask,
-        },
-        {
-          label: t('pulseDeck.workbench.actions.newWorkflowItem'),
-          icon: GitFork,
-          onClick: onNewWorkflow,
-        },
-      ]}
-    />
-  );
-}
-
-/**
  * Astryx `table-grouped` content + collapsible resizable complementary panel shell.
  * When `detail` is null/undefined, `LayoutContent` fills 100% width with no side divider.
  */
@@ -121,9 +74,9 @@ export function AutomationSplitFrame({
   header,
   master,
   detail,
-  defaultDetailSize = 500,
-  minDetailSize = 380,
-  maxDetailSize = 680,
+  defaultDetailSize = 480,
+  minDetailSize = 360,
+  maxDetailSize = 660,
   panelLabel,
   testId,
 }: {

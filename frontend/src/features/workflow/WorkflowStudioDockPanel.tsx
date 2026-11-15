@@ -4,8 +4,6 @@ import {
   AlertTriangle,
   CheckCircle2,
   Loader2,
-  Plus,
-  Radio,
   RefreshCw,
 } from 'lucide-react';
 import type { IDockviewPanelProps } from 'dockview-react';
@@ -16,6 +14,7 @@ import type {
   WorkflowVersionView,
 } from 'shared/types';
 
+import { buildWorkflowTriggerRuleSpec } from '@/components/kanban/automation/automationAgentBridge';
 import { useOptionalUserSystem } from '@/components/ConfigProvider';
 import { Button } from '@/components/ui/button';
 import { toast } from '@/components/ui/toast';
@@ -26,13 +25,14 @@ import {
   createPulseApi,
   pulseApi,
   type EventEnvelope,
-  type PulseRuleSpec,
+  type PulseSourceView,
 } from '@/lib/api/pulse';
 import {
   configuredBackendTransport,
   useBackendTransport,
 } from '@/lib/transport';
 
+import { useCollaborationBotRoster } from './useCollaborationBotRoster';
 import {
   WorkflowStudio,
   getWorkflowPresetTemplates,
@@ -51,10 +51,17 @@ type StudioTriggerStep = Extract<StudioWorkflowStep, { kind: 'trigger' }>;
 export type WorkflowStudioOpenDetail = {
   definitionId?: string | null;
   presetId?: string | null;
+  initialDefinition?: StudioWorkflowDefinition | null;
+  sourceRuleId?: string | null;
 };
 
 type WorkflowStudioWindow = Window & {
   __VIBEX_PENDING_WORKFLOW_STUDIO_OPEN__?: WorkflowStudioOpenDetail | null;
+};
+
+export type WorkflowStudioDockPanelProps = Partial<IDockviewPanelProps> & {
+  embedded?: boolean;
+  projectId?: string | null;
 };
 
 function serializeStudioDefinition(
@@ -85,35 +92,15 @@ function createStarterWorkflow(
   };
 }
 
-function buildTriggerRuleSpec(
-  definition: StudioWorkflowDefinition,
-  trigger: StudioTriggerStep,
-  published: WorkflowVersionView
-): PulseRuleSpec {
-  const pinnedVersion = Math.max(1, Number(published.version));
-  return {
-    name: trigger.title.trim() || `${definition.name} (${trigger.id})`,
-    description: definition.description,
-    evalMode: trigger.evalMode,
-    orchestrator: definition.orchestratorPreset ?? undefined,
-    filter: trigger.filter,
-    temporal: trigger.temporal,
-    targets: [
-      {
-        kind: 'workflow',
-        workflowId: published.definitionId,
-        pinnedVersion,
-        inputMapping: {},
-      },
-    ],
-  };
-}
-
-export function WorkflowStudioDockPanel(_props?: Partial<IDockviewPanelProps>) {
-  const { t } = useTranslation('workflow');
+export function WorkflowStudioDockPanel(props?: WorkflowStudioDockPanelProps) {
+  const embedded = Boolean(props?.embedded);
+  const projectId = props?.projectId ?? null;
+  const { t, i18n } = useTranslation('workflow');
+  const language = i18n.resolvedLanguage ?? i18n.language ?? 'zh-CN';
   const transport = useBackendTransport();
   const { config } = useOptionalUserSystem() ?? {};
   const agentOptions = useManagedAgentOptions(undefined, true);
+  const { bots, spaces } = useCollaborationBotRoster('default', language);
   const defaultAgentId = useMemo(
     () =>
       resolveWorkflowAgentId(agentOptions, config?.executor_profile?.executor),
@@ -138,9 +125,11 @@ export function WorkflowStudioDockPanel(_props?: Partial<IDockviewPanelProps>) {
   const [definitions, setDefinitions] = useState<WorkflowDefinitionSummary[]>(
     []
   );
+  const [sources, setSources] = useState<PulseSourceView[]>([]);
   const [selectedDefinitionId, setSelectedDefinitionId] = useState<
     string | null
   >(null);
+  const [sourceRuleId, setSourceRuleId] = useState<string | null>(null);
   const [activeVersion, setActiveVersion] =
     useState<WorkflowVersionView | null>(null);
   const [definition, setDefinition] = useState<StudioWorkflowDefinition>(() =>
@@ -152,14 +141,11 @@ export function WorkflowStudioDockPanel(_props?: Partial<IDockviewPanelProps>) {
   const [capturedEvents, setCapturedEvents] = useState<EventEnvelope[]>(() => [
     ...BUILT_IN_SAMPLE_EVENTS,
   ]);
-  const [usingFallbackEvents, setUsingFallbackEvents] = useState(false);
 
   const [loadingCatalog, setLoadingCatalog] = useState(true);
   const [loadingWorkflow, setLoadingWorkflow] = useState(false);
   const [saving, setSaving] = useState(false);
   const [publishing, setPublishing] = useState(false);
-  const [savingTriggerRule, setSavingTriggerRule] = useState(false);
-  const [syncTriggerOnSave, setSyncTriggerOnSave] = useState(false);
   const [savedRuleIds, setSavedRuleIds] = useState<Record<string, string>>({});
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
@@ -167,17 +153,13 @@ export function WorkflowStudioDockPanel(_props?: Partial<IDockviewPanelProps>) {
   const hasUserEditedRef = useRef(false);
   const definitionsRef = useRef<WorkflowDefinitionSummary[]>([]);
   const loadingCatalogRef = useRef(true);
+  const agentPollTimerRef = useRef<number | null>(null);
 
   const dirty = useMemo(
     () =>
       serializeStudioDefinition(definition) !==
       serializeStudioDefinition(savedDefinition),
     [definition, savedDefinition]
-  );
-
-  const validationIssues = useMemo(
-    () => validateStudioWorkflowExhaustively(definition, t),
-    [definition, t]
   );
 
   const triggerSteps = useMemo(
@@ -194,6 +176,21 @@ export function WorkflowStudioDockPanel(_props?: Partial<IDockviewPanelProps>) {
       setErrorMessage(null);
       setStatusMessage(null);
       if (!summary.latestVersionId) {
+        if (summary.latestNormalizedJson) {
+          try {
+            const parsed = JSON.parse(
+              summary.latestNormalizedJson
+            ) as WorkflowDefinition;
+            const hydrated = toStudioWorkflowDefinition(parsed);
+            setActiveVersion(null);
+            setDefinition(hydrated);
+            setSavedDefinition(hydrated);
+            setUndoStack([]);
+            return;
+          } catch {
+            // fall through to starter
+          }
+        }
         const fresh = {
           ...createStarterWorkflow(defaultAgentId, t),
           name: summary.name,
@@ -215,6 +212,7 @@ export function WorkflowStudioDockPanel(_props?: Partial<IDockviewPanelProps>) {
         const hydrated = toStudioWorkflowDefinition(parsed);
         const nextDefinition: StudioWorkflowDefinition = {
           ...hydrated,
+          name: summary.name || hydrated.name,
           orchestratorPreset: hydrated.orchestratorPreset ?? null,
         };
         setActiveVersion(versionView);
@@ -240,6 +238,7 @@ export function WorkflowStudioDockPanel(_props?: Partial<IDockviewPanelProps>) {
       hasUserEditedRef.current = true;
       const nextDefinition = template.build(defaultAgentId);
       setSelectedDefinitionId(null);
+      setSourceRuleId(null);
       setActiveVersion(null);
       setSavedRuleIds({});
       setDefinition(nextDefinition);
@@ -259,9 +258,14 @@ export function WorkflowStudioDockPanel(_props?: Partial<IDockviewPanelProps>) {
       allowCatalogRefresh = false
     ): Promise<boolean> => {
       if (!detail) return false;
+      setSourceRuleId(detail.sourceRuleId ?? null);
+
       const targetDefinitionId = detail.definitionId?.trim();
       if (targetDefinitionId) {
-        let match = availableDefinitions.find(
+        const safeInitial = Array.isArray(availableDefinitions)
+          ? availableDefinitions
+          : [];
+        let match = safeInitial.find(
           (item) =>
             item.id === targetDefinitionId || item.name === targetDefinitionId
         );
@@ -269,7 +273,7 @@ export function WorkflowStudioDockPanel(_props?: Partial<IDockviewPanelProps>) {
           const refreshed = await workflowClient
             .listDefinitions(100)
             .catch(() => null);
-          if (refreshed) {
+          if (Array.isArray(refreshed)) {
             definitionsRef.current = refreshed;
             setDefinitions(refreshed);
             match = refreshed.find(
@@ -284,6 +288,19 @@ export function WorkflowStudioDockPanel(_props?: Partial<IDockviewPanelProps>) {
           await loadWorkflowSelection(match);
           return true;
         }
+      }
+
+      if (detail.initialDefinition) {
+        hasUserEditedRef.current = true;
+        setSelectedDefinitionId(targetDefinitionId || null);
+        setActiveVersion(null);
+        setSavedRuleIds({});
+        setDefinition(detail.initialDefinition);
+        setSavedDefinition(detail.initialDefinition);
+        setUndoStack([]);
+        setErrorMessage(null);
+        setStatusMessage(null);
+        return true;
       }
 
       const targetPresetId = detail.presetId?.trim();
@@ -302,17 +319,21 @@ export function WorkflowStudioDockPanel(_props?: Partial<IDockviewPanelProps>) {
       setLoadingCatalog(true);
       setErrorMessage(null);
 
-      const [definitionsResult, eventsResult] = await Promise.allSettled([
-        workflowClient.listDefinitions(100),
-        pulseClient.listCapturedEvents(25),
-      ]);
+      const [definitionsResult, eventsResult, sourcesResult] =
+        await Promise.allSettled([
+          workflowClient.listDefinitions(100),
+          pulseClient.listCapturedEvents(25),
+          pulseClient.listSources(),
+        ]);
 
       if (eventsResult.status === 'fulfilled' && eventsResult.value.length > 0) {
         setCapturedEvents(eventsResult.value);
-        setUsingFallbackEvents(false);
       } else {
         setCapturedEvents([...BUILT_IN_SAMPLE_EVENTS]);
-        setUsingFallbackEvents(eventsResult.status === 'rejected');
+      }
+
+      if (sourcesResult.status === 'fulfilled') {
+        setSources(sourcesResult.value);
       }
 
       const win = window as unknown as WorkflowStudioWindow;
@@ -359,6 +380,11 @@ export function WorkflowStudioDockPanel(_props?: Partial<IDockviewPanelProps>) {
 
   useEffect(() => {
     void loadWorkspaceData(false);
+    return () => {
+      if (agentPollTimerRef.current != null) {
+        window.clearInterval(agentPollTimerRef.current);
+      }
+    };
   }, [loadWorkspaceData]);
 
   useEffect(() => {
@@ -410,19 +436,6 @@ export function WorkflowStudioDockPanel(_props?: Partial<IDockviewPanelProps>) {
     });
   }, []);
 
-  const handleNewWorkflow = useCallback(() => {
-    hasUserEditedRef.current = true;
-    const starter = createStarterWorkflow(defaultAgentId, t);
-    setSelectedDefinitionId(null);
-    setActiveVersion(null);
-    setSavedRuleIds({});
-    setDefinition(starter);
-    setSavedDefinition(starter);
-    setUndoStack([]);
-    setErrorMessage(null);
-    setStatusMessage(null);
-  }, [defaultAgentId, t]);
-
   const handleOpenPulseDeck = useCallback(() => {
     window.dispatchEvent(
       new CustomEvent('vibex:open-pulse-deck', {
@@ -436,22 +449,40 @@ export function WorkflowStudioDockPanel(_props?: Partial<IDockviewPanelProps>) {
     async (published: WorkflowVersionView) => {
       if (triggerSteps.length === 0) return 0;
       const updatedRuleIds: Record<string, string> = {};
-      for (const trigger of triggerSteps) {
+      for (let index = 0; index < triggerSteps.length; index += 1) {
+        const trigger = triggerSteps[index]!;
+        const existingRuleId =
+          savedRuleIds[trigger.id] ?? (index === 0 ? sourceRuleId : null);
         const savedRule = await pulseClient.saveRule({
-          id: savedRuleIds[trigger.id] ?? null,
+          id: existingRuleId ?? null,
           enabled: trigger.evalMode !== 'off',
-          spec: buildTriggerRuleSpec(definition, trigger, published),
+          spec: buildWorkflowTriggerRuleSpec({
+            studio: {
+              ...definition,
+              steps: [
+                trigger,
+                ...definition.steps.filter((s) => s.id !== trigger.id),
+              ],
+            },
+            workflowId: published.definitionId,
+            pinnedVersion: Math.max(1, Number(published.version)),
+            projectId,
+            enabled: trigger.evalMode !== 'off',
+          }),
         });
         updatedRuleIds[trigger.id] = savedRule.id;
       }
       setSavedRuleIds((current) => ({ ...current, ...updatedRuleIds }));
+      if (updatedRuleIds[triggerSteps[0]!.id]) {
+        setSourceRuleId(updatedRuleIds[triggerSteps[0]!.id]!);
+      }
       return triggerSteps.length;
     },
-    [definition, pulseClient, savedRuleIds, triggerSteps]
+    [definition, projectId, pulseClient, savedRuleIds, sourceRuleId, triggerSteps]
   );
 
   const persistWorkflow = useCallback(
-    async (options: { isPublish: boolean; forceSyncTrigger?: boolean }) => {
+    async (options: { isPublish: boolean }) => {
       const issues = validateStudioWorkflowExhaustively(definition, t);
       if (issues.length > 0) {
         const summary = t('studio.validationBlockedSave', {
@@ -482,16 +513,8 @@ export function WorkflowStudioDockPanel(_props?: Partial<IDockviewPanelProps>) {
         setSavedDefinition(definition);
 
         let syncedCount = 0;
-        if (
-          (options.forceSyncTrigger || syncTriggerOnSave) &&
-          triggerSteps.length > 0
-        ) {
-          setSavingTriggerRule(true);
-          try {
-            syncedCount = await syncTriggersToPulse(published);
-          } finally {
-            setSavingTriggerRule(false);
-          }
+        if (triggerSteps.length > 0) {
+          syncedCount = await syncTriggersToPulse(published).catch(() => 0);
         }
 
         const nextList = await workflowClient
@@ -529,7 +552,6 @@ export function WorkflowStudioDockPanel(_props?: Partial<IDockviewPanelProps>) {
       activeVersion?.definitionId,
       definition,
       selectedDefinitionId,
-      syncTriggerOnSave,
       syncTriggersToPulse,
       t,
       triggerSteps.length,
@@ -537,34 +559,40 @@ export function WorkflowStudioDockPanel(_props?: Partial<IDockviewPanelProps>) {
     ]
   );
 
-  const handleSaveTriggerRule = useCallback(async () => {
-    if (triggerSteps.length === 0) return;
-    if (!activeVersion || dirty) {
-      await persistWorkflow({ isPublish: false, forceSyncTrigger: true });
-      return;
+  const handleAgentDispatched = useCallback(() => {
+    if (agentPollTimerRef.current != null) {
+      window.clearInterval(agentPollTimerRef.current);
     }
-    setErrorMessage(null);
-    setSavingTriggerRule(true);
-    try {
-      const count = await syncTriggersToPulse(activeVersion);
-      const label = t('studio.triggerRulesSaved', { count });
-      setStatusMessage(label);
-      toast.success(label);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      setErrorMessage(message);
-      toast.error(message);
-    } finally {
-      setSavingTriggerRule(false);
-    }
-  }, [
-    activeVersion,
-    dirty,
-    persistWorkflow,
-    syncTriggersToPulse,
-    t,
-    triggerSteps.length,
-  ]);
+    const baselineVersionId = activeVersion?.id ?? null;
+    const targetId = selectedDefinitionId;
+    let ticks = 0;
+    agentPollTimerRef.current = window.setInterval(() => {
+      ticks += 1;
+      void workflowClient
+        .listDefinitions(100)
+        .then((list) => {
+          definitionsRef.current = list;
+          setDefinitions(list);
+          if (!targetId) return;
+          const updated = list.find((item) => item.id === targetId);
+          if (
+            updated?.latestVersionId &&
+            updated.latestVersionId !== baselineVersionId
+          ) {
+            if (agentPollTimerRef.current != null) {
+              window.clearInterval(agentPollTimerRef.current);
+              agentPollTimerRef.current = null;
+            }
+            void loadWorkflowSelection(updated);
+          }
+        })
+        .catch(() => undefined);
+      if (ticks >= 15 && agentPollTimerRef.current != null) {
+        window.clearInterval(agentPollTimerRef.current);
+        agentPollTimerRef.current = null;
+      }
+    }, 4000);
+  }, [activeVersion?.id, loadWorkflowSelection, selectedDefinitionId, workflowClient]);
 
   const loadAgentSessionControls = useCallback(
     (agentId: string) => loadAgentSessionControlsCatalog(agentId),
@@ -576,159 +604,93 @@ export function WorkflowStudioDockPanel(_props?: Partial<IDockviewPanelProps>) {
       className="flex h-full min-h-0 w-full flex-col bg-background text-foreground"
       data-testid="workflow-studio-dock-panel"
     >
-      <div className="flex h-10 shrink-0 items-center justify-between gap-2 border-b border-border bg-[var(--surface-panel)] px-3">
-        <div className="flex min-w-0 items-center gap-2">
-          <select
-            aria-label={t('studio.selectWorkflow')}
-            value={selectedDefinitionId ?? '__draft__'}
-            disabled={loadingCatalog || loadingWorkflow}
-            onChange={(event) => {
-              const nextId = event.target.value;
-              if (nextId === '__draft__') {
-                handleNewWorkflow();
-                return;
-              }
-              const match = definitions.find((item) => item.id === nextId);
-              if (match) {
-                hasUserEditedRef.current = true;
-                void loadWorkflowSelection(match);
-              }
-            }}
-            className="raised-control h-7 max-w-[220px] truncate rounded-md border border-border bg-[var(--surface-control)] px-2 text-xs font-medium text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-          >
-            <option value="__draft__">
-              {selectedDefinitionId == null
-                ? t('studio.unsavedDraftOption', { name: definition.name })
-                : t('studio.newDraftOption')}
-            </option>
-            {definitions.map((item) => (
-              <option key={item.id} value={item.id}>
-                {item.name}
-              </option>
-            ))}
-          </select>
-
-          <Button
-            type="button"
-            size="sm"
-            variant="outline"
-            className="h-7 px-2.5 text-xs"
-            onClick={handleNewWorkflow}
-          >
-            <Plus className="mr-1 size-3.5" />
-            {t('studio.newWorkflow')}
-          </Button>
-
-          <Button
-            type="button"
-            size="sm"
-            variant="outline"
-            className="h-7 px-2.5 text-xs"
-            data-testid="workflow-studio-open-pulse-deck"
-            title={t('studio.openPulseDeckTooltip')}
-            onClick={handleOpenPulseDeck}
-          >
-            <Activity className="mr-1 size-3.5" />
-            {t('studio.openPulseDeck')}
-          </Button>
-
-          <Button
-            type="button"
-            size="icon"
-            variant="ghost"
-            className="size-7"
-            disabled={loadingCatalog || loadingWorkflow}
-            onClick={() => void loadWorkspaceData(true)}
-            title={t('studio.refreshCatalog')}
-            aria-label={t('studio.refreshCatalog')}
-          >
-            <RefreshCw
-              className={`size-3.5 ${loadingCatalog || loadingWorkflow ? 'animate-spin' : ''}`}
-            />
-          </Button>
-        </div>
-
-        <div className="flex shrink-0 items-center gap-2 text-[11px]">
-          <span
-            className="rounded border border-border bg-[var(--surface-control)] px-2 py-0.5 text-muted-foreground tabular-nums"
-            title={
-              usingFallbackEvents
-                ? t('studio.offlineSampleEventsHint')
-                : undefined
-            }
-          >
-            {usingFallbackEvents
-              ? t('studio.builtInSamplesCount', {
-                  count: capturedEvents.length,
-                })
-              : t('studio.capturedEventsCount', {
-                  count: capturedEvents.length,
-                })}
-          </span>
-
-          {triggerSteps.length > 0 ? (
-            <>
-              <label className="flex cursor-pointer items-center gap-1.5 rounded border border-border bg-[var(--surface-control)] px-2 py-0.5 text-muted-foreground select-none">
-                <input
-                  type="checkbox"
-                  checked={syncTriggerOnSave}
-                  onChange={(event) =>
-                    setSyncTriggerOnSave(event.target.checked)
-                  }
-                  className="size-3 accent-primary"
-                />
-                <span>{t('studio.syncTriggerOnSave')}</span>
-              </label>
-
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                className="h-7 px-2.5 text-xs"
-                disabled={
-                  savingTriggerRule ||
-                  saving ||
-                  publishing ||
-                  validationIssues.length > 0
+      {!embedded ? (
+        <div className="flex h-10 shrink-0 items-center justify-between gap-2 border-b border-border bg-[var(--surface-panel)] px-3">
+          <div className="flex min-w-0 items-center gap-2">
+            <select
+              aria-label={t('studio.selectWorkflow')}
+              value={selectedDefinitionId ?? '__draft__'}
+              disabled={loadingCatalog || loadingWorkflow}
+              onChange={(event) => {
+                const nextId = event.target.value;
+                if (nextId === '__draft__') return;
+                const match = definitions.find((item) => item.id === nextId);
+                if (match) {
+                  hasUserEditedRef.current = true;
+                  void loadWorkflowSelection(match);
                 }
-                onClick={() => void handleSaveTriggerRule()}
-              >
-                {savingTriggerRule ? (
-                  <Loader2 className="mr-1 size-3 animate-spin" />
-                ) : (
-                  <Radio className="mr-1 size-3" />
-                )}
-                {t('studio.saveTriggerRule')}
-              </Button>
-            </>
-          ) : null}
+              }}
+              className="raised-control h-7 max-w-[220px] truncate rounded-md border border-border bg-[var(--surface-control)] px-2 text-xs font-medium text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+            >
+              {selectedDefinitionId == null ? (
+                <option value="__draft__">
+                  {t('studio.unsavedDraftOption', { name: definition.name })}
+                </option>
+              ) : null}
+              {definitions.map((item) => (
+                <option key={item.id} value={item.id}>
+                  {item.name}
+                </option>
+              ))}
+            </select>
 
-          {loadingCatalog || loadingWorkflow ? (
-            <span
-              role="status"
-              className="inline-flex items-center gap-1 text-muted-foreground"
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              className="h-7 px-2.5 text-xs"
+              data-testid="workflow-studio-open-pulse-deck"
+              title={t('studio.openPulseDeckTooltip')}
+              onClick={handleOpenPulseDeck}
             >
-              <Loader2 className="size-3 animate-spin" />
-              {t('studio.loadingWorkspace')}
-            </span>
-          ) : statusMessage && !dirty ? (
-            <span
-              data-testid="workflow-studio-save-status"
-              className="inline-flex items-center gap-1 text-success tabular-nums"
+              <Activity className="mr-1 size-3.5" />
+              {t('studio.openPulseDeck')}
+            </Button>
+
+            <Button
+              type="button"
+              size="icon"
+              variant="ghost"
+              className="size-7"
+              disabled={loadingCatalog || loadingWorkflow}
+              onClick={() => void loadWorkspaceData(true)}
+              title={t('studio.refreshCatalog')}
+              aria-label={t('studio.refreshCatalog')}
             >
-              <CheckCircle2 className="size-3.5" />
-              {statusMessage}
-            </span>
-          ) : dirty ? (
-            <span
-              data-testid="workflow-studio-save-status"
-              className="text-warning"
-            >
-              {t('studio.unsavedChanges')}
-            </span>
-          ) : null}
+              <RefreshCw
+                className={`size-3.5 ${loadingCatalog || loadingWorkflow ? 'animate-spin' : ''}`}
+              />
+            </Button>
+          </div>
+
+          <div className="flex shrink-0 items-center gap-2 text-[11px]">
+            {loadingCatalog || loadingWorkflow ? (
+              <span
+                role="status"
+                className="inline-flex items-center gap-1 text-muted-foreground"
+              >
+                <Loader2 className="size-3 animate-spin" />
+                {t('studio.loadingWorkspace')}
+              </span>
+            ) : statusMessage && !dirty ? (
+              <span
+                data-testid="workflow-studio-save-status"
+                className="inline-flex items-center gap-1 text-success tabular-nums"
+              >
+                <CheckCircle2 className="size-3.5" />
+                {statusMessage}
+              </span>
+            ) : dirty ? (
+              <span
+                data-testid="workflow-studio-save-status"
+                className="text-warning"
+              >
+                {t('studio.unsavedChanges')}
+              </span>
+            ) : null}
+          </div>
         </div>
-      </div>
+      ) : null}
 
       {errorMessage ? (
         <div
@@ -770,6 +732,13 @@ export function WorkflowStudioDockPanel(_props?: Partial<IDockviewPanelProps>) {
           canUndo={undoStack.length > 0}
           onUndo={handleUndo}
           agentOptions={agentOptions}
+          bots={bots}
+          spaces={spaces}
+          sources={sources}
+          projectId={projectId}
+          definitionId={selectedDefinitionId}
+          sourceRuleId={sourceRuleId}
+          onAgentDispatched={handleAgentDispatched}
           loadAgentSessionControls={loadAgentSessionControls}
           capturedEvents={capturedEvents}
         />

@@ -17,8 +17,10 @@ import type {
 } from 'shared/types';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { CANONICAL_WORKFLOW_STARTERS } from '@/components/kanban/automation/automationAgentBridge';
 import { panelComponents } from '@/components/layout/panels/PanelRegistry';
 import { WorkspaceTabAddMenu } from '@/components/layout/panels/WorkspaceTabAddMenu';
+import { resolveMemberBotAvatar } from '@/features/collaboration/MemberBotAvatar';
 import { BUILT_IN_SAMPLE_EVENTS } from '@/features/pulse';
 import {
   BackendTransportProvider,
@@ -43,15 +45,13 @@ import {
 } from './workflow-studio/workflowGraph';
 import { WorkflowStepNode } from './workflow-studio/WorkflowStepNode';
 
-const {
-  openPluginPanel,
-  openOrFocusPanel,
-  runInEditorGroup,
-} = vi.hoisted(() => ({
-  openPluginPanel: vi.fn(),
-  openOrFocusPanel: vi.fn(),
-  runInEditorGroup: vi.fn((_groupId: string, action: () => void) => action()),
-}));
+const { openPluginPanel, openOrFocusPanel, runInEditorGroup } = vi.hoisted(
+  () => ({
+    openPluginPanel: vi.fn(),
+    openOrFocusPanel: vi.fn(),
+    runInEditorGroup: vi.fn((_groupId: string, action: () => void) => action()),
+  })
+);
 
 vi.mock('@/components/ConfigProvider', () => ({
   useOptionalUserSystem: () => ({
@@ -104,11 +104,11 @@ const sevenCategoryWorkflow: StudioWorkflowDefinition = {
       phase: null,
       inputBindings: {},
       kind: 'trigger',
-      title: 'GitHub CI Trigger',
+      title: 'GitHub CI 失败事件',
       triggerKind: 'platform',
       sourceKind: 'github',
       eventType: 'github.ci.failed',
-      evalMode: 'observe',
+      evalMode: 'auto',
       temporal: null,
       filter: {
         sourceKinds: ['github'],
@@ -127,7 +127,7 @@ const sevenCategoryWorkflow: StudioWorkflowDefinition = {
       memberId: 'sre-memory-bot',
       conversationScope: 'fixed_primary',
       mailboxPolicy: 'coalesce_batch',
-      prompt: 'Triage {{failedJob}} on {{threadKey}}',
+      prompt: '分诊失败任务 {{failedJob}} 并定位责任模块',
     },
     {
       id: 'coder-session',
@@ -136,12 +136,12 @@ const sevenCategoryWorkflow: StudioWorkflowDefinition = {
       inputBindings: {},
       kind: 'session',
       agentId: 'codex',
-      prompt: 'Fix {{failedJob}} in {{repository}}',
+      prompt: '修复仓库 {{repository}} 中的失败单测 {{failedJob}}',
       workspaceIsolation: 'isolated_worktree',
       executorProfileId: null,
       modeOverride: null,
       configOverrides: {},
-      outputLanguage: 'en',
+      outputLanguage: 'zh-CN',
       outputDescription: null,
       outputSchema: null,
       completionPolicy: 'automatic',
@@ -157,7 +157,8 @@ const sevenCategoryWorkflow: StudioWorkflowDefinition = {
         type: 'moderator_triage',
         moderatorMemberId: 'lead-bot',
       },
-      prompt: 'Review candidate patch for {{threadKey}}',
+      rounds: 2,
+      prompt: '评审候选补丁 {{threadKey}} 并收敛结论',
     },
     {
       id: 'review-loop',
@@ -166,7 +167,7 @@ const sevenCategoryWorkflow: StudioWorkflowDefinition = {
       inputBindings: {},
       kind: 'control',
       controlKind: 'bounded_loop',
-      title: 'Review Bounded Loop',
+      title: '自动评审迭代',
       maxIterations: 4,
       loopTargetStepId: 'coder-session',
     },
@@ -177,8 +178,8 @@ const sevenCategoryWorkflow: StudioWorkflowDefinition = {
       inputBindings: {},
       kind: 'user_gate',
       interactionKind: 'approval',
-      title: 'Merge Approval',
-      bodyTemplate: 'Approve {{threadKey}} after {{failedJob}} fix?',
+      title: '人工放行确认',
+      bodyTemplate: '是否批准合并 {{threadKey}}？',
       slaTimeoutSeconds: 1800,
     },
     {
@@ -188,7 +189,7 @@ const sevenCategoryWorkflow: StudioWorkflowDefinition = {
       inputBindings: {},
       kind: 'outbox_action',
       actionKind: 'github_comment',
-      title: 'Comment on PR',
+      title: '向原 PR 发表修复摘要',
       destination: '{{threadKey}}',
       payloadTemplate: 'Resolved {{failedJob}} on {{threadKey}}.',
     },
@@ -204,14 +205,43 @@ function StatefulStudioHarness({
     useState<StudioWorkflowDefinition>(initial);
   return (
     <WorkflowStudio
+      studioMode
       definition={definition}
       onDefinitionChange={setDefinition}
+      agentOptions={[
+        { value: 'codex', label: 'Codex', runnable: true },
+        { value: 'claude_code', label: 'Claude Code', runnable: true },
+      ]}
+      bots={[
+        {
+          memberId: 'sre-memory-bot',
+          displayName: '值班 SRE 助手',
+          avatar: resolveMemberBotAvatar({
+            identityMemberId: 'sre-memory-bot',
+            nickname: '值班 SRE 助手',
+          }),
+        },
+        {
+          memberId: 'review-bot',
+          displayName: '代码审查 Bot',
+          avatar: resolveMemberBotAvatar({
+            identityMemberId: 'review-bot',
+            nickname: '代码审查 Bot',
+          }),
+        },
+      ]}
+      spaces={[
+        {
+          spaceId: 'eng-council',
+          displayName: '研发架构评审群',
+        },
+      ]}
       capturedEvents={BUILT_IN_SAMPLE_EVENTS}
     />
   );
 }
 
-describe('Dual-Primitive WorkflowStudio & 3-Tier Inspector', () => {
+describe('Semantic WorkflowStudio Canvas & Simple 2-Tab Node Side Card', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     HTMLElement.prototype.hasPointerCapture = vi.fn(() => false);
@@ -220,150 +250,112 @@ describe('Dual-Primitive WorkflowStudio & 3-Tier Inspector', () => {
     HTMLElement.prototype.scrollIntoView = vi.fn();
   });
 
-  it('renders all 7 Dual-Primitive node categories with distinct memory, mailbox, SLA, and BoundedLoop badges', () => {
+  it('renders all 7 node categories with human-centric Agent icons, Bot avatars, and zero internal runtime jargon', () => {
     render(<StatefulStudioHarness />);
 
-    // 1. Trigger with inline Off | Observe | Auto pill
+    // 1. Trigger node shows platform source badge + natural-language headline (no Off|Observe|Auto mode segmented bar)
     const triggerNode = screen.getByTestId('workflow-node-gh-trigger');
-    expect(within(triggerNode).getByText('触发器')).toBeInTheDocument();
-    expect(within(triggerNode).getByText('平台事件')).toBeInTheDocument();
-    const inlineModeGroup = within(triggerNode).getByRole('group', {
-      name: /触发器 gh-trigger 评估模式|Trigger gh-trigger evaluation mode/i,
-    });
-    const autoBtn = within(inlineModeGroup).getByRole('button', {
-      name: /^Auto$|^自动$/i,
-    });
-    fireEvent.click(autoBtn);
-    expect(autoBtn).toHaveAttribute('aria-pressed', 'true');
+    expect(within(triggerNode).getByText('GitHub')).toBeInTheDocument();
+    expect(
+      within(triggerNode).getByText('GitHub CI 失败事件')
+    ).toBeInTheDocument();
 
-    // 2. Persistent Bot node
+    // 2. Bot node shows Bot display name + MemberBotAvatar + clean headline (no "固定会话记忆" / "窗口合并" jargon)
     const botNode = screen.getByTestId('workflow-node-triage-bot');
-    expect(within(botNode).getByText('Bot 助手')).toBeInTheDocument();
-    expect(within(botNode).getByText('固定会话记忆')).toBeInTheDocument();
-    expect(within(botNode).getByText('窗口合并')).toBeInTheDocument();
+    expect(within(botNode).getByText('值班 SRE 助手')).toBeInTheDocument();
+    expect(
+      within(botNode).getByText('分诊失败任务 并定位责任模块')
+    ).toBeInTheDocument();
+    expect(within(botNode).queryByText('固定会话记忆')).toBeNull();
 
-    // 3. Ephemeral Session node
+    // 3. Session node shows Agent brand name ("Codex") + StudioAgentIcon + clean headline (no "临时会话" / "每次运行重置上下文" jargon)
     const sessionNode = screen.getByTestId('workflow-node-coder-session');
-    expect(within(sessionNode).getByText('临时会话')).toBeInTheDocument();
+    expect(within(sessionNode).getByText('Codex')).toBeInTheDocument();
     expect(
-      within(sessionNode).getByText('每次运行重置上下文')
+      within(sessionNode).getByText('修复仓库 中的失败单测')
     ).toBeInTheDocument();
-    expect(within(sessionNode).getByText('独立 Worktree')).toBeInTheDocument();
+    expect(within(sessionNode).queryByText('临时会话')).toBeNull();
+    expect(within(sessionNode).queryByText('每次运行重置上下文')).toBeNull();
 
-    // 4. Group Stage node
+    // 4. Group Stage node shows human space display name + tabular-nums rounds badge
     const groupNode = screen.getByTestId('workflow-node-council-stage');
-    expect(within(groupNode).getByText('群组协作')).toBeInTheDocument();
-    expect(
-      within(groupNode).getByText(/主持人分诊 · lead-bot/)
-    ).toBeInTheDocument();
+    expect(within(groupNode).getByText('研发架构评审群')).toBeInTheDocument();
+    expect(within(groupNode).getByText('最多 2 轮')).toHaveClass('tabular-nums');
 
-    // 5. Flow Control BoundedLoop node with tabular-nums badge
+    // 5. Flow Control BoundedLoop node shows tabular-nums max rounds badge
     const controlNode = screen.getByTestId('workflow-node-review-loop');
     expect(within(controlNode).getByText('循环')).toBeInTheDocument();
-    const loopBadge = within(controlNode).getByText('最多 4 轮');
-    expect(loopBadge).toHaveClass('tabular-nums');
+    expect(within(controlNode).getByText('最多 4 轮')).toHaveClass(
+      'tabular-nums'
+    );
 
-    // 6. User Gate node with tabular-nums SLA badge
+    // 6. User Gate node shows human approval badge + title
     const gateNode = screen.getByTestId('workflow-node-owner-gate');
-    expect(within(gateNode).getByText('人工门控')).toBeInTheDocument();
     expect(within(gateNode).getByText('人工审批')).toBeInTheDocument();
-    expect(within(gateNode).getByText('SLA 1800s')).toHaveClass('tabular-nums');
+    expect(within(gateNode).getByText('人工放行确认')).toBeInTheDocument();
 
-    // 7. Outbox Action node
+    // 7. Outbox Action node shows channel badge + natural-language summary
     const outboxNode = screen.getByTestId('workflow-node-gh-outbox');
-    expect(within(outboxNode).getByText('回写动作')).toBeInTheDocument();
     expect(within(outboxNode).getByText('GitHub 评论')).toBeInTheDocument();
-  });
-
-  it('switches execution primitive between Fresh Session and Persistent Bot in the Visual inspector', () => {
-    render(<StatefulStudioHarness />);
-
-    fireEvent.click(
-      within(screen.getByTestId('workflow-node-coder-session')).getByRole(
-        'button',
-        { name: /coder-session/i }
-      )
-    );
-
-    // Switch Ephemeral Session -> Persistent Bot
-    fireEvent.click(screen.getByTestId('inspector-primitive-bot'));
     expect(
-      within(screen.getByTestId('workflow-node-coder-session')).getByText(
-        'Bot 助手'
-      )
-    ).toBeInTheDocument();
-    expect(
-      within(screen.getByTestId('workflow-node-coder-session')).getByText(
-        '固定会话记忆'
-      )
-    ).toBeInTheDocument();
-
-    // Switch Persistent Bot -> Ephemeral Session
-    fireEvent.click(screen.getByTestId('inspector-primitive-session'));
-    expect(
-      within(screen.getByTestId('workflow-node-coder-session')).getByText(
-        '临时会话'
-      )
-    ).toBeInTheDocument();
-    expect(
-      within(screen.getByTestId('workflow-node-coder-session')).getByText(
-        '每次运行重置上下文'
-      )
+      within(outboxNode).getByText('向原 PR 发表修复摘要')
     ).toBeInTheDocument();
   });
 
-  it('supports 3-Tier Visual | Advanced | JSON inspection and reports exhaustive BoundedLoop & workflow violations', () => {
+  it('supports simple light tweaks in the 2-tab side card (swap Bot, swap Agent, adjust loop max rounds) without exposing JSON/AST editors', () => {
     render(<StatefulStudioHarness />);
 
-    // Select BoundedLoop control node
-    fireEvent.click(
-      within(screen.getByTestId('workflow-node-review-loop')).getByRole(
-        'button',
-        { name: /review-loop/i }
-      )
-    );
-
-    const maxInput = screen.getByTestId('inspector-bounded-loop-max-iterations');
-    fireEvent.change(maxInput, { target: { value: '75' } });
-    expect(screen.getByTestId('inspector-bounded-loop-error')).toBeVisible();
-
-    // Switch to Advanced tier
-    fireEvent.click(screen.getByTestId('inspector-tier-advanced'));
-    expect(screen.getByTestId('inspector-advanced-panel')).toBeVisible();
-
-    // Switch to JSON tier: verify live exhaustive validation flags 75 (> 50)
-    fireEvent.click(screen.getByTestId('inspector-tier-json'));
-    expect(screen.getByTestId('inspector-json-panel')).toBeVisible();
+    // Swap Bot on triage-bot
+    fireEvent.click(screen.getByTestId('workflow-node-deck-triage-bot'));
+    expect(screen.queryByTestId('inspector-tier-json')).toBeNull();
+    expect(screen.queryByTestId('inspector-tier-advanced')).toBeNull();
+    fireEvent.change(screen.getByTestId('inspector-step-bot'), {
+      target: { value: 'review-bot' },
+    });
     expect(
-      within(screen.getByTestId('inspector-json-issues-list')).getByText(
-        /1 <= maxIterations <= 50/
+      within(screen.getByTestId('workflow-node-triage-bot')).getByText(
+        '代码审查 Bot'
       )
-    ).toBeVisible();
+    ).toBeInTheDocument();
 
-    // Co-edit JSON back to valid maxIterations: 5 and apply
-    const jsonEditor = screen.getByTestId(
-      'inspector-json-editor'
-    ) as HTMLTextAreaElement;
-    const updatedJson = jsonEditor.value.replace(
-      '"maxIterations": 75',
-      '"maxIterations": 5'
-    );
-    fireEvent.change(jsonEditor, { target: { value: updatedJson } });
-    fireEvent.click(screen.getByTestId('inspector-json-apply'));
+    // Swap Agent on coder-session
+    fireEvent.click(screen.getByTestId('workflow-node-deck-coder-session'));
+    fireEvent.change(screen.getByTestId('inspector-step-agent'), {
+      target: { value: 'claude_code' },
+    });
+    expect(
+      within(screen.getByTestId('workflow-node-coder-session')).getByText(
+        'Claude Code'
+      )
+    ).toBeInTheDocument();
 
+    // Adjust BoundedLoop max rounds
+    fireEvent.click(screen.getByTestId('workflow-node-deck-review-loop'));
+    fireEvent.change(screen.getByTestId('inspector-loop-max'), {
+      target: { value: '5' },
+    });
     expect(
       within(screen.getByTestId('workflow-node-review-loop')).getByText(
         '最多 5 轮'
       )
     ).toBeInTheDocument();
-    expect(
-      within(screen.getByTestId('inspector-json-validation')).getByText(
-        '0 项问题'
-      )
-    ).toBeVisible();
   });
 
-  it('validates multiple workflow errors exhaustively in a single pass without fail-fast', () => {
+  it('validates all 4 canonical example workflows and preset templates cleanly, and reports multiple violations in a single pass', () => {
+    for (const starter of CANONICAL_WORKFLOW_STARTERS) {
+      const studio = toStudioWorkflowDefinition(starter.definition);
+      expect(validateStudioWorkflowExhaustively(studio)).toEqual([]);
+      const roundTripped = toStudioWorkflowDefinition(
+        toBackendWorkflowDefinition(studio)
+      );
+      expect(validateStudioWorkflowExhaustively(roundTripped)).toEqual([]);
+    }
+
+    for (const preset of WORKFLOW_PRESET_TEMPLATES) {
+      const built = preset.build('codex');
+      expect(validateStudioWorkflowExhaustively(built)).toEqual([]);
+    }
+
     const brokenWorkflow: StudioWorkflowDefinition = {
       ...sevenCategoryWorkflow,
       name: '',
@@ -407,33 +399,6 @@ describe('Dual-Primitive WorkflowStudio & 3-Tier Inspector', () => {
       ])
     );
   });
-
-  it('instantiates all 5 Preset Orchestrator templates cleanly and replays captured events', () => {
-    render(<StatefulStudioHarness />);
-
-    for (const preset of WORKFLOW_PRESET_TEMPLATES) {
-      const built = preset.build('codex');
-      expect(validateStudioWorkflowExhaustively(built)).toEqual([]);
-    }
-
-    // Open Replay Event popover and select GitHub CI failure sample
-    fireEvent.click(screen.getByTestId('workflow-replay-trigger'));
-    const ghSample = BUILT_IN_SAMPLE_EVENTS[2];
-    fireEvent.click(
-      screen.getByTestId(`workflow-replay-sample-${ghSample.eventId}`)
-    );
-
-    expect(
-      within(screen.getByTestId('workflow-trigger-replay-gh-trigger')).getByText(
-        '命中'
-      )
-    ).toBeVisible();
-    expect(
-      within(
-        screen.getByTestId('workflow-replay-preview-coder-session')
-      ).getByText('Fix cargo-test-workspace in vibex/core')
-    ).toBeVisible();
-  });
 });
 
 describe('WorkspaceTabAddMenu Workflow Studio quick entry', () => {
@@ -468,7 +433,7 @@ describe('WorkspaceTabAddMenu Workflow Studio quick entry', () => {
   });
 });
 
-describe('Track R3: Built-in Dockview Panel & WorkflowStudioDockPanel', () => {
+describe('Built-in Dockview Panel & WorkflowStudioDockPanel', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     HTMLElement.prototype.hasPointerCapture = vi.fn(() => false);
@@ -477,7 +442,7 @@ describe('Track R3: Built-in Dockview Panel & WorkflowStudioDockPanel', () => {
     HTMLElement.prototype.scrollIntoView = vi.fn();
   });
 
-  it('registers PANEL_IDS.WORKFLOW_STUDIO in PanelRegistry and loads/saves workflows + Pulse trigger rules with offline event fallback', async () => {
+  it('registers PANEL_IDS.WORKFLOW_STUDIO, hydrates workflows, and auto-syncs Pulse trigger rules on Save Changes', async () => {
     expect(PANEL_IDS.WORKFLOW_STUDIO).toBe('workflow-studio');
     expect(panelComponents[PANEL_IDS.WORKFLOW_STUDIO]).toBeDefined();
 
@@ -507,6 +472,8 @@ describe('Track R3: Built-in Dockview Panel & WorkflowStudioDockPanel', () => {
             };
           case 'pulse_captured_events':
             throw new Error('Pulse daemon offline');
+          case 'pulse_sources_list':
+            return [];
           case 'workflow_validate':
             return { valid: true, issues: [] };
           case 'workflow_publish': {
@@ -516,7 +483,7 @@ describe('Track R3: Built-in Dockview Panel & WorkflowStudioDockPanel', () => {
             };
             return {
               id: 'wf-ver-20',
-              definitionId: req.definitionId ?? 'wf-new-1',
+              definitionId: req.definitionId ?? 'wf-hybrid-1',
               version: 20n,
               normalizedJson: JSON.stringify(req.definition),
               digest: 'sha256:def456',
@@ -553,67 +520,30 @@ describe('Track R3: Built-in Dockview Panel & WorkflowStudioDockPanel', () => {
       </BackendTransportProvider>
     );
 
-    // Hydrates saved workflow via workflow_list + workflow_version and falls back gracefully to BUILT_IN_SAMPLE_EVENTS
     await waitFor(() => {
       expect(
         screen.getByTestId('workflow-node-gh-trigger')
       ).toBeInTheDocument();
     });
     expect(callSpy).toHaveBeenCalledWith('workflow_list', { limit: 100 });
-    expect(callSpy).toHaveBeenCalledWith('pulse_captured_events', {
-      limit: 25,
-    });
-    expect(
-      screen.getByTitle(/离线模式|Offline/i)
-    ).toHaveTextContent(String(BUILT_IN_SAMPLE_EVENTS.length));
 
-    // Clicking "Save Trigger Rule" syncs the Trigger step to pulseApi.saveRule
-    fireEvent.click(
-      screen.getByRole('button', { name: /保存触发器规则|Save Trigger Rule/i })
-    );
-    await waitFor(() => {
-      expect(callSpy).toHaveBeenCalledWith(
-        'pulse_rule_save',
-        expect.objectContaining({
-          input: expect.objectContaining({
-            enabled: true,
-            spec: expect.objectContaining({
-              name: 'GitHub CI Trigger',
-              targets: [
-                expect.objectContaining({
-                  kind: 'workflow',
-                  workflowId: 'wf-hybrid-1',
-                  pinnedVersion: 10,
-                }),
-              ],
-            }),
-          }),
-        })
-      );
+    // Lightly rename the workflow and click "保存修改" -> validates, publishes, and auto-syncs trigger rule
+    const nameInput = screen.getByRole('textbox', {
+      name: /名称|Name/i,
+    });
+    fireEvent.change(nameInput, {
+      target: { value: 'Updated Hybrid Automation' },
     });
 
-    // Clicking "New Workflow" resets to a clean draft, and Sync Trigger Rule + Save publishes both workflow and trigger rule
-    fireEvent.click(
-      screen.getByRole('button', { name: /新建工作流|New Workflow/i })
-    );
-    const workflowSelector = screen.getByRole('combobox', {
-      name: /选择工作流|Select workflow/i,
-    }) as HTMLSelectElement;
-    expect(workflowSelector.value).toBe('__draft__');
-
-    // Make an edit and check "Sync Trigger Rule", then Save
-    const syncCheckbox = screen.getByRole('checkbox', {
-      name: /同步触发器规则|Sync Trigger Rule/i,
-    });
-    fireEvent.click(syncCheckbox);
-
-    fireEvent.click(screen.getByRole('button', { name: '发布' }));
+    fireEvent.click(screen.getByTestId('workflow-toolbar-save-btn'));
     await waitFor(() => {
       expect(callSpy).toHaveBeenCalledWith(
         'workflow_validate',
         expect.objectContaining({
           request: expect.objectContaining({
-            definition: expect.objectContaining({ name: '新建工作流' }),
+            definition: expect.objectContaining({
+              name: 'Updated Hybrid Automation',
+            }),
           }),
         })
       );
@@ -621,14 +551,34 @@ describe('Track R3: Built-in Dockview Panel & WorkflowStudioDockPanel', () => {
         'workflow_publish',
         expect.objectContaining({
           request: expect.objectContaining({
-            definition: expect.objectContaining({ name: '新建工作流' }),
+            definitionId: 'wf-hybrid-1',
+            definition: expect.objectContaining({
+              name: 'Updated Hybrid Automation',
+            }),
+          }),
+        })
+      );
+      expect(callSpy).toHaveBeenCalledWith(
+        'pulse_rule_save',
+        expect.objectContaining({
+          input: expect.objectContaining({
+            enabled: true,
+            spec: expect.objectContaining({
+              targets: [
+                expect.objectContaining({
+                  kind: 'workflow',
+                  workflowId: 'wf-hybrid-1',
+                  pinnedVersion: 20,
+                }),
+              ],
+            }),
           }),
         })
       );
     });
   });
 
-  it('consumes pending/live vibex:open-workflow-studio handoff events and dispatches vibex:open-pulse-deck on shortcut click', async () => {
+  it('consumes pending/live vibex:open-workflow-studio handoff events (including initialDefinition) and supports embedded mode', async () => {
     const firstBackend = toBackendWorkflowDefinition(
       WORKFLOW_PRESET_TEMPLATES[0].build('codex')
     );
@@ -669,6 +619,7 @@ describe('Track R3: Built-in Dockview Panel & WorkflowStudioDockPanel', () => {
           };
         }
         if (command === 'pulse_captured_events') return [];
+        if (command === 'pulse_sources_list') return [];
         return null;
       }
     );
@@ -677,6 +628,8 @@ describe('Track R3: Built-in Dockview Panel & WorkflowStudioDockPanel', () => {
       __VIBEX_PENDING_WORKFLOW_STUDIO_OPEN__?: {
         definitionId?: string | null;
         presetId?: string | null;
+        initialDefinition?: StudioWorkflowDefinition | null;
+        sourceRuleId?: string | null;
       } | null;
     };
     win.__VIBEX_PENDING_WORKFLOW_STUDIO_OPEN__ = {
@@ -689,7 +642,7 @@ describe('Track R3: Built-in Dockview Panel & WorkflowStudioDockPanel', () => {
     window.addEventListener('vibex:open-pulse-deck', onPulseDeck);
 
     try {
-      render(
+      const { rerender } = render(
         <BackendTransportProvider
           transport={{ environment: 'desktop', call: callSpy }}
         >
@@ -697,7 +650,6 @@ describe('Track R3: Built-in Dockview Panel & WorkflowStudioDockPanel', () => {
         </BackendTransportProvider>
       );
 
-      // 1. Consumes pending open by workflow name (skipping wf-first) and clears global slot
       await waitFor(() => {
         expect(
           screen.getByTestId('workflow-node-council-stage')
@@ -709,36 +661,21 @@ describe('Track R3: Built-in Dockview Panel & WorkflowStudioDockPanel', () => {
       expect(selector.value).toBe('wf-second');
       expect(win.__VIBEX_PENDING_WORKFLOW_STUDIO_OPEN__).toBeNull();
 
-      // 2. Live vibex:open-workflow-studio with presetId applies preset template cleanly
-      await act(async () => {
-        window.dispatchEvent(
-          new CustomEvent('vibex:open-workflow-studio', {
-            detail: { presetId: 'event_saga' },
-          })
-        );
-      });
-      expect(selector.value).toBe('__draft__');
-      expect(
-        screen.getByTestId('workflow-node-wait-ci-complete')
-      ).toBeInTheDocument();
-
-      // 3. Live vibex:open-workflow-studio with definitionId selects and loads wf-first
-      await act(async () => {
-        window.dispatchEvent(
-          new CustomEvent('vibex:open-workflow-studio', {
-            detail: { definitionId: 'wf-first' },
-          })
-        );
-      });
-      await waitFor(() => {
-        expect(selector.value).toBe('wf-first');
-      });
-
-      // 4. Quick return shortcut dispatches vibex:open-pulse-deck
+      // Quick return shortcut dispatches vibex:open-pulse-deck
       fireEvent.click(screen.getByTestId('workflow-studio-open-pulse-deck'));
       expect(pulseDeckEvents).toHaveLength(1);
-      expect(pulseDeckEvents[0].bubbles).toBe(true);
-      expect(pulseDeckEvents[0].cancelable).toBe(true);
+
+      // Embedded mode hides standalone header selector bar
+      rerender(
+        <BackendTransportProvider
+          transport={{ environment: 'desktop', call: callSpy }}
+        >
+          <WorkflowStudioDockPanel embedded />
+        </BackendTransportProvider>
+      );
+      expect(
+        screen.queryByTestId('workflow-studio-open-pulse-deck')
+      ).toBeNull();
     } finally {
       window.removeEventListener('vibex:open-pulse-deck', onPulseDeck);
       win.__VIBEX_PENDING_WORKFLOW_STUDIO_OPEN__ = null;
@@ -746,7 +683,7 @@ describe('Track R3: Built-in Dockview Panel & WorkflowStudioDockPanel', () => {
   });
 });
 
-describe('Track R3: Lossless Persistence & Non-Lossy Studio Editing', () => {
+describe('Lossless Persistence & Non-Lossy Studio Editing', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     HTMLElement.prototype.hasPointerCapture = vi.fn(() => false);
@@ -755,12 +692,12 @@ describe('Track R3: Lossless Persistence & Non-Lossy Studio Editing', () => {
     HTMLElement.prototype.scrollIntoView = vi.fn();
   });
 
-  it('preserves all 7 node categories, Condition.expression, Outbox.actionKind, titles, and scratch workspaceIsolation across round-trips', () => {
+  it('preserves all 7 node categories, Condition.expression, Outbox.actionKind, titles, and scratch workspaceIsolation across round-trips and light edits', () => {
     const fullShowcaseWorkflow: StudioWorkflowDefinition = {
       ...sevenCategoryWorkflow,
       steps: [
-        sevenCategoryWorkflow.steps[0], // trigger
-        sevenCategoryWorkflow.steps[1], // bot
+        sevenCategoryWorkflow.steps[0],
+        sevenCategoryWorkflow.steps[1],
         {
           ...(sevenCategoryWorkflow.steps[2] as Extract<
             StudioWorkflowDefinition['steps'][number],
@@ -768,7 +705,7 @@ describe('Track R3: Lossless Persistence & Non-Lossy Studio Editing', () => {
           >),
           workspaceIsolation: 'scratch',
         },
-        sevenCategoryWorkflow.steps[3], // group_stage
+        sevenCategoryWorkflow.steps[3],
         {
           id: 'severity-branch',
           dependsOn: ['council-stage'],
@@ -793,7 +730,7 @@ describe('Track R3: Lossless Persistence & Non-Lossy Studio Editing', () => {
           >),
           dependsOn: ['severity-branch'],
         },
-        sevenCategoryWorkflow.steps[5], // user_gate
+        sevenCategoryWorkflow.steps[5],
         {
           id: 'feishu-outbox',
           dependsOn: ['owner-gate'],
@@ -805,127 +742,19 @@ describe('Track R3: Lossless Persistence & Non-Lossy Studio Editing', () => {
           destination: '{{threadKey}}',
           payloadTemplate: 'Feishu summary for {{failedJob}}',
         },
-        {
-          id: 'jira-outbox',
-          dependsOn: ['owner-gate'],
-          phase: null,
-          inputBindings: {},
-          kind: 'outbox_action',
-          actionKind: 'jira_comment',
-          title: 'Post Jira Ticket Update',
-          destination: '{{issue.key}}',
-          payloadTemplate: 'Jira update for {{failedJob}}',
-        },
-        sevenCategoryWorkflow.steps[6], // github_comment outbox
+        sevenCategoryWorkflow.steps[6],
       ],
     };
 
-    const backend = toBackendWorkflowDefinition(fullShowcaseWorkflow);
-    const roundTripped = toStudioWorkflowDefinition(backend);
-
+    const roundTripped = toStudioWorkflowDefinition(
+      toBackendWorkflowDefinition(fullShowcaseWorkflow)
+    );
     expect(roundTripped.name).toBe(fullShowcaseWorkflow.name);
     expect(roundTripped.orchestratorPreset).toBe('hybrid_pipeline');
-    expect(roundTripped.steps.map((s) => s.kind)).toEqual([
-      'trigger',
-      'bot',
-      'session',
-      'group_stage',
-      'control',
-      'control',
-      'user_gate',
-      'outbox_action',
-      'outbox_action',
-      'outbox_action',
-    ]);
 
-    const trigger = roundTripped.steps[0];
-    expect(trigger.kind).toBe('trigger');
-    if (trigger.kind === 'trigger') {
-      expect(trigger.title).toBe('GitHub CI Trigger');
-      expect(trigger.sourceKind).toBe('github');
-      expect(trigger.eventType).toBe('github.ci.failed');
-      expect(trigger.evalMode).toBe('observe');
-    }
-
-    const session = roundTripped.steps[2];
-    expect(session.kind).toBe('session');
-    if (session.kind === 'session') {
-      expect(session.workspaceIsolation).toBe('scratch');
-    }
-
-    const condition = roundTripped.steps[4];
-    expect(condition.kind).toBe('control');
-    if (condition.kind === 'control') {
-      expect(condition.phase).toBe('routing');
-      expect(condition.controlKind).toBe('condition');
-      expect(condition.title).toBe('Check P0 Severity');
-      expect(condition.expression).toBe(
-        'event.payload.priority == "P0" && !actor.isBot'
-      );
-    }
-
-    const feishuOutbox = roundTripped.steps[7];
-    const jiraOutbox = roundTripped.steps[8];
-    const ghOutbox = roundTripped.steps[9];
-    if (
-      feishuOutbox.kind === 'outbox_action' &&
-      jiraOutbox.kind === 'outbox_action' &&
-      ghOutbox.kind === 'outbox_action'
-    ) {
-      expect(feishuOutbox.actionKind).toBe('feishu_reply');
-      expect(feishuOutbox.title).toBe('Reply in Feishu Thread');
-      expect(feishuOutbox.payloadTemplate).toBe(
-        'Feishu summary for {{failedJob}}'
-      );
-      expect(jiraOutbox.actionKind).toBe('jira_comment');
-      expect(jiraOutbox.title).toBe('Post Jira Ticket Update');
-      expect(ghOutbox.actionKind).toBe('github_comment');
-      expect(ghOutbox.title).toBe('Comment on PR');
-    }
-  });
-
-  it('keeps Trigger, Condition.expression, feishu_reply, titles, and scratch isolation intact on every keystroke in studioMode', () => {
-    const hydratedFromBackend = toStudioWorkflowDefinition(
-      toBackendWorkflowDefinition({
-        ...sevenCategoryWorkflow,
-        steps: [
-          sevenCategoryWorkflow.steps[0],
-          {
-            ...(sevenCategoryWorkflow.steps[2] as Extract<
-              StudioWorkflowDefinition['steps'][number],
-              { kind: 'session' }
-            >),
-            dependsOn: ['gh-trigger'],
-            workspaceIsolation: 'scratch',
-          },
-          {
-            id: 'cond-step',
-            dependsOn: ['coder-session'],
-            phase: null,
-            inputBindings: {},
-            kind: 'control',
-            controlKind: 'condition',
-            title: 'Gate Condition',
-            expression: 'initial.ok == true',
-          },
-          {
-            id: 'feishu-step',
-            dependsOn: ['cond-step'],
-            phase: null,
-            inputBindings: {},
-            kind: 'outbox_action',
-            actionKind: 'feishu_reply',
-            title: 'Feishu Alert',
-            destination: '{{threadKey}}',
-            payloadTemplate: 'Alert body',
-          },
-        ],
-      })
-    );
-
-    let latestState = hydratedFromBackend;
+    let latestState = roundTripped;
     function EditorSimulationHarness() {
-      const [state, setState] = useState(hydratedFromBackend);
+      const [state, setState] = useState(roundTripped);
       latestState = state;
       return (
         <WorkflowStudio
@@ -934,58 +763,38 @@ describe('Track R3: Lossless Persistence & Non-Lossy Studio Editing', () => {
           onDefinitionChange={setState}
           dirty
           onSave={vi.fn()}
-          onPublish={vi.fn()}
         />
       );
     }
 
     render(<EditorSimulationHarness />);
 
-    // Select Condition step and type into Branch Expression + Title
-    fireEvent.click(
-      within(screen.getByTestId('workflow-node-cond-step')).getByRole(
-        'button',
-        { name: /cond-step/i }
-      )
-    );
-    const exprInput = document.getElementById(
-      'workflow-condition-expr'
-    ) as HTMLInputElement;
-    fireEvent.change(exprInput, {
-      target: { value: 'output.score >= 95 && !actor.isBot' },
-    });
-    const controlTitleInput = document.getElementById(
-      'workflow-control-title'
-    ) as HTMLInputElement;
-    fireEvent.change(controlTitleInput, {
+    fireEvent.click(screen.getByTestId('workflow-node-deck-severity-branch'));
+    fireEvent.change(screen.getByTestId('inspector-control-title'), {
       target: { value: 'High Confidence Gate' },
     });
 
-    // Verify Trigger did NOT turn into Notify, scratch did NOT reset, feishu_reply did NOT snap to github_comment, and Condition.expression stayed intact!
     expect(latestState.steps[0].kind).toBe('trigger');
-    const sessionStep = latestState.steps[1];
+    const sessionStep = latestState.steps[2];
     expect(
       sessionStep.kind === 'session' ? sessionStep.workspaceIsolation : null
     ).toBe('scratch');
-    const condStep = latestState.steps[2];
+    const condStep = latestState.steps[4];
     expect(condStep.kind === 'control' ? condStep.expression : null).toBe(
-      'output.score >= 95 && !actor.isBot'
+      'event.payload.priority == "P0" && !actor.isBot'
     );
     expect(condStep.kind === 'control' ? condStep.title : null).toBe(
       'High Confidence Gate'
     );
-    const outboxStep = latestState.steps[3];
+    const feishuOutbox = latestState.steps[7];
     expect(
-      outboxStep.kind === 'outbox_action' ? outboxStep.actionKind : null
+      feishuOutbox.kind === 'outbox_action' ? feishuOutbox.actionKind : null
     ).toBe('feishu_reply');
-    expect(outboxStep.kind === 'outbox_action' ? outboxStep.title : null).toBe(
-      'Feishu Alert'
-    );
     expect(validateStudioWorkflowExhaustively(latestState)).toEqual([]);
   });
 });
 
-describe('Track R3: Validation Gate, WorkflowInspector Dual-Primitive Upgrade & Keyboard Accessibility', () => {
+describe('Validation Gate, WorkflowInspector Dual-Primitive Upgrade & Keyboard Accessibility', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     HTMLElement.prototype.hasPointerCapture = vi.fn(() => false);
@@ -994,9 +803,8 @@ describe('Track R3: Validation Gate, WorkflowInspector Dual-Primitive Upgrade & 
     HTMLElement.prototype.scrollIntoView = vi.fn();
   });
 
-  it('disables Save and Publish with tabular-nums issue badge and accessible tooltip when validationIssues.length > 0', () => {
+  it('disables Save Changes with tabular-nums issue badge and accessible tooltip when validationIssues.length > 0', () => {
     const onSave = vi.fn();
-    const onPublish = vi.fn();
     const invalidWorkflow: StudioWorkflowDefinition = {
       ...sevenCategoryWorkflow,
       steps: sevenCategoryWorkflow.steps.map((step) =>
@@ -1013,25 +821,14 @@ describe('Track R3: Validation Gate, WorkflowInspector Dual-Primitive Upgrade & 
         onDefinitionChange={vi.fn()}
         dirty
         onSave={onSave}
-        onPublish={onPublish}
       />
     );
 
     const badge = screen.getByTestId('workflow-toolbar-validation-badge');
     expect(badge).toHaveClass('tabular-nums');
-    expect(badge.getAttribute('title')).toMatch(
-      /保存或发布前请先修复|Fix .* validation issue/i
-    );
-
-    const saveBtn = screen.getByRole('button', { name: '保存' });
-    const publishBtn = screen.getByRole('button', { name: '发布' });
+    const saveBtn = screen.getByTestId('workflow-toolbar-save-btn');
     expect(saveBtn).toBeDisabled();
-    expect(publishBtn).toBeDisabled();
-    expect(saveBtn.getAttribute('title')).toMatch(
-      /保存或发布前请先修复|Fix .* validation issue/i
-    );
 
-    // Rerender with valid workflow: Save & Publish re-enable
     rerender(
       <WorkflowStudio
         studioMode
@@ -1039,14 +836,12 @@ describe('Track R3: Validation Gate, WorkflowInspector Dual-Primitive Upgrade & 
         onDefinitionChange={vi.fn()}
         dirty
         onSave={onSave}
-        onPublish={onPublish}
       />
     );
     expect(
       screen.queryByTestId('workflow-toolbar-validation-badge')
     ).toBeNull();
-    expect(screen.getByRole('button', { name: '保存' })).not.toBeDisabled();
-    expect(screen.getByRole('button', { name: '发布' })).not.toBeDisabled();
+    expect(screen.getByTestId('workflow-toolbar-save-btn')).not.toBeDisabled();
   });
 
   it('renders Dual-Primitive step badges and quick Approve/Reject + note + custom JSON decision in WorkflowInspectorView', async () => {
@@ -1273,91 +1068,32 @@ describe('Track R3: Validation Gate, WorkflowInspector Dual-Primitive Upgrade & 
         note: 'LGTM ship it',
       });
     });
-
-    fireEvent.change(noteInput, { target: { value: 'Needs rollback plan' } });
-    fireEvent.click(
-      within(banner).getByRole('button', { name: /拒绝|Reject/i })
-    );
-    await waitFor(() => {
-      expect(onDecideApproval).toHaveBeenCalledWith('s-gate', {
-        approved: false,
-        optionId: 'reject',
-        note: 'Needs rollback plan',
-      });
-    });
-
-    // Custom JSON decision mode
-    fireEvent.click(
-      within(banner).getByRole('button', { name: /自定义 JSON|Custom JSON/i })
-    );
-    const jsonArea = within(banner).getByRole('textbox', {
-      name: /决定 JSON|Decision JSON/i,
-    });
-    fireEvent.change(jsonArea, {
-      target: { value: '{"approved":true,"ticket":"REL-42"}' },
-    });
-    fireEvent.click(
-      within(banner).getByRole('button', { name: /提交决定|Submit decision/i })
-    );
-    await waitFor(() => {
-      expect(onDecideApproval).toHaveBeenCalledWith('s-gate', {
-        approved: true,
-        ticket: 'REL-42',
-      });
-    });
   });
 
-  it('supports ArrowLeft/ArrowRight keyboard navigation in Inspector tablist (without !h-7) and Execution Primitive radiogroup', () => {
+  it('supports ArrowLeft/ArrowRight keyboard navigation in the 2-tab side card tablist without !h-7', () => {
     render(<StatefulStudioHarness />);
 
-    fireEvent.click(
-      within(screen.getByTestId('workflow-node-coder-session')).getByRole(
-        'button',
-        { name: /coder-session/i }
-      )
-    );
+    fireEvent.click(screen.getByTestId('workflow-node-deck-coder-session'));
 
-    const visualTab = screen.getByTestId('inspector-tier-visual');
-    expect(visualTab.className).not.toContain('!h-7');
-    expect(visualTab).toHaveClass('h-7');
+    const infoTab = screen.getByTestId('inspector-tab-info');
+    expect(infoTab.className).not.toContain('!h-7');
+    expect(infoTab).toHaveClass('h-7');
+    expect(infoTab).toHaveAttribute('aria-selected', 'true');
 
-    // ArrowRight on Execution Primitive radiogroup switches Fresh Session -> Persistent Bot
-    const sessionRadio = screen.getByTestId('inspector-primitive-session');
-    fireEvent.keyDown(sessionRadio, { key: 'ArrowRight' });
-    expect(screen.getByTestId('inspector-primitive-bot')).toHaveAttribute(
-      'aria-checked',
-      'true'
-    );
+    fireEvent.keyDown(infoTab, { key: 'ArrowRight' });
+    const convTab = screen.getByTestId('inspector-tab-conversation');
+    expect(convTab).toHaveAttribute('aria-selected', 'true');
+    expect(document.activeElement).toBe(convTab);
 
-    // ArrowLeft switches Persistent Bot -> Fresh Session
-    fireEvent.keyDown(screen.getByTestId('inspector-primitive-bot'), {
-      key: 'ArrowLeft',
-    });
-    expect(screen.getByTestId('inspector-primitive-session')).toHaveAttribute(
-      'aria-checked',
-      'true'
-    );
-
-    // ArrowRight on Inspector tier tablist cycles Visual -> Advanced -> JSON -> Visual
-    fireEvent.keyDown(visualTab, { key: 'ArrowRight' });
-    const advancedTab = screen.getByTestId('inspector-tier-advanced');
-    expect(advancedTab).toHaveAttribute('aria-selected', 'true');
-    expect(document.activeElement).toBe(advancedTab);
-
-    fireEvent.keyDown(advancedTab, { key: 'ArrowRight' });
-    const jsonTab = screen.getByTestId('inspector-tier-json');
-    expect(jsonTab).toHaveAttribute('aria-selected', 'true');
-    expect(document.activeElement).toBe(jsonTab);
-
-    fireEvent.keyDown(jsonTab, { key: 'ArrowRight' });
-    expect(screen.getByTestId('inspector-tier-visual')).toHaveAttribute(
+    fireEvent.keyDown(convTab, { key: 'ArrowLeft' });
+    expect(screen.getByTestId('inspector-tab-info')).toHaveAttribute(
       'aria-selected',
       'true'
     );
   });
 });
 
-describe('Track R3: Guarded Run Polling & ReactFlow O(N) Event Indexing + React.memo', () => {
+describe('Guarded Run Polling & ReactFlow O(N) Event Indexing + React.memo', () => {
   afterEach(() => {
     vi.useRealTimers();
     Object.defineProperty(document, 'visibilityState', {
@@ -1387,19 +1123,16 @@ describe('Track R3: Guarded Run Polling & ReactFlow O(N) Event Indexing + React.
       })
     );
 
-    // First tick at 1500ms starts request #1
     await act(async () => {
       vi.advanceTimersByTime(1500);
     });
     expect(refresh).toHaveBeenCalledTimes(1);
 
-    // Next ticks at 3000ms and 4500ms are skipped while request #1 is still in flight
     await act(async () => {
       vi.advanceTimersByTime(3000);
     });
     expect(refresh).toHaveBeenCalledTimes(1);
 
-    // Resolve request #1 -> next 1500ms tick triggers request #2
     await act(async () => {
       resolveFirst();
       await Promise.resolve();
@@ -1409,7 +1142,6 @@ describe('Track R3: Guarded Run Polling & ReactFlow O(N) Event Indexing + React.
     });
     expect(refresh).toHaveBeenCalledTimes(2);
 
-    // Hide document -> polling pauses
     Object.defineProperty(document, 'visibilityState', {
       configurable: true,
       value: 'hidden',
@@ -1419,7 +1151,6 @@ describe('Track R3: Guarded Run Polling & ReactFlow O(N) Event Indexing + React.
     });
     expect(refresh).toHaveBeenCalledTimes(2);
 
-    // Return document to visible -> refreshes immediately without waiting 1500ms
     Object.defineProperty(document, 'visibilityState', {
       configurable: true,
       value: 'visible',

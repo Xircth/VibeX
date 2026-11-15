@@ -70,6 +70,7 @@
     "showRecords": "Show records",
     "saving": "Saving…",
     "save": "Save",
+    "saveChanges": "Save changes",
     "publishing": "Publishing…",
     "publish": "Publish",
     "back": "Back to automations",
@@ -374,6 +375,8 @@
     },
     "outboxKinds": {
       "feishu_reply": "Feishu Reply",
+      "feishu_webhook": "Feishu Webhook",
+      "reply_channel": "Reply to Thread",
       "jira_comment": "Jira Comment",
       "github_comment": "GitHub Comment",
       "webhook_post": "Webhook POST",
@@ -409,6 +412,45 @@
   },
   "inspector": {
     "modeAriaLabel": "Inspector Mode",
+    "tabs": {
+      "overview": "Overview",
+      "records": "Records"
+    },
+    "summaries": {
+      "triggerEvent": "Starts automatically when {{source}} emits {{event}}.",
+      "triggerTemporal": "Runs automatically on schedule ({{schedule}}).",
+      "session": "Runs {{agent}} in an isolated session to complete this task.",
+      "defaultAgentAction": "Run code analysis and verification",
+      "bot": "Handled by {{bot}} with persistent collaboration context.",
+      "defaultBotAction": "Triage and handle incoming event",
+      "group": "Collaborates in {{space}} to converge on an action plan.",
+      "approval": "Pauses the workflow until you approve or reject.",
+      "notify": "Sends a summary notification to your desktop.",
+      "boundedLoop": "Iterates automatically for up to {{count}} rounds.",
+      "waitForEvent": "Waits for correlated event {{event}} before continuing.",
+      "condition": "Routes execution automatically based on upstream output.",
+      "outbox": "Sends the result back via {{target}}."
+    },
+    "lightTweaks": {
+      "triggerTitle": "Event summary",
+      "cronExpression": "Schedule (Cron)",
+      "agentLabel": "Execution Agent",
+      "botLabel": "Assigned Bot",
+      "groupLabel": "Collaboration group",
+      "promptLabel": "Task instructions",
+      "gateTitle": "Summary title",
+      "gateMessage": "Notification / approval message",
+      "outboxTitle": "Action summary",
+      "outboxMessage": "Reply content",
+      "controlTitle": "Step summary",
+      "maxRounds": "Max rounds"
+    },
+    "agentEdit": {
+      "label": "Ask Agent to adjust this step",
+      "placeholder": "Describe how Agent should change this step…",
+      "submitAria": "Send step edit request to Agent",
+      "dispatchedToast": "Dispatched to Agent: {{title}}"
+    },
     "tiers": {
       "visual": "Visual",
       "advanced": "Advanced",

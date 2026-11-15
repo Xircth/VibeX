@@ -16,11 +16,16 @@ import { StatusDot } from '@astryxdesign/core/StatusDot';
 import { Tab, TabList } from '@astryxdesign/core/TabList';
 import { Heading, Text } from '@astryxdesign/core/Text';
 import { ArrowLeft, GitFork, RefreshCw } from 'lucide-react';
-import { cn } from '@/lib/utils';
 import type { WorkflowDefinitionSummary } from 'shared/types';
+
+import type { CollaborationBotOption } from '@/features/workflow/useCollaborationBotRoster';
+import type { PulseSourceView } from '@/lib/api/pulse';
+import { cn } from '@/lib/utils';
+
 import type { PendingWorkflowStudioOpenDetail } from '../pulseDeckEvents';
+import { AutomationAgentComposerPopover } from './AutomationAgentComposerPopover';
+import type { DispatchedAutomationAgentSession } from './automationAgentBridge';
 import type { AutomationPrimaryTab } from './automationModels';
-import { NewAutomationMenuButton } from './AutomationSplitFrame';
 
 const LazyWorkflowStudioDockPanel = lazy(() =>
   import('@/features/workflow/WorkflowStudioDockPanel').then((mod) => ({
@@ -31,25 +36,41 @@ const LazyWorkflowStudioDockPanel = lazy(() =>
 export interface EmbeddedWorkflowStudioShellProps {
   embeddedStudio: PendingWorkflowStudioOpenDetail;
   workflowDefinitions: readonly WorkflowDefinitionSummary[];
+  projectId?: string | null;
+  sources?: readonly PulseSourceView[];
+  bots?: readonly CollaborationBotOption[];
   className?: string;
+  onAgentDispatched?: (session: DispatchedAutomationAgentSession) => void;
   onBackToTaskList: () => void;
 }
 
 export function EmbeddedWorkflowStudioShell({
   embeddedStudio,
   workflowDefinitions,
+  projectId,
+  sources,
+  bots,
   className,
+  onAgentDispatched,
   onBackToTaskList,
 }: EmbeddedWorkflowStudioShellProps) {
   const { t } = useTranslation('panels');
   const activeWf = embeddedStudio.definitionId
     ? workflowDefinitions.find((wf) => wf.id === embeddedStudio.definitionId)
     : null;
+  const resolvedTitle =
+    activeWf?.name ??
+    embeddedStudio.initialDefinition?.name ??
+    embeddedStudio.definitionId ??
+    null;
 
   return (
     <div
       data-testid="automation-embedded-workflow-studio"
-      className={cn('flex h-full min-h-0 flex-col bg-background text-foreground', className)}
+      className={cn(
+        'flex h-full min-h-0 flex-col bg-background text-foreground',
+        className
+      )}
     >
       <Layout
         height="fill"
@@ -69,11 +90,26 @@ export function EmbeddedWorkflowStudioShell({
                 icon={<Icon icon={GitFork} size="xsm" />}
                 label={t('pulseDeck.workbench.actions.embeddedStudioBadge')}
               />
-              {activeWf || embeddedStudio.definitionId ? (
+              {resolvedTitle ? (
                 <Text type="body" weight="semibold" maxLines={1}>
-                  {activeWf?.name ?? embeddedStudio.definitionId}
+                  {resolvedTitle}
                 </Text>
               ) : null}
+              <div className="ml-auto flex items-center gap-2">
+                <AutomationAgentComposerPopover
+                  mode="edit_workflow"
+                  projectId={projectId}
+                  definitionId={embeddedStudio.definitionId ?? null}
+                  sourceRuleId={embeddedStudio.sourceRuleId ?? null}
+                  currentDefinition={embeddedStudio.initialDefinition ?? null}
+                  sources={sources}
+                  bots={bots}
+                  buttonVariant="secondary"
+                  buttonSize="sm"
+                  testId="embedded-studio-agent-edit-btn"
+                  onDispatched={onAgentDispatched}
+                />
+              </div>
             </HStack>
           </LayoutHeader>
         }
@@ -89,7 +125,7 @@ export function EmbeddedWorkflowStudioShell({
                   </div>
                 }
               >
-                <LazyWorkflowStudioDockPanel />
+                <LazyWorkflowStudioDockPanel embedded projectId={projectId} />
               </Suspense>
             </div>
           </LayoutContent>
@@ -102,15 +138,17 @@ export function EmbeddedWorkflowStudioShell({
 export interface AutomationHeaderBarProps {
   engineActive: boolean;
   totalTasksCount: number;
-  pendingEventsCount: number;
+  pendingApprovalsCount: number;
   activeTab: AutomationPrimaryTab;
   isRefreshing: boolean;
   errorMessage: string;
+  projectId?: string | null;
+  sources?: readonly PulseSourceView[];
+  bots?: readonly CollaborationBotOption[];
   toolbarRow?: ReactNode;
   contextualAction?: ReactNode;
   onSelectTab: (tab: AutomationPrimaryTab) => void;
-  onNewFastTask: () => void;
-  onNewWorkflow: () => void;
+  onAgentDispatched?: (session: DispatchedAutomationAgentSession) => void;
   onRefresh: () => void;
   onRetryError: () => void;
 }
@@ -118,15 +156,17 @@ export interface AutomationHeaderBarProps {
 export function AutomationHeaderBar({
   engineActive,
   totalTasksCount,
-  pendingEventsCount,
+  pendingApprovalsCount,
   activeTab,
   isRefreshing,
   errorMessage,
+  projectId,
+  sources,
+  bots,
   toolbarRow,
   contextualAction,
   onSelectTab,
-  onNewFastTask,
-  onNewWorkflow,
+  onAgentDispatched,
   onRefresh,
   onRetryError,
 }: AutomationHeaderBarProps) {
@@ -141,7 +181,11 @@ export function AutomationHeaderBar({
         <HStack gap={3} vAlign="center">
           <HStack gap={2} vAlign="center">
             <Heading level={2}>{t('pulseDeck.title')}</Heading>
-            <HStack gap={1.5} vAlign="center" data-testid="pulse-deck-engine-badge">
+            <HStack
+              gap={1.5}
+              vAlign="center"
+              data-testid="pulse-deck-engine-badge"
+            >
               <StatusDot
                 variant={engineActive ? 'success' : 'neutral'}
                 label={engineLabel}
@@ -171,31 +215,21 @@ export function AutomationHeaderBar({
                 label={t('pulseDeck.workbench.primaryTabs.tasks')}
                 data-testid="pulse-deck-tab-tasks"
                 endContent={
-                  <Badge
-                    variant="neutral"
-                    label={String(totalTasksCount)}
-                    className="tabular-nums"
-                  />
-                }
-              />
-              <Tab
-                value="pending"
-                label={t('pulseDeck.workbench.primaryTabs.pending')}
-                data-testid="pulse-deck-tab-pending"
-                endContent={
-                  pendingEventsCount > 0 ? (
+                  <HStack gap={1} vAlign="center">
                     <Badge
-                      variant="warning"
-                      label={String(pendingEventsCount)}
+                      variant="neutral"
+                      label={String(totalTasksCount)}
                       className="tabular-nums"
                     />
-                  ) : undefined
+                    {pendingApprovalsCount > 0 ? (
+                      <Badge
+                        variant="warning"
+                        label={String(pendingApprovalsCount)}
+                        className="tabular-nums"
+                      />
+                    ) : null}
+                  </HStack>
                 }
-              />
-              <Tab
-                value="rules"
-                label={t('pulseDeck.workbench.primaryTabs.rules')}
-                data-testid="pulse-deck-tab-rules"
               />
               <Tab
                 value="sources"
@@ -220,11 +254,14 @@ export function AutomationHeaderBar({
                 />
               }
             />
-            <NewAutomationMenuButton
-              onNewFastTask={onNewFastTask}
-              onNewWorkflow={onNewWorkflow}
-              size="md"
-              testId="automation-new-menu-btn"
+            <AutomationAgentComposerPopover
+              mode="create"
+              projectId={projectId}
+              sources={sources}
+              bots={bots}
+              buttonSize="md"
+              testId="automation-agent-create-btn"
+              onDispatched={onAgentDispatched}
             />
           </HStack>
         </HStack>

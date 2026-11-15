@@ -70,6 +70,7 @@
     "showRecords": "显示记录",
     "saving": "正在保存…",
     "save": "保存",
+    "saveChanges": "保存修改",
     "publishing": "正在发布…",
     "publish": "发布",
     "back": "返回自动化",
@@ -374,9 +375,11 @@
     },
     "outboxKinds": {
       "feishu_reply": "飞书回复",
+      "feishu_webhook": "飞书通知",
+      "reply_channel": "回复原会话",
       "jira_comment": "Jira 评论",
       "github_comment": "GitHub 评论",
-      "webhook_post": "Webhook POST",
+      "webhook_post": "Webhook 回调",
       "emit_event": "发出事件"
     },
     "maxRounds": "最多 {{count}} 轮",
@@ -409,6 +412,45 @@
   },
   "inspector": {
     "modeAriaLabel": "检查器视图模式",
+    "tabs": {
+      "overview": "节点概览",
+      "records": "执行记录"
+    },
+    "summaries": {
+      "triggerEvent": "当来自 {{source}} 的 {{event}} 事件发生时自动触发流程。",
+      "triggerTemporal": "按照计划 {{schedule}} 自动触发流程。",
+      "session": "由 {{agent}} 在干净隔离会话中执行此步编码或分析任务。",
+      "defaultAgentAction": "执行代码分析与验证任务",
+      "bot": "由「{{bot}}」结合长期协作记忆处理此步任务。",
+      "defaultBotAction": "结合历史上下文分诊并处理事件",
+      "group": "在「{{space}}」协作群组中协同讨论并收敛结论。",
+      "approval": "暂停流程并等待你人工批准后才继续后续步骤。",
+      "notify": "向你的桌面发送结果摘要通知。",
+      "boundedLoop": "自动循环迭代审查，最多执行 {{count}} 轮。",
+      "waitForEvent": "挂起等待关联事件 {{event}} 到达后继续。",
+      "condition": "根据上一步结果自动判断进入哪个分支。",
+      "outbox": "将处理结论自动发送至 {{target}}。"
+    },
+    "lightTweaks": {
+      "triggerTitle": "事件说明",
+      "cronExpression": "定时规则 (Cron)",
+      "agentLabel": "执行 Agent",
+      "botLabel": "执行 Bot",
+      "groupLabel": "协作群组",
+      "promptLabel": "任务指令",
+      "gateTitle": "提醒标题",
+      "gateMessage": "通知与审批说明",
+      "outboxTitle": "回写说明",
+      "outboxMessage": "回复内容",
+      "controlTitle": "步骤说明",
+      "maxRounds": "最大重试轮次"
+    },
+    "agentEdit": {
+      "label": "让 Agent 修改此步",
+      "placeholder": "告诉 Agent 如何调整此步骤，回车发送…",
+      "submitAria": "发送步骤修改请求给 Agent",
+      "dispatchedToast": "已派发给 Agent：{{title}}"
+    },
     "tiers": {
       "visual": "可视化",
       "advanced": "高级",

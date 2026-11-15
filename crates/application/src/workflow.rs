@@ -183,6 +183,11 @@ pub trait WorkflowExecutionPort: Send + Sync {
         &self,
         limit: u32,
     ) -> Result<Vec<WorkflowDefinitionSummary>, ApplicationError>;
+    async fn delete_definition(&self, _definition_id: Uuid) -> Result<bool, ApplicationError> {
+        Err(ApplicationError::capability_unavailable(
+            "workflow deletion is not configured",
+        ))
+    }
     async fn versions(
         &self,
         definition_id: Uuid,

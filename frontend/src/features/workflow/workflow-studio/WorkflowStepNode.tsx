@@ -10,32 +10,26 @@ import {
 } from '@xyflow/react';
 import {
   Bell,
-  Bot,
   Check,
+  Clock,
   GitFork,
   ListTree,
   MoreHorizontal,
-  Play,
-  Plus,
   Repeat,
   Send,
   ShieldCheck,
-  SlidersHorizontal,
-  Terminal,
   Users,
   Zap,
 } from 'lucide-react';
 
 import { AstryxMarkdown } from '@/components/NormalizedConversation/AstryxMarkdown';
-import { PulseEvalModeControl } from '@/features/pulse';
-import { evaluatePulseRuleLocally } from '@/lib/pulseFilterEvaluator';
+import { MemberBotAvatar } from '@/features/collaboration/MemberBotAvatar';
 import { cn } from '@/lib/utils';
 
 import { StudioAgentIcon } from './StudioAgentIcon';
 import {
   CONFIRMATION_NODE_HEIGHT,
   CONFIRMATION_NODE_WIDTH,
-  DEFAULT_GATE_FILTER,
   WORKFLOW_NODE_WIDTH,
   type StudioNode,
 } from './types';
@@ -46,8 +40,6 @@ import {
   previewMarkdown,
   statusClass,
   statusDotClass,
-  tokenizeStepSegments,
-  type StepTextSegment,
 } from './workflowStepPresentation';
 
 function portPillClass(accent: StudioPortAccent): string {
@@ -65,40 +57,11 @@ function portPillClass(accent: StudioPortAccent): string {
   }
 }
 
-function SegmentedText({ segments }: { segments: StepTextSegment[] }) {
-  return (
-    <>
-      {segments.map((segment, index) => {
-        const isLast = index === segments.length - 1;
-        if (typeof segment === 'string') {
-          return (
-            <span
-              key={index}
-              className={cn(isLast ? 'min-w-0 truncate' : 'shrink-0')}
-            >
-              {segment.trim()}
-            </span>
-          );
-        }
-        return (
-          <span
-            key={index}
-            data-testid="workflow-node-inline-tag"
-            className="workflow-node-inline-tag inline-flex h-[19px] shrink-0 items-center rounded-[5px] px-1.5 font-mono text-[10.5px] font-medium leading-none text-muted-foreground"
-          >
-            {segment.tag}
-          </span>
-        );
-      })}
-    </>
-  );
-}
-
 export const WorkflowStepNode = memo(function WorkflowStepNode({
   id,
   data,
 }: NodeProps<StudioNode>) {
-  const { t } = useTranslation('workflow');
+  const { t, i18n } = useTranslation('workflow');
   const articleRef = useRef<HTMLElement | null>(null);
   const prevPortSignatureRef = useRef<string | null>(null);
   const updateNodeInternals = useUpdateNodeInternals();
@@ -140,8 +103,6 @@ export const WorkflowStepNode = memo(function WorkflowStepNode({
       return;
     }
 
-    // Headless DOM fallback (e.g. Vitest/jsdom where ResizeObserver is inert and offsetWidth === 0):
-    // synthesize handleBounds directly from the live rendered `.react-flow__handle` elements on this card.
     const state = storeApi.getState();
     const internal = state.nodeLookup.get(id);
     if (!internal) return;
@@ -252,27 +213,6 @@ export const WorkflowStepNode = memo(function WorkflowStepNode({
     () => (data.logExpanded ? flameSpans(logEvents) : []),
     [data.logExpanded, logEvents]
   );
-  const triggerReplayMatched = useMemo(() => {
-    if (!data.replayEnvelope || data.step.kind !== 'trigger') return null;
-    const report = evaluatePulseRuleLocally(
-      {
-        name: data.step.title || data.step.id,
-        evalMode: data.step.evalMode,
-        filter: data.step.filter ?? DEFAULT_GATE_FILTER,
-        temporal: data.step.temporal ?? null,
-        targets: [
-          {
-            kind: 'session',
-            mode: 'ephemeral_fresh',
-            agentId: 'codex',
-            promptTemplate: '{{event.type}}',
-          },
-        ],
-      },
-      data.replayEnvelope
-    );
-    return report.matched;
-  }, [data.replayEnvelope, data.step]);
 
   if (data.confirmationFor) {
     const waiting = data.stepRun?.awaitingAcceptance === true;
@@ -345,16 +285,18 @@ export const WorkflowStepNode = memo(function WorkflowStepNode({
     data.step,
     data.agentOptions,
     t('studio.notify'),
-    t
+    t,
+    {
+      bots: data.bots,
+      spaces: data.spaces,
+      language: i18n.resolvedLanguage ?? i18n.language ?? 'zh-CN',
+    }
   );
 
   const sessionOrAgentStep =
     data.step.kind === 'agent' || data.step.kind === 'session'
       ? data.step
       : null;
-  const hasManualConfirmation =
-    Boolean(sessionOrAgentStep) &&
-    sessionOrAgentStep?.completionPolicy === 'manual';
 
   const status = data.stepRun?.awaitingAcceptance
     ? 'awaiting_acceptance'
@@ -368,64 +310,16 @@ export const WorkflowStepNode = memo(function WorkflowStepNode({
   const fanInCount = data.step.dependsOn.length;
   const joinMode = data.step.joinMode ?? 'all';
   const totalOutgoing = data.totalOutgoingCount ?? 0;
-  const showQuickAdd =
-    data.mode === 'edit' &&
-    Boolean(data.onQuickAddStep) &&
-    !isMultiPort &&
-    totalOutgoing === 0 &&
-    !hasManualConfirmation &&
-    data.step.kind !== 'outbox_action';
-
-  const headlineSegments = useMemo(
-    () => tokenizeStepSegments(presentation.headline),
-    [presentation.headline]
-  );
-  const headlineHintSegments = useMemo(
-    () =>
-      presentation.headlineHint
-        ? tokenizeStepSegments(presentation.headlineHint)
-        : [],
-    [presentation.headlineHint]
-  );
-
-  const hasMetaTrayRow =
-    data.step.kind !== 'trigger' &&
-    Boolean(
-      presentation.secondaryBadge ||
-        presentation.subline ||
-        presentation.tabularBadge
-    );
-
-  const renderChipGlyph = () => {
-    switch (presentation.category) {
-      case 'trigger':
-        return <Play className="size-2.5 fill-current text-muted-foreground" />;
-      case 'session':
-        return <Terminal className="size-3 text-muted-foreground" />;
-      case 'bot':
-        return <Bot className="size-3 text-muted-foreground" />;
-      case 'group_stage':
-        return <Users className="size-3 text-muted-foreground" />;
-      case 'user_gate':
-        return <ShieldCheck className="size-3 text-muted-foreground" />;
-      case 'control':
-        return data.step.kind === 'control' &&
-          data.step.controlKind === 'bounded_loop' ? (
-          <Repeat className="size-3 text-muted-foreground" />
-        ) : (
-          <GitFork className="size-3 text-muted-foreground" />
-        );
-      case 'outbox_action':
-        return <Send className="size-3 text-muted-foreground" />;
-    }
-  };
 
   const renderKindGlyph = () => {
     switch (presentation.category) {
       case 'trigger':
-        return <Zap className="size-3" />;
-      case 'bot':
-        return <Bot className="size-3" />;
+        return data.step.kind === 'trigger' &&
+          data.step.triggerKind === 'temporal' ? (
+          <Clock className="size-3" />
+        ) : (
+          <Zap className="size-3" />
+        );
       case 'group_stage':
         return <Users className="size-3" />;
       case 'user_gate':
@@ -440,13 +334,17 @@ export const WorkflowStepNode = memo(function WorkflowStepNode({
         return data.step.kind === 'control' &&
           data.step.controlKind === 'bounded_loop' ? (
           <Repeat className="size-3" />
+        ) : data.step.kind === 'control' &&
+          data.step.controlKind === 'wait_for_event' ? (
+          <Clock className="size-3" />
         ) : (
           <GitFork className="size-3" />
         );
       case 'outbox_action':
         return <Send className="size-3" />;
+      case 'bot':
       case 'session':
-        return <Terminal className="size-3" />;
+        return null;
     }
   };
 
@@ -461,20 +359,6 @@ export const WorkflowStepNode = memo(function WorkflowStepNode({
         statusClass(data.stepRun?.status)
       )}
     >
-      <div
-        data-testid={`workflow-node-caption-${data.step.id}`}
-        className="pointer-events-none absolute -top-[21px] left-0.5 right-0.5 flex items-center justify-between gap-2 select-none"
-      >
-        <span className="truncate text-[11.5px] font-medium leading-4 text-muted-foreground">
-          {data.step.id}
-        </span>
-        {data.step.phase ? (
-          <span className="workflow-node-tag shrink-0 rounded-[5px] px-1.5 py-0.5 font-mono text-[10px] leading-none text-muted-foreground">
-            {data.step.phase}
-          </span>
-        ) : null}
-      </div>
-
       {hasTargetPort ? (
         <Handle
           id="target"
@@ -482,7 +366,7 @@ export const WorkflowStepNode = memo(function WorkflowStepNode({
           position={Position.Left}
           isConnectable
           title={t('ports.targetInputTooltip')}
-          aria-label={`${data.step.id} ${t('ports.targetInputTooltip')}`}
+          aria-label={`${presentation.headline} ${t('ports.targetInputTooltip')}`}
           data-testid={`workflow-port-${data.step.id}-target`}
           onClick={(event) => event.stopPropagation()}
           className="nodrag nopan workflow-port-handle workflow-port-deck-anchor"
@@ -495,39 +379,62 @@ export const WorkflowStepNode = memo(function WorkflowStepNode({
         className="workflow-node-deck block !h-auto w-full px-3.5 py-3 text-left outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--focus-ring)]"
         onClick={() => data.onSelect(data.step.id)}
         aria-pressed={data.selected}
-        aria-label={`${data.step.id} ${presentation.accessibleSummary}`}
+        aria-label={presentation.accessibleSummary}
       >
         <span className="flex min-h-5 items-center gap-1.5">
-          <span
-            data-testid={`workflow-node-category-badge-${data.step.id}`}
-            className="workflow-node-chip inline-flex h-5 shrink-0 items-center gap-1 rounded-[6px] px-1.5 text-[11px] font-medium leading-none text-foreground"
-          >
-            {renderChipGlyph()}
-            <span>{presentation.categoryBadge}</span>
-          </span>
-
           {sessionOrAgentStep ? (
-            <span className="workflow-node-kind-agent grid size-5 shrink-0 place-items-center rounded-[6px]">
+            <span
+              data-testid={`workflow-node-category-badge-${data.step.id}`}
+              className="workflow-node-chip inline-flex h-5 max-w-[188px] items-center gap-1.5 rounded-[6px] px-1.5 text-[11px] font-medium leading-none text-foreground"
+            >
               <StudioAgentIcon
                 agentId={sessionOrAgentStep.agentId}
                 agentOptions={data.agentOptions}
-                className="size-3.5"
+                className="size-3.5 shrink-0"
               />
+              <span className="truncate">{presentation.identityBadge}</span>
+            </span>
+          ) : presentation.category === 'bot' && presentation.botAvatar ? (
+            <span
+              data-testid={`workflow-node-category-badge-${data.step.id}`}
+              className="workflow-node-chip inline-flex h-5 max-w-[188px] items-center gap-1.5 rounded-[6px] px-1.5 text-[11px] font-medium leading-none text-foreground"
+            >
+              <MemberBotAvatar
+                config={presentation.botAvatar}
+                animated={false}
+                className="size-3.5 shrink-0"
+              />
+              <span className="truncate">{presentation.identityBadge}</span>
             </span>
           ) : (
             <span
-              className={cn(
-                'grid size-5 shrink-0 place-items-center rounded-[6px]',
-                `workflow-node-kind-${presentation.category}`
-              )}
+              data-testid={`workflow-node-category-badge-${data.step.id}`}
+              className="workflow-node-chip inline-flex h-5 max-w-[188px] items-center gap-1.5 rounded-[6px] px-1.5 text-[11px] font-medium leading-none text-foreground"
             >
-              {renderKindGlyph()}
+              <span
+                className={cn(
+                  'grid size-3.5 shrink-0 place-items-center rounded-[4px]',
+                  `workflow-node-kind-${presentation.category}`
+                )}
+              >
+                {renderKindGlyph()}
+              </span>
+              <span className="truncate">{presentation.identityBadge}</span>
             </span>
           )}
 
           {presentation.detailBadge ? (
-            <span className="workflow-node-tag inline-flex h-5 min-w-0 items-center rounded-[6px] px-1.5 text-[11px] leading-none text-muted-foreground">
+            <span className="workflow-node-tag inline-flex h-5 min-w-0 items-center rounded-[6px] px-1.5 text-[10.5px] leading-none text-muted-foreground tabular-nums">
               <span className="truncate">{presentation.detailBadge}</span>
+            </span>
+          ) : null}
+
+          {presentation.tabularBadge ? (
+            <span
+              data-testid={`workflow-node-tabular-badge-${data.step.id}`}
+              className="inline-flex h-5 shrink-0 items-center rounded-full bg-primary/12 px-1.5 text-[10.5px] font-semibold tabular-nums text-primary"
+            >
+              {presentation.tabularBadge}
             </span>
           ) : null}
 
@@ -541,21 +448,8 @@ export const WorkflowStepNode = memo(function WorkflowStepNode({
           )}
         </span>
 
-        <span className="mt-2.5 flex min-h-5 min-w-0 items-center gap-1.5 overflow-hidden text-[13px] font-semibold tracking-[-0.005em] text-foreground">
-          <SegmentedText segments={headlineSegments} />
-          {headlineHintSegments.length > 0 ? (
-            <>
-              <span
-                aria-hidden="true"
-                className="shrink-0 text-muted-foreground/50"
-              >
-                ·
-              </span>
-              <span className="flex min-w-0 items-center gap-1 overflow-hidden text-[12px] font-normal text-muted-foreground">
-                <SegmentedText segments={headlineHintSegments} />
-              </span>
-            </>
-          ) : null}
+        <span className="mt-2 line-clamp-2 block min-h-[18px] text-[13px] font-semibold leading-[18px] tracking-[-0.005em] text-foreground">
+          {presentation.headline}
         </span>
       </button>
 
@@ -563,79 +457,6 @@ export const WorkflowStepNode = memo(function WorkflowStepNode({
         data-testid={`workflow-node-tray-${data.step.id}`}
         className="space-y-1.5 py-2"
       >
-        {data.step.kind === 'trigger' ? (
-          <div className="nodrag space-y-1.5 px-3">
-            {presentation.subline ? (
-              <div className="flex min-w-0 items-center gap-1.5">
-                <SlidersHorizontal
-                  aria-hidden="true"
-                  className="size-3 shrink-0 text-muted-foreground/75"
-                />
-                <span className="workflow-node-tag inline-flex h-[21px] min-w-0 items-center rounded-[6px] px-2 text-[11px] text-muted-foreground">
-                  <span className="truncate">{presentation.subline}</span>
-                </span>
-              </div>
-            ) : null}
-            <div className="flex items-center justify-between gap-1.5">
-              <PulseEvalModeControl
-                size="sm"
-                value={data.step.evalMode}
-                ariaLabel={t('nodes.triggerEvalModeAria', { id: data.step.id })}
-                onChange={
-                  data.onTriggerEvalModeChange
-                    ? (nextMode) =>
-                        data.onTriggerEvalModeChange?.(data.step.id, nextMode)
-                    : undefined
-                }
-              />
-              {triggerReplayMatched !== null ? (
-                <span
-                  data-testid={`workflow-trigger-replay-${data.step.id}`}
-                  className={cn(
-                    'inline-flex h-[21px] items-center rounded-full px-2 text-[11px] font-semibold',
-                    triggerReplayMatched
-                      ? 'bg-success/15 text-success'
-                      : 'bg-warning/15 text-warning'
-                  )}
-                >
-                  {triggerReplayMatched
-                    ? t('replay.matched')
-                    : t('replay.filtered')}
-                </span>
-              ) : null}
-            </div>
-          </div>
-        ) : null}
-
-        {hasMetaTrayRow ? (
-          <div className="flex min-w-0 items-center gap-1.5 px-3">
-            <SlidersHorizontal
-              aria-hidden="true"
-              className="size-3 shrink-0 text-muted-foreground/75"
-            />
-            <div className="flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden">
-              {presentation.secondaryBadge ? (
-                <span className="workflow-node-tag inline-flex h-[21px] min-w-0 items-center rounded-[6px] px-2 text-[11px] text-muted-foreground">
-                  <span className="truncate">{presentation.secondaryBadge}</span>
-                </span>
-              ) : null}
-              {presentation.subline ? (
-                <span className="workflow-node-tag inline-flex h-[21px] min-w-0 items-center rounded-[6px] px-2 font-mono text-[10.5px] text-muted-foreground">
-                  <span className="truncate">{presentation.subline}</span>
-                </span>
-              ) : null}
-            </div>
-            {presentation.tabularBadge ? (
-              <span
-                data-testid={`workflow-node-tabular-badge-${data.step.id}`}
-                className="inline-flex h-[21px] shrink-0 items-center rounded-full bg-primary/12 px-2 text-[11px] font-semibold tabular-nums text-primary"
-              >
-                {presentation.tabularBadge}
-              </span>
-            ) : null}
-          </div>
-        ) : null}
-
         {isMultiPort ? (
           <div
             data-testid={`workflow-node-ports-${data.step.id}`}
@@ -674,7 +495,7 @@ export const WorkflowStepNode = memo(function WorkflowStepNode({
                     position={Position.Right}
                     isConnectable
                     title={port.tooltip}
-                    aria-label={`${data.step.id} ${port.label}`}
+                    aria-label={`${presentation.headline} ${port.label}`}
                     data-testid={`workflow-port-${data.step.id}-${port.id}`}
                     onClick={(event) => event.stopPropagation()}
                     className={cn(
@@ -860,35 +681,13 @@ export const WorkflowStepNode = memo(function WorkflowStepNode({
           position={Position.Right}
           isConnectable
           title={outputPorts[0]?.tooltip ?? t('ports.sourceOutputTooltip')}
-          aria-label={`${data.step.id} ${
+          aria-label={`${presentation.headline} ${
             outputPorts[0]?.tooltip ?? t('ports.sourceOutputTooltip')
           }`}
           data-testid={`workflow-port-${data.step.id}-source`}
           onClick={(event) => event.stopPropagation()}
           className="nodrag nopan workflow-port-handle workflow-port-deck-anchor"
         />
-      ) : null}
-
-      {showQuickAdd ? (
-        <div className="nodrag nopan absolute left-[calc(100%+9px)] top-[42px] z-10 flex -translate-y-1/2 items-center">
-          <span
-            aria-hidden="true"
-            className="h-[1.5px] w-3.5 bg-border transition-colors group-hover:bg-[var(--border-strong)]"
-          />
-          <button
-            type="button"
-            data-testid={`workflow-quick-add-${data.step.id}`}
-            aria-label={t('nodes.quickAddNext')}
-            title={t('nodes.quickAddNext')}
-            onClick={(event) => {
-              event.stopPropagation();
-              data.onQuickAddStep?.(data.step.id);
-            }}
-            className="workflow-quick-add-btn grid size-7 place-items-center outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)]"
-          >
-            <Plus className="size-3.5" />
-          </button>
-        </div>
       ) : null}
     </article>
   );

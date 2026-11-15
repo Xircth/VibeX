@@ -1045,3 +1045,40 @@ async fn completed_approval_or_notify_step_and_staged_manual_candidate_survive_s
     assert_eq!(ship_step.status, "running");
     assert!(ship_step.awaiting_acceptance);
 }
+
+#[tokio::test]
+async fn delete_definition_and_rename_persists_cleanly() {
+    let (core, store) = setup().await;
+    let (version, run) = publish_and_start(&core).await;
+
+    let initial_defs = store.definitions(10).await.unwrap();
+    assert_eq!(initial_defs.len(), 1);
+    assert_eq!(initial_defs[0].name, "release");
+    assert!(
+        initial_defs[0]
+            .latest_normalized_json
+            .as_deref()
+            .unwrap_or("")
+            .contains("\"build\"")
+    );
+
+    let mut renamed = definition();
+    renamed.name = "release-v2".to_string();
+    core.publish(PublishWorkflow {
+        definition_id: Some(version.definition_id),
+        definition: renamed,
+        source_path: None,
+        operation_id: Uuid::new_v4(),
+        principal: serde_json::json!({"id": "owner"}),
+    })
+    .await
+    .unwrap();
+
+    let updated_defs = store.definitions(10).await.unwrap();
+    assert_eq!(updated_defs.len(), 1);
+    assert_eq!(updated_defs[0].name, "release-v2");
+
+    core.delete_definition(version.definition_id).await.unwrap();
+    assert!(store.definitions(10).await.unwrap().is_empty());
+    assert!(store.run(run.id).await.is_err());
+}

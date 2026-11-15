@@ -53,6 +53,8 @@ export type StudioAddableStepKind =
   | 'notify'
   | 'approval';
 
+export type StudioJoinMode = 'all' | 'any';
+
 export type StudioStepCommon = {
   id: string;
   dependsOn: string[];
@@ -61,6 +63,8 @@ export type StudioStepCommon = {
   filter?: GateFilterAst | null;
   subscribeThread?: boolean;
   threadKeyTemplate?: string | null;
+  branchPorts?: Record<string, string>;
+  joinMode?: StudioJoinMode;
 };
 
 export type TriggerKind = 'platform' | 'webhook' | 'temporal' | 'sdk';
@@ -212,6 +216,8 @@ export type StudioNodeData = {
   logExpanded: boolean;
   mode: StudioMode;
   replayEnvelope?: EventEnvelope | null;
+  outgoingCounts?: Record<string, number>;
+  totalOutgoingCount?: number;
   onSelect: (stepId: string) => void;
   onToggleLog: (stepId: string) => void;
   onTriggerEvalModeChange?: (stepId: string, evalMode: PulseEvalMode) => void;

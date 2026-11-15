@@ -1,6 +1,13 @@
-import { memo, useMemo, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Handle, Position, type NodeProps } from '@xyflow/react';
+import {
+  Handle,
+  Position,
+  useStore,
+  useStoreApi,
+  useUpdateNodeInternals,
+  type NodeProps,
+} from '@xyflow/react';
 import {
   Bell,
   Bot,
@@ -21,6 +28,7 @@ import { cn } from '@/lib/utils';
 
 import { StudioAgentIcon } from './StudioAgentIcon';
 import { DEFAULT_GATE_FILTER, type StudioNode } from './types';
+import { getStepOutputPorts, type StudioPortAccent } from './workflowPorts';
 import {
   describeStepPresentation,
   flameSpans,
@@ -29,11 +37,165 @@ import {
   statusDotClass,
 } from './workflowStepPresentation';
 
+function portPillClass(accent: StudioPortAccent): string {
+  switch (accent) {
+    case 'success':
+      return 'border-success/30 bg-success/12 text-success';
+    case 'warning':
+      return 'border-warning/35 bg-warning/15 text-warning';
+    case 'destructive':
+      return 'border-destructive/30 bg-destructive/12 text-destructive';
+    case 'primary':
+      return 'border-primary/30 bg-primary/12 text-primary';
+    case 'default':
+      return 'border-border bg-muted/65 text-muted-foreground';
+  }
+}
+
 export const WorkflowStepNode = memo(function WorkflowStepNode({
+  id,
   data,
 }: NodeProps<StudioNode>) {
   const { t } = useTranslation('workflow');
+  const articleRef = useRef<HTMLElement | null>(null);
+  const prevPortSignatureRef = useRef<string | null>(null);
+  const updateNodeInternals = useUpdateNodeInternals();
+  const storeApi = useStoreApi();
   const [logView, setLogView] = useState<'log' | 'preview'>('log');
+
+  const outputPorts = useMemo(
+    () => getStepOutputPorts(data.step, t),
+    [data.step, t]
+  );
+  const isMultiPort = !data.confirmationFor && outputPorts.length > 1;
+  const hasTargetPort =
+    Boolean(data.confirmationFor) || data.step.kind !== 'trigger';
+  const portSignature = data.confirmationFor
+    ? 'confirm:target|source'
+    : `${hasTargetPort ? 'target' : 'none'}|${outputPorts
+        .map((port) => port.id)
+        .join(',')}`;
+
+  const needsHeadlessBounds = useStore(
+    useCallback(
+      (s) => {
+        const node = s.nodeLookup.get(id);
+        return Boolean(node && !node.internals.handleBounds);
+      },
+      [id]
+    )
+  );
+
+  useEffect(() => {
+    const element = articleRef.current;
+    if (!element) return;
+
+    if (element.offsetWidth > 0 || element.offsetHeight > 0) {
+      if (prevPortSignatureRef.current !== portSignature) {
+        prevPortSignatureRef.current = portSignature;
+        updateNodeInternals(id);
+      }
+      return;
+    }
+
+    // Headless DOM fallback (e.g. Vitest/jsdom where ResizeObserver is inert and offsetWidth === 0):
+    // synthesize handleBounds directly from the live rendered `.react-flow__handle` elements on this card.
+    const state = storeApi.getState();
+    const internal = state.nodeLookup.get(id);
+    if (!internal) return;
+    if (
+      internal.internals.handleBounds &&
+      prevPortSignatureRef.current === portSignature
+    ) {
+      return;
+    }
+    prevPortSignatureRef.current = portSignature;
+
+    const width = internal.initialWidth ?? (data.confirmationFor ? 144 : 260);
+    const height = internal.initialHeight ?? (data.confirmationFor ? 48 : 112);
+    const source: Array<{
+      id: string | null;
+      type: 'source';
+      nodeId: string;
+      position: Position;
+      x: number;
+      y: number;
+      width: number;
+      height: number;
+    }> = [];
+    const target: Array<{
+      id: string | null;
+      type: 'target';
+      nodeId: string;
+      position: Position;
+      x: number;
+      y: number;
+      width: number;
+      height: number;
+    }> = [];
+
+    let sourceIndex = 0;
+    element
+      .querySelectorAll<HTMLElement>('.react-flow__handle')
+      .forEach((handleEl) => {
+        const handleId = handleEl.getAttribute('data-handleid');
+        const positionAttr = handleEl.getAttribute(
+          'data-handlepos'
+        ) as Position | null;
+        if (handleEl.classList.contains('source')) {
+          source.push({
+            id: handleId,
+            type: 'source',
+            nodeId: id,
+            position: positionAttr ?? Position.Right,
+            x: width - 8,
+            y: data.confirmationFor ? 20 : 38 + sourceIndex * 28,
+            width: 8,
+            height: 8,
+          });
+          sourceIndex += 1;
+        } else {
+          target.push({
+            id: handleId,
+            type: 'target',
+            nodeId: id,
+            position: positionAttr ?? Position.Left,
+            x: 0,
+            y: data.confirmationFor ? 20 : 44,
+            width: 8,
+            height: 8,
+          });
+        }
+      });
+
+    const userNodeMeasured = Boolean(
+      internal.internals.userNode.measured?.width &&
+        internal.internals.userNode.measured?.height
+    );
+    const nextLookup = new Map(state.nodeLookup);
+    nextLookup.set(id, {
+      ...internal,
+      measured: { width, height },
+      internals: {
+        ...internal.internals,
+        handleBounds: { source, target },
+      },
+    });
+    storeApi.setState({ nodeLookup: nextLookup });
+    if (!userNodeMeasured) {
+      state.triggerNodeChanges([
+        { id, type: 'dimensions', dimensions: { width, height } },
+      ]);
+    }
+  }, [
+    data.confirmationFor,
+    id,
+    needsHeadlessBounds,
+    portSignature,
+    storeApi,
+    updateNodeInternals,
+  ]);
+
   const logEvents = data.events;
   const logSpans = useMemo(
     () => (data.logExpanded ? flameSpans(logEvents) : []),
@@ -66,8 +228,9 @@ export const WorkflowStepNode = memo(function WorkflowStepNode({
     const completed = data.stepRun?.status === 'completed';
     return (
       <article
+        ref={articleRef}
         className={cn(
-          'workflow-confirmation-node flex h-12 w-36 items-center gap-2 rounded-lg border bg-card px-3 text-left shadow-sm',
+          'workflow-confirmation-node relative flex h-12 w-36 items-center gap-2 rounded-lg border bg-card px-3 text-left shadow-sm',
           data.selected && 'workflow-node-selected',
           waiting && 'workflow-confirmation-waiting',
           completed && 'workflow-node-completed'
@@ -78,7 +241,10 @@ export const WorkflowStepNode = memo(function WorkflowStepNode({
           type="target"
           position={Position.Left}
           isConnectable
-          className="!size-3 !border-0"
+          title={t('ports.targetInputTooltip')}
+          aria-label={t('ports.targetInputTooltip')}
+          onClick={(event) => event.stopPropagation()}
+          className="nodrag nopan workflow-port-handle"
         />
         <button
           type="button"
@@ -104,7 +270,10 @@ export const WorkflowStepNode = memo(function WorkflowStepNode({
           type="source"
           position={Position.Right}
           isConnectable
-          className="!size-3 !border-0"
+          title={t('ports.sourceOutputTooltip')}
+          aria-label={t('ports.sourceOutputTooltip')}
+          onClick={(event) => event.stopPropagation()}
+          className="nodrag nopan workflow-port-handle"
         />
       </article>
     );
@@ -130,6 +299,10 @@ export const WorkflowStepNode = memo(function WorkflowStepNode({
   const statusLabel = status
     ? t(`status.${status}`, { defaultValue: status })
     : t('studio.standby');
+
+  const fanInCount = data.step.dependsOn.length;
+  const joinMode = data.step.joinMode ?? 'all';
+  const totalOutgoing = data.totalOutgoingCount ?? 0;
 
   const renderLeadingIcon = () => {
     if (sessionOrAgentStep) {
@@ -172,6 +345,7 @@ export const WorkflowStepNode = memo(function WorkflowStepNode({
 
   return (
     <article
+      ref={articleRef}
       data-testid={`workflow-node-${data.step.id}`}
       data-node-category={presentation.category}
       className={cn(
@@ -180,13 +354,20 @@ export const WorkflowStepNode = memo(function WorkflowStepNode({
         statusClass(data.stepRun?.status)
       )}
     >
-      <Handle
-        id="target"
-        type="target"
-        position={Position.Left}
-        isConnectable
-        className="!size-3 !border-0"
-      />
+      {hasTargetPort ? (
+        <Handle
+          id="target"
+          type="target"
+          position={Position.Left}
+          isConnectable
+          title={t('ports.targetInputTooltip')}
+          aria-label={`${data.step.id} ${t('ports.targetInputTooltip')}`}
+          data-testid={`workflow-port-${data.step.id}-target`}
+          onClick={(event) => event.stopPropagation()}
+          className="nodrag nopan workflow-port-handle"
+        />
+      ) : null}
+
       <button
         type="button"
         className="block !h-auto !min-h-[68px] w-full rounded-t-lg text-left outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--focus-ring)]"
@@ -281,21 +462,97 @@ export const WorkflowStepNode = memo(function WorkflowStepNode({
         </div>
       ) : null}
 
-      <div className="flex min-h-8 items-center border-t border-border px-2.5">
-        <button
-          type="button"
-          className="nodrag inline-flex !h-6 items-center gap-1.5 rounded-md bg-muted/70 px-2 text-2xs font-medium text-foreground hover:bg-muted"
-          aria-expanded={data.logExpanded}
-          onClick={(event) => {
-            event.stopPropagation();
-            data.onToggleLog(data.step.id);
-          }}
+      {isMultiPort ? (
+        <div
+          data-testid={`workflow-node-ports-${data.step.id}`}
+          className="space-y-1 border-t border-border py-1.5"
         >
+          {outputPorts.map((port) => {
+            const portOutCount = data.outgoingCounts?.[port.id] ?? 0;
+            return (
+              <div
+                key={port.id}
+                className="relative flex min-h-6 items-center justify-end gap-1.5 px-2.5"
+              >
+                {portOutCount >= 2 ? (
+                  <span
+                    data-testid={`workflow-fan-out-badge-${data.step.id}-${port.id}`}
+                    title={t('ports.fanOutBadgeTooltip', {
+                      count: portOutCount,
+                    })}
+                    className="inline-flex items-center rounded-full border border-border bg-muted/60 px-1.5 py-0.5 font-mono text-2xs font-semibold tabular-nums text-muted-foreground"
+                  >
+                    {t('ports.fanOutCount', { count: portOutCount })}
+                  </span>
+                ) : null}
+                <span
+                  data-testid={`workflow-port-pill-${data.step.id}-${port.id}`}
+                  className={cn(
+                    'inline-flex items-center rounded-full border px-2 py-0.5 text-2xs font-semibold',
+                    portPillClass(port.accent)
+                  )}
+                >
+                  {port.label}
+                </span>
+                <Handle
+                  id={port.id}
+                  type="source"
+                  position={Position.Right}
+                  isConnectable
+                  title={port.tooltip}
+                  aria-label={`${data.step.id} ${port.label}`}
+                  data-testid={`workflow-port-${data.step.id}-${port.id}`}
+                  onClick={(event) => event.stopPropagation()}
+                  className={cn(
+                    'nodrag nopan workflow-port-handle',
+                    `workflow-port-accent-${port.accent}`
+                  )}
+                />
+              </div>
+            );
+          })}
+        </div>
+      ) : null}
+
+      <div className="flex min-h-8 items-center justify-between gap-1.5 border-t border-border px-2.5 py-1">
+        <div className="flex min-w-0 items-center gap-1.5">
+          {fanInCount >= 2 ? (
+            <span
+              data-testid={`workflow-fan-in-badge-${data.step.id}`}
+              className="inline-flex shrink-0 items-center rounded-full border border-primary/30 bg-primary/10 px-1.5 py-0.5 text-2xs font-semibold tabular-nums text-primary"
+            >
+              {t(
+                joinMode === 'any'
+                  ? 'ports.fanInBadgeAny'
+                  : 'ports.fanInBadgeAll',
+                { count: fanInCount }
+              )}
+            </span>
+          ) : null}
+          <button
+            type="button"
+            className="nodrag inline-flex !h-6 items-center gap-1.5 rounded-md bg-muted/70 px-2 text-2xs font-medium text-foreground hover:bg-muted"
+            aria-expanded={data.logExpanded}
+            onClick={(event) => {
+              event.stopPropagation();
+              data.onToggleLog(data.step.id);
+            }}
+          >
+            <span
+              className={cn('workflow-node-status-dot', statusDotClass(status))}
+            />
+            {statusLabel}
+          </button>
+        </div>
+        {!isMultiPort && totalOutgoing >= 2 ? (
           <span
-            className={cn('workflow-node-status-dot', statusDotClass(status))}
-          />
-          {statusLabel}
-        </button>
+            data-testid={`workflow-fan-out-badge-${data.step.id}`}
+            title={t('ports.fanOutBadgeTooltip', { count: totalOutgoing })}
+            className="inline-flex shrink-0 items-center rounded-full border border-border bg-muted/65 px-1.5 py-0.5 font-mono text-2xs font-semibold tabular-nums text-muted-foreground"
+          >
+            {t('ports.fanOutCount', { count: totalOutgoing })}
+          </span>
+        ) : null}
       </div>
 
       {data.logExpanded ? (
@@ -418,13 +675,21 @@ export const WorkflowStepNode = memo(function WorkflowStepNode({
         </div>
       ) : null}
 
-      <Handle
-        id="source"
-        type="source"
-        position={Position.Right}
-        isConnectable
-        className="!size-3 !border-0"
-      />
+      {!isMultiPort ? (
+        <Handle
+          id="source"
+          type="source"
+          position={Position.Right}
+          isConnectable
+          title={outputPorts[0]?.tooltip ?? t('ports.sourceOutputTooltip')}
+          aria-label={`${data.step.id} ${
+            outputPorts[0]?.tooltip ?? t('ports.sourceOutputTooltip')
+          }`}
+          data-testid={`workflow-port-${data.step.id}-source`}
+          onClick={(event) => event.stopPropagation()}
+          className="nodrag nopan workflow-port-handle"
+        />
+      ) : null}
     </article>
   );
 });

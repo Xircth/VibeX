@@ -17,6 +17,12 @@ import {
   type StudioWorkflowDefinition,
   type StudioWorkflowStep,
 } from './types';
+import {
+  describeBranchEdge,
+  isMultiPortStep,
+  resolveValidSourceHandle,
+  type PortTranslateFn,
+} from './workflowPorts';
 
 function extractEventStepId(payloadJson: string): string | null {
   if (!payloadJson) return null;
@@ -113,6 +119,51 @@ function hasManualConfirmation(step: StudioWorkflowStep): boolean {
   );
 }
 
+function computeOutgoingPortCounts(definition: StudioWorkflowDefinition): {
+  byStepHandle: Map<string, Record<string, number>>;
+  totalByStep: Map<string, number>;
+} {
+  const byStepHandle = new Map<string, Record<string, number>>();
+  const totalByStep = new Map<string, number>();
+
+  const increment = (stepId: string, handleId: string) => {
+    const current = byStepHandle.get(stepId) ?? {};
+    current[handleId] = (current[handleId] ?? 0) + 1;
+    byStepHandle.set(stepId, current);
+    totalByStep.set(stepId, (totalByStep.get(stepId) ?? 0) + 1);
+  };
+
+  for (const step of definition.steps) {
+    for (const sourceStepId of step.dependsOn) {
+      const sourceStep = definition.steps.find(
+        (candidate) => candidate.id === sourceStepId
+      );
+      if (!sourceStep) continue;
+      const handleId = resolveValidSourceHandle(
+        sourceStep,
+        step.branchPorts?.[sourceStepId]
+      );
+      increment(sourceStepId, handleId);
+    }
+
+    if (
+      step.kind === 'control' &&
+      step.controlKind === 'bounded_loop' &&
+      step.loopTargetStepId
+    ) {
+      const loopTarget = definition.steps.find(
+        (candidate) =>
+          candidate.id === step.loopTargetStepId && candidate.kind !== 'trigger'
+      );
+      if (loopTarget && !loopTarget.dependsOn.includes(step.id)) {
+        increment(step.id, 'branch:loop_body');
+      }
+    }
+  }
+
+  return { byStepHandle, totalByStep };
+}
+
 export function layoutNodes(
   definition: StudioWorkflowDefinition,
   latest: Map<string, WorkflowStepView>,
@@ -132,6 +183,8 @@ export function layoutNodes(
     'size' in eventsInput
       ? eventsInput
       : indexWorkflowEventsByStepId(eventsInput);
+  const { byStepHandle, totalByStep } = computeOutgoingPortCounts(definition);
+
   const depths = new Map<string, number>();
   const depthOf = (
     step: StudioWorkflowStep,
@@ -155,36 +208,18 @@ export function layoutNodes(
     const depth = depthOf(step);
     const row = rows.get(depth) ?? 0;
     rows.set(depth, row + 1);
+    const estimatedHeight = isMultiPortStep(step) ? 148 : 112;
     return {
       id: step.id,
       type: 'workflowStep',
-      position: { x: depth * 430 + 44, y: row * 176 + 76 },
+      position: { x: depth * 430 + 44, y: row * 196 + 76 },
       initialWidth: 260,
-      initialHeight: 112,
+      initialHeight: estimatedHeight,
       sourcePosition: Position.Right,
       targetPosition: Position.Left,
+      deletable: false,
       zIndex:
         selectedStepId === step.id ? 5 : logStepId === step.id ? 4 : undefined,
-      handles: [
-        {
-          id: 'target',
-          type: 'target',
-          position: Position.Left,
-          x: 0,
-          y: 48,
-          width: 8,
-          height: 8,
-        },
-        {
-          id: 'source',
-          type: 'source',
-          position: Position.Right,
-          x: 252,
-          y: 48,
-          width: 8,
-          height: 8,
-        },
-      ],
       style: { width: 260 },
       data: {
         step,
@@ -199,12 +234,15 @@ export function layoutNodes(
         logExpanded: logStepId === step.id,
         mode,
         replayEnvelope,
+        outgoingCounts: byStepHandle.get(step.id),
+        totalOutgoingCount: totalByStep.get(step.id) ?? 0,
         onSelect,
         onToggleLog,
         onTriggerEvalModeChange,
       },
     };
   });
+
   const confirmationNodes = definition.steps.flatMap((step) => {
     if (!hasManualConfirmation(step)) return [];
     const owner = stepNodes.find((node) => node.id === step.id);
@@ -236,26 +274,7 @@ export function layoutNodes(
         sourcePosition: Position.Right,
         targetPosition: Position.Left,
         selectable: true,
-        handles: [
-          {
-            id: 'target',
-            type: 'target',
-            position: Position.Left,
-            x: 0,
-            y: 20,
-            width: 8,
-            height: 8,
-          },
-          {
-            id: 'source',
-            type: 'source',
-            position: Position.Right,
-            x: 136,
-            y: 20,
-            width: 8,
-            height: 8,
-          },
-        ],
+        deletable: false,
         style: { width: 144, height: 48 },
         data: {
           step,
@@ -268,6 +287,8 @@ export function layoutNodes(
           logExpanded: false,
           mode,
           replayEnvelope,
+          outgoingCounts: byStepHandle.get(step.id),
+          totalOutgoingCount: totalByStep.get(step.id) ?? 0,
           onSelect,
           onToggleLog,
           onTriggerEvalModeChange,
@@ -280,25 +301,40 @@ export function layoutNodes(
 
 export function buildEdges(
   definition: StudioWorkflowDefinition,
-  latest: Map<string, WorkflowStepView>
-) {
+  latest: Map<string, WorkflowStepView>,
+  t?: PortTranslateFn
+): Edge[] {
   const dependencyEdges = definition.steps.flatMap((step) =>
     step.dependsOn.map((sourceStepId) => {
       const sourceStep = definition.steps.find(
         (candidate) => candidate.id === sourceStepId
       );
-      const source =
-        sourceStep && hasManualConfirmation(sourceStep)
-          ? `confirmation:${sourceStepId}`
-          : sourceStepId;
+      const hasConfirm = Boolean(sourceStep && hasManualConfirmation(sourceStep));
+      const source = hasConfirm
+        ? `confirmation:${sourceStepId}`
+        : sourceStepId;
+      const sourceHandle = hasConfirm
+        ? 'source'
+        : resolveValidSourceHandle(
+            sourceStep,
+            step.branchPorts?.[sourceStepId]
+          );
+      const branchMeta = hasConfirm ? {} : describeBranchEdge(sourceHandle, t);
       const sourceStatus = latest.get(sourceStepId)?.status;
       const targetStatus = latest.get(step.id)?.status;
       return {
         id: `${sourceStepId}->${step.id}`,
+        type: 'workflowEdge',
         source,
         target: step.id,
-        sourceHandle: 'source',
+        sourceHandle,
         targetHandle: 'target',
+        ...(branchMeta.label
+          ? {
+              label: branchMeta.label,
+              data: { branchAccent: branchMeta.accent },
+            }
+          : {}),
         animated:
           sourceStatus === 'running' ||
           sourceStatus === 'claimed' ||
@@ -306,16 +342,60 @@ export function buildEdges(
           targetStatus === 'claimed',
         className: cn(
           'workflow-studio-edge',
+          branchMeta.edgeClassName,
           sourceStatus === 'completed' && 'workflow-edge-completed'
         ),
       } satisfies Edge;
     })
   );
+
+  const loopBackEdges = definition.steps.flatMap((step) => {
+    if (
+      step.kind !== 'control' ||
+      step.controlKind !== 'bounded_loop' ||
+      !step.loopTargetStepId
+    ) {
+      return [];
+    }
+    const loopTarget = definition.steps.find(
+      (candidate) =>
+        candidate.id === step.loopTargetStepId && candidate.kind !== 'trigger'
+    );
+    if (!loopTarget || loopTarget.dependsOn.includes(step.id)) {
+      return [];
+    }
+    const branchMeta = describeBranchEdge('branch:loop_body', t);
+    const loopStatus = latest.get(step.id)?.status;
+    return [
+      {
+        id: `${step.id}-loopback->${loopTarget.id}`,
+        type: 'workflowEdge',
+        source: step.id,
+        target: loopTarget.id,
+        sourceHandle: 'branch:loop_body',
+        targetHandle: 'target',
+        ...(branchMeta.label
+          ? {
+              label: branchMeta.label,
+              data: { branchAccent: branchMeta.accent, isLoopBack: true },
+            }
+          : {}),
+        animated: loopStatus === 'running' || loopStatus === 'claimed',
+        className: cn(
+          'workflow-studio-edge',
+          branchMeta.edgeClassName,
+          'workflow-edge-loopback'
+        ),
+      } satisfies Edge,
+    ];
+  });
+
   const confirmationEdges = definition.steps.flatMap((step) =>
     hasManualConfirmation(step)
       ? [
           {
             id: `${step.id}->confirmation:${step.id}`,
+            type: 'workflowEdge',
             source: step.id,
             target: `confirmation:${step.id}`,
             sourceHandle: 'source',
@@ -335,5 +415,40 @@ export function buildEdges(
         ]
       : []
   );
-  return [...dependencyEdges, ...confirmationEdges];
+
+  return [...dependencyEdges, ...loopBackEdges, ...confirmationEdges];
+}
+
+export function buildWorkflowGraph(params: {
+  definition: StudioWorkflowDefinition;
+  latest?: Map<string, WorkflowStepView>;
+  selectedStepId?: string | null;
+  mode?: StudioMode;
+  onSelect?: (stepId: string) => void;
+  events?: WorkflowEventRecord[] | ReadonlyMap<string, WorkflowEventRecord[]>;
+  agentOptions?: WorkflowStudioAgentOption[];
+  logStepId?: string | null;
+  onToggleLog?: (stepId: string) => void;
+  replayEnvelope?: EventEnvelope | null;
+  onTriggerEvalModeChange?: (stepId: string, evalMode: PulseEvalMode) => void;
+  t?: PortTranslateFn;
+}): { nodes: StudioNode[]; edges: Edge[] } {
+  const latest = params.latest ?? new Map<string, WorkflowStepView>();
+  const noop = () => undefined;
+  return {
+    nodes: layoutNodes(
+      params.definition,
+      latest,
+      params.selectedStepId ?? null,
+      params.mode ?? 'edit',
+      params.onSelect ?? noop,
+      params.events ?? EMPTY_EVENTS,
+      params.agentOptions ?? [],
+      params.logStepId ?? null,
+      params.onToggleLog ?? noop,
+      params.replayEnvelope,
+      params.onTriggerEvalModeChange
+    ),
+    edges: buildEdges(params.definition, latest, params.t),
+  };
 }

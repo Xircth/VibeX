@@ -512,6 +512,8 @@ export function switchExecutionPrimitive(
     filter: step.filter,
     subscribeThread: step.subscribeThread,
     threadKeyTemplate: step.threadKeyTemplate,
+    ...(step.branchPorts ? { branchPorts: step.branchPorts } : {}),
+    ...(step.joinMode ? { joinMode: step.joinMode } : {}),
   };
   const currentPrompt =
     'prompt' in step && typeof step.prompt === 'string'

@@ -1109,7 +1109,7 @@ describe('Track U2: Bilingual zh-CN/en Localization & Group/Gate Inspector Metad
       await waitFor(() => {
         expect(
           screen.getByTestId('workflow-studio-open-pulse-deck')
-        ).toHaveTextContent('Pulse Rules');
+        ).toHaveTextContent('Automation Tasks');
       });
       expect(screen.getByRole('textbox', { name: 'Name' })).toHaveValue(
         'New Workflow'
@@ -1120,11 +1120,205 @@ describe('Track U2: Bilingual zh-CN/en Localization & Group/Gate Inspector Metad
       });
       expect(
         screen.getByTestId('workflow-studio-open-pulse-deck')
-      ).toHaveTextContent('脉冲自动化');
+      ).toHaveTextContent('自动化任务');
       fireEvent.click(screen.getByRole('button', { name: '新建工作流' }));
       expect(screen.getByRole('textbox', { name: '名称' })).toHaveValue(
         '新建工作流'
       );
+    } finally {
+      await act(async () => {
+        await i18n.changeLanguage('zh-CN');
+      });
+    }
+  });
+});
+
+describe('Track A3: Multi-Port Semantic Branching, Fan-In/Fan-Out Badges & Inspector Edge Controls', () => {
+  it('renders semantic multi-port handles, tabular-nums fan-in/fan-out badges, Delete-key edge removal, and Inspector join/predecessor controls', async () => {
+    const i18n = (await import('@/i18n')).default;
+    const { act, waitFor, within } = await import('@testing-library/react');
+    const { useState } = await import('react');
+
+    const initialGraph: import('./WorkflowStudio').StudioWorkflowDefinition = {
+      formatVersion: 1,
+      name: 'DAG Multi-Port Studio',
+      description: null,
+      inputSchema: { type: 'object' },
+      policy: {
+        maxConcurrentAgentSteps: 4,
+        maxAgentCalls: 12,
+        deadlineSeconds: 1800,
+        maxOutputBytes: 65536,
+      },
+      steps: [
+        {
+          id: 'intake',
+          dependsOn: [],
+          phase: null,
+          inputBindings: {},
+          kind: 'trigger',
+          title: 'GitHub Trigger',
+          triggerKind: 'platform',
+          sourceKind: 'github',
+          eventType: 'github.pr.opened',
+          evalMode: 'observe',
+          temporal: null,
+          filter: {
+            sourceKinds: ['github'],
+            sourceInstanceIds: [],
+            eventTypes: ['github.pr.opened'],
+            allowedActors: [],
+            conditions: [],
+          },
+        },
+        {
+          id: 'cond-1',
+          dependsOn: ['intake'],
+          phase: null,
+          inputBindings: {},
+          kind: 'control',
+          controlKind: 'condition',
+          title: 'Risk Branch',
+          expression: 'event.risk == "high"',
+        },
+        {
+          id: 'gate-1',
+          dependsOn: ['intake', 'cond-1'],
+          branchPorts: { 'cond-1': 'branch:true' },
+          joinMode: 'all',
+          phase: null,
+          inputBindings: {},
+          kind: 'user_gate',
+          interactionKind: 'approval',
+          severity: 'warning',
+          title: 'Owner Gate',
+          bodyTemplate: 'Approve?',
+        },
+        {
+          id: 'loop-1',
+          dependsOn: ['cond-1'],
+          branchPorts: { 'cond-1': 'branch:false' },
+          phase: null,
+          inputBindings: {},
+          kind: 'control',
+          controlKind: 'bounded_loop',
+          title: 'Verify Loop',
+          maxIterations: 3,
+          loopTargetStepId: '',
+        },
+      ],
+    };
+
+    function StatefulHarness() {
+      const [def, setDef] = useState(initialGraph);
+      return (
+        <WorkflowStudio
+          studioMode
+          definition={def}
+          onDefinitionChange={setDef}
+        />
+      );
+    }
+
+    try {
+      await act(async () => {
+        await i18n.changeLanguage('zh-CN');
+      });
+
+      const { container } = render(<StatefulHarness />);
+
+      // Trigger has source port only (no target port)
+      expect(
+        screen.queryByTestId('workflow-port-intake-target')
+      ).not.toBeInTheDocument();
+      expect(
+        screen.getByTestId('workflow-port-intake-source')
+      ).toHaveClass('nodrag', 'nopan', 'workflow-port-handle');
+
+      // Intake fans out to 2 downstream nodes (cond-1 & gate-1) -> tabular-nums fan-out badge ×2
+      const fanOutBadge = screen.getByTestId('workflow-fan-out-badge-intake');
+      expect(fanOutBadge).toHaveTextContent('×2');
+      expect(fanOutBadge).toHaveClass('tabular-nums');
+
+      // Condition, Approval Gate, and Bounded Loop render 2 semantic output ports each
+      expect(
+        screen.getByTestId('workflow-port-pill-cond-1-branch:true')
+      ).toHaveTextContent('满足 (True)');
+      expect(
+        screen.getByTestId('workflow-port-pill-cond-1-branch:false')
+      ).toHaveTextContent('不满足 (False)');
+      expect(
+        screen.getByTestId('workflow-port-pill-gate-1-branch:approved')
+      ).toHaveTextContent('批准 (Approved)');
+      expect(
+        screen.getByTestId('workflow-port-pill-gate-1-branch:rejected')
+      ).toHaveTextContent('驳回 (Rejected)');
+      expect(
+        screen.getByTestId('workflow-port-pill-loop-1-branch:loop_body')
+      ).toHaveTextContent('循环体 (Loop)');
+      expect(
+        screen.getByTestId('workflow-port-pill-loop-1-branch:loop_exit')
+      ).toHaveTextContent('完成退出 (Exit)');
+
+      // Gate-1 has 2 predecessors -> Fan-In Join Badge with tabular-nums
+      const fanInBadge = screen.getByTestId('workflow-fan-in-badge-gate-1');
+      expect(fanInBadge).toHaveTextContent('汇合 ×2 · 全部');
+      expect(fanInBadge).toHaveClass('tabular-nums');
+
+      // Select gate-1 to open Inspector and toggle Join Mode ALL -> ANY, reorder, and disconnect
+      fireEvent.click(
+        within(screen.getByTestId('workflow-node-gate-1')).getByRole('button', {
+          name: /gate-1/i,
+        })
+      );
+      expect(screen.getByTestId('inspector-join-mode')).toBeInTheDocument();
+      fireEvent.click(screen.getByTestId('inspector-join-mode-any'));
+      expect(screen.getByTestId('workflow-fan-in-badge-gate-1')).toHaveTextContent(
+        '汇合 ×2 · 任一'
+      );
+
+      // Switch branch port on cond-1 predecessor in Inspector
+      const portSelect = screen.getByTestId(
+        'inspector-predecessor-port-cond-1'
+      ) as HTMLSelectElement;
+      expect(portSelect.value).toBe('branch:true');
+      fireEvent.change(portSelect, { target: { value: 'branch:false' } });
+      expect(portSelect.value).toBe('branch:false');
+
+      // Reorder predecessors (move cond-1 up before intake)
+      fireEvent.click(screen.getByTestId('inspector-predecessor-up-cond-1'));
+
+      // Disconnect intake from gate-1 via Inspector button
+      fireEvent.click(
+        screen.getByTestId('inspector-predecessor-disconnect-intake')
+      );
+      expect(
+        screen.queryByTestId('workflow-fan-in-badge-gate-1')
+      ).not.toBeInTheDocument();
+      expect(
+        screen.queryByTestId('workflow-fan-out-badge-intake')
+      ).not.toBeInTheDocument();
+
+      // Verify rendered edges & semantic branch edge pill labels exist in DOM without static node.handles
+      expect(
+        screen.getByTestId('workflow-edge-label-cond-1->gate-1')
+      ).toHaveTextContent('不满足');
+      const renderedEdgesBefore = container.querySelectorAll('.react-flow__edge');
+      expect(renderedEdgesBefore.length).toBeGreaterThanOrEqual(3);
+
+      // Select an edge on canvas and press Delete to remove the connection
+      const targetEdge = container.querySelector(
+        '[data-id="cond-1->gate-1"]'
+      ) as HTMLElement;
+      expect(targetEdge).toBeTruthy();
+      fireEvent.click(targetEdge);
+      fireEvent.keyDown(targetEdge, { key: 'Delete', code: 'Delete' });
+      fireEvent.keyUp(targetEdge, { key: 'Delete', code: 'Delete' });
+      await waitFor(() => {
+        expect(
+          screen.queryByTestId('workflow-edge-label-cond-1->gate-1')
+        ).not.toBeInTheDocument();
+      });
     } finally {
       await act(async () => {
         await i18n.changeLanguage('zh-CN');

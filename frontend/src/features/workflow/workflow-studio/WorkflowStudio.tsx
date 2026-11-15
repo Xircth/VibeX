@@ -16,6 +16,7 @@ import { WorkflowStudioContextMenu } from './WorkflowStudioContextMenu';
 import { WorkflowStudioInspector } from './WorkflowStudioInspector';
 import { WorkflowStudioToolbar } from './WorkflowStudioToolbar';
 import { WorkflowStudioWorkspacePanel } from './WorkflowStudioWorkspacePanel';
+import { edgeTypes } from './WorkflowStudioEdge';
 import { nodeTypes } from './WorkflowStepNode';
 
 export function WorkflowStudio<
@@ -37,6 +38,7 @@ export function WorkflowStudio<
     updateTether,
     setContextMenu,
     connect,
+    reconnect,
     isValidConnection,
     removeEdges,
     onDefinitionChange,
@@ -62,6 +64,7 @@ export function WorkflowStudio<
           nodes={nodes}
           edges={edges}
           nodeTypes={nodeTypes}
+          edgeTypes={edgeTypes}
           onNodesChange={onNodesChange}
           onEdgesChange={onEdgesChange}
           onNodeClick={(_, node) => {
@@ -98,15 +101,17 @@ export function WorkflowStudio<
           }}
           onMove={() => updateTether()}
           onConnect={connect}
+          onReconnect={reconnect}
           isValidConnection={isValidConnection}
           connectionMode={ConnectionMode.Loose}
-          onEdgesDelete={removeEdges}
+          deleteKeyCode={onDefinitionChange ? ['Backspace', 'Delete'] : null}
           onEdgeDoubleClick={(event, edge) => {
             event.stopPropagation();
-            if (edge.id.includes('confirmation:')) return;
+            if (edge.id.includes('->confirmation:')) return;
             removeEdges([edge]);
           }}
-          edgesReconnectable={false}
+          edgesReconnectable={Boolean(onDefinitionChange)}
+          edgesFocusable={Boolean(onDefinitionChange)}
           nodesDraggable={Boolean(onDefinitionChange)}
           nodesConnectable={Boolean(onDefinitionChange)}
           proOptions={{ hideAttribution: true }}

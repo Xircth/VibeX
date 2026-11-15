@@ -4,6 +4,7 @@ import {
   useNodesState,
   type Connection,
   type Edge,
+  type EdgeChange,
   type ReactFlowInstance,
 } from '@xyflow/react';
 import type { WorkflowEventRecord, WorkflowStepView } from 'shared/types';
@@ -18,14 +19,142 @@ import {
   type StudioMode,
   type StudioNode,
   type StudioWorkflowDefinition,
+  type StudioWorkflowStep,
 } from './types';
-import { isWorkflowConnectionValid } from './workflowConnection';
+import {
+  isWorkflowConnectionValid,
+  wouldCreateWorkflowCycle,
+} from './workflowConnection';
 import {
   buildEdges,
   indexWorkflowEventsByStepId,
   layoutNodes,
   withoutStepOutputBindings,
 } from './workflowGraph';
+import {
+  defaultSourceHandleFor,
+  isNamedBranchHandle,
+  resolveValidSourceHandle,
+  withoutRemovedBranchPorts,
+  type PortTranslateFn,
+} from './workflowPorts';
+
+function applyConnectionToSteps(
+  steps: StudioWorkflowStep[],
+  connection: Connection
+): StudioWorkflowStep[] | null {
+  if (!connection.source || !connection.target) return null;
+  if (!isWorkflowConnectionValid(connection, steps)) return null;
+
+  const sourceId =
+    confirmationParentId(connection.source) ?? connection.source;
+  const targetId =
+    confirmationParentId(connection.target) ?? connection.target;
+  if (sourceId === targetId) return null;
+
+  const sourceStep = steps.find((step) => step.id === sourceId);
+  const targetStep = steps.find((step) => step.id === targetId);
+  if (!sourceStep || !targetStep || targetStep.kind === 'trigger') {
+    return null;
+  }
+
+  const resolvedHandle = resolveValidSourceHandle(
+    sourceStep,
+    connection.sourceHandle
+  );
+
+  // BoundedLoop loop-back port targeting an ancestor step sets loopTargetStepId cleanly
+  // without introducing a cycle into `dependsOn`.
+  if (
+    sourceStep.kind === 'control' &&
+    sourceStep.controlKind === 'bounded_loop' &&
+    resolvedHandle === 'branch:loop_body' &&
+    wouldCreateWorkflowCycle(steps, sourceId, targetId)
+  ) {
+    if (sourceStep.loopTargetStepId === targetId) return null;
+    return steps.map((step) =>
+      step.id === sourceId && step.kind === 'control'
+        ? { ...step, loopTargetStepId: targetId }
+        : step
+    );
+  }
+
+  const alreadyDepends = targetStep.dependsOn.includes(sourceId);
+  const currentHandle =
+    targetStep.branchPorts?.[sourceId] ?? defaultSourceHandleFor(sourceStep);
+  if (alreadyDepends && currentHandle === resolvedHandle) {
+    return null;
+  }
+
+  const nextDependsOn = alreadyDepends
+    ? targetStep.dependsOn
+    : [...targetStep.dependsOn, sourceId];
+  const nextBranchPorts = isNamedBranchHandle(resolvedHandle)
+    ? { ...(targetStep.branchPorts ?? {}), [sourceId]: resolvedHandle }
+    : withoutRemovedBranchPorts(targetStep.branchPorts, new Set([sourceId]));
+
+  return steps.map((step) =>
+    step.id === targetId
+      ? {
+          ...step,
+          dependsOn: nextDependsOn,
+          branchPorts: nextBranchPorts,
+        }
+      : step
+  );
+}
+
+function applyDisconnectToSteps(
+  steps: StudioWorkflowStep[],
+  rawSourceId: string,
+  rawTargetId: string,
+  sourceHandleId?: string | null
+): StudioWorkflowStep[] | null {
+  const sourceId = confirmationParentId(rawSourceId) ?? rawSourceId;
+  const targetId = confirmationParentId(rawTargetId) ?? rawTargetId;
+  let changed = false;
+
+  const nextSteps = steps.map((step) => {
+    if (
+      step.id === sourceId &&
+      step.kind === 'control' &&
+      step.controlKind === 'bounded_loop' &&
+      step.loopTargetStepId === targetId &&
+      (sourceHandleId === 'branch:loop_body' ||
+        !steps
+          .find((candidate) => candidate.id === targetId)
+          ?.dependsOn.includes(sourceId))
+    ) {
+      changed = true;
+      return { ...step, loopTargetStepId: '' };
+    }
+
+    if (step.id === targetId && step.dependsOn.includes(sourceId)) {
+      if (
+        sourceHandleId &&
+        step.branchPorts?.[sourceId] &&
+        step.branchPorts[sourceId] !== sourceHandleId
+      ) {
+        return step;
+      }
+      changed = true;
+      const removedSet = new Set([sourceId]);
+      return {
+        ...step,
+        dependsOn: step.dependsOn.filter((dep) => dep !== sourceId),
+        branchPorts: withoutRemovedBranchPorts(step.branchPorts, removedSet),
+        inputBindings: withoutStepOutputBindings(
+          step.inputBindings,
+          removedSet
+        ),
+      };
+    }
+
+    return step;
+  });
+
+  return changed ? nextSteps : null;
+}
 
 export function useWorkflowStudioGraph({
   definition,
@@ -36,6 +165,7 @@ export function useWorkflowStudioGraph({
   mode,
   replayEnvelope,
   onTriggerEvalModeChange,
+  t,
 }: {
   definition: StudioWorkflowDefinition;
   onDefinitionChange?: (definition: StudioWorkflowDefinition) => void;
@@ -45,6 +175,7 @@ export function useWorkflowStudioGraph({
   mode: StudioMode;
   replayEnvelope?: EventEnvelope | null;
   onTriggerEvalModeChange?: (stepId: string, evalMode: PulseEvalMode) => void;
+  t?: PortTranslateFn;
 }) {
   const [selectedStepId, setSelectedStepId] = useState<string | null>(null);
   const [logStepId, setLogStepId] = useState<string | null>(null);
@@ -95,18 +226,31 @@ export function useWorkflowStudioGraph({
     setNodes((current) =>
       layoutedNodes.map((next) => {
         const existing = current.find((node) => node.id === next.id);
-        return existing ? { ...next, position: existing.position } : next;
+        return existing
+          ? {
+              ...next,
+              position: existing.position,
+              ...(existing.measured ? { measured: existing.measured } : {}),
+            }
+          : next;
       })
     );
   }, [layoutedNodes, setNodes]);
+
   const derivedEdges = useMemo(
-    () => buildEdges(definition, latest),
-    [definition, latest]
+    () => buildEdges(definition, latest, t),
+    [definition, latest, t]
   );
-  const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>(derivedEdges);
+  const [edges, setEdges, rawOnEdgesChange] = useEdgesState<Edge>(derivedEdges);
   useEffect(() => {
-    setEdges(derivedEdges);
+    setEdges((current) =>
+      derivedEdges.map((next) => {
+        const existing = current.find((edge) => edge.id === next.id);
+        return existing?.selected ? { ...next, selected: true } : next;
+      })
+    );
   }, [derivedEdges, setEdges]);
+
   const stageRef = useRef<HTMLDivElement | null>(null);
   const inspectorRef = useRef<HTMLElement | null>(null);
   const [flowInstance, setFlowInstance] =
@@ -241,62 +385,117 @@ export function useWorkflowStudioGraph({
 
   const connect = useCallback(
     (connection: Connection) => {
-      if (!connection.source || !connection.target || !onDefinitionChange)
-        return;
-      if (!isWorkflowConnectionValid(connection)) return;
-      const sourceId =
-        confirmationParentId(connection.source) ?? connection.source;
-      const targetId =
-        confirmationParentId(connection.target) ?? connection.target;
-      if (sourceId === targetId) return;
-      const target = definition.steps.find((step) => step.id === targetId);
-      if (!target || target.dependsOn.includes(sourceId)) return;
-      onDefinitionChange({
-        ...definition,
-        steps: definition.steps.map((step) =>
-          step.id === targetId
-            ? { ...step, dependsOn: [...step.dependsOn, sourceId] }
-            : step
-        ),
-      });
+      if (!onDefinitionChange) return;
+      const nextSteps = applyConnectionToSteps(definition.steps, connection);
+      if (!nextSteps) return;
+      onDefinitionChange({ ...definition, steps: nextSteps });
+    },
+    [definition, onDefinitionChange]
+  );
+
+  const disconnect = useCallback(
+    (sourceId: string, targetId: string, sourceHandleId?: string) => {
+      if (!onDefinitionChange) return;
+      const nextSteps = applyDisconnectToSteps(
+        definition.steps,
+        sourceId,
+        targetId,
+        sourceHandleId
+      );
+      if (!nextSteps) return;
+      onDefinitionChange({ ...definition, steps: nextSteps });
     },
     [definition, onDefinitionChange]
   );
 
   const isValidConnection = useCallback(
-    (connection: Connection | Edge) => isWorkflowConnectionValid(connection),
-    []
+    (connection: Connection | Edge) =>
+      isWorkflowConnectionValid(connection, definition.steps),
+    [definition.steps]
   );
 
   const removeEdges = useCallback(
     (deletedEdges: Edge[]) => {
       if (!onDefinitionChange) return;
-      const deleted = new Set(
-        deletedEdges
-          .filter((edge) => !edge.id.includes('confirmation:'))
-          .map((edge) => edge.id)
+      const removable = deletedEdges.filter(
+        (edge) => !edge.id.includes('->confirmation:')
       );
-      if (deleted.size === 0) return;
-      onDefinitionChange({
-        ...definition,
-        steps: definition.steps.map((step) => {
-          const removedSources = new Set(
-            step.dependsOn.filter((source) =>
-              deleted.has(`${source}->${step.id}`)
-            )
-          );
-          return {
-            ...step,
-            dependsOn: step.dependsOn.filter(
-              (source) => !removedSources.has(source)
-            ),
-            inputBindings: withoutStepOutputBindings(
-              step.inputBindings,
-              removedSources
-            ),
-          };
-        }),
-      });
+      if (removable.length === 0) return;
+
+      if (removable.length === 1) {
+        const single = removable[0]!;
+        disconnect(
+          single.source,
+          single.target,
+          single.sourceHandle ?? undefined
+        );
+        return;
+      }
+
+      let currentSteps = definition.steps;
+      let anyChanged = false;
+      for (const edge of removable) {
+        const updated = applyDisconnectToSteps(
+          currentSteps,
+          edge.source,
+          edge.target,
+          edge.sourceHandle ?? undefined
+        );
+        if (updated) {
+          currentSteps = updated;
+          anyChanged = true;
+        }
+      }
+      if (anyChanged) {
+        onDefinitionChange({ ...definition, steps: currentSteps });
+      }
+    },
+    [definition, disconnect, onDefinitionChange]
+  );
+
+  const onEdgesChange = useCallback(
+    (changes: EdgeChange<Edge>[]) => {
+      const removedIds = changes
+        .filter((change) => change.type === 'remove')
+        .map((change) => change.id);
+
+      if (removedIds.length > 0 && onDefinitionChange) {
+        const removedEdges = edges.filter((edge) =>
+          removedIds.includes(edge.id)
+        );
+        if (removedEdges.length > 0) {
+          removeEdges(removedEdges);
+        }
+      }
+
+      const passthroughChanges = changes.filter(
+        (change) =>
+          change.type !== 'remove' ||
+          (!change.id.includes('->confirmation:') && Boolean(onDefinitionChange))
+      );
+      rawOnEdgesChange(passthroughChanges);
+    },
+    [edges, onDefinitionChange, rawOnEdgesChange, removeEdges]
+  );
+
+  const reconnect = useCallback(
+    (oldEdge: Edge, newConnection: Connection) => {
+      if (!onDefinitionChange || oldEdge.id.includes('->confirmation:')) {
+        return;
+      }
+      const afterDisconnect =
+        applyDisconnectToSteps(
+          definition.steps,
+          oldEdge.source,
+          oldEdge.target,
+          oldEdge.sourceHandle ?? undefined
+        ) ?? definition.steps;
+      const afterReconnect = applyConnectionToSteps(
+        afterDisconnect,
+        newConnection
+      );
+      if (!afterReconnect) return;
+      onDefinitionChange({ ...definition, steps: afterReconnect });
     },
     [definition, onDefinitionChange]
   );
@@ -318,6 +517,8 @@ export function useWorkflowStudioGraph({
     syncConfirmationDrag,
     updateTether: scheduleTetherUpdate,
     connect,
+    disconnect,
+    reconnect,
     isValidConnection,
     removeEdges,
   };

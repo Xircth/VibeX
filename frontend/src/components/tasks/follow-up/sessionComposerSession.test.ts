@@ -5,7 +5,6 @@ import {
   getComposerSessionLabels,
   getComposerSessionSelectionNotification,
   getComposerScratchTargetId,
-  getComposerTopbarVisibility,
   getComposerWorkspaceId,
   getSessionRenameInvalidation,
   truncateComposerSessionLabel,
@@ -99,58 +98,6 @@ describe('session composer session helpers', () => {
         sessionId: undefined,
       })
     ).toBeUndefined();
-  });
-
-  it('derives topbar visibility from status, file summary, and executor signals', () => {
-    expect(
-      getComposerTopbarVisibility({
-        hasTokenUsageInfo: false,
-        hasCodexGoalState: false,
-        hasExecutorProfile: false,
-      })
-    ).toBe(false);
-
-    expect(
-      getComposerTopbarVisibility({
-        hasTokenUsageInfo: true,
-        hasCodexGoalState: false,
-        hasExecutorProfile: false,
-      })
-    ).toBe(true);
-
-    expect(
-      getComposerTopbarVisibility({
-        hasTokenUsageInfo: false,
-        hasCodexGoalState: true,
-        hasExecutorProfile: false,
-      })
-    ).toBe(true);
-
-    expect(
-      getComposerTopbarVisibility({
-        hasTokenUsageInfo: false,
-        hasCodexGoalState: false,
-        showChangedFileSummary: true,
-        hasExecutorProfile: false,
-      })
-    ).toBe(true);
-
-    expect(
-      getComposerTopbarVisibility({
-        hasTokenUsageInfo: false,
-        hasCodexGoalState: false,
-        hasExecutorProfile: true,
-      })
-    ).toBe(true);
-
-    expect(
-      getComposerTopbarVisibility({
-        hasTokenUsageInfo: false,
-        hasCodexGoalState: false,
-        hasExecutorProfile: false,
-        hasComposerIdentity: true,
-      })
-    ).toBe(true);
   });
 
   it('builds session selection notifications only when a workspace exists', () => {

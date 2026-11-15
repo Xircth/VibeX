@@ -1,25 +1,11 @@
-import {
-  useCallback,
-  useEffect,
-  useId,
-  useMemo,
-  useRef,
-  type KeyboardEvent,
-  type ReactNode,
-} from 'react';
+import { useCallback, useMemo, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
-import {
-  ChatToolCalls,
-  type ChatToolCallItem,
-  type ChatToolCallStatus,
-} from '@astryxdesign/core/Chat';
-import { ChevronDown, Images, Wrench } from 'lucide-react';
+import { ChevronDown, Images } from 'lucide-react';
 import type {
   ActionType,
   ConversationDelegationView,
   ConversationQuestionRequest,
   ConversationQuestionResponse,
-  FileChange,
   ImageData,
   MessageTurn,
   TaskWithAttemptStatus,
@@ -51,7 +37,10 @@ import {
   type ToolUseBlock,
   type TurnRenderItem,
 } from './messageTurnBlocks';
-import { toolBlockToNormalizedEntry } from './messageTurnTool';
+import {
+  toolBlockToNormalizedEntry,
+  type ToolDisplayEntry,
+} from './messageTurnTool';
 import { SubagentCard } from './tools/SubagentCard';
 import { AskQuestionToolCard } from './tools/AskQuestionToolCard';
 import { GoalToolCall, isGoalToolUse } from './tools/GoalToolCall';
@@ -89,12 +78,22 @@ import { listDirPath } from './tools/toolDirListing';
 import { useOpenImagePreview } from '@/hooks/useOpenImagePreview';
 import {
   useExpandable,
-  useExpandableGroup,
   useExpandableItems,
 } from '@/stores/useExpandableStore';
 import { cn } from '@/lib/utils';
 import { ThinkingEntry } from './ThinkingEntry';
-import { bindNestedWheel, useNestedWheel } from './nestedScroll';
+import {
+  TurnToolChipRow,
+  TurnToolChipsBatch,
+  type TurnToolChipItem,
+  type TurnToolIconKind,
+  type TurnToolStatus,
+} from './TurnToolChips';
+import {
+  countFileChangesStats,
+  extractBatchDiffChips,
+  type TurnToolDiffChip,
+} from './turnToolDiffChips';
 
 type ToolSummaryCategory =
   | 'commands'
@@ -120,7 +119,13 @@ const SUMMARY_ORDER: ToolSummaryCategory[] = [
 const RECENT_ACTIVITIES = 2;
 
 type ActivityEntry =
-  | { kind: 'tool'; key: string; index: number; call: ChatToolCallItem }
+  | {
+      kind: 'tool';
+      key: string;
+      index: number;
+      call: TurnToolChipItem;
+      rawEntry: ToolDisplayEntry;
+    }
   | {
       kind: 'visible';
       key: string;
@@ -136,92 +141,6 @@ type ActivityEntry =
       endIndex: number;
       texts: string[];
     };
-
-function ToolCallBatch({
-  calls,
-  label,
-  turnId,
-}: {
-  calls: ChatToolCallItem[];
-  label: string;
-  turnId: string;
-}) {
-  const rootRef = useRef<HTMLDivElement | null>(null);
-  const [expanded, setExpanded] = useExpandableGroup(
-    calls.map((call) => `tool-batch:${turnId}:${call.key}`)
-  );
-  useEffect(() => {
-    if (!expanded) return;
-    const root = rootRef.current;
-    if (!root) return;
-    const pane = root.querySelector(
-      '[role="button"][aria-expanded="true"] + div'
-    );
-    if (!(pane instanceof HTMLElement)) return;
-    pane.setAttribute('data-nested-scroll', '');
-    return bindNestedWheel(pane);
-  }, [expanded, calls.length]);
-  return (
-    <div ref={rootRef}>
-      <ChatToolCalls
-        className="vibex-tool-call-batch"
-        calls={calls}
-        label={label}
-        alwaysGroup
-        isExpanded={expanded}
-        onExpandedChange={setExpanded}
-      />
-    </div>
-  );
-}
-
-function MixedActivityBatch({
-  entries,
-  label,
-  children,
-}: {
-  entries: ActivityEntry[];
-  label: string;
-  children: ReactNode;
-}) {
-  const id = useId();
-  const bodyRef = useRef<HTMLDivElement | null>(null);
-  const [expanded, toggle] = useExpandableGroup(
-    entries.map((entry) => entry.key)
-  );
-  useNestedWheel(bodyRef, { enabled: expanded });
-  return (
-    <div className="conv-activity-batch">
-      <button
-        type="button"
-        className="conv-activity-header"
-        aria-expanded={expanded}
-        aria-controls={id}
-        onClick={() => toggle()}
-      >
-        <Wrench className="size-3.5 shrink-0" aria-hidden="true" />
-        <span>{label}</span>
-        <ChevronDown
-          className={cn(
-            'conv-thinking-chevron size-3.5 shrink-0',
-            expanded && 'is-expanded'
-          )}
-          aria-hidden="true"
-        />
-      </button>
-      {expanded ? (
-        <div
-          id={id}
-          ref={bodyRef}
-          className="conv-nested-scroll mt-1"
-          data-nested-scroll=""
-        >
-          {children}
-        </div>
-      ) : null}
-    </div>
-  );
-}
 
 type FileReadAction = Extract<ActionType, { action: 'file_read' }>;
 type FileEditAction = Extract<ActionType, { action: 'file_edit' }>;
@@ -398,42 +317,7 @@ function FileEditPath({
   );
 }
 
-function countDiff(change: FileChange): {
-  additions: number;
-  deletions: number;
-} {
-  if (change.action === 'write') {
-    return { additions: change.content.split(/\r?\n/).length, deletions: 0 };
-  }
-  if (change.action !== 'edit') return { additions: 0, deletions: 0 };
-
-  let additions = 0;
-  let deletions = 0;
-  for (const line of change.unified_diff.split(/\r?\n/)) {
-    if (line.startsWith('+') && !line.startsWith('+++')) additions += 1;
-    if (line.startsWith('-') && !line.startsWith('---')) deletions += 1;
-  }
-  return { additions, deletions };
-}
-
-function fileEditStats(changes: FileChange[]) {
-  const totals = changes.reduce(
-    (sum, change) => {
-      const next = countDiff(change);
-      return {
-        additions: sum.additions + next.additions,
-        deletions: sum.deletions + next.deletions,
-      };
-    },
-    { additions: 0, deletions: 0 }
-  );
-  return {
-    additions: totals.additions > 0 ? totals.additions : undefined,
-    deletions: totals.deletions > 0 ? totals.deletions : undefined,
-  };
-}
-
-function subagentChatStatus(status: SubagentStatus): ChatToolCallStatus {
+function subagentChatStatus(status: SubagentStatus): TurnToolStatus {
   switch (status) {
     case 'running':
     case 'background':
@@ -443,6 +327,37 @@ function subagentChatStatus(status: SubagentStatus): ChatToolCallStatus {
     case 'completed':
       return 'complete';
   }
+}
+
+function toolIconKind(action: ActionType): TurnToolIconKind {
+  switch (action.action) {
+    case 'file_edit':
+      return 'write';
+    case 'command_run':
+      return 'run';
+    case 'file_read':
+      return 'read';
+    case 'search':
+      return 'search';
+    case 'web_fetch':
+      return 'web';
+    case 'task_create':
+      return 'agent';
+    case 'tool':
+      return action.tool_name === 'list_dir' ? 'read' : 'tool';
+    default:
+      return 'tool';
+  }
+}
+
+function isMonoToolChip(action: ActionType): boolean {
+  return (
+    action.action === 'command_run' ||
+    action.action === 'file_read' ||
+    action.action === 'file_edit' ||
+    action.action === 'search' ||
+    (action.action === 'tool' && action.tool_name === 'list_dir')
+  );
 }
 
 function HostDelegationToolCall({
@@ -499,39 +414,22 @@ function SubagentToolCall({
     buildSubagentCardModel(use, result, parentAgentId, childrenTools),
     lifecycle
   );
-  const toggle = () => {
-    onExpandedChange(!expanded);
-    setExpanded(!expanded);
-  };
-  const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
-    if (event.key === 'Enter' || event.key === ' ') {
-      event.preventDefault();
-      toggle();
-    }
+  const handleExpandedChange = (nextExpanded: boolean) => {
+    onExpandedChange(nextExpanded);
+    setExpanded(nextExpanded);
   };
 
   return (
     <div className="space-y-1">
-      <div
-        role="button"
-        tabIndex={0}
-        aria-expanded={expanded}
-        aria-controls={expansionKey}
-        onClick={toggle}
-        onKeyDown={onKeyDown}
-        className="cursor-pointer rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-      >
-        <ChatToolCalls
-          calls={[
-            {
-              key: expansionKey,
-              name: label,
-              target,
-              status: subagentChatStatus(model.status),
-            },
-          ]}
-        />
-      </div>
+      <TurnToolChipRow
+        icon="agent"
+        label={label}
+        chip={target ? <ToolCallTarget text={target} /> : undefined}
+        status={subagentChatStatus(model.status)}
+        expanded={expanded}
+        onExpandedChange={handleExpandedChange}
+        ariaControls={expansionKey}
+      />
       {expanded ? (
         <div id={expansionKey}>
           <SubagentCard
@@ -719,7 +617,7 @@ export function TurnActivity({
       ),
     [regularEntries]
   );
-  const rawCalls: (ChatToolCallItem & { index: number })[] =
+  const rawCalls: (TurnToolChipItem & { rawEntry: ToolDisplayEntry })[] =
     groupedRegularEntries.flatMap((group) => {
       const primary =
         group.kind === 'poll_group'
@@ -743,7 +641,7 @@ export function TurnActivity({
       );
       const editStats =
         action.action === 'file_edit'
-          ? fileEditStats(
+          ? countFileChangesStats(
               entry.fileEdits?.flatMap((edit) => edit.changes) ?? action.changes
             )
           : { additions: undefined, deletions: undefined };
@@ -809,10 +707,12 @@ export function TurnActivity({
         {
           index,
           key: toolUseId || expansionKey,
-          name: displayName,
+          icon: toolIconKind(action),
+          label: displayName,
+          chip: statsNode,
+          monoChip: !description && isMonoToolChip(action),
           additions: editStats.additions,
           deletions: editStats.deletions,
-          stats: statsNode,
           status: backgrounded
             ? 'complete'
             : getToolChatStatus(toolEntry.status),
@@ -820,6 +720,7 @@ export function TurnActivity({
             toolEntry.status.status === 'failed'
               ? t('messageTurnView.toolSummary.failed')
               : undefined,
+          rawEntry: entry,
           resultDetail: (
             <ToolCallResultDetail>
               <DisplayConversationEntry
@@ -854,7 +755,7 @@ export function TurnActivity({
       const count = batch.filter(
         (entry) =>
           (entry.kind === 'tool'
-            ? callCategories.get(String(entry.call.key))
+            ? callCategories.get(entry.call.key)
             : entry.kind === 'visible'
               ? entry.category === undefined
                 ? 'other'
@@ -873,6 +774,7 @@ export function TurnActivity({
         key: `tool-batch:${turnId}:${call.key}`,
         index: call.index,
         call,
+        rawEntry: call.rawEntry,
       })
     ),
     ...goalEntries.map(
@@ -1090,11 +992,39 @@ export function TurnActivity({
   }
   if (batch.length > 0) activityUnits.push({ kind: 'batch', entries: batch });
 
-  const renderActivity = (entry: ActivityEntry): ReactNode => {
+  const openDiffChip = (diff: TurnToolDiffChip) => {
+    panelActions?.openFilePreview(diff.resolvedPath, {
+      mode: 'diff',
+      diffViewMode: 'inline',
+      displayPath: diff.displayPath,
+      title: diff.displayPath,
+    });
+  };
+
+  const renderActivity = (
+    entry: ActivityEntry,
+    inBatch: boolean
+  ): ReactNode => {
     if (entry.kind === 'visible')
       return <div key={entry.key}>{entry.content}</div>;
     if (entry.kind === 'tool')
-      return <ChatToolCalls key={entry.key} calls={[entry.call]} />;
+      return (
+        <TurnToolChipRow
+          key={entry.key}
+          icon={entry.call.icon}
+          label={entry.call.label}
+          chip={entry.call.chip}
+          monoChip={entry.call.monoChip}
+          additions={entry.call.additions}
+          deletions={entry.call.deletions}
+          showInlineDiffCounts={!inBatch}
+          status={entry.call.status}
+          errorMessage={entry.call.errorMessage}
+          detail={entry.call.resultDetail}
+          expanded={entry.call.isDetailExpanded}
+          onExpandedChange={entry.call.onDetailExpandedChange}
+        />
+      );
     return (
       <ThinkingEntry
         key={entry.key}
@@ -1118,32 +1048,35 @@ export function TurnActivity({
     <div className="conv-entry-item vibex-turn-tool-calls flex flex-col gap-1">
       {activityUnits.map((unit) => {
         const key = unit.entries[0].key;
-        if (unit.kind === 'recent') return renderActivity(unit.entries[0]);
-        const batchCalls = unit.entries.flatMap((entry) =>
-          entry.kind === 'tool' ? [entry.call] : []
-        );
-        const thinkingCount = unit.entries.reduce(
-          (count, entry) =>
-            count + (entry.kind === 'thinking' ? entry.texts.length : 0),
-          0
-        );
+        if (unit.kind === 'recent')
+          return renderActivity(unit.entries[0], false);
         if (unit.entries.every((entry) => entry.kind === 'thinking'))
-          return unit.entries.map(renderActivity);
-        const otherCount = unit.entries.filter(
-          (entry) => entry.kind === 'visible'
-        ).length;
+          return unit.entries.map((entry) => renderActivity(entry, false));
         const label = summarizeActivities(unit.entries);
-        return thinkingCount === 0 && otherCount === 0 ? (
-          <ToolCallBatch
+        const batchDiffs = extractBatchDiffChips(
+          unit.entries.flatMap((entry) =>
+            entry.kind === 'tool' ? [entry.rawEntry] : []
+          ),
+          workspacePath ?? attempt.container_ref
+        );
+        const errorEntries = unit.entries.filter(
+          (entry) => entry.kind === 'tool' && entry.call.status === 'error'
+        );
+        return (
+          <TurnToolChipsBatch
             key={key}
-            turnId={turnId}
-            calls={batchCalls}
+            expansionKeys={unit.entries.map((entry) => entry.key)}
             label={label}
-          />
-        ) : (
-          <MixedActivityBatch key={key} entries={unit.entries} label={label}>
-            {unit.entries.map(renderActivity)}
-          </MixedActivityBatch>
+            diffs={batchDiffs}
+            onOpenDiff={openDiffChip}
+            collapsedErrors={
+              errorEntries.length > 0
+                ? errorEntries.map((entry) => renderActivity(entry, true))
+                : undefined
+            }
+          >
+            {unit.entries.map((entry) => renderActivity(entry, true))}
+          </TurnToolChipsBatch>
         );
       })}
     </div>

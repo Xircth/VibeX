@@ -38,11 +38,14 @@ import { composerMessageHistoryFromTurns } from '@/components/tasks/follow-up/se
 import { getComposerSteeringTarget } from '@/components/tasks/follow-up/sessionComposerSteering';
 import { isContextCompactPrompt } from '@/lib/contextCompact';
 import { requestCreateSessionInExecutionArea } from '@/lib/requestCreateSession';
+import { deriveInlineStreamRuntimeStatus } from '@/features/conversation/inlineRuntimeStatus';
+import type { conversationRuntimeStatus } from '@/features/conversation/runtimeStatus';
 import type { TurnStatsData } from './thread/turnStatsModel';
 import {
   buildLiveTurnStats,
   getLatestTimelinePlanEntries,
   latestTokenUsage,
+  vibexTurnIdFromTimelineRowId,
 } from './timelineMemoHelpers';
 
 const EMPTY_TIMELINE_SESSION_MODES: ConversationSessionModesState = {
@@ -52,6 +55,7 @@ const EMPTY_TIMELINE_SESSION_MODES: ConversationSessionModesState = {
 const EMPTY_TIMELINE_CONFIG_OPTIONS: AgentSessionConfigOption[] = [];
 
 type QuestionRow = Extract<TimelineRow['row'], { kind: 'question_request' }>;
+type RuntimeStatusSnapshot = ReturnType<typeof conversationRuntimeStatus>;
 
 export function useTimelineContextSync({
   attempt,
@@ -59,6 +63,9 @@ export function useTimelineContextSync({
   timeline,
   sideRows,
   sessionBindReady,
+  connecting,
+  runtimeConnection,
+  runtimeRequest,
   controlsAgentId,
   sessionModes,
   sessionConfigOptions,
@@ -78,6 +85,7 @@ export function useTimelineContextSync({
   handleOpenChild,
   handleRetry,
   handleRetryLatestTurn,
+  handleCancelRuntimeRequest,
   conversationReconnectAndReload,
   conversationRebindSession,
   searchParams,
@@ -88,6 +96,9 @@ export function useTimelineContextSync({
   timeline: ConversationTimelineTurn[];
   sideRows: TimelineRow[];
   sessionBindReady: boolean;
+  connecting: boolean;
+  runtimeConnection: RuntimeStatusSnapshot['connection'];
+  runtimeRequest: RuntimeStatusSnapshot['request'];
   controlsAgentId: string | null;
   sessionModes: ConversationSessionModesState;
   sessionConfigOptions: AgentSessionConfigOption[];
@@ -122,6 +133,7 @@ export function useTimelineContextSync({
     replacementText?: string
   ) => Promise<boolean>;
   handleRetryLatestTurn: (() => Promise<boolean>) | undefined;
+  handleCancelRuntimeRequest: () => Promise<void>;
   conversationReconnectAndReload: () => Promise<void>;
   conversationRebindSession: () => Promise<void>;
   searchParams: URLSearchParams;
@@ -387,6 +399,79 @@ export function useTimelineContextSync({
     return undefined;
   }, [sessionNoticeRows]);
 
+  const hasPendingPermission = pendingPermissions.length > 0;
+  const hasUserMessage = useMemo(
+    () => timeline.some((turn) => turn.turn.role === 'user'),
+    [timeline]
+  );
+  const streamingAssistantRow = useMemo(() => {
+    for (let i = timeline.length - 1; i >= 0; i -= 1) {
+      const turn = timeline[i];
+      if (turn?.turn.role === 'assistant' && turn.phase === 'streaming') {
+        return turn;
+      }
+    }
+    return null;
+  }, [timeline]);
+  const hasStreamingAssistantContent = Boolean(
+    streamingAssistantRow && streamingAssistantRow.turn.blocks.length > 0
+  );
+  const hasRunningTool = useMemo(
+    () =>
+      streamingAssistantRow?.turn.blocks.some(
+        (block) =>
+          block.type === 'tool_use' &&
+          (block.status === 'in_progress' || block.status === 'pending')
+      ) ?? false,
+    [streamingAssistantRow]
+  );
+  const inlineRuntimePresentation = useMemo(
+    () =>
+      deriveInlineStreamRuntimeStatus({
+        connecting,
+        connection: runtimeConnection,
+        request: runtimeRequest,
+        reconnectNotice:
+          reconnectNoticeRow?.row.kind === 'session_notice'
+            ? reconnectNoticeRow.row.notice
+            : null,
+        connectErrorNotice:
+          connectErrorNoticeRow?.row.kind === 'session_notice'
+            ? connectErrorNoticeRow.row.notice
+            : null,
+        latestTurnError,
+        hasLatestTurnErrorRow: Boolean(latestTurnErrorRow),
+        hasLatestInterruptedRow: Boolean(latestInterruptedRow),
+        hasUserMessage,
+        isTurnInFlight,
+        hasStreamingAssistantRow: Boolean(streamingAssistantRow),
+        hasStreamingAssistantContent,
+        hasInteraction: Boolean(pendingQuestionRow) || hasPendingPermission,
+        hasRunningTool,
+        currentTurnId: streamingAssistantRow
+          ? vibexTurnIdFromTimelineRowId(streamingAssistantRow.turn.id)
+          : (currentTurnId ?? undefined),
+      }),
+    [
+      connectErrorNoticeRow,
+      connecting,
+      currentTurnId,
+      hasPendingPermission,
+      hasRunningTool,
+      hasStreamingAssistantContent,
+      hasUserMessage,
+      isTurnInFlight,
+      latestInterruptedRow,
+      latestTurnError,
+      latestTurnErrorRow,
+      pendingQuestionRow,
+      reconnectNoticeRow,
+      runtimeConnection,
+      runtimeRequest,
+      streamingAssistantRow,
+    ]
+  );
+
   const statusNotices = useMemo(() => {
     const notices: ConversationStatusNotice[] = [];
     const pushSessionNotice = (row: TimelineRow | undefined) => {
@@ -440,13 +525,35 @@ export function useTimelineContextSync({
     if (latestSessionNoticeRow?.row_id !== autoPermissionNoticeRow?.row_id) {
       pushSessionNotice(latestSessionNoticeRow);
     }
+    if (
+      inlineRuntimePresentation.placement === 'composer' &&
+      inlineRuntimePresentation.status
+    ) {
+      const runtimeItem = inlineRuntimePresentation.status;
+      notices.push({
+        id: `runtime:${runtimeItem.kind}`,
+        kind: 'session-notice' as const,
+        notice: runtimeItem.notice,
+        titleOverride: runtimeItem.titleOverride,
+        onCancel: runtimeItem.canCancel
+          ? handleCancelRuntimeRequest
+          : undefined,
+        onReload: runtimeItem.canReconnect
+          ? conversationReconnectAndReload
+          : undefined,
+        onRetry: runtimeItem.canRetry ? handleRetryLatestTurn : undefined,
+      });
+    }
     return notices;
   }, [
     autoPermissionNoticeRow,
     conversationReconnectAndReload,
     conversationRebindSession,
+    handleCancelRuntimeRequest,
     handleRetry,
     handleRetryLatestTurn,
+    inlineRuntimePresentation.placement,
+    inlineRuntimePresentation.status,
     latestInterruptedRow,
     latestSessionNoticeRow,
     latestTurnError,
@@ -529,8 +636,13 @@ export function useTimelineContextSync({
     liveStats,
     pendingQuestionRow,
     pendingPermissions,
+    hasPendingPermission,
     reconnectNoticeRow,
     connectErrorNoticeRow,
+    streamingAssistantRow,
+    hasStreamingAssistantContent,
+    hasRunningTool,
+    inlineRuntimePresentation,
     statusNotices,
     activeRateLimitState,
     handleRateLimitAutoResume,

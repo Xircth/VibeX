@@ -1882,4 +1882,37 @@ describe('MessageTurnView', () => {
       undefined
     );
   });
+
+  it('suppresses the generation status slice when inline connection status replaces it', () => {
+    const turn: MessageTurn = {
+      id: 'turn-waiting:assistant',
+      role: 'assistant',
+      blocks: [],
+      timestamp: '2026-11-15T00:00:00.000Z',
+    };
+    const { container, rerender } = render(
+      <MessageTurnView
+        turn={turn}
+        phase="streaming"
+        attempt={{ id: 'attempt-1', container_ref: null } as never}
+        task={null}
+        slice={{ kind: 'status' }}
+        suppressStreamingStatus
+      />
+    );
+
+    expect(container).toBeEmptyDOMElement();
+
+    rerender(
+      <MessageTurnView
+        turn={turn}
+        phase="streaming"
+        attempt={{ id: 'attempt-1', container_ref: null } as never}
+        task={null}
+        slice={{ kind: 'status' }}
+        suppressStreamingStatus={false}
+      />
+    );
+    expect(screen.getByRole('status')).toBeInTheDocument();
+  });
 });

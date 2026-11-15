@@ -1,14 +1,16 @@
 import { useEffect, useState } from 'react';
-import { Info, Loader2, TriangleAlert } from 'lucide-react';
+import { Info, TriangleAlert } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import type { ConversationSessionNotice } from 'shared/types';
 import { toast } from '@/components/ui/toast';
+import { PixelGridLoader } from '@/components/ui/pixel-grid-loader';
 import { getErrorMessage } from '@/lib/modals';
 import { cn } from '@/lib/utils';
 import {
   waitingAdvisory,
   isRequestTerminal,
 } from '@/features/conversation/runtimeStatus';
+import { parseReconnectProgressTitle } from '@/features/conversation/inlineRuntimeStatus';
 import { ConversationStatusDetails } from '@/components/NormalizedConversation/conversation/ConversationStatusDetails';
 
 type Props = {
@@ -46,8 +48,15 @@ export function AgentRuntimeStatus({
   const request = notice.request_status;
   const phase = request?.activity.phase;
   const terminal = phase != null && isRequestTerminal(phase);
+  const retry = request?.activity.retry;
+  const connectionFailed =
+    connection?.status === 'error' || connection?.status === 'closed';
+  const requestFailed = phase === 'failed';
+  const isError = Boolean(connectionFailed || requestFailed);
+
   useEffect(() => {
     if (
+      (placement === 'stream' && !isError) ||
       terminal ||
       (!request &&
         (!connection ||
@@ -58,18 +67,56 @@ export function AgentRuntimeStatus({
       return;
     const timer = window.setInterval(() => setNow(Date.now()), 1000);
     return () => window.clearInterval(timer);
-  }, [terminal, request, connection]);
+  }, [placement, isError, terminal, request, connection]);
+
+  if (placement === 'stream' && !isError) {
+    const parsedReconnect = parseReconnectProgressTitle(titleOverride);
+    const attempt = retry?.attempt ?? parsedReconnect?.attempt ?? null;
+    const maxAttempts =
+      retry?.max_attempts ?? parsedReconnect?.maxAttempts ?? null;
+    const streamLabel =
+      phase === 'cancelling'
+        ? t('runtime.stream.cancelling')
+        : attempt != null && maxAttempts != null
+          ? t('runtime.stream.connectingRetryingCount', {
+              attempt,
+              max: maxAttempts,
+            })
+          : attempt != null
+            ? t('runtime.stream.connectingRetryingAttempt', { attempt })
+            : phase === 'retrying' || connection?.status === 'recovering'
+              ? t('runtime.stream.connectingRetrying')
+              : connection ||
+                  !phase ||
+                  phase === 'submitting' ||
+                  phase === 'waiting_agent' ||
+                  phase === 'waiting_model'
+                ? t('runtime.stream.connecting')
+                : t(`runtime.request.${phase}`);
+    return (
+      <div className="conv-entry-item conv-assistant-msg px-4 py-2 text-sm">
+        <div
+          className="conv-thinking-placeholder"
+          role="status"
+          aria-live="polite"
+          data-testid={
+            connection ? 'agent-connection-status' : 'agent-request-status'
+          }
+          data-placement={placement}
+        >
+          <PixelGridLoader size="sm" />
+          <span className="conv-shimmer-text tabular-nums">{streamLabel}</span>
+        </div>
+      </div>
+    );
+  }
+
   const since = request?.since ?? connection?.since;
   const parsedSince = since ? Date.parse(since) : Number.NaN;
   const hasValidSince = Number.isFinite(parsedSince);
   const elapsed = hasValidSince
     ? Math.max(0, Math.floor((now - parsedSince) / 1000))
     : null;
-  const retry = request?.activity.retry;
-  const connectionFailed =
-    connection?.status === 'error' || connection?.status === 'closed';
-  const requestFailed = phase === 'failed';
-  const isError = Boolean(connectionFailed || requestFailed);
   const connectionKey = connection?.bound
     ? 'ready'
     : connection?.status === 'ready'
@@ -98,7 +145,7 @@ export function AgentRuntimeStatus({
                 ? 'border-destructive/30 bg-destructive/5'
                 : 'border-border/60 bg-muted/35'
             )
-          : 'px-3 py-2 text-xs text-muted-foreground'
+          : 'composer-status-row text-xs text-muted-foreground'
       )}
       data-testid={
         connection ? 'agent-connection-status' : 'agent-request-status'
@@ -107,10 +154,7 @@ export function AgentRuntimeStatus({
     >
       <div className="flex flex-wrap items-center gap-2">
         {isActive ? (
-          <Loader2
-            className="h-3.5 w-3.5 shrink-0 animate-spin text-muted-foreground"
-            aria-hidden="true"
-          />
+          <PixelGridLoader size="sm" />
         ) : isError ? (
           <TriangleAlert
             className="h-3.5 w-3.5 shrink-0 text-destructive"
@@ -159,7 +203,7 @@ export function AgentRuntimeStatus({
         <div
           className={cn(
             'flex items-center gap-1.5',
-            placement === 'stream' && 'ml-auto'
+            placement === 'stream' ? 'ml-auto' : 'composer-status-action-slot ml-auto'
           )}
         >
           {connectionFailed && onReconnect ? (

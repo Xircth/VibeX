@@ -159,6 +159,9 @@ export interface TimelineVirtualRowItemProps {
     statusLabel: string;
     stats: TurnStatsData;
   } | null;
+  suppressStreamingStatus?: boolean;
+  suppressStatusRowPadding?: boolean;
+  hideAssistantStats?: boolean;
 }
 
 export const TimelineVirtualRowItem = memo(function TimelineVirtualRowItem({
@@ -196,6 +199,9 @@ export const TimelineVirtualRowItem = memo(function TimelineVirtualRowItem({
   onForkFromTurn,
   liveStatsFallback,
   streamingLiveStatus,
+  suppressStreamingStatus = false,
+  suppressStatusRowPadding = false,
+  hideAssistantStats = false,
 }: TimelineVirtualRowItemProps) {
   const row = item.kind === 'message' ? item.item : null;
   const turnId = row ? vibexTurnIdFromTimelineRowId(row.turn.id) : null;
@@ -241,7 +247,14 @@ export const TimelineVirtualRowItem = memo(function TimelineVirtualRowItem({
   );
 
   const assistantStats = useMemo(() => {
-    if (!row || !isLastSlice || row.turn.role !== 'assistant') return null;
+    if (
+      hideAssistantStats ||
+      !row ||
+      !isLastSlice ||
+      row.turn.role !== 'assistant'
+    ) {
+      return null;
+    }
     const copyText = assistantCopyText(row.turn);
     if (streamingLiveStatus) {
       return {
@@ -271,6 +284,7 @@ export const TimelineVirtualRowItem = memo(function TimelineVirtualRowItem({
     };
   }, [
     forkPointStatus,
+    hideAssistantStats,
     isLastSlice,
     isTurnInFlight,
     liveStatsFallback,
@@ -287,7 +301,11 @@ export const TimelineVirtualRowItem = memo(function TimelineVirtualRowItem({
       data-block-index={slice?.kind === 'block' ? slice.itemIndex : undefined}
       className={cn(
         'conv-turn-row absolute left-0 top-0 w-full',
-        foldEdge === 'tail' ? 'is-fold-tail' : 'pb-3',
+        foldEdge === 'tail'
+          ? 'is-fold-tail'
+          : suppressStatusRowPadding
+            ? undefined
+            : 'pb-3',
         foldEdge === 'after' && 'is-after-fold',
         isActiveNavTarget && 'conv-message-nav-target-active',
         isCurrentFindMatch && 'rounded-md bg-primary/10'
@@ -319,6 +337,7 @@ export const TimelineVirtualRowItem = memo(function TimelineVirtualRowItem({
           showInterruptedNotice={false}
           contextCompact={contextCompact}
           hasTurnError={hasTurnError}
+          suppressStreamingStatus={suppressStreamingStatus}
           slice={slice}
           isLastSlice={isLastSlice}
         />

@@ -45,6 +45,7 @@ import {
 } from './agentPreflightSnapshot';
 import {
   agentProvisioningAction,
+  isAgentSettingsLocked,
   isNativeEngineAgent,
   isPrimaryRuntimePreflightItem,
 } from './agentProvisioning';
@@ -143,9 +144,12 @@ export function AgentSettings() {
   const selectedAgentSource = selectedAgent?.source ?? null;
   const selectedAgentLifecycle = selectedAgent?.lifecycle ?? null;
   const selectedAgentOperation = selectedAgent?.active_operation ?? null;
-  const agentLocked =
-    selectedAgentLifecycle === 'uninstalled' ||
-    selectedAgentLifecycle === 'platform_unsupported';
+  const selectedPreflightItems =
+    preflight?.agent_id === selectedAgentId ? preflight.items : [];
+  const agentLocked = isAgentSettingsLocked(
+    selectedAgent,
+    selectedPreflightItems
+  );
   const nativePluginEcosystem: PluginEcosystem | null =
     selectedAgentId === 'codex'
       ? 'codex'

@@ -44,7 +44,7 @@ use self::{
     diagnostics_and_env::{
         InstalledComponent, apply_environment_patch, build_environment_diagnostics,
         execute_non_antigravity_action, management_action_kind, management_program_names,
-        parse_agent_env, probe_first_output_line, probe_profile_dependencies,
+        parse_agent_env, probe_profile_dependencies,
         project_agent_environment, resolve_management_program_from_components,
         spawn_antigravity_login_flow,
     },
@@ -53,7 +53,7 @@ use self::{
         build_primary_runtime_preflight_item, is_native_engine_profile,
     },
 };
-pub(crate) use self::diagnostics_and_env::discover_profile_acp;
+pub(crate) use self::diagnostics_and_env::{discover_profile_acp, probe_first_output_line};
 use super::{
     account_flow,
     native::{model_providers, provider_store_path},
@@ -344,10 +344,8 @@ pub async fn preflight(
         })
         .unwrap_or(&["--version"]);
     let discovered_acp_version = match discovered_acp_path.as_ref() {
-        Some(path) if acp.is_none() || legacy_shim_locked => {
-            probe_first_output_line(path, version_args).await
-        }
-        _ => None,
+        Some(path) => probe_first_output_line(path, version_args).await,
+        None => None,
     };
     if legacy_shim_locked {
         reconcile_legacy_shim_lock(
@@ -355,6 +353,23 @@ pub async fn preflight(
             &agent_id,
             discovered_acp_path.as_deref(),
             discovered_acp_version.as_deref(),
+        )
+        .await;
+    } else if native_engine
+        && view.enabled
+        && !view.retired
+        && let Some(path) = discovered_acp_path.as_deref()
+    {
+        let fallback_version = discovered_acp_version
+            .as_deref()
+            .or(view.runtime_version.as_deref())
+            .or(Some("0.0.0"));
+        let _ = services::services::native_engine_adopt::adopt_native_engine_if_needed(
+            pool,
+            &agent_id,
+            path,
+            fallback_version,
+            None,
         )
         .await;
     }

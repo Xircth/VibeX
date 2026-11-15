@@ -352,11 +352,14 @@ fn codeg_pinned_distribution_matrix_is_exact() {
 }
 
 #[test]
-fn openclaw_cline_and_pi_skip_session_mcp() {
+fn agents_that_skip_session_mcp() {
     let catalog = BuiltInProfileCatalog::bundled();
     for profile in catalog.profiles() {
         let delivers = profile.delivers_session_mcp();
-        let skips = matches!(profile.agent_id.as_str(), "openclaw" | "cline" | "pi");
+        let skips = matches!(
+            profile.agent_id.as_str(),
+            "openclaw" | "cline" | "pi" | "deepseek_harness"
+        );
         assert_eq!(
             delivers, !skips,
             "{} session MCP delivery",
@@ -371,6 +374,9 @@ fn openclaw_cline_and_pi_skip_session_mcp() {
     ));
     assert!(!agents::profile_delivers_session_mcp(
         &AgentId::parse("pi").unwrap()
+    ));
+    assert!(!agents::profile_delivers_session_mcp(
+        &AgentId::parse("deepseek_harness").unwrap()
     ));
     assert!(agents::profile_delivers_session_mcp(
         &AgentId::parse("claude_code").unwrap()

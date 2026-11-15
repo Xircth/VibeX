@@ -51,28 +51,6 @@ export function getComposerScratchTargetId({
     : (sessionId ?? undefined);
 }
 
-export function getComposerTopbarVisibility({
-  hasTokenUsageInfo,
-  hasCodexGoalState,
-  showChangedFileSummary = false,
-  hasExecutorProfile,
-  hasComposerIdentity = false,
-}: {
-  hasTokenUsageInfo: boolean;
-  hasCodexGoalState: boolean;
-  showChangedFileSummary?: boolean;
-  hasExecutorProfile: boolean;
-  hasComposerIdentity?: boolean;
-}): boolean {
-  return (
-    hasTokenUsageInfo ||
-    hasCodexGoalState ||
-    showChangedFileSummary ||
-    hasExecutorProfile ||
-    hasComposerIdentity
-  );
-}
-
 export function getComposerSessionSelectionNotification({
   sessionId,
   workspaceId,

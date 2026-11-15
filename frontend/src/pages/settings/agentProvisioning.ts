@@ -36,18 +36,56 @@ export function isPrimaryRuntimePreflightItem(
   return isNativeEngineAgent(agentOrId) && item.id === 'runtime';
 }
 
+export type ProvisioningAgentInput = Pick<
+  AgentManagementView,
+  'lifecycle' | 'retired'
+> & {
+  agent_id?: string | null;
+  id?: string | null;
+  topology?: string | null;
+  enabled?: boolean | null;
+  acp_version?: string | null;
+  runtime_version?: string | null;
+  local_runtime?: {
+    version?: string | null;
+    path?: string | null;
+  } | null;
+};
+
+export function hasVerifiedNativeRuntimeEvidence(
+  agent: ProvisioningAgentInput,
+  items: AgentPreflightItemView[] = []
+): boolean {
+  if (!isNativeEngineAgent(agent) || agent.retired) return false;
+  if (agent.lifecycle === 'platform_unsupported') return false;
+  if (agent.enabled === false) return false;
+  const primaryItem =
+    items.find((item) => isPrimaryRuntimePreflightItem(item, agent)) ??
+    items.find((item) => item.id === 'acp');
+  if (primaryItem?.status === 'pass') return true;
+  if (primaryItem?.status === 'fail') return false;
+  return Boolean(
+    agent.runtime_version ||
+      agent.acp_version ||
+      agent.local_runtime?.path ||
+      agent.local_runtime?.version
+  );
+}
+
+export function isAgentSettingsLocked(
+  agent: ProvisioningAgentInput | null | undefined,
+  items: AgentPreflightItemView[] = []
+): boolean {
+  if (!agent) return false;
+  if (agent.lifecycle === 'platform_unsupported') return true;
+  if (agent.lifecycle === 'uninstalled') {
+    return !hasVerifiedNativeRuntimeEvidence(agent, items);
+  }
+  return false;
+}
+
 export function agentProvisioningAction(
-  agent: Pick<AgentManagementView, 'lifecycle' | 'retired'> & {
-    agent_id?: string | null;
-    id?: string | null;
-    topology?: string | null;
-    acp_version?: string | null;
-    runtime_version?: string | null;
-    local_runtime?: {
-      version?: string | null;
-      path?: string | null;
-    } | null;
-  },
+  agent: ProvisioningAgentInput,
   items: AgentPreflightItemView[]
 ): AgentProvisioningAction | null {
   if (agent.retired || agent.lifecycle === 'platform_unsupported') return null;
@@ -58,14 +96,10 @@ export function agentProvisioningAction(
   if (primaryItem && primaryItem.status === 'fail' && !primaryItem.repairable) {
     return null;
   }
-  const hasNativeRuntimeEvidence =
-    nativeEngine &&
-    Boolean(
-      agent.runtime_version ||
-        agent.acp_version ||
-        agent.local_runtime?.path ||
-        agent.local_runtime?.version
-    );
+  const hasNativeRuntimeEvidence = hasVerifiedNativeRuntimeEvidence(
+    agent,
+    items
+  );
   const primaryMissing = nativeEngine
     ? ('acp_version' in agent || 'runtime_version' in agent) &&
       !hasNativeRuntimeEvidence &&

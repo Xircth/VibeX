@@ -55,7 +55,7 @@ export function ActionBarIdleControls({
           size="sm"
           variant="destructive"
           disabled={!isEditable}
-          className="h-7 px-2 text-xs"
+          className="h-8 px-2.5 text-sm"
         >
           {clearReviewLabel}
         </Button>

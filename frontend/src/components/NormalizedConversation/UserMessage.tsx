@@ -68,27 +68,36 @@ const UserMessage = ({
     () => splitDisplayContentImages(displayContent),
     [displayContent]
   );
+  const measureCollapse = useCallback(() => {
+    const el = contentRef.current;
+    if (!el) return;
+    const naturalHeight = el.scrollHeight;
+    const needs = naturalHeight > COLLAPSED_MAX_HEIGHT;
+    setNeedsCollapse(needs);
+    setIsCollapseMeasured(true);
+  }, []);
+
   useLayoutEffect(() => {
     const element = contentRef.current;
     if (!element) return;
 
-    const check = () => {
-      setNeedsCollapse(element.scrollHeight > COLLAPSED_MAX_HEIGHT);
-      setIsCollapseMeasured(true);
-    };
-
-    check();
+    // Defer the first measurement by one frame so nested content (markdown
+    // blocks, images) has finished its own layout before we read heights.
+    let rafId = requestAnimationFrame(() => {
+      measureCollapse();
+    });
 
     const resizeObserver = new ResizeObserver(() => {
-      check();
+      measureCollapse();
     });
 
     resizeObserver.observe(element);
 
     return () => {
+      cancelAnimationFrame(rafId);
       resizeObserver.disconnect();
     };
-  }, [displayText]);
+  }, [displayText, measureCollapse]);
 
   const canResetToHere = !!(
     taskAttempt?.session?.executor &&

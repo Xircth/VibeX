@@ -27,6 +27,8 @@ const CONNECTION_ERROR_TURN_CODES = new Set<string>([
 
 const GENERIC_BACKEND_CONNECTING_TITLE = '正在连接 Agent…';
 
+export type RuntimeStatusPlacement = 'composer' | 'stream';
+
 export type InlineStreamRuntimeStatus = {
   kind: 'connection' | 'request';
   notice: ConversationSessionNotice;
@@ -38,7 +40,9 @@ export type InlineStreamRuntimeStatus = {
 
 export type InlineStreamRuntimePresentation = {
   status: InlineStreamRuntimeStatus | null;
+  placement: RuntimeStatusPlacement | null;
   suppressLiveTurnStatsStatus: boolean;
+  suppressAssistantStreamingStatus: boolean;
   isConnectionRecovering: boolean;
 };
 
@@ -51,12 +55,34 @@ export type DeriveInlineStreamRuntimeStatusInput = {
   latestTurnError?: ConversationError | null;
   hasLatestTurnErrorRow?: boolean;
   hasLatestInterruptedRow?: boolean;
+  hasUserMessage?: boolean;
   isTurnInFlight: boolean;
   hasStreamingAssistantRow: boolean;
+  hasStreamingAssistantContent?: boolean;
   hasInteraction?: boolean;
   hasRunningTool?: boolean;
   currentTurnId?: string;
 };
+
+const SILENT_PRESENTATION: InlineStreamRuntimePresentation = {
+  status: null,
+  placement: null,
+  suppressLiveTurnStatsStatus: false,
+  suppressAssistantStreamingStatus: false,
+  isConnectionRecovering: false,
+};
+
+export function parseReconnectProgressTitle(
+  title?: string | null
+): { attempt: number; maxAttempts: number } | null {
+  if (!title) return null;
+  const match = title.match(/(\d+)\s*\/\s*(\d+)/);
+  if (!match) return null;
+  const attempt = Number(match[1]);
+  const maxAttempts = Number(match[2]);
+  if (!Number.isFinite(attempt) || !Number.isFinite(maxAttempts)) return null;
+  return { attempt, maxAttempts };
+}
 
 export function isConnectionSupersededByTurnError(
   latestTurnError: ConversationError | null | undefined,
@@ -71,9 +97,9 @@ export function isConnectionSupersededByTurnError(
 }
 
 /**
- * Collapses connection & request runtime state into at most ONE inline status
- * item for the message stream, avoiding duplicated "ready", reconnect, and
- * turn-failure banners in the bottom ConversationStatusDock.
+ * Collapses connection & request runtime state into at most ONE runtime status
+ * item and decides whether it belongs above the composer (pre-send / idle
+ * connection state) or inline inside the message stream (post-send request).
  */
 export function deriveInlineStreamRuntimeStatus(
   input: DeriveInlineStreamRuntimeStatusInput
@@ -88,11 +114,16 @@ export function deriveInlineStreamRuntimeStatus(
     hasLatestTurnErrorRow = Boolean(latestTurnError),
     hasLatestInterruptedRow = false,
     isTurnInFlight,
+    hasUserMessage = isTurnInFlight,
     hasStreamingAssistantRow,
+    hasStreamingAssistantContent = false,
     hasInteraction = false,
     hasRunningTool = false,
     currentTurnId,
   } = input;
+
+  const connectionPlacement: RuntimeStatusPlacement =
+    !hasUserMessage || !isTurnInFlight ? 'composer' : 'stream';
 
   const connectionFailed =
     connection?.status === 'error' || connection?.status === 'closed';
@@ -104,12 +135,8 @@ export function deriveInlineStreamRuntimeStatus(
     Boolean(reconnectNotice) || connection?.status === 'recovering';
 
   if (connectionPending) {
-    if (hasStreamingAssistantRow && !isConnectionRecovering) {
-      return {
-        status: null,
-        suppressLiveTurnStatsStatus: false,
-        isConnectionRecovering: false,
-      };
+    if (hasStreamingAssistantContent && !isConnectionRecovering) {
+      return SILENT_PRESENTATION;
     }
 
     const resolvedConnection: ConversationConnectionStatus =
@@ -144,7 +171,10 @@ export function deriveInlineStreamRuntimeStatus(
         canReconnect: false,
         canRetry: false,
       },
-      suppressLiveTurnStatsStatus: hasStreamingAssistantRow,
+      placement: connectionPlacement,
+      suppressLiveTurnStatsStatus:
+        connectionPlacement === 'stream' && hasStreamingAssistantRow,
+      suppressAssistantStreamingStatus: connectionPlacement === 'stream',
       isConnectionRecovering,
     };
   }
@@ -160,11 +190,7 @@ export function deriveInlineStreamRuntimeStatus(
       turnErrorCoversConnectionLoss ||
       (turnErrorCoversConnectNotice && !connectionFailed)
     ) {
-      return {
-        status: null,
-        suppressLiveTurnStatsStatus: false,
-        isConnectionRecovering: false,
-      };
+      return SILENT_PRESENTATION;
     }
 
     const resolvedConnection: ConversationConnectionStatus = connectionFailed
@@ -194,22 +220,38 @@ export function deriveInlineStreamRuntimeStatus(
         canReconnect: true,
         canRetry: false,
       },
-      suppressLiveTurnStatsStatus: hasStreamingAssistantRow,
+      placement: connectionPlacement,
+      suppressLiveTurnStatsStatus:
+        connectionPlacement === 'stream' && hasStreamingAssistantRow,
+      suppressAssistantStreamingStatus:
+        connectionPlacement === 'stream' && hasStreamingAssistantRow,
       isConnectionRecovering: false,
     };
   }
 
-  // Healthy ready & bound connection should stay silent in the UI.
-  if (!request) {
-    return {
-      status: null,
-      suppressLiveTurnStatsStatus: false,
-      isConnectionRecovering: false,
-    };
+  // Healthy ready & bound connection should stay silent in the UI unless a
+  // turn is in flight or a post-turn request failure needs inline retry.
+  const effectiveRequest: ConversationRequestStatus | null =
+    request ??
+    (isTurnInFlight &&
+    hasUserMessage &&
+    !hasStreamingAssistantContent &&
+    !hasLatestTurnErrorRow
+      ? {
+          turn_id: currentTurnId ?? '',
+          prompt_id: null,
+          connection_id: connection?.connection_id ?? null,
+          since: '',
+          activity: { phase: 'submitting', retry: null },
+        }
+      : null);
+
+  if (!effectiveRequest) {
+    return SILENT_PRESENTATION;
   }
 
   const phase = requestStatusKey({
-    request,
+    request: effectiveRequest,
     connection,
     hasInteraction,
     hasRunningTool,
@@ -219,24 +261,23 @@ export function deriveInlineStreamRuntimeStatus(
 
   if (isTurnInFlight) {
     if (terminal) {
-      return {
-        status: null,
-        suppressLiveTurnStatsStatus: false,
-        isConnectionRecovering: false,
-      };
+      return SILENT_PRESENTATION;
     }
 
-    // LiveTurnStats renders active request phase when an assistant turn is
-    // already streaming, unless retry/cancel needs richer details & actions.
+    // Before the assistant produces any content/thinking/tool block, keep the
+    // lightweight connecting status inline instead of showing generation Loading.
+    const preGenerationPhase =
+      phase === 'submitting' ||
+      phase === 'waiting_agent' ||
+      phase === 'waiting_model';
     const shouldRenderInline =
-      !hasStreamingAssistantRow || phase === 'retrying' || phase === 'cancelling';
+      !hasStreamingAssistantRow ||
+      (!hasStreamingAssistantContent && preGenerationPhase) ||
+      phase === 'retrying' ||
+      phase === 'cancelling';
 
     if (!shouldRenderInline) {
-      return {
-        status: null,
-        suppressLiveTurnStatsStatus: false,
-        isConnectionRecovering: false,
-      };
+      return SILENT_PRESENTATION;
     }
 
     return {
@@ -246,8 +287,8 @@ export function deriveInlineStreamRuntimeStatus(
           title: 'Agent request',
           severity: 'info',
           request_status: {
-            ...request,
-            activity: { ...request.activity, phase },
+            ...effectiveRequest,
+            activity: { ...effectiveRequest.activity, phase },
           },
         },
         titleOverride: null,
@@ -255,27 +296,24 @@ export function deriveInlineStreamRuntimeStatus(
         canReconnect: false,
         canRetry: false,
       },
+      placement: 'stream',
       suppressLiveTurnStatsStatus: hasStreamingAssistantRow,
+      suppressAssistantStreamingStatus:
+        !hasStreamingAssistantContent ||
+        phase === 'retrying' ||
+        phase === 'cancelling',
       isConnectionRecovering: false,
     };
   }
 
   // Ignore non-terminal request leftovers once the turn is no longer in flight.
   if (!terminal || phase === 'completed') {
-    return {
-      status: null,
-      suppressLiveTurnStatsStatus: false,
-      isConnectionRecovering: false,
-    };
+    return SILENT_PRESENTATION;
   }
 
   // TurnErrorCard in ConversationStatusDock already owns failed/cancelled errors.
   if ((phase === 'failed' || phase === 'cancelled') && hasLatestTurnErrorRow) {
-    return {
-      status: null,
-      suppressLiveTurnStatsStatus: false,
-      isConnectionRecovering: false,
-    };
+    return SILENT_PRESENTATION;
   }
 
   // Interrupted-turn notice in ConversationStatusDock already owns restart interruptions.
@@ -283,11 +321,7 @@ export function deriveInlineStreamRuntimeStatus(
     phase === 'interrupted' &&
     (hasLatestInterruptedRow || hasLatestTurnErrorRow)
   ) {
-    return {
-      status: null,
-      suppressLiveTurnStatsStatus: false,
-      isConnectionRecovering: false,
-    };
+    return SILENT_PRESENTATION;
   }
 
   return {
@@ -297,8 +331,8 @@ export function deriveInlineStreamRuntimeStatus(
         title: 'Agent request',
         severity: phase === 'failed' ? 'error' : 'info',
         request_status: {
-          ...request,
-          activity: { ...request.activity, phase },
+          ...effectiveRequest,
+          activity: { ...effectiveRequest.activity, phase },
         },
       },
       titleOverride: null,
@@ -306,7 +340,9 @@ export function deriveInlineStreamRuntimeStatus(
       canReconnect: false,
       canRetry: true,
     },
+    placement: 'stream',
     suppressLiveTurnStatsStatus: false,
+    suppressAssistantStreamingStatus: false,
     isConnectionRecovering: false,
   };
 }

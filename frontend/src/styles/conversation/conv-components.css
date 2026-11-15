@@ -62,19 +62,46 @@
   animation: conv-thread-skeleton-shimmer 1.4s ease-in-out infinite;
 }
 
-@keyframes conv-spinner {
-  to {
-    transform: rotate(360deg);
+/* Pixel-grid activity indicator.
+ *
+ * A chevron wavefront travels left-to-right across a 3×3 cell grid: the middle
+ * row leads, the outer rows trail, so the lit cells read as a right-pointing
+ * chevron rather than a flat pulse. The 650ms cycle is shorter than the 270ms
+ * per-cell spread, so two fronts are always in flight and the grid churns
+ * continuously instead of restarting from zero. */
+@keyframes conv-pixel-on {
+  0%,
+  100% {
+    opacity: 0.18;
+  }
+  35% {
+    opacity: 1;
   }
 }
 
-.conv-spinner {
-  width: 14px;
-  height: 14px;
-  border: 2px solid var(--conv-border-subtle);
-  border-top-color: var(--conv-tool-icon);
-  border-radius: 50%;
-  animation: conv-spinner 1s linear infinite;
+.conv-pixel-grid {
+  --conv-pixel-cell: 4px;
+  --conv-pixel-gap: 1.5px;
+  --conv-pixel-rest: 0.18;
+  display: inline-grid;
+  flex: 0 0 auto;
+  grid-template-columns: repeat(3, var(--conv-pixel-cell));
+  grid-template-rows: repeat(3, var(--conv-pixel-cell));
+  gap: var(--conv-pixel-gap);
+}
+
+.conv-pixel-grid--sm {
+  --conv-pixel-cell: 3px;
+  --conv-pixel-gap: 1px;
+}
+
+.conv-pixel-cell {
+  width: var(--conv-pixel-cell);
+  height: var(--conv-pixel-cell);
+  border-radius: 1px;
+  background: var(--conv-tool-icon);
+  opacity: var(--conv-pixel-rest);
+  animation: conv-pixel-on 650ms ease-in-out infinite;
 }
 
 .conv-thinking-placeholder {
@@ -87,7 +114,7 @@
   line-height: 1.5;
 }
 
-.conv-thinking-placeholder .conv-spinner {
+.conv-thinking-placeholder .conv-pixel-grid {
   flex: 0 0 auto;
 }
 
@@ -99,17 +126,41 @@
   color: var(--conv-text-tertiary);
 }
 
-.conv-streaming-status-tail .conv-spinner {
-  width: 12px;
-  height: 12px;
-  border-width: 1.5px;
+/* Aligns the cells with the optical center of the 12px streaming label rather
+   than its baseline, so the grid reads as sitting on the same line. */
+.conv-streaming-status-tail .conv-pixel-grid {
+  margin-block: 1px;
+}
+
+/* Elapsed counter beside the streaming verb. Mono + fixed-width figures and a
+   half-step smaller size give it the supporting role the animated verb leads,
+   without an opacity fade (the tail token is already the faintest legible step,
+   so dimming it further would push measurement text below AA contrast). */
+.conv-streaming-elapsed {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  color: var(--conv-text-tertiary);
 }
 
 @media (prefers-reduced-motion: reduce) {
   .conv-shimmer-text,
-  .conv-spinner,
   .conv-thread-skeleton-bar {
     animation: none;
+  }
+
+  /* Hold a static chevron glyph rather than freezing every cell to the same dim
+     value, which would read as a broken indicator. The middle row stays lit so
+     the shape survives, and the elapsed timer still reports progress. */
+  .conv-pixel-cell {
+    animation: none;
+    opacity: 0.35;
+  }
+
+  .conv-pixel-cell:nth-child(4),
+  .conv-pixel-cell:nth-child(5),
+  .conv-pixel-cell:nth-child(6) {
+    opacity: 0.85;
   }
 }
 

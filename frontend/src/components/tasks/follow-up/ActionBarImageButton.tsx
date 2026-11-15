@@ -50,11 +50,11 @@ export function ActionBarImageButton({
         disabled={!isEditable}
         size="sm"
         variant="ghost"
-        className="h-7 w-7 p-0"
+        className="h-8 w-8 p-0"
         title={attachLabel}
         aria-label={attachLabel}
       >
-        <Paperclip className="h-3.5 w-3.5" />
+        <Paperclip className="h-[18px] w-[18px]" />
       </Button>
     </>
   );

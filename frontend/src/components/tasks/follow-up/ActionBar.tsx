@@ -8,6 +8,7 @@ import type {
 } from 'shared/types';
 import type { ConversationSessionModesState } from '@/features/conversation/conversationStore';
 import { useSelectableAgents } from '@/features/agents/useSelectableAgents';
+import { canonicalSessionAgentId } from '@/lib/sessionQueryCache';
 import { ActionBarImageButton } from './ActionBarImageButton';
 import { ActionBarIdleControls } from './ActionBarIdleControls';
 import { ActionBarUtilityButtons } from './ActionBarUtilityButtons';
@@ -122,7 +123,14 @@ export const ActionBar = memo(function ActionBar({
   const currentAgentId = effectiveExecutorProfile?.executor ?? null;
   const currentAgentIcons = useMemo(() => {
     if (!currentAgentId) return null;
-    return selectableAgents.find((a) => a.agentId === currentAgentId) ?? null;
+    const canonicalCurrent = canonicalSessionAgentId(currentAgentId);
+    return (
+      selectableAgents.find(
+        (a) =>
+          a.agentId === currentAgentId ||
+          canonicalSessionAgentId(a.agentId) === canonicalCurrent
+      ) ?? null
+    );
   }, [selectableAgents, currentAgentId]);
 
   const handleSelectExecutorProfile = useCallback(
@@ -133,7 +141,7 @@ export const ActionBar = memo(function ActionBar({
   );
 
   const agentRail = useMemo(() => {
-    if (!showProfileControls || persona) return null;
+    if (!showProfileControls) return null;
     return {
       profiles,
       effectiveExecutorProfile,
@@ -143,7 +151,6 @@ export const ActionBar = memo(function ActionBar({
   }, [
     effectiveExecutorProfile,
     handleSelectExecutorProfile,
-    persona,
     profiles,
     selectableAgents,
     showProfileControls,
@@ -158,34 +165,7 @@ export const ActionBar = memo(function ActionBar({
     hasComments ?? (comments ? comments.length > 0 : false);
 
   return (
-    <div className="flex flex-wrap items-center gap-1 pt-1">
-      <SessionSettingsSummary
-        sessionModes={sessionModes}
-        selectedMode={selectedMode}
-        onSelectMode={onSelectMode}
-        options={sessionConfigOptions}
-        pending={selectedConfigValues}
-        onSelectConfigOption={onSelectConfigOption}
-        persona={persona}
-        disabled={!isEditable}
-        agentIcon={currentAgentId}
-        agentIconLight={currentAgentIcons?.iconLight ?? null}
-        agentIconDark={currentAgentIcons?.iconDark ?? null}
-        agentIconSvg={currentAgentIcons?.iconSvg ?? null}
-        agentRail={agentRail}
-        continuation={continuation}
-        controlsLoading={sessionControlsLoading}
-      />
-
-      {showProfileControls && !persona ? (
-        <ComposerProviderInstanceSlot
-          agentId={currentAgentId}
-          disabled={!isEditable}
-        />
-      ) : null}
-
-      <div className="flex-1" />
-
+    <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
       {onStashDraft && onRestoreDraft ? (
         <ComposerStashMenu
           scopeId={stashScopeId}
@@ -206,8 +186,6 @@ export const ActionBar = memo(function ActionBar({
         onAttachImages={onAttachImages}
       />
 
-      <Slot name="composer.toolbar" slotProps={slotProps} />
-
       <ActionBarUtilityButtons
         compactContextEnabled={compactContextEnabled}
         canCompactContext={canCompactContext}
@@ -218,6 +196,40 @@ export const ActionBar = memo(function ActionBar({
         onCompactContext={onCompactContext}
         onEnhancePrompt={onEnhancePrompt}
       />
+
+      <div className="flex-1" />
+
+      {showProfileControls ? (
+        <ComposerProviderInstanceSlot
+          agentId={currentAgentId}
+          disabled={!isEditable}
+        />
+      ) : null}
+
+      <SessionSettingsSummary
+        sessionModes={sessionModes}
+        selectedMode={selectedMode}
+        onSelectMode={onSelectMode}
+        options={sessionConfigOptions}
+        pending={selectedConfigValues}
+        onSelectConfigOption={onSelectConfigOption}
+        persona={persona}
+        disabled={!isEditable}
+        dropdownAlign="end"
+        agentIcon={
+          showProfileControls || persona || sessionConfigOptions.length > 0 || Boolean(sessionModes?.modes?.length)
+            ? currentAgentId
+            : null
+        }
+        agentIconLight={currentAgentIcons?.iconLight ?? null}
+        agentIconDark={currentAgentIcons?.iconDark ?? null}
+        agentIconSvg={currentAgentIcons?.iconSvg ?? null}
+        agentRail={agentRail}
+        continuation={continuation}
+        controlsLoading={sessionControlsLoading}
+      />
+
+      <Slot name="composer.toolbar" slotProps={slotProps} />
 
       {isAttemptRunning ? (
         <ActionBarRunningControls

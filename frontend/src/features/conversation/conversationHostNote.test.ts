@@ -2,14 +2,17 @@ import { describe, expect, it } from 'vitest';
 import type { TimelineRow } from 'shared/types';
 
 import {
+  isAgentHandoffHostNote,
   isDurableHostNote,
   isPersonaHostNote,
+  parseAgentHandoffNotice,
   shouldShowDurableHostNote,
 } from './conversationStore';
 
 function notice(
   announcementId: string | null,
-  rowId = 'notice:1'
+  rowId = 'notice:1',
+  message: string | null = '只评论 diff，不改文件'
 ): TimelineRow {
   return {
     row_id: rowId,
@@ -18,7 +21,7 @@ function notice(
       kind: 'session_notice',
       notice: {
         title: '人设',
-        message: '只评论 diff，不改文件',
+        message,
         severity: 'info',
         announcement_id: announcementId,
         action: null,
@@ -28,9 +31,12 @@ function notice(
 }
 
 describe('isDurableHostNote', () => {
-  it('keeps a persona host note on the timeline', () => {
+  it('keeps persona and agent-handoff host notes on the timeline', () => {
     expect(isDurableHostNote(notice('host-note:persona'))).toBe(true);
     expect(isDurableHostNote(notice(null, 'host-note:persona'))).toBe(true);
+    expect(
+      isDurableHostNote(notice('host-note:agent-handoff:after:turn-1'))
+    ).toBe(true);
   });
 
   it('leaves transient session notices in the status dock', () => {
@@ -62,3 +68,39 @@ describe('shouldShowDurableHostNote', () => {
     ).toBe(true);
   });
 });
+
+describe('agent handoff host notes', () => {
+  it('parses structured cross-agent handoff notices and ignores round-trip same-agent notes', () => {
+    const handoffRow = notice(
+      'host-note:agent-handoff:after:turn-1',
+      'host-note:agent-handoff:after:turn-1',
+      JSON.stringify({
+        afterTurnId: 'turn-1',
+        fromAgent: 'claude_code',
+        fromModel: 'claude-opus-4-6',
+        toAgent: 'codex',
+        switchedAt: '2026-11-15T12:00:00Z',
+      })
+    );
+    expect(isAgentHandoffHostNote(handoffRow)).toBe(true);
+    expect(parseAgentHandoffNotice(handoffRow)).toEqual({
+      fromAgent: 'claude_code',
+      fromModel: 'claude-opus-4-6',
+      toAgent: 'codex',
+      toModel: null,
+      continuationPolicy: 'portable',
+    });
+
+    const roundTripSame = notice(
+      'host-note:agent-handoff:after:turn-1',
+      'host-note:agent-handoff:after:turn-1',
+      JSON.stringify({
+        afterTurnId: 'turn-1',
+        fromAgent: 'claude_code',
+        toAgent: 'claude-code',
+      })
+    );
+    expect(parseAgentHandoffNotice(roundTripSame)).toBeNull();
+  });
+});
+

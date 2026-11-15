@@ -367,7 +367,7 @@ pub fn check_launch_vs_served_model(
         return None;
     }
 
-    if req_norm == served_norm {
+    if req_norm == served_norm || req_norm.replace('.', "-") == served_norm.replace('.', "-") {
         return None;
     }
 
@@ -379,14 +379,16 @@ pub fn check_launch_vs_served_model(
 
     // Compatible minor/patch revision within the same major family when the suffix
     // after `-` begins with a numeric version token (e.g. `claude-opus-4` vs `claude-opus-4-6`).
+    let req_dash = req_norm.replace('.', "-");
+    let served_dash = served_norm.replace('.', "-");
     let numeric_version_extension = |shorter: &str, longer: &str| -> bool {
         longer
             .strip_prefix(shorter)
             .and_then(|rest| rest.strip_prefix('-'))
             .is_some_and(|ver| ver.chars().next().is_some_and(|c| c.is_ascii_digit()))
     };
-    if numeric_version_extension(&req_norm, &served_norm)
-        || numeric_version_extension(&served_norm, &req_norm)
+    if numeric_version_extension(&req_dash, &served_dash)
+        || numeric_version_extension(&served_dash, &req_dash)
     {
         return None;
     }
@@ -566,6 +568,14 @@ mod tests {
     fn launch_vs_served_model_resolves_aliases_snapshots_and_detects_silent_downgrade() {
         assert_eq!(
             check_launch_vs_served_model(Some("opus"), Some("claude-opus-4-6-20260201"), false),
+            None
+        );
+        assert_eq!(
+            check_launch_vs_served_model(
+                Some("claude-opus-4.6"),
+                Some("claude-opus-4-6-20260201"),
+                true
+            ),
             None
         );
         assert_eq!(

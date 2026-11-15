@@ -57,6 +57,65 @@ export function isPersonaHostNote(row: TimelineRow): boolean {
   return (row.row.notice.announcement_id ?? '') === 'host-note:persona';
 }
 
+/** Standing inline cross-Agent handoff divider (`host-note:agent-handoff:after:{turn_id}`). */
+export const AGENT_HANDOFF_HOST_NOTE_PREFIX = 'host-note:agent-handoff:';
+
+export type ParsedAgentHandoffNotice = {
+  fromAgent: string;
+  toAgent: string;
+  fromModel: string | null;
+  toModel: string | null;
+  continuationPolicy: 'portable' | 'fresh';
+};
+
+export function isAgentHandoffHostNote(row: TimelineRow): boolean {
+  if (row.row_id.startsWith(AGENT_HANDOFF_HOST_NOTE_PREFIX)) return true;
+  if (row.row.kind !== 'session_notice') return false;
+  return (row.row.notice.announcement_id ?? '').startsWith(
+    AGENT_HANDOFF_HOST_NOTE_PREFIX
+  );
+}
+
+export function parseAgentHandoffNotice(
+  row: TimelineRow
+): ParsedAgentHandoffNotice | null {
+  if (!isAgentHandoffHostNote(row) || row.row.kind !== 'session_notice') {
+    return null;
+  }
+  const raw = row.row.notice.message?.trim();
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw) as Record<string, unknown>;
+    const fromAgent =
+      typeof parsed.fromAgent === 'string' ? parsed.fromAgent.trim() : '';
+    const toAgent =
+      typeof parsed.toAgent === 'string' ? parsed.toAgent.trim() : '';
+    const norm = (id: string) => id.toLowerCase().replace(/[-_\s]/g, '');
+    if (!fromAgent || !toAgent || norm(fromAgent) === norm(toAgent)) {
+      return null;
+    }
+    const fromModel =
+      typeof parsed.fromModel === 'string' && parsed.fromModel.trim().length > 0
+        ? parsed.fromModel.trim()
+        : null;
+    const toModel =
+      typeof parsed.toModel === 'string' && parsed.toModel.trim().length > 0
+        ? parsed.toModel.trim()
+        : null;
+    const continuationPolicy =
+      parsed.continuationPolicy === 'fresh' ? 'fresh' : 'portable';
+    return {
+      fromAgent,
+      toAgent,
+      fromModel,
+      toModel,
+      continuationPolicy,
+    };
+  } catch {
+    return null;
+  }
+}
+
 export function shouldShowDurableHostNote(
   row: TimelineRow,
   options: { hidePersonaHostNotes?: boolean } = {}

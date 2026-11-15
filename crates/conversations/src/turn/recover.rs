@@ -917,7 +917,7 @@ impl ConversationSessionService {
     /// `or_insert` a *second* mutex for the same conversation, after which both tasks
     /// believe they hold exclusive access — the very double in-flight Turn the lock
     /// exists to prevent (ADR-0061 §4.2, CONTEXT.md "In-flight turn").
-    pub(super) async fn drop_live_agent_connection(&self, conversation_id: Uuid) {
+    pub(crate) async fn drop_live_agent_connection(&self, conversation_id: Uuid) {
         let from_state = self
             .runtime_snapshot(conversation_id)
             .await

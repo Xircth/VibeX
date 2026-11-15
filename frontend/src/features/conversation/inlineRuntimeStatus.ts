@@ -101,12 +101,17 @@ export function deriveInlineStreamRuntimeStatus(
     Boolean(reconnectNotice) ||
     (connection != null && !connection.bound && !connectionFailed);
   const isConnectionRecovering =
-    Boolean(reconnectNotice) ||
-    connection?.status === 'connecting' ||
-    connection?.status === 'recovering' ||
-    (connecting && !connection?.bound);
+    Boolean(reconnectNotice) || connection?.status === 'recovering';
 
   if (connectionPending) {
+    if (hasStreamingAssistantRow && !isConnectionRecovering) {
+      return {
+        status: null,
+        suppressLiveTurnStatsStatus: false,
+        isConnectionRecovering: false,
+      };
+    }
+
     const resolvedConnection: ConversationConnectionStatus =
       connection && !connectionFailed && !connection.bound
         ? connection

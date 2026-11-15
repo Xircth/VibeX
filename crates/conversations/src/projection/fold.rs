@@ -576,6 +576,13 @@ impl ProjectedTurn {
 
     pub(super) fn effective_user_phase(&self) -> String {
         match self.phase.as_str() {
+            "streaming" | "interrupted" | "failed" | "cancelled" => self.phase.clone(),
+            _ => "settled".into(),
+        }
+    }
+
+    pub(super) fn closed_segment_phase(&self) -> String {
+        match self.phase.as_str() {
             "interrupted" | "failed" | "cancelled" => self.phase.clone(),
             _ => "settled".into(),
         }
@@ -718,11 +725,15 @@ fn settle_turn(
     let turn = turns.get_mut(&turn_id).expect("turn exists");
     finalize_trailing_raw_text(turn, record.conversation_id, turn_id, false);
     let prev_user_phase = turn.effective_user_phase();
+    let prev_closed_phase = turn.closed_segment_phase();
     if !(turn.phase == "failed" && phase == "settled") {
         turn.phase = phase.into();
     }
-    if turn.effective_user_phase() != prev_user_phase {
+    if turn.closed_segment_phase() != prev_closed_phase {
         turn.bump_all_segment_revisions(record.sequence);
+    } else if turn.effective_user_phase() != prev_user_phase {
+        turn.user_revision = record.sequence;
+        turn.revision = record.sequence;
     } else {
         turn.revision = record.sequence;
     }

@@ -169,39 +169,9 @@ export function ContextHandoffDivider({
   );
 }
 
-export function ConversationTailHandoff({
-  sessionId,
-  hasMessages,
-  fallbackFromModel = null,
-  sessionConfigOptions,
-  onReveal,
-}: {
-  sessionId: string | null | undefined;
-  hasMessages: boolean;
-  fallbackFromModel?: string | null;
-  sessionConfigOptions?: AgentSessionConfigOption[];
-  onReveal?: () => void;
-}) {
-  const pendingHandoff = usePendingAgentHandoff(sessionId);
+function useAgentVisualMap() {
   const selectableAgents = useSelectableAgents();
-  const visible = Boolean(pendingHandoff && hasMessages);
-  const wasVisibleRef = useRef(false);
-  const onRevealRef = useRef(onReveal);
-  onRevealRef.current = onReveal;
-
-  useLayoutEffect(() => {
-    if (visible && !wasVisibleRef.current) {
-      onRevealRef.current?.();
-    }
-    wasVisibleRef.current = visible;
-  }, [
-    visible,
-    pendingHandoff?.fromAgent,
-    pendingHandoff?.toAgent,
-    pendingHandoff?.toModelLabel,
-  ]);
-
-  const agentById = useMemo(() => {
+  return useMemo(() => {
     const map = new Map<
       string,
       {
@@ -221,8 +191,79 @@ export function ConversationTailHandoff({
     }
     return map;
   }, [selectableAgents]);
+}
 
-  if (!pendingHandoff || !hasMessages) {
+export function TimelineAgentHandoffRow({
+  handoff,
+}: {
+  handoff: {
+    fromAgent: string;
+    toAgent: string;
+    fromModel: string | null;
+    toModel: string | null;
+    continuationPolicy: 'portable' | 'fresh';
+  };
+}) {
+  const agentById = useAgentVisualMap();
+  const fromMeta = agentById.get(handoff.fromAgent);
+  const toMeta = agentById.get(handoff.toAgent);
+  const fromAgentName =
+    fromMeta?.displayName ?? getAgentName(handoff.fromAgent);
+  const toAgentName = toMeta?.displayName ?? getAgentName(handoff.toAgent);
+  const fromLabel =
+    formatHandoffModelLabel(handoff.fromModel) ?? fromAgentName;
+  const toLabel = formatHandoffModelLabel(handoff.toModel) ?? toAgentName;
+
+  return (
+    <ContextHandoffDivider
+      fromAgent={handoff.fromAgent}
+      toAgent={handoff.toAgent}
+      fromLabel={fromLabel}
+      toLabel={toLabel}
+      fromIcon={fromMeta}
+      toIcon={toMeta}
+      continuationPolicy={handoff.continuationPolicy}
+    />
+  );
+}
+
+export function ConversationTailHandoff({
+  sessionId,
+  hasMessages,
+  fallbackFromModel = null,
+  sessionConfigOptions,
+  suppressedByInlineHandoff = false,
+  onReveal,
+}: {
+  sessionId: string | null | undefined;
+  hasMessages: boolean;
+  fallbackFromModel?: string | null;
+  sessionConfigOptions?: AgentSessionConfigOption[];
+  suppressedByInlineHandoff?: boolean;
+  onReveal?: () => void;
+}) {
+  const pendingHandoff = usePendingAgentHandoff(sessionId);
+  const agentById = useAgentVisualMap();
+  const visible = Boolean(
+    pendingHandoff && hasMessages && !suppressedByInlineHandoff
+  );
+  const wasVisibleRef = useRef(false);
+  const onRevealRef = useRef(onReveal);
+  onRevealRef.current = onReveal;
+
+  useLayoutEffect(() => {
+    if (visible && !wasVisibleRef.current) {
+      onRevealRef.current?.();
+    }
+    wasVisibleRef.current = visible;
+  }, [
+    visible,
+    pendingHandoff?.fromAgent,
+    pendingHandoff?.toAgent,
+    pendingHandoff?.toModelLabel,
+  ]);
+
+  if (!pendingHandoff || !hasMessages || suppressedByInlineHandoff) {
     return null;
   }
 

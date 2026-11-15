@@ -1913,6 +1913,15 @@ impl AgentRuntime {
             .map(|session| session.snapshot.connection_id)
     }
 
+    pub async fn session_agent_id(&self, session_id: AgentSessionId) -> Option<AgentId> {
+        let state = self.state.read().await;
+        let connection_id = state.sessions.get(&session_id)?.snapshot.connection_id;
+        state
+            .connections
+            .get(&connection_id)
+            .map(|connection| connection.snapshot.agent_id.clone())
+    }
+
     /// True when this conversation still has a live ACP session mapping on a
     /// live connection. A connection id in memory is not enough: cancel that
     /// the agent never acknowledged unbinds the mapping while leaving the

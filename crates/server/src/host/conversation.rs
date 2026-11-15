@@ -917,15 +917,37 @@ pub async fn load_conversation_detail(
     let persona = conversations::collaboration::conversation_persona(pool, id)
         .await
         .map_err(internal_error)?;
+    let latest_handoff_seq = latest_agent_handoff_sequence(pool, id).await?;
     let (session_modes, session_config_options) = load_conversation_session_controls(
         pool,
         id,
         summary.agent_id.as_ref().map(|a| a.as_str()),
         active_binding.as_ref().map(|b| b.agent_type.as_str()),
         persona.as_ref().map(|p| p.agent_name.as_str()),
+        latest_handoff_seq,
     )
     .await?;
     let turns_total = summary.message_count.max(0) as u32;
+    let available_commands = if active_binding.as_ref().is_none_or(|binding| {
+        summary
+            .agent_id
+            .as_ref()
+            .is_none_or(|summary_agent| summary_agent.as_str() == binding.agent_type)
+    }) {
+        latest_event_since(
+            pool,
+            id,
+            "available_commands_updated",
+            latest_handoff_seq,
+            |event| match event {
+                ConversationEvent::AvailableCommandsUpdated { commands } => Some(commands),
+                _ => None,
+            },
+        )
+        .await?
+    } else {
+        None
+    };
     Ok(Some(HostConversationDetail {
         summary,
         turns: Vec::new(),
@@ -942,16 +964,7 @@ pub async fn load_conversation_detail(
         session_modes,
         session_config_options,
         persona,
-        available_commands: latest_event(
-            pool,
-            id,
-            "available_commands_updated",
-            |event| match event {
-                ConversationEvent::AvailableCommandsUpdated { commands } => Some(commands),
-                _ => None,
-            },
-        )
-        .await?,
+        available_commands,
         session_goal: latest_event(pool, id, "session_goal_updated", |event| match event {
             ConversationEvent::SessionGoalUpdated { goal, .. } => Some(ConversationSessionGoal {
                 goal,
@@ -971,6 +984,7 @@ async fn load_conversation_session_controls(
     summary_agent_id: Option<&str>,
     binding_agent_id: Option<&str>,
     persona_agent_id: Option<&str>,
+    min_sequence_exclusive: i64,
 ) -> Result<
     (
         Option<ConversationSessionModes>,
@@ -989,17 +1003,24 @@ async fn load_conversation_session_controls(
             })
     };
     let parsed_summary_agent = parse_lenient_agent_id(summary_agent_id);
-    let parsed_binding_agent = parse_lenient_agent_id(binding_agent_id);
+    let mut parsed_binding_agent = parse_lenient_agent_id(binding_agent_id);
+    if parsed_binding_agent.is_none()
+        && let Ok(Some(latest_binding)) =
+            ConversationAgentBindingRecord::latest_for_conversation(pool, conversation_id).await
+    {
+        parsed_binding_agent = Some(latest_binding.agent_id);
+    }
     let binding_matches_summary = match (&parsed_summary_agent, &parsed_binding_agent) {
         (Some(summary_agent), Some(binding_agent)) => summary_agent == binding_agent,
         _ => true,
     };
 
     let (live_modes, live_options) = if binding_matches_summary {
-        let modes = latest_event(
+        let modes = latest_event_since(
             pool,
             conversation_id,
             "session_mode_updated",
+            min_sequence_exclusive,
             |event| match event {
                 ConversationEvent::SessionModeUpdated { current, modes } => {
                     Some(ConversationSessionModes { current, modes })
@@ -1008,10 +1029,11 @@ async fn load_conversation_session_controls(
             },
         )
         .await?;
-        let options = latest_event(
+        let options = latest_event_since(
             pool,
             conversation_id,
             "session_config_options_updated",
+            min_sequence_exclusive,
             |event| match event {
                 ConversationEvent::SessionConfigOptionsUpdated { options } => Some(options),
                 _ => None,
@@ -1114,9 +1136,59 @@ async fn load_conversation_session_controls(
                 }
             }
         }
+    } else if !binding_matches_summary
+        && let Some(agent_id) = resolved_agent_id.as_ref()
+    {
+        let saved_defaults = db::models::agent_management::SessionDefaultRepository::new(pool.clone())
+            .list_for_agent(agent_id)
+            .await
+            .unwrap_or_default();
+        for record in saved_defaults {
+            let Ok(parsed_val) = serde_json::from_str::<Value>(&record.value_json) else {
+                continue;
+            };
+            let Some(val_str) = parsed_val.as_str().map(str::trim).filter(|s| !s.is_empty()) else {
+                continue;
+            };
+            if record.option_id == "mode" {
+                if let Some(modes) = session_modes.as_mut()
+                    && modes.modes.iter().any(|m| m.id == val_str)
+                {
+                    modes.current = Some(val_str.to_string());
+                }
+            } else if let Some(opt) = session_config_options
+                .iter_mut()
+                .find(|o| o.key == record.option_id)
+            {
+                let valid = opt.choices.is_empty()
+                    || opt.choices.iter().any(|choice| choice.value == val_str);
+                if valid {
+                    opt.value = Some(Value::String(val_str.to_string()));
+                }
+            }
+        }
     }
 
     Ok((session_modes, session_config_options))
+}
+
+async fn latest_agent_handoff_sequence(
+    pool: &SqlitePool,
+    conversation_id: Uuid,
+) -> Result<i64, ApplicationError> {
+    let seq: Option<i64> = sqlx::query_scalar(
+        r#"SELECT MAX(sequence)
+           FROM conversation_events
+           WHERE conversation_id = ?
+             AND event_kind = 'raw_diagnostic_recorded'
+             AND normalized_json LIKE '%"agent_handoff"%'"#,
+    )
+    .bind(conversation_id)
+    .fetch_optional(pool)
+    .await
+    .map_err(internal_error)?
+    .flatten();
+    Ok(seq.unwrap_or(0))
 }
 
 async fn latest_event<T>(
@@ -1125,14 +1197,26 @@ async fn latest_event<T>(
     kind: &str,
     map: impl FnOnce(ConversationEvent) -> Option<T>,
 ) -> Result<Option<T>, ApplicationError> {
+    latest_event_since(pool, conversation_id, kind, 0, map).await
+}
+
+async fn latest_event_since<T>(
+    pool: &SqlitePool,
+    conversation_id: Uuid,
+    kind: &str,
+    min_sequence_exclusive: i64,
+    map: impl FnOnce(ConversationEvent) -> Option<T>,
+) -> Result<Option<T>, ApplicationError> {
     let record = ConversationEventRecord::latest_of_kind(pool, conversation_id, kind)
         .await
         .map_err(internal_error)?;
-    Ok(record.and_then(|record| {
-        serde_json::from_str::<ConversationEvent>(&record.normalized_json)
-            .ok()
-            .and_then(map)
-    }))
+    Ok(record
+        .filter(|record| record.sequence > min_sequence_exclusive)
+        .and_then(|record| {
+            serde_json::from_str::<ConversationEvent>(&record.normalized_json)
+                .ok()
+                .and_then(map)
+        }))
 }
 
 async fn active_binding_for_conversation(

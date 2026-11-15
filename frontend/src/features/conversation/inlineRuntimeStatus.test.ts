@@ -255,4 +255,22 @@ describe('deriveInlineStreamRuntimeStatus', () => {
     expect(res.status?.kind).toBe('request');
     expect(res.status?.canRetry).toBe(true);
   });
+
+  it('hands off initial cold-start connecting turn to LiveTurnStats without marking connection as recovering', () => {
+    const res = deriveInlineStreamRuntimeStatus({
+      connecting: true,
+      connection: readyConnection({ status: 'connecting', bound: false }),
+      request: requestStatus('waiting_agent'),
+      reconnectNotice: null,
+      isTurnInFlight: true,
+      hasStreamingAssistantRow: true,
+    });
+
+    expect(res).toEqual({
+      status: null,
+      suppressLiveTurnStatsStatus: false,
+      isConnectionRecovering: false,
+    });
+  });
 });
+

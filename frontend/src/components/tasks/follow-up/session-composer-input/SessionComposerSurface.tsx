@@ -1,4 +1,5 @@
 import {
+  useEffect,
   useState,
   type ClipboardEvent,
   type DragEvent,
@@ -8,6 +9,7 @@ import {
   type MutableRefObject,
   type PointerEvent,
   type RefObject,
+  type UIEvent,
 } from 'react';
 import { useTranslation } from 'react-i18next';
 import { FolderOpen } from 'lucide-react';
@@ -40,6 +42,21 @@ import { getSessionComposerEditable } from './sessionComposerDom';
 import { PreviewElementTokenTooltip } from './PreviewElementTokenTooltip';
 import type { useComposerAtReferencePanel } from '../useComposerAtReferencePanel';
 
+type ScrollFadeState = 'none' | 'top' | 'bottom' | 'both';
+
+function computeScrollFade(element: HTMLElement): ScrollFadeState {
+  if (element.scrollHeight <= element.clientHeight + 2) {
+    return 'none';
+  }
+  const canScrollUp = element.scrollTop > 2;
+  const canScrollDown =
+    element.scrollTop + element.clientHeight < element.scrollHeight - 2;
+  if (canScrollUp && canScrollDown) return 'both';
+  if (canScrollUp) return 'top';
+  if (canScrollDown) return 'bottom';
+  return 'none';
+}
+
 export function SessionComposerSurface({
   dropZoneRef,
   handleDragOver,
@@ -56,6 +73,9 @@ export function SessionComposerSurface({
   value,
   sessionId,
   promptSuggestion,
+  hasActivePromptSuggestion = false,
+  isComposing,
+  onCompositionStateChange,
   onDismissPromptSuggestion,
   onChange,
   onUpdateQuoteAnnotation,
@@ -95,6 +115,9 @@ export function SessionComposerSurface({
   value: string;
   sessionId?: string | null;
   promptSuggestion: string | null | undefined;
+  hasActivePromptSuggestion?: boolean;
+  isComposing: boolean;
+  onCompositionStateChange: (composing: boolean) => void;
   onDismissPromptSuggestion?: () => void;
   onChange: (value: string) => void;
   onUpdateQuoteAnnotation?: (
@@ -128,7 +151,26 @@ export function SessionComposerSurface({
   setQuoteEditing?: (editing: boolean) => void;
 }) {
   const { t } = useTranslation('tasks');
-  const [isComposing, setIsComposing] = useState(false);
+  const [scrollFade, setScrollFade] = useState<ScrollFadeState>('none');
+
+  useEffect(() => {
+    if (!value) {
+      setScrollFade((prev) => (prev === 'none' ? prev : 'none'));
+      return;
+    }
+    const editable = getSessionComposerEditable(composerRootRef.current);
+    if (!editable) return;
+    const next = computeScrollFade(editable);
+    setScrollFade((prev) => (prev === next ? prev : next));
+  }, [composerRootRef, value]);
+
+  const handleEditorScrollCapture = (event: UIEvent<HTMLDivElement>) => {
+    const target = event.target;
+    if (!(target instanceof HTMLElement)) return;
+    if (!target.hasAttribute('contenteditable')) return;
+    const next = computeScrollFade(target);
+    setScrollFade((prev) => (prev === next ? prev : next));
+  };
 
   const jumpToQuoteToken = (token: SessionComposerStructuredToken) => {
     if (token.kind !== 'quote' || !hasQuoteSourceAnchor(token.quote)) return;
@@ -171,23 +213,28 @@ export function SessionComposerSurface({
       ) : null}
       <div
         className={cn(
-          'min-h-[40px] rounded-md bg-background/35 px-1.5 pb-1 pt-0 transition-colors focus-within:bg-background/50',
+          'session-composer-input-surface min-h-[3.25rem] px-1 pb-1 pt-0',
           disabled && 'opacity-60'
         )}
         data-testid="session-composer-input-surface"
+        data-prompt-suggestion={
+          hasActivePromptSuggestion && !isComposing ? 'true' : undefined
+        }
+        data-scroll-fade={scrollFade !== 'none' ? scrollFade : undefined}
         onKeyDown={(event) => {
           tryAcceptPromptSuggestionOnTab(event);
         }}
         onClick={handleSurfaceClick}
+        onScrollCapture={handleEditorScrollCapture}
         onPointerOver={handleTokenPointerOver}
         onPointerOut={handleTokenPointerOut}
         onFocusCapture={handleTokenFocus}
         onBlurCapture={(event) => {
-          setIsComposing(false);
+          onCompositionStateChange(false);
           handleTokenBlur(event);
         }}
-        onCompositionStartCapture={() => setIsComposing(true)}
-        onCompositionEndCapture={() => setIsComposing(false)}
+        onCompositionStartCapture={() => onCompositionStateChange(true)}
+        onCompositionEndCapture={() => onCompositionStateChange(false)}
       >
         <ChatComposerInput
           ref={composerRootRef}
@@ -197,11 +244,13 @@ export function SessionComposerSurface({
               onDismissPromptSuggestion?.();
             }
             onChange(next);
-            queueMicrotask(() => atReference.detect());
+            if (atReference.isOpen || next.includes('@')) {
+              queueMicrotask(() => atReference.detect());
+            }
           }}
           isDisabled={disabled}
           className={cn(
-            'session-composer-editor min-h-[32px] w-full px-0.5 pb-1 pt-0 font-sans subpixel-antialiased text-[13px] leading-5 tracking-[0.005em]',
+            'session-composer-editor min-h-[3.25rem] w-full px-0.5 pb-1 pt-0 font-sans subpixel-antialiased text-[13px] leading-5 tracking-[0.005em]',
             className
           )}
           maxRows={7}

@@ -1,5 +1,59 @@
-import type { FocusEventHandler, ReactNode } from 'react';
+import type { FocusEventHandler, MouseEvent, ReactNode } from 'react';
 import { cn } from '@/lib/utils';
+
+const INTERACTIVE_CLICK_TARGET_SELECTOR = [
+  'button',
+  'a',
+  'input',
+  'select',
+  'textarea',
+  'label',
+  'summary',
+  '[role="button"]',
+  '[role="tab"]',
+  '[role="option"]',
+  '[role="menuitem"]',
+  '[role="combobox"]',
+  '[role="listbox"]',
+  '[role="switch"]',
+  '[popover]',
+  '[data-radix-popper-content-wrapper]',
+  '[data-astryx-token]',
+  '[contenteditable]',
+].join(', ');
+
+function handleComposerBodyClick(event: MouseEvent<HTMLDivElement>) {
+  if (event.defaultPrevented) return;
+  const target = event.target;
+  if (!(target instanceof HTMLElement)) return;
+  if (target.closest(INTERACTIVE_CLICK_TARGET_SELECTOR)) return;
+
+  const selection = window.getSelection();
+  if (
+    selection &&
+    !selection.isCollapsed &&
+    selection.anchorNode &&
+    event.currentTarget.contains(selection.anchorNode)
+  ) {
+    return;
+  }
+
+  const editable = event.currentTarget.querySelector<HTMLElement>(
+    '[contenteditable="true"]'
+  );
+  if (!editable || editable.getAttribute('aria-disabled') === 'true') {
+    return;
+  }
+
+  editable.focus();
+  if (selection) {
+    const range = document.createRange();
+    range.selectNodeContents(editable);
+    range.collapse(false);
+    selection.removeAllRanges();
+    selection.addRange(range);
+  }
+}
 
 export function SessionComposerFrame({
   status,
@@ -40,6 +94,7 @@ export function SessionComposerFrame({
             className="composer-shell session-composer-body relative z-10 flex flex-col gap-1 overflow-visible rounded-lg p-2"
             data-testid="session-composer-body"
             data-typeahead-surface="composer"
+            onClick={handleComposerBodyClick}
             onFocus={onFocus}
             onBlur={onBlur}
           >

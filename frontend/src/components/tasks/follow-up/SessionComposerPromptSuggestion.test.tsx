@@ -130,4 +130,49 @@ describe('SessionComposerInput promptSuggestion', () => {
       });
     }
   });
+
+  it('marks data-prompt-suggestion only when an AI suggestion is active and not composing', () => {
+    const { rerender } = render(
+      <QueryClientProvider
+        client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}
+      >
+        <SessionComposerInput
+          value=""
+          promptSuggestion="检查类型并运行测试"
+          onChange={vi.fn()}
+          onSubmit={vi.fn()}
+          onAttachImages={vi.fn()}
+        />
+      </QueryClientProvider>
+    );
+
+    const inputSurface = screen.getByTestId('session-composer-input-surface');
+    const editor = screen
+      .getByTestId('session-composer-editor')
+      .querySelector('[contenteditable="true"]') as HTMLDivElement;
+
+    expect(inputSurface).toHaveAttribute('data-prompt-suggestion', 'true');
+
+    fireEvent.compositionStart(editor);
+    expect(inputSurface).not.toHaveAttribute('data-prompt-suggestion');
+
+    fireEvent.compositionEnd(editor);
+    expect(inputSurface).toHaveAttribute('data-prompt-suggestion', 'true');
+
+    rerender(
+      <QueryClientProvider
+        client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}
+      >
+        <SessionComposerInput
+          value=""
+          promptSuggestion={null}
+          onChange={vi.fn()}
+          onSubmit={vi.fn()}
+          onAttachImages={vi.fn()}
+        />
+      </QueryClientProvider>
+    );
+
+    expect(inputSurface).not.toHaveAttribute('data-prompt-suggestion');
+  });
 });

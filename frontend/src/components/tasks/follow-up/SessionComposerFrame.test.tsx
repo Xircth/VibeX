@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 import { SessionComposerFrame } from './SessionComposerFrame';
 
@@ -86,5 +86,37 @@ describe('SessionComposerFrame', () => {
       'w-full',
       'max-w-none'
     );
+  });
+
+  it('forwards non-interactive dead-zone clicks in the composer body to focus the editor without hijacking button clicks', () => {
+    render(
+      <SessionComposerFrame>
+        <div
+          data-testid="mock-editor"
+          contentEditable
+          suppressContentEditableWarning
+          tabIndex={0}
+        >
+          draft
+        </div>
+        <div data-testid="toolbar-spacer">
+          <button type="button" data-testid="toolbar-button">
+            Action
+          </button>
+        </div>
+      </SessionComposerFrame>
+    );
+
+    const editor = screen.getByTestId('mock-editor');
+    const spacer = screen.getByTestId('toolbar-spacer');
+    const button = screen.getByTestId('toolbar-button');
+
+    fireEvent.click(spacer);
+    expect(document.activeElement).toBe(editor);
+
+    button.focus();
+    expect(document.activeElement).toBe(button);
+    fireEvent.click(button);
+    expect(document.activeElement).toBe(button);
   });
 });

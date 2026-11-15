@@ -725,12 +725,33 @@
     --color-neutral: var(--surface-control-hover);
   }
 
+  @keyframes composer-surface-reveal {
+    from {
+      opacity: 0;
+      transform: translateY(4px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  @keyframes composer-fade-in {
+    from {
+      opacity: 0;
+    }
+    to {
+      opacity: 1;
+    }
+  }
+
   .legacy-design .session-composer-attachment-drawer {
     --radius-chat: var(--radius-container, var(--radius));
     position: relative;
     z-index: 1;
     border: 1px solid var(--border-strong);
     box-shadow: var(--shadow-control);
+    animation: composer-fade-in 140ms cubic-bezier(0.22, 1, 0.36, 1) both;
   }
 
   .legacy-design .session-composer-attachment-drawer > [id],
@@ -761,6 +782,7 @@
     padding-bottom: var(--radius-container, var(--radius));
     /* Square join sits under the composer top radius so sides stay flush. */
     border-radius: var(--radius-container, var(--radius)) var(--radius-container, var(--radius)) 0 0;
+    animation: composer-surface-reveal 150ms cubic-bezier(0.22, 1, 0.36, 1) both;
   }
 
   .legacy-design .composer-at-reference-tabs {
@@ -777,8 +799,8 @@
     border-radius: var(--radius);
     color: inherit;
     transition:
-      background-color 150ms ease,
-      color 150ms ease;
+      background-color 140ms cubic-bezier(0.22, 1, 0.36, 1),
+      color 140ms cubic-bezier(0.22, 1, 0.36, 1);
   }
 
   .legacy-design .composer-at-reference-option:hover,
@@ -818,6 +840,7 @@
     );
     color: var(--text-primary);
     pointer-events: none;
+    animation: composer-fade-in 140ms cubic-bezier(0.22, 1, 0.36, 1) both;
   }
 
   .legacy-design .session-composer-drop-overlay > svg {
@@ -842,6 +865,13 @@
     white-space: nowrap;
   }
 
+  .legacy-design
+    .session-composer-input-surface[data-prompt-suggestion='true']
+    .session-composer-editor
+    > [aria-hidden='true'] {
+    color: color-mix(in srgb, var(--text-primary) 58%, transparent);
+  }
+
   .legacy-design .session-composer-editor > [contenteditable='true'] {
     min-height: 3.25rem;
     overflow-y: auto;
@@ -852,10 +882,73 @@
     overflow-y: auto;
   }
 
+  .legacy-design
+    .session-composer-input-surface[data-scroll-fade='top']
+    .session-composer-editor
+    > [contenteditable='true'] {
+    -webkit-mask-image: linear-gradient(
+      to bottom,
+      transparent 0,
+      #000 10px,
+      #000 100%
+    );
+    mask-image: linear-gradient(to bottom, transparent 0, #000 10px, #000 100%);
+  }
+
+  .legacy-design
+    .session-composer-input-surface[data-scroll-fade='bottom']
+    .session-composer-editor
+    > [contenteditable='true'] {
+    -webkit-mask-image: linear-gradient(
+      to bottom,
+      #000 0,
+      #000 calc(100% - 10px),
+      transparent 100%
+    );
+    mask-image: linear-gradient(
+      to bottom,
+      #000 0,
+      #000 calc(100% - 10px),
+      transparent 100%
+    );
+  }
+
+  .legacy-design
+    .session-composer-input-surface[data-scroll-fade='both']
+    .session-composer-editor
+    > [contenteditable='true'] {
+    -webkit-mask-image: linear-gradient(
+      to bottom,
+      transparent 0,
+      #000 10px,
+      #000 calc(100% - 10px),
+      transparent 100%
+    );
+    mask-image: linear-gradient(
+      to bottom,
+      transparent 0,
+      #000 10px,
+      #000 calc(100% - 10px),
+      transparent 100%
+    );
+  }
+
   .legacy-design .session-composer-editor [data-astryx-token] {
     align-items: center;
     gap: 0.25rem;
     vertical-align: -0.14em;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .legacy-design .session-composer-attachment-drawer,
+    .legacy-design .composer-at-reference-menu.composer-status-surface,
+    .legacy-design .session-composer-drop-overlay {
+      animation: none;
+    }
+
+    .legacy-design .composer-at-reference-option {
+      transition: none;
+    }
   }
 
   .legacy-design
@@ -1908,6 +2001,10 @@ html.dark {
   background-color: hsl(var(--foreground)) !important;
   color: hsl(var(--background)) !important;
   box-shadow: none !important;
+  transition:
+    background-color 140ms cubic-bezier(0.22, 1, 0.36, 1),
+    opacity 140ms cubic-bezier(0.22, 1, 0.36, 1),
+    transform 120ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 .legacy-design
@@ -1934,6 +2031,10 @@ html.dark {
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .legacy-design button.composer-primary-action.astryx-button {
+    transition: none;
+  }
+
   .legacy-design
     button.composer-primary-action.astryx-button:active:not(:disabled):not(
       [aria-disabled='true']
@@ -7084,6 +7185,13 @@ html.dark {
       linear-gradient(180deg, var(--surface-composer), var(--surface-card)),
       var(--surface-card);
     box-shadow: var(--shadow-composer);
+    transition:
+      border-color 150ms cubic-bezier(0.22, 1, 0.36, 1),
+      box-shadow 150ms cubic-bezier(0.22, 1, 0.36, 1);
+  }
+
+  .composer-shell:focus-within {
+    border-color: var(--border-strong);
   }
 
   .agent-question-composer-stack {
@@ -7487,6 +7595,8 @@ html.dark {
   }
 
   @media (prefers-reduced-motion: reduce) {
+    .composer-shell,
+    .conversation-status-dock,
     .agent-question-card,
     .agent-question-option {
       transition: none;

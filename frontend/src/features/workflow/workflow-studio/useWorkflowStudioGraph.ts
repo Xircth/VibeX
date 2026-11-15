@@ -5,6 +5,7 @@ import {
   type Connection,
   type Edge,
   type EdgeChange,
+  type NodeChange,
   type ReactFlowInstance,
 } from '@xyflow/react';
 import type { WorkflowEventRecord, WorkflowStepView } from 'shared/types';
@@ -15,6 +16,7 @@ import { latestWorkflowStepAttempts } from '../workflowProjection';
 import type { WorkflowStudioAgentOption } from '../workflowAgent';
 import {
   CONFIRMATION_OFFSET,
+  WORKFLOW_NODE_WIDTH,
   confirmationParentId,
   type StudioMode,
   type StudioNode,
@@ -156,6 +158,23 @@ function applyDisconnectToSteps(
   return changed ? nextSteps : null;
 }
 
+function computeTopologySignature(definition: StudioWorkflowDefinition): string {
+  return definition.steps
+    .map((step) => {
+      const manual =
+        (step.kind === 'agent' || step.kind === 'session') &&
+        step.completionPolicy === 'manual'
+          ? 'm'
+          : 'a';
+      const ports = Object.entries(step.branchPorts ?? {})
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([k, v]) => `${k}=${v}`)
+        .join(',');
+      return `${step.id}:${manual}:${step.dependsOn.join(',')}:${ports}`;
+    })
+    .join('|');
+}
+
 export function useWorkflowStudioGraph({
   definition,
   onDefinitionChange,
@@ -165,6 +184,7 @@ export function useWorkflowStudioGraph({
   mode,
   replayEnvelope,
   onTriggerEvalModeChange,
+  onQuickAddStep,
   t,
 }: {
   definition: StudioWorkflowDefinition;
@@ -175,6 +195,7 @@ export function useWorkflowStudioGraph({
   mode: StudioMode;
   replayEnvelope?: EventEnvelope | null;
   onTriggerEvalModeChange?: (stepId: string, evalMode: PulseEvalMode) => void;
+  onQuickAddStep?: (parentStepId: string) => void;
   t?: PortTranslateFn;
 }) {
   const [selectedStepId, setSelectedStepId] = useState<string | null>(null);
@@ -206,7 +227,8 @@ export function useWorkflowStudioGraph({
         logStepId,
         toggleLog,
         replayEnvelope,
-        onTriggerEvalModeChange
+        onTriggerEvalModeChange,
+        onQuickAddStep
       ),
     [
       agentOptions,
@@ -215,27 +237,83 @@ export function useWorkflowStudioGraph({
       latest,
       logStepId,
       mode,
+      onQuickAddStep,
       onTriggerEvalModeChange,
       replayEnvelope,
       selectedStepId,
       toggleLog,
     ]
   );
-  const [nodes, setNodes, onNodesChange] = useNodesState(layoutedNodes);
+  const draggedNodeIdsRef = useRef(new Set<string>());
+  const topologySignature = useMemo(
+    () => computeTopologySignature(definition),
+    [definition]
+  );
+  const prevTopologySignatureRef = useRef(topologySignature);
+
+  const [nodes, setNodes, rawOnNodesChange] = useNodesState(layoutedNodes);
+  const onNodesChange = useCallback(
+    (changes: NodeChange<StudioNode>[]) => {
+      for (const change of changes) {
+        if (change.type === 'position' && change.dragging) {
+          draggedNodeIdsRef.current.add(change.id);
+        }
+      }
+      rawOnNodesChange(changes);
+    },
+    [rawOnNodesChange]
+  );
+
   useEffect(() => {
-    setNodes((current) =>
-      layoutedNodes.map((next) => {
+    const topologyChanged =
+      prevTopologySignatureRef.current !== topologySignature;
+    prevTopologySignatureRef.current = topologySignature;
+
+    if (topologyChanged) {
+      const validIds = new Set(layoutedNodes.map((node) => node.id));
+      for (const draggedId of Array.from(draggedNodeIdsRef.current)) {
+        if (!validIds.has(draggedId)) {
+          draggedNodeIdsRef.current.delete(draggedId);
+        }
+      }
+    }
+
+    setNodes((current) => {
+      const placedStepPositions: Array<{ x: number; y: number }> = [];
+      return layoutedNodes.map((next) => {
         const existing = current.find((node) => node.id === next.id);
-        return existing
-          ? {
-              ...next,
-              position: existing.position,
-              ...(existing.measured ? { measured: existing.measured } : {}),
-            }
-          : next;
-      })
-    );
-  }, [layoutedNodes, setNodes]);
+        const isConfirmation = Boolean(next.data.confirmationFor);
+        const keepExistingPosition = Boolean(
+          existing &&
+            (!topologyChanged || draggedNodeIdsRef.current.has(next.id))
+        );
+
+        let position =
+          keepExistingPosition && existing ? existing.position : next.position;
+
+        if (!isConfirmation && !keepExistingPosition) {
+          while (
+            placedStepPositions.some(
+              (other) =>
+                Math.abs(position.x - other.x) < WORKFLOW_NODE_WIDTH + 24 &&
+                Math.abs(position.y - other.y) < 176
+            )
+          ) {
+            position = { x: position.x, y: position.y + 216 };
+          }
+        }
+        if (!isConfirmation) {
+          placedStepPositions.push(position);
+        }
+
+        return {
+          ...next,
+          position,
+          ...(existing?.measured ? { measured: existing.measured } : {}),
+        };
+      });
+    });
+  }, [layoutedNodes, setNodes, topologySignature]);
 
   const derivedEdges = useMemo(
     () => buildEdges(definition, latest, t),

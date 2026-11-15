@@ -319,4 +319,70 @@ describe('Multi-Port Graph Layout & Lossless Codec Persistence', () => {
     });
     expect(restoredFinal?.joinMode).toBe('any');
   });
+
+  it('centers DAG columns along a shared horizontal spine, orders upper/lower branch ports without crossing, and keeps manual confirmation pills clear of cards', () => {
+    const reversedBranchOrder: StudioWorkflowDefinition = {
+      ...multiPortWorkflow,
+      steps: [
+        multiPortWorkflow.steps[0]!,
+        multiPortWorkflow.steps[1]!,
+        // Intentionally list branch:false before branch:true in array order
+        multiPortWorkflow.steps[3]!, // fast-lane (branch:false)
+        multiPortWorkflow.steps[2]!, // approval-gate (branch:true)
+        multiPortWorkflow.steps[4]!,
+        multiPortWorkflow.steps[5]!,
+      ],
+    };
+    const { nodes } = buildWorkflowGraph({ definition: reversedBranchOrder });
+    const byId = new Map(nodes.map((node) => [node.id, node]));
+
+    const intake = byId.get('intake')!;
+    const check = byId.get('severity-check')!;
+    const trueBranch = byId.get('approval-gate')!;
+    const falseBranch = byId.get('fast-lane')!;
+
+    expect(intake.position.y).toBe(check.position.y);
+    expect(trueBranch.position.y).toBeLessThan(falseBranch.position.y);
+    const branchMidpointY =
+      (trueBranch.position.y + falseBranch.position.y) / 2;
+    expect(branchMidpointY).toBe(check.position.y);
+
+    const baseSessionStep = multiPortWorkflow.steps[3]! as Extract<
+      StudioWorkflowDefinition['steps'][number],
+      { kind: 'session' }
+    >;
+    const manualFlow: StudioWorkflowDefinition = {
+      ...multiPortWorkflow,
+      steps: [
+        {
+          ...baseSessionStep,
+          id: 'draft',
+          dependsOn: [],
+          branchPorts: undefined,
+          completionPolicy: 'manual',
+        },
+        {
+          ...baseSessionStep,
+          id: 'publish',
+          dependsOn: ['draft'],
+          branchPorts: undefined,
+          completionPolicy: 'automatic',
+        },
+      ],
+    };
+    const manualGraph = buildWorkflowGraph({ definition: manualFlow });
+    const draftNode = manualGraph.nodes.find((node) => node.id === 'draft')!;
+    const confirmNode = manualGraph.nodes.find(
+      (node) => node.id === 'confirmation:draft'
+    )!;
+    const publishNode = manualGraph.nodes.find(
+      (node) => node.id === 'publish'
+    )!;
+
+    const draftRight = draftNode.position.x + (draftNode.initialWidth ?? 280);
+    const confirmRight =
+      confirmNode.position.x + (confirmNode.initialWidth ?? 148);
+    expect(confirmNode.position.x).toBeGreaterThan(draftRight);
+    expect(publishNode.position.x).toBeGreaterThan(confirmRight);
+  });
 });

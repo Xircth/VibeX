@@ -1,4 +1,25 @@
 .workflow-studio {
+  --workflow-ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --workflow-canvas-bg: color-mix(
+    in srgb,
+    var(--surface-subtle) 58%,
+    var(--surface-page-solid)
+  );
+  --workflow-node-wash: color-mix(
+    in srgb,
+    hsl(var(--foreground)) 4.5%,
+    var(--surface-card-strong)
+  );
+  --workflow-tag-bg: color-mix(
+    in srgb,
+    hsl(var(--foreground)) 7%,
+    var(--surface-card-strong)
+  );
+  --workflow-edge-ink: color-mix(
+    in srgb,
+    hsl(var(--muted-foreground)) 58%,
+    hsl(var(--border))
+  );
   height: 100%;
   min-height: 0;
 }
@@ -8,6 +29,7 @@
   width: 100%;
   height: 100%;
   min-height: 0;
+  background: var(--workflow-canvas-bg);
 }
 
 .workflow-studio .react-flow__pane {
@@ -26,15 +48,88 @@
   backdrop-filter: blur(18px) saturate(1.18);
 }
 
+/* Two-tier tactile card shell inspired by AdamJBurns/workflows */
 .workflow-studio-node {
-  min-height: 94px;
+  min-height: 112px;
+  border-radius: var(--radius-xl);
+  border: 1px solid hsl(var(--border) / 0.86);
+  background: var(--workflow-node-wash);
+  box-shadow:
+    0 1px 2px hsl(var(--shadow-ink) / 0.045),
+    0 4px 12px -3px hsl(var(--shadow-ink) / 0.075);
+  transition:
+    border-color 150ms var(--workflow-ease-out),
+    box-shadow 150ms var(--workflow-ease-out),
+    transform 150ms var(--workflow-ease-out);
+}
+
+.workflow-node-deck {
+  min-height: 82px;
+  border-radius: 10px;
   background: var(--surface-card-strong);
-  box-shadow: var(--shadow-card);
+  color: inherit;
+  box-shadow:
+    0 1px 0 hsl(var(--border) / 0.8),
+    0 4px 10px -5px hsl(var(--shadow-ink) / 0.11);
+}
+
+.workflow-node-chip {
+  border: 1px solid hsl(var(--border) / 0.84);
+  background: var(--surface-raised-control);
+  box-shadow: 0 1px 2px hsl(var(--shadow-ink) / 0.05);
+}
+
+.workflow-node-kind-agent {
+  border: 1px solid hsl(var(--border) / 0.84);
+  background: var(--surface-raised-control);
+}
+
+.workflow-node-kind-trigger {
+  background: hsl(var(--info) / 0.16);
+  color: hsl(var(--info));
+}
+
+.workflow-node-kind-bot {
+  background: hsl(var(--live-violet, var(--primary)) / 0.14);
+  color: hsl(var(--live-violet, var(--primary)));
+}
+
+.workflow-node-kind-group_stage {
+  background: hsl(var(--primary) / 0.12);
+  color: hsl(var(--primary));
+}
+
+.workflow-node-kind-user_gate {
+  background: hsl(var(--warning) / 0.16);
+  color: hsl(var(--warning));
+}
+
+.workflow-node-kind-control {
+  background: hsl(var(--info) / 0.15);
+  color: hsl(var(--info));
+}
+
+.workflow-node-kind-outbox_action {
+  background: hsl(var(--success) / 0.15);
+  color: hsl(var(--success));
+}
+
+.workflow-node-inline-tag,
+.workflow-node-tag {
+  background: var(--workflow-tag-bg);
 }
 
 .workflow-confirmation-node {
+  border-radius: 12px;
+  border: 1px solid hsl(var(--border) / 0.86);
   background: var(--surface-card-strong);
-  color: var(--muted-foreground);
+  color: hsl(var(--muted-foreground));
+  box-shadow:
+    0 1px 2px hsl(var(--shadow-ink) / 0.045),
+    0 3px 8px -2px hsl(var(--shadow-ink) / 0.065);
+  transition:
+    border-color 150ms var(--workflow-ease-out),
+    box-shadow 150ms var(--workflow-ease-out);
 }
 
 .workflow-confirmation-waiting {
@@ -43,22 +138,26 @@
   animation: workflow-confirmation-pulse 1.45s ease-in-out infinite;
 }
 
-.workflow-studio-node > button {
-  min-height: 92px;
-  color: inherit;
-  background: transparent;
-}
-
-.workflow-studio-node:hover {
-  border-color: color-mix(in srgb, hsl(var(--primary)) 55%, hsl(var(--border)));
+.workflow-studio-node:hover,
+.workflow-confirmation-node:hover {
+  border-color: var(--border-strong);
 }
 
 .workflow-node-selected {
   border-color: hsl(var(--primary));
   box-shadow:
-    0 0 0 2px color-mix(in srgb, hsl(var(--primary)) 20%, transparent),
-    var(--shadow-control);
-  transform: translateY(-1px);
+    0 0 0 0.5px hsl(var(--primary)),
+    0 0 0 4px hsl(var(--primary) / 0.14),
+    var(--shadow-surface);
+}
+
+.react-flow__node.dragging .workflow-studio-node {
+  border-color: hsl(var(--primary));
+  box-shadow:
+    0 0 0 0.5px hsl(var(--primary)),
+    0 0 0 4px hsl(var(--primary) / 0.14),
+    var(--shadow-popover);
+  transform: scale(1.015);
 }
 
 .workflow-node-running {
@@ -82,7 +181,32 @@
   border-color: color-mix(in srgb, hsl(var(--warning)) 65%, hsl(var(--border)));
 }
 
-/* Ergonomic 18x18 hit-target port handles with crisp 11px visible core */
+.workflow-quick-add-btn {
+  border: 1px solid hsl(var(--border) / 0.88);
+  border-radius: 10px;
+  background: var(--surface-card-strong);
+  color: hsl(var(--muted-foreground));
+  box-shadow:
+    0 1px 2px hsl(var(--shadow-ink) / 0.05),
+    0 2px 6px -2px hsl(var(--shadow-ink) / 0.08);
+  transition:
+    color 150ms var(--workflow-ease-out),
+    border-color 150ms var(--workflow-ease-out),
+    box-shadow 150ms var(--workflow-ease-out),
+    transform 120ms var(--workflow-ease-out);
+}
+
+.workflow-quick-add-btn:hover {
+  border-color: var(--border-strong);
+  color: hsl(var(--foreground));
+  box-shadow: var(--shadow-surface);
+}
+
+.workflow-quick-add-btn:active {
+  transform: scale(0.95);
+}
+
+/* Ergonomic 18x18 hit-target port handles with crisp 10px visible core */
 .workflow-port-handle.react-flow__handle {
   width: 18px;
   height: 18px;
@@ -98,6 +222,10 @@
   justify-content: center;
 }
 
+.workflow-port-deck-anchor.react-flow__handle {
+  top: 42px;
+}
+
 .workflow-port-handle.react-flow__handle-left {
   left: -9px;
 }
@@ -108,24 +236,38 @@
 
 .workflow-port-handle.react-flow__handle::after {
   content: '';
-  width: 11px;
-  height: 11px;
+  width: 10px;
+  height: 10px;
   border-radius: 999px;
-  border: 2px solid color-mix(in srgb, hsl(var(--primary)) 62%, hsl(var(--border)));
-  background: var(--card);
-  box-shadow: 0 0 0 0 transparent;
+  border: 1.75px solid var(--border-strong);
+  background: var(--surface-card-strong);
+  box-shadow: 0 1px 2px hsl(var(--shadow-ink) / 0.08);
   transition:
-    border-color 140ms ease,
-    background-color 140ms ease,
-    box-shadow 140ms ease;
+    border-color 140ms var(--workflow-ease-out),
+    background-color 140ms var(--workflow-ease-out),
+    box-shadow 140ms var(--workflow-ease-out),
+    transform 140ms var(--workflow-ease-out);
+}
+
+.workflow-studio-node:hover .workflow-port-handle.react-flow__handle::after {
+  border-color: color-mix(
+    in srgb,
+    hsl(var(--primary)) 58%,
+    var(--border-strong)
+  );
 }
 
 .workflow-port-handle.react-flow__handle:hover::after,
 .workflow-port-handle.react-flow__handle.connectingto::after,
 .workflow-port-handle.react-flow__handle.connectingfrom::after {
   border-color: hsl(var(--primary));
-  background: color-mix(in srgb, hsl(var(--primary)) 22%, var(--card));
-  box-shadow: 0 0 0 4px hsl(var(--primary) / 0.22);
+  background: color-mix(
+    in srgb,
+    hsl(var(--primary)) 20%,
+    var(--surface-card-strong)
+  );
+  box-shadow: 0 0 0 4px hsl(var(--primary) / 0.18);
+  transform: scale(1.1);
 }
 
 .workflow-port-accent-success.react-flow__handle::after {
@@ -135,7 +277,11 @@
 .workflow-port-accent-success.react-flow__handle:hover::after,
 .workflow-port-accent-success.react-flow__handle.connectingfrom::after {
   border-color: hsl(var(--success));
-  background: color-mix(in srgb, hsl(var(--success)) 24%, var(--card));
+  background: color-mix(
+    in srgb,
+    hsl(var(--success)) 24%,
+    var(--surface-card-strong)
+  );
   box-shadow: 0 0 0 4px hsl(var(--success) / 0.22);
 }
 
@@ -146,7 +292,11 @@
 .workflow-port-accent-warning.react-flow__handle:hover::after,
 .workflow-port-accent-warning.react-flow__handle.connectingfrom::after {
   border-color: hsl(var(--warning));
-  background: color-mix(in srgb, hsl(var(--warning)) 24%, var(--card));
+  background: color-mix(
+    in srgb,
+    hsl(var(--warning)) 24%,
+    var(--surface-card-strong)
+  );
   box-shadow: 0 0 0 4px hsl(var(--warning) / 0.22);
 }
 
@@ -157,7 +307,11 @@
 .workflow-port-accent-destructive.react-flow__handle:hover::after,
 .workflow-port-accent-destructive.react-flow__handle.connectingfrom::after {
   border-color: hsl(var(--destructive));
-  background: color-mix(in srgb, hsl(var(--destructive)) 24%, var(--card));
+  background: color-mix(
+    in srgb,
+    hsl(var(--destructive)) 24%,
+    var(--surface-card-strong)
+  );
   box-shadow: 0 0 0 4px hsl(var(--destructive) / 0.22);
 }
 
@@ -170,12 +324,12 @@
   height: 6px;
   flex: none;
   border-radius: 999px;
-  background: var(--muted-foreground);
+  background: hsl(var(--muted-foreground));
 }
 
 .workflow-status-dot-running {
   background: hsl(var(--primary));
-  box-shadow: 0 0 0 3px hsl(var(--primary) / 0.12);
+  box-shadow: 0 0 0 3px hsl(var(--primary) / 0.14);
 }
 
 .workflow-status-dot-completed {
@@ -191,14 +345,14 @@
 }
 
 .workflow-status-dot-standby {
-  background: var(--muted-foreground);
+  background: hsl(var(--muted-foreground));
 }
 
 .workflow-node-log {
   border-color: hsl(var(--border));
   background: var(--surface-card-strong);
   box-shadow: var(--shadow-popover);
-  animation: workflow-panel-reveal 160ms ease-out;
+  animation: workflow-panel-reveal 160ms var(--workflow-ease-out);
 }
 
 .workflow-flame {
@@ -206,7 +360,7 @@
   overflow: hidden;
   height: 22px;
   border-radius: var(--radius);
-  background: var(--muted);
+  background: hsl(var(--muted));
 }
 
 .workflow-flame-span {
@@ -215,29 +369,45 @@
 }
 
 .workflow-studio-edge.react-flow__edge path {
-  stroke: var(--muted-foreground);
-  stroke-width: 1.75;
-  transition: stroke 140ms ease;
+  stroke: var(--workflow-edge-ink);
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  transition:
+    stroke 150ms var(--workflow-ease-out),
+    stroke-width 150ms var(--workflow-ease-out);
 }
 
 .workflow-edge-branch-success.react-flow__edge path {
-  stroke: color-mix(in srgb, hsl(var(--success)) 78%, var(--muted-foreground));
+  stroke: color-mix(
+    in srgb,
+    hsl(var(--success)) 74%,
+    hsl(var(--muted-foreground))
+  );
 }
 
 .workflow-edge-branch-warning.react-flow__edge path {
-  stroke: color-mix(in srgb, hsl(var(--warning)) 84%, var(--muted-foreground));
+  stroke: color-mix(
+    in srgb,
+    hsl(var(--warning)) 80%,
+    hsl(var(--muted-foreground))
+  );
 }
 
 .workflow-edge-branch-destructive.react-flow__edge path {
   stroke: color-mix(
     in srgb,
-    hsl(var(--destructive)) 78%,
-    var(--muted-foreground)
+    hsl(var(--destructive)) 74%,
+    hsl(var(--muted-foreground))
   );
 }
 
 .workflow-edge-branch-primary.react-flow__edge path {
-  stroke: color-mix(in srgb, hsl(var(--primary)) 78%, var(--muted-foreground));
+  stroke: color-mix(
+    in srgb,
+    hsl(var(--primary)) 74%,
+    hsl(var(--muted-foreground))
+  );
 }
 
 .workflow-edge-loopback.react-flow__edge path {
@@ -245,19 +415,23 @@
 }
 
 .workflow-edge-completed.react-flow__edge path {
-  stroke: color-mix(in srgb, hsl(var(--success)) 70%, var(--muted-foreground));
+  stroke: color-mix(
+    in srgb,
+    hsl(var(--success)) 68%,
+    hsl(var(--muted-foreground))
+  );
 }
 
 .workflow-studio-edge.react-flow__edge.animated path {
   stroke: hsl(var(--primary));
-  stroke-width: 2;
+  stroke-width: 1.85;
 }
 
 .workflow-studio-edge.react-flow__edge.selected path,
 .workflow-studio-edge.react-flow__edge:focus-visible path {
   stroke: hsl(var(--primary));
-  stroke-width: 2.75;
-  filter: drop-shadow(0 0 4px hsl(var(--primary) / 0.32));
+  stroke-width: 2.4;
+  filter: drop-shadow(0 0 4px hsl(var(--primary) / 0.28));
 }
 
 .workflow-inspector-tether path {
@@ -331,6 +505,19 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .workflow-studio-node,
+  .workflow-confirmation-node,
+  .workflow-quick-add-btn,
+  .workflow-port-handle.react-flow__handle::after {
+    transition: none;
+  }
+
+  .react-flow__node.dragging .workflow-studio-node,
+  .workflow-quick-add-btn:active,
+  .workflow-port-handle.react-flow__handle:hover::after {
+    transform: none;
+  }
+
   .workflow-node-running {
     animation: none;
   }

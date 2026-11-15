@@ -166,6 +166,13 @@ export function useWorkflowStudio<
     [onDefinitionChange, updateStep]
   );
 
+  const addStepRef = useRef<
+    (kind: StudioAddableStepKind, dependsOn?: string[]) => void
+  >(() => undefined);
+  const quickAddAfterStep = useCallback((parentStepId: string) => {
+    addStepRef.current('session', [parentStepId]);
+  }, []);
+
   const graph = useWorkflowStudioGraph({
     definition,
     onDefinitionChange,
@@ -177,6 +184,7 @@ export function useWorkflowStudio<
     onTriggerEvalModeChange: onDefinitionChange
       ? updateTriggerEvalMode
       : undefined,
+    onQuickAddStep: onDefinitionChange ? quickAddAfterStep : undefined,
     t,
   });
   const { selectedStepId, setSelectedStepId, latest } = graph;
@@ -344,6 +352,7 @@ export function useWorkflowStudio<
     setSelectedStepId(step.id);
     setInspectorTab('info');
   };
+  addStepRef.current = addStep;
 
   const applyPreset = (presetId: PresetOrchestratorKind) => {
     if (!onDefinitionChange) return;

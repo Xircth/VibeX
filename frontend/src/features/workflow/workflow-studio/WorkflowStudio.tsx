@@ -116,15 +116,15 @@ export function WorkflowStudio<
           nodesConnectable={Boolean(onDefinitionChange)}
           proOptions={{ hideAttribution: true }}
           fitView
-          fitViewOptions={{ padding: 0.24, maxZoom: 1.1 }}
+          fitViewOptions={{ padding: 0.26, maxZoom: 1.05 }}
           minZoom={0.35}
           maxZoom={1.65}
           colorMode="system"
         >
-          <Background gap={22} size={1} color="var(--border-strong)" />
+          <Background gap={20} size={1.15} color="var(--border-strong)" />
           <Controls
             showInteractive={false}
-            fitViewOptions={{ padding: 0.24, maxZoom: 1.1 }}
+            fitViewOptions={{ padding: 0.26, maxZoom: 1.05 }}
           />
           <DraggableMiniMap />
         </ReactFlow>

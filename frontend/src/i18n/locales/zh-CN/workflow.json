@@ -388,6 +388,7 @@
     "unsetGroup": "未指定空间",
     "eventFallback": "事件",
     "triggerEvalModeAria": "触发器 {{id}} 评估模式",
+    "quickAddNext": "衔接下一步",
     "defaults": {
       "triggerTitle": "事件触发器",
       "sessionPrompt": "在独立工作树中分析 {{threadKey}} 上的 {{event.type}}。",

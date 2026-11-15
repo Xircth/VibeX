@@ -2,7 +2,7 @@ import { memo } from 'react';
 import {
   BaseEdge,
   EdgeLabelRenderer,
-  getBezierPath,
+  getSmoothStepPath,
   type EdgeProps,
 } from '@xyflow/react';
 
@@ -39,17 +39,21 @@ export const WorkflowStudioEdge = memo(function WorkflowStudioEdge({
   label,
   data,
 }: EdgeProps) {
-  const [edgePath, labelX, labelY] = getBezierPath({
+  const edgeData = data as
+    | { branchAccent?: StudioPortAccent; isLoopBack?: boolean }
+    | undefined;
+  const [edgePath, labelX, labelY] = getSmoothStepPath({
     sourceX,
     sourceY,
     sourcePosition,
     targetX,
     targetY,
     targetPosition,
+    borderRadius: 14,
+    offset: edgeData?.isLoopBack ? 30 : 22,
   });
 
-  const accent = (data as { branchAccent?: StudioPortAccent } | undefined)
-    ?.branchAccent;
+  const accent = edgeData?.branchAccent;
 
   return (
     <>
@@ -70,7 +74,7 @@ export const WorkflowStudioEdge = memo(function WorkflowStudioEdge({
               transform: `translate(-50%, -50%) translate(${labelX}px,${labelY}px)`,
             }}
             className={cn(
-              'nodrag nopan pointer-events-none rounded-full border px-2 py-0.5 text-2xs font-semibold shadow-sm',
+              'nodrag nopan pointer-events-none rounded-[6px] border px-1.5 py-0.5 text-[11px] font-medium leading-none shadow-sm',
               edgeBadgeClass(accent)
             )}
           >

@@ -10,8 +10,11 @@ import { cn } from '@/lib/utils';
 
 import type { WorkflowStudioAgentOption } from '../workflowAgent';
 import {
+  CONFIRMATION_NODE_HEIGHT,
+  CONFIRMATION_NODE_WIDTH,
   CONFIRMATION_OFFSET,
   EMPTY_EVENTS,
+  WORKFLOW_NODE_WIDTH,
   type StudioMode,
   type StudioNode,
   type StudioWorkflowDefinition,
@@ -164,6 +167,28 @@ function computeOutgoingPortCounts(definition: StudioWorkflowDefinition): {
   return { byStepHandle, totalByStep };
 }
 
+const LAYOUT_START_X = 56;
+const STANDARD_COLUMN_STRIDE = 392;
+const CONFIRMATION_COLUMN_STRIDE = 524;
+const LAYOUT_SPINE_Y = 200;
+const LAYOUT_ROW_STRIDE = 216;
+const LAYOUT_MIN_TOP_Y = 76;
+
+function branchPortOrderBias(handleId: string): number {
+  switch (handleId) {
+    case 'branch:true':
+    case 'branch:approved':
+    case 'branch:loop_body':
+      return -36;
+    case 'branch:false':
+    case 'branch:rejected':
+    case 'branch:loop_exit':
+      return 36;
+    default:
+      return 0;
+  }
+}
+
 export function layoutNodes(
   definition: StudioWorkflowDefinition,
   latest: Map<string, WorkflowStepView>,
@@ -177,13 +202,15 @@ export function layoutNodes(
   logStepId: string | null,
   onToggleLog: (stepId: string) => void,
   replayEnvelope?: EventEnvelope | null,
-  onTriggerEvalModeChange?: (stepId: string, evalMode: PulseEvalMode) => void
+  onTriggerEvalModeChange?: (stepId: string, evalMode: PulseEvalMode) => void,
+  onQuickAddStep?: (parentStepId: string) => void
 ): StudioNode[] {
   const eventsByStepId =
     'size' in eventsInput
       ? eventsInput
       : indexWorkflowEventsByStepId(eventsInput);
   const { byStepHandle, totalByStep } = computeOutgoingPortCounts(definition);
+  const stepById = new Map(definition.steps.map((step) => [step.id, step]));
 
   const depths = new Map<string, number>();
   const depthOf = (
@@ -195,32 +222,105 @@ export function layoutNodes(
     if (seen.has(step.id)) return 0;
     seen.add(step.id);
     const depth = step.dependsOn.reduce((maximum, dependency) => {
-      const source = definition.steps.find(
-        (candidate) => candidate.id === dependency
-      );
+      const source = stepById.get(dependency);
       return source ? Math.max(maximum, depthOf(source, seen) + 1) : maximum;
     }, 0);
     depths.set(step.id, depth);
     return depth;
   };
-  const rows = new Map<number, number>();
-  const stepNodes: StudioNode[] = definition.steps.map((step) => {
+
+  const columns = new Map<
+    number,
+    Array<{ step: StudioWorkflowStep; index: number }>
+  >();
+  let maxDepth = 0;
+  definition.steps.forEach((step, index) => {
     const depth = depthOf(step);
-    const row = rows.get(depth) ?? 0;
-    rows.set(depth, row + 1);
-    const estimatedHeight = isMultiPortStep(step) ? 148 : 112;
+    maxDepth = Math.max(maxDepth, depth);
+    const bucket = columns.get(depth);
+    if (bucket) {
+      bucket.push({ step, index });
+    } else {
+      columns.set(depth, [{ step, index }]);
+    }
+  });
+
+  const columnX = new Map<number, number>();
+  let cursorX = LAYOUT_START_X;
+  for (let depth = 0; depth <= maxDepth; depth += 1) {
+    columnX.set(depth, cursorX);
+    const bucket = columns.get(depth) ?? [];
+    const columnHasManualConfirmation = bucket.some(({ step }) =>
+      hasManualConfirmation(step)
+    );
+    cursorX += columnHasManualConfirmation
+      ? CONFIRMATION_COLUMN_STRIDE
+      : STANDARD_COLUMN_STRIDE;
+  }
+
+  const positionsByStepId = new Map<string, { x: number; y: number }>();
+  for (let depth = 0; depth <= maxDepth; depth += 1) {
+    const bucket = columns.get(depth);
+    if (!bucket || bucket.length === 0) continue;
+
+    const ordered = [...bucket].sort((left, right) => {
+      const targetYFor = (entry: { step: StudioWorkflowStep; index: number }) => {
+        const samples: number[] = [];
+        for (const sourceId of entry.step.dependsOn) {
+          const predPos = positionsByStepId.get(sourceId);
+          if (!predPos) continue;
+          const sourceStep = stepById.get(sourceId);
+          const handleId = resolveValidSourceHandle(
+            sourceStep,
+            entry.step.branchPorts?.[sourceId]
+          );
+          samples.push(predPos.y + branchPortOrderBias(handleId));
+        }
+        if (samples.length === 0) {
+          return LAYOUT_SPINE_Y + entry.index * 0.01;
+        }
+        return (
+          samples.reduce((sum, value) => sum + value, 0) / samples.length
+        );
+      };
+
+      const delta = targetYFor(left) - targetYFor(right);
+      return Math.abs(delta) > 0.001 ? delta : left.index - right.index;
+    });
+
+    const topOffset = Math.round(
+      Math.max(
+        LAYOUT_MIN_TOP_Y,
+        LAYOUT_SPINE_Y - ((ordered.length - 1) * LAYOUT_ROW_STRIDE) / 2
+      )
+    );
+    const x = columnX.get(depth) ?? LAYOUT_START_X;
+    ordered.forEach(({ step }, rowIndex) => {
+      positionsByStepId.set(step.id, {
+        x,
+        y: topOffset + rowIndex * LAYOUT_ROW_STRIDE,
+      });
+    });
+  }
+
+  const stepNodes: StudioNode[] = definition.steps.map((step) => {
+    const position = positionsByStepId.get(step.id) ?? {
+      x: LAYOUT_START_X,
+      y: LAYOUT_SPINE_Y,
+    };
+    const estimatedHeight = isMultiPortStep(step) ? 168 : 124;
     return {
       id: step.id,
       type: 'workflowStep',
-      position: { x: depth * 430 + 44, y: row * 196 + 76 },
-      initialWidth: 260,
+      position,
+      initialWidth: WORKFLOW_NODE_WIDTH,
       initialHeight: estimatedHeight,
       sourcePosition: Position.Right,
       targetPosition: Position.Left,
       deletable: false,
       zIndex:
         selectedStepId === step.id ? 5 : logStepId === step.id ? 4 : undefined,
-      style: { width: 260 },
+      style: { width: WORKFLOW_NODE_WIDTH },
       data: {
         step,
         stepRun: latest.get(step.id),
@@ -239,29 +339,49 @@ export function layoutNodes(
         onSelect,
         onToggleLog,
         onTriggerEvalModeChange,
+        onQuickAddStep,
       },
     };
   });
 
+  const stepNodeById = new Map(stepNodes.map((node) => [node.id, node]));
   const confirmationNodes = definition.steps.flatMap((step) => {
     if (!hasManualConfirmation(step)) return [];
-    const owner = stepNodes.find((node) => node.id === step.id);
+    const owner = stepNodeById.get(step.id);
     if (!owner) return [];
     return [
       {
         id: `confirmation:${step.id}`,
         type: 'workflowStep' as const,
         position: (() => {
-          const successor = definition.steps.find((candidate) =>
-            candidate.dependsOn.includes(step.id)
-          );
-          const successorNode = successor
-            ? stepNodes.find((node) => node.id === successor.id)
-            : undefined;
-          if (successorNode) {
+          const successorNodes = definition.steps
+            .filter((candidate) => candidate.dependsOn.includes(step.id))
+            .flatMap((candidate) => {
+              const found = stepNodeById.get(candidate.id);
+              return found ? [found] : [];
+            });
+          const successorNode = successorNodes.sort(
+            (left, right) =>
+              Math.abs(left.position.y - owner.position.y) -
+              Math.abs(right.position.y - owner.position.y)
+          )[0];
+          if (
+            successorNode &&
+            successorNode.position.x >
+              owner.position.x + WORKFLOW_NODE_WIDTH + CONFIRMATION_NODE_WIDTH
+          ) {
             return {
-              x: (owner.position.x + successorNode.position.x) / 2,
-              y: (owner.position.y + successorNode.position.y) / 2,
+              x: Math.round(
+                (owner.position.x +
+                  WORKFLOW_NODE_WIDTH +
+                  successorNode.position.x -
+                  CONFIRMATION_NODE_WIDTH) /
+                  2
+              ),
+              y: Math.round(
+                (owner.position.y + successorNode.position.y) / 2 +
+                  CONFIRMATION_OFFSET.y
+              ),
             };
           }
           return {
@@ -269,13 +389,16 @@ export function layoutNodes(
             y: owner.position.y + CONFIRMATION_OFFSET.y,
           };
         })(),
-        initialWidth: 144,
-        initialHeight: 48,
+        initialWidth: CONFIRMATION_NODE_WIDTH,
+        initialHeight: CONFIRMATION_NODE_HEIGHT,
         sourcePosition: Position.Right,
         targetPosition: Position.Left,
         selectable: true,
         deletable: false,
-        style: { width: 144, height: 48 },
+        style: {
+          width: CONFIRMATION_NODE_WIDTH,
+          height: CONFIRMATION_NODE_HEIGHT,
+        },
         data: {
           step,
           confirmationFor: step.id,
@@ -431,6 +554,7 @@ export function buildWorkflowGraph(params: {
   onToggleLog?: (stepId: string) => void;
   replayEnvelope?: EventEnvelope | null;
   onTriggerEvalModeChange?: (stepId: string, evalMode: PulseEvalMode) => void;
+  onQuickAddStep?: (parentStepId: string) => void;
   t?: PortTranslateFn;
 }): { nodes: StudioNode[]; edges: Edge[] } {
   const latest = params.latest ?? new Map<string, WorkflowStepView>();
@@ -447,7 +571,8 @@ export function buildWorkflowGraph(params: {
       params.logStepId ?? null,
       params.onToggleLog ?? noop,
       params.replayEnvelope,
-      params.onTriggerEvalModeChange
+      params.onTriggerEvalModeChange,
+      params.onQuickAddStep
     ),
     edges: buildEdges(params.definition, latest, params.t),
   };

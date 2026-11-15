@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, vi } from 'vitest';
@@ -1324,5 +1325,59 @@ describe('Track A3: Multi-Port Semantic Branching, Fan-In/Fan-Out Badges & Inspe
         await i18n.changeLanguage('zh-CN');
       });
     }
+  });
+
+  it('renders two-tier tactile node cards with inline variable tokens and leaf quick-continue action', () => {
+    const templatedFlow: WorkflowDefinition = {
+      ...connectedDefinition,
+      steps: [
+        connectedDefinition.steps[0],
+        {
+          ...(connectedDefinition.steps[1] as Extract<
+            WorkflowDefinition['steps'][number],
+            { kind: 'agent' }
+          >),
+          prompt: 'Summarize {{event.repo}} changes for {{actor.login}}',
+        },
+      ],
+    };
+
+    function Harness() {
+      const [current, setCurrent] = useState(templatedFlow);
+      return (
+        <WorkflowStudio
+          definition={current}
+          onDefinitionChange={setCurrent}
+        />
+      );
+    }
+
+    const { container } = render(<Harness />);
+
+    expect(screen.getByTestId('workflow-node-caption-finish')).toHaveTextContent(
+      'finish'
+    );
+    expect(screen.getByTestId('workflow-node-deck-finish')).toBeInTheDocument();
+    expect(screen.getByTestId('workflow-node-tray-finish')).toBeInTheDocument();
+
+    const inlineTokens = Array.from(
+      container.querySelectorAll('.workflow-node-inline-tag')
+    ).map((el) => el.textContent);
+    expect(inlineTokens).toEqual(['event.repo', 'actor.login']);
+
+    // Start has a successor (and manual confirmation), so only leaf 'finish' renders the quick-continue '+' button
+    expect(
+      screen.queryByTestId('workflow-quick-add-start')
+    ).not.toBeInTheDocument();
+    const quickAddLeaf = screen.getByTestId('workflow-quick-add-finish');
+    fireEvent.click(quickAddLeaf);
+
+    expect(screen.getByTestId('workflow-node-session-3')).toBeInTheDocument();
+    expect(
+      screen.queryByTestId('workflow-quick-add-finish')
+    ).not.toBeInTheDocument();
+    expect(
+      screen.getByTestId('workflow-quick-add-session-3')
+    ).toBeInTheDocument();
   });
 });

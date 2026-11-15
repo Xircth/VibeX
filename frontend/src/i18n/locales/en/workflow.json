@@ -388,6 +388,7 @@
     "unsetGroup": "unset-group",
     "eventFallback": "event",
     "triggerEvalModeAria": "Trigger {{id}} evaluation mode",
+    "quickAddNext": "Continue flow",
     "defaults": {
       "triggerTitle": "Event Trigger",
       "sessionPrompt": "Analyze {{event.type}} on {{threadKey}} in a clean worktree.",

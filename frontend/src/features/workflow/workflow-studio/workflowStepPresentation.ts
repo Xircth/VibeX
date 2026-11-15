@@ -172,11 +172,49 @@ export function formatWorkflowOrchestratorLabel(
   return tr(`studio.orchestrators.${preset}`, { defaultValue: preset });
 }
 
+export type StepTextSegment = string | { tag: string };
+
+export function tokenizeStepSegments(text: string): StepTextSegment[] {
+  if (!text) return [];
+  const parts = text.split(/(\{\{[^{}]+\}\})/g);
+  const segments: StepTextSegment[] = [];
+  for (const part of parts) {
+    if (!part) continue;
+    if (part.startsWith('{{') && part.endsWith('}}')) {
+      const inner = part.slice(2, -2).trim();
+      segments.push({ tag: inner || part });
+    } else {
+      segments.push(part);
+    }
+  }
+  return segments;
+}
+
+function distinctFromId(candidate: string | undefined | null, stepId: string): string | undefined {
+  const trimmed = candidate?.trim();
+  if (!trimmed) return undefined;
+  if (trimmed.toLowerCase() === stepId.trim().toLowerCase()) {
+    return undefined;
+  }
+  return trimmed;
+}
+
+function summarizePromptLine(prompt: string | undefined | null, stepId: string): string | undefined {
+  const firstLine = prompt
+    ?.split(/\r?\n/)
+    .map((line) => line.trim())
+    .find((line) => line.length > 0);
+  return distinctFromId(firstLine, stepId);
+}
+
 export type StepPresentationMeta = {
   category: StudioNodeCategory;
   categoryBadge: string;
   detailBadge?: string;
+  headline: string;
+  headlineHint?: string;
   primarySubtitle: string;
+  subline?: string;
   secondaryBadge?: string;
   tabularBadge?: string;
   accessibleSummary: string;
@@ -198,11 +236,14 @@ export function describeStepPresentation(
           ? formatWorkflowTemporalBadge(step.temporal, tr)
           : `${formatWorkflowEventSource(step.sourceKind, tr)} · ${step.eventType || tr('nodes.eventFallback')}`;
       const triggerDetail = tr(`nodes.triggerKinds.${step.triggerKind}`);
+      const customTitle = distinctFromId(step.title, step.id);
       return {
         category: 'trigger',
         categoryBadge: tr('nodes.badges.trigger'),
         detailBadge: triggerDetail,
+        headline: customTitle ?? triggerSourceLabel,
         primarySubtitle: triggerSourceLabel,
+        subline: customTitle ? triggerSourceLabel : undefined,
         accessibleSummary: step.title || triggerDetail,
       };
     }
@@ -216,20 +257,26 @@ export function describeStepPresentation(
         category: 'session',
         categoryBadge: tr('nodes.badges.session'),
         detailBadge: tr('nodes.sessionResetDetail'),
+        headline: distinctFromId(agentLabel, step.id) ?? tr('nodes.badges.session'),
+        headlineHint: summarizePromptLine(step.prompt, step.id),
         primarySubtitle: agentLabel,
         secondaryBadge: tr(`nodes.isolation.${isolation}`),
         accessibleSummary: step.agentId,
       };
     }
-    case 'bot':
+    case 'bot': {
+      const botTarget = step.memberId || tr('nodes.unsetBot');
       return {
         category: 'bot',
         categoryBadge: tr('nodes.badges.bot'),
         detailBadge: tr('nodes.botMemoryDetail'),
-        primarySubtitle: step.memberId || tr('nodes.unsetBot'),
+        headline: distinctFromId(botTarget, step.id) ?? tr('nodes.badges.bot'),
+        headlineHint: summarizePromptLine(step.prompt, step.id),
+        primarySubtitle: botTarget,
         secondaryBadge: formatWorkflowMailboxPolicy(step.mailboxPolicy, tr),
         accessibleSummary: step.memberId || tr('nodes.badges.bot'),
       };
+    }
     case 'group_stage': {
       const parts = [
         step.rounds != null && step.rounds > 0
@@ -239,10 +286,13 @@ export function describeStepPresentation(
           ? tr('nodes.quorumCount', { count: step.quorumCount })
           : null,
       ].filter((item): item is string => Boolean(item));
+      const groupTarget = step.spaceId || tr('nodes.unsetGroup');
       return {
         category: 'group_stage',
         categoryBadge: tr('nodes.badges.group'),
-        primarySubtitle: step.spaceId || tr('nodes.unsetGroup'),
+        headline: distinctFromId(groupTarget, step.id) ?? tr('nodes.badges.group'),
+        headlineHint: summarizePromptLine(step.prompt, step.id),
+        primarySubtitle: groupTarget,
         secondaryBadge: formatWorkflowGroupDispatch(step.dispatchMode, tr),
         tabularBadge: parts.length > 0 ? parts.join(' · ') : undefined,
         accessibleSummary: step.spaceId || tr('nodes.badges.group'),
@@ -250,11 +300,13 @@ export function describeStepPresentation(
     }
     case 'user_gate': {
       const gateKindLabel = tr(`nodes.gateKinds.${step.interactionKind}`);
+      const primarySubtitle = step.title.trim() || gateKindLabel;
       return {
         category: 'user_gate',
         categoryBadge: tr('nodes.badges.gate'),
         detailBadge: gateKindLabel,
-        primarySubtitle: step.title.trim() || gateKindLabel,
+        headline: distinctFromId(primarySubtitle, step.id) ?? gateKindLabel,
+        primarySubtitle,
         secondaryBadge: step.severity
           ? tr(`inspector.userGate.severities.${step.severity}`)
           : undefined,
@@ -266,11 +318,13 @@ export function describeStepPresentation(
     }
     case 'approval': {
       const approvalLabel = tr('nodes.gateKinds.approval');
+      const primarySubtitle = step.title.trim() || approvalLabel;
       return {
         category: 'user_gate',
         categoryBadge: tr('nodes.badges.gate'),
         detailBadge: approvalLabel,
-        primarySubtitle: step.title.trim() || approvalLabel,
+        headline: distinctFromId(primarySubtitle, step.id) ?? approvalLabel,
+        primarySubtitle,
         tabularBadge: step.slaTimeoutSeconds
           ? tr('nodes.slaSeconds', { seconds: step.slaTimeoutSeconds })
           : undefined,
@@ -279,11 +333,13 @@ export function describeStepPresentation(
     }
     case 'notify': {
       const notifyKindLabel = tr('nodes.gateKinds.notify');
+      const primarySubtitle = step.title.trim() || notifyFallback;
       return {
         category: 'user_gate',
         categoryBadge: tr('nodes.badges.gate'),
         detailBadge: notifyKindLabel,
-        primarySubtitle: step.title.trim() || notifyFallback,
+        headline: distinctFromId(primarySubtitle, step.id) ?? notifyFallback,
+        primarySubtitle,
         tabularBadge: step.slaTimeoutSeconds
           ? tr('nodes.slaSeconds', { seconds: step.slaTimeoutSeconds })
           : undefined,
@@ -293,21 +349,34 @@ export function describeStepPresentation(
     case 'control': {
       if (step.controlKind === 'bounded_loop') {
         const maxIter = step.maxIterations ?? 3;
+        const loopTargetLabel = step.loopTargetStepId
+          ? tr('nodes.loopTarget', { target: step.loopTargetStepId })
+          : undefined;
+        const primarySubtitle =
+          loopTargetLabel ?? (step.title || tr('studio.nodeTypes.bounded_loop'));
+        const customTitle = distinctFromId(step.title, step.id);
         return {
           category: 'control',
           categoryBadge: tr('nodes.badges.loop'),
-          primarySubtitle: step.loopTargetStepId
-            ? tr('nodes.loopTarget', { target: step.loopTargetStepId })
-            : step.title || tr('studio.nodeTypes.bounded_loop'),
+          headline:
+            customTitle ??
+            distinctFromId(primarySubtitle, step.id) ??
+            tr('studio.nodeTypes.bounded_loop'),
+          primarySubtitle,
+          subline: customTitle && loopTargetLabel ? loopTargetLabel : undefined,
           tabularBadge: tr('nodes.maxRounds', { count: maxIter }),
           accessibleSummary: step.title || tr('studio.nodeTypes.bounded_loop'),
         };
       }
       if (step.controlKind === 'wait_for_event') {
+        const waitEvent = step.waitEventType || 'event.correlated';
+        const customTitle = distinctFromId(step.title, step.id);
         return {
           category: 'control',
           categoryBadge: tr('nodes.badges.wait'),
-          primarySubtitle: step.waitEventType || 'event.correlated',
+          headline: customTitle ?? waitEvent,
+          primarySubtitle: waitEvent,
+          subline: customTitle ? waitEvent : undefined,
           secondaryBadge: step.threadKeyTemplate || '{{threadKey}}',
           tabularBadge: step.timeoutSeconds
             ? tr('nodes.slaSeconds', { seconds: step.timeoutSeconds })
@@ -315,22 +384,32 @@ export function describeStepPresentation(
           accessibleSummary: step.title || tr('studio.nodeTypes.wait_for_event'),
         };
       }
+      const expr = distinctFromId(step.expression, step.id);
+      const customTitle = distinctFromId(step.title, step.id);
+      const primarySubtitle =
+        step.expression || step.title || tr('nodes.branchCondition');
       return {
         category: 'control',
         categoryBadge: tr('nodes.badges.branch'),
-        primarySubtitle:
-          step.expression || step.title || tr('nodes.branchCondition'),
+        headline: customTitle ?? expr ?? tr('nodes.branchCondition'),
+        primarySubtitle,
+        subline: customTitle && expr ? expr : undefined,
         accessibleSummary:
           step.title || tr('studio.nodeTypes.condition_branch'),
       };
     }
     case 'outbox_action': {
       const outboxLabel = formatOutboxActionLabel(step.actionKind, tr);
+      const customTitle = distinctFromId(step.title, step.id);
+      const destination = distinctFromId(step.destination, step.id);
+      const primarySubtitle = step.destination || step.title || outboxLabel;
       return {
         category: 'outbox_action',
         categoryBadge: tr('nodes.badges.outbox'),
         detailBadge: outboxLabel,
-        primarySubtitle: step.destination || step.title || outboxLabel,
+        headline: customTitle ?? destination ?? outboxLabel,
+        primarySubtitle,
+        subline: customTitle && destination ? destination : undefined,
         accessibleSummary: step.title || outboxLabel,
       };
     }

@@ -14,9 +14,14 @@ import {
   Check,
   GitFork,
   ListTree,
+  MoreHorizontal,
+  Play,
+  Plus,
   Repeat,
   Send,
   ShieldCheck,
+  SlidersHorizontal,
+  Terminal,
   Users,
   Zap,
 } from 'lucide-react';
@@ -27,7 +32,13 @@ import { evaluatePulseRuleLocally } from '@/lib/pulseFilterEvaluator';
 import { cn } from '@/lib/utils';
 
 import { StudioAgentIcon } from './StudioAgentIcon';
-import { DEFAULT_GATE_FILTER, type StudioNode } from './types';
+import {
+  CONFIRMATION_NODE_HEIGHT,
+  CONFIRMATION_NODE_WIDTH,
+  DEFAULT_GATE_FILTER,
+  WORKFLOW_NODE_WIDTH,
+  type StudioNode,
+} from './types';
 import { getStepOutputPorts, type StudioPortAccent } from './workflowPorts';
 import {
   describeStepPresentation,
@@ -35,6 +46,8 @@ import {
   previewMarkdown,
   statusClass,
   statusDotClass,
+  tokenizeStepSegments,
+  type StepTextSegment,
 } from './workflowStepPresentation';
 
 function portPillClass(accent: StudioPortAccent): string {
@@ -48,8 +61,37 @@ function portPillClass(accent: StudioPortAccent): string {
     case 'primary':
       return 'border-primary/30 bg-primary/12 text-primary';
     case 'default':
-      return 'border-border bg-muted/65 text-muted-foreground';
+      return 'border-border bg-card text-muted-foreground';
   }
+}
+
+function SegmentedText({ segments }: { segments: StepTextSegment[] }) {
+  return (
+    <>
+      {segments.map((segment, index) => {
+        const isLast = index === segments.length - 1;
+        if (typeof segment === 'string') {
+          return (
+            <span
+              key={index}
+              className={cn(isLast ? 'min-w-0 truncate' : 'shrink-0')}
+            >
+              {segment.trim()}
+            </span>
+          );
+        }
+        return (
+          <span
+            key={index}
+            data-testid="workflow-node-inline-tag"
+            className="workflow-node-inline-tag inline-flex h-[19px] shrink-0 items-center rounded-[5px] px-1.5 font-mono text-[10.5px] font-medium leading-none text-muted-foreground"
+          >
+            {segment.tag}
+          </span>
+        );
+      })}
+    </>
+  );
 }
 
 export const WorkflowStepNode = memo(function WorkflowStepNode({
@@ -111,8 +153,12 @@ export const WorkflowStepNode = memo(function WorkflowStepNode({
     }
     prevPortSignatureRef.current = portSignature;
 
-    const width = internal.initialWidth ?? (data.confirmationFor ? 144 : 260);
-    const height = internal.initialHeight ?? (data.confirmationFor ? 48 : 112);
+    const width =
+      internal.initialWidth ??
+      (data.confirmationFor ? CONFIRMATION_NODE_WIDTH : WORKFLOW_NODE_WIDTH);
+    const height =
+      internal.initialHeight ??
+      (data.confirmationFor ? CONFIRMATION_NODE_HEIGHT : 124);
     const source: Array<{
       id: string | null;
       type: 'source';
@@ -149,7 +195,11 @@ export const WorkflowStepNode = memo(function WorkflowStepNode({
             nodeId: id,
             position: positionAttr ?? Position.Right,
             x: width - 8,
-            y: data.confirmationFor ? 20 : 38 + sourceIndex * 28,
+            y: data.confirmationFor
+              ? 18
+              : isMultiPort
+                ? 96 + sourceIndex * 28
+                : 38,
             width: 8,
             height: 8,
           });
@@ -161,7 +211,7 @@ export const WorkflowStepNode = memo(function WorkflowStepNode({
             nodeId: id,
             position: positionAttr ?? Position.Left,
             x: 0,
-            y: data.confirmationFor ? 20 : 44,
+            y: data.confirmationFor ? 18 : 38,
             width: 8,
             height: 8,
           });
@@ -190,6 +240,7 @@ export const WorkflowStepNode = memo(function WorkflowStepNode({
   }, [
     data.confirmationFor,
     id,
+    isMultiPort,
     needsHeadlessBounds,
     portSignature,
     storeApi,
@@ -230,7 +281,7 @@ export const WorkflowStepNode = memo(function WorkflowStepNode({
       <article
         ref={articleRef}
         className={cn(
-          'workflow-confirmation-node relative flex h-12 w-36 items-center gap-2 rounded-lg border bg-card px-3 text-left shadow-sm',
+          'workflow-confirmation-node relative flex h-11 w-[148px] items-center gap-2 px-3 text-left',
           data.selected && 'workflow-node-selected',
           waiting && 'workflow-confirmation-waiting',
           completed && 'workflow-node-completed'
@@ -248,7 +299,7 @@ export const WorkflowStepNode = memo(function WorkflowStepNode({
         />
         <button
           type="button"
-          className="flex min-w-0 flex-1 items-center gap-2 text-left"
+          className="flex min-w-0 flex-1 items-center gap-2 text-left outline-none"
           onClick={() => data.onSelect(data.confirmationFor!)}
           aria-label={
             waiting
@@ -256,8 +307,19 @@ export const WorkflowStepNode = memo(function WorkflowStepNode({
               : t('studio.confirmation')
           }
         >
-          <Check className="size-4 shrink-0" />
-          <span className="min-w-0 text-xs font-medium">
+          <span
+            className={cn(
+              'grid size-5 shrink-0 place-items-center rounded-[6px]',
+              completed
+                ? 'workflow-node-kind-outbox_action'
+                : waiting
+                  ? 'workflow-node-kind-user_gate'
+                  : 'workflow-node-tag'
+            )}
+          >
+            <Check className="size-3" />
+          </span>
+          <span className="min-w-0 truncate text-xs font-medium text-foreground">
             {waiting
               ? t('studio.confirmationRequired')
               : completed
@@ -290,6 +352,9 @@ export const WorkflowStepNode = memo(function WorkflowStepNode({
     data.step.kind === 'agent' || data.step.kind === 'session'
       ? data.step
       : null;
+  const hasManualConfirmation =
+    Boolean(sessionOrAgentStep) &&
+    sessionOrAgentStep?.completionPolicy === 'manual';
 
   const status = data.stepRun?.awaitingAcceptance
     ? 'awaiting_acceptance'
@@ -303,43 +368,85 @@ export const WorkflowStepNode = memo(function WorkflowStepNode({
   const fanInCount = data.step.dependsOn.length;
   const joinMode = data.step.joinMode ?? 'all';
   const totalOutgoing = data.totalOutgoingCount ?? 0;
+  const showQuickAdd =
+    data.mode === 'edit' &&
+    Boolean(data.onQuickAddStep) &&
+    !isMultiPort &&
+    totalOutgoing === 0 &&
+    !hasManualConfirmation &&
+    data.step.kind !== 'outbox_action';
 
-  const renderLeadingIcon = () => {
-    if (sessionOrAgentStep) {
-      return (
-        <StudioAgentIcon
-          agentId={sessionOrAgentStep.agentId}
-          agentOptions={data.agentOptions}
-          className="size-4"
-        />
-      );
-    }
+  const headlineSegments = useMemo(
+    () => tokenizeStepSegments(presentation.headline),
+    [presentation.headline]
+  );
+  const headlineHintSegments = useMemo(
+    () =>
+      presentation.headlineHint
+        ? tokenizeStepSegments(presentation.headlineHint)
+        : [],
+    [presentation.headlineHint]
+  );
+
+  const hasMetaTrayRow =
+    data.step.kind !== 'trigger' &&
+    Boolean(
+      presentation.secondaryBadge ||
+        presentation.subline ||
+        presentation.tabularBadge
+    );
+
+  const renderChipGlyph = () => {
     switch (presentation.category) {
       case 'trigger':
-        return <Zap className="size-4" />;
+        return <Play className="size-2.5 fill-current text-muted-foreground" />;
+      case 'session':
+        return <Terminal className="size-3 text-muted-foreground" />;
       case 'bot':
-        return <Bot className="size-4" />;
+        return <Bot className="size-3 text-muted-foreground" />;
       case 'group_stage':
-        return <Users className="size-4" />;
+        return <Users className="size-3 text-muted-foreground" />;
+      case 'user_gate':
+        return <ShieldCheck className="size-3 text-muted-foreground" />;
+      case 'control':
+        return data.step.kind === 'control' &&
+          data.step.controlKind === 'bounded_loop' ? (
+          <Repeat className="size-3 text-muted-foreground" />
+        ) : (
+          <GitFork className="size-3 text-muted-foreground" />
+        );
+      case 'outbox_action':
+        return <Send className="size-3 text-muted-foreground" />;
+    }
+  };
+
+  const renderKindGlyph = () => {
+    switch (presentation.category) {
+      case 'trigger':
+        return <Zap className="size-3" />;
+      case 'bot':
+        return <Bot className="size-3" />;
+      case 'group_stage':
+        return <Users className="size-3" />;
       case 'user_gate':
         return data.step.kind === 'notify' ||
           (data.step.kind === 'user_gate' &&
             data.step.interactionKind === 'notify') ? (
-          <Bell className="size-4" />
+          <Bell className="size-3" />
         ) : (
-          <ShieldCheck className="size-4" />
+          <ShieldCheck className="size-3" />
         );
       case 'control':
         return data.step.kind === 'control' &&
           data.step.controlKind === 'bounded_loop' ? (
-          <Repeat className="size-4" />
+          <Repeat className="size-3" />
         ) : (
-          <GitFork className="size-4" />
+          <GitFork className="size-3" />
         );
       case 'outbox_action':
-        return <Send className="size-4" />;
+        return <Send className="size-3" />;
       case 'session':
-        return <GitFork className="size-4" />;
+        return <Terminal className="size-3" />;
     }
   };
 
@@ -349,11 +456,25 @@ export const WorkflowStepNode = memo(function WorkflowStepNode({
       data-testid={`workflow-node-${data.step.id}`}
       data-node-category={presentation.category}
       className={cn(
-        'workflow-studio-node group relative w-[260px] rounded-lg border bg-card text-left outline-none transition-[border-color,box-shadow,transform]',
+        'workflow-studio-node group relative w-[280px] text-left outline-none',
         data.selected && 'workflow-node-selected',
         statusClass(data.stepRun?.status)
       )}
     >
+      <div
+        data-testid={`workflow-node-caption-${data.step.id}`}
+        className="pointer-events-none absolute -top-[21px] left-0.5 right-0.5 flex items-center justify-between gap-2 select-none"
+      >
+        <span className="truncate text-[11.5px] font-medium leading-4 text-muted-foreground">
+          {data.step.id}
+        </span>
+        {data.step.phase ? (
+          <span className="workflow-node-tag shrink-0 rounded-[5px] px-1.5 py-0.5 font-mono text-[10px] leading-none text-muted-foreground">
+            {data.step.phase}
+          </span>
+        ) : null}
+      </div>
+
       {hasTargetPort ? (
         <Handle
           id="target"
@@ -364,200 +485,257 @@ export const WorkflowStepNode = memo(function WorkflowStepNode({
           aria-label={`${data.step.id} ${t('ports.targetInputTooltip')}`}
           data-testid={`workflow-port-${data.step.id}-target`}
           onClick={(event) => event.stopPropagation()}
-          className="nodrag nopan workflow-port-handle"
+          className="nodrag nopan workflow-port-handle workflow-port-deck-anchor"
         />
       ) : null}
 
       <button
         type="button"
-        className="block !h-auto !min-h-[68px] w-full rounded-t-lg text-left outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--focus-ring)]"
+        data-testid={`workflow-node-deck-${data.step.id}`}
+        className="workflow-node-deck block !h-auto w-full px-3.5 py-3 text-left outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--focus-ring)]"
         onClick={() => data.onSelect(data.step.id)}
         aria-pressed={data.selected}
         aria-label={`${data.step.id} ${presentation.accessibleSummary}`}
       >
-        <span className="flex items-start gap-2.5 p-3 pb-2">
-          <span className="mt-0.5 grid size-8 shrink-0 place-items-center rounded-lg border border-border bg-muted/45 text-muted-foreground">
-            {renderLeadingIcon()}
+        <span className="flex min-h-5 items-center gap-1.5">
+          <span
+            data-testid={`workflow-node-category-badge-${data.step.id}`}
+            className="workflow-node-chip inline-flex h-5 shrink-0 items-center gap-1 rounded-[6px] px-1.5 text-[11px] font-medium leading-none text-foreground"
+          >
+            {renderChipGlyph()}
+            <span>{presentation.categoryBadge}</span>
           </span>
-          <span className="min-w-0 flex-1 space-y-1">
-            <span className="block truncate text-md font-semibold text-foreground">
-              {data.step.id}
+
+          {sessionOrAgentStep ? (
+            <span className="workflow-node-kind-agent grid size-5 shrink-0 place-items-center rounded-[6px]">
+              <StudioAgentIcon
+                agentId={sessionOrAgentStep.agentId}
+                agentOptions={data.agentOptions}
+                className="size-3.5"
+              />
             </span>
-            <span className="flex flex-wrap items-center gap-1">
-              <span
-                data-testid={`workflow-node-category-badge-${data.step.id}`}
-                className={cn(
-                  'inline-flex shrink-0 items-center rounded-full px-1.5 py-0.5 text-2xs font-semibold',
-                  presentation.category === 'bot'
-                    ? 'bg-primary/10 text-foreground'
-                    : 'bg-muted/75 text-foreground'
-                )}
-              >
-                {presentation.categoryBadge}
-              </span>
-              {presentation.detailBadge ? (
-                <span className="truncate text-2xs text-muted-foreground">
-                  {presentation.detailBadge}
-                </span>
-              ) : null}
+          ) : (
+            <span
+              className={cn(
+                'grid size-5 shrink-0 place-items-center rounded-[6px]',
+                `workflow-node-kind-${presentation.category}`
+              )}
+            >
+              {renderKindGlyph()}
             </span>
-            <span className="flex flex-wrap items-center gap-1 pt-0.5">
-              <span className="inline-flex max-w-full items-center gap-1 rounded-full bg-muted/65 px-1.5 py-0.5 text-2xs text-muted-foreground">
-                {sessionOrAgentStep ? (
-                  <StudioAgentIcon
-                    agentId={sessionOrAgentStep.agentId}
-                    agentOptions={data.agentOptions}
-                    className="size-3"
-                  />
-                ) : null}
-                <span className="truncate">{presentation.primarySubtitle}</span>
-              </span>
-              {presentation.secondaryBadge ? (
-                <span className="inline-flex max-w-full items-center rounded-full border border-border bg-card px-1.5 py-0.5 text-2xs text-muted-foreground">
-                  <span className="truncate">{presentation.secondaryBadge}</span>
-                </span>
-              ) : null}
-              {presentation.tabularBadge ? (
-                <span
-                  data-testid={`workflow-node-tabular-badge-${data.step.id}`}
-                  className="inline-flex shrink-0 items-center rounded-full bg-warning/15 px-1.5 py-0.5 text-2xs font-semibold tabular-nums text-warning"
-                >
-                  {presentation.tabularBadge}
-                </span>
-              ) : null}
+          )}
+
+          {presentation.detailBadge ? (
+            <span className="workflow-node-tag inline-flex h-5 min-w-0 items-center rounded-[6px] px-1.5 text-[11px] leading-none text-muted-foreground">
+              <span className="truncate">{presentation.detailBadge}</span>
             </span>
-          </span>
+          ) : null}
+
           {data.stepRun?.status === 'completed' ? (
-            <Check className="mt-1 size-3.5 shrink-0 text-success" />
+            <Check className="ml-auto size-3.5 shrink-0 text-success" />
+          ) : (
+            <MoreHorizontal
+              aria-hidden="true"
+              className="ml-auto size-3.5 shrink-0 text-muted-foreground/55 transition-colors duration-150 group-hover:text-foreground"
+            />
+          )}
+        </span>
+
+        <span className="mt-2.5 flex min-h-5 min-w-0 items-center gap-1.5 overflow-hidden text-[13px] font-semibold tracking-[-0.005em] text-foreground">
+          <SegmentedText segments={headlineSegments} />
+          {headlineHintSegments.length > 0 ? (
+            <>
+              <span
+                aria-hidden="true"
+                className="shrink-0 text-muted-foreground/50"
+              >
+                ·
+              </span>
+              <span className="flex min-w-0 items-center gap-1 overflow-hidden text-[12px] font-normal text-muted-foreground">
+                <SegmentedText segments={headlineHintSegments} />
+              </span>
+            </>
           ) : null}
         </span>
       </button>
 
-      {data.step.kind === 'trigger' ? (
-        <div className="nodrag flex items-center justify-between gap-1.5 px-2.5 pb-2">
-          <PulseEvalModeControl
-            size="sm"
-            value={data.step.evalMode}
-            ariaLabel={t('nodes.triggerEvalModeAria', { id: data.step.id })}
-            onChange={
-              data.onTriggerEvalModeChange
-                ? (nextMode) =>
-                    data.onTriggerEvalModeChange?.(data.step.id, nextMode)
-                : undefined
-            }
-          />
-          {triggerReplayMatched !== null ? (
-            <span
-              data-testid={`workflow-trigger-replay-${data.step.id}`}
-              className={cn(
-                'rounded-full px-1.5 py-0.5 text-2xs font-semibold',
-                triggerReplayMatched
-                  ? 'bg-success/15 text-success'
-                  : 'bg-warning/15 text-warning'
-              )}
-            >
-              {triggerReplayMatched ? t('replay.matched') : t('replay.filtered')}
-            </span>
-          ) : null}
-        </div>
-      ) : null}
-
-      {isMultiPort ? (
-        <div
-          data-testid={`workflow-node-ports-${data.step.id}`}
-          className="space-y-1 border-t border-border py-1.5"
-        >
-          {outputPorts.map((port) => {
-            const portOutCount = data.outgoingCounts?.[port.id] ?? 0;
-            return (
-              <div
-                key={port.id}
-                className="relative flex min-h-6 items-center justify-end gap-1.5 px-2.5"
-              >
-                {portOutCount >= 2 ? (
-                  <span
-                    data-testid={`workflow-fan-out-badge-${data.step.id}-${port.id}`}
-                    title={t('ports.fanOutBadgeTooltip', {
-                      count: portOutCount,
-                    })}
-                    className="inline-flex items-center rounded-full border border-border bg-muted/60 px-1.5 py-0.5 font-mono text-2xs font-semibold tabular-nums text-muted-foreground"
-                  >
-                    {t('ports.fanOutCount', { count: portOutCount })}
-                  </span>
-                ) : null}
+      <div
+        data-testid={`workflow-node-tray-${data.step.id}`}
+        className="space-y-1.5 py-2"
+      >
+        {data.step.kind === 'trigger' ? (
+          <div className="nodrag space-y-1.5 px-3">
+            {presentation.subline ? (
+              <div className="flex min-w-0 items-center gap-1.5">
+                <SlidersHorizontal
+                  aria-hidden="true"
+                  className="size-3 shrink-0 text-muted-foreground/75"
+                />
+                <span className="workflow-node-tag inline-flex h-[21px] min-w-0 items-center rounded-[6px] px-2 text-[11px] text-muted-foreground">
+                  <span className="truncate">{presentation.subline}</span>
+                </span>
+              </div>
+            ) : null}
+            <div className="flex items-center justify-between gap-1.5">
+              <PulseEvalModeControl
+                size="sm"
+                value={data.step.evalMode}
+                ariaLabel={t('nodes.triggerEvalModeAria', { id: data.step.id })}
+                onChange={
+                  data.onTriggerEvalModeChange
+                    ? (nextMode) =>
+                        data.onTriggerEvalModeChange?.(data.step.id, nextMode)
+                    : undefined
+                }
+              />
+              {triggerReplayMatched !== null ? (
                 <span
-                  data-testid={`workflow-port-pill-${data.step.id}-${port.id}`}
+                  data-testid={`workflow-trigger-replay-${data.step.id}`}
                   className={cn(
-                    'inline-flex items-center rounded-full border px-2 py-0.5 text-2xs font-semibold',
-                    portPillClass(port.accent)
+                    'inline-flex h-[21px] items-center rounded-full px-2 text-[11px] font-semibold',
+                    triggerReplayMatched
+                      ? 'bg-success/15 text-success'
+                      : 'bg-warning/15 text-warning'
                   )}
                 >
-                  {port.label}
+                  {triggerReplayMatched
+                    ? t('replay.matched')
+                    : t('replay.filtered')}
                 </span>
-                <Handle
-                  id={port.id}
-                  type="source"
-                  position={Position.Right}
-                  isConnectable
-                  title={port.tooltip}
-                  aria-label={`${data.step.id} ${port.label}`}
-                  data-testid={`workflow-port-${data.step.id}-${port.id}`}
-                  onClick={(event) => event.stopPropagation()}
-                  className={cn(
-                    'nodrag nopan workflow-port-handle',
-                    `workflow-port-accent-${port.accent}`
-                  )}
-                />
-              </div>
-            );
-          })}
-        </div>
-      ) : null}
+              ) : null}
+            </div>
+          </div>
+        ) : null}
 
-      <div className="flex min-h-8 items-center justify-between gap-1.5 border-t border-border px-2.5 py-1">
-        <div className="flex min-w-0 items-center gap-1.5">
-          {fanInCount >= 2 ? (
-            <span
-              data-testid={`workflow-fan-in-badge-${data.step.id}`}
-              className="inline-flex shrink-0 items-center rounded-full border border-primary/30 bg-primary/10 px-1.5 py-0.5 text-2xs font-semibold tabular-nums text-primary"
+        {hasMetaTrayRow ? (
+          <div className="flex min-w-0 items-center gap-1.5 px-3">
+            <SlidersHorizontal
+              aria-hidden="true"
+              className="size-3 shrink-0 text-muted-foreground/75"
+            />
+            <div className="flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden">
+              {presentation.secondaryBadge ? (
+                <span className="workflow-node-tag inline-flex h-[21px] min-w-0 items-center rounded-[6px] px-2 text-[11px] text-muted-foreground">
+                  <span className="truncate">{presentation.secondaryBadge}</span>
+                </span>
+              ) : null}
+              {presentation.subline ? (
+                <span className="workflow-node-tag inline-flex h-[21px] min-w-0 items-center rounded-[6px] px-2 font-mono text-[10.5px] text-muted-foreground">
+                  <span className="truncate">{presentation.subline}</span>
+                </span>
+              ) : null}
+            </div>
+            {presentation.tabularBadge ? (
+              <span
+                data-testid={`workflow-node-tabular-badge-${data.step.id}`}
+                className="inline-flex h-[21px] shrink-0 items-center rounded-full bg-primary/12 px-2 text-[11px] font-semibold tabular-nums text-primary"
+              >
+                {presentation.tabularBadge}
+              </span>
+            ) : null}
+          </div>
+        ) : null}
+
+        {isMultiPort ? (
+          <div
+            data-testid={`workflow-node-ports-${data.step.id}`}
+            className="space-y-1 pt-0.5"
+          >
+            {outputPorts.map((port) => {
+              const portOutCount = data.outgoingCounts?.[port.id] ?? 0;
+              return (
+                <div
+                  key={port.id}
+                  className="relative flex min-h-6 items-center justify-end gap-1.5 px-3"
+                >
+                  {portOutCount >= 2 ? (
+                    <span
+                      data-testid={`workflow-fan-out-badge-${data.step.id}-${port.id}`}
+                      title={t('ports.fanOutBadgeTooltip', {
+                        count: portOutCount,
+                      })}
+                      className="workflow-node-tag inline-flex h-5 items-center rounded-[6px] px-1.5 font-mono text-[10.5px] font-semibold tabular-nums text-muted-foreground"
+                    >
+                      {t('ports.fanOutCount', { count: portOutCount })}
+                    </span>
+                  ) : null}
+                  <span
+                    data-testid={`workflow-port-pill-${data.step.id}-${port.id}`}
+                    className={cn(
+                      'inline-flex h-[21px] items-center rounded-[6px] border px-2 text-[11px] font-medium leading-none',
+                      portPillClass(port.accent)
+                    )}
+                  >
+                    {port.label}
+                  </span>
+                  <Handle
+                    id={port.id}
+                    type="source"
+                    position={Position.Right}
+                    isConnectable
+                    title={port.tooltip}
+                    aria-label={`${data.step.id} ${port.label}`}
+                    data-testid={`workflow-port-${data.step.id}-${port.id}`}
+                    onClick={(event) => event.stopPropagation()}
+                    className={cn(
+                      'nodrag nopan workflow-port-handle',
+                      `workflow-port-accent-${port.accent}`
+                    )}
+                  />
+                </div>
+              );
+            })}
+          </div>
+        ) : null}
+
+        <div className="flex min-h-6 items-center justify-between gap-1.5 px-3">
+          <div className="flex min-w-0 items-center gap-1.5">
+            {fanInCount >= 2 ? (
+              <span
+                data-testid={`workflow-fan-in-badge-${data.step.id}`}
+                className="inline-flex h-[21px] shrink-0 items-center rounded-[6px] bg-primary/12 px-1.5 text-[11px] font-semibold tabular-nums text-primary"
+              >
+                {t(
+                  joinMode === 'any'
+                    ? 'ports.fanInBadgeAny'
+                    : 'ports.fanInBadgeAll',
+                  { count: fanInCount }
+                )}
+              </span>
+            ) : null}
+            <button
+              type="button"
+              className="nodrag workflow-node-tag inline-flex !h-[22px] items-center gap-1.5 rounded-[6px] px-2 text-[11px] font-medium text-foreground transition-colors hover:bg-muted"
+              aria-expanded={data.logExpanded}
+              onClick={(event) => {
+                event.stopPropagation();
+                data.onToggleLog(data.step.id);
+              }}
             >
-              {t(
-                joinMode === 'any'
-                  ? 'ports.fanInBadgeAny'
-                  : 'ports.fanInBadgeAll',
-                { count: fanInCount }
-              )}
+              <span
+                className={cn(
+                  'workflow-node-status-dot',
+                  statusDotClass(status)
+                )}
+              />
+              <span>{statusLabel}</span>
+            </button>
+          </div>
+          {!isMultiPort && totalOutgoing >= 2 ? (
+            <span
+              data-testid={`workflow-fan-out-badge-${data.step.id}`}
+              title={t('ports.fanOutBadgeTooltip', { count: totalOutgoing })}
+              className="workflow-node-tag inline-flex h-[21px] shrink-0 items-center rounded-[6px] px-1.5 font-mono text-[10.5px] font-semibold tabular-nums text-muted-foreground"
+            >
+              {t('ports.fanOutCount', { count: totalOutgoing })}
             </span>
           ) : null}
-          <button
-            type="button"
-            className="nodrag inline-flex !h-6 items-center gap-1.5 rounded-md bg-muted/70 px-2 text-2xs font-medium text-foreground hover:bg-muted"
-            aria-expanded={data.logExpanded}
-            onClick={(event) => {
-              event.stopPropagation();
-              data.onToggleLog(data.step.id);
-            }}
-          >
-            <span
-              className={cn('workflow-node-status-dot', statusDotClass(status))}
-            />
-            {statusLabel}
-          </button>
         </div>
-        {!isMultiPort && totalOutgoing >= 2 ? (
-          <span
-            data-testid={`workflow-fan-out-badge-${data.step.id}`}
-            title={t('ports.fanOutBadgeTooltip', { count: totalOutgoing })}
-            className="inline-flex shrink-0 items-center rounded-full border border-border bg-muted/65 px-1.5 py-0.5 font-mono text-2xs font-semibold tabular-nums text-muted-foreground"
-          >
-            {t('ports.fanOutCount', { count: totalOutgoing })}
-          </span>
-        ) : null}
       </div>
 
       {data.logExpanded ? (
         <div
-          className="nodrag nowheel workflow-node-log absolute left-0 top-[calc(100%+8px)] z-30 w-[320px] rounded-lg border bg-card p-2.5 shadow-lg"
+          className="nodrag nowheel workflow-node-log absolute left-0 top-[calc(100%+10px)] z-30 w-[320px] rounded-[14px] border bg-card p-3 shadow-lg"
           data-testid={`workflow-node-log-${data.step.id}`}
           onClick={(event) => event.stopPropagation()}
         >
@@ -608,7 +786,7 @@ export const WorkflowStepNode = memo(function WorkflowStepNode({
                           : t('studio.standby'),
                       })}
                     </summary>
-                    <pre className="max-h-32 overflow-auto border-t p-2 text-2xs leading-4">
+                    <pre className="max-h-32 overflow-auto p-2 text-2xs leading-4">
                       {run.candidateOutputJson ??
                         run.outputJson ??
                         t('studio.noPreviewResult')}
@@ -687,8 +865,30 @@ export const WorkflowStepNode = memo(function WorkflowStepNode({
           }`}
           data-testid={`workflow-port-${data.step.id}-source`}
           onClick={(event) => event.stopPropagation()}
-          className="nodrag nopan workflow-port-handle"
+          className="nodrag nopan workflow-port-handle workflow-port-deck-anchor"
         />
+      ) : null}
+
+      {showQuickAdd ? (
+        <div className="nodrag nopan absolute left-[calc(100%+9px)] top-[42px] z-10 flex -translate-y-1/2 items-center">
+          <span
+            aria-hidden="true"
+            className="h-[1.5px] w-3.5 bg-border transition-colors group-hover:bg-[var(--border-strong)]"
+          />
+          <button
+            type="button"
+            data-testid={`workflow-quick-add-${data.step.id}`}
+            aria-label={t('nodes.quickAddNext')}
+            title={t('nodes.quickAddNext')}
+            onClick={(event) => {
+              event.stopPropagation();
+              data.onQuickAddStep?.(data.step.id);
+            }}
+            className="workflow-quick-add-btn grid size-7 place-items-center outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)]"
+          >
+            <Plus className="size-3.5" />
+          </button>
+        </div>
       ) : null}
     </article>
   );

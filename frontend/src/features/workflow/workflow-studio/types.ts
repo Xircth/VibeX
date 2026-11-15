@@ -221,6 +221,7 @@ export type StudioNodeData = {
   onSelect: (stepId: string) => void;
   onToggleLog: (stepId: string) => void;
   onTriggerEvalModeChange?: (stepId: string, evalMode: PulseEvalMode) => void;
+  onQuickAddStep?: (parentStepId: string) => void;
 };
 
 export type StudioNode = Node<StudioNodeData, 'workflowStep'>;
@@ -279,7 +280,10 @@ export type WorkflowStudioProps<
   className?: string;
 };
 
-export const CONFIRMATION_OFFSET = { x: 276, y: 23 };
+export const WORKFLOW_NODE_WIDTH = 280;
+export const CONFIRMATION_NODE_WIDTH = 148;
+export const CONFIRMATION_NODE_HEIGHT = 44;
+export const CONFIRMATION_OFFSET = { x: 324, y: 20 };
 
 export function confirmationParentId(nodeId: string) {
   return nodeId.startsWith('confirmation:')

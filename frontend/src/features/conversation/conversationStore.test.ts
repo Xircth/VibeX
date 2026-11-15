@@ -3556,6 +3556,53 @@ describe('conversationStore (row-op dumb container)', () => {
       timelineTurnsForEntry(entryOf(state)).map((row) => row.turn.id)
     ).toEqual(['t1:user']);
   });
+
+  it('does not leak previous agent session controls when reloading or hydrating after an agent handoff', () => {
+    const claudeDetail = emptyDetail([userRow('t1', 'hello', 1n)]);
+    claudeDetail.summary.agent_id = 'claude_code';
+    claudeDetail.session_modes = {
+      current: 'plan',
+      modes: [{ id: 'plan', label: 'Plan' }],
+    };
+    claudeDetail.session_config_options = [
+      {
+        key: 'model',
+        label: 'Model',
+        category: 'model',
+        value: 'claude-opus-4-6',
+        choices: [{ value: 'claude-opus-4-6', label: 'Claude Opus 4.6' }],
+      },
+    ];
+    claudeDetail.available_commands = [
+      { name: 'compact', description: 'Compact context' },
+    ];
+
+    let state = conversationStoreReducer(emptyConversationStoreState, {
+      type: 'load_success',
+      conversationId: CONVERSATION_ID,
+      detail: claudeDetail,
+    });
+    expect(entryOf(state).controlsAgentId).toBe('claudecode');
+    expect(entryOf(state).sessionConfigOptions).toHaveLength(1);
+
+    // Reload after confirming handoff to codex (detail carries empty target controls until hydrated)
+    const codexDetail = emptyDetail([userRow('t1', 'hello', 1n)]);
+    codexDetail.summary.agent_id = 'codex';
+    codexDetail.session_modes = undefined;
+    codexDetail.session_config_options = [];
+    codexDetail.available_commands = undefined;
+
+    state = conversationStoreReducer(state, {
+      type: 'load_success',
+      conversationId: CONVERSATION_ID,
+      detail: codexDetail,
+    });
+
+    expect(entryOf(state).controlsAgentId).toBe('codex');
+    expect(entryOf(state).sessionModes).toEqual({ current: null, modes: [] });
+    expect(entryOf(state).sessionConfigOptions).toEqual([]);
+    expect(entryOf(state).availableCommands).toBeNull();
+  });
 });
 
 function textOf(blocks: ContentBlock[]): string {

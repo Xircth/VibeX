@@ -510,7 +510,7 @@ impl ConversationSessionService {
         )
     }
 
-    pub(self) async fn append_event(
+    pub(crate) async fn append_event(
         &self,
         conversation_id: Uuid,
         turn_id: Option<Uuid>,

@@ -959,3 +959,35 @@ pub(super) fn resolve_codex_default_model(env: &HashMap<String, String>) -> Opti
         .filter(|s| !s.is_empty())
         .map(str::to_string)
 }
+
+pub(super) fn is_official_openai_base_url(raw_url: &str) -> bool {
+    let trimmed = raw_url.trim();
+    if trimmed.is_empty() {
+        return true;
+    }
+    let Ok(parsed) = url::Url::parse(trimmed) else {
+        return false;
+    };
+    let Some(host) = parsed.host_str() else {
+        return false;
+    };
+    let lower = host.to_ascii_lowercase();
+    lower == "api.openai.com"
+        || lower.ends_with(".openai.com")
+        || lower == "chatgpt.com"
+        || lower.ends_with(".chatgpt.com")
+}
+
+pub(super) fn codex_accepts_model_id(model_id: &str, env: &HashMap<String, String>) -> bool {
+    let custom_base_url = env
+        .get("OPENAI_BASE_URL")
+        .is_some_and(|raw| !is_official_openai_base_url(raw));
+    if custom_base_url {
+        return true;
+    }
+    let lower = model_id.trim().to_ascii_lowercase();
+    !lower.is_empty()
+        && !lower.starts_with("claude-")
+        && !lower.starts_with("gemini-")
+        && !matches!(lower.as_str(), "opus" | "sonnet" | "haiku" | "fable")
+}

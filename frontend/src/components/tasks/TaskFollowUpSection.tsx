@@ -502,7 +502,7 @@ export function TaskFollowUpSection({
   useEffect(() => {
     setSelectedMode(null);
     setSelectedConfigValues({});
-  }, [sessionId, targetExecutor]);
+  }, [sessionId, targetExecutor, resolvedSessionExecutor]);
   useEffect(() => {
     setContinuationPolicy('portable');
   }, [sessionId]);

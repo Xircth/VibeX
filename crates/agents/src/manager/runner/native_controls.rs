@@ -524,23 +524,47 @@ impl AgentConnectionRunner {
         config_overrides: &[AgentSessionConfigOverride],
     ) -> (Option<String>, Option<String>, Option<String>) {
         let yolo = *self.auto_approve_mode.lock().await == AgentAutoApproveMode::Yolo;
+        let preferred_model = self
+            .preferred_controls
+            .read()
+            .await
+            .get(&session_id)
+            .and_then(|prefs| {
+                prefs
+                    .config
+                    .iter()
+                    .find(|o| o.key == "model")
+                    .map(|o| o.value.trim().to_string())
+                    .filter(|s| !s.is_empty())
+            });
         let controls_guard = self.session_controls.read().await;
         let stored = controls_guard.get(&session_id);
+
+        let mut merged_env: HashMap<String, String> = self
+            .snapshot
+            .launch_lock
+            .env
+            .iter()
+            .map(|(k, v)| (k.clone(), v.clone()))
+            .collect();
+        merged_env.extend(
+            self.snapshot
+                .env
+                .iter()
+                .map(|(k, v)| (k.clone(), v.clone())),
+        );
 
         let model = config_overrides
             .iter()
             .find(|o| o.key == "model")
             .map(|o| o.value.trim().to_string())
             .filter(|s| !s.is_empty())
+            .or(preferred_model)
             .or_else(|| {
-                stored.and_then(|s| {
-                    s.asserted_config_values
-                        .get("model")
-                        .cloned()
-                        .or_else(|| current_select_option_value(&s.config_options, "model"))
-                })
+                stored.and_then(|s| s.asserted_config_values.get("model").cloned())
             })
-            .or_else(|| self.snapshot.env.get("VIBEX_DEFAULT_MODEL").cloned());
+            .or_else(|| self.snapshot.env.get("VIBEX_DEFAULT_MODEL").cloned())
+            .filter(|candidate| driver.accepts_model_id(candidate, &merged_env));
 
         let effort = config_overrides
             .iter()

@@ -39,9 +39,10 @@ use crate::{
         EngineStartSpec, EngineSteerReceipt, EngineSteerRequest, NativeEngineDriver,
         NativeEngineKind, PromptMode, TurnEventRouter, TurnRouteFilter,
         codex_protocol::{
-            build_codex_turn_policy, codex_capabilities, codex_normalize_mode, nested_or_str,
-            normalize_codex_notification, parse_codex_models_response, prepare_codex_launch_env,
-            resolve_codex_auth, resolve_codex_default_model, serialize_codex_input_items, str_any,
+            build_codex_turn_policy, codex_accepts_model_id, codex_capabilities,
+            codex_normalize_mode, nested_or_str, normalize_codex_notification,
+            parse_codex_models_response, prepare_codex_launch_env, resolve_codex_auth,
+            resolve_codex_default_model, serialize_codex_input_items, str_any,
         },
         descriptor::normalize_agent_token, format_bounded_diagnostic,
         is_placeholder_engine_session_id, prepare_instance_isolation_env_for_keys,
@@ -1202,6 +1203,10 @@ impl NativeEngineDriver for CodexNativeDriver {
 
     fn resolve_default_model(&self, env: &HashMap<String, String>) -> Option<String> {
         resolve_codex_default_model(env)
+    }
+
+    fn accepts_model_id(&self, model_id: &str, env: &HashMap<String, String>) -> bool {
+        codex_accepts_model_id(model_id, env)
     }
 
     async fn invalidate_caches(&self) -> usize {

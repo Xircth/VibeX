@@ -122,8 +122,12 @@ import {
   type ConversationMessageNavEntry,
 } from './thread/messageNavEntries';
 import {
+  isAgentHandoffHostNote,
   isDurableHostNote,
+  normalizeAgentIdentity,
+  parseAgentHandoffNotice,
   shouldShowDurableHostNote,
+  type ConversationSessionModesState,
   type ConversationTimelineItem,
   type ConversationTimelineTurn,
 } from '@/features/conversation/conversationStore';
@@ -155,7 +159,10 @@ import {
   virtualRowFoldEdge,
 } from '@/components/logs/assistantVirtualSlices';
 import { TimelineImagePanel } from '@/components/NormalizedConversation/TimelineDecodedImage';
-import { ConversationTailHandoff } from '@/components/NormalizedConversation/ContextHandoffDivider';
+import {
+  ConversationTailHandoff,
+  TimelineAgentHandoffRow,
+} from '@/components/NormalizedConversation/ContextHandoffDivider';
 import { RateLimitRecoveryBanner } from '@/components/NormalizedConversation/RateLimitRecoveryBanner';
 import { useConversationRateLimitState } from '@/components/NormalizedConversation/useConversationRateLimitState';
 import { cn } from '@/lib/utils';
@@ -594,20 +601,32 @@ function InlineTimelineSideRow({
   if (row.kind === 'artifact_revision') {
     return <ArtifactTimelineCard artifact={row.artifact} />;
   }
-  if (row.kind === 'session_notice' && isDurableHostNote(entry)) {
-    return (
-      <div className="conv-entry-item px-4 py-1">
-        <div className="conv-compact-notice whitespace-pre-wrap break-words text-[var(--text-primary)]">
-          <div className="text-xs text-[var(--text-muted)]">
-            {row.notice.title}
+  if (row.kind === 'session_notice') {
+    const handoff = parseAgentHandoffNotice(entry);
+    if (handoff) {
+      return <TimelineAgentHandoffRow handoff={handoff} />;
+    }
+    if (isDurableHostNote(entry)) {
+      return (
+        <div className="conv-entry-item px-4 py-1">
+          <div className="conv-compact-notice whitespace-pre-wrap break-words text-[var(--text-primary)]">
+            <div className="text-xs text-[var(--text-muted)]">
+              {row.notice.title}
+            </div>
+            {row.notice.message ? <div>{row.notice.message}</div> : null}
           </div>
-          {row.notice.message ? <div>{row.notice.message}</div> : null}
         </div>
-      </div>
-    );
+      );
+    }
   }
   return null;
 }
+
+const EMPTY_TIMELINE_SESSION_MODES: ConversationSessionModesState = {
+  current: null,
+  modes: [],
+};
+const EMPTY_TIMELINE_CONFIG_OPTIONS: AgentSessionConfigOption[] = [];
 
 /**
  * Conversation view backed by the canonical VibeX event log: projected timeline
@@ -1067,26 +1086,36 @@ const AgentTimelineConversation = forwardRef<
     setTokenUsageInfo?.(composerTokenUsage);
   }, [setTokenUsageInfo, composerTokenUsage]);
 
-  // Feed the composer's mode picker with the agent-advertised session modes for
-  // this conversation (same EntriesContext bridge as the usage ring).
+  // Feed the composer's mode picker and config options only when the hydrated
+  // controls belong to the session's current Agent, preventing cross-Agent
+  // bleed or React Query cache poisoning across an engine switch.
+  const sessionAgentType = (attempt.session?.agent_id ??
+    attempt.session?.executor) as AgentKind | null;
+  const normalizedSessionAgent = normalizeAgentIdentity(sessionAgentType);
+  const controlsMatchSessionAgent =
+    !normalizedSessionAgent ||
+    !conversation.controlsAgentId ||
+    conversation.controlsAgentId === normalizedSessionAgent;
   const setSessionModes = entries?.setSessionModes;
-  const conversationSessionModes = conversation.sessionModes;
+  const conversationSessionModes = controlsMatchSessionAgent
+    ? conversation.sessionModes
+    : EMPTY_TIMELINE_SESSION_MODES;
   useEffect(() => {
     setSessionModes?.(conversationSessionModes);
   }, [setSessionModes, conversationSessionModes]);
 
-  // Same bridge for the agent-advertised config options (model / permission
-  // mode / …) so the composer renders live ACP selectors, not static presets.
   const setSessionConfigOptions = entries?.setSessionConfigOptions;
-  const conversationSessionConfigOptions = conversation.sessionConfigOptions;
+  const conversationSessionConfigOptions = controlsMatchSessionAgent
+    ? conversation.sessionConfigOptions
+    : EMPTY_TIMELINE_CONFIG_OPTIONS;
   useEffect(() => {
     setSessionConfigOptions?.(conversationSessionConfigOptions);
   }, [setSessionConfigOptions, conversationSessionConfigOptions]);
-  const sessionAgentType = (attempt.session?.agent_id ??
-    attempt.session?.executor) as AgentKind | null;
   useEffect(() => {
     if (
       !sessionAgentType ||
+      !normalizedSessionAgent ||
+      conversation.controlsAgentId !== normalizedSessionAgent ||
       (conversationSessionModes.modes.length === 0 &&
         conversationSessionConfigOptions.length === 0)
     ) {
@@ -1103,8 +1132,10 @@ const AgentTimelineConversation = forwardRef<
     });
   }, [
     attempt.id,
+    conversation.controlsAgentId,
     conversationSessionConfigOptions,
     conversationSessionModes,
+    normalizedSessionAgent,
     queryClient,
     sessionAgentType,
   ]);
@@ -1953,9 +1984,16 @@ const AgentTimelineConversation = forwardRef<
         <LiveTurnStats
           hideStatus={inlineRuntimePresentation.suppressLiveTurnStatsStatus}
           statusLabel={
-            runtimeStatus.connection && !runtimeStatus.connection.bound
+            (runtimeStatus.connection && !runtimeStatus.connection.bound) ||
+            (conversation.connecting && !runtimeStatus.connection?.bound)
               ? t(
-                  `runtime.connection.${runtimeStatus.connection.status === 'ready' ? 'binding' : runtimeStatus.connection.status}`
+                  `runtime.connection.${
+                    runtimeStatus.connection
+                      ? runtimeStatus.connection.status === 'ready'
+                        ? 'binding'
+                        : runtimeStatus.connection.status
+                      : 'connecting'
+                  }`
                 )
               : t(
                   `runtime.request.${requestStatusKey({
@@ -2808,7 +2846,15 @@ const AgentTimelineConversation = forwardRef<
                       sessionId={sessionId}
                       hasMessages={timeline.length > 0}
                       fallbackFromModel={liveStats.model}
-                      sessionConfigOptions={conversation.sessionConfigOptions}
+                      sessionConfigOptions={conversationSessionConfigOptions}
+                      suppressedByInlineHandoff={(() => {
+                        const tailItem =
+                          timelineItems[timelineItems.length - 1];
+                        return Boolean(
+                          tailItem?.kind === 'side' &&
+                            isAgentHandoffHostNote(tailItem.row)
+                        );
+                      })()}
                       onReveal={scrollTailOverlayIntoView}
                     />
                     {!usesComposerStatusDock &&

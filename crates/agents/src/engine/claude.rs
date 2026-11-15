@@ -32,7 +32,7 @@ pub use super::claude_events::{
     default_claude_models, resolve_claude_driver_script, resolve_node_executable,
 };
 use super::claude_events::{
-    classify_claude_tool_call, claude_capabilities, claude_normalize_mode,
+    classify_claude_tool_call, claude_accepts_model_id, claude_capabilities, claude_normalize_mode,
     default_claude_permission_options, encode_claude_question_answers, normalize_sidecar_event,
     parse_sidecar_models, prepare_claude_launch_env, resolve_claude_auth,
     resolve_claude_default_model, serialize_sidecar_blocks, str_opt, str_or,
@@ -782,6 +782,10 @@ impl NativeEngineDriver for ClaudeNativeDriver {
         crate::end_turn_usage::collect_claude_model_aliases(env)
     }
 
+    fn accepts_model_id(&self, model_id: &str, env: &HashMap<String, String>) -> bool {
+        claude_accepts_model_id(model_id, env)
+    }
+
     fn classify_tool_call(
         &self,
         raw_name: &str,
@@ -1241,5 +1245,23 @@ mod tests {
         );
         assert!(dropped.is_none());
         assert!(latest_cache.read().unwrap().is_none());
+    }
+
+    #[test]
+    fn claude_driver_accepts_model_id_filters_foreign_models_unless_custom_base_url() {
+        let driver = ClaudeNativeDriver::new();
+        let official = HashMap::new();
+        assert!(driver.accepts_model_id("claude-opus-4-7", &official));
+        assert!(driver.accepts_model_id("sonnet", &official));
+        assert!(!driver.accepts_model_id("gpt-5.4", &official));
+        assert!(!driver.accepts_model_id("codex-mini", &official));
+        assert!(!driver.accepts_model_id("gemini-2.5-pro", &official));
+
+        let mut custom = HashMap::new();
+        custom.insert(
+            "ANTHROPIC_BASE_URL".to_string(),
+            "https://proxy.example.com/v1".to_string(),
+        );
+        assert!(driver.accepts_model_id("gpt-5.4", &custom));
     }
 }

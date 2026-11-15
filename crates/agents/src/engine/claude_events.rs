@@ -778,6 +778,17 @@ pub(super) fn resolve_claude_default_model(env: &HashMap<String, String>) -> Opt
         .map(str::to_string)
 }
 
+pub(super) fn claude_accepts_model_id(model_id: &str, env: &HashMap<String, String>) -> bool {
+    if !EngineAuth::Ambient.is_official_anthropic_session(env, &serde_json::Value::Null) {
+        return true;
+    }
+    let lower = model_id.trim().to_ascii_lowercase();
+    !lower.is_empty()
+        && !lower.starts_with("gpt-")
+        && !lower.starts_with("codex-")
+        && !lower.starts_with("gemini-")
+}
+
 pub(super) fn classify_claude_tool_call(
     raw_name: &str,
     input: &Value,

@@ -1120,6 +1120,12 @@ pub trait NativeEngineDriver: Send + Sync + 'static {
         HashMap::new()
     }
 
+    /// Returns `true` when `model_id` is compatible with this engine given `env`
+    /// (allowing custom/proxy endpoints while filtering stale foreign models across agent handoffs).
+    fn accepts_model_id(&self, _model_id: &str, _env: &HashMap<String, String>) -> bool {
+        true
+    }
+
     /// Classifies a tool invocation into semantic kind, display title, and optional vendor metadata.
     fn classify_tool_call(
         &self,

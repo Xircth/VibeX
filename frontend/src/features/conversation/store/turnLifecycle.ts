@@ -94,6 +94,14 @@ export type LiveTextOverlay = {
   revision: bigint;
 };
 
+export function normalizeAgentIdentity(
+  raw: string | null | undefined
+): string | null {
+  const trimmed = raw?.trim() ?? '';
+  if (!trimmed) return null;
+  return trimmed.toLowerCase().replace(/[-_\s]+/g, '');
+}
+
 export type ConversationStoreEntry = {
   conversationId: string;
   detail: DbConversationDetail | null;
@@ -118,6 +126,7 @@ export type ConversationStoreEntry = {
   optimisticBaselineUserRowIds: Record<string, string[]>;
   // Agent-advertised session controls (delivered alongside row-op batches). Drive the
   // composer's mode/config picker; empty until the agent advertises them.
+  controlsAgentId: string | null;
   sessionModes: ConversationSessionModesState;
   sessionConfigOptions: AgentSessionConfigOption[];
   /** Agent-advertised slash/skill catalog. `null` until the first update. */
@@ -273,6 +282,42 @@ export function conversationStoreReducer(
           ...action.detail,
           timeline: { ...action.detail.timeline, rows: [] },
         };
+        const detailAgentId = normalizeAgentIdentity(
+          action.detail.summary.agent_id ??
+            action.detail.active_binding?.agent_type ??
+            null
+        );
+        const agentChanged = Boolean(
+          detailAgentId &&
+            entry.controlsAgentId &&
+            detailAgentId !== entry.controlsAgentId
+        );
+        const nextSessionModes = action.detail.session_modes
+          ? {
+              current: action.detail.session_modes.current ?? null,
+              modes: action.detail.session_modes.modes,
+            }
+          : agentChanged
+            ? { current: null, modes: [] }
+            : entry.sessionModes;
+        const nextSessionConfigOptions =
+          action.detail.session_config_options &&
+          action.detail.session_config_options.length > 0
+            ? action.detail.session_config_options
+            : agentChanged
+              ? []
+              : entry.sessionConfigOptions;
+        const nextAvailableCommands =
+          action.detail.available_commands !== undefined &&
+          action.detail.available_commands !== null
+            ? action.detail.available_commands
+            : agentChanged
+              ? null
+              : entry.availableCommands;
+        const hasAnyControls =
+          nextSessionModes.modes.length > 0 ||
+          Boolean(nextSessionModes.current) ||
+          nextSessionConfigOptions.length > 0;
         return {
           ...entry,
           detail,
@@ -298,22 +343,11 @@ export function conversationStoreReducer(
           // Hydrate agent-advertised session controls from the persisted event
           // log so a reopened conversation renders real ACP pickers immediately;
           // live row-op batches keep them fresh afterwards.
-          sessionModes: action.detail.session_modes
-            ? {
-                current: action.detail.session_modes.current ?? null,
-                modes: action.detail.session_modes.modes,
-              }
-            : entry.sessionModes,
-          sessionConfigOptions:
-            action.detail.session_config_options &&
-            action.detail.session_config_options.length > 0
-              ? action.detail.session_config_options
-              : entry.sessionConfigOptions,
-          availableCommands:
-            action.detail.available_commands !== undefined &&
-            action.detail.available_commands !== null
-              ? action.detail.available_commands
-              : entry.availableCommands,
+          controlsAgentId:
+            detailAgentId ?? (hasAnyControls ? entry.controlsAgentId : null),
+          sessionModes: nextSessionModes,
+          sessionConfigOptions: nextSessionConfigOptions,
+          availableCommands: nextAvailableCommands,
           sessionGoal:
             action.detail.session_goal !== undefined &&
             action.detail.session_goal !== null
@@ -359,21 +393,39 @@ export function conversationStoreReducer(
         error: action.error,
       }));
     case 'session_controls_hydrated':
-      return updateEntry(state, action.conversationId, (entry) => ({
-        ...entry,
-        sessionModes:
-          action.controls.modes.length > 0 || action.controls.current_mode
-            ? {
-                current: action.controls.current_mode ?? null,
-                modes: action.controls.modes,
-              }
-            : entry.sessionModes,
-        sessionConfigOptions:
-          action.controls.config_options.length > 0
-            ? action.controls.config_options
-            : entry.sessionConfigOptions,
-        availableCommands:
-          action.controls.available_commands ?? entry.availableCommands,
+      return updateEntry(state, action.conversationId, (entry) => {
+        const entryAgentId =
+          normalizeAgentIdentity(
+            entry.detail?.summary.agent_id ??
+              entry.detail?.active_binding?.agent_type ??
+              null
+          ) ?? entry.controlsAgentId;
+        const agentChanged = Boolean(
+          entryAgentId &&
+            entry.controlsAgentId &&
+            entryAgentId !== entry.controlsAgentId
+        );
+        return {
+          ...entry,
+          controlsAgentId: entryAgentId,
+          sessionModes:
+            action.controls.modes.length > 0 || action.controls.current_mode
+              ? {
+                  current: action.controls.current_mode ?? null,
+                  modes: action.controls.modes,
+                }
+              : agentChanged
+                ? { current: null, modes: [] }
+                : entry.sessionModes,
+          sessionConfigOptions:
+            action.controls.config_options.length > 0
+              ? action.controls.config_options
+              : agentChanged
+                ? []
+                : entry.sessionConfigOptions,
+          availableCommands:
+            action.controls.available_commands ??
+            (agentChanged ? null : entry.availableCommands),
         sessionGoal:
           action.controls.goal !== undefined ||
           action.controls.goal_actions !== undefined
@@ -392,11 +444,12 @@ export function conversationStoreReducer(
           action.controls.async_tasks && action.controls.async_tasks.length > 0
             ? action.controls.async_tasks
             : entry.asyncTasks,
-        promptSuggestion:
-          action.controls.prompt_suggestion !== undefined
-            ? (action.controls.prompt_suggestion ?? null)
-            : entry.promptSuggestion,
-      }));
+          promptSuggestion:
+            action.controls.prompt_suggestion !== undefined
+              ? (action.controls.prompt_suggestion ?? null)
+              : entry.promptSuggestion,
+        };
+      });
     case 'row_ops': {
       return updateEntry(state, action.batch.conversation_id, (entry) => {
         return applyRowOpBatch(entry, action.batch);
@@ -871,6 +924,14 @@ function applyRowOpBatch(
     userTurnsBeforeOffset: isReset ? 0 : entry.userTurnsBeforeOffset,
     loadedToStart: isReset ? true : entry.loadedToStart,
     gap,
+    controlsAgentId:
+      batch.session_modes != null || batch.session_config_options != null
+        ? (normalizeAgentIdentity(
+            entry.detail?.summary.agent_id ??
+              entry.detail?.active_binding?.agent_type ??
+              null
+          ) ?? entry.controlsAgentId)
+        : entry.controlsAgentId,
     sessionModes: batch.session_modes
       ? {
           current: batch.session_modes.current ?? null,
@@ -1395,6 +1456,7 @@ function createEntry(conversationId: string): ConversationStoreEntry {
     gap: { kind: 'none' },
     optimisticTurns: [],
     optimisticBaselineUserRowIds: {},
+    controlsAgentId: null,
     sessionModes: { current: null, modes: [] },
     sessionConfigOptions: [],
     availableCommands: null,

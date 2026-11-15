@@ -533,7 +533,23 @@ impl ProjectionFold {
                 }
             }
             ConversationEvent::RawDiagnosticRecorded { label, payload } => {
-                if let Some(notice) = host_note_notice(&label, payload.as_ref()) {
+                if let Some(action) =
+                    agent_handoff_notice(&label, payload.as_ref(), record.sequence)
+                {
+                    match action {
+                        AgentHandoffRowAction::Upsert { row_id, notice } => {
+                            upsert_stable_notice(side_rows, &row_id, record.sequence, notice);
+                        }
+                        AgentHandoffRowAction::Remove { row_id } => {
+                            remove_side_row(
+                                side_rows,
+                                deleted_rows,
+                                &row_id,
+                                record.sequence,
+                            );
+                        }
+                    }
+                } else if let Some(notice) = host_note_notice(&label, payload.as_ref()) {
                     let row_id = notice
                         .announcement_id
                         .clone()
@@ -806,7 +822,7 @@ pub(super) fn message_rows(turn: &ProjectedTurn) -> Vec<TimelineRow> {
     if !turn.user.blocks.is_empty() {
         rows.push(message_row(turn, TurnRole::User));
     }
-    let closed_phase = turn.effective_user_phase();
+    let closed_phase = turn.closed_segment_phase();
     for (idx, segment) in turn.prefix_segments.iter().enumerate() {
         if segment.blocks.is_empty() {
             continue;
@@ -825,6 +841,97 @@ pub(super) fn message_rows(turn: &ProjectedTurn) -> Vec<TimelineRow> {
         rows.push(message_row(turn, TurnRole::Assistant));
     }
     rows
+}
+
+enum AgentHandoffRowAction {
+    Upsert {
+        row_id: String,
+        notice: ConversationSessionNotice,
+    },
+    Remove {
+        row_id: String,
+    },
+}
+
+fn normalize_agent_key(raw: &str) -> String {
+    raw.trim().to_ascii_lowercase().replace(['-', ' '], "_")
+}
+
+fn agent_handoff_notice(
+    label: &str,
+    payload: Option<&serde_json::Value>,
+    sequence: i64,
+) -> Option<AgentHandoffRowAction> {
+    let kind = payload
+        .and_then(|value| value.get("kind"))
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or(label);
+    if kind != "agent_handoff" {
+        return None;
+    }
+    let payload = payload?;
+    let from_agent = payload
+        .get("fromAgent")
+        .or_else(|| payload.get("from_agent"))
+        .and_then(serde_json::Value::as_str)
+        .map(str::trim)
+        .filter(|s| !s.is_empty())?;
+    let to_agent = payload
+        .get("toAgent")
+        .or_else(|| payload.get("to_agent"))
+        .and_then(serde_json::Value::as_str)
+        .map(str::trim)
+        .filter(|s| !s.is_empty())?;
+    let after_turn_id = payload
+        .get("afterTurnId")
+        .or_else(|| payload.get("after_turn_id"))
+        .and_then(serde_json::Value::as_str)
+        .map(str::trim)
+        .filter(|s| !s.is_empty());
+    let row_id = match after_turn_id {
+        Some(turn_id) => format!("host-note:agent-handoff:after:{turn_id}"),
+        None => format!("host-note:agent-handoff:seq:{sequence}"),
+    };
+    if normalize_agent_key(from_agent) == normalize_agent_key(to_agent) {
+        return Some(AgentHandoffRowAction::Remove { row_id });
+    }
+    let from_model = payload
+        .get("fromModel")
+        .or_else(|| payload.get("from_model"))
+        .and_then(serde_json::Value::as_str)
+        .map(str::trim)
+        .filter(|s| !s.is_empty());
+    let to_model = payload
+        .get("toModel")
+        .or_else(|| payload.get("to_model"))
+        .and_then(serde_json::Value::as_str)
+        .map(str::trim)
+        .filter(|s| !s.is_empty());
+    let continuation_policy = payload
+        .get("continuationPolicy")
+        .or_else(|| payload.get("continuation_policy"))
+        .and_then(serde_json::Value::as_str)
+        .filter(|p| matches!(*p, "portable" | "fresh"))
+        .unwrap_or("portable");
+    let structured = serde_json::json!({
+        "kind": "agent_handoff",
+        "fromAgent": from_agent,
+        "toAgent": to_agent,
+        "fromModel": from_model,
+        "toModel": to_model,
+        "continuationPolicy": continuation_policy,
+    });
+    Some(AgentHandoffRowAction::Upsert {
+        row_id: row_id.clone(),
+        notice: ConversationSessionNotice {
+            title: "上下文接力".into(),
+            message: Some(structured.to_string()),
+            severity: "info".into(),
+            announcement_id: Some(row_id),
+            action: None,
+            ..Default::default()
+        },
+    })
 }
 
 fn host_note_notice(
@@ -898,11 +1005,12 @@ fn diagnostic_session_notice(
             payload.and_then(agents::session_notice_from_diagnostic)
         }
         "host_note"
+        | "agent_handoff"
+        | "model_consistency_mismatch"
         | "user_message_acknowledged"
         | "companion_capability"
         | "ext_notification"
-        | "prompt_cancel_requested"
-        | "model_consistency_mismatch" => None,
+        | "prompt_cancel_requested" => None,
         _ => Some(ConversationSessionNotice {
             title: "未识别的会话更新".into(),
             message: Some(label.to_string()),

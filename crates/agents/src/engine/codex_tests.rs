@@ -306,3 +306,22 @@ async fn codex_server_cache_key_tracks_codex_home_config_and_invalidate_clears_c
 
     invalidate_codex_servers().await;
 }
+
+#[test]
+fn codex_driver_accepts_model_id_filters_foreign_models_unless_custom_base_url() {
+    let driver = CodexNativeDriver::new();
+    let official = HashMap::new();
+    assert!(driver.accepts_model_id("gpt-5.4", &official));
+    assert!(driver.accepts_model_id("o4-mini", &official));
+    assert!(!driver.accepts_model_id("claude-opus-4-6", &official));
+    assert!(!driver.accepts_model_id("gemini-2.5-pro", &official));
+    assert!(!driver.accepts_model_id("sonnet", &official));
+    assert!(!driver.accepts_model_id("opus", &official));
+
+    let mut custom = HashMap::new();
+    custom.insert(
+        "OPENAI_BASE_URL".to_string(),
+        "https://proxy.example.com/v1".to_string(),
+    );
+    assert!(driver.accepts_model_id("claude-opus-4-6", &custom));
+}

@@ -123,13 +123,14 @@ impl AgentConnectionRunner {
         };
         let custom_base_url = driver.uses_custom_base_url(&spec);
 
+        self.emit_connection_status(AgentConnectionStatus::Connecting, None, None);
         let handle = driver
             .start(spec)
             .await
             .map_err(|err| AgentError::Runtime(err.to_string()))?;
 
         self.handshake_completed.store(true, Ordering::SeqCst);
-        *self.status.lock().await = AgentConnectionStatus::Ready;
+        self.emit_connection_status(AgentConnectionStatus::Ready, None, None);
         if let Some(tx) = ready_tx.lock().await.take() {
             let _ = tx.send(Ok(()));
         }

@@ -152,6 +152,9 @@ pub enum HandoffError {
 pub struct EngineHandoffConfirmation {
     pub workspace_id: Uuid,
     pub space_changed_events: Vec<crate::collaboration::CollaborationSpaceChangedEvent>,
+    pub agent_switched: bool,
+    pub handoff_boundary: Option<(Uuid, agents::AgentId)>,
+    pub previous_model: Option<String>,
 }
 
 /// One packed historical item inside [`ConversationEngineHandoffPreview`].
@@ -785,13 +788,81 @@ impl DeterministicHandoffService {
         target_agent_id: &agents::AgentId,
     ) -> Result<EngineHandoffConfirmation, HandoffError> {
         use std::collections::BTreeSet;
-        use db::models::conversation_turn::ConversationTurnRecord;
+        use db::models::{
+            conversation::ConversationAgentBindingRecord,
+            conversation_turn::ConversationTurnRecord,
+        };
 
         let session =
             Self::preflight_engine_handoff(pool, conversation_id, target_agent_id).await?;
 
-        if session.agent_id.is_some() && session.agent_id.as_ref() != Some(target_agent_id) {
+        let prev_session_agent = session.agent_id.clone().or_else(|| {
+            session
+                .executor
+                .as_deref()
+                .and_then(agents::AgentKind::from_lenient)
+                .and_then(|kind| agents::AgentId::parse(kind.as_str()).ok())
+        });
+        let agent_switched = prev_session_agent
+            .as_ref()
+            .is_some_and(|prev| prev != target_agent_id);
+
+        if agent_switched {
             crate::runtime_events::flush_conversation_persistence(conversation_id).await;
+        }
+
+        let last_turn_row: Option<(Uuid, Option<String>)> = sqlx::query_as(
+            r#"SELECT t.id, b.agent_id
+               FROM conversation_turns t
+               LEFT JOIN conversation_agent_bindings b ON b.id = t.agent_binding_id
+               WHERE t.conversation_id = ?
+               ORDER BY t.ordinal DESC
+               LIMIT 1"#,
+        )
+        .bind(conversation_id)
+        .fetch_optional(pool)
+        .await?;
+
+        let active_binding_agent = if last_turn_row.is_some() {
+            ConversationAgentBindingRecord::active_for_conversation(pool, conversation_id)
+                .await?
+                .map(|b| b.agent_id)
+        } else {
+            None
+        };
+
+        let handoff_boundary = if let Some((last_turn_id, turn_binding_agent_raw)) = last_turn_row {
+            let origin_agent = turn_binding_agent_raw
+                .as_deref()
+                .and_then(|raw| agents::AgentId::parse(raw).ok())
+                .or(active_binding_agent)
+                .or_else(|| prev_session_agent.clone());
+            origin_agent
+                .filter(|origin| agent_switched || origin != target_agent_id)
+                .map(|origin| (last_turn_id, origin))
+        } else {
+            None
+        };
+
+        let mut previous_model = sqlx::query_scalar::<_, Option<String>>(
+            "SELECT model FROM sessions WHERE id = ?",
+        )
+        .bind(conversation_id)
+        .fetch_optional(pool)
+        .await?
+        .flatten()
+        .map(|m| m.trim().to_string())
+        .filter(|m| !m.is_empty());
+        if previous_model.is_none() && handoff_boundary.is_some() {
+            previous_model = sqlx::query_scalar::<_, Option<String>>(
+                "SELECT model FROM conversation_usage_snapshots WHERE conversation_id = ?",
+            )
+            .bind(conversation_id)
+            .fetch_optional(pool)
+            .await?
+            .flatten()
+            .map(|m| m.trim().to_string())
+            .filter(|m| !m.is_empty());
         }
 
         let next_agent = target_agent_id.as_str();
@@ -978,6 +1049,9 @@ impl DeterministicHandoffService {
         Ok(EngineHandoffConfirmation {
             workspace_id: session.workspace_id,
             space_changed_events,
+            agent_switched,
+            handoff_boundary,
+            previous_model,
         })
     }
 }
@@ -1017,12 +1091,45 @@ impl crate::ConversationSessionService {
         conversation_id: Uuid,
         target_agent_id: &agents::AgentId,
     ) -> Result<EngineHandoffConfirmation, HandoffError> {
-        DeterministicHandoffService::confirm_engine_handoff(
+        let confirmation = DeterministicHandoffService::confirm_engine_handoff(
             &self.ctx.deployment.db().pool,
             conversation_id,
             target_agent_id,
         )
-        .await
+        .await?;
+        if confirmation.agent_switched {
+            self.drop_live_agent_connection(conversation_id).await;
+        }
+        if let Some((last_turn_id, ref origin_agent)) = confirmation.handoff_boundary {
+            let payload = serde_json::json!({
+                "kind": "agent_handoff",
+                "afterTurnId": last_turn_id,
+                "fromAgent": origin_agent.as_str(),
+                "toAgent": target_agent_id.as_str(),
+                "fromModel": confirmation.previous_model,
+                "continuationPolicy": "portable",
+            });
+            if let Err(error) = self
+                .append_event(
+                    conversation_id,
+                    None,
+                    "host",
+                    ConversationEvent::RawDiagnosticRecorded {
+                        label: "agent_handoff".into(),
+                        payload: Some(payload),
+                    },
+                    None,
+                )
+                .await
+            {
+                tracing::warn!(
+                    %conversation_id,
+                    %error,
+                    "failed to append cross-agent handoff timeline event"
+                );
+            }
+        }
+        Ok(confirmation)
     }
 }
 
@@ -1282,12 +1389,37 @@ mod tests {
         .await
         .expect("persona");
 
+        let seeded_turn = db::models::conversation_turn::ConversationTurnRecord::create_pending(
+            pool,
+            Uuid::new_v4(),
+            db::models::conversation_turn::CreateConversationTurn {
+                conversation_id,
+                prompt_id: Some("prompt-1"),
+                text_preview: Some("hi"),
+                input_blocks_json: "[]",
+            },
+        )
+        .await
+        .expect("seed turn");
+        let seeded_turn_id = seeded_turn.id;
+
         let codex = AgentId::parse("codex").expect("codex");
         let confirmation =
             DeterministicHandoffService::confirm_engine_handoff(pool, conversation_id, &codex)
                 .await
                 .expect("confirm handoff");
         assert_eq!(confirmation.workspace_id, workspace_id);
+        assert!(confirmation.agent_switched);
+        assert_eq!(
+            confirmation.previous_model.as_deref(),
+            Some("claude-opus-4-6")
+        );
+        let (after_turn_id, origin_agent) = confirmation
+            .handoff_boundary
+            .as_ref()
+            .expect("handoff boundary recorded when conversation has turns");
+        assert_eq!(*after_turn_id, seeded_turn_id);
+        assert_eq!(origin_agent.as_str(), "claude_code");
         assert_eq!(confirmation.space_changed_events.len(), 1);
         assert_eq!(
             confirmation.space_changed_events[0].space_id,

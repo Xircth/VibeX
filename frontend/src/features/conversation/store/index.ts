@@ -12,11 +12,16 @@ export type {
 export {
   conversationStoreReducer,
   emptyConversationStoreState,
+  normalizeAgentIdentity,
 } from './turnLifecycle';
+export type { ParsedAgentHandoffNotice } from './permissions';
 export {
+  AGENT_HANDOFF_HOST_NOTE_PREFIX,
   defaultInlineSideRow,
+  isAgentHandoffHostNote,
   isDurableHostNote,
   isPersonaHostNote,
+  parseAgentHandoffNotice,
   shouldShowDurableHostNote,
   sideRowsForEntry,
 } from './permissions';

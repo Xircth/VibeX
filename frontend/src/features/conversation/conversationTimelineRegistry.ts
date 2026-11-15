@@ -24,6 +24,7 @@ import { subscribeToOptimisticConversationTurns } from './optimisticTurnEvents';
 import {
   conversationStoreReducer,
   emptyConversationStoreState,
+  normalizeAgentIdentity,
   sideRowsForEntry,
   timelineItemsForEntry,
   timelineTurnsForEntry,
@@ -160,6 +161,7 @@ export type ConversationTimelineView = {
   items: ConversationTimelineItem[];
   sideRows: TimelineRow[];
   agentId: string | null;
+  controlsAgentId: string | null;
   currentTurnId: string | null;
   steeringSupported: boolean;
   deliveryChannel: DeliveryChannel;
@@ -258,6 +260,7 @@ const EMPTY_VIEW: ConversationTimelineView = {
   items: [],
   sideRows: [],
   agentId: null,
+  controlsAgentId: null,
   currentTurnId: null,
   steeringSupported: false,
   deliveryChannel: 'none',
@@ -470,13 +473,20 @@ export function syncConversationSelectedAgent(
   if (!id || !normalized) return;
   const entry = state.byConversationId[id];
   if (!entry?.detail) return;
-  const prevKey = (entry.detail.summary.agent_id ?? '')
-    .trim()
-    .toLowerCase()
-    .replace(/[-_\s]+/g, '');
-  const nextKey = normalized.toLowerCase().replace(/[-_\s]+/g, '');
-  const changed = prevKey !== nextKey;
+  const prevKey =
+    normalizeAgentIdentity(
+      entry.detail.summary.agent_id ??
+        entry.detail.active_binding?.agent_type ??
+        entry.controlsAgentId
+    ) ?? '';
+  const nextKey = normalizeAgentIdentity(normalized) ?? '';
+  const controlsMismatch = Boolean(
+    entry.controlsAgentId && entry.controlsAgentId !== nextKey
+  );
+  const changed = prevKey !== nextKey || controlsMismatch;
   if (!changed && entry.detail.summary.agent_id === normalized) return;
+  const activeBindingMatchesNext =
+    normalizeAgentIdentity(entry.detail.active_binding?.agent_type) === nextKey;
   state = {
     ...state,
     byConversationId: {
@@ -485,21 +495,53 @@ export function syncConversationSelectedAgent(
         ...entry,
         detail: {
           ...entry.detail,
+          active_binding: activeBindingMatchesNext
+            ? entry.detail.active_binding
+            : null,
           summary: {
             ...entry.detail.summary,
             agent_id: normalized,
-            ...(changed ? { model: null } : {}),
+            ...(changed ? { model: null, external_session_id: null } : {}),
           },
         },
         ...(changed
           ? {
+              controlsAgentId: nextKey || null,
               sessionModes: EMPTY_SESSION_MODES,
               sessionConfigOptions: EMPTY_CONFIG_OPTIONS,
+              availableCommands: null,
             }
           : {}),
       },
     },
   };
+  if (changed) {
+    const slot = slots.get(id);
+    if (slot) {
+      if (slot.connectionId) {
+        (slot.retiredConnectionIds ??= new Set()).add(slot.connectionId);
+        slot.connectionId = undefined;
+      }
+      slot.connectionSequence = undefined;
+      slot.connectionStatus = undefined;
+      slot.bindReady = false;
+      slot.bindGeneration = (slot.bindGeneration ?? 0) + 1;
+      slot.keepalive?.();
+      slot.keepalive = undefined;
+      inflightBinds.delete(id);
+      if (slot.controller && !slot.controller.stopped) {
+        if (slot.controller.bindTimer != null) {
+          window.clearTimeout(slot.controller.bindTimer);
+          slot.controller.bindTimer = null;
+        }
+        slot.controller.cancelBindIdle?.();
+        slot.controller.cancelBindIdle = null;
+        if (slot.refs > 0 && canBind(id)) {
+          beginBind(id);
+        }
+      }
+    }
+  }
   viewCache.delete(id);
   factsCache.delete(id);
   notify(id);
@@ -1400,6 +1442,7 @@ function buildView(
     items,
     sideRows,
     agentId: entry?.detail?.summary.agent_id ?? null,
+    controlsAgentId: entry?.controlsAgentId ?? null,
     currentTurnId: entry?.currentTurnId ?? null,
     steeringSupported: Boolean(
       entry?.detail?.active_binding?.capabilities.steering

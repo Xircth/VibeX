@@ -634,14 +634,10 @@ function KanbanSessionConversationContent({
                       session={activeSession}
                       workspace={activeAttempt}
                       workspaceId={attempt.id}
+                      widthMode={conversationWidthMode}
                       sessionState={sessionState}
-                      showSessionSelector={showSessionSelector}
                       onSessionCreated={onSessionCreated}
                       onSessionSelected={onSessionSelected}
-                      onCreateSessionRequested={onCreateSessionRequested}
-                      onJumpToPreviousUserMessage={() =>
-                        logsRef.current?.scrollToPreviousUserMessage()
-                      }
                     />
                   </div>
                 ) : null}

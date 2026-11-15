@@ -54,22 +54,20 @@ export function getComposerScratchTargetId({
 export function getComposerTopbarVisibility({
   hasTokenUsageInfo,
   hasCodexGoalState,
-  showSessionSelector,
-  sessionCount,
+  showChangedFileSummary = false,
   hasExecutorProfile,
   hasComposerIdentity = false,
 }: {
   hasTokenUsageInfo: boolean;
   hasCodexGoalState: boolean;
-  showSessionSelector: boolean;
-  sessionCount: number;
+  showChangedFileSummary?: boolean;
   hasExecutorProfile: boolean;
   hasComposerIdentity?: boolean;
 }): boolean {
   return (
     hasTokenUsageInfo ||
     hasCodexGoalState ||
-    (showSessionSelector && sessionCount > 0) ||
+    showChangedFileSummary ||
     hasExecutorProfile ||
     hasComposerIdentity
   );

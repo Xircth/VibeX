@@ -1,8 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
+import type { ConversationSteeringReceipt } from 'shared/types';
 import {
   executeComposerSteer,
   getComposerSteeringTarget,
   getQueueSteerChannel,
+  resolveQueuePromoteSteeringTarget,
 } from './sessionComposerSteering';
 
 const MESSAGES = {
@@ -17,28 +19,31 @@ const MESSAGES = {
 };
 
 describe('getComposerSteeringTarget', () => {
-  it('returns the in-flight turn when native steering is available', () => {
+  it('returns native mode when native steering is available', () => {
     expect(
       getComposerSteeringTarget({
         isTurnInFlight: true,
         steeringSupported: true,
         currentTurnId: 'turn-1',
       })
-    ).toEqual({ turnId: 'turn-1' });
+    ).toEqual({ turnId: 'turn-1', mode: 'native' });
   });
 
-  it('stays null when the turn is idle or steering is unsupported', () => {
-    expect(
-      getComposerSteeringTarget({
-        isTurnInFlight: false,
-        steeringSupported: true,
-        currentTurnId: 'turn-1',
-      })
-    ).toBeNull();
+  it('returns interrupt_restart mode when a turn is in flight without native steering', () => {
     expect(
       getComposerSteeringTarget({
         isTurnInFlight: true,
         steeringSupported: false,
+        currentTurnId: 'turn-1',
+      })
+    ).toEqual({ turnId: 'turn-1', mode: 'interrupt_restart' });
+  });
+
+  it('stays null when the turn is idle or currentTurnId is absent', () => {
+    expect(
+      getComposerSteeringTarget({
+        isTurnInFlight: false,
+        steeringSupported: true,
         currentTurnId: 'turn-1',
       })
     ).toBeNull();
@@ -65,7 +70,7 @@ describe('getQueueSteerChannel', () => {
     ).toBe('native');
   });
 
-  it('offers pull only when session enhance injected check_user_feedback', () => {
+  it('uses pull when session enhance injected check_user_feedback and falls back to interrupt_restart otherwise', () => {
     expect(
       getQueueSteerChannel({
         isTurnInFlight: true,
@@ -83,7 +88,7 @@ describe('getQueueSteerChannel', () => {
         deliveryChannel: 'pull',
         sessionEnhanceFeedbackOn: false,
       })
-    ).toBeNull();
+    ).toBe('interrupt_restart');
     expect(
       getQueueSteerChannel({
         isTurnInFlight: true,
@@ -91,6 +96,15 @@ describe('getQueueSteerChannel', () => {
         currentTurnId: 'turn-1',
         deliveryChannel: 'none',
         sessionEnhanceFeedbackOn: true,
+      })
+    ).toBe('interrupt_restart');
+    expect(
+      getQueueSteerChannel({
+        isTurnInFlight: true,
+        steeringSupported: false,
+        currentTurnId: null,
+        deliveryChannel: 'none',
+        sessionEnhanceFeedbackOn: false,
       })
     ).toBeNull();
     expect(
@@ -105,8 +119,48 @@ describe('getQueueSteerChannel', () => {
   });
 });
 
+describe('resolveQueuePromoteSteeringTarget', () => {
+  it('upgrades plugin-action or image queued messages on pull/native channels to interrupt_restart', () => {
+    expect(
+      resolveQueuePromoteSteeringTarget({
+        queueSteerChannel: 'native',
+        steeringTarget: { turnId: 'turn-1', mode: 'native' },
+        followUp: {
+          message: 'Run workflow',
+          images: [],
+          pluginActions: [{ pluginId: 'plugin', actionId: 'act' }],
+        },
+      })
+    ).toEqual({ turnId: 'turn-1', mode: 'interrupt_restart' });
+
+    expect(
+      resolveQueuePromoteSteeringTarget({
+        queueSteerChannel: 'pull',
+        steeringTarget: { turnId: 'turn-1', mode: 'interrupt_restart' },
+        followUp: {
+          message: 'Inspect image',
+          images: ['.vibe-images/shot.png'],
+          pluginActions: [],
+        },
+      })
+    ).toEqual({ turnId: 'turn-1', mode: 'interrupt_restart' });
+
+    expect(
+      resolveQueuePromoteSteeringTarget({
+        queueSteerChannel: 'pull',
+        steeringTarget: { turnId: 'turn-1', mode: 'interrupt_restart' },
+        followUp: {
+          message: 'Text note',
+          images: [],
+          pluginActions: [],
+        },
+      })
+    ).toBeNull();
+  });
+});
+
 describe('executeComposerSteer', () => {
-  it('rejects plugin actions with a toast and keeps the draft without enqueuing a new turn', async () => {
+  it('rejects plugin actions on native steering with a toast and keeps the draft', async () => {
     const steer = vi.fn();
     const submitFeedback = vi.fn();
     const onAfterSuccess = vi.fn();
@@ -127,7 +181,7 @@ describe('executeComposerSteer', () => {
           },
         ],
       },
-      steeringTarget: { turnId: 'turn-1' },
+      steeringTarget: { turnId: 'turn-1', mode: 'native' },
       steer,
       submitFeedback,
       onAfterSuccess,
@@ -141,6 +195,88 @@ describe('executeComposerSteer', () => {
     expect(steer).not.toHaveBeenCalled();
     expect(submitFeedback).not.toHaveBeenCalled();
     expect(onAfterSuccess).not.toHaveBeenCalled();
+  });
+
+  it('allows images and plugin actions in interrupt_restart mode and marks atomic queue consumption', async () => {
+    const atomicReceipt = {
+      status: 'accepted',
+      deliveryMode: 'interrupt_restart',
+      restartedTurnId: 'turn-2',
+    } as unknown as ConversationSteeringReceipt;
+    const steer = vi.fn().mockResolvedValue(atomicReceipt);
+    const submitFeedback = vi.fn();
+    const onAfterSuccess = vi.fn();
+    const onRestoreDraft = vi.fn();
+    const onError = vi.fn();
+    const onToastError = vi.fn();
+
+    await executeComposerSteer({
+      sessionId: 'conv-1',
+      previousDraft: 'Restart with workflow + image',
+      followUp: {
+        message: 'Restart with workflow + image',
+        images: ['.vibe-images/shot.png'],
+        pluginActions: [{ pluginId: 'plugin', actionId: 'act' }],
+      },
+      steeringTarget: { turnId: 'turn-1', mode: 'interrupt_restart' },
+      promotedInputId: 'input-3',
+      expectedRevision: 4,
+      steer,
+      submitFeedback,
+      onAfterSuccess,
+      onRestoreDraft,
+      onError,
+      onToastError,
+      messages: MESSAGES,
+    });
+
+    expect(onToastError).not.toHaveBeenCalled();
+    expect(steer).toHaveBeenCalledWith({
+      conversationId: 'conv-1',
+      expectedTurnId: 'turn-1',
+      text: 'Restart with workflow + image',
+      images: ['.vibe-images/shot.png'],
+      promotedInputId: 'input-3',
+      expectedRevision: 4,
+      allowInterruptRestart: true,
+    });
+    expect(onAfterSuccess).toHaveBeenCalledWith({
+      consumedPromotedInputAtomically: true,
+      receipt: atomicReceipt,
+    });
+  });
+
+  it('falls back to non-atomic consumption when legacy backend receipt omits deliveryMode', async () => {
+    const legacyReceipt = {
+      status: 'accepted',
+    } as ConversationSteeringReceipt;
+    const steer = vi.fn().mockResolvedValue(legacyReceipt);
+    const onAfterSuccess = vi.fn();
+
+    await executeComposerSteer({
+      sessionId: 'conv-1',
+      previousDraft: 'Promote legacy',
+      followUp: {
+        message: 'Promote legacy',
+        images: [],
+        pluginActions: [],
+      },
+      steeringTarget: { turnId: 'turn-1', mode: 'native' },
+      promotedInputId: 'input-2',
+      expectedRevision: 1,
+      steer,
+      submitFeedback: vi.fn(),
+      onAfterSuccess,
+      onRestoreDraft: vi.fn(),
+      onError: vi.fn(),
+      onToastError: vi.fn(),
+      messages: MESSAGES,
+    });
+
+    expect(onAfterSuccess).toHaveBeenCalledWith({
+      consumedPromotedInputAtomically: false,
+      receipt: legacyReceipt,
+    });
   });
 
   it('rejects images on the pull feedback channel with a toast and keeps the draft', async () => {
@@ -195,7 +331,7 @@ describe('executeComposerSteer', () => {
         images: [],
         pluginActions: [],
       },
-      steeringTarget: { turnId: 'turn-1' },
+      steeringTarget: { turnId: 'turn-1', mode: 'native' },
       steer,
       submitFeedback,
       onAfterSuccess,

@@ -17,6 +17,7 @@ export function useSessionComposerHover() {
   const elementTokenTooltipId = useId();
   const quoteTokenTooltipId = useId();
   const hoverHideTimerRef = useRef<number | null>(null);
+  const quoteEditingRef = useRef(false);
   const [activeHoverToken, setActiveHoverToken] = useState<{
     anchor: HTMLElement;
     token: SessionComposerStructuredToken;
@@ -29,6 +30,16 @@ export function useSessionComposerHover() {
     }
   }, []);
 
+  const setQuoteEditing = useCallback(
+    (editing: boolean) => {
+      quoteEditingRef.current = editing;
+      if (editing) {
+        cancelHoverHide();
+      }
+    },
+    [cancelHoverHide]
+  );
+
   const showTokenHover = useCallback(
     (target: EventTarget | null) => {
       const anchor = getHoverableTokenFromEventTarget(target);
@@ -36,18 +47,22 @@ export function useSessionComposerHover() {
       const token = getStructuredHoverToken(anchor);
       if (!token) return;
       cancelHoverHide();
-      setActiveHoverToken((current) =>
-        current?.anchor === anchor && current.token.raw === token.raw
-          ? current
-          : { anchor, token }
-      );
+      setActiveHoverToken((current) => {
+        if (current?.anchor === anchor && current.token.raw === token.raw) {
+          return current;
+        }
+        quoteEditingRef.current = false;
+        return { anchor, token };
+      });
     },
     [cancelHoverHide]
   );
 
   const hideTokenHover = useCallback(
     (anchor: HTMLElement, delayMs = 0) => {
+      if (quoteEditingRef.current) return;
       const hide = () => {
+        if (quoteEditingRef.current) return;
         setActiveHoverToken((current) =>
           current?.anchor === anchor ? null : current
         );
@@ -104,13 +119,20 @@ export function useSessionComposerHover() {
 
   useEffect(() => {
     const anchor = activeHoverToken?.anchor;
-    if (!anchor) return undefined;
+    if (!anchor) {
+      quoteEditingRef.current = false;
+      return undefined;
+    }
     if (!anchor.isConnected) {
+      quoteEditingRef.current = false;
       setActiveHoverToken(null);
       return undefined;
     }
     const observer = new MutationObserver(() => {
-      if (!anchor.isConnected) setActiveHoverToken(null);
+      if (!anchor.isConnected) {
+        quoteEditingRef.current = false;
+        setActiveHoverToken(null);
+      }
     });
     observer.observe(document.body, { childList: true, subtree: true });
     return () => observer.disconnect();
@@ -157,6 +179,7 @@ export function useSessionComposerHover() {
     activeHoverToken,
     cancelHoverHide,
     hideTokenHover,
+    setQuoteEditing,
     handleTokenPointerOver,
     handleTokenPointerOut,
     handleTokenFocus,

@@ -1,24 +1,13 @@
 import { useState, type ReactNode } from 'react';
-import { ArrowUp } from 'lucide-react';
-import { useTranslation } from 'react-i18next';
 import type {
   ExecutorProfileId,
   Session,
-  TodoItem,
   TokenUsageInfo,
 } from 'shared/types';
 
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from '@/components/ui/tooltip';
-import type { UseWorkspaceSessionsResult } from '@/hooks/useWorkspaceSessions';
 import type { CodexGoalState } from '@/lib/codexGoalState';
 
 import { DiffStatsBar } from './DiffStatsBar';
-import { SessionSelector } from './SessionSelector';
-import { TodoListButton } from './TodoListButton';
 import { TokenUsageIndicator } from './TokenUsageIndicator';
 
 interface SessionComposerTopbarProps {
@@ -31,26 +20,8 @@ interface SessionComposerTopbarProps {
   codexGoalState?: CodexGoalState | null;
   onSelectCodexGoal?: () => void;
   tokenUsageInfo: TokenUsageInfo | null;
-  todos: TodoItem[];
-  showSessionSelector: boolean;
-  sessions: UseWorkspaceSessionsResult['sessions'];
-  selectedSessionId?: string;
-  compactSessionLabel: string;
-  selectedSessionLabel: string;
-  onJumpToPreviousUserMessage?: () => void;
-  onSelectSession: (id: string) => void;
-  onStartNewSession: () => void;
-  onRenameSession: (id: string, name: string | null) => void | Promise<void>;
   composerIdentity?: ReactNode;
-  nextAgentControl?: ReactNode;
-  continuation?: {
-    policy: 'portable' | 'fresh';
-    onChange: (policy: 'portable' | 'fresh') => void;
-  };
 }
-
-const JUMP_TO_PREVIOUS_LABEL =
-  '\u56de\u5230\u4e0a\u4e00\u6761\u7528\u6237\u6d88\u606f';
 
 export function SessionComposerTopbar({
   executorProfile,
@@ -60,46 +31,18 @@ export function SessionComposerTopbar({
   added,
   deleted,
   tokenUsageInfo,
-  todos,
-  showSessionSelector,
-  sessions,
-  selectedSessionId,
-  compactSessionLabel,
-  selectedSessionLabel,
-  onJumpToPreviousUserMessage,
-  onSelectSession,
-  onStartNewSession,
-  onRenameSession,
   composerIdentity,
-  nextAgentControl,
-  continuation,
 }: SessionComposerTopbarProps) {
-  const { t } = useTranslation('app');
   const [showDiffStats, setShowDiffStats] = useState(false);
 
   return (
     <div className="composer-topbar flex items-center gap-2 px-1 pb-0 text-xs">
-      {composerIdentity ?? nextAgentControl ?? (
+      {composerIdentity ?? (
         <DiffStatsBar
           executorProfile={executorProfile}
           sessionExecutor={sessionExecutor}
         />
       )}
-      {continuation ? (
-        <select
-          className="raised-control rounded-md text-xs"
-          aria-label={t('continuation.context')}
-          value={continuation.policy}
-          onChange={(event) => {
-            if (event.target.value === 'portable' || event.target.value === 'fresh') {
-              continuation.onChange(event.target.value);
-            }
-          }}
-        >
-          <option value="portable">{t('continuation.portable')}</option>
-          <option value="fresh">{t('continuation.fresh')}</option>
-        </select>
-      ) : null}
       {showChangedFileSummary ? (
         <button
           type="button"
@@ -120,36 +63,6 @@ export function SessionComposerTopbar({
       <div className="flex-1" />
 
       <TokenUsageIndicator tokenUsageInfo={tokenUsageInfo} />
-
-      <TodoListButton todos={todos} />
-
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <button
-            type="button"
-            onClick={onJumpToPreviousUserMessage}
-            className="composer-control flex items-center justify-center rounded-md px-1.5 py-0.5 transition-colors disabled:cursor-not-allowed disabled:opacity-50"
-            aria-label={JUMP_TO_PREVIOUS_LABEL}
-            disabled={!onJumpToPreviousUserMessage}
-          >
-            <ArrowUp className="h-3.5 w-3.5" />
-          </button>
-        </TooltipTrigger>
-        <TooltipContent>{JUMP_TO_PREVIOUS_LABEL}</TooltipContent>
-      </Tooltip>
-
-      {showSessionSelector ? (
-        <SessionSelector
-          sessions={sessions}
-          selectedSessionId={selectedSessionId}
-          compactSessionLabel={compactSessionLabel}
-          selectedSessionLabel={selectedSessionLabel}
-          onSelectSession={onSelectSession}
-          onStartNewSession={onStartNewSession}
-          onRenameSession={onRenameSession}
-          dropdownSide="top"
-        />
-      ) : null}
     </div>
   );
 }

@@ -30,6 +30,7 @@ pub mod plugin_kv_storage;
 pub mod plugin_v2;
 pub mod project;
 pub mod project_repo;
+pub mod pulse;
 pub mod repo;
 pub mod scratch;
 pub mod session;

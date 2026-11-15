@@ -1095,10 +1095,28 @@ async fn bot_member_is_busy(
     conn: &mut SqliteConnection,
     member_id: &str,
 ) -> Result<bool, WorkflowError> {
+    let has_mailbox: Option<i64> = sqlx::query_scalar(
+        "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'pulse_bot_mailbox' LIMIT 1",
+    )
+    .fetch_optional(&mut *conn)
+    .await?;
+    if has_mailbox.is_some() {
+        let claimed_mailbox: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM pulse_bot_mailbox WHERE member_id = ? AND status = 'claimed'",
+        )
+        .bind(member_id)
+        .fetch_one(&mut *conn)
+        .await?;
+        if claimed_mailbox > 0 {
+            return Ok(true);
+        }
+    }
+
     let active_rows = sqlx::query(
-        "SELECT step.step_id, run.definition_version_id
+        "SELECT step.step_id, wdv.normalized_json
          FROM workflow_step_runs step
          JOIN workflow_runs run ON run.id = step.run_id
+         JOIN workflow_definition_versions wdv ON wdv.id = run.definition_version_id
          WHERE step.status IN ('claimed', 'running')
            AND run.status IN ('running', 'waiting')",
     )
@@ -1106,9 +1124,8 @@ async fn bot_member_is_busy(
     .await?;
     for row in active_rows {
         let active_step_id: String = row.try_get("step_id")?;
-        let version_id: Uuid = row.try_get("definition_version_id")?;
-        let version = version_on_connection(&mut *conn, version_id).await?;
-        let definition = version.definition()?;
+        let normalized_json: String = row.try_get("normalized_json")?;
+        let definition: crate::WorkflowDefinition = serde_json::from_str(&normalized_json)?;
         if let Some(active_step) = definition.steps.iter().find(|s| s.id == active_step_id)
             && let WorkflowStepSpec::Bot(active_bot) = &active_step.spec
             && active_bot.member_id == member_id
@@ -1117,4 +1134,58 @@ async fn bot_member_is_busy(
         }
     }
     Ok(false)
+}
+
+impl WorkflowStore {
+    pub async fn release_claim(
+        &self,
+        run_id: Uuid,
+        step_id: &str,
+        claim_token: Uuid,
+    ) -> Result<bool, WorkflowError> {
+        let mut conn = self.begin_immediate().await?;
+        let result = async {
+            let step = find_latest_step(&mut conn, run_id, step_id).await?;
+            if step.status != "claimed" || step.claim_token != Some(claim_token) {
+                return Ok(false);
+            }
+            sqlx::query(
+                "UPDATE workflow_ready_steps
+                 SET status = 'ready', claim_token = NULL, claim_deadline = NULL
+                 WHERE run_id = ? AND step_id = ? AND attempt = ? AND claim_token = ?",
+            )
+            .bind(run_id)
+            .bind(step_id)
+            .bind(step.attempt)
+            .bind(claim_token)
+            .execute(&mut *conn)
+            .await?;
+            sqlx::query(
+                "UPDATE workflow_step_runs
+                 SET status = 'ready', claim_token = NULL, claim_deadline = NULL,
+                     updated_at = datetime('now', 'subsec')
+                 WHERE run_id = ? AND step_id = ? AND attempt = ?
+                   AND status = 'claimed' AND claim_token = ?",
+            )
+            .bind(run_id)
+            .bind(step_id)
+            .bind(step.attempt)
+            .bind(claim_token)
+            .execute(&mut *conn)
+            .await?;
+            append_event(
+                &mut conn,
+                run_id,
+                None,
+                &WorkflowEvent::StepClaimReleased {
+                    step_id: step_id.to_string(),
+                    attempt: step.attempt as u32,
+                },
+            )
+            .await?;
+            Ok(true)
+        }
+        .await;
+        self.finish(conn, result).await
+    }
 }

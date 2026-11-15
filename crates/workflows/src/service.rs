@@ -597,6 +597,83 @@ impl WorkflowCore {
             .iter()
             .find(|step| step.id == input.step_id)
             .ok_or_else(|| WorkflowError::NotFound(format!("workflow step {}", input.step_id)))?;
+        if let WorkflowStepSpec::UserGate(gate) = &step.spec {
+            let selected_option_id = input
+                .decision
+                .get("selectedOptionId")
+                .or_else(|| input.decision.get("selected_option_id"))
+                .or_else(|| input.decision.get("optionId"))
+                .or_else(|| input.decision.get("option_id"))
+                .and_then(serde_json::Value::as_str)
+                .map(str::to_string)
+                .or_else(|| {
+                    let approved = input.decision.get("approved")?.as_bool()?;
+                    if approved {
+                        gate.approval_options
+                            .iter()
+                            .find(|opt| {
+                                matches!(
+                                    opt.id.to_ascii_lowercase().as_str(),
+                                    "approve" | "approved" | "yes" | "accept" | "confirm" | "allow"
+                                )
+                            })
+                            .or_else(|| gate.approval_options.first())
+                            .map(|opt| opt.id.clone())
+                    } else {
+                        gate.approval_options
+                            .iter()
+                            .find(|opt| {
+                                matches!(
+                                    opt.id.to_ascii_lowercase().as_str(),
+                                    "reject"
+                                        | "rejected"
+                                        | "deny"
+                                        | "denied"
+                                        | "no"
+                                        | "decline"
+                                        | "cancel"
+                                )
+                            })
+                            .or_else(|| gate.approval_options.get(1))
+                            .or_else(|| gate.approval_options.last())
+                            .map(|opt| opt.id.clone())
+                    }
+                });
+            let note = input
+                .decision
+                .get("note")
+                .or_else(|| input.decision.get("reason"))
+                .or_else(|| input.decision.get("comment"))
+                .and_then(serde_json::Value::as_str)
+                .map(str::to_string);
+            let form_data = input
+                .decision
+                .get("formData")
+                .or_else(|| input.decision.get("form_data"))
+                .or_else(|| input.decision.get("formValues"))
+                .or_else(|| input.decision.get("form_values"))
+                .cloned()
+                .or_else(|| {
+                    if gate.interaction_kind == UserInteractionKind::AskForm
+                        && input.decision.is_object()
+                    {
+                        Some(input.decision.clone())
+                    } else {
+                        None
+                    }
+                });
+            return self
+                .decide_user_gate(DecideUserGate {
+                    run_id: input.run_id,
+                    step_id: input.step_id,
+                    selected_option_id,
+                    note,
+                    form_data,
+                    operation_id: input.operation_id,
+                    principal: input.principal,
+                })
+                .await;
+        }
         let WorkflowStepSpec::Approval(approval) = &step.spec else {
             return Err(WorkflowError::Conflict(format!(
                 "step `{}` is not an approval",

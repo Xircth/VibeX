@@ -12,15 +12,16 @@ use conversations::{
 };
 use db::models::{
     collaboration_identity::resolve_pulse_bot_session,
-    pulse::{SqlitePulseStore, ensure_pulse_schema},
+    conversation_turn::ConversationTurnRecord,
+    pulse::{PulseBotMailboxItem, SqlitePulseStore, ensure_pulse_schema},
 };
 use serde_json::{Value, json};
 use uuid::Uuid;
 use workflows::{
-    BotConversationScope, BotStepSpec, ClaimedWorkflowStep, CompleteWorkflowStep, CompletionPolicy,
-    DecideUserGate, GroupDispatchMode, GroupStageStepSpec, OutboxActionKind, OutboxActionStepSpec,
-    SessionStepSpec, WorkflowCore, WorkflowRunView, WorkflowStep, WorkflowStepSpec,
-    WorkspaceAccess, resolve_json_pointer,
+    BotConversationScope, BotMailboxPolicy, BotStepSpec, ClaimedWorkflowStep, CompleteWorkflowStep,
+    CompletionPolicy, GroupDispatchMode, GroupStageStepSpec, OutboxActionKind,
+    OutboxActionStepSpec, SessionStepSpec, WorkflowCore, WorkflowRunView, WorkflowStep,
+    WorkflowStepSpec, WorkspaceAccess, resolve_json_pointer,
 };
 
 use crate::{
@@ -328,6 +329,88 @@ impl WorkflowAgentDispatcher {
 
         let agent_id = AgentId::parse(&bot_session.agent)
             .map_err(|error| ApplicationError::bad_request(error.to_string()))?;
+        let interpolated =
+            interpolate_template(&bot.prompt_template, &resolved_input.values, &run_input);
+        let prompt = render_agent_prompt(
+            &interpolated,
+            &resolved_input.values,
+            bot.output_schema.as_ref(),
+            None,
+            None,
+        )?;
+
+        ensure_pulse_schema(pool)
+            .await
+            .map_err(|err| ApplicationError::internal(err.to_string()))?;
+        let pulse_store = SqlitePulseStore::new(pool.clone());
+        let now_iso = Utc::now().to_rfc3339();
+        let mailbox_item_id =
+            format!("wf-bot:{}:{}:{}", claimed.run.id, step.id, claimed.step.attempt);
+        let event_id = format!("workflow:{}:{}", claimed.run.id, step.id);
+        pulse_store
+            .enqueue_bot_turn(&PulseBotMailboxItem {
+                id: mailbox_item_id.clone(),
+                member_id: bot.member_id.clone(),
+                conversation_scope: bot.conversation_scope,
+                mailbox_policy: bot.mailbox_policy,
+                thread_key: topic_key.clone(),
+                event_id,
+                prompt_text: prompt,
+                status: "queued".to_string(),
+                created_at: now_iso.clone(),
+                claimed_at: None,
+            })
+            .await
+            .map_err(|err| ApplicationError::internal(err.to_string()))?;
+
+        let has_active_turn = ConversationTurnRecord::list_for_conversation(
+            pool,
+            bot_session.conversation_id,
+        )
+        .await
+        .ok()
+        .is_some_and(|turns| {
+            turns.iter().any(|turn| {
+                matches!(
+                    turn.status.as_str(),
+                    "pending" | "queued" | "running" | "blocked"
+                )
+            })
+        });
+        if has_active_turn {
+            let _ = self
+                .store
+                .release_claim(claimed.run.id, &step.id, claimed.claim_token)
+                .await;
+            return Ok(false);
+        }
+
+        if bot.mailbox_policy == BotMailboxPolicy::FifoSerial
+            && let Some(front) = pulse_store
+                .peek_next_bot_turn(&bot.member_id)
+                .await
+                .map_err(|err| ApplicationError::internal(err.to_string()))?
+            && front.id != mailbox_item_id
+        {
+            let _ = self
+                .store
+                .release_claim(claimed.run.id, &step.id, claimed.claim_token)
+                .await;
+            return Ok(false);
+        }
+
+        let Some(claimed_turn) = pulse_store
+            .claim_next_bot_turn(&bot.member_id, &now_iso)
+            .await
+            .map_err(|err| ApplicationError::internal(err.to_string()))?
+        else {
+            let _ = self
+                .store
+                .release_claim(claimed.run.id, &step.id, claimed.claim_token)
+                .await;
+            return Ok(false);
+        };
+
         let workspace_evidence = json!({
             "isolated": false,
             "workspaceId": bot_session.workspace_id,
@@ -335,6 +418,7 @@ impl WorkflowAgentDispatcher {
             "memberId": bot.member_id,
             "conversationScope": bot.conversation_scope,
             "mailboxPolicy": bot.mailbox_policy,
+            "mailboxItemId": claimed_turn.primary.id,
             "persistentConversationId": bot_session.conversation_id,
         });
 
@@ -349,16 +433,6 @@ impl WorkflowAgentDispatcher {
             )
             .await
             .map_err(map_error)?;
-
-        let interpolated =
-            interpolate_template(&bot.prompt_template, &resolved_input.values, &run_input);
-        let prompt = render_agent_prompt(
-            &interpolated,
-            &resolved_input.values,
-            bot.output_schema.as_ref(),
-            None,
-            None,
-        )?;
 
         self.store
             .mark_started(
@@ -390,7 +464,7 @@ impl WorkflowAgentDispatcher {
                     agent_id,
                     workspace_id: bot_session.workspace_id,
                     executor_profile_id: None,
-                    text: prompt,
+                    text: claimed_turn.combined_prompt,
                     display_text: None,
                     images: Vec::new(),
                     mode_override: None,
@@ -405,6 +479,7 @@ impl WorkflowAgentDispatcher {
                     "workflowRunId": claimed.run.id,
                     "workflowStepId": step.id,
                     "memberId": bot.member_id,
+                    "mailboxItemId": claimed_turn.primary.id,
                     "primitive": "bot",
                 }),
             })
@@ -412,6 +487,7 @@ impl WorkflowAgentDispatcher {
 
         match submission {
             Ok(submission) => {
+                let _ = pulse_store.complete_bot_turn(&claimed_turn.primary.id).await;
                 let turn_id = if let Some(turn) = submission.turn {
                     turn.turn_id
                 } else {
@@ -428,6 +504,7 @@ impl WorkflowAgentDispatcher {
                     .map_err(map_error)?;
             }
             Err(error) => {
+                let _ = pulse_store.fail_bot_turn(&claimed_turn.primary.id).await;
                 self.store
                     .fail_step(
                         claimed.run.id,
@@ -604,8 +681,13 @@ impl WorkflowAgentDispatcher {
         );
         let outbox_envelope = json!({
             "target": rendered_target,
+            "eventType": (outbox.action_kind == OutboxActionKind::EmitEvent)
+                .then_some(rendered_target.as_str()),
             "actionKind": target_kind,
             "payload": rendered_payload,
+            "threadKey": extract_thread_key(&resolved_input.values, &run_input),
+            "rootEventId": extract_root_event_id(&resolved_input.values, &run_input),
+            "parentHopCount": extract_hop_count(&resolved_input.values, &run_input),
             "workflowRunId": claimed.run.id,
             "workflowStepId": step.id,
         });
@@ -763,51 +845,6 @@ pub(crate) async fn decide_workflow_or_user_gate(
     operation_id: Uuid,
     request: DecideWorkflowRequest,
 ) -> Result<WorkflowRunView, ApplicationError> {
-    let run = core.store().run(request.run_id).await.map_err(map_error)?;
-    let definition = core
-        .store()
-        .version(run.definition_version_id)
-        .await
-        .map_err(map_error)?
-        .definition()
-        .map_err(map_error)?;
-    let is_user_gate = definition
-        .steps
-        .iter()
-        .find(|s| s.id == request.step_id)
-        .is_some_and(|s| matches!(s.spec, WorkflowStepSpec::UserGate(_)));
-
-    if is_user_gate {
-        let selected_option_id = request
-            .decision
-            .get("selectedOptionId")
-            .or_else(|| request.decision.get("optionId"))
-            .and_then(Value::as_str)
-            .map(str::to_string);
-        let note = request
-            .decision
-            .get("note")
-            .and_then(Value::as_str)
-            .map(str::to_string);
-        let form_data = request
-            .decision
-            .get("formData")
-            .or_else(|| request.decision.get("formValues"))
-            .cloned();
-        return core
-            .decide_user_gate(DecideUserGate {
-                run_id: request.run_id,
-                step_id: request.step_id,
-                selected_option_id,
-                note,
-                form_data,
-                operation_id,
-                principal: principal_json(principal),
-            })
-            .await
-            .map_err(map_error);
-    }
-
     core.decide(workflows::DecideApproval {
         run_id: request.run_id,
         step_id: request.step_id,
@@ -837,6 +874,64 @@ fn extract_thread_key(step_inputs: &BTreeMap<String, Value>, run_input: &Value) 
         }
     }
     None
+}
+
+fn extract_root_event_id(
+    step_inputs: &BTreeMap<String, Value>,
+    run_input: &Value,
+) -> Option<String> {
+    for key in ["rootEventId", "root_event_id", "eventId", "event_id"] {
+        if let Some(val) = step_inputs.get(key).and_then(Value::as_str)
+            && !val.trim().is_empty()
+        {
+            return Some(val.trim().to_string());
+        }
+        if let Some(val) = run_input.get(key).and_then(Value::as_str)
+            && !val.trim().is_empty()
+        {
+            return Some(val.trim().to_string());
+        }
+    }
+    if let Some(val) = resolve_json_pointer(run_input, "/trace/rootEventId").and_then(Value::as_str)
+        && !val.trim().is_empty()
+    {
+        return Some(val.trim().to_string());
+    }
+    None
+}
+
+fn extract_hop_count(step_inputs: &BTreeMap<String, Value>, run_input: &Value) -> Option<u32> {
+    for key in ["hopCount", "hop_count", "parentHopCount"] {
+        if let Some(val) = step_inputs
+            .get(key)
+            .and_then(Value::as_u64)
+            .or_else(|| {
+                step_inputs
+                    .get(key)
+                    .and_then(Value::as_str)
+                    .and_then(|s| s.parse().ok())
+            })
+            .and_then(|n| u32::try_from(n).ok())
+        {
+            return Some(val);
+        }
+        if let Some(val) = run_input
+            .get(key)
+            .and_then(Value::as_u64)
+            .or_else(|| {
+                run_input
+                    .get(key)
+                    .and_then(Value::as_str)
+                    .and_then(|s| s.parse().ok())
+            })
+            .and_then(|n| u32::try_from(n).ok())
+        {
+            return Some(val);
+        }
+    }
+    resolve_json_pointer(run_input, "/trace/hopCount")
+        .and_then(Value::as_u64)
+        .and_then(|n| u32::try_from(n).ok())
 }
 
 fn interpolate_json_value(

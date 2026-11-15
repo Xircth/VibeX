@@ -280,107 +280,160 @@ pub(crate) async fn enqueue_newly_ready(
                     progressed = true;
                     completed_inline = true;
                 }
-                WorkflowStepSpec::UserGate(gate) => match gate.interaction_kind {
-                    UserInteractionKind::Notify | UserInteractionKind::Digest => {
-                        let output = serde_json::json!({
-                            "interactionKind": gate.interaction_kind,
-                            "notified": true,
-                        });
-                        append_event(
-                            conn,
-                            run_id,
-                            None,
-                            &WorkflowEvent::StepOutputAccepted {
-                                step_id: step.id.clone(),
-                                attempt: attempt as u32,
-                                output: output.clone(),
-                                schema_digest: "user-gate-notify:v1".to_string(),
-                            },
-                        )
-                        .await?;
-                        sqlx::query(
-                            "UPDATE workflow_step_runs
-                             SET status = 'completed', output_json = ?, output_schema_digest = ?,
-                                 completed_at = datetime('now', 'subsec'),
-                                 updated_at = datetime('now', 'subsec')
-                             WHERE run_id = ? AND step_id = ? AND attempt = ? AND status = 'pending'",
-                        )
-                        .bind(serde_json::to_string(&output)?)
-                        .bind("user-gate-notify:v1")
-                        .bind(run_id)
-                        .bind(&step.id)
-                        .bind(attempt)
-                        .execute(&mut *conn)
-                        .await?;
-                        append_event(
-                            conn,
-                            run_id,
-                            None,
-                            &WorkflowEvent::StepCompleted {
-                                step_id: step.id.clone(),
-                                attempt: attempt as u32,
-                            },
-                        )
-                        .await?;
-                        progressed = true;
-                        completed_inline = true;
+                WorkflowStepSpec::UserGate(gate) => {
+                    let context =
+                        build_inline_step_context(conn, run_id, definition, step, &step.depends_on)
+                            .await?;
+                    let rendered_title = render_context_template(&gate.title_template, &context);
+                    let rendered_body = render_context_template(&gate.body_template, &context);
+                    let now_iso = Utc::now().to_rfc3339();
+                    let interaction_id = format!("wf-gate:{run_id}:{}:{attempt}", step.id);
+
+                    match gate.interaction_kind {
+                        UserInteractionKind::Notify | UserInteractionKind::Digest => {
+                            let output = serde_json::json!({
+                                "interactionKind": gate.interaction_kind,
+                                "notified": true,
+                            });
+                            let output_json = serde_json::to_string(&output)?;
+                            upsert_workflow_pulse_interaction(
+                                conn,
+                                WorkflowPulseInteractionInsert {
+                                    id: &interaction_id,
+                                    run_id,
+                                    step_id: &step.id,
+                                    kind: gate.interaction_kind,
+                                    severity: "info",
+                                    title: &rendered_title,
+                                    body: &rendered_body,
+                                    approval_options: &gate.approval_options,
+                                    form_schema: gate.form_schema.as_ref(),
+                                    resolution_json: Some(&output_json),
+                                    status: "resolved",
+                                    sla_deadline_at: None,
+                                    created_at: &now_iso,
+                                    resolved_at: Some(&now_iso),
+                                },
+                            )
+                            .await?;
+                            append_event(
+                                conn,
+                                run_id,
+                                None,
+                                &WorkflowEvent::StepOutputAccepted {
+                                    step_id: step.id.clone(),
+                                    attempt: attempt as u32,
+                                    output: output.clone(),
+                                    schema_digest: "user-gate-notify:v1".to_string(),
+                                },
+                            )
+                            .await?;
+                            sqlx::query(
+                                "UPDATE workflow_step_runs
+                                 SET status = 'completed', output_json = ?, output_schema_digest = ?,
+                                     completed_at = datetime('now', 'subsec'),
+                                     updated_at = datetime('now', 'subsec')
+                                 WHERE run_id = ? AND step_id = ? AND attempt = ? AND status = 'pending'",
+                            )
+                            .bind(&output_json)
+                            .bind("user-gate-notify:v1")
+                            .bind(run_id)
+                            .bind(&step.id)
+                            .bind(attempt)
+                            .execute(&mut *conn)
+                            .await?;
+                            append_event(
+                                conn,
+                                run_id,
+                                None,
+                                &WorkflowEvent::StepCompleted {
+                                    step_id: step.id.clone(),
+                                    attempt: attempt as u32,
+                                },
+                            )
+                            .await?;
+                            progressed = true;
+                            completed_inline = true;
+                        }
+                        UserInteractionKind::Approval | UserInteractionKind::AskForm => {
+                            let timeout_at = gate
+                                .sla_timeout_seconds
+                                .map(|secs| Utc::now() + Duration::seconds(i64::from(secs)));
+                            let sla_iso = timeout_at.map(|dt| dt.to_rfc3339());
+                            upsert_workflow_pulse_interaction(
+                                conn,
+                                WorkflowPulseInteractionInsert {
+                                    id: &interaction_id,
+                                    run_id,
+                                    step_id: &step.id,
+                                    kind: gate.interaction_kind,
+                                    severity: "warning",
+                                    title: &rendered_title,
+                                    body: &rendered_body,
+                                    approval_options: &gate.approval_options,
+                                    form_schema: gate.form_schema.as_ref(),
+                                    resolution_json: None,
+                                    status: "pending",
+                                    sla_deadline_at: sla_iso.as_deref(),
+                                    created_at: &now_iso,
+                                    resolved_at: None,
+                                },
+                            )
+                            .await?;
+                            let evidence = serde_json::json!({
+                                "primitive": "user_gate",
+                                "interactionId": interaction_id,
+                                "interactionKind": gate.interaction_kind,
+                                "timeoutAt": timeout_at,
+                            });
+                            let evidence_json = serde_json::to_string(&evidence)?;
+                            let evidence_digest =
+                                format!("{:x}", Sha256::digest(evidence_json.as_bytes()));
+                            sqlx::query(
+                                "UPDATE workflow_step_runs
+                                 SET status = 'waiting_approval', execution_evidence_json = ?,
+                                     updated_at = datetime('now', 'subsec')
+                                 WHERE run_id = ? AND step_id = ? AND attempt = ? AND status = 'pending'",
+                            )
+                            .bind(&evidence_json)
+                            .bind(run_id)
+                            .bind(&step.id)
+                            .bind(attempt)
+                            .execute(&mut *conn)
+                            .await?;
+                            append_event(
+                                conn,
+                                run_id,
+                                None,
+                                &WorkflowEvent::StepEvidenceRecorded {
+                                    step_id: step.id.clone(),
+                                    attempt: attempt as u32,
+                                    evidence_digest,
+                                    execution_evidence: Some(evidence),
+                                },
+                            )
+                            .await?;
+                            append_event(
+                                conn,
+                                run_id,
+                                None,
+                                &WorkflowEvent::StepWaitingApproval {
+                                    step_id: step.id.clone(),
+                                    attempt: attempt as u32,
+                                },
+                            )
+                            .await?;
+                            sqlx::query(
+                                "UPDATE workflow_runs SET status = 'waiting',
+                                        updated_at = datetime('now', 'subsec')
+                                 WHERE id = ? AND status = 'running'",
+                            )
+                            .bind(run_id)
+                            .execute(&mut *conn)
+                            .await?;
+                        }
                     }
-                    UserInteractionKind::Approval | UserInteractionKind::AskForm => {
-                        let timeout_at = gate
-                            .sla_timeout_seconds
-                            .map(|secs| Utc::now() + Duration::seconds(i64::from(secs)));
-                        let evidence = serde_json::json!({
-                            "primitive": "user_gate",
-                            "interactionKind": gate.interaction_kind,
-                            "timeoutAt": timeout_at,
-                        });
-                        let evidence_json = serde_json::to_string(&evidence)?;
-                        let evidence_digest =
-                            format!("{:x}", Sha256::digest(evidence_json.as_bytes()));
-                        sqlx::query(
-                            "UPDATE workflow_step_runs
-                             SET status = 'waiting_approval', execution_evidence_json = ?,
-                                 updated_at = datetime('now', 'subsec')
-                             WHERE run_id = ? AND step_id = ? AND attempt = ? AND status = 'pending'",
-                        )
-                        .bind(&evidence_json)
-                        .bind(run_id)
-                        .bind(&step.id)
-                        .bind(attempt)
-                        .execute(&mut *conn)
-                        .await?;
-                        append_event(
-                            conn,
-                            run_id,
-                            None,
-                            &WorkflowEvent::StepEvidenceRecorded {
-                                step_id: step.id.clone(),
-                                attempt: attempt as u32,
-                                evidence_digest,
-                                execution_evidence: Some(evidence),
-                            },
-                        )
-                        .await?;
-                        append_event(
-                            conn,
-                            run_id,
-                            None,
-                            &WorkflowEvent::StepWaitingApproval {
-                                step_id: step.id.clone(),
-                                attempt: attempt as u32,
-                            },
-                        )
-                        .await?;
-                        sqlx::query(
-                            "UPDATE workflow_runs SET status = 'waiting',
-                                    updated_at = datetime('now', 'subsec')
-                             WHERE id = ? AND status = 'running'",
-                        )
-                        .bind(run_id)
-                        .execute(&mut *conn)
-                        .await?;
-                    }
-                },
+                }
                 WorkflowStepSpec::ConditionBranch(branch) => {
                     let context =
                         build_inline_step_context(conn, run_id, definition, step, &[]).await?;
@@ -744,3 +797,133 @@ pub(crate) async fn recover_stale_claims(
     }
     Ok(rows.len())
 }
+
+struct WorkflowPulseInteractionInsert<'a> {
+    id: &'a str,
+    run_id: Uuid,
+    step_id: &'a str,
+    kind: UserInteractionKind,
+    severity: &'a str,
+    title: &'a str,
+    body: &'a str,
+    approval_options: &'a [crate::pulse_steps::ApprovalOptionSpec],
+    form_schema: Option<&'a serde_json::Value>,
+    resolution_json: Option<&'a str>,
+    status: &'a str,
+    sla_deadline_at: Option<&'a str>,
+    created_at: &'a str,
+    resolved_at: Option<&'a str>,
+}
+
+async fn upsert_workflow_pulse_interaction(
+    conn: &mut SqliteConnection,
+    input: WorkflowPulseInteractionInsert<'_>,
+) -> Result<(), WorkflowError> {
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS pulse_user_interactions (
+            id                    TEXT PRIMARY KEY NOT NULL,
+            rule_id               TEXT,
+            workflow_run_id       TEXT,
+            step_id               TEXT,
+            kind                  TEXT NOT NULL,
+            severity              TEXT NOT NULL,
+            title                 TEXT NOT NULL,
+            body                  TEXT NOT NULL,
+            approval_options_json TEXT NOT NULL DEFAULT '[]',
+            form_schema_json      TEXT,
+            resolution_json       TEXT,
+            status                TEXT NOT NULL DEFAULT 'pending',
+            sla_deadline_at       TEXT,
+            created_at            TEXT NOT NULL,
+            resolved_at           TEXT
+        )",
+    )
+    .execute(&mut *conn)
+    .await?;
+
+    let kind_str = match input.kind {
+        UserInteractionKind::Notify => "notify",
+        UserInteractionKind::Approval => "approval",
+        UserInteractionKind::AskForm => "ask_form",
+        UserInteractionKind::Digest => "digest",
+    };
+    let options_json = serde_json::to_string(input.approval_options)?;
+    let form_schema_json = input.form_schema.map(serde_json::to_string).transpose()?;
+
+    sqlx::query(
+        "INSERT INTO pulse_user_interactions (
+            id, rule_id, workflow_run_id, step_id, kind, severity,
+            title, body, approval_options_json, form_schema_json, resolution_json,
+            status, sla_deadline_at, created_at, resolved_at
+        ) VALUES (?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(id) DO UPDATE SET
+            title = excluded.title,
+            body = excluded.body,
+            approval_options_json = excluded.approval_options_json,
+            form_schema_json = excluded.form_schema_json,
+            resolution_json = excluded.resolution_json,
+            status = excluded.status,
+            sla_deadline_at = excluded.sla_deadline_at,
+            resolved_at = excluded.resolved_at",
+    )
+    .bind(input.id)
+    .bind(input.run_id.to_string())
+    .bind(input.step_id)
+    .bind(kind_str)
+    .bind(input.severity)
+    .bind(input.title)
+    .bind(input.body)
+    .bind(options_json)
+    .bind(form_schema_json)
+    .bind(input.resolution_json)
+    .bind(input.status)
+    .bind(input.sla_deadline_at)
+    .bind(input.created_at)
+    .bind(input.resolved_at)
+    .execute(&mut *conn)
+    .await?;
+    Ok(())
+}
+
+fn render_context_template(template: &str, context: &serde_json::Value) -> String {
+    let mut output = String::with_capacity(template.len());
+    let mut rest = template;
+    while let Some(open) = rest.find("{{") {
+        output.push_str(&rest[..open]);
+        let after_open = &rest[open + 2..];
+        let Some(close) = after_open.find("}}") else {
+            output.push_str(&rest[open..]);
+            return output;
+        };
+        let expr = after_open[..close].trim();
+        if let Some(resolved) = lookup_context_expr(expr, context) {
+            match resolved {
+                serde_json::Value::String(s) => output.push_str(s),
+                serde_json::Value::Null => {}
+                other => output.push_str(&other.to_string()),
+            }
+        }
+        rest = &after_open[close + 2..];
+    }
+    output.push_str(rest);
+    output
+}
+
+fn lookup_context_expr<'a>(
+    expr: &str,
+    context: &'a serde_json::Value,
+) -> Option<&'a serde_json::Value> {
+    if expr.is_empty() {
+        return None;
+    }
+    if let Some(direct) = context.get(expr) {
+        return Some(direct);
+    }
+    let normalized = expr
+        .strip_prefix("input.")
+        .map(|tail| format!("runInput.{tail}"))
+        .unwrap_or_else(|| expr.to_string());
+    let pointer = format!("/{}", normalized.trim_start_matches('/').replace('.', "/"));
+    select_pointer(context, &pointer)
+}
+

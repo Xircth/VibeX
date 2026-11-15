@@ -76,6 +76,7 @@ impl ServerApplicationDomains {
 
     async fn execute_command(
         &self,
+        principal: &Principal,
         command: DomainCommand,
         args: Value,
     ) -> Result<Value, ApplicationError> {
@@ -145,7 +146,7 @@ impl ServerApplicationDomains {
             DomainCommand::PluginSurfaceRevoke => self.plugin_surface_revoke(args).await,
             DomainCommand::PluginHostCall => self.plugin_host_call(args).await,
             DomainCommand::PluginInvokeContribution => self.plugin_invoke_contribution(args).await,
-            DomainCommand::PluginCommandInvoke => self.plugin_command_invoke(args).await,
+            DomainCommand::PluginCommandInvoke => self.plugin_command_invoke(principal, args).await,
             DomainCommand::ProjectList => self.project_list().await,
             DomainCommand::ProjectRepositories => self.project_repositories(args).await,
             DomainCommand::RepoBranches => self.repo_branches(args).await,
@@ -440,7 +441,7 @@ impl ServerApplicationDomains {
                 Box::pin(self.surface_command(command, args)).await
             }
             other if crate::pulse_runtime::is_pulse_domain_command(other) => {
-                Box::pin(self.execute_pulse_command(&Principal::local_desktop(), other, args)).await
+                Box::pin(self.execute_pulse_command(principal, other, args)).await
             }
             other if crate::host::catalog::handles(other) => {
                 Box::pin(crate::host::catalog::dispatch(self, other, args)).await
@@ -1670,7 +1671,11 @@ impl ServerApplicationDomains {
         Ok(value)
     }
 
-    async fn plugin_command_invoke(&self, args: Value) -> Result<Value, ApplicationError> {
+    async fn plugin_command_invoke(
+        &self,
+        principal: &Principal,
+        args: Value,
+    ) -> Result<Value, ApplicationError> {
         let plugin_id = args
             .get("pluginId")
             .or_else(|| args.get("plugin_id"))
@@ -1722,7 +1727,7 @@ impl ServerApplicationDomains {
                 resolve_bridged_domain_command(&resolved_plugin_id, &resolved_command)
         {
             return self
-                .execute_bridged_domain_command(domain_command, input)
+                .execute_bridged_domain_command(principal, domain_command, input)
                 .await;
         }
 
@@ -1734,6 +1739,7 @@ impl ServerApplicationDomains {
 
     async fn invoke_dynamic_plugin_command(
         &self,
+        principal: &Principal,
         qualified_command: &str,
         args: Value,
     ) -> Result<Value, ApplicationError> {
@@ -1741,7 +1747,7 @@ impl ServerApplicationDomains {
             qualified_command,
             "plugin.command.invoke" | "plugin_command_invoke"
         ) {
-            return self.plugin_command_invoke(args).await;
+            return self.plugin_command_invoke(principal, args).await;
         }
         let control_plane = self.plugin_control_plane().await?;
         let Some((plugin_id, command_name)) = control_plane
@@ -1755,7 +1761,7 @@ impl ServerApplicationDomains {
             && let Some(domain_command) = resolve_bridged_domain_command(&plugin_id, &command_name)
         {
             return self
-                .execute_bridged_domain_command(domain_command, args)
+                .execute_bridged_domain_command(principal, domain_command, args)
                 .await;
         }
         let input = args
@@ -1771,15 +1777,16 @@ impl ServerApplicationDomains {
 
     async fn execute_bridged_domain_command(
         &self,
+        principal: &Principal,
         domain_command: DomainCommand,
         args: Value,
     ) -> Result<Value, ApplicationError> {
-        let primary = Box::pin(self.execute_command(domain_command, args.clone())).await;
+        let primary = Box::pin(self.execute_command(principal, domain_command, args.clone())).await;
         if primary.is_ok() {
             return primary;
         }
         if let Some(inner) = args.get("input").or_else(|| args.get("params")).cloned() {
-            let fallback = Box::pin(self.execute_command(domain_command, inner)).await;
+            let fallback = Box::pin(self.execute_command(principal, domain_command, inner)).await;
             if fallback.is_ok() {
                 return fallback;
             }
@@ -2760,26 +2767,26 @@ impl ApplicationDomainPort for ServerApplicationDomains {
         if crate::pulse_runtime::is_pulse_domain_command(command) {
             return crate::host::events::bind_host_events(
                 self.events.clone(),
-                self.execute_pulse_command(principal, command, args),
+                Box::pin(self.execute_pulse_command(principal, command, args)),
             )
             .await;
         }
         crate::host::events::bind_host_events(
             self.events.clone(),
-            self.execute_command(command, args),
+            Box::pin(self.execute_command(principal, command, args)),
         )
         .await
     }
 
     async fn execute_dynamic(
         &self,
-        _principal: &Principal,
+        principal: &Principal,
         command_name: &str,
         args: Value,
     ) -> Result<Value, ApplicationError> {
         crate::host::events::bind_host_events(
             self.events.clone(),
-            self.invoke_dynamic_plugin_command(command_name, args),
+            self.invoke_dynamic_plugin_command(principal, command_name, args),
         )
         .await
     }

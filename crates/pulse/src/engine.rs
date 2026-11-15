@@ -2,7 +2,10 @@
 //! `ThreadSubscription` fan-out, `Observe` candidate capture, `Auto` target dispatch
 //! planning, Standard Webhook intake, Temporal ticks, and `PulseDeckSnapshot`.
 
-use std::{collections::BTreeMap, sync::Mutex};
+use std::{
+    collections::{BTreeMap, HashMap},
+    sync::Mutex,
+};
 
 use api_types::pulse::{
     BotConversationScope, BotMailboxPolicy, EventActor, EventEnvelope, EventSourceKind,
@@ -30,7 +33,10 @@ use crate::{
     },
     temporal::{InactivitySlaTracker, TemporalError, TemporalEvaluator},
     validation::validate_rule_spec,
-    webhook::{StandardWebhookHeaders, WebhookVerifyError, verify_standard_webhook},
+    webhook::{
+        MAX_WEBHOOK_PAYLOAD_BYTES, StandardWebhookHeaders, VerifiedWebhookPayload,
+        WebhookVerifyError, verify_standard_webhook,
+    },
 };
 
 #[derive(Debug, Error)]
@@ -134,6 +140,7 @@ pub struct PulseEngine {
     store: SqlitePulseStore,
     rate_breaker: ChainRateBreaker,
     sla_tracker: Mutex<InactivitySlaTracker>,
+    debounce_tracker: Mutex<HashMap<(String, String), DateTime<Utc>>>,
     max_hop_count: u32,
     engine_active: bool,
 }
@@ -144,6 +151,7 @@ impl PulseEngine {
             store: SqlitePulseStore::new(pool),
             rate_breaker: ChainRateBreaker::default(),
             sla_tracker: Mutex::new(InactivitySlaTracker::new()),
+            debounce_tracker: Mutex::new(HashMap::new()),
             max_hop_count: DEFAULT_MAX_HOP_COUNT,
             engine_active: true,
         }
@@ -158,6 +166,7 @@ impl PulseEngine {
             store: SqlitePulseStore::new(pool),
             rate_breaker,
             sla_tracker: Mutex::new(InactivitySlaTracker::new()),
+            debounce_tracker: Mutex::new(HashMap::new()),
             max_hop_count,
             engine_active: true,
         }
@@ -179,6 +188,42 @@ impl PulseEngine {
             .armed_count()
     }
 
+    /// Disarms any in-memory SLA deadlines and debounce windows for `rule_id`.
+    pub fn disarm_rule_sla(&self, rule_id: &str) {
+        self.sla_tracker
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .disarm_rule(rule_id);
+        self.debounce_tracker
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .retain(|(r, _), _| r != rule_id);
+    }
+
+    fn check_and_record_debounce(
+        &self,
+        rule_id: &str,
+        thread_key: Option<&str>,
+        debounce_ms: u32,
+        now: DateTime<Utc>,
+    ) -> bool {
+        if debounce_ms == 0 {
+            return true;
+        }
+        let mut guard = self
+            .debounce_tracker
+            .lock()
+            .unwrap_or_else(|p| p.into_inner());
+        guard.retain(|_, &mut expires_at| expires_at > now);
+
+        let key = (rule_id.to_string(), thread_key.unwrap_or("").to_string());
+        if guard.contains_key(&key) {
+            return false;
+        }
+        guard.insert(key, now + Duration::milliseconds(i64::from(debounce_ms)));
+        true
+    }
+
     /// Validates, enforces `MandateOrigin` provenance, computes initial `next_fire_at` when
     /// temporal scheduling is configured, and persists a `PulseRuleView`.
     pub async fn save_rule(
@@ -190,13 +235,39 @@ impl PulseEngine {
         webhook_route_id: Option<String>,
         now: DateTime<Utc>,
     ) -> Result<PulseRuleView, PulseError> {
+        self.save_rule_with_draft(
+            id,
+            requested_enabled,
+            false,
+            mandate_origin,
+            spec,
+            webhook_route_id,
+            now,
+        )
+        .await
+    }
+
+    pub async fn save_rule_with_draft(
+        &self,
+        id: Option<String>,
+        requested_enabled: bool,
+        force_draft_only: bool,
+        mandate_origin: MandateOrigin,
+        spec: PulseRuleSpec,
+        webhook_route_id: Option<String>,
+        now: DateTime<Utc>,
+    ) -> Result<PulseRuleView, PulseError> {
         let violations = validate_rule_spec(&spec);
         if !violations.is_empty() {
             return Err(PulseError::ValidationFailed(violations));
         }
 
-        let (enabled, draft_only, enforced_spec) =
+        let (mut enabled, mut draft_only, enforced_spec) =
             enforce_mandate_origin(mandate_origin, requested_enabled, spec);
+        if force_draft_only {
+            enabled = false;
+            draft_only = true;
+        }
 
         let next_fire_at = if enabled
             && !draft_only
@@ -211,6 +282,10 @@ impl PulseEngine {
         let rule_id = id
             .filter(|s| !s.trim().is_empty())
             .unwrap_or_else(|| Uuid::new_v4().to_string());
+
+        if !enabled {
+            self.disarm_rule_sla(&rule_id);
+        }
 
         let saved = self
             .store
@@ -231,6 +306,7 @@ impl PulseEngine {
 
     /// Verifies a Standard Webhook request (64 KiB cap, 5-min replay window, constant-time HMAC)
     /// against a registered `pulse_sources` instance BEFORE JSON parsing, then ingests the event.
+    /// Unsigned sources are rejected unless `source.config_json.allowUnsigned == true`.
     pub async fn ingest_standard_webhook(
         &self,
         source_id: &str,
@@ -246,16 +322,72 @@ impl PulseEngine {
             .await?
             .ok_or_else(|| PulseError::NotFound(format!("pulse source `{source_id}`")))?;
 
-        let secret = source.signing_secret.as_deref().unwrap_or("");
-        let verified = match verify_standard_webhook(secret, headers, raw_body, now) {
-            Ok(ok) => ok,
-            Err(err) => {
+        let secret = source
+            .signing_secret
+            .as_deref()
+            .map(str::trim)
+            .unwrap_or("");
+        let allow_unsigned = source
+            .config_json
+            .get("allowUnsigned")
+            .and_then(|v| v.as_bool())
+            == Some(true);
+
+        let verified = if secret.is_empty() {
+            if !allow_unsigned {
+                let err = WebhookVerifyError::InvalidSecret;
+                let reason = "webhook source has no signing secret configured (and allowUnsigned is false)";
+                let _ = self
+                    .store
+                    .increment_source_rejected(source_id, Some(reason), &now_iso)
+                    .await;
+                return Err(PulseError::WebhookRejected(err));
+            }
+            if raw_body.len() > MAX_WEBHOOK_PAYLOAD_BYTES {
+                let err = WebhookVerifyError::PayloadTooLarge {
+                    size: raw_body.len(),
+                    max: MAX_WEBHOOK_PAYLOAD_BYTES,
+                };
                 let reason = err.to_string();
                 let _ = self
                     .store
                     .increment_source_rejected(source_id, Some(&reason), &now_iso)
                     .await;
                 return Err(PulseError::WebhookRejected(err));
+            }
+            let payload: serde_json::Value = match serde_json::from_slice(raw_body) {
+                Ok(parsed) => parsed,
+                Err(parse_err) => {
+                    let err = WebhookVerifyError::InvalidJson(parse_err.to_string());
+                    let reason = err.to_string();
+                    let _ = self
+                        .store
+                        .increment_source_rejected(source_id, Some(&reason), &now_iso)
+                        .await;
+                    return Err(PulseError::WebhookRejected(err));
+                }
+            };
+            let delivery_id = if headers.webhook_id.trim().is_empty() {
+                Uuid::new_v4().to_string()
+            } else {
+                headers.webhook_id.trim().to_string()
+            };
+            VerifiedWebhookPayload {
+                delivery_id,
+                timestamp: now.timestamp(),
+                payload,
+            }
+        } else {
+            match verify_standard_webhook(secret, headers, raw_body, now) {
+                Ok(ok) => ok,
+                Err(err) => {
+                    let reason = err.to_string();
+                    let _ = self
+                        .store
+                        .increment_source_rejected(source_id, Some(&reason), &now_iso)
+                        .await;
+                    return Err(PulseError::WebhookRejected(err));
+                }
             }
         };
 
@@ -490,6 +622,14 @@ impl PulseEngine {
         let matched_rules: Vec<PulseRuleView> = enabled_rules
             .into_iter()
             .filter(|rule| rule_matches_envelope(rule, &envelope))
+            .filter(|rule| {
+                self.check_and_record_debounce(
+                    &rule.id,
+                    envelope.thread_key.as_deref(),
+                    rule.spec.debounce_ms,
+                    now,
+                )
+            })
             .collect();
 
         // Check per-thread_key sliding-window rate breaker once per incoming event if any Auto rule matched.
@@ -604,6 +744,18 @@ impl PulseEngine {
         promote_rule_to_auto: bool,
         now: DateTime<Utc>,
     ) -> Result<PulseDispatchPlan, PulseError> {
+        let (plan, _) = self
+            .promote_observed_candidate_with_envelope(candidate_id, promote_rule_to_auto, now)
+            .await?;
+        Ok(plan)
+    }
+
+    pub async fn promote_observed_candidate_with_envelope(
+        &self,
+        candidate_id: &str,
+        promote_rule_to_auto: bool,
+        now: DateTime<Utc>,
+    ) -> Result<(PulseDispatchPlan, EventEnvelope), PulseError> {
         let now_iso = now.to_rfc3339();
         let candidate = self
             .store
@@ -636,11 +788,12 @@ impl PulseEngine {
             .plan_and_persist_targets(&rule.id, &rule.spec.targets, &candidate.envelope, now)
             .await?;
 
-        Ok(PulseDispatchPlan {
-            event_id: candidate.envelope.event_id,
-            thread_key: candidate.envelope.thread_key,
+        let plan = PulseDispatchPlan {
+            event_id: candidate.envelope.event_id.clone(),
+            thread_key: candidate.envelope.thread_key.clone(),
             actions,
-        })
+        };
+        Ok((plan, candidate.envelope))
     }
 
     pub async fn claim_next_bot_turn(
@@ -732,14 +885,23 @@ impl PulseEngine {
         &self,
         project_id: Option<&str>,
     ) -> Result<PulseDeckSnapshot, PulseError> {
-        let sources = self.store.list_sources().await?;
-        let rules = self.store.list_rules(project_id).await?;
-        let observed_candidates = self.store.list_observed_candidates(false, 100).await?;
-        let subscriptions = self.store.list_active_subscriptions().await?;
-        let pending_interactions = self.store.list_pending_user_interactions().await?;
-        let active_ticket_count = u32::try_from(subscriptions.len()).unwrap_or(u32::MAX);
-        let pending_user_interaction_count =
-            u32::try_from(pending_interactions.len()).unwrap_or(u32::MAX);
+        let (
+            sources,
+            rules,
+            observed_candidates,
+            subscriptions,
+            pending_interactions,
+            active_ticket_count,
+            pending_user_interaction_count,
+        ) = tokio::try_join!(
+            self.store.list_sources(),
+            self.store.list_rules(project_id),
+            self.store.list_observed_candidates(false, 100),
+            self.store.list_active_subscriptions(),
+            self.store.list_pending_user_interactions(),
+            self.store.count_active_subscriptions(),
+            self.store.count_pending_user_interactions(),
+        )?;
 
         Ok(PulseDeckSnapshot {
             engine_active: self.engine_active,
@@ -778,8 +940,22 @@ impl PulseEngine {
                 } => {
                     let prompt = render_template(prompt_template, envelope);
                     if *subscribe_thread && let Some(thread_key) = envelope.thread_key.as_deref() {
+                        let existing_bound_uuid = if existing_session_id.is_none() {
+                            self.store
+                                .list_active_subscriptions_for_thread(thread_key)
+                                .await?
+                                .into_iter()
+                                .find(|s| {
+                                    s.subscriber_kind == "session"
+                                        && Uuid::parse_str(&s.subscriber_id).is_ok()
+                                })
+                                .map(|s| s.subscriber_id)
+                        } else {
+                            None
+                        };
                         let subscriber_id = existing_session_id
                             .clone()
+                            .or(existing_bound_uuid)
                             .unwrap_or_else(|| format!("session:{rule_id}:{thread_key}"));
                         self.store
                             .subscribe_thread(

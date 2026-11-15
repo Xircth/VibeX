@@ -1,32 +1,26 @@
 //! Host-side Pulse Event Engine runtime, `DomainCommand::Pulse*` execution,
-//! Rich Target dispatch, and background Temporal & Saga tick worker.
+//! principal/mandate enforcement, webhook verification, and Temporal/Outbox background worker.
 
-use std::{collections::BTreeMap, sync::Arc, time::Duration};
+use std::{
+    collections::BTreeMap,
+    sync::{
+        Arc,
+        atomic::{AtomicI64, Ordering},
+    },
+    time::Duration,
+};
 
-use agents::{AgentId, AgentSessionConfigOverride, ConversationInputPayload};
 use api_types::pulse::{
-    BotConversationScope, EventEnvelope, EventSourceKind, EventTrustLevel, GroupDispatchMode,
-    MandateOrigin, PulseEvalMode, PulseRuleSpec, PulseSourceView, SessionDeliveryStrategy,
-    SessionTargetMode,
+    EventEnvelope, EventSourceKind, EventTrustLevel, MandateOrigin, PulseEvalMode, PulseRuleSpec,
+    PulseSourceView,
 };
-use application::{
-    ApplicationError, ConversationExecutionPort, ConversationSessionExecutionPort, DomainCommand,
-    Principal, StartWorkflowRequest, WorkflowExecutionPort, WorkflowStoreExecutionPort,
-};
+use application::{ApplicationError, DomainCommand, Principal};
 use base64::Engine as _;
 use chrono::Utc;
-use conversations::{ConversationSteerInput, SubmitConversationInput, collaboration};
-use db::models::{
-    collaboration_identity::resolve_pulse_bot_session,
-    conversation_turn::ConversationTurnRecord,
-    pulse::{PulseSourceUpsert, ensure_pulse_schema},
-    session::{CreateSession, Session},
-    workspace::Workspace,
-};
+use db::models::pulse::{PulseSourceUpsert, ensure_pulse_schema, pulse_outbox_wake};
 use pulse::{
-    CustomSdkEventInput, CustomSdkEventNormalizer, MAX_WEBHOOK_PAYLOAD_BYTES, PulseDispatchAction,
-    PulseDispatchPlan, PulseEngine, PulseError, StandardWebhookHeaders, TemporalEvaluator,
-    dry_run_rule,
+    CustomSdkEventInput, CustomSdkEventNormalizer, MAX_WEBHOOK_PAYLOAD_BYTES, PulseEngine,
+    PulseError, StandardWebhookHeaders, TemporalEvaluator, dry_run_rule, verify_standard_webhook,
 };
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -34,7 +28,6 @@ use uuid::Uuid;
 use workflows::{DecideUserGate, WorkflowCore, WorkflowStore, notify_workflow_work};
 
 use crate::{
-    COLLABORATION_SPACE_CHANGED_EVENT,
     domains::ServerApplicationDomains,
     pulse_http::{
         lowercase_headers, normalize_platform_webhook_payload, verify_platform_webhook_secret,
@@ -42,6 +35,8 @@ use crate::{
 };
 
 pub const PULSE_DECK_CHANGED_EVENT: &str = "vibex://pulse-deck-changed";
+
+static LAST_RECEIPT_PRUNE_EPOCH_SECS: AtomicI64 = AtomicI64::new(0);
 
 pub(crate) const fn is_pulse_domain_command(command: DomainCommand) -> bool {
     matches!(
@@ -69,14 +64,14 @@ pub(crate) const fn is_pulse_domain_command(command: DomainCommand) -> bool {
 }
 
 impl ServerApplicationDomains {
-    async fn ensure_pulse_ready(&self) -> Result<&PulseEngine, ApplicationError> {
+    pub(crate) async fn ensure_pulse_ready(&self) -> Result<&PulseEngine, ApplicationError> {
         ensure_pulse_schema(&self.pool)
             .await
             .map_err(|err| ApplicationError::internal(err.to_string()))?;
         Ok(self.pulse_engine.as_ref())
     }
 
-    fn emit_pulse_deck_changed(&self) {
+    pub(crate) fn emit_pulse_deck_changed(&self) {
         self.events.emit(
             PULSE_DECK_CHANGED_EVENT,
             json!({ "updatedAt": Utc::now().to_rfc3339() }),
@@ -88,15 +83,37 @@ impl ServerApplicationDomains {
         tokio::spawn(async move {
             let mut interval = tokio::time::interval(Duration::from_secs(15));
             interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+            interval.tick().await;
+            let mut drain_pending = true;
             loop {
-                interval.tick().await;
+                let woken = pulse_outbox_wake().notified();
+                tokio::pin!(woken);
+                woken.as_mut().enable();
+
+                if drain_pending {
+                    drain_pending = false;
+                    let Some(host) = weak.upgrade() else {
+                        break;
+                    };
+                    if host.automation_ownership.current() {
+                        host.drain_pulse_outbox().await;
+                    }
+                    drop(host);
+                }
+
+                let outbox_woke = tokio::select! {
+                    _ = interval.tick() => false,
+                    _ = &mut woken => true,
+                };
                 let Some(host) = weak.upgrade() else {
                     break;
                 };
-                if host.automation_ownership.current()
-                    && let Err(error) = host.run_pulse_temporal_tick().await
-                {
-                    tracing::warn!(?error, "background Pulse temporal tick failed");
+                if host.automation_ownership.current() {
+                    if outbox_woke {
+                        drain_pending = true;
+                    } else if let Err(error) = host.run_pulse_temporal_tick().await {
+                        tracing::warn!(?error, "background Pulse temporal tick failed");
+                    }
                 }
                 drop(host);
             }
@@ -106,8 +123,9 @@ impl ServerApplicationDomains {
     pub(crate) async fn run_pulse_temporal_tick(&self) -> Result<(), ApplicationError> {
         let engine = self.ensure_pulse_ready().await?;
         let now = Utc::now();
+        let busy_rule_ids = self.compute_busy_pulse_rule_ids().await;
         let report = engine
-            .tick_temporal(now, |_| false)
+            .tick_temporal(now, |rule_id| busy_rule_ids.contains(rule_id))
             .await
             .map_err(map_pulse_error)?;
 
@@ -130,6 +148,26 @@ impl ServerApplicationDomains {
         {
             notify_workflow_work();
         }
+
+        self.drain_pulse_outbox().await;
+        self.drain_all_queued_bot_mailboxes().await;
+
+        let now_epoch = now.timestamp();
+        let prev_prune = LAST_RECEIPT_PRUNE_EPOCH_SECS.load(Ordering::Relaxed);
+        if now_epoch.saturating_sub(prev_prune) >= 3600
+            && LAST_RECEIPT_PRUNE_EPOCH_SECS
+                .compare_exchange(
+                    prev_prune,
+                    now_epoch,
+                    Ordering::Relaxed,
+                    Ordering::Relaxed,
+                )
+                .is_ok()
+        {
+            let cutoff = (now - chrono::Duration::days(7)).to_rfc3339();
+            let _ = engine.store().prune_receipts_before(&cutoff).await;
+        }
+
         if !report.emitted_events.is_empty() || !report.expired_interactions.is_empty() {
             self.emit_pulse_deck_changed();
         }
@@ -150,6 +188,7 @@ impl ServerApplicationDomains {
             DomainCommand::PulseDeckSnapshot => {
                 let project_id = args
                     .get("projectId")
+                    .or_else(|| args.get("project_id"))
                     .and_then(Value::as_str)
                     .filter(|s| !s.trim().is_empty());
                 let mut snapshot = engine
@@ -202,7 +241,7 @@ impl ServerApplicationDomains {
                 to_json_value(view)
             }
             DomainCommand::PulseSourceDelete => {
-                let id = require_str_field(&args, "id")?;
+                let id = require_str_field_aliases(&args, &["id", "sourceId", "source_id"])?;
                 engine
                     .store()
                     .delete_source(&id)
@@ -214,6 +253,7 @@ impl ServerApplicationDomains {
             DomainCommand::PulseRuleList => {
                 let project_id = args
                     .get("projectId")
+                    .or_else(|| args.get("project_id"))
                     .and_then(Value::as_str)
                     .filter(|s| !s.trim().is_empty());
                 let rules = engine
@@ -226,13 +266,12 @@ impl ServerApplicationDomains {
             DomainCommand::PulseRuleSave => {
                 let payload = unwrap_input(&args);
                 let input: PulseRuleSaveArgs = decode_args(payload)?;
-                let mandate = input
-                    .mandate_origin
-                    .unwrap_or_else(|| mandate_from_principal(principal));
+                let mandate = resolve_effective_mandate(principal, input.mandate_origin);
                 let saved = engine
-                    .save_rule(
+                    .save_rule_with_draft(
                         input.id,
                         input.enabled.unwrap_or(true),
+                        input.draft_only.unwrap_or(false),
                         mandate,
                         input.spec,
                         input.webhook_route_id,
@@ -240,11 +279,15 @@ impl ServerApplicationDomains {
                     )
                     .await
                     .map_err(map_pulse_error)?;
+                if !saved.enabled {
+                    engine.disarm_rule_sla(&saved.id);
+                }
                 self.emit_pulse_deck_changed();
                 to_json_value(saved)
             }
             DomainCommand::PulseRuleSetMode => {
-                let input: PulseRuleSetModeArgs = decode_args(&args)?;
+                let payload = unwrap_input(&args);
+                let input: PulseRuleSetModeArgs = decode_args(payload)?;
                 let updated = engine
                     .store()
                     .set_rule_mode(&input.id, input.eval_mode, &now_iso)
@@ -253,11 +296,15 @@ impl ServerApplicationDomains {
                     .ok_or_else(|| {
                         ApplicationError::not_found(format!("pulse rule `{}`", input.id))
                     })?;
+                if input.eval_mode == PulseEvalMode::Off {
+                    engine.disarm_rule_sla(&input.id);
+                }
                 self.emit_pulse_deck_changed();
                 to_json_value(updated)
             }
             DomainCommand::PulseRuleSetEnabled => {
-                let input: PulseRuleSetEnabledArgs = decode_args(&args)?;
+                let payload = unwrap_input(&args);
+                let input: PulseRuleSetEnabledArgs = decode_args(payload)?;
                 let existing = engine
                     .store()
                     .get_rule(&input.id)
@@ -279,6 +326,7 @@ impl ServerApplicationDomains {
                 let next_fire_ref = if input.enabled {
                     Some(next_fire_owned.as_deref())
                 } else {
+                    engine.disarm_rule_sla(&input.id);
                     Some(None)
                 };
                 let updated = engine
@@ -293,23 +341,40 @@ impl ServerApplicationDomains {
                 to_json_value(updated)
             }
             DomainCommand::PulseRuleDelete => {
-                let id = require_str_field(&args, "id")?;
+                let id = require_str_field_aliases(&args, &["id", "ruleId", "rule_id"])?;
                 engine
                     .store()
                     .delete_rule(&id)
                     .await
                     .map_err(map_sqlx_error)?;
+                engine.disarm_rule_sla(&id);
                 self.emit_pulse_deck_changed();
                 Ok(Value::Null)
             }
             DomainCommand::PulseRuleDryRun => {
-                let input: PulseRuleDryRunArgs = decode_args(&args)?;
+                let payload = unwrap_input(&args);
+                let input: PulseRuleDryRunArgs = decode_args(payload)?;
                 let report = dry_run_rule(&input.spec, &input.sample_event);
                 to_json_value(report)
             }
             DomainCommand::PulseEventEmit => {
-                let payload = unwrap_input(&args);
-                let envelope = build_emitted_envelope(principal, payload, now)?;
+                let (effective_principal, payload_owned);
+                let (emit_principal, payload) = if matches!(
+                    principal,
+                    Principal::Remote { subject, .. } if subject == "pulse-sdk-hmac"
+                ) {
+                    let (verified_source_id, event_body) =
+                        self.verify_sdk_hmac_emit(engine, &args, now).await?;
+                    effective_principal = Principal::remote(
+                        format!("pulse-sdk:{verified_source_id}"),
+                        [String::from("automation.write")],
+                    );
+                    payload_owned = event_body;
+                    (&effective_principal, &payload_owned)
+                } else {
+                    (principal, unwrap_input(&args))
+                };
+                let envelope = build_emitted_envelope(emit_principal, payload, now)?;
                 ensure_sdk_source_exists(engine, &envelope.source.instance_id, &now_iso).await?;
                 let outcome = engine
                     .ingest_event(envelope.clone(), now)
@@ -319,6 +384,7 @@ impl ServerApplicationDomains {
                     self.resume_waiting_workflows(&envelope).await;
                     self.execute_pulse_dispatch_plan(&outcome.dispatch_plan)
                         .await;
+                    self.drain_pulse_outbox().await;
                     self.emit_pulse_deck_changed();
                 }
                 to_json_value(envelope)
@@ -327,6 +393,11 @@ impl ServerApplicationDomains {
                 let limit = args
                     .get("limit")
                     .and_then(Value::as_u64)
+                    .or_else(|| {
+                        args.get("limit")
+                            .and_then(Value::as_str)
+                            .and_then(|s| s.parse().ok())
+                    })
                     .and_then(|n| u32::try_from(n).ok())
                     .unwrap_or(25);
                 let events = engine
@@ -337,12 +408,15 @@ impl ServerApplicationDomains {
                 to_json_value(events)
             }
             DomainCommand::PulseCandidatePromote => {
-                let candidate_id = require_str_field_aliases(&args, &["candidateId", "id"])?;
-                let plan = engine
-                    .promote_observed_candidate(&candidate_id, true, now)
+                let candidate_id =
+                    require_str_field_aliases(&args, &["candidateId", "candidate_id", "id"])?;
+                let (plan, envelope) = engine
+                    .promote_observed_candidate_with_envelope(&candidate_id, true, now)
                     .await
                     .map_err(map_pulse_error)?;
+                self.resume_waiting_workflows(&envelope).await;
                 self.execute_pulse_dispatch_plan(&plan).await;
+                self.drain_pulse_outbox().await;
                 self.emit_pulse_deck_changed();
                 Ok(json!({
                     "promoted": true,
@@ -352,14 +426,9 @@ impl ServerApplicationDomains {
             DomainCommand::PulseInteractionResolve => {
                 let payload = unwrap_input(&args);
                 let input: PulseResolveInteractionArgs = decode_args(payload)?;
-                let resolution = json!({
-                    "optionId": input.option_id,
-                    "note": input.note,
-                    "formValues": input.form_values,
-                });
-                let resolved = engine
+                let existing = engine
                     .store()
-                    .resolve_user_interaction(&input.interaction_id, &resolution, &now_iso)
+                    .get_user_interaction(&input.interaction_id)
                     .await
                     .map_err(map_sqlx_error)?
                     .ok_or_else(|| {
@@ -370,30 +439,44 @@ impl ServerApplicationDomains {
                     })?;
 
                 if let (Some(raw_run_id), Some(step_id)) = (
-                    resolved.view.workflow_run_id.as_deref(),
-                    resolved.view.step_id.as_deref(),
+                    existing.view.workflow_run_id.as_deref(),
+                    existing.view.step_id.as_deref(),
                 ) && let Ok(wf_run_id) = Uuid::parse_str(raw_run_id)
                 {
                     let wf_core = WorkflowCore::new(WorkflowStore::new(self.pool.clone()));
-                    let _ = wf_core
+                    wf_core
                         .decide_user_gate(DecideUserGate {
                             run_id: wf_run_id,
                             step_id: step_id.to_string(),
-                            selected_option_id: input.option_id,
-                            note: input.note,
-                            form_data: input.form_values,
+                            selected_option_id: input.option_id.clone(),
+                            note: input.note.clone(),
+                            form_data: input.form_values.clone(),
                             operation_id: Uuid::new_v4(),
                             principal: json!({ "source": "pulse_interaction_resolve" }),
                         })
-                        .await;
+                        .await
+                        .map_err(|err| ApplicationError::bad_request(err.to_string()))?;
                     notify_workflow_work();
                 }
+
+                let resolution = json!({
+                    "optionId": input.option_id,
+                    "note": input.note,
+                    "formValues": input.form_values,
+                });
+                let resolved = engine
+                    .store()
+                    .resolve_user_interaction(&input.interaction_id, &resolution, &now_iso)
+                    .await
+                    .map_err(map_sqlx_error)?
+                    .unwrap_or(existing);
 
                 self.emit_pulse_deck_changed();
                 to_json_value(resolved.view)
             }
             DomainCommand::PulseThreadSubscribe => {
-                let input: PulseThreadSubscribeArgs = decode_args(&args)?;
+                let payload = unwrap_input(&args);
+                let input: PulseThreadSubscribeArgs = decode_args(payload)?;
                 let thread_key = input.thread_key.trim();
                 let subscriber_id = input.subscriber_id.trim();
                 if thread_key.is_empty() || subscriber_id.is_empty() {
@@ -432,7 +515,10 @@ impl ServerApplicationDomains {
                 to_json_value(sub)
             }
             DomainCommand::PulseThreadUnsubscribe => {
-                let sub_id = require_str_field_aliases(&args, &["subscriptionId", "id"])?;
+                let sub_id = require_str_field_aliases(
+                    &args,
+                    &["subscriptionId", "subscription_id", "id"],
+                )?;
                 engine
                     .store()
                     .unsubscribe_thread(&sub_id)
@@ -450,7 +536,8 @@ impl ServerApplicationDomains {
                 to_json_value(schemas)
             }
             DomainCommand::PulseEventSchemaDefine => {
-                let input: PulseEventSchemaDefineArgs = decode_args(&args)?;
+                let payload = unwrap_input(&args);
+                let input: PulseEventSchemaDefineArgs = decode_args(payload)?;
                 let event_type = input.event_type.trim();
                 let summary = input.summary.trim();
                 if event_type.is_empty() || summary.is_empty() {
@@ -556,6 +643,7 @@ impl ServerApplicationDomains {
                 }
                 self.execute_pulse_dispatch_plan(&outcome.dispatch_plan)
                     .await;
+                self.drain_pulse_outbox().await;
                 self.emit_pulse_deck_changed();
             }
 
@@ -567,16 +655,31 @@ impl ServerApplicationDomains {
             }));
         }
 
-        // Non-Standard-Webhook platform/custom sources: verify configured secret BEFORE JSON parse!
-        if let Some(secret) = source
+        let allow_unsigned = source
+            .config_json
+            .get("allowUnsigned")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+        let configured_secret = source
             .signing_secret
             .as_deref()
-            .filter(|s| !s.trim().is_empty())
-            && let Err(reason) = verify_platform_webhook_secret(secret, &headers, &raw_bytes, now)
-        {
+            .map(str::trim)
+            .filter(|s| !s.is_empty());
+
+        if let Some(secret) = configured_secret {
+            if let Err(reason) = verify_platform_webhook_secret(secret, &headers, &raw_bytes, now) {
+                let _ = engine
+                    .store()
+                    .increment_source_rejected(&source.view.id, Some(&reason), &now_iso)
+                    .await;
+                self.emit_pulse_deck_changed();
+                return Err(ApplicationError::unauthorized(reason));
+            }
+        } else if !allow_unsigned {
+            let reason = "webhook source has no signingSecret configured (set configJson.allowUnsigned=true to accept unsigned webhooks)";
             let _ = engine
                 .store()
-                .increment_source_rejected(&source.view.id, Some(&reason), &now_iso)
+                .increment_source_rejected(&source.view.id, Some(reason), &now_iso)
                 .await;
             self.emit_pulse_deck_changed();
             return Err(ApplicationError::unauthorized(reason));
@@ -586,7 +689,6 @@ impl ServerApplicationDomains {
             ApplicationError::bad_request(format!("webhook body is not valid JSON: {err}"))
         })?;
 
-        // Feishu URL challenge handshake before normalization.
         if source.view.kind == EventSourceKind::Feishu
             && let Some(challenge) = parsed_json.get("challenge").and_then(Value::as_str)
         {
@@ -610,6 +712,7 @@ impl ServerApplicationDomains {
             self.resume_waiting_workflows(&envelope).await;
             self.execute_pulse_dispatch_plan(&outcome.dispatch_plan)
                 .await;
+            self.drain_pulse_outbox().await;
             self.emit_pulse_deck_changed();
         }
 
@@ -621,363 +724,121 @@ impl ServerApplicationDomains {
         }))
     }
 
-    async fn resume_waiting_workflows(&self, envelope: &EventEnvelope) {
-        let wf_core = WorkflowCore::new(WorkflowStore::new(self.pool.clone()));
-        if let Ok(resumed) = wf_core
-            .dispatch_event_to_waiting_runs(envelope, Uuid::new_v4())
-            .await
-            && !resumed.is_empty()
-        {
-            notify_workflow_work();
-        }
-    }
-
-    pub(crate) async fn execute_pulse_dispatch_plan(&self, plan: &PulseDispatchPlan) {
-        for action in &plan.actions {
-            if let Err(error) = self.execute_pulse_dispatch_action(action).await {
-                tracing::debug!(?error, "Pulse dispatch action completed in best-effort mode");
-            }
-        }
-    }
-
-    async fn execute_pulse_dispatch_action(
+    async fn verify_sdk_hmac_emit(
         &self,
-        action: &PulseDispatchAction,
-    ) -> Result<(), String> {
-        match action {
-            PulseDispatchAction::SpawnOrSendSession {
-                mode,
-                agent_id,
-                model_override,
-                project_id,
-                existing_session_id,
-                delivery_strategy,
-                thread_key,
-                prompt,
-                ..
-            } => {
-                let workspace = self
-                    .resolve_default_workspace(project_id.as_deref())
-                    .await?
-                    .ok_or_else(|| "no workspace available for Pulse session target".to_string())?;
-                let parsed_agent = resolve_fallback_agent_id(agent_id)?;
+        engine: &PulseEngine,
+        args: &Value,
+        now: chrono::DateTime<Utc>,
+    ) -> Result<(String, Value), ApplicationError> {
+        let now_iso = now.to_rfc3339();
+        let hmac_meta = args.get("__hmacVerification").ok_or_else(|| {
+            ApplicationError::unauthorized("missing HMAC verification metadata")
+        })?;
+        let raw_b64 = hmac_meta
+            .get("rawBodyBase64")
+            .and_then(Value::as_str)
+            .ok_or_else(|| ApplicationError::unauthorized("missing rawBodyBase64"))?;
+        let raw_bytes = base64::engine::general_purpose::STANDARD
+            .decode(raw_b64.as_bytes())
+            .map_err(|_| ApplicationError::unauthorized("invalid raw body encoding"))?;
+        let raw_headers: BTreeMap<String, String> = hmac_meta
+            .get("headers")
+            .cloned()
+            .and_then(|v| serde_json::from_value(v).ok())
+            .unwrap_or_default();
+        let headers = lowercase_headers(&raw_headers);
+        let event_body = args
+            .get("body")
+            .cloned()
+            .ok_or_else(|| ApplicationError::bad_request("missing event body"))?;
 
-                let conversation_id = match mode {
-                    SessionTargetMode::ExistingSession => existing_session_id
-                        .as_deref()
-                        .and_then(|raw| Uuid::parse_str(raw).ok())
-                        .ok_or_else(|| "existingSessionId is not a valid UUID".to_string())?,
-                    SessionTargetMode::EphemeralFresh | SessionTargetMode::ThreadKeyed => {
-                        let new_id = Uuid::new_v4();
-                        let label = match thread_key.as_deref() {
-                            Some(tk) => format!("Pulse · {tk}"),
-                            None => "Pulse Session".to_string(),
-                        };
-                        Session::create(
-                            &self.pool,
-                            &CreateSession {
-                                executor: Some(parsed_agent.as_str().to_string()),
-                                agent_id: Some(parsed_agent.clone()),
-                                task_id: Some(workspace.task_id),
-                                name: Some(label),
-                                initial_prompt: Some(prompt.clone()),
-                                status: None,
-                            },
-                            new_id,
-                            workspace.id,
-                        )
-                        .await
-                        .map_err(|err| err.to_string())?;
-                        new_id
-                    }
-                };
-
-                let port = ConversationSessionExecutionPort::new(self.conversations.clone());
-                if *delivery_strategy == SessionDeliveryStrategy::Steer {
-                    let active_turn_id = ConversationTurnRecord::list_for_conversation(
-                        &self.pool,
-                        conversation_id,
-                    )
-                    .await
-                    .ok()
-                    .and_then(|turns| {
-                        turns.into_iter().rev().find(|turn| {
-                            matches!(
-                                turn.status.as_str(),
-                                "pending" | "queued" | "running" | "blocked"
-                            )
-                        })
-                    })
-                    .map(|turn| turn.id);
-
-                    if let Some(expected_turn_id) = active_turn_id
-                        && port
-                            .steer(ConversationSteerInput {
-                                conversation_id,
-                                expected_turn_id,
-                                operation_id: Uuid::new_v4(),
-                                text: prompt.clone(),
-                                images: Vec::new(),
-                                principal: json!({ "source": "pulse_session_steer" }),
-                            })
-                            .await
-                            .is_ok()
-                    {
-                        return Ok(());
-                    }
-                }
-
-                let mut config_overrides = Vec::new();
-                if let Some(model) = model_override.as_deref().filter(|s| !s.trim().is_empty()) {
-                    config_overrides.push(AgentSessionConfigOverride {
-                        key: "model".to_string(),
-                        value: model.to_string(),
-                    });
-                }
-                port.submit_input(SubmitConversationInput {
-                    conversation_id,
-                    operation_id: Uuid::new_v4(),
-                    payload: ConversationInputPayload {
-                        continuation_policy: None,
-                        expected_binding_revision: None,
-                        agent_id: parsed_agent,
-                        workspace_id: workspace.id,
-                        executor_profile_id: None,
-                        text: prompt.clone(),
-                        display_text: None,
-                        images: Vec::new(),
-                        mode_override: None,
-                        config_overrides,
-                        workflow_refs: Vec::new(),
-                        file_refs: Vec::new(),
-                        internal_prompt_contributions: Vec::new(),
-                        collaboration_origin: None,
-                    },
-                    principal: json!({ "source": "pulse_session_dispatch" }),
-                })
-                .await
-                .map_err(|err| err.to_string())?;
-                Ok(())
-            }
-            PulseDispatchAction::EnqueueBotMailbox {
-                member_id,
-                conversation_scope,
-                thread_key,
-                ..
-            } => {
-                let Some(workspace) = self.resolve_default_workspace(None).await? else {
-                    return Ok(());
-                };
-                let Some(claimed) = self
-                    .pulse_engine
-                    .claim_next_bot_turn(member_id, Utc::now())
-                    .await
-                    .map_err(|err| err.to_string())?
-                else {
-                    return Ok(());
-                };
-                let topic_key = match conversation_scope {
-                    BotConversationScope::FixedPrimary => None,
-                    BotConversationScope::PerThreadTopic => thread_key.as_deref(),
-                };
-                let bot_session = match resolve_pulse_bot_session(
-                    &self.pool,
-                    member_id,
-                    topic_key,
-                    workspace.id,
+        let source_id = headers
+            .get("x-pulse-source-id")
+            .cloned()
+            .or_else(|| {
+                event_body
+                    .get("source")
+                    .and_then(|s| s.get("instanceId").or_else(|| s.get("instance_id")))
+                    .and_then(Value::as_str)
+                    .map(str::to_string)
+            })
+            .or_else(|| {
+                event_body
+                    .get("sourceInstanceId")
+                    .or_else(|| event_body.get("source_instance_id"))
+                    .and_then(Value::as_str)
+                    .map(str::to_string)
+            })
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .ok_or_else(|| {
+                ApplicationError::unauthorized(
+                    "missing source id (`x-pulse-source-id` or `sourceInstanceId`) for HMAC emit",
                 )
-                .await
-                {
-                    Ok(session) => session,
-                    Err(err) => {
-                        let _ = self
-                            .pulse_engine
-                            .store()
-                            .fail_bot_turn(&claimed.primary.id)
-                            .await;
-                        return Err(err.to_string());
-                    }
-                };
-                let agent_id = resolve_fallback_agent_id(&bot_session.agent)?;
-                let mut config_overrides = Vec::new();
-                if let Some(model) = bot_session.model.as_deref() {
-                    config_overrides.push(AgentSessionConfigOverride {
-                        key: "model".to_string(),
-                        value: model.to_string(),
-                    });
-                }
-                let submitted = ConversationSessionExecutionPort::new(self.conversations.clone())
-                    .submit_input(SubmitConversationInput {
-                        conversation_id: bot_session.conversation_id,
-                        operation_id: Uuid::new_v4(),
-                        payload: ConversationInputPayload {
-                            continuation_policy: None,
-                            expected_binding_revision: None,
-                            agent_id,
-                            workspace_id: bot_session.workspace_id,
-                            executor_profile_id: None,
-                            text: claimed.combined_prompt,
-                            display_text: None,
-                            images: Vec::new(),
-                            mode_override: None,
-                            config_overrides,
-                            workflow_refs: Vec::new(),
-                            file_refs: Vec::new(),
-                            internal_prompt_contributions: Vec::new(),
-                            collaboration_origin: None,
-                        },
-                        principal: json!({
-                            "source": "pulse_bot_mailbox",
-                            "memberId": member_id,
-                            "mailboxItemId": claimed.primary.id,
-                        }),
-                    })
-                    .await;
-                match submitted {
-                    Ok(_) => {
-                        let _ = self
-                            .pulse_engine
-                            .store()
-                            .complete_bot_turn(&claimed.primary.id)
-                            .await;
-                        Ok(())
-                    }
-                    Err(err) => {
-                        let _ = self
-                            .pulse_engine
-                            .store()
-                            .fail_bot_turn(&claimed.primary.id)
-                            .await;
-                        Err(err.to_string())
-                    }
-                }
-            }
-            PulseDispatchAction::DispatchGroupStage {
-                space_id,
-                dispatch_mode,
-                message,
-                ..
-            } => {
-                let to = match dispatch_mode {
-                    GroupDispatchMode::SpecificSeat { member_id } => vec![member_id.clone()],
-                    GroupDispatchMode::MentionSeats { member_id_list, .. } => {
-                        member_id_list.clone()
-                    }
-                    GroupDispatchMode::ModeratorTriage {
-                        moderator_member_id,
-                    } => vec![moderator_member_id.clone()],
-                    GroupDispatchMode::BroadcastLogOnly => Vec::new(),
-                };
-                collaboration::post_to_space_delayed_with(
-                    &self.pool,
-                    collaboration::PostToSpace {
-                        caller_id: None,
-                        space_id: space_id.clone(),
-                        content: message.clone(),
-                        summary: Some("Pulse Event".to_string()),
-                        to,
-                        in_reply_to: None,
-                        operation_id: Uuid::new_v4(),
-                    },
-                    None,
-                    &collaboration::DeliveryContext::default(),
-                )
-                .await
-                .map_err(|err| err.to_string())?;
-                self.events.emit(
-                    COLLABORATION_SPACE_CHANGED_EVENT,
-                    json!({ "spaceId": space_id }),
-                );
-                Ok(())
-            }
-            PulseDispatchAction::CreateUserInteraction { .. }
-            | PulseDispatchAction::EnqueueOutbox { .. } => {
-                self.emit_pulse_deck_changed();
-                Ok(())
-            }
-            PulseDispatchAction::StartOrResumeWorkflow {
-                workflow_id,
-                pinned_version,
-                inputs,
-                thread_key,
-                ..
-            } => {
-                let wf_uuid = Uuid::parse_str(workflow_id).map_err(|err| err.to_string())?;
-                let wf_core = WorkflowCore::new(WorkflowStore::new(self.pool.clone()));
-                let versions = wf_core
-                    .versions(wf_uuid, 50)
-                    .await
-                    .map_err(|err| err.to_string())?;
-                let target_version = versions
-                    .iter()
-                    .find(|v| v.version == i64::from(*pinned_version))
-                    .or_else(|| versions.first())
-                    .ok_or_else(|| format!("workflow `{wf_uuid}` has no published versions"))?;
-                let workspace = self
-                    .resolve_default_workspace(None)
-                    .await?
-                    .ok_or_else(|| "no workspace available for workflow target".to_string())?;
-                let mut input_obj = serde_json::Map::new();
-                for (k, v) in inputs {
-                    input_obj.insert(k.clone(), Value::String(v.clone()));
-                }
-                if let Some(tk) = thread_key
-                    && !input_obj.contains_key("threadKey")
-                {
-                    input_obj.insert("threadKey".to_string(), Value::String(tk.clone()));
-                }
-                let port = WorkflowStoreExecutionPort::with_conversations(
-                    self.pool.clone(),
-                    self.conversations.clone(),
-                );
-                port.start(
-                    &Principal::local_desktop(),
-                    Uuid::new_v4(),
-                    StartWorkflowRequest {
-                        definition_version_id: target_version.id,
-                        workspace_id: workspace.id,
-                        input: Value::Object(input_obj),
-                        policy_override: None,
-                        debug_step_id: None,
-                    },
-                )
-                .await
-                .map_err(|err| err.to_string())?;
-                notify_workflow_work();
-                Ok(())
-            }
-        }
-    }
+            })?;
 
-    async fn resolve_default_workspace(
-        &self,
-        project_id_hint: Option<&str>,
-    ) -> Result<Option<Workspace>, String> {
-        if let Some(raw_pid) = project_id_hint
-            && let Ok(pid) = Uuid::parse_str(raw_pid)
-        {
-            let row = sqlx::query_as::<_, Workspace>(
-                "SELECT * FROM workspaces WHERE project_id = ? AND archived = 0 ORDER BY updated_at DESC LIMIT 1",
-            )
-            .bind(pid)
-            .fetch_optional(&self.pool)
+        let source = engine
+            .store()
+            .get_source(&source_id)
             .await
-            .map_err(|err| err.to_string())?;
-            if row.is_some() {
-                return Ok(row);
-            }
+            .map_err(map_sqlx_error)?
+            .ok_or_else(|| {
+                ApplicationError::unauthorized(format!("unknown pulse source `{source_id}`"))
+            })?;
+        if !source.view.enabled {
+            return Err(ApplicationError::unauthorized(format!(
+                "pulse source `{source_id}` is disabled"
+            )));
         }
-        sqlx::query_as::<_, Workspace>(
-            "SELECT * FROM workspaces WHERE archived = 0 ORDER BY updated_at DESC LIMIT 1",
-        )
-        .fetch_optional(&self.pool)
-        .await
-        .map_err(|err| err.to_string())
+        let secret = source
+            .signing_secret
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .ok_or_else(|| {
+                ApplicationError::unauthorized(format!(
+                    "pulse source `{source_id}` has no signingSecret configured"
+                ))
+            })?;
+
+        let std_headers = StandardWebhookHeaders {
+            webhook_id: headers.get("webhook-id").map(String::as_str).unwrap_or(""),
+            webhook_timestamp: headers
+                .get("webhook-timestamp")
+                .map(String::as_str)
+                .unwrap_or(""),
+            webhook_signature: headers
+                .get("webhook-signature")
+                .map(String::as_str)
+                .unwrap_or(""),
+        };
+        if let Err(err) = verify_standard_webhook(secret, std_headers, &raw_bytes, now) {
+            let reason = err.to_string();
+            let _ = engine
+                .store()
+                .increment_source_rejected(&source.view.id, Some(&reason), &now_iso)
+                .await;
+            self.emit_pulse_deck_changed();
+            return Err(ApplicationError::unauthorized(reason));
+        }
+
+        let mut normalized_body = event_body;
+        if let Some(obj) = normalized_body.as_object_mut()
+            && !obj.contains_key("sourceInstanceId")
+            && !obj.contains_key("source_instance_id")
+            && !obj.contains_key("source")
+        {
+            obj.insert(
+                "sourceInstanceId".to_string(),
+                Value::String(source_id.clone()),
+            );
+        }
+        Ok((source_id, normalized_body))
     }
 }
 
 // =============================================================================
-// Request DTOs & Helpers
+// Request DTOs & Security Helpers
 // =============================================================================
 
 #[derive(Deserialize)]
@@ -989,9 +850,9 @@ struct PulseSourceUpsertArgs {
     title: String,
     #[serde(default = "default_true")]
     enabled: bool,
-    #[serde(default)]
+    #[serde(default, alias = "config_json", alias = "config")]
     config_json: Option<Value>,
-    #[serde(default)]
+    #[serde(default, alias = "signing_secret")]
     signing_secret: Option<String>,
 }
 
@@ -1002,9 +863,11 @@ struct PulseRuleSaveArgs {
     id: Option<String>,
     #[serde(default)]
     enabled: Option<bool>,
-    #[serde(default)]
+    #[serde(default, alias = "draft_only")]
+    draft_only: Option<bool>,
+    #[serde(default, alias = "mandate_origin")]
     mandate_origin: Option<MandateOrigin>,
-    #[serde(default)]
+    #[serde(default, alias = "webhook_route_id")]
     webhook_route_id: Option<String>,
     spec: PulseRuleSpec,
 }
@@ -1012,13 +875,16 @@ struct PulseRuleSaveArgs {
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct PulseRuleSetModeArgs {
+    #[serde(alias = "ruleId", alias = "rule_id")]
     id: String,
+    #[serde(alias = "eval_mode", alias = "mode")]
     eval_mode: PulseEvalMode,
 }
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct PulseRuleSetEnabledArgs {
+    #[serde(alias = "ruleId", alias = "rule_id")]
     id: String,
     enabled: bool,
 }
@@ -1027,26 +893,31 @@ struct PulseRuleSetEnabledArgs {
 #[serde(rename_all = "camelCase")]
 struct PulseRuleDryRunArgs {
     spec: PulseRuleSpec,
+    #[serde(alias = "sample_event")]
     sample_event: EventEnvelope,
 }
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct PulseResolveInteractionArgs {
+    #[serde(alias = "interaction_id", alias = "id")]
     interaction_id: String,
-    #[serde(default)]
+    #[serde(default, alias = "option_id", alias = "selectedOptionId", alias = "selected_option_id")]
     option_id: Option<String>,
     #[serde(default)]
     note: Option<String>,
-    #[serde(default)]
+    #[serde(default, alias = "form_values", alias = "formData", alias = "form_data")]
     form_values: Option<Value>,
 }
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct PulseThreadSubscribeArgs {
+    #[serde(alias = "thread_key")]
     thread_key: String,
+    #[serde(alias = "subscriber_kind")]
     subscriber_kind: String,
+    #[serde(alias = "subscriber_id")]
     subscriber_id: String,
     #[serde(default)]
     active: Option<bool>,
@@ -1055,17 +926,22 @@ struct PulseThreadSubscribeArgs {
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct PulseEventSchemaDefineArgs {
+    #[serde(alias = "event_type")]
     event_type: String,
+    #[serde(alias = "title", alias = "description")]
     summary: String,
+    #[serde(alias = "json_schema", alias = "schemaJson", alias = "schema_json")]
     json_schema: Value,
 }
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct PulseWebhookIngestArgs {
+    #[serde(alias = "source_id")]
     source_id: String,
     #[serde(default)]
     headers: BTreeMap<String, String>,
+    #[serde(alias = "raw_body_base64")]
     raw_body_base64: String,
 }
 
@@ -1096,19 +972,18 @@ fn to_json_value<T: serde::Serialize>(value: T) -> Result<Value, ApplicationErro
     serde_json::to_value(value).map_err(|err| ApplicationError::internal(err.to_string()))
 }
 
-fn require_str_field(value: &Value, key: &str) -> Result<String, ApplicationError> {
-    require_str_field_aliases(value, &[key])
-}
-
 fn require_str_field_aliases(value: &Value, keys: &[&str]) -> Result<String, ApplicationError> {
-    for key in keys {
-        if let Some(found) = value
-            .get(*key)
-            .and_then(Value::as_str)
-            .map(str::trim)
-            .filter(|s| !s.is_empty())
-        {
-            return Ok(found.to_string());
+    let inner = unwrap_input(value);
+    for target in [inner, value] {
+        for key in keys {
+            if let Some(found) = target
+                .get(*key)
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+            {
+                return Ok(found.to_string());
+            }
         }
     }
     Err(ApplicationError::bad_request(format!(
@@ -1117,13 +992,25 @@ fn require_str_field_aliases(value: &Value, keys: &[&str]) -> Result<String, App
     )))
 }
 
-fn mandate_from_principal(principal: &Principal) -> MandateOrigin {
-    match principal {
-        Principal::LocalDesktop => MandateOrigin::ExplicitHuman,
-        Principal::Remote { subject, .. } if subject == "pulse-webhook-intake" => {
-            MandateOrigin::UntrustedExternal
-        }
-        Principal::Remote { .. } => MandateOrigin::ExplicitHuman,
+fn is_untrusted_webhook_principal(principal: &Principal) -> bool {
+    matches!(
+        principal,
+        Principal::Remote { subject, .. } if subject == "pulse-webhook-intake"
+    )
+}
+
+fn resolve_effective_mandate(
+    principal: &Principal,
+    requested: Option<MandateOrigin>,
+) -> MandateOrigin {
+    if is_untrusted_webhook_principal(principal) {
+        return MandateOrigin::UntrustedExternal;
+    }
+    match requested {
+        Some(explicit) => explicit,
+        None => match principal {
+            Principal::LocalDesktop | Principal::Remote { .. } => MandateOrigin::ExplicitHuman,
+        },
     }
 }
 
@@ -1132,8 +1019,18 @@ fn build_emitted_envelope(
     payload: &Value,
     now: chrono::DateTime<Utc>,
 ) -> Result<EventEnvelope, ApplicationError> {
-    if payload.get("eventId").is_some() && payload.get("source").is_some() {
-        return decode_args::<EventEnvelope>(payload);
+    if (payload.get("eventId").is_some() || payload.get("event_id").is_some())
+        && payload.get("source").is_some()
+    {
+        let mut envelope = decode_args::<EventEnvelope>(payload)?;
+        if is_untrusted_webhook_principal(principal) {
+            envelope.source.trust_level = EventTrustLevel::UntrustedExternal;
+        } else if !matches!(principal, Principal::LocalDesktop)
+            && envelope.source.trust_level == EventTrustLevel::TrustedHuman
+        {
+            envelope.source.trust_level = EventTrustLevel::TrustedInternal;
+        }
+        return Ok(envelope);
     }
 
     let event_type = payload
@@ -1149,6 +1046,7 @@ fn build_emitted_envelope(
         .map(str::to_string);
     let instance_id = payload
         .get("sourceInstanceId")
+        .or_else(|| payload.get("source_instance_id"))
         .and_then(Value::as_str)
         .unwrap_or("sdk:default")
         .to_string();
@@ -1156,9 +1054,13 @@ fn build_emitted_envelope(
         Principal::LocalDesktop => "user:local-desktop".to_string(),
         Principal::Remote { subject, .. } => subject.clone(),
     };
-    let trust_level = match principal {
-        Principal::LocalDesktop => EventTrustLevel::TrustedHuman,
-        Principal::Remote { .. } => EventTrustLevel::TrustedInternal,
+    let trust_level = if is_untrusted_webhook_principal(principal) {
+        EventTrustLevel::UntrustedExternal
+    } else {
+        match principal {
+            Principal::LocalDesktop => EventTrustLevel::TrustedHuman,
+            Principal::Remote { .. } => EventTrustLevel::TrustedInternal,
+        }
     };
 
     CustomSdkEventNormalizer::normalize(
@@ -1167,6 +1069,7 @@ fn build_emitted_envelope(
             event_type,
             delivery_id: payload
                 .get("deliveryId")
+                .or_else(|| payload.get("delivery_id"))
                 .and_then(Value::as_str)
                 .map(str::to_string),
             actor_id,
@@ -1184,7 +1087,7 @@ fn build_emitted_envelope(
     .map_err(|err| ApplicationError::bad_request(err.to_string()))
 }
 
-async fn ensure_sdk_source_exists(
+pub(crate) async fn ensure_sdk_source_exists(
     engine: &PulseEngine,
     instance_id: &str,
     now_iso: &str,
@@ -1216,12 +1119,6 @@ async fn ensure_sdk_source_exists(
         .await
         .map_err(map_sqlx_error)?;
     Ok(())
-}
-
-fn resolve_fallback_agent_id(raw: &str) -> Result<AgentId, String> {
-    AgentId::parse(raw)
-        .or_else(|_| AgentId::parse("claude-code"))
-        .map_err(|err| err.to_string())
 }
 
 fn map_sqlx_error(err: sqlx::Error) -> ApplicationError {

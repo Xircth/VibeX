@@ -15,7 +15,7 @@ use pulse_rows::*;
 use sqlx::SqlitePool;
 
 const PULSE_MIGRATION_SQL: &str =
-    include_str!("../../migrations/20261116000000_pulse_event_engine.sql");
+    include_str!("../../migrations/20261116010000_pulse_event_engine.sql");
 
 static PULSE_SCHEMA_DDL_LOCK: LazyLock<tokio::sync::Mutex<()>> =
     LazyLock::new(|| tokio::sync::Mutex::new(()));

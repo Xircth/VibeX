@@ -37,8 +37,24 @@ export function canvasNodesMatch(
       node.openedFromId === other.openedFromId &&
       node.panelId === other.panelId &&
       node.panelComponent === other.panelComponent &&
-      node.panelTitle === other.panelTitle
+      node.panelTitle === other.panelTitle &&
+      shallowEqualRecords(node.panelParams, other.panelParams)
     );
   });
+}
+
+function shallowEqualRecords(
+  a: Record<string, unknown> | undefined,
+  b: Record<string, unknown> | undefined
+): boolean {
+  if (a === b) return true;
+  if (!a || !b) return false;
+  const aKeys = Object.keys(a);
+  const bKeys = Object.keys(b);
+  if (aKeys.length !== bKeys.length) return false;
+  for (const key of aKeys) {
+    if (a[key] !== b[key]) return false;
+  }
+  return true;
 }
 

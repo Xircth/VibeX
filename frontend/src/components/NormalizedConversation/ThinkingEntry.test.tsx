@@ -22,9 +22,7 @@ describe('ThinkingEntry', () => {
 
     expect(screen.getByText('正在思考中...')).toHaveClass('conv-shimmer-text');
     expect(screen.queryByText('思考')).not.toBeInTheDocument();
-    expect(document.querySelector('.conv-thinking-spinner')).toHaveClass(
-      'animate-spin'
-    );
+    expect(document.querySelector('.conv-pixel-grid')).not.toBeNull();
     expect(document.querySelector('.conv-thinking-icon')).toBeNull();
     await waitFor(
       () =>
@@ -48,7 +46,7 @@ describe('ThinkingEntry', () => {
     expect(screen.getByText('思考')).toBeInTheDocument();
     expect(screen.queryByText('正在思考中...')).not.toBeInTheDocument();
     expect(document.querySelector('.conv-thinking-icon')).not.toBeNull();
-    expect(document.querySelector('.conv-thinking-spinner')).toBeNull();
+    expect(document.querySelector('.conv-pixel-grid')).toBeNull();
     expect(
       screen.getByRole('button', { name: '展开思考' })
     ).toBeInTheDocument();
@@ -66,7 +64,7 @@ describe('ThinkingEntry', () => {
     expect(screen.getByText('思考')).toBeInTheDocument();
     expect(screen.queryByText('正在思考中...')).not.toBeInTheDocument();
     expect(document.querySelector('.conv-thinking-icon')).not.toBeNull();
-    expect(document.querySelector('.conv-thinking-spinner')).toBeNull();
+    expect(document.querySelector('.conv-pixel-grid')).toBeNull();
   });
 
   it('keeps a user-expanded finished thought open across content updates', () => {

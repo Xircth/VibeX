@@ -1,7 +1,30 @@
-import { fireEvent, render, screen } from '@testing-library/react';
-import { describe, expect, it, vi } from 'vitest';
+import { fireEvent, render, screen, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import type { SelectableAgent } from '@/features/agents/useSelectableAgents';
 import { ActionBar } from './ActionBar';
+
+const mockSlotState = vi.hoisted(() => ({
+  renderMic: false,
+}));
+
+const mockSelectableAgents = vi.hoisted(
+  () => ({ rows: [] as SelectableAgent[] })
+);
+
+vi.mock('@/components/plugins/Slot', () => ({
+  Slot: ({ name }: { name: string }) =>
+    name === 'composer.toolbar' && mockSlotState.renderMic ? (
+      <button type="button" aria-label="语音输入">
+        mic
+      </button>
+    ) : null,
+}));
+
+vi.mock('@/features/agents/useSelectableAgents', () => ({
+  useSelectableAgents: () => mockSelectableAgents.rows,
+}));
 
 function renderActionBar(props: Partial<Parameters<typeof ActionBar>[0]> = {}) {
   return render(
@@ -35,6 +58,11 @@ function renderActionBar(props: Partial<Parameters<typeof ActionBar>[0]> = {}) {
 }
 
 describe('ActionBar', () => {
+  beforeEach(() => {
+    mockSlotState.renderMic = false;
+    mockSelectableAgents.rows = [];
+  });
+
   it('does not keep a hidden duplicate todo trigger', () => {
     renderActionBar();
 
@@ -69,10 +97,25 @@ describe('ActionBar', () => {
     expect(onStopExecution).toHaveBeenCalledTimes(1);
   });
 
-  it('groups attachment and utility actions immediately before send', () => {
+  it('groups attachment and utility actions on the bottom-left and places session settings left of microphone and send', () => {
+    mockSlotState.renderMic = true;
+
     renderActionBar({
       compactContextEnabled: true,
       promptEnhancementEnabled: true,
+      sessionConfigOptions: [
+        {
+          key: 'model',
+          label: 'Model',
+          category: 'model',
+          value: 'terra',
+          choices: [
+            { value: 'terra', label: '5.6 Terra' },
+            { value: 'sol', label: '5.6 Sol' },
+          ],
+        },
+      ],
+      onSelectConfigOption: vi.fn(),
     });
 
     const buttons = screen.getAllByRole('button');
@@ -80,8 +123,65 @@ describe('ActionBar', () => {
       '附加文件',
       '压缩上下文',
       '提示词优化',
+      '本次会话: 5.6 Terra',
+      '语音输入',
       '发送',
     ]);
+    expect(screen.getByTestId('session-settings-summary')).not.toHaveClass(
+      'raised-control'
+    );
+  });
+
+  it('keeps Agent switching available on Bot sessions when profile controls are enabled', async () => {
+    const user = userEvent.setup();
+    const onChangeExecutorProfile = vi.fn();
+    mockSelectableAgents.rows = [
+      {
+        agentId: 'claude_code',
+        displayName: 'Claude Code',
+        iconLight: null,
+        iconDark: null,
+        iconSvg: null,
+        enabled: true,
+        lifecycle: 'ready',
+        runnable: true,
+        settingsFeatures: [],
+      },
+      {
+        agentId: 'codex',
+        displayName: 'Codex',
+        iconLight: null,
+        iconDark: null,
+        iconSvg: null,
+        enabled: true,
+        lifecycle: 'ready',
+        runnable: true,
+        settingsFeatures: [],
+      },
+    ];
+
+    renderActionBar({
+      showProfileControls: true,
+      profiles: {},
+      effectiveExecutorProfile: {
+        executor: 'claude_code',
+        variant: null,
+      },
+      onChangeExecutorProfile,
+      persona: {
+        name: '小A',
+        agentName: 'claude_code',
+      },
+    });
+
+    await user.click(screen.getByTestId('session-settings-summary'));
+    const rail = screen.getByRole('radiogroup');
+    await user.click(within(rail).getByRole('radio', { name: 'Codex' }));
+
+    expect(onChangeExecutorProfile).toHaveBeenCalledWith({
+      executor: 'codex',
+      variant: null,
+    });
   });
 
   it('omits compact context when the optional setting is off', () => {

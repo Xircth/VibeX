@@ -1,12 +1,6 @@
 import { Badge } from '@astryxdesign/core/Badge';
 import { AtSign, Paperclip, Sparkles } from 'lucide-react';
-import { getAgentName } from '@/components/agents/AgentIcon';
 import { Button } from '@/components/ui/button';
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from '@/components/ui/popover';
 import { Slot } from '@/components/plugins/Slot';
 import { ActionBarUtilityButtons } from '@/components/tasks/follow-up/ActionBarUtilityButtons';
 import { ComposerPrimaryActionButton } from '@/components/tasks/follow-up/ComposerPrimaryActionButton';
@@ -26,9 +20,7 @@ import {
   getActiveComposerDraftTargetId,
   registerComposerDraftTarget,
 } from '@/lib/composerDraftTargets';
-import { COPY, displayName } from '../spaceModel';
-import { MemberBotAvatar, deriveMemberBotAvatar } from '../MemberBotAvatar';
-import { GroupAvatar } from '../GroupAvatar';
+import { displayName } from '../spaceModel';
 import { CollaborationReplyCapsule } from '../CollaborationReplyCapsule';
 import {
   isAutomateSlashCommand,
@@ -43,6 +35,7 @@ import {
 import { PulseRuleProposalCard } from '../PulseRuleProposalCard';
 
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { BotSpaceSessionSettings } from './BotSpaceSessionSettings';
 import { useCollaborationSpacePick } from './SpaceContext';
 
 const COMPOSER_DOCK_PICK_KEYS = [
@@ -50,11 +43,7 @@ const COMPOSER_DOCK_PICK_KEYS = [
   'attachedImages',
   'composerContainerRef',
   'composerFileInputRef',
-  'composerMembersMenuOpen',
-  'conversationById',
   'draft',
-  'draftMemberMetaByConvId',
-  'getMemberAvatar',
   'handleAttachFiles',
   'handleComposerFileSelect',
   'handleDelaySpaceQueuedMessage',
@@ -66,19 +55,13 @@ const COMPOSER_DOCK_PICK_KEYS = [
   'isBotSessionLoading',
   'isEnhancingPrompt',
   'isPrivateChatActive',
-  'memberAvatars',
-  'openComposerMembersMenu',
   'promptEnhancementEnabled',
   'replaceDraftRef',
   'replyingTo',
   'repoIds',
-  'scheduleCloseComposerMembersMenu',
-  'selectMemberForPreview',
   'selected',
-  'selectedTagPreset',
   'send',
   'sending',
-  'setComposerMembersMenuOpen',
   'setDraft',
   'setReplyingTo',
   'spaceMemberRefs',
@@ -96,11 +79,7 @@ export const ComposerDock = memo(function ComposerDock() {
     attachedImages,
     composerContainerRef,
     composerFileInputRef,
-    composerMembersMenuOpen,
-    conversationById,
     draft,
-    draftMemberMetaByConvId,
-    getMemberAvatar,
     handleAttachFiles,
     handleComposerFileSelect,
     handleDelaySpaceQueuedMessage,
@@ -112,18 +91,13 @@ export const ComposerDock = memo(function ComposerDock() {
     isBotSessionLoading,
     isEnhancingPrompt,
     isPrivateChatActive,
-    openComposerMembersMenu,
     promptEnhancementEnabled,
     replaceDraftRef,
     replyingTo,
     repoIds,
-    scheduleCloseComposerMembersMenu,
-    selectMemberForPreview,
     selected,
-    selectedTagPreset,
     send,
     sending,
-    setComposerMembersMenuOpen,
     setDraft,
     setReplyingTo,
     spaceMemberRefs,
@@ -384,7 +358,12 @@ export const ComposerDock = memo(function ComposerDock() {
   return (
     <>
       {selected ? (
-        <div ref={composerContainerRef} className="collaboration-composer-wrap">
+        <div
+          ref={composerContainerRef}
+          data-testid="collaboration-composer"
+          data-space-name={selected.name}
+          className="collaboration-composer-wrap"
+        >
           {activePulseProposal ? (
             <div className="mb-2" data-testid="composer-pulse-proposal-drawer">
               <PulseRuleProposalCard
@@ -465,134 +444,6 @@ export const ComposerDock = memo(function ComposerDock() {
               />
             }
           >
-            <div className="composer-topbar flex items-center justify-between gap-2 px-1 pb-0 text-xs">
-              <div
-                className="flex min-w-0 items-center gap-1.5 text-xs font-medium text-foreground"
-                data-testid="composer-current-space"
-              >
-                {activeDirectThreadId ? (
-                  <MemberBotAvatar
-                    config={
-                      visibleRoster[0]
-                        ? getMemberAvatar(
-                            visibleRoster[0].conversation_id ?? undefined,
-                            displayName(visibleRoster[0])
-                          )
-                        : deriveMemberBotAvatar(selected.name)
-                    }
-                    animated={false}
-                    className="h-4 w-4 shrink-0"
-                  />
-                ) : (
-                  <GroupAvatar
-                    avatars={visibleRoster.map((member) =>
-                      getMemberAvatar(
-                        member.conversation_id ?? undefined,
-                        displayName(member)
-                      )
-                    )}
-                    tagHue={selectedTagPreset?.hue}
-                    size={18}
-                  />
-                )}
-                <span className="truncate">{selected.name}</span>
-                {isAutomateDraft ? (
-                  <span
-                    className="inline-flex items-center gap-1 rounded bg-primary/15 px-1.5 py-0.5 text-[10px] font-medium text-primary"
-                    data-testid="composer-automate-intent-pill"
-                  >
-                    <Sparkles className="h-2.5 w-2.5" />
-                    Pulse /automate
-                  </span>
-                ) : null}
-              </div>
-
-              {activeDirectThreadId ? null : (
-                <Popover
-                  open={composerMembersMenuOpen}
-                  onOpenChange={setComposerMembersMenuOpen}
-                >
-                  <PopoverTrigger asChild>
-                    <button
-                      type="button"
-                      data-testid="composer-space-stats"
-                      aria-label={i18n.t(
-                        'panels:ui.collabPage.spaceBotsVisibleroster',
-                        { visibleRoster: visibleRoster.length }
-                      )}
-                      onMouseEnter={openComposerMembersMenu}
-                      onMouseLeave={scheduleCloseComposerMembersMenu}
-                      className="workspace-session-group-count cursor-pointer border-0 tabular-nums"
-                    >
-                      {visibleRoster.length}
-                    </button>
-                  </PopoverTrigger>
-                  <PopoverContent
-                    align="end"
-                    side="top"
-                    sideOffset={8}
-                    onMouseEnter={openComposerMembersMenu}
-                    onMouseLeave={scheduleCloseComposerMembersMenu}
-                    onOpenAutoFocus={(event) => event.preventDefault()}
-                    onCloseAutoFocus={(event) => event.preventDefault()}
-                    className="w-60 rounded-md border border-border/80 bg-popover p-2 text-popover-foreground shadow-lg"
-                  >
-                    <div className="mb-1.5 flex items-center justify-between px-1 text-xs font-medium text-muted-foreground">
-                      <span>{i18n.t('panels:ui.collabPage.spaceBots')}</span>
-                      <span className="tabular-nums">
-                        {visibleRoster.length}
-                      </span>
-                    </div>
-                    {visibleRoster.length === 0 ? (
-                      <p className="px-1 py-1.5 text-xs text-muted-foreground">
-                        {COPY.noMemberSessions}
-                      </p>
-                    ) : (
-                      <div className="flex max-h-48 flex-col gap-1 overflow-y-auto">
-                        {visibleRoster.map((member) => {
-                          const nick = displayName(member);
-                          const convId = member.conversation_id ?? '';
-                          const conv = convId
-                            ? conversationById.get(convId)
-                            : undefined;
-                          const agentId =
-                            conv?.agent_id ||
-                            draftMemberMetaByConvId[convId]?.agentId;
-                          return (
-                            <button
-                              key={member.member_id ?? convId ?? nick}
-                              type="button"
-                              className="flex w-full items-center gap-2 rounded px-1.5 py-1 text-left text-xs hover:bg-muted/60"
-                              onClick={() => {
-                                setComposerMembersMenuOpen(false);
-                                selectMemberForPreview(
-                                  selected.space_id,
-                                  member
-                                );
-                              }}
-                            >
-                              <MemberBotAvatar
-                                config={getMemberAvatar(convId, nick)}
-                                className="h-3.5 w-3.5 shrink-0"
-                              />
-                              <span className="min-w-0 flex-1 truncate font-medium text-foreground">
-                                {nick}
-                              </span>
-                              {agentId ? (
-                                <span className="shrink-0 text-xs text-muted-foreground">
-                                  {getAgentName(agentId) || agentId}
-                                </span>
-                              ) : null}
-                            </button>
-                          );
-                        })}
-                      </div>
-                    )}
-                  </PopoverContent>
-                </Popover>
-              )}
-            </div>
-
             {replyingTo ? (
               <CollaborationReplyCapsule
                 text={replyingTo.text}
@@ -627,7 +478,7 @@ export const ComposerDock = memo(function ComposerDock() {
                 void handleAttachFiles(files);
               }}
             />
-            <div className="flex items-center gap-1 pt-1">
+            <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
               <input
                 ref={composerFileInputRef}
                 type="file"
@@ -642,19 +493,12 @@ export const ComposerDock = memo(function ComposerDock() {
                 disabled={sending}
                 size="sm"
                 variant="ghost"
-                className="collaboration-icon-btn h-7 w-7 p-0"
+                className="collaboration-icon-btn h-8 w-8 p-0"
                 title={i18n.t('panels:ui.collabPage.chooseFile')}
                 aria-label={i18n.t('panels:ui.collabPage.chooseFile')}
               >
-                <Paperclip className="h-3.5 w-3.5" aria-hidden="true" />
+                <Paperclip className="h-[18px] w-[18px]" aria-hidden="true" />
               </Button>
-              <Slot
-                name="composer.toolbar"
-                slotProps={{
-                  isEditable: !composerDisabled,
-                  isAttemptRunning: sending,
-                }}
-              />
               <ActionBarUtilityButtons
                 compactContextEnabled={false}
                 canCompactContext={false}
@@ -673,13 +517,32 @@ export const ComposerDock = memo(function ComposerDock() {
                 disabled={sending}
                 size="sm"
                 variant="ghost"
-                className="collaboration-icon-btn h-7 w-7 p-0"
+                className="collaboration-icon-btn h-8 w-8 p-0"
                 title={i18n.t('panels:ui.collabPage.bot')}
                 aria-label={i18n.t('panels:ui.collabPage.bot')}
               >
-                <AtSign className="h-3.5 w-3.5" aria-hidden="true" />
+                <AtSign className="h-[18px] w-[18px]" aria-hidden="true" />
               </Button>
+              {isAutomateDraft ? (
+                <span
+                  className="inline-flex items-center gap-1 rounded bg-primary/15 px-1.5 py-0.5 text-[10px] font-medium text-primary"
+                  data-testid="composer-automate-intent-pill"
+                >
+                  <Sparkles className="h-2.5 w-2.5" />
+                  Pulse /automate
+                </span>
+              ) : null}
               <div className="flex-1" />
+              {isPrivateChatActive ? (
+                <BotSpaceSessionSettings disabled={composerDisabled} />
+              ) : null}
+              <Slot
+                name="composer.toolbar"
+                slotProps={{
+                  isEditable: !composerDisabled,
+                  isAttemptRunning: sending,
+                }}
+              />
               <ComposerPrimaryActionButton
                 action="send"
                 label={t('collaborationSpace.send', '发送')}

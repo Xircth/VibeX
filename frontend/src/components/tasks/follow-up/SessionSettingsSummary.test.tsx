@@ -473,4 +473,73 @@ describe('SessionSettingsSummary', () => {
     expect(updatedTrigger).toHaveTextContent('Codex');
     expect(updatedTrigger).not.toHaveTextContent('全新上下文');
   });
+
+  it('renders a borderless summary trigger and keeps Agent switching enabled even when persona metadata is present', async () => {
+    const user = userEvent.setup();
+    const onChangeExecutorProfile = vi.fn();
+
+    render(
+      <SessionSettingsSummary
+        options={OPTIONS}
+        pending={{}}
+        onSelectConfigOption={vi.fn()}
+        dropdownAlign="end"
+        persona={{
+          name: '架构师小A',
+          agentName: 'claude_code',
+        }}
+        agentRail={{
+          profiles: {},
+          effectiveExecutorProfile: {
+            executor: 'CLAUDE_CODE' as never,
+            variant: null,
+          },
+          onChangeExecutorProfile,
+          selectableAgents: [
+            {
+              agentId: 'claude_code',
+              displayName: 'Claude Code',
+              iconLight: null,
+              iconDark: null,
+              iconSvg: null,
+              enabled: true,
+              lifecycle: 'ready',
+              runnable: true,
+              settingsFeatures: [],
+            },
+            {
+              agentId: 'codex',
+              displayName: 'Codex',
+              iconLight: null,
+              iconDark: null,
+              iconSvg: null,
+              enabled: true,
+              lifecycle: 'ready',
+              runnable: true,
+              settingsFeatures: [],
+            },
+          ],
+        }}
+      />
+    );
+
+    const trigger = screen.getByTestId('session-settings-summary');
+    expect(trigger).not.toHaveClass('raised-control');
+    expect(trigger).not.toHaveAttribute('data-raised-selector');
+    expect(trigger).toHaveClass('border-0', 'h-8', 'text-sm');
+    expect(trigger.querySelector('.h-\\[18px\\].w-\\[18px\\]')).not.toBeNull();
+
+    await user.click(trigger);
+
+    const rail = screen.getByRole('radiogroup');
+    expect(
+      within(rail).getByRole('radio', { name: 'Claude Code' })
+    ).toHaveAttribute('aria-checked', 'true');
+
+    await user.click(within(rail).getByRole('radio', { name: 'Codex' }));
+    expect(onChangeExecutorProfile).toHaveBeenCalledWith({
+      executor: 'codex',
+      variant: null,
+    });
+  });
 });

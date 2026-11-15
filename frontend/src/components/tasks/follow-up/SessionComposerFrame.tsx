@@ -73,7 +73,7 @@ export function SessionComposerFrame({
   children: ReactNode;
 }) {
   return (
-    <div className="shrink-0 px-3 pb-3 pt-2">
+    <div className="shrink-0 px-3 pb-2.5 pt-1.5">
       <div
         className={cn(
           'agent-question-composer-stack relative z-10 mx-auto w-full',
@@ -91,7 +91,7 @@ export function SessionComposerFrame({
           data-testid="session-composer-anchor"
         >
           <div
-            className="composer-shell session-composer-body relative z-10 flex flex-col gap-1 overflow-visible rounded-lg p-2"
+            className="composer-shell session-composer-body relative z-10 flex flex-col gap-0.5 overflow-visible rounded-[var(--radius-composer,0.75rem)] px-3 py-2"
             data-testid="session-composer-body"
             data-typeahead-surface="composer"
             onClick={handleComposerBodyClick}

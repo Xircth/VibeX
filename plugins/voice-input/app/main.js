@@ -1157,7 +1157,7 @@ export default {
               'aria-label': '停止语音输入',
               'data-testid': 'voice-composer-recording-button',
               className:
-                'inline-flex h-7 items-center justify-center rounded-md bg-primary/15 px-2 text-xs font-medium tabular-nums text-primary transition-colors hover:bg-primary/25',
+                'inline-flex h-8 items-center justify-center rounded-md bg-primary/15 px-2.5 text-sm font-medium tabular-nums text-primary transition-colors hover:bg-primary/25',
             },
             h('span', { className: 'tabular-nums' }, snap.durationLabel),
           );
@@ -1173,11 +1173,11 @@ export default {
               'aria-label': '正在识别语音',
               'data-testid': 'voice-composer-transcribing-button',
               className:
-                'inline-flex h-7 w-7 items-center justify-center rounded-md bg-primary/10 text-primary',
+                'inline-flex h-8 w-8 items-center justify-center rounded-md bg-primary/10 text-primary',
             },
             h('span', {
               className:
-                'h-3.5 w-3.5 rounded-full border-2 border-primary border-t-transparent animate-spin',
+                'h-4 w-4 rounded-full border-2 border-primary border-t-transparent animate-spin',
             }),
           );
         }
@@ -1196,7 +1196,7 @@ export default {
             'aria-label': 'AI 语音输入',
             'data-testid': 'voice-composer-mic-button',
             className:
-              'inline-flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:opacity-50',
+              'inline-flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:opacity-50',
           },
           h(
             'svg',
@@ -1207,7 +1207,7 @@ export default {
               strokeWidth: '1.8',
               strokeLinecap: 'round',
               strokeLinejoin: 'round',
-              className: 'h-3.5 w-3.5',
+              className: 'h-[18px] w-[18px]',
             },
             h('rect', { x: '9', y: '2', width: '6', height: '11', rx: '3' }),
             h('path', { d: 'M5 10a7 7 0 0 0 14 0' }),

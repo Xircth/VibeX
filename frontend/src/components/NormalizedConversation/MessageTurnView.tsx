@@ -87,6 +87,10 @@ import {
   nextStreamingActivityVerb,
   shouldShowAssistantStreamingStatus,
 } from './assistantStreamingActivity';
+import {
+  PixelGridLoader,
+  formatLoadingElapsed,
+} from '@/components/ui/pixel-grid-loader';
 
 export interface MessageTurnContext {
   taskAttemptId?: string;
@@ -316,6 +320,8 @@ function AssistantStreamingStatus({ hasContent }: { hasContent: boolean }) {
   const [verb, setVerb] = useState(() =>
     nextStreamingActivityVerb(STREAMING_ACTIVITY_VERBS)
   );
+  const [elapsedMs, setElapsedMs] = useState(0);
+  const startedAtRef = useRef(Date.now());
 
   useEffect(() => {
     if (prefersReducedMotion()) return;
@@ -325,6 +331,15 @@ function AssistantStreamingStatus({ hasContent }: { hasContent: boolean }) {
       );
     }, STREAMING_ACTIVITY_INTERVAL_MS);
     return () => window.clearInterval(timer);
+  }, []);
+
+  // Tenths-of-a-second tick, matching the pixel grid's perceptible cadence: a
+  // once-per-second counter reads as stalled beside a 650ms animation.
+  useEffect(() => {
+    const ticker = window.setInterval(() => {
+      setElapsedMs(Date.now() - startedAtRef.current);
+    }, 100);
+    return () => window.clearInterval(ticker);
   }, []);
 
   return (
@@ -337,8 +352,11 @@ function AssistantStreamingStatus({ hasContent }: { hasContent: boolean }) {
       aria-live="polite"
       aria-label={statusLabel}
     >
-      <span className="conv-spinner" aria-hidden="true" />
+      <PixelGridLoader size="sm" />
       <span className="conv-shimmer-text">{`${verb}…`}</span>
+      <span className="conv-streaming-elapsed tabular-nums">
+        {formatLoadingElapsed(elapsedMs)}
+      </span>
     </div>
   );
 }
@@ -606,6 +624,7 @@ export const MessageTurnView = memo(function MessageTurnView({
   showInterruptedNotice = true,
   contextCompact,
   hasTurnError = false,
+  suppressStreamingStatus = false,
   delegations = [],
   onOpenChild,
   questions = [],
@@ -629,6 +648,7 @@ export const MessageTurnView = memo(function MessageTurnView({
   showInterruptedNotice?: boolean;
   contextCompact?: ContextCompactPresentation | null;
   hasTurnError?: boolean;
+  suppressStreamingStatus?: boolean;
   delegations?: ConversationDelegationView[];
   onOpenChild?: (childConversationId: string) => void;
   questions?: TimelineQuestion[];
@@ -840,7 +860,7 @@ export const MessageTurnView = memo(function MessageTurnView({
 
   const showStreamingStatus = shouldShowAssistantStreamingStatus({
     phase,
-    hasTurnError,
+    hasTurnError: hasTurnError || suppressStreamingStatus,
   });
   if (slice?.kind === 'process-fold') {
     const foldedItems =
@@ -863,10 +883,18 @@ export const MessageTurnView = memo(function MessageTurnView({
       </div>
     );
   }
-  if (
-    slice?.kind === 'status' ||
-    (showStreamingStatus && items.length === 0 && !slice)
-  ) {
+  if (slice?.kind === 'status') {
+    if (!showStreamingStatus) return null;
+    return (
+      <div
+        className="conv-entry-item conv-assistant-msg conv-msg-hover group px-4 py-2 text-sm"
+        data-message-id={turn.id}
+      >
+        <AssistantStreamingStatus hasContent={false} />
+      </div>
+    );
+  }
+  if (showStreamingStatus && items.length === 0 && !slice) {
     return (
       <div
         className="conv-entry-item conv-assistant-msg conv-msg-hover group px-4 py-2 text-sm"

@@ -5,7 +5,10 @@ import type {
   ConversationRequestStatus,
   ConversationSessionNotice,
 } from 'shared/types';
-import { deriveInlineStreamRuntimeStatus } from './inlineRuntimeStatus';
+import {
+  deriveInlineStreamRuntimeStatus,
+  parseReconnectProgressTitle,
+} from './inlineRuntimeStatus';
 
 const readyConnection = (
   overrides: Partial<ConversationConnectionStatus> = {}
@@ -52,7 +55,9 @@ describe('deriveInlineStreamRuntimeStatus', () => {
       })
     ).toEqual({
       status: null,
+      placement: null,
       suppressLiveTurnStatsStatus: false,
+      suppressAssistantStreamingStatus: false,
       isConnectionRecovering: false,
     });
   });
@@ -70,7 +75,9 @@ describe('deriveInlineStreamRuntimeStatus', () => {
       })
     ).toEqual({
       status: null,
+      placement: null,
       suppressLiveTurnStatsStatus: false,
+      suppressAssistantStreamingStatus: false,
       isConnectionRecovering: false,
     });
   });
@@ -87,12 +94,14 @@ describe('deriveInlineStreamRuntimeStatus', () => {
       })
     ).toEqual({
       status: null,
+      placement: null,
       suppressLiveTurnStatsStatus: false,
+      suppressAssistantStreamingStatus: false,
       isConnectionRecovering: false,
     });
   });
 
-  it('collapses connecting flag, reconnect notice, and connection status into one stream entry', () => {
+  it('collapses connecting flag, reconnect notice, and connection status into one stream entry during an active user turn', () => {
     const genericReconnect: ConversationSessionNotice = {
       title: '正在连接 Agent…',
       message: null,
@@ -103,19 +112,23 @@ describe('deriveInlineStreamRuntimeStatus', () => {
       connection: readyConnection({ status: 'recovering', bound: false }),
       request: requestStatus('waiting_agent'),
       reconnectNotice: genericReconnect,
+      hasUserMessage: true,
       isTurnInFlight: true,
       hasStreamingAssistantRow: true,
+      hasStreamingAssistantContent: false,
     });
 
+    expect(res.placement).toBe('stream');
     expect(res.status?.kind).toBe('connection');
     expect(res.status?.notice.connection_status?.status).toBe('recovering');
     expect(res.status?.titleOverride).toBeNull();
     expect(res.status?.canCancel).toBe(true);
     expect(res.isConnectionRecovering).toBe(true);
     expect(res.suppressLiveTurnStatsStatus).toBe(true);
+    expect(res.suppressAssistantStreamingStatus).toBe(true);
   });
 
-  it('preserves detailed reconnect attempt progress titles', () => {
+  it('routes pre-send connection status to composer placement instead of the message stream', () => {
     const res = deriveInlineStreamRuntimeStatus({
       connecting: false,
       connection: readyConnection({ status: 'recovering', bound: false }),
@@ -125,12 +138,30 @@ describe('deriveInlineStreamRuntimeStatus', () => {
         message: null,
         severity: 'warning',
       },
+      hasUserMessage: false,
       isTurnInFlight: false,
       hasStreamingAssistantRow: false,
     });
 
+    expect(res.placement).toBe('composer');
     expect(res.status?.kind).toBe('connection');
     expect(res.status?.titleOverride).toBe('会话加载异常，正在重连 3/10 次…');
+    expect(res.suppressAssistantStreamingStatus).toBe(false);
+  });
+
+  it('routes pre-send initial connecting state to composer even if no reconnectNotice exists yet', () => {
+    const res = deriveInlineStreamRuntimeStatus({
+      connecting: true,
+      connection: readyConnection({ status: 'connecting', bound: false }),
+      request: null,
+      hasUserMessage: false,
+      isTurnInFlight: false,
+      hasStreamingAssistantRow: false,
+    });
+
+    expect(res.placement).toBe('composer');
+    expect(res.status?.kind).toBe('connection');
+    expect(res.status?.notice.connection_status?.status).toBe('connecting');
   });
 
   it('suppresses connection error when TurnErrorCard already reports a connection failure', () => {
@@ -156,7 +187,7 @@ describe('deriveInlineStreamRuntimeStatus', () => {
     ).toBeNull();
   });
 
-  it('shows one inline connection error with reconnect when no connection TurnErrorCard is visible', () => {
+  it('shows connection error in composer placement when no turn is in flight', () => {
     const res = deriveInlineStreamRuntimeStatus({
       connecting: false,
       connection: readyConnection({
@@ -170,10 +201,12 @@ describe('deriveInlineStreamRuntimeStatus', () => {
         message: 'transport closed unexpectedly',
         severity: 'error',
       },
+      hasUserMessage: false,
       isTurnInFlight: false,
       hasStreamingAssistantRow: false,
     });
 
+    expect(res.placement).toBe('composer');
     expect(res.status?.kind).toBe('connection');
     expect(res.status?.canReconnect).toBe(true);
     expect(res.status?.notice.connection_status?.message).toBe(
@@ -181,29 +214,37 @@ describe('deriveInlineStreamRuntimeStatus', () => {
     );
   });
 
-  it('shows active request inline before an assistant turn starts streaming, then hands off to LiveTurnStats', () => {
-    const beforeAssistant = deriveInlineStreamRuntimeStatus({
+  it('keeps connecting status in stream while assistant row has no content yet, then hands off once blocks arrive', () => {
+    const beforeAssistantBlocks = deriveInlineStreamRuntimeStatus({
       connecting: false,
       connection: readyConnection(),
       request: requestStatus('waiting_agent'),
+      hasUserMessage: true,
       isTurnInFlight: true,
-      hasStreamingAssistantRow: false,
+      hasStreamingAssistantRow: true,
+      hasStreamingAssistantContent: false,
     });
-    expect(beforeAssistant.status?.kind).toBe('request');
-    expect(beforeAssistant.status?.canCancel).toBe(true);
+    expect(beforeAssistantBlocks.placement).toBe('stream');
+    expect(beforeAssistantBlocks.status?.kind).toBe('request');
+    expect(beforeAssistantBlocks.suppressAssistantStreamingStatus).toBe(true);
+    expect(beforeAssistantBlocks.suppressLiveTurnStatsStatus).toBe(true);
 
     const whileResponding = deriveInlineStreamRuntimeStatus({
       connecting: false,
       connection: readyConnection(),
       request: requestStatus('responding'),
+      hasUserMessage: true,
       isTurnInFlight: true,
       hasStreamingAssistantRow: true,
+      hasStreamingAssistantContent: true,
     });
     expect(whileResponding.status).toBeNull();
+    expect(whileResponding.placement).toBeNull();
+    expect(whileResponding.suppressAssistantStreamingStatus).toBe(false);
     expect(whileResponding.suppressLiveTurnStatsStatus).toBe(false);
   });
 
-  it('surfaces inline retry/cancel status even when an assistant row exists and suppresses duplicate LiveTurnStats label', () => {
+  it('surfaces inline retry/cancel status even when an assistant row has content and suppresses duplicate indicators', () => {
     const res = deriveInlineStreamRuntimeStatus({
       connecting: false,
       connection: readyConnection(),
@@ -219,14 +260,18 @@ describe('deriveInlineStreamRuntimeStatus', () => {
           },
         },
       }),
+      hasUserMessage: true,
       isTurnInFlight: true,
       hasStreamingAssistantRow: true,
+      hasStreamingAssistantContent: true,
     });
 
+    expect(res.placement).toBe('stream');
     expect(res.status?.kind).toBe('request');
     expect(res.status?.notice.request_status?.activity.phase).toBe('retrying');
     expect(res.status?.canCancel).toBe(true);
     expect(res.suppressLiveTurnStatsStatus).toBe(true);
+    expect(res.suppressAssistantStreamingStatus).toBe(true);
   });
 
   it('ignores leftover non-terminal request state when no turn is in flight', () => {
@@ -252,25 +297,58 @@ describe('deriveInlineStreamRuntimeStatus', () => {
       hasStreamingAssistantRow: false,
     });
 
+    expect(res.placement).toBe('stream');
     expect(res.status?.kind).toBe('request');
     expect(res.status?.canRetry).toBe(true);
   });
 
-  it('hands off initial cold-start connecting turn to LiveTurnStats without marking connection as recovering', () => {
-    const res = deriveInlineStreamRuntimeStatus({
+  it('keeps post-send cold-start connecting in stream before assistant blocks arrive and hands off once content streams', () => {
+    const coldStart = deriveInlineStreamRuntimeStatus({
       connecting: true,
       connection: readyConnection({ status: 'connecting', bound: false }),
       request: requestStatus('waiting_agent'),
       reconnectNotice: null,
+      hasUserMessage: true,
       isTurnInFlight: true,
       hasStreamingAssistantRow: true,
+      hasStreamingAssistantContent: false,
     });
 
-    expect(res).toEqual({
+    expect(coldStart.placement).toBe('stream');
+    expect(coldStart.status?.kind).toBe('connection');
+    expect(coldStart.suppressAssistantStreamingStatus).toBe(true);
+    expect(coldStart.isConnectionRecovering).toBe(false);
+
+    const streamingContent = deriveInlineStreamRuntimeStatus({
+      connecting: true,
+      connection: readyConnection({ status: 'connecting', bound: false }),
+      request: requestStatus('responding'),
+      reconnectNotice: null,
+      hasUserMessage: true,
+      isTurnInFlight: true,
+      hasStreamingAssistantRow: true,
+      hasStreamingAssistantContent: true,
+    });
+
+    expect(streamingContent).toEqual({
       status: null,
+      placement: null,
       suppressLiveTurnStatsStatus: false,
+      suppressAssistantStreamingStatus: false,
       isConnectionRecovering: false,
     });
+  });
+
+  it('parses retry counts from reconnect progress titles', () => {
+    expect(parseReconnectProgressTitle('会话加载异常，正在重连 3/10 次…')).toEqual({
+      attempt: 3,
+      maxAttempts: 10,
+    });
+    expect(parseReconnectProgressTitle('Reconnecting 2 / 5...')).toEqual({
+      attempt: 2,
+      maxAttempts: 5,
+    });
+    expect(parseReconnectProgressTitle('正在连接 Agent…')).toBeNull();
   });
 });
 

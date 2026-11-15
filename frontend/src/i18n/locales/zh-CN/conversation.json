@@ -276,6 +276,10 @@
     "fileReadFrom": "从第 {{start}} 行开始",
     "searchResults": "搜索结果"
   },
+  "toolChips": {
+    "showDiff": "查看 {{file}} 的变更",
+    "more": "+{{count}} 更多"
+  },
   "statusDock": {
     "dismiss": "关闭提示",
     "dismissLocalError": "关闭本地错误提示",
@@ -610,7 +614,14 @@
     "cancel": "取消请求",
     "retry": "手动重试",
     "copyFailed": "无法复制错误",
-    "copyError": "复制错误"
+    "copyError": "复制错误",
+    "stream": {
+      "connecting": "连接中...",
+      "connectingRetrying": "连接中... 正在重试",
+      "connectingRetryingAttempt": "连接中... 正在重试第 {{attempt}} 次",
+      "connectingRetryingCount": "连接中... 正在重试 {{attempt}}/{{max}} 次",
+      "cancelling": "正在取消..."
+    }
   },
   "steering": {
     "native": "纠偏",

@@ -6,5 +6,6 @@
 @import './conversation/conv-variables.css';
 @import './conversation/conv-messages.css';
 @import './conversation/conv-tools.css';
+@import './conversation/conv-tool-chips.css';
 @import './conversation/conv-components.css';
 @import './conversation/conv-markdown.css';

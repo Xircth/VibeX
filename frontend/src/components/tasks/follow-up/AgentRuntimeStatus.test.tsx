@@ -129,10 +129,7 @@ describe('AgentRuntimeStatus', () => {
     expect(screen.queryByText('32s')).not.toBeInTheDocument();
   });
 
-  it('renders cleanly inside the message stream with titleOverride and tabular timer', () => {
-    vi.useFakeTimers();
-    vi.setSystemTime(new Date('2026-11-13T00:00:05Z'));
-
+  it('renders lightweight animated icon and retry count inside the message stream without a card background', () => {
     render(
       <AgentRuntimeStatus
         placement="stream"
@@ -152,13 +149,66 @@ describe('AgentRuntimeStatus', () => {
       />
     );
 
-    const card = screen.getByTestId('agent-connection-status');
-    expect(card).toHaveAttribute('data-placement', 'stream');
-    expect(card.closest('.conv-entry-item')).not.toBeNull();
-    expect(screen.getByRole('status')).toHaveTextContent(
-      '会话加载异常，正在重连 2/10 次…'
+    const indicator = screen.getByTestId('agent-connection-status');
+    expect(indicator).toHaveAttribute('data-placement', 'stream');
+    expect(indicator).toHaveClass('conv-thinking-placeholder');
+    expect(indicator).not.toHaveClass('rounded-lg');
+    expect(indicator.closest('.conv-entry-item')).not.toBeNull();
+    expect(indicator.querySelector('.conv-pixel-grid')).not.toBeNull();
+    const label = indicator.querySelector('.conv-shimmer-text');
+    expect(label).toHaveClass('tabular-nums');
+    expect(label).toHaveTextContent('连接中... 正在重试 2/10 次');
+    expect(screen.queryByRole('button', { name: '取消请求' })).toBeNull();
+  });
+
+  it('renders lightweight connecting and retry copy for active request status in the stream', () => {
+    const { rerender } = render(
+      <AgentRuntimeStatus
+        placement="stream"
+        notice={{
+          ...notice,
+          request_status: {
+            ...notice.request_status!,
+            activity: { phase: 'waiting_agent', retry: null },
+          },
+        }}
+      />
     );
-    expect(screen.getByText('5s')).toHaveClass('tabular-nums');
-    expect(screen.getByRole('button', { name: '取消请求' })).toBeVisible();
+
+    const waiting = screen.getByTestId('agent-request-status');
+    expect(waiting).toHaveClass('conv-thinking-placeholder');
+    expect(waiting).toHaveTextContent('连接中...');
+
+    rerender(<AgentRuntimeStatus placement="stream" notice={notice} />);
+    expect(screen.getByTestId('agent-request-status')).toHaveTextContent(
+      '连接中... 正在重试 2/5 次'
+    );
+  });
+
+  it('uses composer-status-row classes when rendered above the composer', () => {
+    render(
+      <AgentRuntimeStatus
+        placement="composer"
+        notice={{
+          title: 'Agent connection',
+          severity: 'info',
+          connection_status: {
+            status: 'connecting',
+            bound: false,
+            connection_id: null,
+            message: null,
+            since: '2026-11-13T00:00:00Z',
+          },
+        }}
+        onCancel={vi.fn()}
+      />
+    );
+
+    const card = screen.getByTestId('agent-connection-status');
+    expect(card).toHaveAttribute('data-placement', 'composer');
+    expect(card).toHaveClass('composer-status-row');
+    expect(
+      screen.getByRole('button', { name: '取消请求' }).parentElement
+    ).toHaveClass('composer-status-action-slot');
   });
 });

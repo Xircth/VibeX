@@ -664,4 +664,42 @@ describe('ConversationStatusDock', () => {
     expect(onRetry).toHaveBeenCalledTimes(1);
     await waitFor(() => expect(retryButton).not.toBeDisabled());
   });
+
+  it('renders pre-send agent connection status expanded above the composer with composer-status-row', async () => {
+    const onCancel = vi.fn().mockResolvedValue(undefined);
+    render(
+      <ConversationStatusDock
+        notices={[
+          {
+            id: 'runtime:connection',
+            kind: 'session-notice',
+            titleOverride: '会话加载异常，正在重连 3/10 次…',
+            onCancel,
+            notice: {
+              title: 'Agent connection',
+              severity: 'warning',
+              connection_status: {
+                status: 'recovering',
+                bound: false,
+                connection_id: 'conn-1',
+                message: null,
+                since: '2026-11-15T00:00:00Z',
+              },
+            },
+          },
+        ]}
+      />
+    );
+
+    const dock = screen.getByTestId('conversation-status-dock');
+    expect(dock).toHaveAttribute('data-expanded', 'true');
+    const card = screen.getByTestId('agent-connection-status');
+    expect(card).toHaveClass('composer-status-row');
+    expect(card).toHaveTextContent('会话加载异常，正在重连 3/10 次…');
+
+    const cancelButton = screen.getByRole('button', { name: '取消请求' });
+    fireEvent.click(cancelButton);
+    expect(onCancel).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(cancelButton).not.toBeDisabled());
+  });
 });

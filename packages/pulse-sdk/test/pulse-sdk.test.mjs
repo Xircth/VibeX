@@ -553,3 +553,294 @@ test('vibex-pulse CLI executes emit and dry-run end-to-end', async () => {
     await rm(dir, { recursive: true, force: true });
   }
 });
+
+test('PulseClient covers all 11 lifecycle methods, workflow subscriberKind, and HMAC x-pulse-source-id header', async () => {
+  const secret = 'whsec_' + Buffer.from('lifecycle-secret-key-32-bytes!!!').toString('base64');
+  const recorded = [];
+
+  const client = new PulseClient({
+    baseUrl: 'http://127.0.0.1:17891/',
+    hmacSecret: secret,
+    transport: {
+      async send(req) {
+        recorded.push(req);
+
+        if (req.method === 'GET' && req.path === '/api/pulse/deck') {
+          return {
+            sources: [],
+            schemas: [],
+            rules: [],
+            recentDeliveries: [],
+            recentRuns: [],
+            recentEvents: [],
+            subscriptions: [],
+            candidates: [],
+            pendingInteractions: [],
+          };
+        }
+        if (req.method === 'GET' && req.path === '/api/pulse/deck?projectId=proj-alpha%2F1') {
+          return {
+            sources: [{ id: 'src-1' }],
+            schemas: [],
+            rules: [],
+            recentDeliveries: [],
+            recentRuns: [],
+            recentEvents: [],
+            subscriptions: [],
+            candidates: [],
+            pendingInteractions: [],
+          };
+        }
+        if (req.method === 'POST' && req.path === '/api/pulse/sources') {
+          const parsed = JSON.parse(req.body);
+          assert.ok(parsed.input, 'upsertSource must wrap payload in { input }');
+          return {
+            id: parsed.input.id ?? 'src-created',
+            name: parsed.input.name,
+            kind: parsed.input.kind,
+            trustLevel: parsed.input.trustLevel,
+            hasSecret: Boolean(parsed.input.webhookSecret),
+            enabled: parsed.input.enabled ?? true,
+            config: parsed.input.config ?? {},
+            receivedCount24h: 0,
+            rejectedCount24h: 0,
+            updatedAt: '2026-11-15T10:00:00Z',
+          };
+        }
+        if (req.method === 'DELETE' && req.path === '/api/pulse/sources/src%2F1') {
+          return { deleted: true };
+        }
+        if (req.method === 'GET' && req.path === '/api/pulse/schemas') {
+          return [
+            {
+              eventType: 'github.pull_request.opened',
+              summary: 'PR opened',
+              jsonSchema: { type: 'object' },
+              builtIn: true,
+              updatedAt: '2026-11-15T10:00:00Z',
+            },
+          ];
+        }
+        if (req.method === 'GET' && req.path === '/api/pulse/rules') {
+          return [{ id: 'rule-all' }];
+        }
+        if (req.method === 'GET' && req.path === '/api/pulse/rules?projectId=proj-1') {
+          return [{ id: 'rule-proj-1' }];
+        }
+        if (req.method === 'POST' && req.path === '/api/pulse/rules/rule%2F1/mode') {
+          const parsed = JSON.parse(req.body);
+          assert.deepEqual(parsed, { id: 'rule/1', evalMode: 'auto' });
+          return { id: 'rule/1', spec: { evalMode: 'auto' } };
+        }
+        if (req.method === 'POST' && req.path === '/api/pulse/rules/rule%2F1/enabled') {
+          const parsed = JSON.parse(req.body);
+          assert.deepEqual(parsed, { id: 'rule/1', enabled: false });
+          return { id: 'rule/1', enabled: false };
+        }
+        if (req.method === 'DELETE' && req.path === '/api/pulse/rules/rule%2F1') {
+          return { deleted: true };
+        }
+        if (req.method === 'GET' && req.path === '/api/pulse/events?limit=10') {
+          return [{ eventId: 'evt-1', eventType: 'ci.build.completed' }];
+        }
+        if (req.method === 'POST' && req.path === '/api/pulse/subscriptions') {
+          const parsed = JSON.parse(req.body);
+          return {
+            id: 'sub-wf-1',
+            ...parsed,
+            createdAt: '2026-11-15T10:00:00Z',
+          };
+        }
+        if (req.method === 'DELETE' && req.path === '/api/pulse/subscriptions/sub%2Fwf-1') {
+          return { deleted: true };
+        }
+        if (
+          req.method === 'POST' &&
+          req.path === '/api/pulse/interactions/int%2F42/resolve'
+        ) {
+          const parsed = JSON.parse(req.body);
+          assert.deepEqual(parsed, {
+            input: {
+              interactionId: 'int/42',
+              optionId: 'approve',
+              note: 'Ship it',
+              formValues: { rollout: 'canary' },
+            },
+          });
+          return {
+            id: 'int/42',
+            status: 'resolved',
+            selectedOptionId: 'approve',
+            resolvedNote: 'Ship it',
+            resolvedFormValues: { rollout: 'canary' },
+          };
+        }
+        if (req.method === 'POST' && req.path === '/api/pulse/events/emit') {
+          return JSON.parse(req.body);
+        }
+
+        throw new Error(`Unexpected request: ${req.method} ${req.path}`);
+      },
+    },
+  });
+
+  const emptyDeck = await client.deckSnapshot();
+  assert.deepEqual(emptyDeck.sources, []);
+  const scopedDeck = await client.deckSnapshot('proj-alpha/1');
+  assert.equal(scopedDeck.sources.length, 1);
+
+  const upserted = await client.upsertSource({
+    id: 'ci-bot-1',
+    name: 'CI Bot',
+    kind: 'sdk_custom',
+    trustLevel: 'trusted_internal',
+    webhookSecret: 'sec_123',
+    enabled: true,
+  });
+  assert.equal(upserted.id, 'ci-bot-1');
+  assert.equal(upserted.hasSecret, true);
+
+  await client.deleteSource('src/1');
+
+  const schemas = await client.listSchemas();
+  assert.equal(schemas.length, 1);
+  assert.equal(schemas[0].eventType, 'github.pull_request.opened');
+
+  const allRules = await client.listRules();
+  assert.equal(allRules[0].id, 'rule-all');
+  const projectRules = await client.listRules('proj-1');
+  assert.equal(projectRules[0].id, 'rule-proj-1');
+
+  const modeUpdated = await client.setRuleMode('rule/1', 'auto');
+  assert.equal(modeUpdated.spec.evalMode, 'auto');
+
+  const enabledUpdated = await client.setRuleEnabled('rule/1', false);
+  assert.equal(enabledUpdated.enabled, false);
+
+  await client.deleteRule('rule/1');
+
+  const captured = await client.listCapturedEvents(10);
+  assert.equal(captured.length, 1);
+
+  const wfSub = await client.subscribeThread({
+    threadKey: 'github:acme/vibex#12',
+    subscriberKind: 'workflow',
+    subscriberId: 'wf-pr-triage',
+  });
+  assert.equal(wfSub.subscriberKind, 'workflow');
+  assert.equal(wfSub.subscriberId, 'wf-pr-triage');
+
+  await client.unsubscribeThread('sub/wf-1');
+
+  const resolved = await client.resolveInteraction({
+    interactionId: 'int/42',
+    optionId: 'approve',
+    note: 'Ship it',
+    formValues: { rollout: 'canary' },
+  });
+  assert.equal(resolved.status, 'resolved');
+  assert.equal(resolved.selectedOptionId, 'approve');
+
+  // Verify x-pulse-source-id is attached when hmacSecret is configured on emit()
+  await client.emit({
+    eventType: 'ci.build.completed',
+    sourceInstanceId: 'ci-bot-1',
+    payload: { ok: true },
+  });
+  const hmacEmitReq = recorded.at(-1);
+  assert.equal(hmacEmitReq.headers['x-pulse-source-id'], 'ci-bot-1');
+  assert.ok(hmacEmitReq.headers['webhook-signature']);
+
+  // Verify x-pulse-source-id is NOT sent when hmacSecret is omitted
+  let bearerEmitHeaders = null;
+  const bearerOnlyClient = new PulseClient({
+    bearerToken: 'tok_only',
+    transport: {
+      async send(req) {
+        bearerEmitHeaders = req.headers;
+        return JSON.parse(req.body);
+      },
+    },
+  });
+  await bearerOnlyClient.emit({
+    eventType: 'ci.build.completed',
+    sourceInstanceId: 'ci-bot-2',
+    payload: { ok: true },
+  });
+  assert.equal(bearerEmitHeaders['x-pulse-source-id'], undefined);
+  assert.equal(bearerEmitHeaders.authorization, 'Bearer tok_only');
+});
+
+test('PulseClient resolves baseUrl precedence (17891 default, VIBEX_WEB_PORT, VIBEX_SERVER_URL, VIBEX_PULSE_URL) and enforces timeoutMs', async () => {
+  const savedEnv = {
+    VIBEX_PULSE_URL: process.env.VIBEX_PULSE_URL,
+    VIBEX_SERVER_URL: process.env.VIBEX_SERVER_URL,
+    VIBEX_WEB_PORT: process.env.VIBEX_WEB_PORT,
+  };
+
+  try {
+    delete process.env.VIBEX_PULSE_URL;
+    delete process.env.VIBEX_SERVER_URL;
+    delete process.env.VIBEX_WEB_PORT;
+
+    const defaultClient = new PulseClient();
+    assert.equal(defaultClient.baseUrl, 'http://127.0.0.1:17891');
+
+    process.env.VIBEX_WEB_PORT = '19001';
+    const webPortClient = new PulseClient();
+    assert.equal(webPortClient.baseUrl, 'http://127.0.0.1:19001');
+
+    process.env.VIBEX_SERVER_URL = 'http://127.0.0.1:3100/';
+    const serverUrlClient = new PulseClient();
+    assert.equal(serverUrlClient.baseUrl, 'http://127.0.0.1:3100');
+
+    process.env.VIBEX_PULSE_URL = 'http://127.0.0.1:4200///';
+    const pulseUrlClient = new PulseClient();
+    assert.equal(pulseUrlClient.baseUrl, 'http://127.0.0.1:4200');
+
+    const explicitClient = new PulseClient({ baseUrl: 'http://127.0.0.1:5300/' });
+    assert.equal(explicitClient.baseUrl, 'http://127.0.0.1:5300');
+  } finally {
+    for (const [key, val] of Object.entries(savedEnv)) {
+      if (val === undefined) {
+        delete process.env[key];
+      } else {
+        process.env[key] = val;
+      }
+    }
+  }
+
+  let observedSignal = null;
+  const slowClient = new PulseClient({
+    baseUrl: 'http://127.0.0.1:17891',
+    timeoutMs: 30,
+    fetchImpl: async (_url, init) => {
+      observedSignal = init?.signal ?? null;
+      return new Promise((_resolve, reject) => {
+        if (!init?.signal) {
+          reject(new Error('Expected AbortSignal on fetch call'));
+          return;
+        }
+        if (init.signal.aborted) {
+          reject(init.signal.reason);
+          return;
+        }
+        init.signal.addEventListener(
+          'abort',
+          () => reject(init.signal.reason ?? new Error('Aborted')),
+          { once: true }
+        );
+      });
+    },
+  });
+
+  await assert.rejects(
+    () => slowClient.deckSnapshot(),
+    (err) => {
+      assert.ok(observedSignal, 'fetchImpl must receive an AbortSignal');
+      assert.equal(observedSignal.aborted, true);
+      return err instanceof Error && (err.name === 'TimeoutError' || err.name === 'AbortError');
+    }
+  );
+});
+

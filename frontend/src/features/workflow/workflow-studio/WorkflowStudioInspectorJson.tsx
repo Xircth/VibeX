@@ -30,6 +30,7 @@ export function WorkflowStudioInspectorJson({
   studio: WorkflowStudioView;
 }) {
   const {
+    t,
     definition,
     onDefinitionChange,
     updateStep,
@@ -60,7 +61,7 @@ export function WorkflowStudioInspectorJson({
       const parsed = JSON.parse(draft) as unknown;
       if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
         return {
-          parseError: 'Declarative JSON root must be a JSON object.',
+          parseError: t('inspector.json.errors.rootObjectRequired'),
           issues: [],
         };
       }
@@ -68,7 +69,7 @@ export function WorkflowStudioInspectorJson({
         const candidateStep = parsed as StudioWorkflowStep;
         if (typeof candidateStep.kind !== 'string') {
           return {
-            parseError: 'Step JSON must include a valid "kind" field.',
+            parseError: t('inspector.json.errors.stepKindRequired'),
             issues: [],
           };
         }
@@ -80,7 +81,8 @@ export function WorkflowStudioInspectorJson({
           issues: validateStudioStepExhaustively(
             candidateStep,
             idsWithCandidate,
-            `steps[${candidateStep.id || '?'}]`
+            `steps[${candidateStep.id || '?'}]`,
+            t
           ),
         };
       }
@@ -88,33 +90,40 @@ export function WorkflowStudioInspectorJson({
       const candidateWorkflow = parsed as StudioWorkflowDefinition;
       return {
         parseError: null,
-        issues: validateStudioWorkflowExhaustively(candidateWorkflow),
+        issues: validateStudioWorkflowExhaustively(candidateWorkflow, t),
       };
     } catch (error) {
       return {
         parseError:
-          error instanceof Error ? error.message : 'Invalid JSON syntax.',
+          error instanceof Error
+            ? error.message
+            : t('inspector.json.errors.invalidSyntax'),
         issues:
           scope === 'step'
-            ? validateStudioStepExhaustively(selectedStep, allStepIds)
-            : validateStudioWorkflowExhaustively(definition),
+            ? validateStudioStepExhaustively(
+                selectedStep,
+                allStepIds,
+                undefined,
+                t
+              )
+            : validateStudioWorkflowExhaustively(definition, t),
       };
     }
-  }, [allStepIds, definition, draft, scope, selectedStep]);
+  }, [allStepIds, definition, draft, scope, selectedStep, t]);
 
   const applyDraft = () => {
     if (!onDefinitionChange) return;
     try {
       const parsed = JSON.parse(draft) as unknown;
       if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-        setSyntaxError('Declarative JSON root must be a JSON object.');
+        setSyntaxError(t('inspector.json.errors.rootObjectRequired'));
         return;
       }
       setSyntaxError(null);
       if (scope === 'step') {
         const nextStep = parsed as StudioWorkflowStep;
         if (typeof nextStep.kind !== 'string' || typeof nextStep.id !== 'string') {
-          setSyntaxError('Step JSON requires string "id" and "kind" fields.');
+          setSyntaxError(t('inspector.json.errors.stepIdAndKindRequired'));
           return;
         }
         const oldId = selectedStep.id;
@@ -141,7 +150,7 @@ export function WorkflowStudioInspectorJson({
 
       const nextWorkflow = parsed as StudioWorkflowDefinition;
       if (!Array.isArray(nextWorkflow.steps)) {
-        setSyntaxError('Workflow JSON must include a "steps" array.');
+        setSyntaxError(t('inspector.json.errors.stepsArrayRequired'));
         return;
       }
       onDefinitionChange(nextWorkflow);
@@ -153,7 +162,9 @@ export function WorkflowStudioInspectorJson({
       }
     } catch (error) {
       setSyntaxError(
-        error instanceof Error ? error.message : 'Invalid JSON syntax.'
+        error instanceof Error
+          ? error.message
+          : t('inspector.json.errors.invalidSyntax')
       );
     }
   };
@@ -167,8 +178,8 @@ export function WorkflowStudioInspectorJson({
         <div className="flex items-center rounded-lg border border-border bg-muted/65 p-0.5">
           {(
             [
-              { id: 'step', label: 'Selected Step' },
-              { id: 'workflow', label: 'Full Workflow' },
+              { id: 'step', label: t('inspector.json.selectedStep') },
+              { id: 'workflow', label: t('inspector.json.fullWorkflow') },
             ] as const
           ).map((item) => (
             <button
@@ -196,13 +207,13 @@ export function WorkflowStudioInspectorJson({
             onClick={applyDraft}
             data-testid="inspector-json-apply"
           >
-            Apply JSON
+            {t('inspector.json.apply')}
           </Button>
         ) : null}
       </div>
 
       <textarea
-        aria-label="Declarative JSON Co-Editor"
+        aria-label={t('inspector.json.editorAria')}
         data-testid="inspector-json-editor"
         value={draft}
         disabled={!onDefinitionChange}
@@ -226,15 +237,16 @@ export function WorkflowStudioInspectorJson({
         className="space-y-2 rounded-lg border border-border bg-muted/25 p-2.5"
       >
         <div className="flex items-center justify-between text-xs font-medium">
-          <span>Exhaustive Validation</span>
+          <span>{t('inspector.json.exhaustiveValidation')}</span>
           {issues.length === 0 && !activeSyntaxError ? (
             <span className="inline-flex items-center gap-1 font-semibold tabular-nums text-success">
-              <CheckCircle2 className="size-3.5" />0 issues
+              <CheckCircle2 className="size-3.5" />
+              {t('inspector.json.zeroIssues')}
             </span>
           ) : (
             <span className="inline-flex items-center gap-1 font-semibold tabular-nums text-destructive">
               <AlertCircle className="size-3.5" />
-              {issues.length} {issues.length === 1 ? 'issue' : 'issues'}
+              {t('inspector.json.issueCount', { count: issues.length })}
             </span>
           )}
         </div>

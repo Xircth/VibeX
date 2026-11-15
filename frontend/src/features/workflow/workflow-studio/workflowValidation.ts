@@ -1,6 +1,10 @@
 import type { GateFilterAst } from '@/lib/api/pulse';
 
 import type { StudioWorkflowDefinition, StudioWorkflowStep } from './types';
+import {
+  getWorkflowTranslator,
+  type WorkflowTranslateFn,
+} from './workflowStepPresentation';
 
 export type WorkflowValidationIssue = {
   path: string;
@@ -11,7 +15,8 @@ export type WorkflowValidationIssue = {
 function validateGateFilter(
   filter: GateFilterAst | null | undefined,
   basePath: string,
-  issues: WorkflowValidationIssue[]
+  issues: WorkflowValidationIssue[],
+  tr: WorkflowTranslateFn
 ) {
   if (!filter) return;
   filter.conditions.forEach((condition, condIndex) => {
@@ -19,7 +24,7 @@ function validateGateFilter(
       issues.push({
         path: `${basePath}.filter.conditions[${condIndex}].pointer`,
         code: 'empty_filter_pointer',
-        message: 'Filter condition JSON Pointer cannot be empty.',
+        message: tr('validation.emptyFilterPointer'),
       });
     }
     if (condition.op === 'regex') {
@@ -32,7 +37,7 @@ function validateGateFilter(
           message:
             error instanceof Error
               ? error.message
-              : 'Invalid regular expression in filter condition.',
+              : tr('validation.invalidFilterRegex'),
         });
       }
     }
@@ -45,15 +50,17 @@ function validateGateFilter(
 export function validateStudioStepExhaustively(
   step: StudioWorkflowStep,
   allStepIds?: ReadonlySet<string>,
-  basePath = `steps[${step.id || '?'}]`
+  basePath = `steps[${step.id || '?'}]`,
+  t?: WorkflowTranslateFn
 ): WorkflowValidationIssue[] {
+  const tr = getWorkflowTranslator(t);
   const issues: WorkflowValidationIssue[] = [];
 
   if (!step.id || !step.id.trim()) {
     issues.push({
       path: `${basePath}.id`,
       code: 'empty_step_id',
-      message: 'Step ID is required.',
+      message: tr('validation.emptyStepId'),
     });
   }
 
@@ -63,19 +70,19 @@ export function validateStudioStepExhaustively(
         issues.push({
           path: `${basePath}.dependsOn[${depIndex}]`,
           code: 'self_dependency',
-          message: `Step "${step.id}" cannot depend on itself.`,
+          message: tr('validation.selfDependency', { id: step.id }),
         });
       } else if (allStepIds && !allStepIds.has(dep)) {
         issues.push({
           path: `${basePath}.dependsOn[${depIndex}]`,
           code: 'unknown_dependency',
-          message: `Dependency "${dep}" does not exist in this workflow.`,
+          message: tr('validation.unknownDependency', { dep }),
         });
       }
     });
   }
 
-  validateGateFilter(step.filter, basePath, issues);
+  validateGateFilter(step.filter, basePath, issues, tr);
 
   switch (step.kind) {
     case 'trigger': {
@@ -83,7 +90,7 @@ export function validateStudioStepExhaustively(
         issues.push({
           path: `${basePath}.title`,
           code: 'empty_trigger_title',
-          message: 'Trigger title is required.',
+          message: tr('validation.emptyTriggerTitle'),
         });
       }
       if (step.triggerKind === 'temporal') {
@@ -91,7 +98,7 @@ export function validateStudioStepExhaustively(
           issues.push({
             path: `${basePath}.temporal`,
             code: 'missing_temporal_spec',
-            message: 'Temporal trigger requires a schedule specification.',
+            message: tr('validation.missingTemporalSpec'),
           });
         } else if (
           step.temporal.kind === 'cron' &&
@@ -100,7 +107,7 @@ export function validateStudioStepExhaustively(
           issues.push({
             path: `${basePath}.temporal.expression`,
             code: 'empty_cron_expression',
-            message: 'Cron expression cannot be empty.',
+            message: tr('validation.emptyCronExpression'),
           });
         } else if (
           step.temporal.kind === 'interval' &&
@@ -109,7 +116,7 @@ export function validateStudioStepExhaustively(
           issues.push({
             path: `${basePath}.temporal.everySeconds`,
             code: 'interval_too_short',
-            message: 'Temporal interval must be at least 5 seconds.',
+            message: tr('validation.intervalTooShort'),
           });
         } else if (
           step.temporal.kind === 'inactivity_sla' &&
@@ -118,17 +125,17 @@ export function validateStudioStepExhaustively(
           issues.push({
             path: `${basePath}.temporal.timeoutSeconds`,
             code: 'sla_too_short',
-            message: 'Inactivity SLA timeout must be at least 10 seconds.',
+            message: tr('validation.slaTooShort'),
           });
         }
       } else if (!step.eventType.trim()) {
         issues.push({
           path: `${basePath}.eventType`,
           code: 'empty_event_type',
-          message: 'Trigger eventType is required.',
+          message: tr('validation.emptyEventType'),
         });
       }
-      validateGateFilter(step.filter, basePath, issues);
+      validateGateFilter(step.filter, basePath, issues, tr);
       break;
     }
 
@@ -138,14 +145,14 @@ export function validateStudioStepExhaustively(
         issues.push({
           path: `${basePath}.agentId`,
           code: 'missing_agent_id',
-          message: 'Session step requires a target agentId.',
+          message: tr('validation.missingAgentId'),
         });
       }
       if (!step.prompt.trim()) {
         issues.push({
           path: `${basePath}.prompt`,
           code: 'empty_prompt',
-          message: 'Session step prompt cannot be empty.',
+          message: tr('validation.emptyPrompt'),
         });
       }
       break;
@@ -156,14 +163,14 @@ export function validateStudioStepExhaustively(
         issues.push({
           path: `${basePath}.memberId`,
           code: 'missing_bot_member_id',
-          message: 'Bot step requires a bound memberId.',
+          message: tr('validation.missingBotMemberId'),
         });
       }
       if (!step.prompt.trim()) {
         issues.push({
           path: `${basePath}.prompt`,
           code: 'empty_bot_prompt',
-          message: 'Bot step prompt cannot be empty.',
+          message: tr('validation.emptyBotPrompt'),
         });
       }
       break;
@@ -174,7 +181,7 @@ export function validateStudioStepExhaustively(
         issues.push({
           path: `${basePath}.spaceId`,
           code: 'missing_space_id',
-          message: 'Group Stage requires a collaboration spaceId.',
+          message: tr('validation.missingSpaceId'),
         });
       }
       if (
@@ -184,7 +191,7 @@ export function validateStudioStepExhaustively(
         issues.push({
           path: `${basePath}.dispatchMode.memberId`,
           code: 'missing_seat_member_id',
-          message: 'Specific Seat dispatch requires a memberId.',
+          message: tr('validation.missingSeatMemberId'),
         });
       }
       if (
@@ -194,7 +201,7 @@ export function validateStudioStepExhaustively(
         issues.push({
           path: `${basePath}.dispatchMode.memberIds`,
           code: 'empty_mention_seats',
-          message: 'Mention Seats dispatch requires at least one memberId.',
+          message: tr('validation.emptyMentionSeats'),
         });
       }
       if (
@@ -204,14 +211,14 @@ export function validateStudioStepExhaustively(
         issues.push({
           path: `${basePath}.dispatchMode.moderatorMemberId`,
           code: 'missing_moderator_id',
-          message: 'Moderator Triage dispatch requires a moderatorMemberId.',
+          message: tr('validation.missingModeratorId'),
         });
       }
       if (!step.prompt.trim()) {
         issues.push({
           path: `${basePath}.prompt`,
           code: 'empty_group_prompt',
-          message: 'Group Stage message prompt is required.',
+          message: tr('validation.emptyGroupPrompt'),
         });
       }
       break;
@@ -224,7 +231,7 @@ export function validateStudioStepExhaustively(
         issues.push({
           path: `${basePath}.title`,
           code: 'empty_gate_title',
-          message: 'User Gate title is required.',
+          message: tr('validation.emptyGateTitle'),
         });
       }
       if (
@@ -235,7 +242,7 @@ export function validateStudioStepExhaustively(
         issues.push({
           path: `${basePath}.slaTimeoutSeconds`,
           code: 'invalid_sla_timeout',
-          message: 'SLA timeout must be at least 10 seconds when specified.',
+          message: tr('validation.invalidSlaTimeout'),
         });
       }
       break;
@@ -246,7 +253,7 @@ export function validateStudioStepExhaustively(
         issues.push({
           path: `${basePath}.title`,
           code: 'empty_control_title',
-          message: 'Control node title is required.',
+          message: tr('validation.emptyControlTitle'),
         });
       }
       if (step.controlKind === 'bounded_loop') {
@@ -260,8 +267,7 @@ export function validateStudioStepExhaustively(
           issues.push({
             path: `${basePath}.maxIterations`,
             code: 'invalid_bounded_loop_max_iterations',
-            message:
-              'BoundedLoop maxIterations must be an integer between 1 and 50 (1 <= maxIterations <= 50).',
+            message: tr('validation.invalidBoundedLoopMaxIterations'),
           });
         }
       } else if (step.controlKind === 'condition') {
@@ -269,7 +275,7 @@ export function validateStudioStepExhaustively(
           issues.push({
             path: `${basePath}.expression`,
             code: 'empty_condition_expression',
-            message: 'Condition node requires a non-empty branch expression.',
+            message: tr('validation.emptyConditionExpression'),
           });
         }
       } else if (step.controlKind === 'wait_for_event') {
@@ -277,15 +283,14 @@ export function validateStudioStepExhaustively(
           issues.push({
             path: `${basePath}.waitEventType`,
             code: 'empty_wait_event_type',
-            message: 'WaitForEvent node requires waitEventType.',
+            message: tr('validation.emptyWaitEventType'),
           });
         }
         if (!step.threadKeyTemplate?.trim()) {
           issues.push({
             path: `${basePath}.threadKeyTemplate`,
             code: 'empty_wait_thread_key',
-            message:
-              'WaitForEvent node requires a correlation threadKeyTemplate.',
+            message: tr('validation.emptyWaitThreadKey'),
           });
         }
       }
@@ -297,14 +302,14 @@ export function validateStudioStepExhaustively(
         issues.push({
           path: `${basePath}.destination`,
           code: 'empty_outbox_destination',
-          message: 'Outbox Action requires a target channel, URL, or event type.',
+          message: tr('validation.emptyOutboxDestination'),
         });
       }
       if (!step.payloadTemplate.trim()) {
         issues.push({
           path: `${basePath}.payloadTemplate`,
           code: 'empty_outbox_template',
-          message: 'Outbox Action payload/message template cannot be empty.',
+          message: tr('validation.emptyOutboxTemplate'),
         });
       }
       break;
@@ -318,15 +323,17 @@ export function validateStudioStepExhaustively(
  * Exhaustively validates an entire StudioWorkflowDefinition in a single pass (No Fail-Fast).
  */
 export function validateStudioWorkflowExhaustively(
-  definition: StudioWorkflowDefinition
+  definition: StudioWorkflowDefinition,
+  t?: WorkflowTranslateFn
 ): WorkflowValidationIssue[] {
+  const tr = getWorkflowTranslator(t);
   const issues: WorkflowValidationIssue[] = [];
 
   if (!definition.name || !definition.name.trim()) {
     issues.push({
       path: 'name',
       code: 'empty_workflow_name',
-      message: 'Workflow name cannot be empty.',
+      message: tr('validation.emptyWorkflowName'),
     });
   }
 
@@ -334,7 +341,7 @@ export function validateStudioWorkflowExhaustively(
     issues.push({
       path: 'steps',
       code: 'empty_steps',
-      message: 'Workflow must contain at least one step.',
+      message: tr('validation.emptySteps'),
     });
     return issues;
   }
@@ -348,12 +355,14 @@ export function validateStudioWorkflowExhaustively(
       issues.push({
         path: `${basePath}.id`,
         code: 'duplicate_step_id',
-        message: `Duplicate step ID "${step.id}".`,
+        message: tr('validation.duplicateStepId', { id: step.id }),
       });
     }
     seenIds.add(step.id);
 
-    issues.push(...validateStudioStepExhaustively(step, allStepIds, basePath));
+    issues.push(
+      ...validateStudioStepExhaustively(step, allStepIds, basePath, tr)
+    );
   });
 
   return issues;

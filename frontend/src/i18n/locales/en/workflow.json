@@ -165,7 +165,11 @@
     "selectWorkflow": "Select workflow",
     "draftBadge": "Draft",
     "unsavedDraftOption": "{{name}} (Draft)",
+    "newDraftOption": "New Draft…",
     "newWorkflow": "New Workflow",
+    "newWorkflowDefaultName": "New Workflow",
+    "openPulseDeck": "Pulse Rules",
+    "openPulseDeckTooltip": "Jump to Pulse Automation to inspect trigger rules and candidate events",
     "refreshCatalog": "Refresh workflows and captured events",
     "offlineSampleEventsHint": "Offline · using built-in sample events",
     "builtInSamplesCount": "{{count}} sample events",
@@ -180,9 +184,235 @@
     "validationBlockedSave": "Fix {{count}} validation issue(s) before saving ({{first}})",
     "savedWithTriggers": "Published v{{version}} · synced {{count}} trigger rule(s)",
     "savedVersionLabel": "Published Workflow v{{version}}",
-    "triggerRulesSaved": "Saved {{count}} Pulse trigger rule(s)"
+    "triggerRulesSaved": "Saved {{count}} Pulse trigger rule(s)",
+    "templates": "Templates",
+    "orchestrators": {
+      "direct_reflex": "Direct Reflex",
+      "superagent_router": "Superagent Router",
+      "hybrid_pipeline": "Hybrid Pipeline",
+      "event_saga": "Event Saga",
+      "window_aggregator": "Window Aggregator",
+      "plan_review_execute": "Plan · Review · Execute",
+      "parallel_fan_out": "Parallel Fan-Out",
+      "debate_panel": "Debate Panel",
+      "saga_compensation": "Saga Compensation"
+    },
+    "addMenuSections": {
+      "triggersAndPrimitives": "Triggers & Primitives",
+      "collaborationAndFlow": "Collaboration & Flow",
+      "legacySteps": "Standard Steps"
+    },
+    "nodeTypes": {
+      "trigger": "Event Trigger",
+      "session": "Ephemeral Session",
+      "bot": "Persistent Bot",
+      "group_stage": "Group Stage",
+      "user_gate": "User Gate",
+      "condition_branch": "Condition Branch",
+      "bounded_loop": "Bounded Loop",
+      "wait_for_event": "Wait For Event",
+      "outbox_action": "Outbox Action"
+    },
+    "auditReasons": {
+      "resetArtifact": "Reset from Workflow artifact editor",
+      "pauseArtifact": "Paused from Workflow artifact editor",
+      "terminateArtifact": "Terminated from Workflow artifact editor",
+      "pauseStepConversation": "Paused in node conversation",
+      "pauseForGuidance": "Paused for user guidance"
+    }
+  },
+  "sources": {
+    "feishu": "Feishu",
+    "github": "GitHub",
+    "jira": "Jira",
+    "linear": "Linear",
+    "slack": "Slack",
+    "discord": "Discord",
+    "telegram": "Telegram",
+    "webhook_standard": "Webhook",
+    "webhook_custom": "Custom Webhook",
+    "time_cron": "Cron",
+    "time_once": "One-Shot",
+    "time_interval": "Interval",
+    "time_sla": "SLA Watch",
+    "sdk_custom": "Custom SDK",
+    "system_internal": "Internal"
+  },
+  "presets": {
+    "direct_reflex": {
+      "label": "Direct Reflex",
+      "summary": "Deterministic gate → Ephemeral isolated session → Outbox reply",
+      "name": "Direct Reflex Automation",
+      "description": "Zero-token gate dispatches an isolated fresh session and posts an outbox summary.",
+      "steps": {
+        "intakeTrigger": "GitHub CI Failure Trigger",
+        "reflexPrompt": "Inspect failed CI job {{failedJob}} on {{threadKey}} and prepare a minimal fix.",
+        "replyPrTitle": "Comment on Pull Request",
+        "replyPrPayload": "CI diagnosis complete for {{threadKey}}."
+      }
+    },
+    "superagent_router": {
+      "label": "Superagent Router",
+      "summary": "Persistent triage Bot (fixed memory) + Ephemeral specialist Sessions + Thread fan-out",
+      "name": "Superagent Triage Router",
+      "description": "Persistent Bot evaluates intent with long-term memory, then dispatches clean specialist sessions.",
+      "steps": {
+        "mentionTrigger": "Feishu Mention Intake",
+        "routerPrompt": "Triage incoming request \"{{text}}\" on {{threadKey}} using historical service context.",
+        "specialistPrompt": "Execute specialist investigation in a clean worktree for {{threadKey}}.",
+        "feishuReplyTitle": "Reply to Feishu Topic",
+        "feishuReplyPayload": "Handled {{event.type}} on {{threadKey}}."
+      }
+    },
+    "hybrid_pipeline": {
+      "label": "Hybrid Pipeline",
+      "summary": "Persistent PM Bot → Ephemeral Coder Session → BoundedLoop Review → User Gate → Outbox",
+      "name": "Hybrid Delivery Pipeline",
+      "description": "Combines persistent PM memory, isolated coding sessions, bounded review loops, and human sign-off.",
+      "steps": {
+        "jiraTrigger": "Jira Issue Transitioned",
+        "pmPrompt": "Decompose {{issue.key}} ({{issue.summary}}) against roadmap constraints.",
+        "coderPrompt": "Implement and test changes for {{threadKey}} in a fresh session.",
+        "reviewLoopTitle": "Code Review Bounded Loop",
+        "releaseGateTitle": "Human Merge Sign-Off",
+        "releaseGateBody": "Approve merge and Jira transition for {{threadKey}}?",
+        "jiraOutboxTitle": "Update Jira Ticket",
+        "jiraOutboxPayload": "Verified and approved fix for {{threadKey}}."
+      }
+    },
+    "event_saga": {
+      "label": "Event Saga",
+      "summary": "Long-running stateful Saga with WaitForEvent suspension on correlated threadKey + SLA gate",
+      "name": "PR Lifecycle Event Saga",
+      "description": "Suspends across correlated external events with zero idle background processes.",
+      "steps": {
+        "prOpenedTrigger": "Pull Request Opened",
+        "auditPrompt": "Run initial architectural review for {{threadKey}}.",
+        "waitCiTitle": "Wait for CI Completion",
+        "ownerNotifyTitle": "PR Ready for Final Merge",
+        "ownerNotifyBody": "{{threadKey}} passed review and CI checks."
+      }
+    },
+    "window_aggregator": {
+      "label": "Window Aggregator",
+      "summary": "Temporal schedule → Coalesced Bot batch → Group Stage digest → User brief",
+      "name": "Window Digest Aggregator",
+      "description": "Aggregates high-frequency signals into a deduplicated Group Stage and User digest.",
+      "steps": {
+        "digestSchedule": "Weekday Digest Cron",
+        "aggregatorPrompt": "Summarize unresolved defects and regressions over the last {{windowHours}}h.",
+        "groupSyncPrompt": "Publish daily quality digest card to release war room.",
+        "userDigestTitle": "Daily Release Quality Digest",
+        "userDigestBody": "Daily digest published for {{threadKey}}."
+      }
+    }
+  },
+  "replay": {
+    "triggerButton": "Event Replay",
+    "title": "Captured Event Replay",
+    "clear": "Clear",
+    "samplePickerAria": "Select sample or captured event",
+    "envelopeJsonLabel": "EventEnvelope JSON",
+    "envelopeJsonAria": "Replay EventEnvelope JSON",
+    "applyButton": "Run Dry-Run",
+    "missingRequiredFields": "EventEnvelope requires source, eventType, actor, and trace.",
+    "invalidJson": "Invalid EventEnvelope JSON.",
+    "triggerGates": "Trigger Gates",
+    "matchedSummary": "{{matched}}/{{total}} matched",
+    "matched": "Matched",
+    "filtered": "Filtered",
+    "renderedPrompts": "Rendered Node Prompts"
+  },
+  "nodes": {
+    "badges": {
+      "trigger": "TRIGGER",
+      "session": "SESSION",
+      "bot": "BOT",
+      "group": "GROUP",
+      "gate": "GATE",
+      "loop": "LOOP",
+      "wait": "WAIT",
+      "branch": "BRANCH",
+      "outbox": "OUTBOX"
+    },
+    "triggerKinds": {
+      "platform": "Platform Trigger",
+      "webhook": "Webhook Trigger",
+      "temporal": "Temporal Trigger",
+      "sdk": "Custom SDK Trigger"
+    },
+    "temporal": {
+      "cronWeekdays": "Cron {{expression}} · Weekdays",
+      "cron": "Cron {{expression}}",
+      "once": "Once · {{fireAt}}",
+      "intervalSeconds": "Every {{count}}s",
+      "intervalMinutes": "Every {{count}}m",
+      "intervalHours": "Every {{count}}h",
+      "slaMinutes": "SLA {{count}}m ({{prefix}})"
+    },
+    "sessionResetDetail": "Context Resets Per Run",
+    "botMemoryDetail": "Fixed Session Memory",
+    "isolation": {
+      "isolated_worktree": "Isolated Worktree",
+      "project_root": "Shared Workspace",
+      "scratch": "Scratch Sandbox"
+    },
+    "mailbox": {
+      "fifo_serial": "FIFO Serial",
+      "coalesce_batch": "Coalesce Batch"
+    },
+    "groupDispatch": {
+      "specific_seat": "Seat · {{memberId}}",
+      "mention_seats": "Mention {{count}} seat(s)",
+      "moderator_triage": "Moderator Triage · {{memberId}}",
+      "broadcast_log_only": "Broadcast Log"
+    },
+    "gateKinds": {
+      "notify": "Notify",
+      "approval": "Approval",
+      "ask_form": "Ask Form"
+    },
+    "outboxKinds": {
+      "feishu_reply": "Feishu Reply",
+      "jira_comment": "Jira Comment",
+      "github_comment": "GitHub Comment",
+      "webhook_post": "Webhook POST",
+      "emit_event": "Emit Event"
+    },
+    "maxRounds": "Max {{count}}x",
+    "quorumCount": "Quorum {{count}}",
+    "slaSeconds": "SLA {{seconds}}s",
+    "loopTarget": "Loop → {{target}}",
+    "branchCondition": "Branch condition",
+    "unsetBot": "unset-bot",
+    "unsetGroup": "unset-group",
+    "eventFallback": "event",
+    "triggerEvalModeAria": "Trigger {{id}} evaluation mode",
+    "defaults": {
+      "triggerTitle": "Event Trigger",
+      "sessionPrompt": "Analyze {{event.type}} on {{threadKey}} in a clean worktree.",
+      "botPrompt": "Triage {{event.type}} using persistent project memory.",
+      "groupPrompt": "Review {{threadKey}} and converge on an execution plan.",
+      "userGateTitle": "Release Gate Approval",
+      "userGateBody": "Approve changes proposed for {{threadKey}}?",
+      "approvalTitle": "Approval required",
+      "conditionTitle": "Branch Condition",
+      "boundedLoopTitle": "Review Bounded Loop",
+      "waitForEventTitle": "Wait for Correlated Event",
+      "outboxTitle": "Reply to Source Thread",
+      "outboxPayload": "Automated workflow completed for {{threadKey}}.",
+      "fallbackPrompt": "Handle {{event.type}}",
+      "fallbackBotPrompt": "Handle {{event.type}} with persistent memory.",
+      "fallbackSessionPrompt": "Execute task in a fresh isolated session."
+    }
   },
   "inspector": {
+    "modeAriaLabel": "Inspector Mode",
+    "tiers": {
+      "visual": "Visual",
+      "advanced": "Advanced",
+      "json": "JSON"
+    },
     "waitingApprovalBadge": "Awaiting approval",
     "approvalNoteLabel": "Approval note (optional)",
     "approvalNotePlaceholder": "Add context for this approval or rejection",
@@ -190,10 +420,12 @@
     "reject": "Reject",
     "customJsonDecision": "Custom JSON decision",
     "stepKinds": {
-      "session": "Fresh Session",
+      "trigger": "Event Trigger",
+      "session": "Ephemeral Session",
       "bot": "Persistent Bot",
       "group_stage": "Group Stage",
       "user_gate": "User Gate",
+      "control": "Flow Control",
       "condition_branch": "Condition Branch",
       "bounded_loop": "Bounded Loop",
       "wait_for_event": "Wait for Event",
@@ -201,6 +433,180 @@
       "agent": "Agent Step",
       "approval": "Approval",
       "notify": "Notification"
+    },
+    "primitive": {
+      "label": "Execution Primitive",
+      "sessionLabel": "Ephemeral Session",
+      "sessionSub": "Resets Per Run",
+      "botLabel": "Persistent Bot",
+      "botSub": "Fixed Memory"
+    },
+    "session": {
+      "workspaceIsolation": "Workspace Isolation",
+      "workspaceIsolationHint": "Isolated Worktree checks out a clean branch per run to prevent concurrent write conflicts.",
+      "isolationOptions": {
+        "isolated_worktree": "Isolated Worktree (Clean Worktree)",
+        "project_root": "Project Root (Shared Workspace)",
+        "scratch": "Scratch Sandbox (Read-Only Shared)"
+      }
+    },
+    "bot": {
+      "memberId": "Bound Bot (memberId)",
+      "memberIdHint": "Binds a persistent Bot identity to retain long-term memory across events.",
+      "conversationScope": "Conversation Scope",
+      "scopes": {
+        "fixed_primary": "Fixed Primary",
+        "per_thread_topic": "Per-Thread Topic"
+      },
+      "mailboxPolicy": "Mailbox Policy",
+      "mailboxOptions": {
+        "fifo_serial": "FIFO Serial",
+        "fifo_serial_detail": "FIFO Serial (Sequential Turns)",
+        "coalesce_batch": "Coalesce Batch",
+        "coalesce_batch_detail": "Coalesce Batch (Deduplicated Window)"
+      }
+    },
+    "trigger": {
+      "evalMode": "Evaluation Mode",
+      "category": "Trigger Category",
+      "categories": {
+        "platform": "Platform Event",
+        "webhook": "Webhook",
+        "temporal": "Temporal (Cron / Once / Interval / SLA)",
+        "sdk": "Custom SDK"
+      },
+      "temporalKind": "Temporal Schedule Kind",
+      "temporalKinds": {
+        "cron": "Cron Schedule",
+        "once": "Fire Once",
+        "interval": "Fixed Interval",
+        "inactivity_sla": "Inactivity SLA"
+      },
+      "cronExpression": "Cron Expression",
+      "timezone": "Timezone",
+      "fireAt": "Fire At (ISO-8601)",
+      "intervalSeconds": "Interval (seconds)",
+      "threadKeyPrefix": "Thread Key Prefix",
+      "timeoutSeconds": "Timeout (seconds)",
+      "eventSource": "Event Source",
+      "eventType": "Event Type",
+      "filterSyncHint": "Changing source or event type automatically syncs the node gate filter."
+    },
+    "group": {
+      "spaceId": "Collaboration Space ID",
+      "dispatchMode": "Dispatch Mode",
+      "dispatchModes": {
+        "specific_seat": "Specific Seat",
+        "mention_seats": "Mention Seats",
+        "moderator_triage": "Moderator Triage",
+        "broadcast_log_only": "Broadcast Log Only"
+      },
+      "seatMemberId": "Seat Member ID",
+      "mentionedSeats": "Mentioned Seats (comma-separated)",
+      "moderatorMemberId": "Moderator Member ID",
+      "rounds": "Max Rounds",
+      "quorum": "Quorum Seats",
+      "optionalPlaceholder": "Optional",
+      "convergenceHint": "Converges downstream once quorum seats respond or max rounds complete."
+    },
+    "userGate": {
+      "interactionKind": "Interaction Kind",
+      "kinds": {
+        "approval": "Approve",
+        "ask_form": "Ask Form",
+        "notify": "Notify"
+      },
+      "severity": "Severity",
+      "severities": {
+        "info": "Info",
+        "warning": "Warning",
+        "urgent": "Urgent"
+      },
+      "slaSeconds": "SLA Timeout (s)",
+      "optionalPlaceholder": "Optional",
+      "optionalMin10Placeholder": "Optional (min 10s)",
+      "bodyTemplate": "Message / Body Template",
+      "hint": "Supports {{threadKey}} and upstream output interpolation with SLA escalation."
+    },
+    "control": {
+      "controlType": "Control Type",
+      "types": {
+        "condition": "Condition Branch",
+        "bounded_loop": "Bounded Loop",
+        "wait_for_event": "Wait For Event"
+      },
+      "maxIterations": "Max Iterations (1-50)",
+      "loopTargetStepId": "Loop Target Step ID",
+      "waitEventType": "Correlated Event Type",
+      "threadKeyTemplate": "Thread Key Template",
+      "timeoutSeconds": "Timeout (seconds)",
+      "branchExpression": "Branch Expression",
+      "waitHint": "Suspends execution with zero idle workers until a matching threadKey event arrives."
+    },
+    "outbox": {
+      "targetKind": "Outbox Target",
+      "destination": "Destination / Channel / URL",
+      "payloadTemplate": "Idempotent Payload Template",
+      "hint": "Writes back to external channels with idempotency keys to prevent duplicate comments."
+    },
+    "advanced": {
+      "subscribeThread": "Subscribe Correlated Thread",
+      "threadKey": "Thread Correlation Key (threadKey)",
+      "threadKeyHint": "Subsequent replies on the same threadKey automatically route to this context.",
+      "botMailboxPolicy": "Bot Mailbox Policy",
+      "boundedLoopMax": "BoundedLoop Max Iterations (1-50)",
+      "slaTimeoutSeconds": "SLA Timeout (seconds)",
+      "gateFilterAndDryRun": "Deterministic Gate Filter & Sample Dry-Run"
+    },
+    "json": {
+      "selectedStep": "Selected Step",
+      "fullWorkflow": "Full Workflow",
+      "apply": "Apply JSON",
+      "editorAria": "Declarative JSON Co-Editor",
+      "exhaustiveValidation": "Exhaustive Validation",
+      "zeroIssues": "0 issues",
+      "issueCount": "{{count}} issue(s)",
+      "errors": {
+        "rootObjectRequired": "Declarative JSON root must be a JSON object.",
+        "stepKindRequired": "Step JSON must include a valid \"kind\" field.",
+        "stepIdAndKindRequired": "Step JSON requires string \"id\" and \"kind\" fields.",
+        "stepsArrayRequired": "Workflow JSON must include a \"steps\" array.",
+        "invalidSyntax": "Invalid JSON syntax."
+      }
     }
+  },
+  "validation": {
+    "emptyFilterPointer": "Filter condition JSON Pointer cannot be empty.",
+    "invalidFilterRegex": "Invalid regular expression in filter condition.",
+    "emptyStepId": "Step ID is required.",
+    "selfDependency": "Step \"{{id}}\" cannot depend on itself.",
+    "unknownDependency": "Dependency \"{{dep}}\" does not exist in this workflow.",
+    "emptyTriggerTitle": "Trigger title is required.",
+    "missingTemporalSpec": "Temporal trigger requires a schedule specification.",
+    "emptyCronExpression": "Cron expression cannot be empty.",
+    "intervalTooShort": "Temporal interval must be at least 5 seconds.",
+    "slaTooShort": "Inactivity SLA timeout must be at least 10 seconds.",
+    "emptyEventType": "Trigger eventType is required.",
+    "missingAgentId": "Session step requires a target agentId.",
+    "emptyPrompt": "Session step prompt cannot be empty.",
+    "missingBotMemberId": "Bot step requires a bound memberId.",
+    "emptyBotPrompt": "Bot step prompt cannot be empty.",
+    "missingSpaceId": "Group Stage requires a collaboration spaceId.",
+    "missingSeatMemberId": "Specific Seat dispatch requires a memberId.",
+    "emptyMentionSeats": "Mention Seats dispatch requires at least one memberId.",
+    "missingModeratorId": "Moderator Triage dispatch requires a moderatorMemberId.",
+    "emptyGroupPrompt": "Group Stage message prompt is required.",
+    "emptyGateTitle": "User Gate title is required.",
+    "invalidSlaTimeout": "SLA timeout must be at least 10 seconds when specified.",
+    "emptyControlTitle": "Control node title is required.",
+    "invalidBoundedLoopMaxIterations": "BoundedLoop maxIterations must be an integer between 1 and 50 (1 <= maxIterations <= 50).",
+    "emptyConditionExpression": "Condition node requires a non-empty branch expression.",
+    "emptyWaitEventType": "WaitForEvent node requires waitEventType.",
+    "emptyWaitThreadKey": "WaitForEvent node requires a correlation threadKeyTemplate.",
+    "emptyOutboxDestination": "Outbox Action requires a target channel, URL, or event type.",
+    "emptyOutboxTemplate": "Outbox Action payload/message template cannot be empty.",
+    "emptyWorkflowName": "Workflow name cannot be empty.",
+    "emptySteps": "Workflow must contain at least one step.",
+    "duplicateStepId": "Duplicate step ID \"{{id}}\"."
   }
 }

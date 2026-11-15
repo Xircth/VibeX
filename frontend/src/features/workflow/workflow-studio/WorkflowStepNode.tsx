@@ -39,6 +39,27 @@ export const WorkflowStepNode = memo(function WorkflowStepNode({
     () => (data.logExpanded ? flameSpans(logEvents) : []),
     [data.logExpanded, logEvents]
   );
+  const triggerReplayMatched = useMemo(() => {
+    if (!data.replayEnvelope || data.step.kind !== 'trigger') return null;
+    const report = evaluatePulseRuleLocally(
+      {
+        name: data.step.title || data.step.id,
+        evalMode: data.step.evalMode,
+        filter: data.step.filter ?? DEFAULT_GATE_FILTER,
+        temporal: data.step.temporal ?? null,
+        targets: [
+          {
+            kind: 'session',
+            mode: 'ephemeral_fresh',
+            agentId: 'codex',
+            promptTemplate: '{{event.type}}',
+          },
+        ],
+      },
+      data.replayEnvelope
+    );
+    return report.matched;
+  }, [data.replayEnvelope, data.step]);
 
   if (data.confirmationFor) {
     const waiting = data.stepRun?.awaitingAcceptance === true;
@@ -92,7 +113,8 @@ export const WorkflowStepNode = memo(function WorkflowStepNode({
   const presentation = describeStepPresentation(
     data.step,
     data.agentOptions,
-    t('studio.notify')
+    t('studio.notify'),
+    t
   );
 
   const sessionOrAgentStep =
@@ -108,28 +130,6 @@ export const WorkflowStepNode = memo(function WorkflowStepNode({
   const statusLabel = status
     ? t(`status.${status}`, { defaultValue: status })
     : t('studio.standby');
-
-  const triggerReplayMatched = useMemo(() => {
-    if (!data.replayEnvelope || data.step.kind !== 'trigger') return null;
-    const report = evaluatePulseRuleLocally(
-      {
-        name: data.step.title || data.step.id,
-        evalMode: data.step.evalMode,
-        filter: data.step.filter ?? DEFAULT_GATE_FILTER,
-        temporal: data.step.temporal ?? null,
-        targets: [
-          {
-            kind: 'session',
-            mode: 'ephemeral_fresh',
-            agentId: 'codex',
-            promptTemplate: '{{event.type}}',
-          },
-        ],
-      },
-      data.replayEnvelope
-    );
-    return report.matched;
-  }, [data.replayEnvelope, data.step]);
 
   const renderLeadingIcon = () => {
     if (sessionOrAgentStep) {
@@ -202,16 +202,23 @@ export const WorkflowStepNode = memo(function WorkflowStepNode({
             <span className="block truncate text-md font-semibold text-foreground">
               {data.step.id}
             </span>
-            <span
-              data-testid={`workflow-node-category-badge-${data.step.id}`}
-              className={cn(
-                'inline-flex max-w-full items-center rounded-full px-1.5 py-0.5 text-2xs font-medium',
-                presentation.category === 'bot'
-                  ? 'bg-primary/10 text-foreground'
-                  : 'bg-muted/70 text-muted-foreground'
-              )}
-            >
-              <span className="truncate">{presentation.categoryBadge}</span>
+            <span className="flex flex-wrap items-center gap-1">
+              <span
+                data-testid={`workflow-node-category-badge-${data.step.id}`}
+                className={cn(
+                  'inline-flex shrink-0 items-center rounded-full px-1.5 py-0.5 text-2xs font-semibold',
+                  presentation.category === 'bot'
+                    ? 'bg-primary/10 text-foreground'
+                    : 'bg-muted/75 text-foreground'
+                )}
+              >
+                {presentation.categoryBadge}
+              </span>
+              {presentation.detailBadge ? (
+                <span className="truncate text-2xs text-muted-foreground">
+                  {presentation.detailBadge}
+                </span>
+              ) : null}
             </span>
             <span className="flex flex-wrap items-center gap-1 pt-0.5">
               <span className="inline-flex max-w-full items-center gap-1 rounded-full bg-muted/65 px-1.5 py-0.5 text-2xs text-muted-foreground">
@@ -225,14 +232,14 @@ export const WorkflowStepNode = memo(function WorkflowStepNode({
                 <span className="truncate">{presentation.primarySubtitle}</span>
               </span>
               {presentation.secondaryBadge ? (
-                <span className="inline-flex max-w-full items-center rounded-full border border-border bg-card px-1.5 py-0.5 font-mono text-2xs text-muted-foreground">
+                <span className="inline-flex max-w-full items-center rounded-full border border-border bg-card px-1.5 py-0.5 text-2xs text-muted-foreground">
                   <span className="truncate">{presentation.secondaryBadge}</span>
                 </span>
               ) : null}
               {presentation.tabularBadge ? (
                 <span
                   data-testid={`workflow-node-tabular-badge-${data.step.id}`}
-                  className="inline-flex shrink-0 items-center rounded-full bg-warning/15 px-1.5 py-0.5 font-mono text-2xs font-semibold tabular-nums text-warning"
+                  className="inline-flex shrink-0 items-center rounded-full bg-warning/15 px-1.5 py-0.5 text-2xs font-semibold tabular-nums text-warning"
                 >
                   {presentation.tabularBadge}
                 </span>
@@ -250,7 +257,7 @@ export const WorkflowStepNode = memo(function WorkflowStepNode({
           <PulseEvalModeControl
             size="sm"
             value={data.step.evalMode}
-            ariaLabel={`Trigger ${data.step.id} evaluation mode`}
+            ariaLabel={t('nodes.triggerEvalModeAria', { id: data.step.id })}
             onChange={
               data.onTriggerEvalModeChange
                 ? (nextMode) =>
@@ -268,7 +275,7 @@ export const WorkflowStepNode = memo(function WorkflowStepNode({
                   : 'bg-warning/15 text-warning'
               )}
             >
-              {triggerReplayMatched ? 'Matched' : 'Filtered'}
+              {triggerReplayMatched ? t('replay.matched') : t('replay.filtered')}
             </span>
           ) : null}
         </div>

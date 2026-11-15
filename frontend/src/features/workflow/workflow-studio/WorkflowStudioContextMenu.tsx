@@ -1,10 +1,12 @@
 import {
   Bell,
   Bot,
+  Clock,
   Copy,
   GitBranch,
   ListTree,
   Plus,
+  Repeat,
   Send,
   ShieldCheck,
   Terminal,
@@ -17,6 +19,7 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuSub,
   DropdownMenuSubContent,
@@ -75,28 +78,53 @@ export function WorkflowStudioContextMenu({
               <Plus className="size-4" /> {t('studio.addNode')}
             </DropdownMenuSubTrigger>
             <DropdownMenuSubContent className="min-w-52">
+              <DropdownMenuLabel className="px-2 py-1 text-2xs font-medium text-muted-foreground">
+                {t('studio.addMenuSections.triggersAndPrimitives')}
+              </DropdownMenuLabel>
               <DropdownMenuItem onSelect={() => addAndClose('trigger')}>
-                <Zap className="size-4" /> Event Trigger
+                <Zap className="size-4" /> {t('studio.nodeTypes.trigger')}
               </DropdownMenuItem>
               <DropdownMenuItem onSelect={() => addAndClose('session')}>
-                <Terminal className="size-4" /> Session Step (Fresh Context)
+                <Terminal className="size-4" /> {t('studio.nodeTypes.session')}
               </DropdownMenuItem>
               <DropdownMenuItem onSelect={() => addAndClose('bot')}>
-                <Bot className="size-4" /> Bot Step (Persistent Memory)
+                <Bot className="size-4" /> {t('studio.nodeTypes.bot')}
               </DropdownMenuItem>
+
+              <DropdownMenuSeparator />
+              <DropdownMenuLabel className="px-2 py-1 text-2xs font-medium text-muted-foreground">
+                {t('studio.addMenuSections.collaborationAndFlow')}
+              </DropdownMenuLabel>
               <DropdownMenuItem onSelect={() => addAndClose('group_stage')}>
-                <Users className="size-4" /> Group Stage
+                <Users className="size-4" /> {t('studio.nodeTypes.group_stage')}
               </DropdownMenuItem>
               <DropdownMenuItem onSelect={() => addAndClose('user_gate')}>
-                <ShieldCheck className="size-4" /> User Gate
+                <ShieldCheck className="size-4" />{' '}
+                {t('studio.nodeTypes.user_gate')}
               </DropdownMenuItem>
-              <DropdownMenuItem onSelect={() => addAndClose('control')}>
-                <GitBranch className="size-4" /> Flow Control
+              <DropdownMenuItem
+                onSelect={() => addAndClose('condition_branch')}
+              >
+                <GitBranch className="size-4" />{' '}
+                {t('studio.nodeTypes.condition_branch')}
+              </DropdownMenuItem>
+              <DropdownMenuItem onSelect={() => addAndClose('bounded_loop')}>
+                <Repeat className="size-4" />{' '}
+                {t('studio.nodeTypes.bounded_loop')}
+              </DropdownMenuItem>
+              <DropdownMenuItem onSelect={() => addAndClose('wait_for_event')}>
+                <Clock className="size-4" />{' '}
+                {t('studio.nodeTypes.wait_for_event')}
               </DropdownMenuItem>
               <DropdownMenuItem onSelect={() => addAndClose('outbox_action')}>
-                <Send className="size-4" /> Outbox Action
+                <Send className="size-4" />{' '}
+                {t('studio.nodeTypes.outbox_action')}
               </DropdownMenuItem>
+
               <DropdownMenuSeparator />
+              <DropdownMenuLabel className="px-2 py-1 text-2xs font-medium text-muted-foreground">
+                {t('studio.addMenuSections.legacySteps')}
+              </DropdownMenuLabel>
               <DropdownMenuItem onSelect={() => addAndClose('agent')}>
                 <StudioAgentIcon
                   agentId={resolveWorkflowAgentId(

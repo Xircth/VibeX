@@ -17,13 +17,10 @@ function canSaveStudioStep(step: StudioWorkflowStep): boolean {
   return validateStudioStepExhaustively(step).length === 0;
 }
 
-const INSPECTOR_TIERS: ReadonlyArray<{
-  id: StudioInspectorTier;
-  label: string;
-}> = [
-  { id: 'visual', label: 'Visual' },
-  { id: 'advanced', label: 'Advanced' },
-  { id: 'json', label: 'JSON' },
+const INSPECTOR_TIER_IDS: readonly StudioInspectorTier[] = [
+  'visual',
+  'advanced',
+  'json',
 ];
 
 export function WorkflowStudioInspectorInfo({
@@ -66,8 +63,8 @@ export function WorkflowStudioInspectorInfo({
 
   const stepIssues = useMemo(() => {
     const ids = new Set(definition.steps.map((item) => item.id));
-    return validateStudioStepExhaustively(selectedStep, ids);
-  }, [definition.steps, selectedStep]);
+    return validateStudioStepExhaustively(selectedStep, ids, undefined, t);
+  }, [definition.steps, selectedStep, t]);
 
   const isSessionTestable =
     selectedStep.kind === 'agent' || selectedStep.kind === 'session';
@@ -76,21 +73,21 @@ export function WorkflowStudioInspectorInfo({
     <div className="space-y-4">
       <div
         role="tablist"
-        aria-label="Inspector Mode"
+        aria-label={t('inspector.modeAriaLabel')}
         className="flex items-center rounded-lg border border-border bg-muted/65 p-0.5"
       >
-        {INSPECTOR_TIERS.map((tier, index) => (
+        {INSPECTOR_TIER_IDS.map((tierId, index) => (
           <button
-            key={tier.id}
+            key={tierId}
             ref={(node) => {
-              tabButtonRefs.current[tier.id] = node;
+              tabButtonRefs.current[tierId] = node;
             }}
             type="button"
             role="tab"
-            tabIndex={inspectorTier === tier.id ? 0 : -1}
-            aria-selected={inspectorTier === tier.id}
-            data-testid={`inspector-tier-${tier.id}`}
-            onClick={() => setInspectorTier(tier.id)}
+            tabIndex={inspectorTier === tierId ? 0 : -1}
+            aria-selected={inspectorTier === tierId}
+            data-testid={`inspector-tier-${tierId}`}
+            onClick={() => setInspectorTier(tierId)}
             onKeyDown={(event) => {
               if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') {
                 return;
@@ -98,21 +95,21 @@ export function WorkflowStudioInspectorInfo({
               event.preventDefault();
               const delta = event.key === 'ArrowRight' ? 1 : -1;
               const nextIndex =
-                (index + delta + INSPECTOR_TIERS.length) %
-                INSPECTOR_TIERS.length;
-              const nextTier = INSPECTOR_TIERS[nextIndex].id;
+                (index + delta + INSPECTOR_TIER_IDS.length) %
+                INSPECTOR_TIER_IDS.length;
+              const nextTier = INSPECTOR_TIER_IDS[nextIndex];
               setInspectorTier(nextTier);
               tabButtonRefs.current[nextTier]?.focus();
             }}
             className={cn(
               'flex h-7 flex-1 items-center justify-center gap-1.5 rounded-md px-2.5 text-xs font-medium transition-colors',
-              inspectorTier === tier.id
+              inspectorTier === tierId
                 ? 'bg-card text-foreground shadow-sm'
                 : 'text-muted-foreground hover:text-foreground'
             )}
           >
-            <span>{tier.label}</span>
-            {tier.id === 'json' && stepIssues.length > 0 ? (
+            <span>{t(`inspector.tiers.${tierId}`)}</span>
+            {tierId === 'json' && stepIssues.length > 0 ? (
               <span className="rounded-full bg-destructive/15 px-1.5 py-0.5 text-2xs font-semibold tabular-nums text-destructive">
                 {stepIssues.length}
               </span>
@@ -225,18 +222,14 @@ export function WorkflowStudioInspectorInfo({
         <div className="space-y-2 rounded-lg border border-warning/35 bg-warning/[0.06] p-3">
           <div className="space-y-1.5">
             <Label htmlFor="workflow-approval-note">
-              {t('inspector.approvalNoteLabel', {
-                defaultValue: 'Approval note',
-              })}
+              {t('inspector.approvalNoteLabel')}
             </Label>
             <input
               id="workflow-approval-note"
               type="text"
               value={approvalNote}
               onChange={(event) => setApprovalNote(event.target.value)}
-              placeholder={t('inspector.approvalNotePlaceholder', {
-                defaultValue: 'Add optional decision note…',
-              })}
+              placeholder={t('inspector.approvalNotePlaceholder')}
               className="h-8 w-full rounded-md border bg-background px-2.5 text-xs outline-none focus-visible:ring-2 focus-visible:ring-ring"
             />
           </div>
@@ -255,7 +248,7 @@ export function WorkflowStudioInspectorInfo({
                 setApprovalNote('');
               }}
             >
-              {t('inspector.approve', { defaultValue: 'Approve' })}
+              {t('inspector.approve')}
             </Button>
             <Button
               type="button"
@@ -272,7 +265,7 @@ export function WorkflowStudioInspectorInfo({
                 setApprovalNote('');
               }}
             >
-              {t('inspector.reject', { defaultValue: 'Reject' })}
+              {t('inspector.reject')}
             </Button>
           </div>
           <Label htmlFor="workflow-approval-decision">

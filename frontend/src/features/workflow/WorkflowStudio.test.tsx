@@ -795,3 +795,340 @@ describe('WorkflowStudio', () => {
     );
   });
 });
+
+describe('Track U2: Bilingual zh-CN/en Localization & Group/Gate Inspector Metadata', () => {
+  it('switches cleanly between en and zh-CN across Toolbar, Replay Popover, all 9 node badges, Inspector fields, and DockPanel starter name', async () => {
+    const i18n = (await import('@/i18n')).default;
+    const { act, within, waitFor } = await import('@testing-library/react');
+    const { BUILT_IN_SAMPLE_EVENTS } = await import('@/features/pulse');
+    const { BackendTransportProvider } = await import('@/lib/transport');
+    const { WorkflowStudioDockPanel } = await import(
+      './WorkflowStudioDockPanel'
+    );
+    const { toBackendWorkflowDefinition, toStudioWorkflowDefinition } =
+      await import('./WorkflowStudio');
+
+    const showcase: import('./WorkflowStudio').StudioWorkflowDefinition = {
+      formatVersion: 1,
+      name: 'Bilingual Graph',
+      description: null,
+      orchestratorPreset: 'hybrid_pipeline',
+      inputSchema: { type: 'object' },
+      policy: {
+        maxConcurrentAgentSteps: 4,
+        maxAgentCalls: 12,
+        deadlineSeconds: 1800,
+        maxOutputBytes: 65536,
+      },
+      steps: [
+        {
+          id: 'n-trigger',
+          dependsOn: [],
+          phase: null,
+          inputBindings: {},
+          kind: 'trigger',
+          title: 'CI Trigger',
+          triggerKind: 'platform',
+          sourceKind: 'github',
+          eventType: 'github.ci.failed',
+          evalMode: 'observe',
+          temporal: null,
+          filter: {
+            sourceKinds: ['github'],
+            sourceInstanceIds: [],
+            eventTypes: ['github.ci.failed'],
+            allowedActors: [],
+            conditions: [],
+          },
+        },
+        {
+          id: 'n-session',
+          dependsOn: ['n-trigger'],
+          phase: null,
+          inputBindings: {},
+          kind: 'session',
+          agentId: 'codex',
+          prompt: 'Analyze {{threadKey}}',
+          workspaceIsolation: 'isolated_worktree',
+          executorProfileId: null,
+          modeOverride: null,
+          configOverrides: {},
+          outputLanguage: 'en',
+          outputDescription: null,
+          outputSchema: null,
+          completionPolicy: 'automatic',
+        },
+        {
+          id: 'n-bot',
+          dependsOn: ['n-session'],
+          phase: null,
+          inputBindings: {},
+          kind: 'bot',
+          memberId: 'sre-bot',
+          conversationScope: 'fixed_primary',
+          mailboxPolicy: 'coalesce_batch',
+          prompt: 'Summarize {{threadKey}}',
+        },
+        {
+          id: 'n-group',
+          dependsOn: ['n-bot'],
+          phase: null,
+          inputBindings: {},
+          kind: 'group_stage',
+          spaceId: 'eng-council',
+          dispatchMode: { type: 'specific_seat', memberId: 'lead-bot' },
+          rounds: 3,
+          quorumCount: 2,
+          prompt: 'Converge on plan',
+        },
+        {
+          id: 'n-loop',
+          dependsOn: ['n-group'],
+          phase: null,
+          inputBindings: {},
+          kind: 'control',
+          controlKind: 'bounded_loop',
+          title: 'Review Loop',
+          maxIterations: 4,
+          loopTargetStepId: 'n-session',
+        },
+        {
+          id: 'n-wait',
+          dependsOn: ['n-loop'],
+          phase: null,
+          inputBindings: {},
+          kind: 'control',
+          controlKind: 'wait_for_event',
+          title: 'Wait CI',
+          waitEventType: 'github.ci.completed',
+          threadKeyTemplate: '{{threadKey}}',
+          timeoutSeconds: 600,
+        },
+        {
+          id: 'n-branch',
+          dependsOn: ['n-wait'],
+          phase: null,
+          inputBindings: {},
+          kind: 'control',
+          controlKind: 'condition',
+          title: 'Check Severity',
+          expression: 'output.ok == true',
+        },
+        {
+          id: 'n-gate',
+          dependsOn: ['n-branch'],
+          phase: null,
+          inputBindings: {},
+          kind: 'user_gate',
+          interactionKind: 'approval',
+          severity: 'urgent',
+          title: 'Ship Gate',
+          bodyTemplate: 'Approve {{threadKey}}?',
+          slaTimeoutSeconds: 90,
+        },
+        {
+          id: 'n-outbox',
+          dependsOn: ['n-gate'],
+          phase: null,
+          inputBindings: {},
+          kind: 'outbox_action',
+          actionKind: 'github_comment',
+          title: 'Reply PR',
+          destination: '{{threadKey}}',
+          payloadTemplate: 'Done {{threadKey}}',
+        },
+      ],
+    };
+
+    // Verify lossless round-trip of group_stage.rounds/quorumCount and user_gate.severity
+    const roundTripped = toStudioWorkflowDefinition(
+      toBackendWorkflowDefinition(showcase)
+    );
+    const rtGroup = roundTripped.steps.find((s) => s.id === 'n-group');
+    expect(rtGroup?.kind === 'group_stage' ? rtGroup.rounds : null).toBe(3);
+    expect(rtGroup?.kind === 'group_stage' ? rtGroup.quorumCount : null).toBe(2);
+    const rtGate = roundTripped.steps.find((s) => s.id === 'n-gate');
+    expect(rtGate?.kind === 'user_gate' ? rtGate.severity : null).toBe('urgent');
+
+    try {
+      await act(async () => {
+        await i18n.changeLanguage('en');
+      });
+
+      const user = userEvent.setup();
+      const { unmount } = render(
+        <WorkflowStudio
+          studioMode
+          definition={showcase}
+          onDefinitionChange={vi.fn()}
+          capturedEvents={BUILT_IN_SAMPLE_EVENTS}
+        />
+      );
+
+      // English assertions
+      expect(screen.getByTestId('workflow-presets-trigger')).toHaveTextContent(
+        'Templates'
+      );
+      expect(screen.getByText('Hybrid Pipeline')).toBeInTheDocument();
+      expect(screen.getByTestId('workflow-replay-trigger')).toHaveTextContent(
+        'Event Replay'
+      );
+
+      await user.click(screen.getByRole('button', { name: /^Add node$/i }));
+      for (const label of [
+        'Event Trigger',
+        'Ephemeral Session',
+        'Persistent Bot',
+        'Group Stage',
+        'User Gate',
+        'Condition Branch',
+        'Bounded Loop',
+        'Wait For Event',
+        'Outbox Action',
+      ]) {
+        expect(screen.getByRole('menuitem', { name: label })).toBeInTheDocument();
+      }
+      await user.keyboard('{Escape}');
+
+      for (const [id, badge] of [
+        ['n-trigger', 'TRIGGER'],
+        ['n-session', 'SESSION'],
+        ['n-bot', 'BOT'],
+        ['n-group', 'GROUP'],
+        ['n-loop', 'LOOP'],
+        ['n-wait', 'WAIT'],
+        ['n-branch', 'BRANCH'],
+        ['n-gate', 'GATE'],
+        ['n-outbox', 'OUTBOX'],
+      ] as const) {
+        expect(
+          screen.getByTestId(`workflow-node-category-badge-${id}`)
+        ).toHaveTextContent(badge);
+      }
+      expect(
+        within(screen.getByTestId('workflow-node-n-group')).getByText(
+          'Max 3x · Quorum 2'
+        )
+      ).toHaveClass('tabular-nums');
+      expect(
+        within(screen.getByTestId('workflow-node-n-loop')).getByText('Max 4x')
+      ).toHaveClass('tabular-nums');
+
+      fireEvent.click(screen.getByTestId('workflow-replay-trigger'));
+      fireEvent.click(
+        screen.getByTestId(
+          `workflow-replay-sample-${BUILT_IN_SAMPLE_EVENTS[2].eventId}`
+        )
+      );
+      expect(
+        within(screen.getByTestId('workflow-trigger-replay-n-trigger')).getByText(
+          'Matched'
+        )
+      ).toBeVisible();
+
+      fireEvent.click(
+        within(screen.getByTestId('workflow-node-n-group')).getByRole('button', {
+          name: /n-group/i,
+        })
+      );
+      expect(screen.getByLabelText('Max Rounds')).toHaveValue(3);
+      expect(screen.getByLabelText('Quorum Seats')).toHaveValue(2);
+
+      fireEvent.click(
+        within(screen.getByTestId('workflow-node-n-gate')).getByRole('button', {
+          name: /n-gate/i,
+        })
+      );
+      expect(screen.getByTestId('inspector-user-gate-severity')).toHaveTextContent(
+        'Urgent'
+      );
+
+      // Switch live to zh-CN
+      await act(async () => {
+        await i18n.changeLanguage('zh-CN');
+      });
+
+      expect(screen.getByTestId('workflow-presets-trigger')).toHaveTextContent(
+        '场景模板'
+      );
+      expect(screen.getByText('混合交付流水线')).toBeInTheDocument();
+      expect(screen.getByTestId('workflow-replay-trigger')).toHaveTextContent(
+        '事件回放演练'
+      );
+      for (const [id, badge] of [
+        ['n-trigger', '触发器'],
+        ['n-session', '临时会话'],
+        ['n-bot', 'Bot 助手'],
+        ['n-group', '群组协作'],
+        ['n-loop', '循环'],
+        ['n-wait', '等待事件'],
+        ['n-branch', '条件分支'],
+        ['n-gate', '人工门控'],
+        ['n-outbox', '回写动作'],
+      ] as const) {
+        expect(
+          screen.getByTestId(`workflow-node-category-badge-${id}`)
+        ).toHaveTextContent(badge);
+      }
+      expect(
+        within(screen.getByTestId('workflow-node-n-group')).getByText(
+          '最多 3 轮 · 法定 2 席'
+        )
+      ).toBeInTheDocument();
+      expect(
+        within(screen.getByTestId('workflow-node-n-loop')).getByText('最多 4 轮')
+      ).toBeInTheDocument();
+      expect(
+        within(screen.getByTestId('workflow-trigger-replay-n-trigger')).getByText(
+          '命中'
+        )
+      ).toBeVisible();
+      expect(screen.getByTestId('inspector-user-gate-severity')).toHaveTextContent(
+        '紧急'
+      );
+
+      unmount();
+
+      // Verify DockPanel bilingual starter workflow name & Pulse Rules shortcut label
+      await act(async () => {
+        await i18n.changeLanguage('en');
+      });
+      const mockTransport = {
+        environment: 'desktop' as const,
+        call: vi.fn(async (cmd: string) => {
+          if (cmd === 'workflow_list') return [];
+          if (cmd === 'pulse_captured_events') return [];
+          return null;
+        }),
+      };
+      render(
+        <BackendTransportProvider transport={mockTransport}>
+          <WorkflowStudioDockPanel />
+        </BackendTransportProvider>
+      );
+      await waitFor(() => {
+        expect(
+          screen.getByTestId('workflow-studio-open-pulse-deck')
+        ).toHaveTextContent('Pulse Rules');
+      });
+      expect(screen.getByRole('textbox', { name: 'Name' })).toHaveValue(
+        'New Workflow'
+      );
+
+      await act(async () => {
+        await i18n.changeLanguage('zh-CN');
+      });
+      expect(
+        screen.getByTestId('workflow-studio-open-pulse-deck')
+      ).toHaveTextContent('脉冲自动化');
+      fireEvent.click(screen.getByRole('button', { name: '新建工作流' }));
+      expect(screen.getByRole('textbox', { name: '名称' })).toHaveValue(
+        '新建工作流'
+      );
+    } finally {
+      await act(async () => {
+        await i18n.changeLanguage('zh-CN');
+      });
+    }
+  });
+});

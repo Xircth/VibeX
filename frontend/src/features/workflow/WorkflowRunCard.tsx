@@ -70,7 +70,7 @@ export function WorkflowRunCard({ runId }: { runId: string }) {
             </span>
             <Badge variant="secondary">{t(`status.${run.status}`)}</Badge>
           </div>
-          <p className="mt-1 text-xs text-muted-foreground">
+          <p className="mt-1 text-xs text-muted-foreground tabular-nums">
             {t('progress', { done: progress.done, total: progress.total })}
           </p>
         </div>

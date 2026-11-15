@@ -46,6 +46,9 @@ export type StudioNodeCategory =
 
 export type StudioAddableStepKind =
   | StudioNodeCategory
+  | 'condition_branch'
+  | 'bounded_loop'
+  | 'wait_for_event'
   | 'agent'
   | 'notify'
   | 'approval';
@@ -103,15 +106,20 @@ export type GroupStageStepSpec = {
   spaceId: string;
   dispatchMode: GroupDispatchMode;
   prompt: string;
+  rounds?: number | null;
+  quorumCount?: number | null;
 };
 
 export type UserGateInteractionKind = 'notify' | 'approval' | 'ask_form';
+
+export type UserGateSeverity = 'info' | 'warning' | 'urgent';
 
 export type UserGateStepSpec = {
   kind: 'user_gate';
   interactionKind: UserGateInteractionKind;
   title: string;
   bodyTemplate: string;
+  severity?: UserGateSeverity;
   approverScope?: string;
   slaTimeoutSeconds?: number | null;
   decisionSchema?: JsonValue | null;

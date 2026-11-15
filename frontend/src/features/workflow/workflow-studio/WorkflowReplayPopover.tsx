@@ -7,10 +7,7 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from '@/components/ui/popover';
-import {
-  BUILT_IN_SAMPLE_EVENTS,
-  formatEventSourceLabel,
-} from '@/features/pulse';
+import { BUILT_IN_SAMPLE_EVENTS } from '@/features/pulse';
 import { pulseApi, type EventEnvelope } from '@/lib/api/pulse';
 import {
   evaluatePulseRuleLocally,
@@ -20,6 +17,7 @@ import { cn } from '@/lib/utils';
 
 import { DEFAULT_GATE_FILTER, type StudioWorkflowStep } from './types';
 import type { WorkflowStudioView } from './useWorkflowStudio';
+import { formatWorkflowEventSource } from './workflowStepPresentation';
 
 function extractStepTemplate(step: StudioWorkflowStep): string | null {
   switch (step.kind) {
@@ -42,7 +40,7 @@ export function WorkflowReplayPopover({
 }: {
   studio: WorkflowStudioView;
 }) {
-  const { definition, capturedEvents, replayEnvelope, setReplayEnvelope } =
+  const { t, definition, capturedEvents, replayEnvelope, setReplayEnvelope } =
     studio;
   const [open, setOpen] = useState(false);
   const [fetchedEvents, setFetchedEvents] = useState<EventEnvelope[]>([]);
@@ -86,13 +84,13 @@ export function WorkflowReplayPopover({
       options.push({
         key: envelope.eventId,
         label: `${envelope.eventType}${threadSuffix}`,
-        badge: formatEventSourceLabel(envelope.source.kind),
+        badge: formatWorkflowEventSource(envelope.source.kind, t),
         envelope,
       });
     }
 
     return options;
-  }, [capturedEvents, fetchedEvents]);
+  }, [capturedEvents, fetchedEvents, t]);
 
   const activeEnvelope = replayEnvelope;
 
@@ -134,12 +132,14 @@ export function WorkflowReplayPopover({
       return [
         {
           stepId: step.id,
-          kind: step.kind,
+          kindLabel: t(`inspector.stepKinds.${step.kind}`, {
+            defaultValue: step.kind,
+          }),
           rendered: renderPulseTemplate(template, activeEnvelope),
         },
       ];
     });
-  }, [activeEnvelope, definition.steps]);
+  }, [activeEnvelope, definition.steps, t]);
 
   const selectSample = (envelope: EventEnvelope) => {
     setReplayEnvelope(envelope);
@@ -158,19 +158,21 @@ export function WorkflowReplayPopover({
         !parsed.actor ||
         !parsed.trace
       ) {
-        setParseError(
-          'EventEnvelope requires source, eventType, actor, and trace.'
-        );
+        setParseError(t('replay.missingRequiredFields'));
         return;
       }
       setParseError(null);
       setReplayEnvelope(parsed);
     } catch (error) {
       setParseError(
-        error instanceof Error ? error.message : 'Invalid EventEnvelope JSON.'
+        error instanceof Error ? error.message : t('replay.invalidJson')
       );
     }
   };
+
+  const matchedGateCount = triggerEvaluations.filter(
+    (item) => item.result.matched
+  ).length;
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
@@ -181,7 +183,7 @@ export function WorkflowReplayPopover({
           data-testid="workflow-replay-trigger"
         >
           <Radio className="mr-1 size-3.5" />
-          Replay Event
+          {t('replay.triggerButton')}
           {activeEnvelope ? (
             <span className="ml-1.5 inline-block size-1.5 rounded-full bg-success" />
           ) : null}
@@ -195,7 +197,7 @@ export function WorkflowReplayPopover({
       >
         <div className="flex items-center justify-between gap-2">
           <span className="text-xs font-semibold text-foreground">
-            Captured Event Replay
+            {t('replay.title')}
           </span>
           {activeEnvelope ? (
             <Button
@@ -207,12 +209,16 @@ export function WorkflowReplayPopover({
               data-testid="workflow-replay-clear"
             >
               <RotateCcw className="mr-1 size-3" />
-              Clear
+              {t('replay.clear')}
             </Button>
           ) : null}
         </div>
 
-        <div className="max-h-36 space-y-1 overflow-y-auto rounded-md border border-border bg-muted/35 p-1.5">
+        <div
+          role="listbox"
+          aria-label={t('replay.samplePickerAria')}
+          className="max-h-36 space-y-1 overflow-y-auto rounded-md border border-border bg-muted/35 p-1.5"
+        >
           {eventOptions.map((option) => {
             const isSelected =
               activeEnvelope?.eventId === option.envelope.eventId;
@@ -220,6 +226,8 @@ export function WorkflowReplayPopover({
               <button
                 key={option.key}
                 type="button"
+                role="option"
+                aria-selected={isSelected}
                 data-testid={`workflow-replay-sample-${option.key}`}
                 onClick={() => selectSample(option.envelope)}
                 className={cn(
@@ -241,7 +249,7 @@ export function WorkflowReplayPopover({
         <div className="space-y-1.5">
           <div className="flex items-center justify-between">
             <span className="text-2xs font-medium text-muted-foreground">
-              EventEnvelope JSON
+              {t('replay.envelopeJsonLabel')}
             </span>
             <Button
               type="button"
@@ -251,11 +259,11 @@ export function WorkflowReplayPopover({
               onClick={applyCustomDraft}
               data-testid="workflow-replay-apply-json"
             >
-              Run Dry-Run
+              {t('replay.applyButton')}
             </Button>
           </div>
           <textarea
-            aria-label="Replay EventEnvelope JSON"
+            aria-label={t('replay.envelopeJsonAria')}
             value={jsonDraft}
             onChange={(event) => setJsonDraft(event.target.value)}
             className="min-h-24 w-full resize-y rounded-md border border-border bg-background px-2.5 py-1.5 font-mono text-[11px] leading-4 outline-none focus-visible:ring-2 focus-visible:ring-ring"
@@ -275,13 +283,12 @@ export function WorkflowReplayPopover({
             {triggerEvaluations.length > 0 ? (
               <div className="space-y-1">
                 <div className="flex items-center justify-between text-2xs font-medium text-muted-foreground">
-                  <span>Trigger Gates</span>
+                  <span>{t('replay.triggerGates')}</span>
                   <span className="tabular-nums">
-                    {
-                      triggerEvaluations.filter((item) => item.result.matched)
-                        .length
-                    }
-                    /{triggerEvaluations.length} matched
+                    {t('replay.matchedSummary', {
+                      matched: matchedGateCount,
+                      total: triggerEvaluations.length,
+                    })}
                   </span>
                 </div>
                 {triggerEvaluations.map((item) => (
@@ -300,7 +307,9 @@ export function WorkflowReplayPopover({
                           : 'bg-warning/15 text-warning'
                       )}
                     >
-                      {item.result.matched ? 'Matched' : 'Filtered'}
+                      {item.result.matched
+                        ? t('replay.matched')
+                        : t('replay.filtered')}
                     </span>
                   </div>
                 ))}
@@ -310,7 +319,7 @@ export function WorkflowReplayPopover({
             {renderedStepPreviews.length > 0 ? (
               <div className="space-y-1.5">
                 <span className="text-2xs font-medium text-muted-foreground">
-                  Rendered Node Prompts
+                  {t('replay.renderedPrompts')}
                 </span>
                 <div className="max-h-36 space-y-1.5 overflow-y-auto">
                   {renderedStepPreviews.map((preview) => (
@@ -319,8 +328,9 @@ export function WorkflowReplayPopover({
                       data-testid={`workflow-replay-preview-${preview.stepId}`}
                       className="rounded-md border border-border bg-muted/25 p-2"
                     >
-                      <div className="mb-0.5 font-mono text-2xs font-semibold text-muted-foreground">
-                        {preview.stepId} ({preview.kind})
+                      <div className="mb-0.5 text-2xs font-semibold text-muted-foreground">
+                        <span className="font-mono">{preview.stepId}</span> (
+                        {preview.kindLabel})
                       </div>
                       <div className="break-words text-xs text-foreground">
                         {preview.rendered}

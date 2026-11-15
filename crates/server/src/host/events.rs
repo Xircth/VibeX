@@ -233,6 +233,11 @@ pub const HOST_EVENT_CHANNELS: &[HostEventChannel] = &[
         durability: EventDurability::BestEffort,
         required_scope: "plugin.write",
     },
+    HostEventChannel {
+        prefix: "vibex://pulse-deck-changed",
+        durability: EventDurability::Invalidation,
+        required_scope: "automation.read",
+    },
 ];
 
 #[derive(Clone, Debug)]

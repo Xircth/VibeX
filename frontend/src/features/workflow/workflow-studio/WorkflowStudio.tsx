@@ -8,6 +8,7 @@ import { DraggableMiniMap } from './DraggableMiniMap';
 import type {
   StudioNode,
   StudioWorkflowDefinition,
+  WorkflowStudioDefinitionInput,
   WorkflowStudioProps,
 } from './types';
 import { useWorkflowStudio } from './useWorkflowStudio';
@@ -18,7 +19,7 @@ import { WorkflowStudioWorkspacePanel } from './WorkflowStudioWorkspacePanel';
 import { nodeTypes } from './WorkflowStepNode';
 
 export function WorkflowStudio<
-  TDef extends StudioWorkflowDefinition = StudioWorkflowDefinition,
+  TDef extends WorkflowStudioDefinitionInput = StudioWorkflowDefinition,
 >(props: WorkflowStudioProps<TDef>) {
   const studio = useWorkflowStudio(props);
   const {

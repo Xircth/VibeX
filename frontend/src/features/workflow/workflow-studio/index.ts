@@ -16,6 +16,7 @@ export type {
   TriggerStepSpec,
   UserGateInteractionKind,
   UserGateStepSpec,
+  WorkflowStudioDefinitionInput,
   WorkflowStudioProps,
 } from './types';
 export { isWorkflowConnectionValid } from './workflowConnection';
@@ -28,6 +29,7 @@ export {
   resolveNodeCategory,
   switchExecutionPrimitive,
   toBackendWorkflowDefinition,
+  toStudioWorkflowDefinition,
 } from './workflowStepPresentation';
 export {
   validateStudioStepExhaustively,

@@ -115,7 +115,12 @@ impl WorkflowStore {
                 else {
                     continue;
                 };
-                if !matches!(definition_step.spec, WorkflowStepSpec::Agent(_)) {
+                if !matches!(
+                    definition_step.spec,
+                    WorkflowStepSpec::Agent(_)
+                        | WorkflowStepSpec::Session(_)
+                        | WorkflowStepSpec::Bot(_)
+                ) {
                     continue;
                 }
                 let accepted_via_review: i64 = sqlx::query_scalar(

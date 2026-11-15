@@ -28,7 +28,9 @@ use super::{
 };
 
 pub(super) enum TouchedTurnRows {
+    #[allow(dead_code)]
     All(Uuid),
+    ChangedAt(Uuid, i64),
     AssistantOnly(Uuid),
 }
 
@@ -179,6 +181,16 @@ impl ProjectionFold {
                     for mut row in message_rows(turn) {
                         cap_timeline_row_preview_fields(&mut row);
                         ops.push(ConversationRowOp::Upsert { row });
+                    }
+                }
+            }
+            Some(TouchedTurnRows::ChangedAt(turn_id, changed_seq)) => {
+                if let Some(turn) = self.turns.get(&turn_id) {
+                    for mut row in message_rows(turn) {
+                        if row.revision == changed_seq {
+                            cap_timeline_row_preview_fields(&mut row);
+                            ops.push(ConversationRowOp::Upsert { row });
+                        }
                     }
                 }
             }

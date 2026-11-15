@@ -208,7 +208,11 @@ pub fn host_application_core(
         app_surfaces,
         preview_proxy,
         automation,
-        automation_ownership,
+        automation_ownership: automation_ownership.clone(),
+        pulse_engine: Arc::new(
+            pulse::PulseEngine::new(pool.clone())
+                .with_engine_active(automation_ownership.current()),
+        ),
         conversations: conversations.clone(),
         deployment,
         runtime_root,
@@ -220,6 +224,7 @@ pub fn host_application_core(
         prompt_enhancement: Arc::new(tokio::sync::Mutex::new(None)),
     });
     domains.spawn_plugin_updates();
+    domains.spawn_pulse_temporal_worker();
     let companion = companion_memory.map(|memory| {
         std::sync::Arc::new(crate::companion_session::CompanionSessionAdapter::new(
             memory,

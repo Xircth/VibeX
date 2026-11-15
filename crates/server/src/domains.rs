@@ -48,6 +48,7 @@ pub struct ServerApplicationDomains {
     pub(crate) preview_proxy: PreviewProxyRegistry,
     pub(crate) automation: HeadlessAutomationRuntime,
     pub(crate) automation_ownership: AutomationOwnership,
+    pub(crate) pulse_engine: Arc<pulse::PulseEngine>,
     pub(crate) conversations: ConversationContext,
     pub(crate) deployment: Arc<LocalDeployment>,
     pub(crate) runtime_root: std::path::PathBuf,
@@ -437,6 +438,9 @@ impl ServerApplicationDomains {
             | DomainCommand::OpenCodeProviderImport
             | DomainCommand::OpenCodeProviderSetEnabled => {
                 Box::pin(self.surface_command(command, args)).await
+            }
+            other if crate::pulse_runtime::is_pulse_domain_command(other) => {
+                Box::pin(self.execute_pulse_command(&Principal::local_desktop(), other, args)).await
             }
             other if crate::host::catalog::handles(other) => {
                 Box::pin(crate::host::catalog::dispatch(self, other, args)).await
@@ -2749,10 +2753,17 @@ impl ServerApplicationDomains {
 impl ApplicationDomainPort for ServerApplicationDomains {
     async fn execute(
         &self,
-        _principal: &Principal,
+        principal: &Principal,
         command: DomainCommand,
         args: Value,
     ) -> Result<Value, ApplicationError> {
+        if crate::pulse_runtime::is_pulse_domain_command(command) {
+            return crate::host::events::bind_host_events(
+                self.events.clone(),
+                self.execute_pulse_command(principal, command, args),
+            )
+            .await;
+        }
         crate::host::events::bind_host_events(
             self.events.clone(),
             self.execute_command(command, args),

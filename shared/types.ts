@@ -2197,7 +2197,7 @@ export type WorkflowBinding = { "source": "run_input", pointer: string, } | { "s
 
 export type WorkflowDefinition = { formatVersion: number, name: string, description: string | null, inputSchema: JsonValue | null, steps: Array<WorkflowStep>, policy: WorkflowPolicy, };
 
-export type WorkflowEvent = { "kind": "run_started", definition_version_id: string, step_ids: Array<string>, input: JsonValue, policy: WorkflowPolicy, deadline_at: string, } | { "kind": "run_derived", parent_run_id: string, fork_step_id: string, run_mode: DebugRunScope, reused_step_ids: Array<string>, excluded_step_ids: Array<string>, } | { "kind": "step_reused", step_id: string, conversation_id: string | null, output_json: string | null, output_schema_digest: string | null, resolved_input_json: string | null, resolved_input_digest: string | null, execution_evidence_json: string | null, workspace_id: string | null, completed_at: string | null, } | { "kind": "step_ready", step_id: string, attempt: number, } | { "kind": "step_claimed", step_id: string, attempt: number, claim_token: string, claim_deadline: string, } | { "kind": "step_claim_released", step_id: string, attempt: number, } | { "kind": "step_prepared", step_id: string, attempt: number, resolved_input: { [key in string]?: JsonValue }, resolved_input_digest: string, execution_evidence: JsonValue, workspace_id?: string | null, } | { "kind": "step_evidence_recorded", step_id: string, attempt: number, evidence_digest: string, execution_evidence?: JsonValue | null, } | { "kind": "step_started", step_id: string, attempt: number, claim_token: string, conversation_id: string | null, turn_id: string | null, } | { "kind": "step_turn_bound", step_id: string, attempt: number, conversation_id: string, turn_id: string, } | { "kind": "step_waiting_approval", step_id: string, attempt: number, } | { "kind": "step_interaction_waiting", step_id: string, attempt: number, conversation_id: string, turn_id: string, } | { "kind": "step_interaction_resumed", step_id: string, attempt: number, } | { "kind": "step_input_requested", step_id: string, attempt: number, conversation_id: string, reason: string | null, } | { "kind": "step_input_submitted", step_id: string, attempt: number, conversation_id: string, turn_id: string, } | { "kind": "step_output_accepted", step_id: string, attempt: number, output: JsonValue, schema_digest: string, } | { "kind": "step_candidate_produced", step_id: string, attempt: number, output: JsonValue | null, schema_digest: string | null, } | { "kind": "step_candidate_accepted", step_id: string, attempt: number, principal: JsonValue, } | { "kind": "step_repair_requested", step_id: string, attempt: number, } | { "kind": "step_completed", step_id: string, attempt: number, } | { "kind": "step_failed", step_id: string, attempt: number, code: string, message: string, } | { "kind": "step_cancelled", step_id: string, attempt: number, } | { "kind": "step_interrupted", step_id: string, attempt: number, } | { "kind": "step_skipped", step_id: string, attempt: number, } | { "kind": "step_needs_review", step_id: string, attempt: number, reason: string, } | { "kind": "review_decided", step_id: string, from_attempt: number, decision: string, principal: JsonValue, } | { "kind": "approval_decided", step_id: string, attempt: number, decision: JsonValue, principal: JsonValue, } | { "kind": "run_completed" } | { "kind": "run_failed", code: string, message: string, } | { "kind": "run_cancelled", reason: string | null, } | { "kind": "run_pause_requested", reason: string | null, principal: JsonValue, } | { "kind": "run_paused" } | { "kind": "run_resumed", principal: JsonValue, } | { "kind": "run_needs_review", reason: string, };
+export type WorkflowEvent = { "kind": "run_started", definition_version_id: string, step_ids: Array<string>, input: JsonValue, policy: WorkflowPolicy, deadline_at: string, } | { "kind": "run_derived", parent_run_id: string, fork_step_id: string, run_mode: DebugRunScope, reused_step_ids: Array<string>, excluded_step_ids: Array<string>, } | { "kind": "step_reused", step_id: string, conversation_id: string | null, output_json: string | null, output_schema_digest: string | null, resolved_input_json: string | null, resolved_input_digest: string | null, execution_evidence_json: string | null, workspace_id: string | null, completed_at: string | null, } | { "kind": "step_ready", step_id: string, attempt: number, } | { "kind": "step_claimed", step_id: string, attempt: number, claim_token: string, claim_deadline: string, } | { "kind": "step_claim_released", step_id: string, attempt: number, } | { "kind": "step_prepared", step_id: string, attempt: number, resolved_input: { [key in string]?: JsonValue }, resolved_input_digest: string, execution_evidence: JsonValue, workspace_id?: string | null, } | { "kind": "step_evidence_recorded", step_id: string, attempt: number, evidence_digest: string, execution_evidence?: JsonValue | null, } | { "kind": "step_started", step_id: string, attempt: number, claim_token: string, conversation_id: string | null, turn_id: string | null, } | { "kind": "step_turn_bound", step_id: string, attempt: number, conversation_id: string, turn_id: string, } | { "kind": "step_waiting_approval", step_id: string, attempt: number, } | { "kind": "step_waiting_event", step_id: string, attempt: number, resolved_input: JsonValue, resolved_input_digest: string, execution_evidence: JsonValue, timeout_at?: string | null, } | { "kind": "step_event_received", step_id: string, attempt: number, event_id: string, event_type: string, } | { "kind": "step_loop_iterated", loop_step_id: string, next_loop_attempt: number, target_steps: Array<[string, number]>, } | { "kind": "step_interaction_waiting", step_id: string, attempt: number, conversation_id: string, turn_id: string, } | { "kind": "step_interaction_resumed", step_id: string, attempt: number, } | { "kind": "step_input_requested", step_id: string, attempt: number, conversation_id: string, reason: string | null, } | { "kind": "step_input_submitted", step_id: string, attempt: number, conversation_id: string, turn_id: string, } | { "kind": "step_output_accepted", step_id: string, attempt: number, output: JsonValue, schema_digest: string, } | { "kind": "step_candidate_produced", step_id: string, attempt: number, output: JsonValue | null, schema_digest: string | null, } | { "kind": "step_candidate_accepted", step_id: string, attempt: number, principal: JsonValue, } | { "kind": "step_repair_requested", step_id: string, attempt: number, } | { "kind": "step_completed", step_id: string, attempt: number, } | { "kind": "step_failed", step_id: string, attempt: number, code: string, message: string, } | { "kind": "step_cancelled", step_id: string, attempt: number, } | { "kind": "step_interrupted", step_id: string, attempt: number, } | { "kind": "step_skipped", step_id: string, attempt: number, } | { "kind": "step_needs_review", step_id: string, attempt: number, reason: string, } | { "kind": "review_decided", step_id: string, from_attempt: number, decision: string, principal: JsonValue, } | { "kind": "approval_decided", step_id: string, attempt: number, decision: JsonValue, principal: JsonValue, } | { "kind": "run_completed" } | { "kind": "run_failed", code: string, message: string, } | { "kind": "run_cancelled", reason: string | null, } | { "kind": "run_pause_requested", reason: string | null, principal: JsonValue, } | { "kind": "run_paused" } | { "kind": "run_resumed", principal: JsonValue, } | { "kind": "run_needs_review", reason: string, };
 
 export type WorkflowEventRecord = { id: string, runId: string, sequence: bigint, eventVersion: bigint, eventKind: string, payloadJson: string, operationId: string | null, createdAt: string, };
 
@@ -2207,9 +2207,9 @@ export type WorkflowRunStatus = "running" | "waiting" | "completed" | "failed" |
 
 export type WorkflowRunView = { id: string, definitionVersionId: string, workspaceId: string, status: string, controlState: string, pauseReason: string | null, pausedAt: string | null, parentRunId: string | null, forkStepId: string | null, runMode: string, inputJson: string, policyJson: string, deadlineAt: string, agentCallsStarted: bigint, lastSequence: bigint, createdAt: string, updatedAt: string, };
 
-export type WorkflowStep = { id: string, dependsOn: Array<string>, phase: string | null, inputBindings: { [key in string]?: WorkflowBinding }, } & ({ "kind": "agent" } & AgentStepSpec | { "kind": "approval" } & ApprovalStepSpec | { "kind": "notify" } & NotifyStepSpec);
+export type WorkflowStep = { id: string, dependsOn: Array<string>, phase: string | null, inputBindings: { [key in string]?: WorkflowBinding }, } & ({ "kind": "agent" } & AgentStepSpec | { "kind": "approval" } & ApprovalStepSpec | { "kind": "notify" } & NotifyStepSpec | { "kind": "session" } & SessionStepSpec | { "kind": "bot" } & BotStepSpec | { "kind": "group_stage" } & GroupStageStepSpec | { "kind": "user_gate" } & UserGateStepSpec | { "kind": "condition_branch" } & ConditionBranchStepSpec | { "kind": "bounded_loop" } & BoundedLoopStepSpec | { "kind": "wait_for_event" } & WaitForEventStepSpec | { "kind": "outbox_action" } & OutboxActionStepSpec);
 
-export type WorkflowStepSpec = { "kind": "agent" } & AgentStepSpec | { "kind": "approval" } & ApprovalStepSpec | { "kind": "notify" } & NotifyStepSpec;
+export type WorkflowStepSpec = { "kind": "agent" } & AgentStepSpec | { "kind": "approval" } & ApprovalStepSpec | { "kind": "notify" } & NotifyStepSpec | { "kind": "session" } & SessionStepSpec | { "kind": "bot" } & BotStepSpec | { "kind": "group_stage" } & GroupStageStepSpec | { "kind": "user_gate" } & UserGateStepSpec | { "kind": "condition_branch" } & ConditionBranchStepSpec | { "kind": "bounded_loop" } & BoundedLoopStepSpec | { "kind": "wait_for_event" } & WaitForEventStepSpec | { "kind": "outbox_action" } & OutboxActionStepSpec;
 
 export type WorkflowStepStatus = "pending" | "ready" | "claimed" | "running" | "waiting_approval" | "completed" | "failed" | "cancelled" | "interrupted" | "needs_review" | "skipped";
 
@@ -2386,3 +2386,111 @@ export type RequestActivity = { phase: RequestPhase, retry: RequestRetry | null,
 export type RequestPhase = "submitting" | "waiting_agent" | "waiting_model" | "thinking" | "responding" | "executing_tool" | "waiting_user" | "retrying" | "cancelling" | "completed" | "failed" | "cancelled" | "interrupted";
 
 export type RequestRetry = { attempt: number | null, max_attempts: number | null, delay_ms: bigint | null, reason: string | null, code: string | null, };
+
+export type ApprovalOptionSpec = { id: string, label: string, destructive: boolean, requireNote: boolean, };
+
+export type BotConversationScope = "fixed_primary" | "per_thread_topic";
+
+export type BotMailboxPolicy = "fifo_serial" | "coalesce_batch";
+
+export type BotStepSpec = { memberId: string, conversationScope: BotConversationScope, mailboxPolicy: BotMailboxPolicy, promptTemplate: string, completion: CompletionPolicy, outputSchema: JsonValue | null, };
+
+export type BoundedLoopStepSpec = { targetStepIds: Array<string>, maxIterations: number, untilCondition: GateFilterCondition | null, };
+
+export type ConditionBranchStepSpec = { filter: GateFilterAst, thenStepIds: Array<string>, elseStepIds: Array<string>, };
+
+export type DirectReflexPresetConfig = { name: string, description: string | null, actor: DualPrimitiveActorSpec, outboxActionKind: OutboxActionKind, outboxTargetTemplate: string, policy: WorkflowPolicy, };
+
+export type DualPrimitiveActorSpec = { "kind": "session", agentId: string, promptTemplate: string, workspaceAccess: WorkspaceAccess, modelOverride: string | null, subscribeThread: boolean, } | { "kind": "bot", memberId: string, promptTemplate: string, conversationScope: BotConversationScope, mailboxPolicy: BotMailboxPolicy, };
+
+export type EventActor = { id: string, displayName: string | null, roles: Array<string>, isBot: boolean, isSelf: boolean, };
+
+export type EventEnvelope = { eventId: string, deliveryId: string, source: EventSourceMeta, eventType: string, occurredAt: string, actor: EventActor, threadKey: string | null, correlations: Array<string>, replyChannels: Array<ReplyChannelAddress>, trace: EventTrace, payload: JsonValue, };
+
+export type EventSagaPresetConfig = { name: string, description: string | null, initialActor: DualPrimitiveActorSpec, expectedEventTypes: Array<string>, threadKeyPointer: string | null, waitFilter: GateFilterAst | null, timeoutSeconds: number, followupActor: DualPrimitiveActorSpec, policy: WorkflowPolicy, };
+
+export type EventSourceKind = "feishu" | "jira" | "github" | "webhook_standard" | "webhook_custom" | "time_cron" | "time_once" | "time_interval" | "time_sla" | "sdk_custom" | "system_internal";
+
+export type EventSourceMeta = { kind: EventSourceKind, instanceId: string, trustLevel: EventTrustLevel, };
+
+export type EventTrace = { rootEventId: string, parentRunId: string | null, hopCount: number, };
+
+export type EventTrustLevel = "trusted_human" | "trusted_internal" | "verified_external" | "untrusted_external";
+
+export type GateFilterAst = { sourceKinds: Array<EventSourceKind>, sourceInstanceIds: Array<string>, eventTypes: Array<string>, allowedActors: Array<string>, conditions: Array<GateFilterCondition>, };
+
+export type GateFilterCondition = { "op": "eq", pointer: string, value: JsonValue, } | { "op": "neq", pointer: string, value: JsonValue, } | { "op": "lt", pointer: string, value: number, } | { "op": "lte", pointer: string, value: number, } | { "op": "gt", pointer: string, value: number, } | { "op": "gte", pointer: string, value: number, } | { "op": "contains", pointer: string, needle: string, } | { "op": "in_set", pointer: string, values: Array<JsonValue>, } | { "op": "exists", pointer: string, } | { "op": "regex", pointer: string, pattern: string, } | { "op": "not_bot_actor" };
+
+export type GroupDispatchMode = { "type": "specific_seat", memberId: string, } | { "type": "mention_seats", memberIds: Array<string>, order: GroupMentionOrder, } | { "type": "moderator_triage", moderatorMemberId: string, } | { "type": "broadcast_log_only" };
+
+export type GroupMentionOrder = "parallel" | "sequential";
+
+export type GroupStageStepSpec = { spaceId: string, dispatchMode: GroupDispatchMode, messageTemplate: string, quorumCount: number | null, };
+
+export type HybridPipelinePresetConfig = { name: string, description: string | null, fixerAgentId: string, fixerPromptTemplate: string, reviewSpaceId: string, reviewerMemberId: string, reviewMessageTemplate: string, approvalTitleTemplate: string, approvalBodyTemplate: string, approvalSlaTimeoutSeconds: number | null, outboxActionKind: OutboxActionKind, outboxTargetTemplate: string, policy: WorkflowPolicy, };
+
+export type MandateOrigin = "explicit_human" | "trusted_internal" | "untrusted_external";
+
+export type OutboxActionKind = "reply_channel" | "webhook_post" | "emit_event";
+
+export type OutboxActionStepSpec = { actionKind: OutboxActionKind, targetTemplate: string, payloadTemplate: JsonValue, };
+
+export type PresetOrchestratorKind = "direct_reflex" | "superagent_router" | "hybrid_pipeline" | "event_saga" | "window_aggregator";
+
+export type PresetOrchestratorSpec = { "preset": "direct_reflex" } & DirectReflexPresetConfig | { "preset": "superagent_router" } & SuperagentRouterPresetConfig | { "preset": "hybrid_pipeline" } & HybridPipelinePresetConfig | { "preset": "event_saga" } & EventSagaPresetConfig | { "preset": "window_aggregator" } & WindowAggregatorPresetConfig;
+
+export type PulseDeckSnapshot = { engineActive: boolean, activeTicketCount: number, pendingUserInteractionCount: number, sources: Array<PulseSourceView>, rules: Array<PulseRuleView>, observedCandidates: Array<PulseObservedCandidateView>, subscriptions: Array<PulseSubscriptionView>, pendingInteractions: Array<PulseUserInteractionView>, };
+
+export type PulseDryRunReport = { valid: boolean, matched: boolean, violations: Array<PulseDryRunViolation>, unmatchedConditions: Array<number>, renderedPreviews: Array<string>, };
+
+export type PulseDryRunViolation = { path: string, code: string, message: string, };
+
+export type PulseEvalMode = "off" | "observe" | "auto";
+
+export type PulseEventSchemaView = { eventType: string, summary: string, jsonSchema: JsonValue, builtIn: boolean, updatedAt: string, };
+
+export type PulseObservedCandidateView = { id: string, ruleId: string, ruleName: string, eventId: string, eventType: string, sourceKind: EventSourceKind, threadKey: string | null, summary: string, occurredAt: string, promoted: boolean, };
+
+export type PulseRuleSpec = { name: string, description: string | null, projectId: string | null, workspaceId: string | null, evalMode: PulseEvalMode, orchestrator: PresetOrchestratorKind, filter: GateFilterAst, temporal: PulseTemporalSpec | null, debounceMs: number, claimExclusive: boolean, targets: Array<PulseTargetSpec>, };
+
+export type PulseRuleView = { id: string, revision: number, enabled: boolean, draftOnly: boolean, mandateOrigin: MandateOrigin, spec: PulseRuleSpec, webhookRouteId: string | null, nextFireAt: string | null, matchedCount: bigint, observedCount: bigint, createdAt: string, updatedAt: string, };
+
+export type PulseSourceView = { id: string, kind: EventSourceKind, title: string, enabled: boolean, healthy: boolean, statusMessage: string | null, cursorWatermark: string | null, publicWebhookPath: string | null, receivedCount24h: bigint, rejectedCount24h: bigint, updatedAt: string, };
+
+export type PulseSubscriptionView = { id: string, threadKey: string, subscriberKind: string, subscriberId: string, active: boolean, createdAt: string, };
+
+export type PulseTargetSpec = { "kind": "session", mode: SessionTargetMode, agentId: string, modelOverride: string | null, workspaceIsolation: PulseWorkspaceIsolation, projectId: string | null, existingSessionId: string | null, deliveryStrategy: SessionDeliveryStrategy, subscribeThread: boolean, promptTemplate: string, } | { "kind": "bot", memberId: string, conversationScope: BotConversationScope, mailboxPolicy: BotMailboxPolicy, subscribeThread: boolean, promptTemplate: string, } | { "kind": "group", spaceId: string, dispatchMode: GroupDispatchMode, messageTemplate: string, } | { "kind": "user", interactionKind: UserInteractionKind, severity: UserInteractionSeverity, titleTemplate: string, bodyTemplate: string, mirrorToChannels: Array<string>, approvalOptions: Array<ApprovalOptionSpec>, formSchema: JsonValue | null, slaTimeoutSeconds: number | null, } | { "kind": "workflow", workflowId: string, pinnedVersion: number, inputMapping: { [key in string]?: string }, };
+
+export type PulseTemporalSpec = { "kind": "cron", expression: string, timezone: string, weekdaysOnly: boolean, catchUpOnce: boolean, } | { "kind": "once", fireAt: string, } | { "kind": "interval", everySeconds: number, skipIfBusy: boolean, } | { "kind": "inactivity_sla", threadKeyPrefix: string, timeoutSeconds: number, expectedEventTypes: Array<string>, };
+
+export type PulseUserInteractionView = { id: string, ruleId: string | null, workflowRunId: string | null, stepId: string | null, kind: UserInteractionKind, severity: UserInteractionSeverity, title: string, body: string, approvalOptions: Array<ApprovalOptionSpec>, formSchema: JsonValue | null, status: string, createdAt: string, resolvedAt: string | null, };
+
+export type PulseWorkspaceIsolation = "isolated_worktree" | "project_root" | "scratch";
+
+export type ReplyChannelAddress = { sourceKind: EventSourceKind, instanceId: string, channelId: string, messageId: string | null, threadId: string | null, };
+
+export type SessionDeliveryStrategy = "queue" | "steer";
+
+export type SessionStepSpec = { agentId: string, promptTemplate: string, workspaceAccess: WorkspaceAccess, modelOverride: string | null, subscribeThread: boolean, completion: CompletionPolicy, outputSchema: JsonValue | null, };
+
+export type SessionTargetMode = "ephemeral_fresh" | "thread_keyed" | "existing_session";
+
+export type SpecialistSessionSpec = { id: string, agentId: string, promptTemplate: string, workspaceAccess: WorkspaceAccess, modelOverride: string | null, };
+
+export type SuperagentRouterPresetConfig = { name: string, description: string | null, routerBotMemberId: string, routerPromptTemplate: string, branchFilter: GateFilterAst, thenSpecialists: Array<SpecialistSessionSpec>, elseSpecialists: Array<SpecialistSessionSpec>, synthesizerBotMemberId: string, synthesizerPromptTemplate: string, policy: WorkflowPolicy, };
+
+export type UserGateStepSpec = { interactionKind: UserInteractionKind, titleTemplate: string, bodyTemplate: string, approvalOptions: Array<ApprovalOptionSpec>, formSchema: JsonValue | null, slaTimeoutSeconds: number | null, };
+
+export type UserInteractionKind = "notify" | "approval" | "ask_form" | "digest";
+
+export type UserInteractionSeverity = "info" | "warning" | "urgent";
+
+export type WaitForEventStepSpec = { eventTypes: Array<string>, threadKeyPointer: string | null, filter: GateFilterAst | null, timeoutSeconds: number | null, };
+
+export type WaitingWorkflowStep = { runId: string, workspaceId: string, stepId: string, attempt: number, spec: WaitForEventStepSpec, correlationContext: JsonValue, timeoutAt: string | null, };
+
+export type WindowAggregatorPresetConfig = { name: string, description: string | null, summarizerBotMemberId: string, summarizerPromptTemplate: string, digestTitleTemplate: string, digestBodyTemplate: string, policy: WorkflowPolicy, };
+
+export type WorkflowGraphPatch = { ops: Array<WorkflowGraphPatchOp>, };
+
+export type WorkflowGraphPatchOp = { "op": "add_step", step: WorkflowStep, } | { "op": "update_step", step: WorkflowStep, } | { "op": "remove_step", stepId: string, } | { "op": "connect_steps", fromStepId: string, toStepId: string, } | { "op": "disconnect_steps", fromStepId: string, toStepId: string, } | { "op": "set_policy", policy: WorkflowPolicy, };

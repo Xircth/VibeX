@@ -211,8 +211,12 @@ export type StudioNodeData = {
 
 export type StudioNode = Node<StudioNodeData, 'workflowStep'>;
 
+export type WorkflowStudioDefinitionInput =
+  | StudioWorkflowDefinition
+  | WorkflowDefinition;
+
 export type WorkflowStudioProps<
-  TDef extends StudioWorkflowDefinition = StudioWorkflowDefinition,
+  TDef extends WorkflowStudioDefinitionInput = StudioWorkflowDefinition,
 > = {
   definition: TDef;
   onDefinitionChange?: (definition: TDef) => void;

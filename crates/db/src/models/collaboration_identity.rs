@@ -623,6 +623,81 @@ pub async fn resolve_session(
     resolve_session_in(&mut conn, member_id, thread_id).await
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PulseBotSession {
+    pub conversation_id: Uuid,
+    pub workspace_id: Uuid,
+    pub agent: String,
+    pub model: Option<String>,
+}
+
+/// Resolves (or deterministically provisions) the persistent Bot conversation
+/// for a Pulse `Bot` target or Dual-Primitive `Bot` workflow step without ever
+/// resetting the Bot's accumulated conversation history across runs.
+pub async fn resolve_pulse_bot_session(
+    pool: &SqlitePool,
+    member_id: &str,
+    topic_thread_key: Option<&str>,
+    fallback_workspace_id: Uuid,
+) -> Result<PulseBotSession, IdentityError> {
+    let mut conn = pool.acquire().await?;
+    if load_member_in(&mut conn, member_id).await?.is_none() {
+        let ts = now();
+        sqlx::query(
+            "INSERT INTO collaboration_members (id, name, avatar, role_id, agent, model, created_at)
+             VALUES (?, ?, NULL, NULL, 'codex', NULL, ?)
+             ON CONFLICT(id) DO NOTHING",
+        )
+        .bind(member_id)
+        .bind(member_id)
+        .bind(&ts)
+        .execute(&mut *conn)
+        .await?;
+    }
+    let member = load_member_in(&mut conn, member_id)
+        .await?
+        .ok_or(IdentityError::NotFound("member"))?;
+    let thread_id = match topic_thread_key.filter(|key| !key.trim().is_empty()) {
+        Some(topic_key) => {
+            let tid = format!("pulse:{member_id}:{topic_key}");
+            let ts = now();
+            sqlx::query(
+                "INSERT INTO collaboration_threads (id, kind, title, workspace_id, created_at, space_cutover_seq, space_cutover_at)
+                 VALUES (?, 'direct', ?, ?, ?, 0, ?)
+                 ON CONFLICT(id) DO NOTHING",
+            )
+            .bind(&tid)
+            .bind(format!("{} · {topic_key}", member.name))
+            .bind(fallback_workspace_id.to_string())
+            .bind(&ts)
+            .bind(&ts)
+            .execute(&mut *conn)
+            .await?;
+            tid
+        }
+        None => {
+            let unassigned = format!("{UNASSIGNED_PREFIX}{fallback_workspace_id}");
+            ensure_thread_for_seat_in(&mut conn, &unassigned, member_id).await?
+        }
+    };
+    let resolved = resolve_session_in(&mut conn, member_id, &thread_id).await?;
+    let session_workspace: Option<Uuid> =
+        sqlx::query_scalar("SELECT workspace_id FROM sessions WHERE id = ?")
+            .bind(resolved.conversation_id)
+            .fetch_optional(&mut *conn)
+            .await?;
+    let agent = member
+        .agent
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or_else(|| "codex".to_string());
+    Ok(PulseBotSession {
+        conversation_id: resolved.conversation_id,
+        workspace_id: session_workspace.unwrap_or(fallback_workspace_id),
+        agent,
+        model: member.model.filter(|value| !value.trim().is_empty()),
+    })
+}
+
 /// Binding that owns a member session inside a workspace, for session-list badges.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WorkspaceSessionBinding {

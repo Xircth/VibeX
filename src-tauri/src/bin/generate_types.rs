@@ -142,10 +142,25 @@ use vibex::commands::{
     crash_reports::{CrashReportMeta, CrashReportsInfo},
     sessions::{SessionCollaborationRef, SessionContinuityMode, SessionSummary},
 };
+use api_types::pulse::{
+    ApprovalOptionSpec, BotConversationScope, BotMailboxPolicy, EventActor, EventEnvelope,
+    EventSourceKind, EventSourceMeta, EventTrace, EventTrustLevel, GateFilterAst,
+    GateFilterCondition, GroupDispatchMode, GroupMentionOrder, MandateOrigin,
+    PresetOrchestratorKind, PulseDeckSnapshot, PulseDryRunReport, PulseDryRunViolation,
+    PulseEvalMode, PulseEventSchemaView, PulseObservedCandidateView, PulseRuleSpec, PulseRuleView,
+    PulseSourceView, PulseSubscriptionView, PulseTargetSpec, PulseTemporalSpec,
+    PulseUserInteractionView, PulseWorkspaceIsolation, ReplyChannelAddress,
+    SessionDeliveryStrategy, SessionTargetMode, UserInteractionKind, UserInteractionSeverity,
+};
 use workflows::{
-    AgentStepSpec, ApprovalStepSpec, ClaimedWorkflowStep, CompletionPolicy, DebugRunScope,
-    NotifyStepSpec, SideEffectClass, WorkflowBinding, WorkflowDefinition,
-    WorkflowDefinitionSummary, WorkflowEvent, WorkflowEventRecord, WorkflowPolicy,
+    AgentStepSpec, ApprovalStepSpec, BotStepSpec, BoundedLoopStepSpec, ClaimedWorkflowStep,
+    CompletionPolicy, ConditionBranchStepSpec, DebugRunScope, DirectReflexPresetConfig,
+    DualPrimitiveActorSpec, EventSagaPresetConfig, GroupStageStepSpec, HybridPipelinePresetConfig,
+    NotifyStepSpec, OutboxActionKind, OutboxActionStepSpec, PresetOrchestratorSpec,
+    SessionStepSpec, SideEffectClass, SpecialistSessionSpec, SuperagentRouterPresetConfig,
+    UserGateStepSpec, WaitForEventStepSpec, WaitingWorkflowStep, WindowAggregatorPresetConfig,
+    WorkflowBinding, WorkflowDefinition, WorkflowDefinitionSummary, WorkflowEvent,
+    WorkflowEventRecord, WorkflowGraphPatch, WorkflowGraphPatchOp, WorkflowPolicy,
     WorkflowReviewDecision, WorkflowRunStatus, WorkflowRunView, WorkflowStep, WorkflowStepSpec,
     WorkflowStepStatus, WorkflowStepView, WorkflowValidationView, WorkflowVersionView,
     WorkspaceAccess,
@@ -913,6 +928,60 @@ fn replacement_declarations() -> BTreeMap<String, String> {
     insert_declaration::<AgentStepSpec>(&mut decls);
     insert_declaration::<ApprovalStepSpec>(&mut decls);
     insert_declaration::<NotifyStepSpec>(&mut decls);
+    insert_declaration::<SessionStepSpec>(&mut decls);
+    insert_declaration::<BotStepSpec>(&mut decls);
+    insert_declaration::<GroupStageStepSpec>(&mut decls);
+    insert_declaration::<UserGateStepSpec>(&mut decls);
+    insert_declaration::<ConditionBranchStepSpec>(&mut decls);
+    insert_declaration::<BoundedLoopStepSpec>(&mut decls);
+    insert_declaration::<WaitForEventStepSpec>(&mut decls);
+    insert_declaration::<OutboxActionKind>(&mut decls);
+    insert_declaration::<OutboxActionStepSpec>(&mut decls);
+    insert_declaration::<WaitingWorkflowStep>(&mut decls);
+    insert_declaration::<WorkflowGraphPatch>(&mut decls);
+    insert_declaration::<WorkflowGraphPatchOp>(&mut decls);
+    insert_declaration::<DualPrimitiveActorSpec>(&mut decls);
+    insert_declaration::<SpecialistSessionSpec>(&mut decls);
+    insert_declaration::<DirectReflexPresetConfig>(&mut decls);
+    insert_declaration::<SuperagentRouterPresetConfig>(&mut decls);
+    insert_declaration::<HybridPipelinePresetConfig>(&mut decls);
+    insert_declaration::<EventSagaPresetConfig>(&mut decls);
+    insert_declaration::<WindowAggregatorPresetConfig>(&mut decls);
+    insert_declaration::<PresetOrchestratorSpec>(&mut decls);
+    insert_declaration::<EventSourceKind>(&mut decls);
+    insert_declaration::<EventTrustLevel>(&mut decls);
+    insert_declaration::<MandateOrigin>(&mut decls);
+    insert_declaration::<PulseEvalMode>(&mut decls);
+    insert_declaration::<EventSourceMeta>(&mut decls);
+    insert_declaration::<EventActor>(&mut decls);
+    insert_declaration::<ReplyChannelAddress>(&mut decls);
+    insert_declaration::<EventTrace>(&mut decls);
+    insert_declaration::<EventEnvelope>(&mut decls);
+    insert_declaration::<GateFilterCondition>(&mut decls);
+    insert_declaration::<GateFilterAst>(&mut decls);
+    insert_declaration::<SessionTargetMode>(&mut decls);
+    insert_declaration::<PulseWorkspaceIsolation>(&mut decls);
+    insert_declaration::<SessionDeliveryStrategy>(&mut decls);
+    insert_declaration::<BotConversationScope>(&mut decls);
+    insert_declaration::<BotMailboxPolicy>(&mut decls);
+    insert_declaration::<GroupMentionOrder>(&mut decls);
+    insert_declaration::<GroupDispatchMode>(&mut decls);
+    insert_declaration::<UserInteractionKind>(&mut decls);
+    insert_declaration::<UserInteractionSeverity>(&mut decls);
+    insert_declaration::<ApprovalOptionSpec>(&mut decls);
+    insert_declaration::<PulseTargetSpec>(&mut decls);
+    insert_declaration::<PulseTemporalSpec>(&mut decls);
+    insert_declaration::<PresetOrchestratorKind>(&mut decls);
+    insert_declaration::<PulseRuleSpec>(&mut decls);
+    insert_declaration::<PulseRuleView>(&mut decls);
+    insert_declaration::<PulseDryRunViolation>(&mut decls);
+    insert_declaration::<PulseDryRunReport>(&mut decls);
+    insert_declaration::<PulseSourceView>(&mut decls);
+    insert_declaration::<PulseObservedCandidateView>(&mut decls);
+    insert_declaration::<PulseUserInteractionView>(&mut decls);
+    insert_declaration::<PulseSubscriptionView>(&mut decls);
+    insert_declaration::<PulseEventSchemaView>(&mut decls);
+    insert_declaration::<PulseDeckSnapshot>(&mut decls);
     insert_declaration::<CompletionPolicy>(&mut decls);
     insert_declaration::<WorkflowBinding>(&mut decls);
     insert_declaration::<WorkspaceAccess>(&mut decls);

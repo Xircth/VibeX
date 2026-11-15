@@ -163,6 +163,11 @@ impl PulseEngine {
         }
     }
 
+    pub fn with_engine_active(mut self, active: bool) -> Self {
+        self.engine_active = active;
+        self
+    }
+
     pub fn store(&self) -> &SqlitePulseStore {
         &self.store
     }

@@ -27,17 +27,23 @@ import {
   type StudioMode,
   type StudioWorkflowDefinition,
   type StudioWorkflowStep,
+  type WorkflowStudioDefinitionInput,
   type WorkflowStudioProps,
 } from './types';
 import { useWorkflowStudioGraph } from './useWorkflowStudioGraph';
 import { withoutStepOutputBindings } from './workflowGraph';
-import { createDefaultStepForKind } from './workflowStepPresentation';
+import {
+  createDefaultStepForKind,
+  isStudioOnlyDefinition,
+  toBackendWorkflowDefinition,
+  toStudioWorkflowDefinition,
+} from './workflowStepPresentation';
 import { validateStudioWorkflowExhaustively } from './workflowValidation';
 
 export function useWorkflowStudio<
-  TDef extends StudioWorkflowDefinition = StudioWorkflowDefinition,
+  TDef extends WorkflowStudioDefinitionInput = StudioWorkflowDefinition,
 >({
-  definition,
+  definition: rawDefinition,
   onDefinitionChange: rawOnDefinitionChange,
   run,
   steps = EMPTY_STEPS,
@@ -78,12 +84,24 @@ export function useWorkflowStudio<
   className,
 }: WorkflowStudioProps<TDef>) {
   const { t, i18n } = useTranslation('workflow');
+  const studioModeInput = useMemo(
+    () => isStudioOnlyDefinition(rawDefinition),
+    [rawDefinition]
+  );
+  const definition = useMemo(
+    () => toStudioWorkflowDefinition(rawDefinition),
+    [rawDefinition]
+  );
   const onDefinitionChange = useMemo(() => {
     if (!rawOnDefinitionChange) return undefined;
     return (next: StudioWorkflowDefinition) => {
-      rawOnDefinitionChange(next as TDef);
+      rawOnDefinitionChange(
+        (studioModeInput
+          ? next
+          : toBackendWorkflowDefinition(next)) as unknown as TDef
+      );
     };
-  }, [rawOnDefinitionChange]);
+  }, [rawOnDefinitionChange, studioModeInput]);
 
   const mode: StudioMode = onDefinitionChange ? 'edit' : 'run';
   const [inspectorTab, setInspectorTab] = useState<'info' | 'conversation'>(

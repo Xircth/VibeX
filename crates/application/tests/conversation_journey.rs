@@ -415,6 +415,8 @@ async fn start_turn_is_launched_through_the_injected_execution_port() {
             &Principal::local_desktop(),
             Uuid::new_v4(),
             StartConversationTurn {
+                continuation_policy: None,
+                expected_binding_revision: None,
                 agent_id: "codex".to_string(),
                 workspace_id,
                 conversation_id,

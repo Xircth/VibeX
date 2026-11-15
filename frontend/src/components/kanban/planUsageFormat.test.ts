@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { PlanUsageWindow } from 'shared/types';
 import {
+  buildPlanQuotaRows,
   clampPercent,
   describeReset,
   describeWindowLabel,
@@ -128,5 +129,61 @@ describe('formatPlanType', () => {
     expect(formatPlanType('scale-tier')).toBe('scale-tier');
     expect(formatPlanType(null)).toBeNull();
     expect(formatPlanType('')).toBeNull();
+  });
+});
+
+describe('buildPlanQuotaRows', () => {
+  it('returns empty rows when usage is missing or has no active windows or credits', () => {
+    expect(buildPlanQuotaRows(undefined)).toEqual([]);
+    expect(
+      buildPlanQuotaRows({ planType: 'pro', windows: [], credits: null })
+    ).toEqual([]);
+    expect(
+      buildPlanQuotaRows({
+        planType: 'pro',
+        windows: [],
+        credits: { balance: null, unlimited: false },
+      })
+    ).toEqual([]);
+  });
+
+  it('groups windows into rows of at most 2 items', () => {
+    const fourWindows = [
+      window({ id: 'gemini_five_hour', usedPercent: 20 }),
+      window({ id: 'gemini_weekly', usedPercent: 10 }),
+      window({ id: 'claude_gpt_five_hour', usedPercent: 45 }),
+      window({ id: 'claude_gpt_weekly', usedPercent: 30 }),
+    ];
+    const rows = buildPlanQuotaRows({
+      planType: 'pro',
+      windows: fourWindows,
+      credits: null,
+    });
+    expect(rows).toHaveLength(2);
+    expect(rows[0].map((item) => item.id)).toEqual([
+      'gemini_five_hour',
+      'gemini_weekly',
+    ]);
+    expect(rows[1].map((item) => item.id)).toEqual([
+      'claude_gpt_five_hour',
+      'claude_gpt_weekly',
+    ]);
+  });
+
+  it('falls back to a single credits item when no windows are returned', () => {
+    const rows = buildPlanQuotaRows({
+      planType: null,
+      windows: [],
+      credits: { balance: '15.00', unlimited: false },
+    });
+    expect(rows).toEqual([
+      [
+        {
+          kind: 'credits',
+          id: 'credits',
+          credits: { balance: '15.00', unlimited: false },
+        },
+      ],
+    ]);
   });
 });

@@ -11,7 +11,7 @@ import { useTranslation } from 'react-i18next';
 import { AgentIcon, getAgentName } from '@/components/agents/AgentIcon';
 import { ProductContextMenu } from '@/components/context-menu/ProductContextMenu';
 import { useOptionalUserSystem } from '@/components/ConfigProvider';
-import { confirmDiscardMergePanel } from '@/components/panels/merge/mergePanelDirty';
+import { confirmCloseWorkspacePanel } from '@/components/panels/previewPanelDirty';
 import {
   buildWorkspaceTabContextMenu,
   type WorkspaceTabContextMenuKind,
@@ -204,13 +204,7 @@ export function useCanvasNodeContextMenu({
         });
       });
     },
-    [
-      defaultShell,
-      instanceId,
-      labels.terminal,
-      openOrFocusPanelNode,
-      shells,
-    ]
+    [defaultShell, instanceId, labels.terminal, openOrFocusPanelNode, shells]
   );
 
   const duplicateTerminal = useCallback(() => {
@@ -329,9 +323,7 @@ export function useCanvasNodeContextMenu({
   const menuItems = useMemo(() => {
     const nonBrowserPlugins = pluginPanels.filter(
       (item) =>
-        !browser ||
-        item.pluginId !== browser.pluginId ||
-        item.id !== browser.id
+        !browser || item.pluginId !== browser.pluginId || item.id !== browser.id
     );
 
     return buildWorkspaceTabContextMenu(labels, {
@@ -386,8 +378,7 @@ export function useCanvasNodeContextMenu({
         }),
       closeCurrent: () => {
         if (
-          panelComponent === PANEL_IDS.MERGE &&
-          !confirmDiscardMergePanel(panelId || instanceId)
+          !confirmCloseWorkspacePanel(panelId || instanceId, panelComponent)
         ) {
           return;
         }

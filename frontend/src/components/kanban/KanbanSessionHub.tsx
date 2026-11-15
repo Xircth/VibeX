@@ -45,7 +45,11 @@ import {
   isCreateSessionFormVisibleForProject,
   resolveDefaultCreateSessionMode,
 } from '@/lib/createSessionFormVisibility';
-import { requestCreateSessionInExecutionArea } from '@/lib/requestCreateSession';
+import {
+  DISMISS_CREATE_SESSION_OVERLAY_EVENT,
+  dismissCollaborationCreateOverlays,
+  requestCreateSessionInExecutionArea,
+} from '@/lib/requestCreateSession';
 import {
   setKanbanCanvasListVisible,
   useKanbanCanvasListVisible,
@@ -797,6 +801,7 @@ export function KanbanSessionHub({
 
     if (open) {
       collaboration?.getSnapshot().closeAllOverlays();
+      dismissCollaborationCreateOverlays();
       updateCreateWorkspaceValue(defaultWorkspaceValue);
       updateSelectedExecutorProfile(defaultExecutorProfile);
       setUserCreateMode(null);
@@ -806,6 +811,24 @@ export function KanbanSessionHub({
       createSessionMutation.reset();
     }
   };
+
+  useEffect(() => {
+    const handleDismiss = () => {
+      setIsCreatePopoverOpen(false);
+      setCreatePopoverProjectId(null);
+      createSessionMutation.reset();
+    };
+    window.addEventListener(
+      DISMISS_CREATE_SESSION_OVERLAY_EVENT,
+      handleDismiss
+    );
+    return () => {
+      window.removeEventListener(
+        DISMISS_CREATE_SESSION_OVERLAY_EVENT,
+        handleDismiss
+      );
+    };
+  }, [createSessionMutation]);
 
   const rememberCreatedCanvasSession = (session: Session) => {
     const workspace = workspaces.find(

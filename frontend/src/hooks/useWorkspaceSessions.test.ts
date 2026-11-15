@@ -1,5 +1,16 @@
-import { describe, expect, it } from 'vitest';
-import { reconcileWorkspaceSessionSelection } from './useWorkspaceSessions';
+import { createElement, type ReactNode } from 'react';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { renderHook, waitFor } from '@testing-library/react';
+import { describe, expect, it, vi } from 'vitest';
+import { sessionListAgentKey } from '@/components/kanban/session-hub/utils';
+import {
+  sessionsApi,
+  type SessionSummary as SessionSummaryRecord,
+} from '@/lib/api';
+import {
+  reconcileWorkspaceSessionSelection,
+  useWorkspaceSessions,
+} from './useWorkspaceSessions';
 
 describe('reconcileWorkspaceSessionSelection', () => {
   it('keeps a pending session over an older in-list selection', () => {
@@ -113,5 +124,55 @@ describe('reconcileWorkspaceSessionSelection', () => {
 
     expect(next.selection).toBeUndefined();
     expect(next.pendingSessionId).toBeNull();
+  });
+});
+
+describe('useWorkspaceSessions agent icon metadata', () => {
+  it('exposes switched agent_id and model on WorkspaceSessionSummary instead of staying stuck on creation executor', async () => {
+    const summary: SessionSummaryRecord = {
+      id: 'session-switched',
+      workspace_id: 'ws-1',
+      task_id: null,
+      name: 'Switched Session',
+      status: 'todo',
+      executor: 'CLAUDE_CODE',
+      agent_id: 'codex',
+      model: 'gpt-5',
+      created_at: '2026-11-14T00:00:00Z',
+      updated_at: '2026-11-14T00:01:00Z',
+      first_prompt: null,
+      is_running: false,
+      display_name: 'Switched Session',
+      workspace_name: 'main',
+      workspace_branch: 'main',
+      continuity_mode: 'new_session',
+      pinned_at: null,
+      collaboration: null,
+    };
+    const spy = vi
+      .spyOn(sessionsApi, 'getSummariesByWorkspace')
+      .mockResolvedValue([summary]);
+
+    try {
+      const queryClient = new QueryClient({
+        defaultOptions: { queries: { retry: false } },
+      });
+      const wrapper = ({ children }: { children: ReactNode }) =>
+        createElement(QueryClientProvider, { client: queryClient }, children);
+
+      const { result } = renderHook(() => useWorkspaceSessions('ws-1'), {
+        wrapper,
+      });
+
+      await waitFor(() => {
+        expect(result.current.sessions).toHaveLength(1);
+      });
+
+      expect(sessionListAgentKey(result.current.sessions[0])).toBe('codex');
+      expect(result.current.sessions[0].agent_id).toBe('codex');
+      expect(result.current.sessions[0].model).toBe('gpt-5');
+    } finally {
+      spy.mockRestore();
+    }
   });
 });

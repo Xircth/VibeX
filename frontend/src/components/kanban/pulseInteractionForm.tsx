@@ -1,7 +1,9 @@
 import { useMemo, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Check, X, Zap } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
+import i18n from '@/i18n';
 import {
   pulseApi,
   type ApprovalOptionSpec,
@@ -42,15 +44,15 @@ function normalizeSchemaType(rawType: unknown): PulseFormFieldType {
 export function extractTypedFormFields(
   formSchema?: Record<string, unknown> | null
 ): TypedPulseFormField[] {
+  const defaultField: TypedPulseFormField = {
+    key: 'response',
+    label: i18n.t('panels:pulseDeck.interaction.responseField'),
+    type: 'string',
+    required: false,
+  };
+
   if (!formSchema || typeof formSchema !== 'object') {
-    return [
-      {
-        key: 'response',
-        label: 'Response',
-        type: 'string',
-        required: false,
-      },
-    ];
+    return [defaultField];
   }
 
   const requiredSet = new Set<string>(
@@ -63,26 +65,12 @@ export function extractTypedFormFields(
 
   const properties = formSchema.properties;
   if (!properties || typeof properties !== 'object') {
-    return [
-      {
-        key: 'response',
-        label: 'Response',
-        type: 'string',
-        required: false,
-      },
-    ];
+    return [defaultField];
   }
 
   const entries = Object.entries(properties as Record<string, unknown>);
   if (entries.length === 0) {
-    return [
-      {
-        key: 'response',
-        label: 'Response',
-        type: 'string',
-        required: false,
-      },
-    ];
+    return [defaultField];
   }
 
   return entries.map(([key, rawProp]) => {
@@ -143,7 +131,11 @@ export function buildInitialFormDraft(
       typeof field.defaultValue === 'boolean'
     ) {
       initial[field.key] = String(field.defaultValue);
-    } else if (field.enumOptions && field.enumOptions.length > 0 && field.required) {
+    } else if (
+      field.enumOptions &&
+      field.enumOptions.length > 0 &&
+      field.required
+    ) {
       initial[field.key] = String(field.enumOptions[0]);
     } else {
       initial[field.key] = '';
@@ -164,10 +156,20 @@ export function coerceAndValidateFormValues(
     const raw = draft[field.key];
 
     if (field.enumOptions && field.enumOptions.length > 0) {
-      const strVal = typeof raw === 'string' ? raw : raw === undefined ? '' : String(raw);
+      const strVal =
+        typeof raw === 'string'
+          ? raw
+          : raw === undefined
+            ? ''
+            : String(raw);
       if (!strVal) {
         if (field.required) {
-          return { ok: false, error: `${field.label} is required.` };
+          return {
+            ok: false,
+            error: i18n.t('panels:pulseDeck.interaction.fieldRequired', {
+              label: field.label,
+            }),
+          };
         }
         continue;
       }
@@ -175,7 +177,12 @@ export function coerceAndValidateFormValues(
         (candidate) => String(candidate) === strVal
       );
       if (matched === undefined) {
-        return { ok: false, error: `Invalid selection for ${field.label}.` };
+        return {
+          ok: false,
+          error: i18n.t('panels:pulseDeck.interaction.fieldInvalidSelection', {
+            label: field.label,
+          }),
+        };
       }
       values[field.key] = matched;
       continue;
@@ -186,30 +193,55 @@ export function coerceAndValidateFormValues(
       continue;
     }
 
-    const text = typeof raw === 'string' ? raw.trim() : raw !== undefined ? String(raw).trim() : '';
+    const text =
+      typeof raw === 'string'
+        ? raw.trim()
+        : raw !== undefined
+          ? String(raw).trim()
+          : '';
 
     if (field.type === 'number' || field.type === 'integer') {
       if (!text) {
         if (field.required) {
-          return { ok: false, error: `${field.label} is required.` };
+          return {
+            ok: false,
+            error: i18n.t('panels:pulseDeck.interaction.fieldRequired', {
+              label: field.label,
+            }),
+          };
         }
         continue;
       }
       const parsed = Number(text);
       if (!Number.isFinite(parsed)) {
-        return { ok: false, error: `${field.label} must be a valid number.` };
+        return {
+          ok: false,
+          error: i18n.t('panels:pulseDeck.interaction.fieldInvalidNumber', {
+            label: field.label,
+          }),
+        };
       }
       if (field.type === 'integer' && !Number.isInteger(parsed)) {
-        return { ok: false, error: `${field.label} must be a whole integer.` };
+        return {
+          ok: false,
+          error: i18n.t('panels:pulseDeck.interaction.fieldInvalidInteger', {
+            label: field.label,
+          }),
+        };
       }
       values[field.key] = parsed;
       continue;
     }
 
-    // string
-    const rawStr = typeof raw === 'string' ? raw : raw !== undefined ? String(raw) : '';
+    const rawStr =
+      typeof raw === 'string' ? raw : raw !== undefined ? String(raw) : '';
     if (field.required && !rawStr.trim()) {
-      return { ok: false, error: `${field.label} is required.` };
+      return {
+        ok: false,
+        error: i18n.t('panels:pulseDeck.interaction.fieldRequired', {
+          label: field.label,
+        }),
+      };
     }
     values[field.key] = rawStr;
   }
@@ -239,12 +271,13 @@ export function PulseInteractionCard({
   labels?: PulseInteractionLabels;
   className?: string;
 }) {
+  const { t, i18n: activeI18n } = useTranslation('panels');
   const formFields = useMemo(
     () =>
       interaction.kind === 'ask_form'
         ? extractTypedFormFields(interaction.formSchema)
         : [],
-    [interaction.formSchema, interaction.kind]
+    [interaction.formSchema, interaction.kind, activeI18n.language]
   );
 
   const [note, setNote] = useState('');
@@ -258,18 +291,31 @@ export function PulseInteractionCard({
     interaction.approvalOptions.length > 0
       ? interaction.approvalOptions
       : [
-          { id: 'approve', label: labels?.approve ?? 'Approve' },
+          {
+            id: 'approve',
+            label: labels?.approve ?? t('pulseDeck.interaction.approve'),
+          },
           {
             id: 'reject',
-            label: labels?.reject ?? 'Reject',
+            label: labels?.reject ?? t('pulseDeck.interaction.reject'),
             destructive: true,
           },
         ];
 
+  const kindBadgeLabel =
+    interaction.kind === 'approval'
+      ? t('pulseDeck.interaction.kindApproval')
+      : interaction.kind === 'ask_form'
+        ? t('pulseDeck.interaction.kindAskForm')
+        : interaction.kind === 'digest'
+          ? t('pulseDeck.interaction.kindDigest')
+          : t('pulseDeck.interaction.kindNotify');
+
   const handleResolveOption = async (option: ApprovalOptionSpec) => {
     if (option.requireNote && !note.trim()) {
       setErrorMsg(
-        labels?.noteRequiredError ?? 'Note is required for this decision.'
+        labels?.noteRequiredError ??
+          t('pulseDeck.interaction.noteRequiredError')
       );
       return;
     }
@@ -285,7 +331,9 @@ export function PulseInteractionCard({
       onResolved(interaction.id);
     } catch (err) {
       setErrorMsg(
-        err instanceof Error ? err.message : 'Failed to submit decision.'
+        err instanceof Error
+          ? err.message
+          : t('pulseDeck.interaction.errSubmitDecision')
       );
     } finally {
       setResolving(false);
@@ -309,7 +357,11 @@ export function PulseInteractionCard({
       });
       onResolved(interaction.id);
     } catch (err) {
-      setErrorMsg(err instanceof Error ? err.message : 'Failed to submit form.');
+      setErrorMsg(
+        err instanceof Error
+          ? err.message
+          : t('pulseDeck.interaction.errSubmitForm')
+      );
     } finally {
       setResolving(false);
     }
@@ -337,8 +389,8 @@ export function PulseInteractionCard({
           />
           <span className="truncate">{interaction.title}</span>
         </div>
-        <span className="shrink-0 rounded border border-border bg-background px-1.5 py-0.5 text-[10px] uppercase text-muted-foreground">
-          {interaction.kind.replace('_', ' ')}
+        <span className="shrink-0 rounded bg-muted px-1.5 py-0.5 text-[10px] uppercase text-muted-foreground">
+          {kindBadgeLabel}
         </span>
       </div>
 
@@ -353,7 +405,7 @@ export function PulseInteractionCard({
             return (
               <div key={field.key} className="space-y-0.5">
                 {field.type === 'boolean' && !field.enumOptions ? (
-                  <div className="flex items-center gap-2 rounded border border-border bg-background px-2 py-1 text-xs text-foreground">
+                  <div className="flex items-center gap-2 rounded bg-background px-2 py-1 text-xs text-foreground">
                     <Checkbox
                       id={fieldId}
                       aria-label={field.label}
@@ -403,7 +455,8 @@ export function PulseInteractionCard({
                       >
                         {!field.required ? (
                           <option value="">
-                            {labels?.selectPlaceholder ?? 'Select…'}
+                            {labels?.selectPlaceholder ??
+                              t('pulseDeck.interaction.selectPlaceholder')}
                           </option>
                         ) : null}
                         {field.enumOptions.map((option) => (
@@ -457,15 +510,21 @@ export function PulseInteractionCard({
             data-testid={`pulse-interaction-submit-${interaction.id}`}
             onClick={() => void handleSubmitForm()}
           >
-            {labels?.submit ?? 'Submit'}
+            {labels?.submit ?? t('pulseDeck.interaction.submit')}
           </Button>
         </div>
       ) : interaction.kind === 'approval' ? (
         <div className="mt-2 space-y-1.5">
           <input
             type="text"
-            aria-label={labels?.decisionNoteAria ?? 'Decision note'}
-            placeholder={labels?.decisionNotePlaceholder ?? 'Optional note…'}
+            aria-label={
+              labels?.decisionNoteAria ??
+              t('pulseDeck.interaction.decisionNoteAria')
+            }
+            placeholder={
+              labels?.decisionNotePlaceholder ??
+              t('pulseDeck.interaction.decisionNotePlaceholder')
+            }
             value={note}
             onChange={(event) => setNote(event.target.value)}
             className="h-6 w-full rounded border border-border bg-background px-2 text-[11px] text-foreground focus:outline-none"
@@ -504,11 +563,12 @@ export function PulseInteractionCard({
             onClick={() =>
               void handleResolveOption({
                 id: 'acknowledge',
-                label: labels?.acknowledge ?? 'Acknowledge',
+                label:
+                  labels?.acknowledge ?? t('pulseDeck.interaction.acknowledge'),
               })
             }
           >
-            {labels?.acknowledge ?? 'Acknowledge'}
+            {labels?.acknowledge ?? t('pulseDeck.interaction.acknowledge')}
           </Button>
         </div>
       )}

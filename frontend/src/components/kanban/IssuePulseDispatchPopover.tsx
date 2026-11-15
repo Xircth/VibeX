@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Activity, Bot, Check, GitBranch, Link2, Zap } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -60,35 +61,30 @@ type DispatchTargetKind = 'session' | 'bot';
 
 const ISSUE_SOURCES: ReadonlyArray<{
   kind: EventSourceKind;
-  label: string;
   defaultEventType: string;
   defaultPointer: string;
   defaultValue: string;
 }> = [
   {
     kind: 'jira',
-    label: 'Jira',
     defaultEventType: 'jira.issue.created',
     defaultPointer: '/issue/fields/issuetype/name',
     defaultValue: 'Bug',
   },
   {
     kind: 'github',
-    label: 'GitHub',
     defaultEventType: 'github.issues.opened',
     defaultPointer: '/action',
     defaultValue: 'opened',
   },
   {
     kind: 'feishu',
-    label: 'Feishu',
     defaultEventType: 'feishu.im.message.receive_v1',
     defaultPointer: '/message/chat_type',
     defaultValue: 'group',
   },
   {
     kind: 'webhook_standard',
-    label: 'Webhook',
     defaultEventType: 'webhook.issue.ingest',
     defaultPointer: '/severity',
     defaultValue: 'high',
@@ -123,7 +119,11 @@ function buildSampleIssueEnvelope(
     for (let i = 0; i < segments.length - 1; i += 1) {
       const seg = segments[i]!;
       const existing = cursor[seg];
-      if (!existing || typeof existing !== 'object' || Array.isArray(existing)) {
+      if (
+        !existing ||
+        typeof existing !== 'object' ||
+        Array.isArray(existing)
+      ) {
         cursor[seg] = {};
       }
       cursor = cursor[seg] as Record<string, unknown>;
@@ -180,6 +180,8 @@ export function IssuePulseDispatchPopover({
   onOpenPulseDeck,
   onDispatched,
 }: IssuePulseDispatchPopoverProps) {
+  const { t } = useTranslation('panels');
+
   const [open, setOpen] = useState(false);
   const handlePopoverOpenChange = (nextOpen: boolean) => {
     setOpen(nextOpen);
@@ -192,8 +194,8 @@ export function IssuePulseDispatchPopover({
     () =>
       sessionTitle?.trim() ||
       (branchName
-        ? `Investigate and resolve ${branchName}`
-        : 'Investigate incoming issue')
+        ? t('pulseDispatch.defaultBranchPrompt', { branch: branchName })
+        : t('pulseDispatch.defaultIssuePrompt'))
   );
   const [externalThreadKey, setExternalThreadKey] = useState(() =>
     branchName ? `github:${branchName}` : 'jira:PROJ-101'
@@ -203,8 +205,10 @@ export function IssuePulseDispatchPopover({
   const [sourceKind, setSourceKind] = useState<EventSourceKind>('jira');
   const [ruleName, setRuleName] = useState(() =>
     sessionTitle?.trim()
-      ? `Pulse: ${sessionTitle.trim().slice(0, 36)}`
-      : 'Auto-triage similar issues'
+      ? t('pulseDispatch.defaultRuleNamePrefix', {
+          title: sessionTitle.trim().slice(0, 36),
+        })
+      : t('pulseDispatch.defaultRuleName')
   );
   const [evalMode, setEvalMode] = useState<PulseEvalMode>('observe');
   const [filterPointer, setFilterPointer] = useState(
@@ -247,7 +251,9 @@ export function IssuePulseDispatchPopover({
 
     return {
       name: ruleName,
-      description: branchName ? `Scoped from ${branchName}` : null,
+      description: branchName
+        ? t('pulseDispatch.scopedFromBranch', { branch: branchName })
+        : null,
       projectId,
       workspaceId,
       evalMode,
@@ -285,6 +291,7 @@ export function IssuePulseDispatchPopover({
     selectedSourceMeta.defaultEventType,
     sourceKind,
     subscribeThread,
+    t,
     targetKind,
     ticketPrompt,
     workspaceId,
@@ -364,7 +371,9 @@ export function IssuePulseDispatchPopover({
               enabled: true,
               spec: {
                 ...candidateSpec,
-                name: `One-Shot: ${trimmedPrompt.slice(0, 44)}`,
+                name: t('pulseDispatch.oneShotRulePrefix', {
+                  prompt: trimmedPrompt.slice(0, 44),
+                }),
                 evalMode: 'auto',
                 filter: {
                   sourceKinds: ['sdk_custom'],
@@ -415,13 +424,15 @@ export function IssuePulseDispatchPopover({
 
       setFeedback(
         subscribeThread && normalizedThread
-          ? `Dispatched & subscribed ${normalizedThread}`
-          : 'Ticket dispatched'
+          ? t('pulseDispatch.feedbackDispatchedSubscribed', {
+              threadKey: normalizedThread,
+            })
+          : t('pulseDispatch.feedbackDispatched')
       );
       onDispatched?.();
     } catch (err) {
       setErrorMessage(
-        err instanceof Error ? err.message : 'Failed to dispatch ticket.'
+        err instanceof Error ? err.message : t('pulseDispatch.errDispatch')
       );
     } finally {
       setSubmitting(false);
@@ -443,11 +454,16 @@ export function IssuePulseDispatchPopover({
         enabled: evalMode !== 'off',
         spec: candidateSpec,
       });
-      setFeedback(`Saved rule "${saved.spec.name}" (${saved.spec.evalMode})`);
+      setFeedback(
+        t('pulseDispatch.feedbackSavedRule', {
+          name: saved.spec.name,
+          mode: t(`pulseDeck.modes.${saved.spec.evalMode}`),
+        })
+      );
       onDispatched?.();
     } catch (err) {
       setErrorMessage(
-        err instanceof Error ? err.message : 'Failed to save automation rule.'
+        err instanceof Error ? err.message : t('pulseDispatch.errSaveRule')
       );
     } finally {
       setSubmitting(false);
@@ -468,7 +484,7 @@ export function IssuePulseDispatchPopover({
                 : 'h-7 gap-1 px-2 text-xs font-medium shadow-none'),
             isPulseDeckOpen && 'bg-muted text-foreground'
           )}
-          aria-label="Dispatch Issue Pulse"
+          aria-label={t('pulseDispatch.triggerAria')}
           data-testid={triggerTestId}
           onPointerDown={(event) => {
             event.stopPropagation();
@@ -481,7 +497,9 @@ export function IssuePulseDispatchPopover({
           }}
         >
           <Zap className="h-3.5 w-3.5 text-primary" />
-          {compactIconOnly ? null : <span>Dispatch</span>}
+          {compactIconOnly ? null : (
+            <span>{t('pulseDispatch.triggerLabel')}</span>
+          )}
         </Button>
       </PopoverTrigger>
       <PopoverContent
@@ -494,7 +512,7 @@ export function IssuePulseDispatchPopover({
         <div className="flex items-center justify-between gap-2 border-b border-border pb-2">
           <div className="flex items-center gap-1.5 text-xs font-semibold">
             <Zap className="h-3.5 w-3.5 text-primary" />
-            <span>Issue Pulse Dispatch</span>
+            <span>{t('pulseDispatch.title')}</span>
           </div>
           {onOpenPulseDeck ? (
             <Button
@@ -509,13 +527,17 @@ export function IssuePulseDispatchPopover({
               }}
             >
               <Activity className="h-3 w-3" />
-              <span>{isPulseDeckOpen ? 'Close Deck' : 'Pulse Deck'}</span>
+              <span>
+                {isPulseDeckOpen
+                  ? t('pulseDispatch.closeDeck')
+                  : t('pulseDispatch.openDeck')}
+              </span>
             </Button>
           ) : null}
         </div>
 
         <div
-          className="grid grid-cols-2 gap-1 rounded-md border border-border bg-muted/50 p-0.5"
+          className="grid grid-cols-2 gap-1 rounded-md bg-muted/50 p-0.5"
           role="tablist"
         >
           <button
@@ -534,7 +556,7 @@ export function IssuePulseDispatchPopover({
               setErrorMessage(null);
             }}
           >
-            One-Shot Ticket
+            {t('pulseDispatch.tabOneShot')}
           </button>
           <button
             type="button"
@@ -552,13 +574,13 @@ export function IssuePulseDispatchPopover({
               setErrorMessage(null);
             }}
           >
-            Automate Similar
+            {t('pulseDispatch.tabAutomateSimilar')}
           </button>
         </div>
 
         <div className="space-y-2">
           <div className="text-[11px] font-medium text-muted-foreground">
-            Execution Target
+            {t('pulseDispatch.executionTarget')}
           </div>
           <div className="grid grid-cols-2 gap-1.5">
             <button
@@ -573,7 +595,9 @@ export function IssuePulseDispatchPopover({
               onClick={() => setTargetKind('session')}
             >
               <GitBranch className="h-3.5 w-3.5 shrink-0" />
-              <span className="truncate">Fresh Session</span>
+              <span className="truncate">
+                {t('pulseDispatch.freshSession')}
+              </span>
             </button>
             <button
               type="button"
@@ -587,22 +611,24 @@ export function IssuePulseDispatchPopover({
               onClick={() => setTargetKind('bot')}
             >
               <Bot className="h-3.5 w-3.5 shrink-0" />
-              <span className="truncate">Persistent Bot</span>
+              <span className="truncate">
+                {t('pulseDispatch.persistentBot')}
+              </span>
             </button>
           </div>
 
           {targetKind === 'bot' ? (
             <input
               type="text"
-              aria-label="Bot Member ID"
+              aria-label={t('pulseDispatch.botMemberIdAria')}
               value={botMemberId}
               onChange={(event) => setBotMemberId(event.target.value)}
-              placeholder="Bot member ID"
+              placeholder={t('pulseDispatch.botMemberIdPlaceholder')}
               className="h-7 w-full rounded-md border border-border bg-background px-2 text-xs text-foreground focus:outline-none"
             />
           ) : (
             <div className="text-[11px] text-muted-foreground">
-              Isolated Git worktree · ephemeral session
+              {t('pulseDispatch.isolatedWorktreeHint')}
             </div>
           )}
         </div>
@@ -614,7 +640,7 @@ export function IssuePulseDispatchPopover({
                 htmlFor="dispatch-ticket-prompt"
                 className="text-[11px] font-medium text-muted-foreground"
               >
-                Dispatch Instruction
+                {t('pulseDispatch.dispatchInstruction')}
               </label>
               <textarea
                 id="dispatch-ticket-prompt"
@@ -631,28 +657,28 @@ export function IssuePulseDispatchPopover({
                 className="flex items-center gap-1 text-[11px] font-medium text-muted-foreground"
               >
                 <Link2 className="h-3 w-3" />
-                <span>External Thread Key</span>
+                <span>{t('pulseDispatch.externalThreadKey')}</span>
               </label>
               <input
                 id="dispatch-thread-key"
                 type="text"
                 value={externalThreadKey}
                 onChange={(event) => setExternalThreadKey(event.target.value)}
-                placeholder="jira:PROJ-123 or github:org/repo#42"
+                placeholder={t('pulseDispatch.externalThreadPlaceholder')}
                 className="h-7 w-full rounded-md border border-border bg-background px-2 font-mono text-xs text-foreground focus:outline-none"
               />
             </div>
 
-            <label className="flex cursor-pointer items-center gap-2 rounded-md border border-border bg-background px-2 py-1.5 text-xs">
+            <label className="flex cursor-pointer items-center gap-2 rounded-md bg-muted/40 px-2 py-1.5 text-xs">
               <Checkbox
                 checked={subscribeThread}
                 onCheckedChange={(checked) =>
                   setSubscribeThread(Boolean(checked))
                 }
-                aria-label="Subscribe to External Thread"
+                aria-label={t('pulseDispatch.subscribeThread')}
               />
               <span className="text-foreground">
-                Subscribe to External Thread
+                {t('pulseDispatch.subscribeThread')}
               </span>
             </label>
 
@@ -664,7 +690,9 @@ export function IssuePulseDispatchPopover({
               data-testid="dispatch-one-shot-submit"
               onClick={() => void handleDispatchOneShot()}
             >
-              {submitting ? 'Dispatching…' : 'Dispatch Ticket'}
+              {submitting
+                ? t('pulseDispatch.dispatching')
+                : t('pulseDispatch.dispatchBtn')}
             </Button>
           </div>
         ) : (
@@ -674,7 +702,7 @@ export function IssuePulseDispatchPopover({
                 htmlFor="dispatch-rule-name"
                 className="text-[11px] font-medium text-muted-foreground"
               >
-                Rule Name
+                {t('pulseDispatch.ruleName')}
               </label>
               <input
                 id="dispatch-rule-name"
@@ -698,7 +726,9 @@ export function IssuePulseDispatchPopover({
                       : 'border-border bg-background text-muted-foreground hover:text-foreground'
                   )}
                 >
-                  {source.label}
+                  {t(
+                    `pulseFilter.sources.${source.kind.replace(/_([a-z])/g, (_, ch: string) => ch.toUpperCase())}`
+                  )}
                 </button>
               ))}
             </div>
@@ -706,7 +736,7 @@ export function IssuePulseDispatchPopover({
             <div className="grid grid-cols-2 gap-1.5">
               <input
                 type="text"
-                aria-label="JSON Pointer Filter"
+                aria-label={t('pulseDispatch.jsonPointerAria')}
                 value={filterPointer}
                 onChange={(event) => setFilterPointer(event.target.value)}
                 placeholder="/issue/priority"
@@ -714,17 +744,17 @@ export function IssuePulseDispatchPopover({
               />
               <input
                 type="text"
-                aria-label="Expected Value"
+                aria-label={t('pulseDispatch.expectedValueAria')}
                 value={filterValue}
                 onChange={(event) => setFilterValue(event.target.value)}
-                placeholder="Expected value"
+                placeholder={t('pulseDispatch.expectedValuePlaceholder')}
                 className="h-7 rounded-md border border-border bg-background px-2 text-xs text-foreground focus:outline-none"
               />
             </div>
 
             <div className="flex items-center justify-between gap-2">
               <span className="text-[11px] font-medium text-muted-foreground">
-                Rollout Mode
+                {t('pulseDispatch.rolloutMode')}
               </span>
               <div className="flex items-center gap-1">
                 {(['off', 'observe', 'auto'] as const).map((mode) => (
@@ -733,20 +763,22 @@ export function IssuePulseDispatchPopover({
                     type="button"
                     onClick={() => setEvalMode(mode)}
                     className={cn(
-                      'rounded border px-2 py-0.5 text-[11px] font-medium capitalize',
+                      'rounded border px-2 py-0.5 text-[11px] font-medium',
                       evalMode === mode
                         ? 'border-primary bg-muted text-foreground'
                         : 'border-border bg-background text-muted-foreground'
                     )}
                   >
-                    {mode}
+                    {t(`pulseDeck.modes.${mode}`)}
                   </button>
                 ))}
               </div>
             </div>
 
-            <div className="flex items-center justify-between rounded-md border border-border bg-muted/40 px-2 py-1 text-[11px]">
-              <span className="text-muted-foreground">Dry-Run Check</span>
+            <div className="flex items-center justify-between rounded-md bg-muted/40 px-2 py-1 text-[11px]">
+              <span className="text-muted-foreground">
+                {t('pulseDispatch.dryRunCheck')}
+              </span>
               <span
                 className={cn(
                   'font-medium tabular-nums',
@@ -759,10 +791,12 @@ export function IssuePulseDispatchPopover({
                 data-testid="dispatch-dry-run-status"
               >
                 {!dryRun.valid
-                  ? `Invalid (${dryRun.violations.length})`
+                  ? t('pulseDispatch.dryRunInvalid', {
+                      count: dryRun.violations.length,
+                    })
                   : dryRun.matched
-                    ? 'Valid · Matched'
-                    : 'Valid · Filtered'}
+                    ? t('pulseDispatch.dryRunMatched')
+                    : t('pulseDispatch.dryRunFiltered')}
               </span>
             </div>
 
@@ -784,7 +818,9 @@ export function IssuePulseDispatchPopover({
               data-testid="dispatch-save-similar-rule"
               onClick={() => void handleSaveSimilarRule()}
             >
-              {submitting ? 'Saving…' : 'Save Automation Rule'}
+              {submitting
+                ? t('pulseDispatch.saving')
+                : t('pulseDispatch.saveAutomationRule')}
             </Button>
           </div>
         )}
@@ -792,7 +828,7 @@ export function IssuePulseDispatchPopover({
         {feedback ? (
           <div
             role="status"
-            className="flex items-center gap-1.5 rounded-md border border-border bg-muted/50 px-2 py-1 text-[11px] text-foreground"
+            className="flex items-center gap-1.5 rounded-md bg-muted/50 px-2 py-1 text-[11px] text-foreground"
           >
             <Check className="h-3 w-3 shrink-0 text-success" />
             <span className="truncate">{feedback}</span>
@@ -802,7 +838,7 @@ export function IssuePulseDispatchPopover({
         {errorMessage ? (
           <div
             role="alert"
-            className="rounded-md border border-border bg-muted/50 px-2 py-1 text-[11px] text-destructive"
+            className="rounded-md bg-destructive/10 px-2 py-1 text-[11px] text-destructive"
           >
             {errorMessage}
           </div>

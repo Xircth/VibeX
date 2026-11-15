@@ -1,3 +1,4 @@
+import { useTranslation } from 'react-i18next';
 import { Lock } from 'lucide-react';
 
 import type { PulseEvalMode } from '@/lib/api/pulse';
@@ -15,22 +16,18 @@ export interface PulseEvalModeControlProps {
 
 const EVAL_MODES: ReadonlyArray<{
   mode: PulseEvalMode;
-  label: string;
   dotClass: string;
 }> = [
   {
     mode: 'off',
-    label: 'Off',
     dotClass: 'bg-muted-foreground/60',
   },
   {
     mode: 'observe',
-    label: 'Observe',
     dotClass: 'bg-warning',
   },
   {
     mode: 'auto',
-    label: 'Auto',
     dotClass: 'bg-success',
   },
 ];
@@ -41,16 +38,18 @@ export function PulseEvalModeControl({
   disabled = false,
   lockAuto = false,
   size = 'md',
-  ariaLabel = 'Evaluation mode',
+  ariaLabel,
   className,
 }: PulseEvalModeControlProps) {
+  const { t } = useTranslation('panels');
+  const resolvedAriaLabel = ariaLabel ?? t('pulseFilter.evalModeAria');
   const isItemDisabled = (mode: PulseEvalMode) =>
     disabled || (mode === 'auto' && lockAuto) || !onChange;
 
   return (
     <div
       role="group"
-      aria-label={ariaLabel}
+      aria-label={resolvedAriaLabel}
       className={cn(
         'inline-flex shrink-0 items-center rounded-full border border-border bg-muted/65 p-0.5',
         className
@@ -69,9 +68,7 @@ export function PulseEvalModeControl({
             aria-pressed={active}
             disabled={itemDisabled}
             title={
-              isLockedAuto
-                ? 'Confirm external draft provenance before enabling Auto'
-                : undefined
+              isLockedAuto ? t('pulseFilter.lockAutoTitle') : undefined
             }
             onClick={(event) => {
               event.stopPropagation();
@@ -106,9 +103,7 @@ export function PulseEvalModeControl({
             }}
             className={cn(
               'inline-flex items-center gap-1.5 rounded-full font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50',
-              size === 'sm'
-                ? 'h-5 px-2 text-2xs'
-                : 'h-6 px-2.5 text-xs',
+              size === 'sm' ? 'h-5 px-2 text-2xs' : 'h-6 px-2.5 text-xs',
               active
                 ? 'bg-card text-foreground shadow-sm'
                 : 'text-muted-foreground hover:text-foreground'
@@ -121,7 +116,7 @@ export function PulseEvalModeControl({
                 active ? item.dotClass : 'bg-muted-foreground/35'
               )}
             />
-            <span>{item.label}</span>
+            <span>{t(`pulseDeck.modes.${item.mode}`)}</span>
             {isLockedAuto ? (
               <Lock aria-hidden="true" className="size-2.5 shrink-0" />
             ) : null}

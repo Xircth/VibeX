@@ -1,9 +1,11 @@
 import { useMemo, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { CheckCircle2, Play, Sparkles, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
+import i18n from '@/i18n';
 import {
   pulseApi,
   type BotMailboxPolicy,
@@ -24,25 +26,18 @@ import {
   isTemporalSourceKind,
 } from './collaborationPulseEvents';
 
-const SOURCE_OPTIONS: ReadonlyArray<{
-  kind: EventSourceKind;
-  label: string;
-}> = [
-  { kind: 'feishu', label: 'Feishu' },
-  { kind: 'jira', label: 'Jira' },
-  { kind: 'github', label: 'GitHub' },
-  { kind: 'webhook_standard', label: 'Webhook' },
-  { kind: 'time_cron', label: 'Cron' },
-  { kind: 'time_once', label: 'Once' },
-  { kind: 'time_interval', label: 'Interval' },
-  { kind: 'time_sla', label: 'SLA' },
+const SOURCE_KINDS: readonly EventSourceKind[] = [
+  'feishu',
+  'jira',
+  'github',
+  'webhook_standard',
+  'time_cron',
+  'time_once',
+  'time_interval',
+  'time_sla',
 ];
 
-const EVAL_MODES: ReadonlyArray<{ value: PulseEvalMode; label: string }> = [
-  { value: 'off', label: 'Off' },
-  { value: 'observe', label: 'Observe' },
-  { value: 'auto', label: 'Auto' },
-];
+const EVAL_MODES: readonly PulseEvalMode[] = ['off', 'observe', 'auto'];
 
 export type PulseRosterOption = {
   memberId: string;
@@ -51,21 +46,38 @@ export type PulseRosterOption = {
 
 export function describeGroupDispatchMode(
   mode: GroupDispatchMode,
-  roster: readonly PulseRosterOption[] = []
+  roster: readonly PulseRosterOption[] = [],
+  tFn?: (key: string, options?: Record<string, unknown>) => string
 ): string {
+  const tr =
+    typeof tFn === 'function'
+      ? (key: string, options?: Record<string, unknown>) =>
+          tFn(key, { ns: 'panels', ...options })
+      : (key: string, options?: Record<string, unknown>) =>
+          i18n.t(key, { ns: 'panels', ...options });
   const resolveNick = (id: string) =>
     roster.find((item) => item.memberId === id)?.nickname || id;
   switch (mode.type) {
     case 'specific_seat':
-      return `Seat: @${resolveNick(mode.memberId)}`;
-    case 'mention_seats':
-      return `Seats (${mode.order ?? 'sequential'}): ${mode.memberIds
-        .map((id) => `@${resolveNick(id)}`)
-        .join(', ')}`;
+      return tr('pulseProposal.groupSummary.specificSeat', {
+        member: resolveNick(mode.memberId),
+      });
+    case 'mention_seats': {
+      const orderLabel =
+        mode.order === 'parallel'
+          ? tr('pulseProposal.groupSummary.orderParallel')
+          : tr('pulseProposal.groupSummary.orderSequential');
+      return tr('pulseProposal.groupSummary.mentionSeats', {
+        order: orderLabel,
+        members: mode.memberIds.map((id) => `@${resolveNick(id)}`).join(', '),
+      });
+    }
     case 'moderator_triage':
-      return `Moderator triage: @${resolveNick(mode.moderatorMemberId)}`;
+      return tr('pulseProposal.groupSummary.moderatorTriage', {
+        member: resolveNick(mode.moderatorMemberId),
+      });
     case 'broadcast_log_only':
-      return 'Broadcast log only';
+      return tr('pulseProposal.groupSummary.broadcastLog');
   }
 }
 
@@ -84,6 +96,8 @@ export function PulseRuleProposalCard({
   onSaved?: (saved: PulseRuleView) => void;
   onCancel?: () => void;
 }) {
+  const { t } = useTranslation('panels');
+
   const [spec, setSpec] = useState<PulseRuleSpec>(initialSpec);
   const [pointerFilter, setPointerFilter] = useState<string>(() => {
     const firstContains = initialSpec.filter.conditions.find(
@@ -99,8 +113,8 @@ export function PulseRuleProposalCard({
     );
     return firstContains?.needle ?? '';
   });
-  const [sampleSummary, setSampleSummary] = useState(
-    'High-priority P0 regression reported on checkout service'
+  const [sampleSummary, setSampleSummary] = useState(() =>
+    t('pulseProposal.defaultSampleSummary')
   );
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState('');
@@ -215,7 +229,10 @@ export function PulseRuleProposalCard({
         };
         break;
       case 'moderator_triage':
-        nextMode = { type: 'moderator_triage', moderatorMemberId: fallbackSeat };
+        nextMode = {
+          type: 'moderator_triage',
+          moderatorMemberId: fallbackSeat,
+        };
         break;
       case 'broadcast_log_only':
         nextMode = { type: 'broadcast_log_only' };
@@ -262,7 +279,9 @@ export function PulseRuleProposalCard({
       onSaved?.(saved);
     } catch (err) {
       setSaveError(
-        err instanceof Error ? err.message : 'Failed to save Pulse rule.'
+        err instanceof Error
+          ? err.message
+          : t('pulseProposal.errSavePulseRule')
       );
     } finally {
       setSaving(false);
@@ -280,13 +299,13 @@ export function PulseRuleProposalCard({
     <section
       className="settings-surface rounded-lg border border-border bg-popover p-3 text-xs text-foreground shadow-sm"
       data-testid="pulse-rule-proposal-card"
-      aria-label="Pulse Rule Proposal"
+      aria-label={t('pulseProposal.cardTitle')}
     >
       <div className="mb-2.5 flex items-center justify-between gap-2 border-b border-border/70 pb-2">
         <div className="flex min-w-0 items-center gap-1.5">
           <Sparkles className="h-3.5 w-3.5 shrink-0 text-primary" />
           <span className="truncate font-semibold text-foreground">
-            Pulse Rule Proposal
+            {t('pulseProposal.cardTitle')}
           </span>
           {contextLabel ? (
             <span className="truncate rounded bg-muted px-1.5 py-0.5 text-[11px] text-muted-foreground">
@@ -296,26 +315,26 @@ export function PulseRuleProposalCard({
         </div>
         <div className="flex items-center gap-1">
           <div
-            className="inline-flex rounded-md border border-border bg-muted/60 p-0.5"
+            className="inline-flex rounded-md bg-muted/60 p-0.5"
             role="group"
-            aria-label="Evaluation mode"
+            aria-label={t('pulseFilter.evalModeAria')}
           >
             {EVAL_MODES.map((mode) => (
               <button
-                key={mode.value}
+                key={mode}
                 type="button"
-                data-testid={`pulse-proposal-mode-${mode.value}`}
+                data-testid={`pulse-proposal-mode-${mode}`}
                 onClick={() =>
-                  setSpec((prev) => ({ ...prev, evalMode: mode.value }))
+                  setSpec((prev) => ({ ...prev, evalMode: mode }))
                 }
                 className={cn(
                   'rounded px-2 py-0.5 text-[11px] font-medium transition-colors',
-                  spec.evalMode === mode.value
+                  spec.evalMode === mode
                     ? 'bg-primary text-primary-foreground'
                     : 'text-muted-foreground hover:text-foreground'
                 )}
               >
-                {mode.label}
+                {t(`pulseDeck.modes.${mode}`)}
               </button>
             ))}
           </div>
@@ -325,7 +344,7 @@ export function PulseRuleProposalCard({
               size="icon"
               variant="ghost"
               className="h-6 w-6"
-              aria-label="Close proposal"
+              aria-label={t('pulseProposal.closeAria')}
               onClick={onCancel}
             >
               <X className="h-3.5 w-3.5" />
@@ -338,11 +357,11 @@ export function PulseRuleProposalCard({
         <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
           <div className="space-y-1">
             <Label htmlFor="pulse-proposal-name" className="text-[11px]">
-              Rule Name
+              {t('pulseProposal.ruleName')}
             </Label>
             <Input
               id="pulse-proposal-name"
-              aria-label="Rule Name"
+              aria-label={t('pulseProposal.ruleName')}
               value={spec.name}
               onChange={(event) =>
                 setSpec((prev) => ({ ...prev, name: event.target.value }))
@@ -352,11 +371,11 @@ export function PulseRuleProposalCard({
           </div>
           <div className="space-y-1">
             <Label htmlFor="pulse-proposal-event-type" className="text-[11px]">
-              Event Type
+              {t('pulseProposal.eventType')}
             </Label>
             <Input
               id="pulse-proposal-event-type"
-              aria-label="Event Type"
+              aria-label={t('pulseProposal.eventType')}
               value={activeEventType}
               onChange={(event) =>
                 setSpec((prev) => ({
@@ -376,34 +395,38 @@ export function PulseRuleProposalCard({
 
         <div className="space-y-1">
           <span className="text-[11px] font-medium text-muted-foreground">
-            Event Source
+            {t('pulseProposal.eventSource')}
           </span>
           <div className="flex flex-wrap gap-1">
-            {SOURCE_OPTIONS.map((option) => (
+            {SOURCE_KINDS.map((kind) => (
               <button
-                key={option.kind}
+                key={kind}
                 type="button"
-                data-testid={`pulse-source-${option.kind}`}
-                onClick={() => handleSourceChange(option.kind)}
+                data-testid={`pulse-source-${kind}`}
+                onClick={() => handleSourceChange(kind)}
                 className={cn(
                   'rounded border px-2 py-0.5 text-[11px] font-medium transition-colors',
-                  activeSourceKind === option.kind
+                  activeSourceKind === kind
                     ? 'border-primary bg-primary text-primary-foreground'
                     : 'border-border bg-background text-muted-foreground hover:text-foreground'
                 )}
               >
-                {option.label}
+                {t(
+                  `pulseFilter.sources.${kind.replace(/_([a-z])/g, (_, ch: string) => ch.toUpperCase())}`
+                )}
               </button>
             ))}
           </div>
         </div>
 
         {spec.temporal?.kind === 'cron' ? (
-          <div className="grid grid-cols-2 gap-2 rounded-md border border-border/70 bg-muted/30 p-2">
+          <div className="grid grid-cols-2 gap-2 rounded-md bg-muted/35 p-2">
             <div className="space-y-1">
-              <Label className="text-[11px]">Cron Expression</Label>
+              <Label className="text-[11px]">
+                {t('pulseProposal.cronExpression')}
+              </Label>
               <Input
-                aria-label="Cron Expression"
+                aria-label={t('pulseProposal.cronExpression')}
                 value={spec.temporal.expression}
                 onChange={(event) =>
                   updateTemporal({
@@ -420,9 +443,11 @@ export function PulseRuleProposalCard({
               />
             </div>
             <div className="space-y-1">
-              <Label className="text-[11px]">Timezone</Label>
+              <Label className="text-[11px]">
+                {t('pulseProposal.timezone')}
+              </Label>
               <Input
-                aria-label="Timezone"
+                aria-label={t('pulseProposal.timezone')}
                 value={spec.temporal.timezone}
                 onChange={(event) =>
                   updateTemporal({
@@ -442,10 +467,12 @@ export function PulseRuleProposalCard({
         ) : null}
 
         {spec.temporal?.kind === 'once' ? (
-          <div className="space-y-1 rounded-md border border-border/70 bg-muted/30 p-2">
-            <Label className="text-[11px]">Fire At (ISO Timestamp)</Label>
+          <div className="space-y-1 rounded-md bg-muted/35 p-2">
+            <Label className="text-[11px]">
+              {t('pulseProposal.fireAtLabel')}
+            </Label>
             <Input
-              aria-label="Fire At"
+              aria-label={t('pulseProposal.fireAtAria')}
               value={spec.temporal.fireAt}
               onChange={(event) =>
                 updateTemporal({ kind: 'once', fireAt: event.target.value })
@@ -456,11 +483,13 @@ export function PulseRuleProposalCard({
         ) : null}
 
         {spec.temporal?.kind === 'interval' ? (
-          <div className="space-y-1 rounded-md border border-border/70 bg-muted/30 p-2">
-            <Label className="text-[11px]">Interval (seconds)</Label>
+          <div className="space-y-1 rounded-md bg-muted/35 p-2">
+            <Label className="text-[11px]">
+              {t('pulseProposal.intervalLabel')}
+            </Label>
             <Input
               type="number"
-              aria-label="Interval Seconds"
+              aria-label={t('pulseProposal.intervalAria')}
               value={spec.temporal.everySeconds}
               onChange={(event) =>
                 updateTemporal({
@@ -475,11 +504,13 @@ export function PulseRuleProposalCard({
         ) : null}
 
         {spec.temporal?.kind === 'inactivity_sla' ? (
-          <div className="grid grid-cols-2 gap-2 rounded-md border border-border/70 bg-muted/30 p-2">
+          <div className="grid grid-cols-2 gap-2 rounded-md bg-muted/35 p-2">
             <div className="space-y-1">
-              <Label className="text-[11px]">Thread Key Prefix</Label>
+              <Label className="text-[11px]">
+                {t('pulseProposal.threadKeyPrefix')}
+              </Label>
               <Input
-                aria-label="Thread Key Prefix"
+                aria-label={t('pulseProposal.threadKeyPrefix')}
                 value={spec.temporal.threadKeyPrefix}
                 onChange={(event) =>
                   updateTemporal({
@@ -495,10 +526,12 @@ export function PulseRuleProposalCard({
               />
             </div>
             <div className="space-y-1">
-              <Label className="text-[11px]">SLA Timeout (seconds)</Label>
+              <Label className="text-[11px]">
+                {t('pulseProposal.slaTimeoutLabel')}
+              </Label>
               <Input
                 type="number"
-                aria-label="SLA Timeout Seconds"
+                aria-label={t('pulseProposal.slaTimeoutAria')}
                 value={spec.temporal.timeoutSeconds}
                 onChange={(event) =>
                   updateTemporal({
@@ -517,16 +550,18 @@ export function PulseRuleProposalCard({
         ) : null}
 
         {primaryTarget?.kind === 'bot' ? (
-          <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-border/70 bg-muted/30 px-2.5 py-1.5">
+          <div className="flex flex-wrap items-center justify-between gap-2 rounded-md bg-muted/35 px-2.5 py-1.5">
             <span className="text-[11px] text-muted-foreground">
-              Bot Target:{' '}
+              {t('pulseProposal.botTargetLabel')}{' '}
               <strong className="font-mono text-foreground">
                 {primaryTarget.memberId}
               </strong>{' '}
-              · Persistent memory
+              · {t('pulseProposal.persistentMemory')}
             </span>
             <div className="inline-flex items-center gap-1">
-              <span className="text-[11px] text-muted-foreground">Mailbox</span>
+              <span className="text-[11px] text-muted-foreground">
+                {t('pulseProposal.mailboxLabel')}
+              </span>
               {(['fifo_serial', 'coalesce_batch'] as const).map((policy) => (
                 <button
                   key={policy}
@@ -540,7 +575,9 @@ export function PulseRuleProposalCard({
                       : 'border-border bg-background text-muted-foreground'
                   )}
                 >
-                  {policy === 'fifo_serial' ? 'FIFO Serial' : 'Coalesce Batch'}
+                  {t(
+                    `pulseFilter.mailbox.${policy.replace(/_([a-z])/g, (_, ch: string) => ch.toUpperCase())}`
+                  )}
                 </button>
               ))}
             </div>
@@ -548,23 +585,27 @@ export function PulseRuleProposalCard({
         ) : null}
 
         {primaryTarget?.kind === 'group' ? (
-          <div className="space-y-1.5 rounded-md border border-border/70 bg-muted/30 p-2">
+          <div className="space-y-1.5 rounded-md bg-muted/35 p-2">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <span
                 className="text-[11px] font-medium text-foreground"
                 data-testid="pulse-group-dispatch-summary"
               >
-                {describeGroupDispatchMode(primaryTarget.dispatchMode, roster)}
+                {describeGroupDispatchMode(
+                  primaryTarget.dispatchMode,
+                  roster,
+                  t
+                )}
               </span>
               <div className="flex flex-wrap gap-1">
                 {(
                   [
-                    ['specific_seat', 'Specific Seat'],
-                    ['mention_seats', 'Mention Seats'],
-                    ['moderator_triage', 'Moderator Triage'],
-                    ['broadcast_log_only', 'Broadcast Log'],
+                    'specific_seat',
+                    'mention_seats',
+                    'moderator_triage',
+                    'broadcast_log_only',
                   ] as const
-                ).map(([modeKey, label]) => (
+                ).map((modeKey) => (
                   <button
                     key={modeKey}
                     type="button"
@@ -577,7 +618,9 @@ export function PulseRuleProposalCard({
                         : 'border-border bg-background text-muted-foreground'
                     )}
                   >
-                    {label}
+                    {t(
+                      `pulseProposal.groupModes.${modeKey.replace(/_([a-z])/g, (_, ch: string) => ch.toUpperCase())}`
+                    )}
                   </button>
                 ))}
               </div>
@@ -610,9 +653,11 @@ export function PulseRuleProposalCard({
 
         <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
           <div className="space-y-1">
-            <Label className="text-[11px]">JSON Pointer Filter (optional)</Label>
+            <Label className="text-[11px]">
+              {t('pulseProposal.jsonPointerOptional')}
+            </Label>
             <Input
-              aria-label="JSON Pointer Filter"
+              aria-label={t('pulseProposal.jsonPointerAria')}
               placeholder="/summary"
               value={pointerFilter}
               onChange={(event) => setPointerFilter(event.target.value)}
@@ -620,9 +665,11 @@ export function PulseRuleProposalCard({
             />
           </div>
           <div className="space-y-1">
-            <Label className="text-[11px]">Contains Value</Label>
+            <Label className="text-[11px]">
+              {t('pulseProposal.containsValue')}
+            </Label>
             <Input
-              aria-label="Contains Value"
+              aria-label={t('pulseProposal.containsValue')}
               placeholder="P0"
               value={pointerNeedle}
               onChange={(event) => setPointerNeedle(event.target.value)}
@@ -632,9 +679,11 @@ export function PulseRuleProposalCard({
         </div>
 
         <div className="space-y-1">
-          <Label className="text-[11px]">Dispatch Template</Label>
+          <Label className="text-[11px]">
+            {t('pulseProposal.dispatchTemplate')}
+          </Label>
           <Textarea
-            aria-label="Dispatch Template"
+            aria-label={t('pulseProposal.dispatchTemplate')}
             value={templateValue}
             onChange={(event) => updateTemplate(event.target.value)}
             className="min-h-[56px] px-2 py-1.5 font-mono text-xs"
@@ -642,13 +691,13 @@ export function PulseRuleProposalCard({
         </div>
 
         <div
-          className="space-y-1.5 rounded-md border border-border bg-muted/40 p-2"
+          className="space-y-1.5 rounded-md bg-muted/40 p-2"
           data-testid="pulse-live-dry-run"
         >
           <div className="flex items-center justify-between gap-2">
             <span className="inline-flex items-center gap-1 font-medium text-foreground">
               <Play className="h-3 w-3 text-primary" />
-              Live Dry-Run
+              {t('pulseProposal.liveDryRun')}
             </span>
             <span
               data-testid="pulse-dry-run-status"
@@ -662,14 +711,16 @@ export function PulseRuleProposalCard({
               )}
             >
               {!dryRunReport.valid
-                ? `Invalid (${dryRunReport.violations.length})`
+                ? t('pulseProposal.statusInvalid', {
+                    count: dryRunReport.violations.length,
+                  })
                 : dryRunReport.matched
-                  ? 'Matched'
-                  : 'Filtered Out'}
+                  ? t('pulseProposal.statusMatched')
+                  : t('pulseProposal.statusFiltered')}
             </span>
           </div>
           <Input
-            aria-label="Sample Summary"
+            aria-label={t('pulseProposal.sampleSummaryAria')}
             value={sampleSummary}
             onChange={(event) => setSampleSummary(event.target.value)}
             className="h-7 px-2 text-xs"
@@ -703,12 +754,14 @@ export function PulseRuleProposalCard({
 
         {savedRule ? (
           <p
-            className="inline-flex items-center gap-1.5 rounded-md border border-success/25 bg-success/[0.06] px-2.5 py-1 text-[11px] text-success"
+            className="inline-flex items-center gap-1.5 rounded-md bg-success/[0.06] px-2.5 py-1 text-[11px] text-success tabular-nums"
             data-testid="pulse-rule-saved-banner"
           >
             <CheckCircle2 className="h-3.5 w-3.5" />
-            Saved rule "{savedRule.spec.name}" (rev{' '}
-            <span className="tabular-nums">{savedRule.revision}</span>)
+            {t('pulseProposal.savedBanner', {
+              name: savedRule.spec.name,
+              revision: savedRule.revision,
+            })}
           </p>
         ) : null}
 
@@ -721,7 +774,7 @@ export function PulseRuleProposalCard({
               onClick={onCancel}
               className="h-7 px-2.5 text-xs"
             >
-              Cancel
+              {t('pulseProposal.cancel')}
             </Button>
           ) : null}
           <Button
@@ -735,7 +788,9 @@ export function PulseRuleProposalCard({
             }}
             className="h-7 px-3 text-xs"
           >
-            {saving ? 'Saving…' : 'Save Pulse Rule'}
+            {saving
+              ? t('pulseProposal.saving')
+              : t('pulseProposal.savePulseRule')}
           </Button>
         </div>
       </div>

@@ -109,21 +109,50 @@ describe('WorkspaceActivityRail', () => {
     expect(getDefaultActivityRailPanelId()).toBe(PANEL_IDS.FILE_TREE);
   });
 
-  it('renders only the usage view switcher when mode is kanban', () => {
-    render(
-      <WorkspaceActivityRail
-        isEditorAreaVisible={false}
-        onToggleEditorArea={vi.fn()}
-        mode="kanban"
-      />
-    );
+  it('renders independent usage, pulse, and workflow studio views when mode is kanban and switches zh-CN <-> en cleanly', async () => {
+    const i18n = (await import('@/i18n')).default;
+    const { act } = await import('@testing-library/react');
+    try {
+      await act(async () => {
+        await i18n.changeLanguage('zh-CN');
+      });
+      const { rerender } = render(
+        <WorkspaceActivityRail
+          isEditorAreaVisible={false}
+          onToggleEditorArea={vi.fn()}
+          mode="kanban"
+        />
+      );
 
-    expect(
-      screen
-        .getAllByRole('button')
-        .filter((button) => button.getAttribute('aria-label'))
-        .map((button) => button.getAttribute('aria-label'))
-    ).toEqual(['计量统计']);
+      expect(
+        screen
+          .getAllByRole('button')
+          .filter((button) => button.getAttribute('aria-label'))
+          .map((button) => button.getAttribute('aria-label'))
+      ).toEqual(['计量统计', '脉冲自动化', 'Workflow 编辑器']);
+
+      await act(async () => {
+        await i18n.changeLanguage('en');
+      });
+      rerender(
+        <WorkspaceActivityRail
+          isEditorAreaVisible={false}
+          onToggleEditorArea={vi.fn()}
+          mode="kanban"
+        />
+      );
+
+      expect(
+        screen
+          .getAllByRole('button')
+          .filter((button) => button.getAttribute('aria-label'))
+          .map((button) => button.getAttribute('aria-label'))
+      ).toEqual(['Usage', 'Pulse Automation', 'Workflow Studio']);
+    } finally {
+      await act(async () => {
+        await i18n.changeLanguage('zh-CN');
+      });
+    }
   });
 
   it('drags a Zone A panel handle with floating + ghost preview and auto-swaps on >50% overlap', () => {

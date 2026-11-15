@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { AlertCircle, CheckCircle2, Plus, Trash2 } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
@@ -29,21 +30,18 @@ import {
 
 export type ConditionOp = GateFilterCondition['op'];
 
-const CONDITION_OPERATORS: ReadonlyArray<{
-  op: ConditionOp;
-  label: string;
-}> = [
-  { op: 'eq', label: 'Equals (eq)' },
-  { op: 'neq', label: 'Not equals (neq)' },
-  { op: 'contains', label: 'Contains' },
-  { op: 'gt', label: 'Greater than (gt)' },
-  { op: 'gte', label: 'At least (gte)' },
-  { op: 'lt', label: 'Less than (lt)' },
-  { op: 'lte', label: 'At most (lte)' },
-  { op: 'in_set', label: 'In set (in_set)' },
-  { op: 'exists', label: 'Exists' },
-  { op: 'regex', label: 'Regex match' },
-  { op: 'not_bot_actor', label: 'Human actor only (not_bot_actor)' },
+const CONDITION_OP_LIST: readonly ConditionOp[] = [
+  'eq',
+  'neq',
+  'contains',
+  'gt',
+  'gte',
+  'lt',
+  'lte',
+  'in_set',
+  'exists',
+  'regex',
+  'not_bot_actor',
 ];
 
 const QUICK_SOURCE_KINDS: readonly EventSourceKind[] = [
@@ -82,7 +80,9 @@ function formatConditionValue(condition: GateFilterCondition): string {
       return condition.needle;
     case 'in_set':
       return condition.values
-        .map((item) => (typeof item === 'string' ? item : JSON.stringify(item)))
+        .map((item) =>
+          typeof item === 'string' ? item : JSON.stringify(item)
+        )
         .join(', ');
     case 'regex':
       return condition.pattern;
@@ -150,6 +150,8 @@ export function PulseFilterBuilder({
   readOnly = false,
   className,
 }: PulseFilterBuilderProps) {
+  const { t, i18n } = useTranslation('panels');
+
   const availableSamples =
     sampleEvents && sampleEvents.length > 0
       ? sampleEvents
@@ -168,7 +170,7 @@ export function PulseFilterBuilder({
       ruleSpec
         ? { ...ruleSpec, filter }
         : {
-            name: 'Filter Dry-Run',
+            name: t('pulseFilter.sampleDryRunTitle'),
             evalMode: 'observe',
             filter,
             targets: [
@@ -181,7 +183,7 @@ export function PulseFilterBuilder({
               },
             ],
           },
-    [filter, ruleSpec]
+    [filter, ruleSpec, t, i18n.language]
   );
 
   const dryRunState = useMemo(() => {
@@ -195,8 +197,7 @@ export function PulseFilterBuilder({
         !parsed.trace
       ) {
         return {
-          parseError:
-            'Sample JSON must be a valid EventEnvelope object with source, actor, and trace.',
+          parseError: t('pulseFilter.errInvalidEnvelope'),
           report: null,
         };
       }
@@ -207,11 +208,13 @@ export function PulseFilterBuilder({
     } catch (error) {
       return {
         parseError:
-          error instanceof Error ? error.message : 'Invalid sample Event JSON.',
+          error instanceof Error
+            ? error.message
+            : t('pulseFilter.errInvalidJson'),
         report: null,
       };
     }
-  }, [effectiveSpec, sampleJson]);
+  }, [effectiveSpec, sampleJson, t, i18n.language]);
 
   const toggleSourceKind = (kind: EventSourceKind) => {
     if (!editable) return;
@@ -221,7 +224,10 @@ export function PulseFilterBuilder({
     onChange?.({ ...filter, sourceKinds: nextKinds });
   };
 
-  const updateCondition = (index: number, nextCondition: GateFilterCondition) => {
+  const updateCondition = (
+    index: number,
+    nextCondition: GateFilterCondition
+  ) => {
     if (!editable) return;
     onChange?.({
       ...filter,
@@ -253,7 +259,7 @@ export function PulseFilterBuilder({
   return (
     <div className={cn('space-y-3', className)}>
       <div className="space-y-1.5">
-        <Label className="text-xs">Allowed Sources</Label>
+        <Label className="text-xs">{t('pulseFilter.allowedSources')}</Label>
         <div className="flex flex-wrap gap-1.5">
           {QUICK_SOURCE_KINDS.map((kind) => {
             const selected = filter.sourceKinds.includes(kind);
@@ -271,7 +277,7 @@ export function PulseFilterBuilder({
                     : 'border-border bg-card text-muted-foreground hover:text-foreground'
                 )}
               >
-                {formatEventSourceLabel(kind)}
+                {formatEventSourceLabel(kind, t)}
               </button>
             );
           })}
@@ -280,11 +286,11 @@ export function PulseFilterBuilder({
 
       <div className="space-y-1.5">
         <Label htmlFor="pulse-filter-event-types" className="text-xs">
-          Event Types (comma-separated)
+          {t('pulseFilter.eventTypesLabel')}
         </Label>
         <Input
           id="pulse-filter-event-types"
-          aria-label="Event Types"
+          aria-label={t('pulseFilter.eventTypesAria')}
           disabled={!editable}
           placeholder="jira.issue.transitioned, github.ci.failed"
           value={filter.eventTypes.join(', ')}
@@ -303,7 +309,7 @@ export function PulseFilterBuilder({
       <div className="space-y-2">
         <div className="flex items-center justify-between">
           <Label className="text-xs">
-            Gate Conditions{' '}
+            {t('pulseFilter.gateConditions')}{' '}
             <span className="tabular-nums text-muted-foreground">
               ({filter.conditions.length})
             </span>
@@ -317,14 +323,14 @@ export function PulseFilterBuilder({
               onClick={addCondition}
             >
               <Plus className="mr-1 size-3.5" />
-              Add Condition
+              {t('pulseFilter.addCondition')}
             </Button>
           ) : null}
         </div>
 
         {filter.conditions.length === 0 ? (
-          <div className="rounded-lg border border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
-            No scalar pointer conditions. Matching relies on source and event type headers.
+          <div className="rounded-lg bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
+            {t('pulseFilter.noConditionsHint')}
           </div>
         ) : (
           <div className="space-y-2">
@@ -336,23 +342,24 @@ export function PulseFilterBuilder({
                 dryRunState.report?.unmatchedConditions.includes(index) ??
                 false;
               const matched = Boolean(dryRunState.report) && !unmatched;
+              const oneBased = index + 1;
 
               return (
                 <div
                   key={index}
                   data-testid={`pulse-filter-condition-${index}`}
                   className={cn(
-                    'space-y-2 rounded-lg border bg-card p-2.5',
+                    'space-y-2 rounded-lg p-2.5',
                     unmatched
-                      ? 'border-destructive/50'
+                      ? 'bg-destructive/5 ring-1 ring-destructive/50'
                       : matched
-                        ? 'border-success/50'
-                        : 'border-border'
+                        ? 'bg-success/5 ring-1 ring-success/50'
+                        : 'bg-muted/35'
                   )}
                 >
                   <div className="flex items-center justify-between gap-2">
                     <span className="inline-flex items-center gap-1.5 font-mono text-2xs tabular-nums text-muted-foreground">
-                      <span>#{index + 1}</span>
+                      <span>#{oneBased}</span>
                       {dryRunState.report ? (
                         <span
                           className={cn(
@@ -362,7 +369,9 @@ export function PulseFilterBuilder({
                               : 'bg-success/10 text-success'
                           )}
                         >
-                          {unmatched ? 'Unmatched' : 'Matched'}
+                          {unmatched
+                            ? t('pulseFilter.unmatched')
+                            : t('pulseFilter.matched')}
                         </span>
                       ) : null}
                     </span>
@@ -372,7 +381,9 @@ export function PulseFilterBuilder({
                         size="icon"
                         variant="ghost"
                         className="size-6"
-                        aria-label={`Remove condition ${index + 1}`}
+                        aria-label={t('pulseFilter.removeConditionAria', {
+                          index: oneBased,
+                        })}
                         onClick={() => removeCondition(index)}
                       >
                         <Trash2 className="size-3.5" />
@@ -395,13 +406,19 @@ export function PulseFilterBuilder({
                         )
                       }
                     >
-                      <SelectTrigger aria-label={`Condition ${index + 1} operator`}>
+                      <SelectTrigger
+                        aria-label={t('pulseFilter.conditionOperatorAria', {
+                          index: oneBased,
+                        })}
+                      >
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
-                        {CONDITION_OPERATORS.map((entry) => (
-                          <SelectItem key={entry.op} value={entry.op}>
-                            {entry.label}
+                        {CONDITION_OP_LIST.map((op) => (
+                          <SelectItem key={op} value={op}>
+                            {t(
+                              `pulseFilter.operators.${op.replace(/_([a-z])/g, (_, ch: string) => ch.toUpperCase())}`
+                            )}
                           </SelectItem>
                         ))}
                       </SelectContent>
@@ -409,7 +426,9 @@ export function PulseFilterBuilder({
 
                     {condition.op !== 'not_bot_actor' ? (
                       <Input
-                        aria-label={`Condition ${index + 1} pointer`}
+                        aria-label={t('pulseFilter.conditionPointerAria', {
+                          index: oneBased,
+                        })}
                         disabled={!editable}
                         placeholder="/issue/priority"
                         className="font-mono text-xs"
@@ -430,14 +449,16 @@ export function PulseFilterBuilder({
                     {condition.op !== 'exists' &&
                     condition.op !== 'not_bot_actor' ? (
                       <Input
-                        aria-label={`Condition ${index + 1} value`}
+                        aria-label={t('pulseFilter.conditionValueAria', {
+                          index: oneBased,
+                        })}
                         disabled={!editable}
                         placeholder={
                           condition.op === 'in_set'
                             ? 'P0, P1'
                             : condition.op === 'regex'
                               ? '^CORE-\\d+$'
-                              : 'Expected value'
+                              : t('pulseFilter.expectedValuePlaceholder')
                         }
                         value={rawValue}
                         onChange={(event) =>
@@ -463,11 +484,11 @@ export function PulseFilterBuilder({
       {showDryRun ? (
         <div
           data-testid="pulse-dry-run-bench"
-          className="space-y-2.5 rounded-lg border border-border bg-muted/35 p-3"
+          className="space-y-2.5 rounded-lg bg-muted/35 p-3"
         >
           <div className="flex flex-wrap items-center justify-between gap-2">
             <span className="text-xs font-semibold text-foreground">
-              Sample Event Dry-Run
+              {t('pulseFilter.sampleDryRunTitle')}
             </span>
             <Select
               value={selectedSampleId}
@@ -482,7 +503,7 @@ export function PulseFilterBuilder({
               }}
             >
               <SelectTrigger
-                aria-label="Select sample event"
+                aria-label={t('pulseFilter.selectSampleAria')}
                 className="h-7 w-52 text-xs"
               >
                 <SelectValue />
@@ -490,7 +511,7 @@ export function PulseFilterBuilder({
               <SelectContent>
                 {availableSamples.map((sample) => (
                   <SelectItem key={sample.eventId} value={sample.eventId}>
-                    {formatEventSourceLabel(sample.source.kind)} ·{' '}
+                    {formatEventSourceLabel(sample.source.kind, t)} ·{' '}
                     {sample.eventType}
                   </SelectItem>
                 ))}
@@ -499,7 +520,7 @@ export function PulseFilterBuilder({
           </div>
 
           <Textarea
-            aria-label="Sample Event JSON"
+            aria-label={t('pulseFilter.sampleJsonAria')}
             value={sampleJson}
             onChange={(event) => setSampleJson(event.target.value)}
             className="min-h-[112px] font-mono text-xs leading-5"
@@ -508,7 +529,7 @@ export function PulseFilterBuilder({
           {dryRunState.parseError ? (
             <div
               role="alert"
-              className="flex items-start gap-2 rounded-md border border-destructive/40 bg-destructive/10 px-2.5 py-2 text-xs text-destructive"
+              className="flex items-start gap-2 rounded-md bg-destructive/10 px-2.5 py-2 text-xs text-destructive"
             >
               <AlertCircle className="mt-0.5 size-3.5 shrink-0" />
               <span>{dryRunState.parseError}</span>
@@ -532,14 +553,21 @@ export function PulseFilterBuilder({
                   ) : (
                     <AlertCircle className="size-3" />
                   )}
-                  {dryRunState.report.matched ? 'Gate Matched' : 'Gate Filtered'}
+                  {dryRunState.report.matched
+                    ? t('pulseFilter.gateMatched')
+                    : t('pulseFilter.gateFiltered')}
                 </span>
                 {dryRunState.report.unmatchedConditions.length > 0 ? (
                   <span className="tabular-nums text-2xs text-muted-foreground">
-                    Unmatched condition indices:{' '}
-                    {dryRunState.report.unmatchedConditions
-                      .map((idx) => (idx === -1 ? 'self/hop-guard' : `#${idx + 1}`))
-                      .join(', ')}
+                    {t('pulseFilter.unmatchedIndices', {
+                      list: dryRunState.report.unmatchedConditions
+                        .map((idx) =>
+                          idx === -1
+                            ? t('pulseFilter.selfHopGuard')
+                            : `#${idx + 1}`
+                        )
+                        .join(', '),
+                    })}
                   </span>
                 ) : null}
               </div>
@@ -548,7 +576,7 @@ export function PulseFilterBuilder({
                 <ul
                   role="alert"
                   data-testid="pulse-dry-run-violations"
-                  className="space-y-1 rounded-md border border-destructive/40 bg-destructive/10 p-2.5 text-xs text-destructive"
+                  className="space-y-1 rounded-md bg-destructive/10 p-2.5 text-xs text-destructive"
                 >
                   {dryRunState.report.violations.map((violation, idx) => (
                     <li
@@ -564,13 +592,13 @@ export function PulseFilterBuilder({
               {dryRunState.report.renderedPreviews.length > 0 ? (
                 <div className="space-y-1">
                   <div className="text-2xs font-medium text-muted-foreground">
-                    Rendered Target Previews
+                    {t('pulseFilter.renderedPreviews')}
                   </div>
                   {dryRunState.report.renderedPreviews.map((preview, idx) => (
                     <pre
                       key={idx}
                       data-testid={`pulse-rendered-preview-${idx}`}
-                      className="max-h-28 overflow-auto whitespace-pre-wrap rounded-md border border-border bg-card px-2.5 py-2 font-mono text-2xs text-foreground"
+                      className="max-h-28 overflow-auto whitespace-pre-wrap rounded-md bg-card px-2.5 py-2 font-mono text-2xs text-foreground"
                     >
                       {preview}
                     </pre>

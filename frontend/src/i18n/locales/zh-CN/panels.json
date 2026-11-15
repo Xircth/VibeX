@@ -617,7 +617,10 @@
     "noResults": "未找到匹配结果",
     "emptyHint": "搜索文件名，或输入 3+ 字符搜索会话内容",
     "navigate": "导航",
-    "open": "打开"
+    "open": "打开",
+    "openPulseAutomation": "打开脉冲自动化",
+    "openWorkflowStudio": "打开 Workflow 编辑器",
+    "automationCategory": "自动化"
   },
   "windowManager": {
     "statusRunning": "运行中",
@@ -689,7 +692,9 @@
     "aiChat": "AI 对话",
     "git": "Git",
     "merge": "合并",
-    "logs": "日志"
+    "logs": "日志",
+    "workflowStudio": "Workflow 编辑器",
+    "pulseAutomation": "脉冲自动化"
   },
   "externalDirectory": {
     "goBack": "返回上一级",
@@ -767,7 +772,9 @@
     "repos": "仓库面板",
     "sessions": "会话",
     "canvas": "画布",
-    "usage": "计量统计"
+    "usage": "计量统计",
+    "pulse": "脉冲自动化",
+    "workflows": "Workflow 编辑器"
   },
   "surface": {
     "placeholder": {
@@ -1384,5 +1391,102 @@
     "workflow": {
       "workflowRun": "工作流运行"
     }
+  },
+  "pulseDeck": {
+    "title": "脉冲自动化", "engineActive": "运行中", "enginePaused": "已暂停", "ticketsCount": "活跃工单", "approvalsCount": "待办审批", "observeCount": "观察候选",
+    "newRuleCta": "+ 新建自动化规则", "closeRuleCta": "收起新建", "addSourceCta": "接入事件源", "openWorkflowStudioCta": "Workflow 编辑器", "refreshAria": "刷新脉冲自动化", "retry": "重试",
+    "modes": { "off": "关闭", "observe": "观察", "auto": "自动" },
+    "sources": { "feishu": "飞书", "jira": "Jira", "github": "GitHub", "webhookStandard": "标准 Webhook", "timeCron": "定时 Cron" },
+    "subscriberKinds": { "session": "会话", "bot": "Bot", "group": "群组", "workflow": "工作流" },
+    "sectionFilterAria": "阶段筛选", "tabs": { "all": "全部", "approvals": "待办审批", "observe": "观察演练", "rules": "自动化规则", "sources": "事件源与订阅" },
+    "onboardingTitle": "三步开启安全可验证的事件自动化", "onboardingCreateFromTemplate": "从场景模板创建规则", "onboardingOpenWorkflow": "打开 Workflow 编辑器",
+    "onboardingStep1Title": "接入触发源或选用模板", "onboardingStep1Desc": "支持 Webhook、GitHub、Jira、飞书与定时 Cron",
+    "onboardingStep2Title": "先用「观察模式」安全试运行", "onboardingStep2Desc": "预览命中的事件与渲染提示词，不直接改动代码",
+    "onboardingStep3Title": "一键升格自动执行或编排 Workflow", "onboardingStep3Desc": "确认无误后升格自动执行，或交由多步 Workflow 处理",
+    "composerTitle": "新建自动化规则", "composerTemplatesLabel": "场景模板（一键预填）",
+    "tplGithubTitle": "GitHub Issue / PR 自动分诊", "tplGithubDesc": "新 Issue 创建时在隔离工作树自动分析并给出修复方案", "tplGithubPrompt": "分析 GitHub 事件 {{threadKey}}（{{payload.title}}），定位相关模块并整理修复建议。",
+    "tplJiraTitle": "Jira 缺陷根因排查", "tplJiraDesc": "仅命中 Bug 类型工单，自动拉起隔离会话定位根因", "tplJiraPrompt": "排查 Jira 缺陷 {{threadKey}}：复现路径、根因定位与最小修复补丁建议。",
+    "tplCronTitle": "每日定时代码巡检", "tplCronDesc": "每天 09:00 定时运行巡检会话并汇总风险项", "tplCronPrompt": "执行每日代码健康与失败测试巡检（{{event.occurredAt}}），输出需优先处理的问题清单。",
+    "tplWebhookTitle": "Webhook 触发工作流", "tplWebhookDesc": "接收标准 Webhook 事件并触发多步编排工作流", "tplWebhookPrompt": "处理外部 Webhook 事件 {{event.id}} 并执行编排流程。",
+    "composerRuleName": "规则名称", "composerRuleNamePlaceholder": "例如：GitHub Issue 自动分诊",
+    "composerTriggerSource": "触发事件源", "composerEventType": "事件类型", "composerEventTypePlaceholder": "例如：github.issues.opened",
+    "composerCronExpr": "Cron 表达式", "composerCronPlaceholder": "0 9 * * *",
+    "composerConditionChip": "附加过滤：{{pointer}} = {{value}}", "composerClearConditionAria": "移除附加过滤条件",
+    "composerTargetLabel": "执行动作", "composerTargetSession": "新建隔离会话", "composerTargetBot": "派发给 Bot 助手", "composerTargetWorkflow": "触发 Workflow 工作流",
+    "composerPromptLabel": "执行提示词模板", "composerPromptPlaceholder": "输入给 Agent 的指令，支持 {{threadKey}} 等变量",
+    "composerBotIdLabel": "Bot 成员 ID", "composerBotIdPlaceholder": "例如：triage-bot",
+    "composerWorkflowIdLabel": "Workflow 定义 ID", "composerWorkflowIdPlaceholder": "例如：wf-incident-triage", "composerOpenWorkflowBtn": "去编辑器创建/查看",
+    "composerRunModeLabel": "运行模式", "composerModeObserve": "观察演练（推荐）", "composerModeAuto": "自动执行",
+    "composerCancel": "取消", "composerSave": "保存规则", "composerSaving": "保存中…",
+    "addSourceTitle": "注册事件源 / Webhook", "sourceTitleLabel": "事件源名称", "sourceTitlePlaceholder": "例如：生产环境 GitHub Webhook",
+    "signingSecretLabel": "签名密钥（可选）", "signingSecretAria": "签名密钥", "signingSecretPlaceholder": "whsec_...", "saveSource": "保存事件源",
+    "sourcesStripAria": "事件源健康与流量", "sourcesLabel": "事件源", "sourceHealthy": "已连接", "sourceUnhealthy": "连接异常", "sourceDisabled": "未启用",
+    "sourceCursor": "游标 {{cursor}}", "sourceReceived24h": "24h 接收 {{count}}", "sourceRejected24h": "拒绝 {{count}}",
+    "interactionsAria": "待办审批与交互", "interactionsTitle": "待办审批与交互", "interactionsEmpty": "当前没有需要处理的审批、表单或通知。",
+    "observeAria": "观察演练候选流", "observeTitle": "观察演练候选流", "observeEmpty": "当前没有处于观察模式的候选事件。",
+    "inspectDryRun": "查看演练预览", "promoteToAuto": "升格为自动执行", "promoted": "已升格", "dryRunEvaluation": "演练评估结果", "matched": "已命中", "filtered": "已过滤",
+    "rulesAria": "自动化规则", "rulesTitle": "自动化规则", "rulesEmpty": "当前项目暂无自动化规则。",
+    "enableRuleAria": "启用规则 {{name}}", "ruleCounts": "命中 {{matched}} · 观察 {{observed}}", "ruleModeAria": "{{name}} 的运行模式", "editWorkflowBtn": "编辑工作流",
+    "subscriptionsAria": "活跃线程订阅", "subscriptionsTitle": "活跃线程订阅", "subscriptionThreadKeyAria": "订阅外部线程标识", "subscriberIdAria": "订阅目标 ID", "bindBtn": "绑定",
+    "subscriptionsEmpty": "暂未绑定外部线程订阅（如 jira:*、github:*、feishu:*）。", "unsubscribeAria": "取消订阅 {{threadKey}}",
+    "errSaveSource": "保存事件源失败。", "errSaveRule": "保存自动化规则失败。", "errPromote": "升格候选规则失败。", "errUpdateMode": "更新规则模式失败。", "errToggleRule": "切换规则启用状态失败。", "errSubscribe": "绑定线程订阅失败。", "errUnsubscribe": "取消线程订阅失败。",
+    "interaction": {
+      "responseField": "回复内容", "approve": "批准", "reject": "拒绝", "acknowledge": "知悉", "submit": "提交",
+      "decisionNoteAria": "决策备注", "decisionNotePlaceholder": "可选备注…", "noteRequiredError": "此决策需要填写备注。", "selectPlaceholder": "请选择…",
+      "errSubmitDecision": "提交决策失败。", "errSubmitForm": "提交表单失败。",
+      "fieldRequired": "请填写「{{label}}」。", "fieldInvalidSelection": "「{{label}}」选项无效。", "fieldInvalidNumber": "「{{label}}」必须是有效数字。", "fieldInvalidInteger": "「{{label}}」必须是整数。",
+      "kindNotify": "通知", "kindApproval": "审批", "kindAskForm": "表单", "kindDigest": "摘要"
+    }
+  },
+  "pulseDispatch": {
+    "triggerAria": "派发工单脉冲", "triggerLabel": "派发", "title": "工单脉冲派发", "openDeck": "脉冲自动化", "closeDeck": "收起面板",
+    "tabOneShot": "单次派发", "tabAutomateSimilar": "同类自动分诊", "executionTarget": "执行目标",
+    "freshSession": "新建隔离会话", "persistentBot": "常驻 Bot 助手", "botMemberIdAria": "Bot 成员 ID", "botMemberIdPlaceholder": "输入 Bot 成员 ID",
+    "isolatedWorktreeHint": "独立 Git 工作树 · 临时隔离会话", "dispatchInstruction": "派发指令",
+    "defaultBranchPrompt": "排查并解决 {{branch}}", "defaultIssuePrompt": "排查并处理当前工单",
+    "defaultRuleName": "同类工单自动分诊", "defaultRuleNamePrefix": "脉冲：{{title}}", "oneShotRulePrefix": "单次派发：{{prompt}}", "scopedFromBranch": "源自 {{branch}}",
+    "externalThreadKey": "外部线程标识", "externalThreadPlaceholder": "jira:PROJ-123 或 github:org/repo#42", "subscribeThread": "订阅外部线程后续动态",
+    "dispatchBtn": "立即派发工单", "dispatching": "派发中…", "ruleName": "规则名称",
+    "jsonPointerAria": "JSON Pointer 过滤路径", "expectedValueAria": "期望匹配值", "expectedValuePlaceholder": "期望匹配值",
+    "rolloutMode": "运行模式", "dryRunCheck": "演练校验",
+    "dryRunInvalid": "无效 ({{count}})", "dryRunMatched": "有效 · 已命中", "dryRunFiltered": "有效 · 已过滤",
+    "saveAutomationRule": "保存自动化规则", "saving": "保存中…",
+    "feedbackDispatchedSubscribed": "已派发并订阅 {{threadKey}}", "feedbackDispatched": "工单已派发", "feedbackSavedRule": "已保存规则「{{name}}」（{{mode}}）",
+    "errDispatch": "派发工单失败。", "errSaveRule": "保存自动化规则失败。"
+  },
+  "pulseFilter": {
+    "sources": { "feishu": "飞书", "jira": "Jira", "github": "GitHub", "webhookStandard": "Webhook", "webhookCustom": "自定义 Webhook", "timeCron": "Cron", "timeOnce": "单次定时", "timeInterval": "定时间隔", "timeSla": "超时 SLA", "sdkCustom": "SDK", "systemInternal": "系统内部" },
+    "temporal": { "cron": "Cron · {{expression}}", "once": "单次 · {{fireAt}}", "interval": "每 {{seconds}} 秒", "sla": "SLA · {{seconds}} 秒" },
+    "orchestrators": { "superagentRouter": "超级智能体路由", "hybridPipeline": "混合流水线", "eventSaga": "事件 Saga", "windowAggregator": "窗口聚合器", "directReflex": "直连触发" },
+    "mailbox": { "fifoSerial": "FIFO 串行", "coalesceBatch": "合并批处理" },
+    "groupDispatch": { "specificSeat": "指定席位 · {{member}}", "mentionSeats": "提及席位 ({{count}})", "moderatorTriage": "主持人分诊 · {{member}}", "broadcastLog": "仅广播记录", "unset": "未设置" },
+    "targetBadge": { "ephemeralSession": "临时会话 · 全新上下文", "threadSession": "线程会话 · 关联上下文", "boundSession": "绑定会话", "persistentBot": "常驻 Bot · 持久记忆", "groupSeat": "群组席位", "userNotify": "用户通知", "userApproval": "用户审批", "userAskForm": "用户表单", "userDigest": "用户摘要", "workflow": "Workflow 工作流", "untitled": "未命名", "slaSuffix": " · SLA {{seconds}} 秒" },
+    "evalModeAria": "运行模式", "lockAutoTitle": "请先确认外部草稿来源后再开启自动执行",
+    "allowedSources": "允许的事件源", "eventTypesLabel": "事件类型（逗号分隔）", "eventTypesAria": "事件类型",
+    "gateConditions": "门控过滤条件", "addCondition": "添加条件", "noConditionsHint": "未设置字段过滤条件，将仅按事件源与事件类型匹配。",
+    "matched": "已命中", "unmatched": "未命中", "removeConditionAria": "删除条件 {{index}}",
+    "conditionOperatorAria": "条件 {{index}} 运算符", "conditionPointerAria": "条件 {{index}} 路径", "conditionValueAria": "条件 {{index}} 匹配值", "expectedValuePlaceholder": "期望值",
+    "operators": { "eq": "等于 (eq)", "neq": "不等于 (neq)", "contains": "包含 (contains)", "gt": "大于 (gt)", "gte": "大于等于 (gte)", "lt": "小于 (lt)", "lte": "小于等于 (lte)", "inSet": "属于集合 (in_set)", "exists": "字段存在 (exists)", "regex": "正则匹配 (regex)", "notBotActor": "仅限人工触发 (not_bot_actor)" },
+    "sampleDryRunTitle": "样本事件演练", "selectSampleAria": "选择样本事件", "sampleJsonAria": "样本事件 JSON",
+    "errInvalidEnvelope": "样本 JSON 必须是包含 source、actor 与 trace 的有效 EventEnvelope 对象。", "errInvalidJson": "无效的样本事件 JSON。",
+    "gateMatched": "门控命中", "gateFiltered": "门控拦截", "unmatchedIndices": "未命中条件序号：{{list}}", "selfHopGuard": "自触发/跳数保护", "renderedPreviews": "目标渲染预览"
+  },
+  "pulseProposal": {
+    "allSources": "全部事件源", "externalDraftTitle": "外部草稿 · 需人工确认",
+    "externalDraftDesc": "该规则由未受信任的外部事件提议，切换为自动执行前请先显式确认。",
+    "confirmDraft": "确认草稿", "confirmed": "已确认", "targets": "执行目标",
+    "matchedLabel": "命中：", "observedLabel": "观察：", "testSample": "样本测试", "studio": "编排器",
+    "saving": "保存中…", "saveRule": "保存规则", "saveEnable": "保存并启用",
+    "cardTitle": "脉冲规则提案", "closeAria": "关闭提案", "ruleName": "规则名称", "eventType": "事件类型", "eventSource": "事件源",
+    "cronExpression": "Cron 表达式", "timezone": "时区", "fireAtLabel": "触发时间（ISO 时间戳）", "fireAtAria": "触发时间",
+    "intervalLabel": "间隔（秒）", "intervalAria": "间隔秒数", "threadKeyPrefix": "线程标识前缀",
+    "slaTimeoutLabel": "SLA 超时（秒）", "slaTimeoutAria": "SLA 超时秒数",
+    "botTargetLabel": "Bot 目标：", "persistentMemory": "持久记忆", "mailboxLabel": "信箱策略",
+    "groupModes": { "specificSeat": "指定席位", "mentionSeats": "提及席位", "moderatorTriage": "主持人分诊", "broadcastLogOnly": "仅广播记录" },
+    "groupSummary": { "specificSeat": "席位：@{{member}}", "mentionSeats": "席位（{{order}}）：{{members}}", "moderatorTriage": "主持人分诊：@{{member}}", "broadcastLog": "仅广播记录", "orderSequential": "串行", "orderParallel": "并行" },
+    "jsonPointerOptional": "JSON Pointer 过滤（可选）", "jsonPointerAria": "JSON Pointer 过滤", "containsValue": "包含内容", "dispatchTemplate": "派发模板",
+    "liveDryRun": "实时演练预览", "statusInvalid": "无效 ({{count}})", "statusMatched": "已命中", "statusFiltered": "已过滤",
+    "sampleSummaryAria": "样本摘要", "defaultSampleSummary": "结账服务出现高优先级 P0 性能回退",
+    "savedBanner": "已保存规则「{{name}}」（版本 {{revision}}）", "cancel": "取消", "savePulseRule": "保存脉冲规则", "errSavePulseRule": "保存脉冲规则失败。"
   }
 }

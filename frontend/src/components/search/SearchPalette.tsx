@@ -35,6 +35,10 @@ import { contributionIconComponent } from '@/components/plugins/contributionIcon
 import { Command, type LucideIcon } from 'lucide-react';
 import { NativeSurfaceOcclusionHold } from '@/contexts/WorkspaceOverlayContext';
 import { useWindowProjectsStore } from '@/stores/useWindowProjectsStore';
+import {
+  requestOpenPulseDeck,
+  requestOpenWorkflowStudio,
+} from '@/components/kanban/pulseDeckEvents';
 
 type PaletteResultKind = 'file' | 'directory' | 'conversation' | 'command';
 
@@ -293,6 +297,28 @@ export const BUILTIN_PALETTE_COMMANDS: readonly CommandContribution[] = [
     },
   },
   {
+    id: 'builtin.kanban.open-pulse',
+    pluginId: 'vibex.webui.kanban',
+    title: 'Open Pulse Automation',
+    category: 'Automation',
+    icon: 'activity',
+    order: 292,
+    handler: () => {
+      requestOpenPulseDeck({ navigateToKanban: true });
+    },
+  },
+  {
+    id: 'builtin.kanban.open-workflow-studio',
+    pluginId: 'vibex.webui.kanban',
+    title: 'Open Workflow Studio',
+    category: 'Automation',
+    icon: 'git-fork',
+    order: 294,
+    handler: () => {
+      requestOpenWorkflowStudio();
+    },
+  },
+  {
     id: 'builtin.commands.shortcuts',
     pluginId: 'vibex.webui.commands',
     title: 'Configure Keyboard Shortcuts',
@@ -487,24 +513,43 @@ export function SearchPalette() {
     }));
     const needle = paletteQuery.trim().toLocaleLowerCase();
     const seenCommandIds = new Set<string>();
+    const resolveCommandCopy = (cmd: CommandContribution) => {
+      if (cmd.id === 'builtin.kanban.open-pulse') {
+        return {
+          title: t('searchPalette.openPulseAutomation'),
+          category: t('searchPalette.automationCategory'),
+        };
+      }
+      if (cmd.id === 'builtin.kanban.open-workflow-studio') {
+        return {
+          title: t('searchPalette.openWorkflowStudio'),
+          category: t('searchPalette.automationCategory'),
+        };
+      }
+      return { title: cmd.title, category: cmd.category };
+    };
     const sdkCommandResults: PaletteResult[] = sdkCommands
       .filter((cmd) => {
         if (!needle) return true;
+        const localized = resolveCommandCopy(cmd);
         return (
+          localized.title.toLocaleLowerCase().includes(needle) ||
           cmd.title.toLocaleLowerCase().includes(needle) ||
           cmd.id.toLocaleLowerCase().includes(needle) ||
+          (localized.category?.toLocaleLowerCase().includes(needle) ?? false) ||
           (cmd.category?.toLocaleLowerCase().includes(needle) ?? false)
         );
       })
       .map((cmd) => {
         const pluginId = cmd.pluginId ?? 'builtin';
         const key = `cmd:${pluginId}:${cmd.id}`;
+        const localized = resolveCommandCopy(cmd);
         seenCommandIds.add(key);
         return {
           id: key,
           kind: 'command' as const,
-          title: cmd.title,
-          subtitle: cmd.category ?? cmd.pluginId,
+          title: localized.title,
+          subtitle: localized.category ?? cmd.pluginId,
           pluginId,
           onExecute: () => cmd.handler(),
           icon: contributionIconComponent(cmd.icon, Command),

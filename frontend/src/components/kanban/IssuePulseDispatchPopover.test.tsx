@@ -163,7 +163,7 @@ describe('IssuePulseDispatchPopover, PulseGuardMenu & StatusBar Pulse Badges (Tr
 
     await user.click(screen.getByTestId('issue-pulse-dispatch-trigger'));
 
-    const threadInput = screen.getByLabelText(/External Thread Key/i);
+    const threadInput = screen.getByLabelText(/外部线程标识/);
     await user.clear(threadInput);
     await user.type(threadInput, 'jira:PROJ-500');
 
@@ -186,9 +186,9 @@ describe('IssuePulseDispatchPopover, PulseGuardMenu & StatusBar Pulse Badges (Tr
     });
 
     // Switch to Automate Similar tab and verify valid kebab-case claude-code agentId
-    await user.click(screen.getByRole('tab', { name: 'Automate Similar' }));
+    await user.click(screen.getByRole('tab', { name: '同类自动分诊' }));
     expect(screen.getByTestId('dispatch-dry-run-status')).toHaveTextContent(
-      'Valid · Matched'
+      '有效 · 已命中'
     );
     await user.click(screen.getByTestId('dispatch-save-similar-rule'));
 
@@ -206,6 +206,79 @@ describe('IssuePulseDispatchPopover, PulseGuardMenu & StatusBar Pulse Badges (Tr
         })
       );
     });
+  });
+
+  it('switches IssuePulseDispatchPopover and Observe status badge cleanly between zh-CN and en', async () => {
+    const user = userEvent.setup();
+    const { act } = await import('@testing-library/react');
+    const i18n = (await import('@/i18n')).default;
+
+    vi.mocked(automationApi.unseenFailures).mockResolvedValue(0);
+    vi.mocked(pulseApi.deckSnapshot).mockResolvedValue({
+      engineActive: true,
+      activeTicketCount: 0,
+      pendingUserInteractionCount: 0,
+      sources: [],
+      rules: [],
+      observedCandidates: [
+        {
+          id: 'obs-lang-1',
+          ruleId: 'r-1',
+          ruleName: 'Shadow Rule',
+          eventId: 'e-1',
+          eventType: 'github.pr',
+          sourceKind: 'github',
+          summary: 'Shadow match',
+          occurredAt: '2026-11-15T00:00:00Z',
+          promoted: false,
+        },
+      ],
+      subscriptions: [],
+      pendingInteractions: [],
+    });
+
+    try {
+      await act(async () => {
+        await i18n.changeLanguage('zh-CN');
+      });
+
+      renderWithProviders(
+        <div>
+          <IssuePulseDispatchPopover
+            projectId="proj-1"
+            workspaceId="ws-1"
+            sessionId={null}
+            agentId="CLAUDE_CODE"
+          />
+          <AutomationFailureBadge />
+        </div>
+      );
+
+      expect(screen.getByTestId('issue-pulse-dispatch-trigger')).toHaveAttribute(
+        'aria-label',
+        '派发工单脉冲'
+      );
+      await user.click(screen.getByTestId('issue-pulse-dispatch-trigger'));
+      expect(screen.getByText('工单脉冲派发')).toBeInTheDocument();
+      expect(screen.getByRole('tab', { name: '单次派发' })).toBeInTheDocument();
+
+      await act(async () => {
+        await i18n.changeLanguage('en');
+      });
+
+      expect(screen.getByTestId('issue-pulse-dispatch-trigger')).toHaveAttribute(
+        'aria-label',
+        'Dispatch Issue Pulse'
+      );
+      expect(screen.getByText('Issue Pulse Dispatch')).toBeInTheDocument();
+      expect(
+        screen.getByRole('tab', { name: 'One-Shot Ticket' })
+      ).toBeInTheDocument();
+    } finally {
+      await act(async () => {
+        await i18n.changeLanguage('zh-CN');
+      });
+    }
   });
 
   it('toggles branch-scoped PR/CI Pulse guards with valid claude-code agent, dynamic Bot/Session fallback, and real subscriber target', async () => {

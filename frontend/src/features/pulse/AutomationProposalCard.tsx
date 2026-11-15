@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import {
   Check,
   ChevronDown,
@@ -65,6 +66,8 @@ export function AutomationProposalCard({
   onOpenInStudio,
   className,
 }: AutomationProposalCardProps) {
+  const { t } = useTranslation('panels');
+
   const initialSpec = propSpec ?? rule?.spec;
   if (!initialSpec) {
     throw new Error('AutomationProposalCard requires either rule or spec.');
@@ -90,7 +93,9 @@ export function AutomationProposalCard({
   const [dryRunOpen, setDryRunOpen] = useState(defaultDryRunOpen);
 
   const effectiveEvalMode: PulseEvalMode =
-    requiresHumanConfirmation && !humanConfirmed && currentSpec.evalMode === 'auto'
+    requiresHumanConfirmation &&
+    !humanConfirmed &&
+    currentSpec.evalMode === 'auto'
       ? 'observe'
       : currentSpec.evalMode;
 
@@ -113,13 +118,15 @@ export function AutomationProposalCard({
   };
 
   const sourceBadges: string[] = [
-    ...currentSpec.filter.sourceKinds.map(formatEventSourceLabel),
+    ...currentSpec.filter.sourceKinds.map((kind) =>
+      formatEventSourceLabel(kind, t)
+    ),
     ...(currentSpec.temporal
-      ? [formatTemporalBadgeLabel(currentSpec.temporal)]
+      ? [formatTemporalBadgeLabel(currentSpec.temporal, t)]
       : []),
   ];
   if (sourceBadges.length === 0) {
-    sourceBadges.push('All Sources');
+    sourceBadges.push(t('pulseProposal.allSources'));
   }
 
   return (
@@ -131,24 +138,24 @@ export function AutomationProposalCard({
       )}
     >
       <div className="flex flex-wrap items-start justify-between gap-2.5">
-        <div className="min-w-0 flex-1 space-y-1">
+        <div className="min-w-0 flex-1 space-y-1.5">
+          <h3 className="truncate text-base font-semibold text-foreground">
+            {currentSpec.name}
+          </h3>
           <div className="flex flex-wrap items-center gap-1.5">
             {sourceBadges.map((badge) => (
               <span
                 key={badge}
-                className="inline-flex items-center rounded-full border border-border bg-muted/60 px-2 py-0.5 text-2xs font-medium tabular-nums text-foreground"
+                className="inline-flex items-center rounded-full bg-muted/70 px-2 py-0.5 text-2xs font-medium tabular-nums text-foreground"
               >
                 {badge}
               </span>
             ))}
             <span className="inline-flex items-center gap-1 rounded-full bg-primary/10 px-2 py-0.5 text-2xs font-semibold text-foreground">
               <Sparkles className="size-2.5 shrink-0" />
-              {formatOrchestratorLabel(currentSpec.orchestrator)}
+              {formatOrchestratorLabel(currentSpec.orchestrator, t)}
             </span>
           </div>
-          <h3 className="truncate text-base font-semibold text-foreground">
-            {currentSpec.name}
-          </h3>
           {currentSpec.description ? (
             <p className="text-xs text-muted-foreground">
               {currentSpec.description}
@@ -167,16 +174,16 @@ export function AutomationProposalCard({
         <div
           role="status"
           data-testid="pulse-external-draft-lock"
-          className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-warning/40 bg-warning/10 px-3 py-2 text-xs text-foreground"
+          className="flex flex-wrap items-center justify-between gap-2 rounded-md bg-warning/10 px-3 py-2 text-xs text-foreground"
         >
           <div className="flex min-w-0 flex-1 items-start gap-2">
             <ShieldAlert className="mt-0.5 size-4 shrink-0 text-warning" />
             <div className="min-w-0 space-y-0.5">
               <div className="font-semibold text-foreground">
-                External Draft · Human Confirmation Required
+                {t('pulseProposal.externalDraftTitle')}
               </div>
               <p className="text-2xs text-muted-foreground">
-                Proposed from an untrusted external event. Confirm explicitly before switching this rule to Auto.
+                {t('pulseProposal.externalDraftDesc')}
               </p>
             </div>
           </div>
@@ -188,12 +195,12 @@ export function AutomationProposalCard({
               className="h-7 shrink-0 px-2.5 text-xs"
               onClick={() => setHumanConfirmed(true)}
             >
-              Confirm Draft
+              {t('pulseProposal.confirmDraft')}
             </Button>
           ) : (
             <span className="inline-flex items-center gap-1 rounded-full bg-success/15 px-2 py-0.5 text-2xs font-semibold text-success">
               <Check className="size-3" />
-              Confirmed
+              {t('pulseProposal.confirmed')}
             </span>
           )}
         </div>
@@ -201,20 +208,20 @@ export function AutomationProposalCard({
 
       <div className="space-y-1.5">
         <div className="text-2xs font-medium text-muted-foreground">
-          Targets
+          {t('pulseProposal.targets')}
         </div>
         <div className="flex flex-wrap gap-1.5">
           {currentSpec.targets.map((target, index) => {
-            const formatted = formatPulseTargetBadge(target);
+            const formatted = formatPulseTargetBadge(target, t);
             return (
               <div
                 key={index}
                 data-testid={`proposal-target-badge-${index}`}
                 className={cn(
-                  'inline-flex max-w-full items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs',
+                  'inline-flex max-w-full items-center gap-1.5 rounded-md px-2.5 py-1 text-xs',
                   formatted.memoryModel === 'persistent'
-                    ? 'border-primary/35 bg-primary/5'
-                    : 'border-border bg-muted/45'
+                    ? 'bg-primary/10'
+                    : 'bg-muted/55'
                 )}
               >
                 <span className="font-semibold text-foreground">
@@ -235,14 +242,14 @@ export function AutomationProposalCard({
       <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
         <div className="flex items-center gap-3 text-xs text-muted-foreground">
           <span className="tabular-nums">
-            Matched:{' '}
+            {t('pulseProposal.matchedLabel')}{' '}
             <strong className="font-semibold text-foreground">
               {resolvedMatchedCount}
             </strong>
           </span>
           <span aria-hidden="true">·</span>
           <span className="tabular-nums">
-            Observed:{' '}
+            {t('pulseProposal.observedLabel')}{' '}
             <strong className="font-semibold text-foreground">
               {resolvedObservedCount}
             </strong>
@@ -259,7 +266,7 @@ export function AutomationProposalCard({
             onClick={() => setDryRunOpen((open) => !open)}
           >
             <FlaskConical className="mr-1 size-3.5" />
-            Test Sample
+            {t('pulseProposal.testSample')}
             {dryRunOpen ? (
               <ChevronUp className="ml-1 size-3" />
             ) : (
@@ -276,7 +283,7 @@ export function AutomationProposalCard({
               onClick={() => onOpenInStudio(currentSpec)}
             >
               <ExternalLink className="mr-1 size-3.5" />
-              Studio
+              {t('pulseProposal.studio')}
             </Button>
           ) : null}
 
@@ -292,17 +299,17 @@ export function AutomationProposalCard({
             >
               <Check className="mr-1 size-3.5" />
               {saving
-                ? 'Saving…'
+                ? t('pulseProposal.saving')
                 : effectiveEvalMode === 'off'
-                  ? 'Save Rule'
-                  : 'Save / Enable'}
+                  ? t('pulseProposal.saveRule')
+                  : t('pulseProposal.saveEnable')}
             </Button>
           ) : null}
         </div>
       </div>
 
       {dryRunOpen ? (
-        <div className="pt-1">
+        <div className="border-t border-border/60 pt-2.5">
           <PulseFilterBuilder
             filter={currentSpec.filter}
             ruleSpec={currentSpec}

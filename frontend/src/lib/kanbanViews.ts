@@ -1,4 +1,8 @@
-export const BUILTIN_KANBAN_VIEW_IDS = ['builtin:usage'] as const;
+export const BUILTIN_KANBAN_VIEW_IDS = [
+  'builtin:usage',
+  'builtin:pulse',
+  'builtin:workflows',
+] as const;
 
 export type BuiltinKanbanViewId = (typeof BUILTIN_KANBAN_VIEW_IDS)[number];
 
@@ -20,6 +24,18 @@ export const BUILTIN_KANBAN_VIEWS: KanbanViewDescriptor[] = [
     hidesBottomDock: true,
     builtin: true,
   },
+  {
+    id: 'builtin:pulse',
+    titleKey: 'kanbanViews.pulse',
+    hidesBottomDock: true,
+    builtin: true,
+  },
+  {
+    id: 'builtin:workflows',
+    titleKey: 'kanbanViews.workflows',
+    hidesBottomDock: true,
+    builtin: true,
+  },
 ];
 
 export const DEFAULT_KANBAN_VIEW_ID: BuiltinKanbanViewId = 'builtin:usage';
@@ -28,8 +44,15 @@ export function migrateKanbanViewId(
   panelView?: LegacyKanbanPanelView | string | null,
   _boardStyle?: string | null
 ): string {
-  if (typeof panelView === 'string' && panelView.startsWith('plugin:')) {
-    return panelView;
+  if (typeof panelView === 'string') {
+    if (
+      panelView === 'builtin:usage' ||
+      panelView === 'builtin:pulse' ||
+      panelView === 'builtin:workflows' ||
+      panelView.startsWith('plugin:')
+    ) {
+      return panelView;
+    }
   }
   return DEFAULT_KANBAN_VIEW_ID;
 }
@@ -38,7 +61,9 @@ export function kanbanViewHidesSessionSlot(viewId: string): boolean {
   return (
     viewId === 'builtin:canvas' ||
     viewId === 'builtin:usage' ||
-    viewId === 'builtin:repos'
+    viewId === 'builtin:repos' ||
+    viewId === 'builtin:pulse' ||
+    viewId === 'builtin:workflows'
   );
 }
 

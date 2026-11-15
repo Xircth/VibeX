@@ -1,16 +1,22 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import i18n from '@/i18n';
 import { pulseApi, type PulseDeckSnapshot } from '@/lib/api/pulse';
 import { shouldShowKanbanMonitor } from '@/lib/kanbanZoneVisibility';
 import { BoundHostTransport } from '@/lib/transport/boundHostTransport';
 import type { RemoteDesktopTransport } from '@/lib/transport/remoteDesktopTransport';
+import { OPEN_WORKFLOW_STUDIO_EVENT } from './pulseDeckEvents';
 import { PulseDeckView } from './PulseDeckView';
+
+const upsertRuleMock = vi.fn();
 
 vi.mock('@/lib/api/pulse', () => ({
   pulseApi: {
     deckSnapshot: vi.fn(),
     upsertSource: vi.fn(),
+    upsertRule: (...args: unknown[]) => upsertRuleMock(...args),
+    saveRule: vi.fn(),
     promoteObservedCandidate: vi.fn(),
     dryRunRule: vi.fn(),
     setRuleMode: vi.fn(),
@@ -110,9 +116,13 @@ function makeSnapshot(): PulseDeckSnapshot {
   };
 }
 
-describe('PulseDeckView (Track F5 / R4 Kanban Stage)', () => {
-  beforeEach(() => {
+describe('PulseDeckView (Track U1 Guided Workbench & Bilingual i18n)', () => {
+  beforeEach(async () => {
     vi.clearAllMocks();
+    upsertRuleMock.mockReset();
+    await act(async () => {
+      await i18n.changeLanguage('zh-CN');
+    });
     vi.mocked(pulseApi.deckSnapshot).mockResolvedValue(makeSnapshot());
   });
 
@@ -122,7 +132,7 @@ describe('PulseDeckView (Track F5 / R4 Kanban Stage)', () => {
     expect(shouldShowKanbanMonitor(false, 0, true)).toBe(true);
   });
 
-  it('renders inline source status strip, switch accessibility, dry-run, Observe promotion, and workflow thread subscriptions', async () => {
+  it('renders human-readable source status strip, switch accessibility, dry-run, Observe promotion, and workflow thread subscriptions', async () => {
     const user = userEvent.setup();
     vi.mocked(pulseApi.promoteObservedCandidate).mockResolvedValue(undefined);
     vi.mocked(pulseApi.dryRunRule).mockResolvedValue({
@@ -158,13 +168,15 @@ describe('PulseDeckView (Track F5 / R4 Kanban Stage)', () => {
     expect(
       await screen.findByText('GitHub Main Webhook')
     ).toBeInTheDocument();
-    expect(screen.getByTestId('pulse-source-watermark-src-gh')).toHaveTextContent(
-      'wm:ev_1092'
+    expect(
+      screen.getByTestId('pulse-source-watermark-src-gh')
+    ).toHaveTextContent('已连接 · 游标 ev_1092');
+    expect(screen.getByTestId('pulse-source-counts-src-gh')).toHaveTextContent(
+      '24h 接收 42'
     );
 
-    // Accessible per-rule switch role + aria-checked + unique aria-label
     const ruleSwitch = screen.getByRole('switch', {
-      name: 'Enable rule Observe Jira Bugs',
+      name: '启用规则 Observe Jira Bugs',
     });
     expect(ruleSwitch).toHaveAttribute('aria-checked', 'true');
     await user.click(ruleSwitch);
@@ -172,31 +184,27 @@ describe('PulseDeckView (Track F5 / R4 Kanban Stage)', () => {
       expect(pulseApi.setRuleEnabled).toHaveBeenCalledWith('rule-1', false);
     });
 
-    // Inspect Dry-Run on observed candidate
     await user.click(screen.getByTestId('pulse-candidate-inspect-cand-1'));
     expect(
       await screen.findByTestId('pulse-candidate-dryrun-cand-1')
     ).toHaveTextContent('Investigate Checkout null pointer exception');
 
-    // Promote candidate to Auto
     await user.click(screen.getByTestId('pulse-candidate-promote-cand-1'));
     await waitFor(() => {
       expect(pulseApi.promoteObservedCandidate).toHaveBeenCalledWith('cand-1');
     });
 
-    // Switch rule mode to Auto
     await user.click(screen.getByTestId('pulse-deck-rule-mode-rule-1-auto'));
     await waitFor(() => {
       expect(pulseApi.setRuleMode).toHaveBeenCalledWith('rule-1', 'auto');
     });
 
-    // Bind external thread subscription to workflow target
     await user.type(
-      screen.getByLabelText('Subscription Thread Key'),
+      screen.getByLabelText('订阅外部线程标识'),
       'github:vibex/core#12'
     );
     await user.click(screen.getByTestId('deck-sub-kind-workflow'));
-    await user.type(screen.getByLabelText('Subscriber ID'), 'wf-release');
+    await user.type(screen.getByLabelText('订阅目标 ID'), 'wf-release');
     await user.click(screen.getByTestId('pulse-deck-subscribe-btn'));
 
     await waitFor(() => {
@@ -207,11 +215,133 @@ describe('PulseDeckView (Track F5 / R4 Kanban Stage)', () => {
       );
     });
 
-    // Unsubscribe existing thread
     await user.click(screen.getByTestId('pulse-deck-unsubscribe-sub-1'));
     await waitFor(() => {
       expect(pulseApi.unsubscribeThread).toHaveBeenCalledWith('sub-1');
     });
+  });
+
+  it('guides empty projects through 3-step onboarding, scenario template rule creation, section filtering, and Workflow Studio cross-links', async () => {
+    const user = userEvent.setup();
+    const emptyRulesSnapshot = makeSnapshot();
+    emptyRulesSnapshot.rules = [];
+    vi.mocked(pulseApi.deckSnapshot).mockResolvedValue(emptyRulesSnapshot);
+    upsertRuleMock.mockImplementation(async ({ spec }) => ({
+      id: 'rule-wf-99',
+      revision: 1,
+      enabled: true,
+      draftOnly: false,
+      mandateOrigin: 'explicit_human',
+      spec,
+      matchedCount: 0,
+      observedCount: 0,
+      createdAt: '2026-11-15T00:00:00Z',
+      updatedAt: '2026-11-15T00:00:00Z',
+    }));
+
+    const studioEvents: Array<{ definitionId?: string | null }> = [];
+    const onOpenStudio = (event: Event) => {
+      event.preventDefault();
+      studioEvents.push(
+        (event as CustomEvent<{ definitionId?: string | null }>).detail ?? {}
+      );
+    };
+    window.addEventListener(OPEN_WORKFLOW_STUDIO_EVENT, onOpenStudio);
+
+    try {
+      render(<PulseDeckView projectId="proj-1" />);
+
+      const banner = await screen.findByTestId('pulse-onboarding-banner');
+      expect(banner).toHaveTextContent('三步开启安全可验证的事件自动化');
+
+      await user.click(screen.getByTestId('pulse-onboarding-open-workflow'));
+      expect(studioEvents).toHaveLength(1);
+
+      await user.click(screen.getByTestId('pulse-onboarding-create-rule'));
+      expect(screen.getByTestId('pulse-rule-composer')).toBeInTheDocument();
+
+      await user.click(screen.getByTestId('pulse-template-webhook_workflow'));
+      await user.click(screen.getByTestId('pulse-composer-save-btn'));
+
+      await waitFor(() => {
+        expect(upsertRuleMock).toHaveBeenCalledWith(
+          expect.objectContaining({
+            projectId: 'proj-1',
+            spec: expect.objectContaining({
+              name: 'Webhook 触发工作流',
+              evalMode: 'observe',
+              targets: [
+                expect.objectContaining({
+                  kind: 'workflow',
+                  workflowId: 'wf-webhook-triage',
+                }),
+              ],
+            }),
+          })
+        );
+      });
+
+      expect(
+        await screen.findByTestId('pulse-deck-rule-rule-wf-99')
+      ).toBeInTheDocument();
+
+      await user.click(
+        screen.getByTestId('pulse-deck-rule-open-workflow-rule-wf-99')
+      );
+      expect(studioEvents).toHaveLength(2);
+      expect(studioEvents[1]).toEqual({ definitionId: 'wf-webhook-triage' });
+
+      // Progressive section filter tabs hide unrelated sections cleanly
+      await user.click(screen.getByTestId('pulse-deck-tab-rules'));
+      expect(
+        screen.queryByTestId('pulse-deck-interactions-section')
+      ).not.toBeInTheDocument();
+      expect(
+        screen.queryByTestId('pulse-deck-sources-strip')
+      ).not.toBeInTheDocument();
+      expect(screen.getByTestId('pulse-deck-rules-list')).toBeInTheDocument();
+
+      await user.click(screen.getByTestId('pulse-deck-open-workflow-studio'));
+      expect(studioEvents).toHaveLength(3);
+    } finally {
+      window.removeEventListener(OPEN_WORKFLOW_STUDIO_EVENT, onOpenStudio);
+    }
+  });
+
+  it('switches PulseDeckView copy dynamically between zh-CN and en without residue', async () => {
+    try {
+      render(<PulseDeckView projectId="proj-1" />);
+
+      expect(
+        await screen.findByTestId('pulse-source-watermark-src-gh')
+      ).toHaveTextContent('已连接 · 游标 ev_1092');
+      expect(screen.getByText('脉冲自动化')).toBeInTheDocument();
+      expect(screen.getByTestId('pulse-deck-engine-badge')).toHaveTextContent(
+        '运行中'
+      );
+      expect(
+        screen.getByTestId('pulse-deck-rule-counts-rule-1')
+      ).toHaveTextContent('命中 5 · 观察 3');
+
+      await act(async () => {
+        await i18n.changeLanguage('en');
+      });
+
+      expect(await screen.findByText('Pulse Automation')).toBeInTheDocument();
+      expect(screen.getByTestId('pulse-deck-engine-badge')).toHaveTextContent(
+        'Running'
+      );
+      expect(
+        screen.getByTestId('pulse-source-watermark-src-gh')
+      ).toHaveTextContent('Connected · Cursor ev_1092');
+      expect(
+        screen.getByTestId('pulse-deck-rule-counts-rule-1')
+      ).toHaveTextContent('Matched 5 · Observed 3');
+    } finally {
+      await act(async () => {
+        await i18n.changeLanguage('zh-CN');
+      });
+    }
   });
 
   it('renders Pending Interactions & Approvals with typed ask_form coercion and notify acknowledgment', async () => {

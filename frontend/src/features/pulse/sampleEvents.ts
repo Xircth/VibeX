@@ -1,3 +1,4 @@
+import i18n from '@/i18n';
 import type {
   BotMailboxPolicy,
   EventEnvelope,
@@ -170,78 +171,95 @@ export const BUILT_IN_SAMPLE_EVENTS: EventEnvelope[] = [
   },
 ];
 
-export function formatEventSourceLabel(kind: EventSourceKind): string {
-  switch (kind) {
-    case 'feishu':
-      return 'Feishu';
-    case 'jira':
-      return 'Jira';
-    case 'github':
-      return 'GitHub';
-    case 'webhook_standard':
-      return 'Webhook';
-    case 'webhook_custom':
-      return 'Custom Webhook';
-    case 'time_cron':
-      return 'Cron';
-    case 'time_once':
-      return 'Once';
-    case 'time_interval':
-      return 'Interval';
-    case 'time_sla':
-      return 'SLA';
-    case 'sdk_custom':
-      return 'SDK';
-    case 'system_internal':
-      return 'Internal';
+export type PulseTranslateFn = (
+  key: string,
+  options?: Record<string, unknown>
+) => string;
+
+function resolvePanelsTranslator(tFn?: PulseTranslateFn): PulseTranslateFn {
+  if (typeof tFn === 'function') {
+    return (key, options) => tFn(key, { ns: 'panels', ...options });
   }
+  return (key, options) => i18n.t(key, { ns: 'panels', ...options });
 }
 
-export function formatTemporalBadgeLabel(temporal: PulseTemporalSpec): string {
+export function pulseI18nKey(raw: string): string {
+  return raw.replace(/_([a-z])/g, (_, ch: string) => ch.toUpperCase());
+}
+
+export function formatEventSourceLabel(
+  kind: EventSourceKind,
+  tFn?: PulseTranslateFn
+): string {
+  const tr = resolvePanelsTranslator(tFn);
+  return tr(`pulseFilter.sources.${pulseI18nKey(kind)}`);
+}
+
+export function formatTemporalBadgeLabel(
+  temporal: PulseTemporalSpec,
+  tFn?: PulseTranslateFn
+): string {
+  const tr = resolvePanelsTranslator(tFn);
   switch (temporal.kind) {
     case 'cron':
-      return `Cron · ${temporal.expression}`;
+      return tr('pulseFilter.temporal.cron', {
+        expression: temporal.expression,
+      });
     case 'once':
-      return `Once · ${temporal.fireAt}`;
+      return tr('pulseFilter.temporal.once', {
+        fireAt: temporal.fireAt,
+      });
     case 'interval':
-      return `Interval · ${temporal.everySeconds}s`;
+      return tr('pulseFilter.temporal.interval', {
+        seconds: temporal.everySeconds,
+      });
     case 'inactivity_sla':
-      return `SLA · ${temporal.timeoutSeconds}s`;
+      return tr('pulseFilter.temporal.sla', {
+        seconds: temporal.timeoutSeconds,
+      });
   }
 }
 
 export function formatOrchestratorLabel(
-  orchestrator?: PresetOrchestratorKind | null
+  orchestrator?: PresetOrchestratorKind | null,
+  tFn?: PulseTranslateFn
 ): string {
-  switch (orchestrator) {
-    case 'superagent_router':
-      return 'Superagent Router';
-    case 'hybrid_pipeline':
-      return 'Hybrid Pipeline';
-    case 'event_saga':
-      return 'Event Saga';
-    case 'window_aggregator':
-      return 'Window Aggregator';
-    case 'direct_reflex':
-    default:
-      return 'Direct Reflex';
-  }
+  const tr = resolvePanelsTranslator(tFn);
+  const key = orchestrator ?? 'direct_reflex';
+  return tr(`pulseFilter.orchestrators.${pulseI18nKey(key)}`);
 }
 
-export function formatMailboxPolicyLabel(policy?: BotMailboxPolicy): string {
-  return policy === 'coalesce_batch' ? 'Coalesce Batch' : 'FIFO Serial';
+export function formatMailboxPolicyLabel(
+  policy?: BotMailboxPolicy,
+  tFn?: PulseTranslateFn
+): string {
+  const tr = resolvePanelsTranslator(tFn);
+  return policy === 'coalesce_batch'
+    ? tr('pulseFilter.mailbox.coalesceBatch')
+    : tr('pulseFilter.mailbox.fifoSerial');
 }
 
-export function formatGroupDispatchLabel(mode: GroupDispatchMode): string {
+export function formatGroupDispatchLabel(
+  mode: GroupDispatchMode,
+  tFn?: PulseTranslateFn
+): string {
+  const tr = resolvePanelsTranslator(tFn);
+  const unset = tr('pulseFilter.groupDispatch.unset');
   switch (mode.type) {
     case 'specific_seat':
-      return `Specific Seat · ${mode.memberId || 'unset'}`;
+      return tr('pulseFilter.groupDispatch.specificSeat', {
+        member: mode.memberId || unset,
+      });
     case 'mention_seats':
-      return `Mention Seats (${mode.memberIds.length})`;
+      return tr('pulseFilter.groupDispatch.mentionSeats', {
+        count: mode.memberIds.length,
+      });
     case 'moderator_triage':
-      return `Moderator Triage · ${mode.moderatorMemberId || 'unset'}`;
+      return tr('pulseFilter.groupDispatch.moderatorTriage', {
+        member: mode.moderatorMemberId || unset,
+      });
     case 'broadcast_log_only':
-      return 'Broadcast Log';
+      return tr('pulseFilter.groupDispatch.broadcastLog');
   }
 }
 
@@ -252,16 +270,18 @@ export type FormattedTargetBadge = {
 };
 
 export function formatPulseTargetBadge(
-  target: PulseTargetSpec
+  target: PulseTargetSpec,
+  tFn?: PulseTranslateFn
 ): FormattedTargetBadge {
+  const tr = resolvePanelsTranslator(tFn);
   switch (target.kind) {
     case 'session': {
       const modeLabel =
         target.mode === 'ephemeral_fresh'
-          ? 'Ephemeral Session · Fresh Context'
+          ? tr('pulseFilter.targetBadge.ephemeralSession')
           : target.mode === 'thread_keyed'
-            ? 'Thread Session · Correlated'
-            : 'Bound Session';
+            ? tr('pulseFilter.targetBadge.threadSession')
+            : tr('pulseFilter.targetBadge.boundSession');
       const isolation = target.workspaceIsolation ?? 'isolated_worktree';
       return {
         category: modeLabel,
@@ -271,33 +291,35 @@ export function formatPulseTargetBadge(
     }
     case 'bot':
       return {
-        category: 'Persistent Bot · Fixed Memory',
-        detail: `${target.memberId || 'bot'} · ${formatMailboxPolicyLabel(target.mailboxPolicy)}`,
+        category: tr('pulseFilter.targetBadge.persistentBot'),
+        detail: `${target.memberId || 'bot'} · ${formatMailboxPolicyLabel(target.mailboxPolicy, tr)}`,
         memoryModel: 'persistent',
       };
     case 'group':
       return {
-        category: 'Group Seat',
-        detail: `${target.spaceId || 'group'} · ${formatGroupDispatchLabel(target.dispatchMode)}`,
+        category: tr('pulseFilter.targetBadge.groupSeat'),
+        detail: `${target.spaceId || 'group'} · ${formatGroupDispatchLabel(target.dispatchMode, tr)}`,
       };
     case 'user': {
       const kindMap = {
-        notify: 'User Notify',
-        approval: 'User Approval',
-        ask_form: 'User Ask Form',
-        digest: 'User Digest',
+        notify: tr('pulseFilter.targetBadge.userNotify'),
+        approval: tr('pulseFilter.targetBadge.userApproval'),
+        ask_form: tr('pulseFilter.targetBadge.userAskForm'),
+        digest: tr('pulseFilter.targetBadge.userDigest'),
       } as const;
       const sla = target.slaTimeoutSeconds
-        ? ` · SLA ${target.slaTimeoutSeconds}s`
+        ? tr('pulseFilter.targetBadge.slaSuffix', {
+            seconds: target.slaTimeoutSeconds,
+          })
         : '';
       return {
         category: kindMap[target.interactionKind],
-        detail: `${target.titleTemplate || 'Untitled'}${sla}`,
+        detail: `${target.titleTemplate || tr('pulseFilter.targetBadge.untitled')}${sla}`,
       };
     }
     case 'workflow':
       return {
-        category: 'Workflow',
+        category: tr('pulseFilter.targetBadge.workflow'),
         detail: `${target.workflowId}@v${target.pinnedVersion}`,
       };
   }

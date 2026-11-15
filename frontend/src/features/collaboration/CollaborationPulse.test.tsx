@@ -118,7 +118,7 @@ describe('Collaboration Pulse UI (Track F5 / R4)', () => {
     );
 
     expect(screen.getByTestId('pulse-dry-run-status')).toHaveTextContent(
-      'Matched'
+      '已命中'
     );
 
     await user.click(screen.getByTestId('pulse-save-rule-btn'));
@@ -147,6 +147,59 @@ describe('Collaboration Pulse UI (Track F5 / R4)', () => {
     const banner = screen.getByTestId('pulse-rule-saved-banner');
     expect(banner).toBeInTheDocument();
     expect(banner.className).toContain('bg-success/[0.06]');
+  });
+
+  it('switches PulseRuleProposalCard labels cleanly between zh-CN and en', async () => {
+    const { act } = await import('@testing-library/react');
+    const i18n = (await import('@/i18n')).default;
+    const groupSpec = buildGroupPulseProposalSpec({
+      spaceId: 'space-core',
+      spaceName: 'Core Team',
+      dispatchMode: { type: 'specific_seat', memberId: 'seat-qa' },
+      sourceKind: 'github',
+      evalMode: 'observe',
+      description: 'Notify QA on PR failure',
+    });
+
+    try {
+      await act(async () => {
+        await i18n.changeLanguage('zh-CN');
+      });
+
+      render(
+        <PulseRuleProposalCard
+          initialSpec={groupSpec}
+          contextLabel="Group · Core Team"
+          roster={[{ memberId: 'seat-qa', nickname: 'QA' }]}
+        />
+      );
+
+      expect(screen.getByText('脉冲规则提案')).toBeInTheDocument();
+      expect(screen.getByLabelText('规则名称')).toBeInTheDocument();
+      expect(screen.getByTestId('pulse-group-dispatch-summary')).toHaveTextContent(
+        '席位：@QA'
+      );
+      expect(screen.getByTestId('pulse-save-rule-btn')).toHaveTextContent(
+        '保存脉冲规则'
+      );
+
+      await act(async () => {
+        await i18n.changeLanguage('en');
+      });
+
+      expect(screen.getByText('Pulse Rule Proposal')).toBeInTheDocument();
+      expect(screen.getByLabelText('Rule Name')).toBeInTheDocument();
+      expect(screen.getByTestId('pulse-group-dispatch-summary')).toHaveTextContent(
+        'Seat: @QA'
+      );
+      expect(screen.getByTestId('pulse-save-rule-btn')).toHaveTextContent(
+        'Save Pulse Rule'
+      );
+    } finally {
+      await act(async () => {
+        await i18n.changeLanguage('zh-CN');
+      });
+    }
   });
 
   it('renders BotAutomationsPanel via usePulseDeckSnapshot, surfaces inline error alerts with retry, and propagates workspaceId from AssistantDetailsCustomizeTab', async () => {

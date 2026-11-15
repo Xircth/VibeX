@@ -1,6 +1,7 @@
-import { fireEvent, render, screen, within } from '@testing-library/react';
-import { describe, expect, it, vi } from 'vitest';
+import { act, fireEvent, render, screen, within } from '@testing-library/react';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import i18n from '@/i18n';
 import type { PulseRuleSpec } from '@/lib/api/pulse';
 
 import {
@@ -76,6 +77,12 @@ function buildMultiTargetSpec(
 }
 
 describe('PulseEvalModeControl & AutomationProposalCard', () => {
+  beforeEach(async () => {
+    await act(async () => {
+      await i18n.changeLanguage('zh-CN');
+    });
+  });
+
   it('switches Off | Observe | Auto modes cleanly when human-authored', () => {
     const onEvalModeChange = vi.fn();
     const onSave = vi.fn();
@@ -90,57 +97,53 @@ describe('PulseEvalModeControl & AutomationProposalCard', () => {
       />
     );
 
-    // Source, Temporal, and Orchestrator badges
     expect(screen.getByText('Jira')).toBeVisible();
     expect(screen.getByText('Cron · 0 9 * * 1-5')).toBeVisible();
-    expect(screen.getByText('Superagent Router')).toBeVisible();
+    expect(screen.getByText('超级智能体路由')).toBeVisible();
 
-    // Distinct target badges for all 5 target primitives
     expect(
       within(screen.getByTestId('proposal-target-badge-0')).getByText(
-        'Ephemeral Session · Fresh Context'
+        '临时会话 · 全新上下文'
       )
     ).toBeVisible();
     expect(
       within(screen.getByTestId('proposal-target-badge-1')).getByText(
-        'Persistent Bot · Fixed Memory'
+        '常驻 Bot · 持久记忆'
       )
     ).toBeVisible();
     expect(
       within(screen.getByTestId('proposal-target-badge-2')).getByText(
-        'Group Seat'
+        '群组席位'
       )
     ).toBeVisible();
     expect(
       within(screen.getByTestId('proposal-target-badge-3')).getByText(
-        'User Approval'
+        '用户审批'
       )
     ).toBeVisible();
     expect(
       within(screen.getByTestId('proposal-target-badge-4')).getByText(
-        'Workflow'
+        'Workflow 工作流'
       )
     ).toBeVisible();
 
-    // Tabular counters
     expect(screen.getByText('14').closest('span')).toHaveClass('tabular-nums');
     expect(screen.getByText('37').closest('span')).toHaveClass('tabular-nums');
 
-    // Switch Observe -> Auto -> Off
-    const modeGroup = screen.getByRole('group', { name: 'Evaluation mode' });
-    fireEvent.click(within(modeGroup).getByRole('button', { name: 'Auto' }));
+    const modeGroup = screen.getByRole('group', { name: '运行模式' });
+    fireEvent.click(within(modeGroup).getByRole('button', { name: '自动' }));
     expect(onEvalModeChange).toHaveBeenCalledWith('auto');
 
-    fireEvent.click(screen.getByRole('button', { name: /Save \/ Enable/i }));
+    fireEvent.click(screen.getByRole('button', { name: /保存并启用/ }));
     expect(onSave).toHaveBeenCalledWith(
       expect.objectContaining({ evalMode: 'auto' }),
       'auto',
       false
     );
 
-    fireEvent.click(within(modeGroup).getByRole('button', { name: 'Off' }));
+    fireEvent.click(within(modeGroup).getByRole('button', { name: '关闭' }));
     expect(onEvalModeChange).toHaveBeenCalledWith('off');
-    expect(screen.getByRole('button', { name: /Save Rule/i })).toBeVisible();
+    expect(screen.getByRole('button', { name: /保存规则/ })).toBeVisible();
   });
 
   it('enforces explicit human confirmation before enabling Auto on untrusted_external or draftOnly proposals', () => {
@@ -159,31 +162,25 @@ describe('PulseEvalModeControl & AutomationProposalCard', () => {
 
     const lockBanner = screen.getByTestId('pulse-external-draft-lock');
     expect(lockBanner).toBeVisible();
-    expect(
-      within(lockBanner).getByText(
-        'External Draft · Human Confirmation Required'
-      )
-    ).toBeVisible();
+    expect(within(lockBanner).getByText('外部草稿 · 需人工确认')).toBeVisible();
 
-    const modeGroup = screen.getByRole('group', { name: 'Evaluation mode' });
-    const autoButton = within(modeGroup).getByRole('button', { name: /Auto/i });
+    const modeGroup = screen.getByRole('group', { name: '运行模式' });
+    const autoButton = within(modeGroup).getByRole('button', { name: /自动/ });
     const observeButton = within(modeGroup).getByRole('button', {
-      name: 'Observe',
+      name: '观察',
     });
 
-    // Coerced to Observe and Auto is locked until human confirms
     expect(autoButton).toBeDisabled();
     expect(observeButton).toHaveAttribute('aria-pressed', 'true');
 
-    // Confirm external draft provenance
     fireEvent.click(
-      within(lockBanner).getByRole('button', { name: 'Confirm Draft' })
+      within(lockBanner).getByRole('button', { name: '确认草稿' })
     );
     expect(autoButton).not.toBeDisabled();
-    expect(within(lockBanner).getByText('Confirmed')).toBeVisible();
+    expect(within(lockBanner).getByText('已确认')).toBeVisible();
 
     fireEvent.click(autoButton);
-    fireEvent.click(screen.getByRole('button', { name: /Save \/ Enable/i }));
+    fireEvent.click(screen.getByRole('button', { name: /保存并启用/ }));
     expect(onSave).toHaveBeenCalledWith(
       expect.objectContaining({ evalMode: 'auto' }),
       'auto',
@@ -199,22 +196,74 @@ describe('PulseEvalModeControl & AutomationProposalCard', () => {
       />
     );
 
-    fireEvent.click(screen.getByRole('button', { name: /Test Sample/i }));
+    fireEvent.click(screen.getByRole('button', { name: /样本测试/ }));
 
-    // Provide Jira sample (index 1 in BUILT_IN_SAMPLE_EVENTS) where priority is P0
     const jiraSample = BUILT_IN_SAMPLE_EVENTS[1];
-    const sampleTextarea = screen.getByLabelText('Sample Event JSON');
+    const sampleTextarea = screen.getByLabelText('样本事件 JSON');
     fireEvent.change(sampleTextarea, {
       target: { value: JSON.stringify(jiraSample, null, 2) },
     });
 
     expect(
-      screen.getByText(/Fix CORE-128: Fix race condition in worktree checkout lock on jira:CORE-128/)
+      screen.getByText(
+        /Fix CORE-128: Fix race condition in worktree checkout lock on jira:CORE-128/
+      )
     ).toBeVisible();
+  });
+
+  it('switches AutomationProposalCard and PulseFilterBuilder copy cleanly between zh-CN and en', async () => {
+    try {
+      const { rerender } = render(
+        <AutomationProposalCard
+          spec={buildMultiTargetSpec()}
+          defaultDryRunOpen
+          onSave={vi.fn()}
+        />
+      );
+
+      expect(screen.getByText('超级智能体路由')).toBeVisible();
+      expect(
+        within(screen.getByTestId('proposal-target-badge-0')).getByText(
+          '临时会话 · 全新上下文'
+        )
+      ).toBeVisible();
+      expect(screen.getByRole('button', { name: /样本测试/ })).toBeVisible();
+
+      await act(async () => {
+        await i18n.changeLanguage('en');
+      });
+      rerender(
+        <AutomationProposalCard
+          spec={buildMultiTargetSpec()}
+          defaultDryRunOpen
+          onSave={vi.fn()}
+        />
+      );
+
+      expect(screen.getByText('Superagent Router')).toBeVisible();
+      expect(
+        within(screen.getByTestId('proposal-target-badge-0')).getByText(
+          'Ephemeral Session · Fresh Context'
+        )
+      ).toBeVisible();
+      expect(screen.getByRole('group', { name: 'Evaluation mode' })).toBeVisible();
+      expect(screen.getByRole('button', { name: /Test Sample/i })).toBeVisible();
+      expect(screen.getByRole('button', { name: /Save \/ Enable/i })).toBeVisible();
+    } finally {
+      await act(async () => {
+        await i18n.changeLanguage('zh-CN');
+      });
+    }
   });
 });
 
 describe('PulseFilterBuilder', () => {
+  beforeEach(async () => {
+    await act(async () => {
+      await i18n.changeLanguage('zh-CN');
+    });
+  });
+
   it('supports adding/editing operators and reports exhaustive validation violations without fail-fast', () => {
     const onChange = vi.fn();
     const invalidSpec: PulseRuleSpec = {
@@ -243,13 +292,11 @@ describe('PulseFilterBuilder', () => {
       />
     );
 
-    // Exhaustive validation surfaces ALL violations simultaneously (name, targets, empty pointer, invalid regex)
     expect(screen.getByText(/Rule name is required/i)).toBeVisible();
     expect(screen.getByText(/At least one target is required/i)).toBeVisible();
     expect(screen.getByText(/JSON Pointer cannot be empty/i)).toBeVisible();
 
-    // Add a new condition
-    fireEvent.click(screen.getByRole('button', { name: /Add Condition/i }));
+    fireEvent.click(screen.getByRole('button', { name: /添加条件/ }));
     expect(onChange).toHaveBeenCalledOnce();
   });
 
@@ -258,11 +305,11 @@ describe('PulseFilterBuilder', () => {
     const { rerender } = render(
       <PulseEvalModeControl value="observe" size="sm" onChange={onChange} />
     );
-    const observeBtn = screen.getByRole('button', { name: 'Observe' });
+    const observeBtn = screen.getByRole('button', { name: '观察' });
     fireEvent.keyDown(observeBtn, { key: 'ArrowRight' });
     expect(onChange).toHaveBeenCalledWith('auto');
     expect(document.activeElement).toBe(
-      screen.getByRole('button', { name: 'Auto' })
+      screen.getByRole('button', { name: '自动' })
     );
 
     onChange.mockClear();
@@ -274,13 +321,12 @@ describe('PulseFilterBuilder', () => {
         onChange={onChange}
       />
     );
-    fireEvent.keyDown(screen.getByRole('button', { name: 'Observe' }), {
+    fireEvent.keyDown(screen.getByRole('button', { name: '观察' }), {
       key: 'ArrowRight',
     });
-    // Skips disabled/locked Auto and wraps directly to Off
     expect(onChange).toHaveBeenCalledWith('off');
     expect(document.activeElement).toBe(
-      screen.getByRole('button', { name: 'Off' })
+      screen.getByRole('button', { name: '关闭' })
     );
   });
 });

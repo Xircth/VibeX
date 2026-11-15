@@ -77,8 +77,8 @@ export function AutomationFailureBadge() {
 
   const observeTitle = t('pulseObserveTitle', {
     count: observeCount,
-    defaultValue: `Pulse Observe candidates (${observeCount})`,
   });
+  const failureTitle = t('automationFailureTitle');
 
   return (
     <span className="inline-flex items-center gap-1">
@@ -91,6 +91,7 @@ export function AutomationFailureBadge() {
             <button
               type="button"
               title={observeTitle}
+              aria-label={observeTitle}
               data-testid="pulse-observe-status-badge"
               className="inline-flex items-center gap-1 rounded-full px-1.5 text-[10px] text-muted-foreground tabular-nums transition-colors hover:text-foreground"
               onClick={(event) => {
@@ -125,9 +126,8 @@ export function AutomationFailureBadge() {
       {effectiveFailureCount > 0 ? (
         <button
           type="button"
-          title={t('automationFailureTitle', {
-            defaultValue: 'Automation run failed',
-          })}
+          title={failureTitle}
+          aria-label={failureTitle}
           data-testid="automation-failure-status-badge"
           className="inline-flex items-center gap-1 rounded-full px-1.5 text-[10px] text-destructive tabular-nums hover:opacity-80"
           onClick={() => {

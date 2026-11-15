@@ -272,6 +272,7 @@ impl HostCompanionFeatures {
                                     description: None,
                                 },
                             ],
+                            revision: 1,
                         },
                     },
                 )

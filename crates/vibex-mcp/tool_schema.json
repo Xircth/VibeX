@@ -180,6 +180,33 @@
     }
   },
   {
+    "name": "thread_read_history",
+    "description": "Retrieve full, untruncated historical conversation items by their stable row or turn IDs (for example, `omitted_ids` listed in a deterministic cross-engine handoff prompt). Read-only and never modifies the conversation.",
+    "inputSchema": {
+      "type": "object",
+      "required": [
+        "item_ids"
+      ],
+      "properties": {
+        "conversation_id": {
+          "type": "string",
+          "format": "uuid",
+          "description": "Target conversation UUID. Omit to read from the current conversation."
+        },
+        "item_ids": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 64,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "description": "One or more historical row IDs or turn IDs to fetch in full."
+        }
+      }
+    }
+  },
+  {
     "name": "send_session_input",
     "description": "Deliver one instruction to a Conversation and return immediately. With collaboration enabled, the target may be this Conversation, a descendant, or a sibling in the same workspace. Without it, only this Conversation and its descendants are in scope. Another workspace is not_found. Reuse operation_id only for the exact same target and text. Omit delay_seconds and deliver_at, or pass delay_seconds 0, to deliver now: idle targets are dispatched and a busy target stays queued. A positive delay_seconds or deliver_at schedules the input; it does not take a queue position until it is due. Pass steer true only with expected_turn_id to steer that exact in-flight turn. If steering is unsupported, there is no active turn, or the turn changed, the call fails and nothing is queued. Do not wait for the target to finish; continue your own work.",
     "inputSchema": {

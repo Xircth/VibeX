@@ -137,6 +137,8 @@ pub struct SessionHistoryRequest {
         skip_serializing_if = "Option::is_none"
     )]
     pub history_revision: Option<i64>,
+    #[serde(default, alias = "itemIds", skip_serializing_if = "Vec::is_empty")]
+    pub item_ids: Vec<String>,
 }
 
 impl SessionHistoryRequest {
@@ -146,6 +148,7 @@ impl SessionHistoryRequest {
             || self.text_offset.is_some()
             || self.max_chars.is_some()
             || self.history_revision.is_some()
+            || !self.item_ids.is_empty()
     }
 }
 

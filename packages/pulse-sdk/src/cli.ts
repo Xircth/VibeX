@@ -122,7 +122,10 @@ export async function runCli(
       const explicitUrl =
         flags.get('url') ??
         process.env.VIBEX_PULSE_URL ??
-        process.env.VIBEX_SERVER_URL;
+        process.env.VIBEX_SERVER_URL ??
+        (process.env.VIBEX_WEB_PORT
+          ? 'http://127.0.0.1:' + process.env.VIBEX_WEB_PORT
+          : undefined);
 
       if (booleans.has('offline') || (!explicitUrl && !io.transport)) {
         const eventId = generateUlid();
@@ -172,6 +175,7 @@ export async function runCli(
 
       const emitted = await client.emit({
         eventType,
+        sourceInstanceId: flags.get('source'),
         threadKey,
         deliveryId: flags.get('delivery-id'),
         payload,

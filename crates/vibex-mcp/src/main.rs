@@ -14,6 +14,7 @@
 
 mod client;
 mod pulse;
+mod pulse_bridge;
 mod pulse_eval;
 
 use std::{
@@ -424,10 +425,25 @@ impl Companion {
         }
     }
 
-    fn uses_http(&self) -> bool {
+    pub(crate) fn uses_http(&self) -> bool {
         self.server_url
             .as_ref()
             .is_some_and(|url| !url.trim().is_empty())
+    }
+
+    pub(crate) fn uses_socket(&self) -> bool {
+        !self.uses_http() && !self.socket_path.trim().is_empty()
+    }
+
+    pub(crate) fn uses_host(&self) -> bool {
+        self.uses_http() || self.uses_socket()
+    }
+
+    fn effective_bearer_token(&self) -> Option<&str> {
+        self.server_token
+            .as_deref()
+            .filter(|t| !t.trim().is_empty())
+            .or_else(|| (!self.token.trim().is_empty()).then_some(self.token.as_str()))
     }
 
     async fn send(
@@ -494,83 +510,51 @@ impl Companion {
         }
     }
 
+    pub(crate) async fn execute_pulse_call(
+        &self,
+        name: &str,
+        mut arguments: Value,
+        meta: Option<&Value>,
+        id: Option<&Value>,
+        env_mandate_override: Option<&str>,
+    ) -> Result<Value, String> {
+        self.ensure_call_operation_id(name, &mut arguments, meta, id);
+        let mut outcome = if self.uses_host() {
+            pulse_bridge::execute_host_pulse_tool(
+                self,
+                name,
+                &arguments,
+                meta,
+                env_mandate_override,
+            )
+            .await?
+        } else {
+            self.pulse_state
+                .execute_tool(name, &arguments, meta, env_mandate_override)?
+        };
+        pulse::redact_secrets(&mut outcome);
+        Ok(outcome)
+    }
+
     async fn run_pulse_call(
         &self,
         id: Option<Value>,
         name: &str,
-        mut arguments: Value,
+        arguments: Value,
         meta: Option<Value>,
         stdout: &Arc<Mutex<tokio::io::Stdout>>,
     ) {
-        self.ensure_call_operation_id(name, &mut arguments, meta.as_ref(), id.as_ref());
-        let local_outcome =
-            match self
-                .pulse_state
-                .execute_tool(name, &arguments, meta.as_ref(), None)
-            {
-                Ok(outcome) => outcome,
-                Err(err) => {
-                    write_opt(stdout, respond_error(id, -32602, &err)).await;
-                    return;
-                }
-            };
-
-        // Only forward to Host `/api/v1/call/<name>` if local validation passed;
-        // when forwarding rules, always transmit the MandateOrigin-coerced spec
-        // and scrub secrets on any Host response.
-        let mut final_outcome = local_outcome;
-        let local_failed = final_outcome
-            .get("isError")
-            .and_then(Value::as_bool)
-            .unwrap_or(false)
-            || final_outcome.get("valid") == Some(&json!(false));
-
-        if !local_failed && self.uses_http() {
-            let op_id = arguments
-                .get("operation_id")
-                .and_then(Value::as_str)
-                .unwrap_or_default();
-            let mut host_args = arguments.clone();
-            if matches!(name, "pulse_rule_propose_or_save" | "pulse_timer_schedule")
-                && let Some(rule_obj) = final_outcome.get("rule")
-                && let Some(map) = host_args.as_object_mut()
-            {
-                if let Some(enforced_enabled) = rule_obj.get("enabled") {
-                    map.insert("enabled".into(), enforced_enabled.clone());
-                }
-                if let Some(enforced_draft) = rule_obj.get("draftOnly") {
-                    map.insert("draftOnly".into(), enforced_draft.clone());
-                    map.insert("draft_only".into(), enforced_draft.clone());
-                }
-                if let Some(enforced_origin) = rule_obj.get("mandateOrigin") {
-                    map.insert("mandateOrigin".into(), enforced_origin.clone());
-                }
-                if let Some(enforced_spec) = rule_obj.get("spec") {
-                    map.insert("spec".into(), enforced_spec.clone());
-                }
-            }
-            if let Ok(mut host_data) = client::call_host_v1_command(
-                self.server_url.as_deref().unwrap_or_default(),
-                self.server_token.as_deref(),
-                self.conversation_id.as_deref(),
-                name,
-                op_id,
-                &host_args,
-            )
+        let final_outcome = match self
+            .execute_pulse_call(name, arguments, meta.as_ref(), id.as_ref(), None)
             .await
-            {
-                pulse::redact_secrets(&mut host_data);
-                if let Some(notice) = final_outcome.get("notice").cloned()
-                    && let Some(obj) = host_data.as_object_mut()
-                {
-                    obj.entry("notice").or_insert_with(|| notice.clone());
-                    obj.entry("securityNotice").or_insert(notice);
-                }
-                final_outcome = host_data;
+        {
+            Ok(outcome) => outcome,
+            Err(err) => {
+                write_opt(stdout, respond_error(id, -32602, &err)).await;
+                return;
             }
-        }
+        };
 
-        pulse::redact_secrets(&mut final_outcome);
         write_opt(
             stdout,
             respond(
@@ -902,6 +886,72 @@ impl Companion {
     }
 }
 
+impl pulse_bridge::HostCommandCaller for Companion {
+    fn call_host_command<'a>(
+        &'a self,
+        command: &'a str,
+        operation_id: &'a str,
+        args: &'a Value,
+    ) -> std::pin::Pin<
+        Box<
+            dyn std::future::Future<Output = Result<Value, client::HostCallError>>
+                + Send
+                + 'a,
+        >,
+    > {
+        Box::pin(async move {
+            if self.uses_http() {
+                let server_url = self.server_url.as_deref().unwrap_or_default();
+                let bearer = self.effective_bearer_token();
+                match client::call_host_v1_command(
+                    server_url,
+                    bearer,
+                    self.conversation_id.as_deref(),
+                    command,
+                    operation_id,
+                    args,
+                )
+                .await
+                {
+                    Ok(data) => Ok(data),
+                    Err(v1_err) if v1_err.unmounted_v1_route => {
+                        let message = BrokerMessage::Collaborate(BrokerCollaborateRequest {
+                            token: self.token.clone(),
+                            name: command.to_string(),
+                            arguments: args.clone(),
+                        });
+                        let broker_resp = client::call_http(
+                            server_url,
+                            bearer,
+                            self.conversation_id.as_deref(),
+                            &self.product,
+                            &message,
+                        )
+                        .await
+                        .map_err(|io_err| client::HostCallError::transport(io_err.to_string()))?;
+                        client::unwrap_broker_command_response(broker_resp)
+                    }
+                    Err(err) => Err(err),
+                }
+            } else if self.uses_socket() {
+                let message = BrokerMessage::Collaborate(BrokerCollaborateRequest {
+                    token: self.token.clone(),
+                    name: command.to_string(),
+                    arguments: args.clone(),
+                });
+                let broker_resp = client::call_broker(&self.socket_path, &message)
+                    .await
+                    .map_err(|io_err| client::HostCallError::transport(io_err.to_string()))?;
+                client::unwrap_broker_command_response(broker_resp)
+            } else {
+                Err(client::HostCallError::transport(
+                    "no Host HTTP or Socket IPC transport configured",
+                ))
+            }
+        })
+    }
+}
+
 fn required_string(arguments: &Value, name: &str) -> Result<String, String> {
     arguments
         .get(name)
@@ -999,7 +1049,7 @@ fn initialize_result(params: Option<&Value>) -> Value {
 
 /// Render a broker outcome as an MCP `CallToolResult`: a human/LLM-readable text
 /// summary plus the full structured outcome.
-fn render_result(outcome: &Value) -> Value {
+pub(crate) fn render_result(outcome: &Value) -> Value {
     json!({
         "content": [{ "type": "text", "text": summarize(outcome) }],
         "structuredContent": outcome,

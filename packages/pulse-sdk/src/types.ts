@@ -297,12 +297,12 @@ export interface PulseUserInteractionView {
   resolvedAt?: string | null;
 }
 
-export type PulseSubscriberKind = 'session' | 'bot' | 'group';
+export type PulseSubscriberKind = 'session' | 'bot' | 'group' | 'workflow';
 
 export interface PulseSubscriptionView {
   id: string;
   threadKey: string;
-  subscriberKind: string;
+  subscriberKind: PulseSubscriberKind | (string & {});
   subscriberId: string;
   active: boolean;
   createdAt: string;
@@ -344,11 +344,28 @@ export interface PulseDeckSnapshot {
   pendingInteractions: PulseUserInteractionView[];
 }
 
+export interface PulseSourceUpsertInput {
+  id?: string | null;
+  kind: EventSourceKind;
+  title: string;
+  enabled?: boolean;
+  configJson?: Record<string, unknown> | null;
+  signingSecret?: string | null;
+}
+
+export interface PulseResolveInteractionInput {
+  interactionId: string;
+  optionId?: string | null;
+  note?: string | null;
+  formValues?: Record<string, unknown> | null;
+}
+
 export interface PulseRuleSaveInput {
   id?: string | null;
   enabled?: boolean;
   draftOnly?: boolean;
   mandateOrigin?: MandateOrigin;
+  webhookRouteId?: string | null;
   spec: PulseRuleSpec;
 }
 

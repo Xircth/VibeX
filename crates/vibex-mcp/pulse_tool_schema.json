@@ -67,6 +67,10 @@
           "type": "string",
           "description": "Optional idempotency key; auto-generated when omitted."
         },
+        "source_instance_id": {
+          "type": "string",
+          "description": "Optional SDK/custom source instance identifier; defaults to `vibex-mcp`."
+        },
         "hop_count": {
           "type": "integer",
           "minimum": 0,
@@ -82,6 +86,10 @@
       "type": "object",
       "required": ["name", "temporal", "targets"],
       "properties": {
+        "id": {
+          "type": "string",
+          "description": "Optional existing rule ID to update."
+        },
         "name": {
           "type": "string",
           "description": "Human-readable schedule rule name."
@@ -96,7 +104,15 @@
         },
         "enabled": {
           "type": "boolean",
-          "description": "Whether the schedule is active immediately (coerced to `false` when MandateOrigin is `untrusted_external`)."
+          "description": "Whether the schedule is active immediately (coerced to `false` when MandateOrigin is `untrusted_external` or `draft_only`/`propose_only` is true)."
+        },
+        "draft_only": {
+          "type": "boolean",
+          "description": "When true, saves as a draft proposal with `evalMode=observe` and `enabled=false`."
+        },
+        "propose_only": {
+          "type": "boolean",
+          "description": "Alias for `draft_only`; coerces `evalMode=observe`, `draftOnly=true`, and `enabled=false`."
         },
         "temporal": {
           "type": "object",
@@ -113,7 +129,7 @@
   },
   {
     "name": "pulse_rule_propose_or_save",
-    "description": "Exhaustively validate (No Fail-Fast) and propose or save a `PulseRuleSpec`. Enforces the `MandateOrigin` security invariant: when caller provenance is `untrusted_external` (e.g. an Agent turn triggered by an external webhook or chat), `enabled=true` and `evalMode=auto` are never permitted — the rule is automatically coerced to `draftOnly=true`, `enabled=false`, `evalMode=observe` with a structured security notice.",
+    "description": "Exhaustively validate (No Fail-Fast) and propose or save a `PulseRuleSpec`. Enforces the `MandateOrigin` security invariant: when caller provenance is `untrusted_external` (e.g. an Agent turn triggered by an external webhook or chat) or `propose_only`/`draft_only` is requested, `enabled=true` and `evalMode=auto` are coerced to `draftOnly=true`, `enabled=false`, `evalMode=observe`.",
     "inputSchema": {
       "type": "object",
       "required": ["spec"],
@@ -124,11 +140,19 @@
         },
         "enabled": {
           "type": "boolean",
-          "description": "Requested activation flag (coerced to `false` under `untrusted_external` MandateOrigin)."
+          "description": "Requested activation flag (coerced to `false` under `untrusted_external` MandateOrigin or `draft_only`/`propose_only`)."
         },
         "draft_only": {
           "type": "boolean",
-          "description": "When true, saves as a proposal card awaiting human confirmation."
+          "description": "When true, saves as a proposal card awaiting human confirmation (`evalMode=observe`, `enabled=false`)."
+        },
+        "propose_only": {
+          "type": "boolean",
+          "description": "Alias for `draft_only`; coerces `evalMode=observe`, `draftOnly=true`, and `enabled=false`."
+        },
+        "webhook_route_id": {
+          "type": "string",
+          "description": "Optional webhook source route ID bound to this rule."
         },
         "spec": {
           "type": "object",
@@ -157,7 +181,7 @@
   },
   {
     "name": "pulse_thread_subscribe",
-    "description": "Subscribe or unsubscribe a `session`, `bot`, or `group` to an external `thread_key` (e.g. `jira:PROJ-123`, `github:org/repo#42`, `feishu:om_xxx`) so follow-up replies route directly without requiring repeated `@` mentions.",
+    "description": "Subscribe or unsubscribe a `session`, `bot`, `group`, or `workflow` to an external `thread_key` (e.g. `jira:PROJ-123`, `github:org/repo#42`, `feishu:om_xxx`) so follow-up replies route directly without requiring repeated `@` mentions.",
     "inputSchema": {
       "type": "object",
       "required": ["action"],
@@ -173,12 +197,12 @@
         },
         "subscriber_kind": {
           "type": "string",
-          "enum": ["session", "bot", "group"],
-          "description": "Target receptor class. Required for `subscribe`."
+          "enum": ["session", "bot", "group", "workflow"],
+          "description": "Target receptor class (`session`, `bot`, `group`, or `workflow`). Required for `subscribe`."
         },
         "subscriber_id": {
           "type": "string",
-          "description": "Conversation ID (`session`), `memberId` (`bot`), or `spaceId` (`group`). Required for `subscribe`."
+          "description": "Conversation ID (`session`), `memberId` (`bot`), `spaceId` (`group`), or `workflowId` (`workflow`). Required for `subscribe`."
         },
         "subscription_id": {
           "type": "string",

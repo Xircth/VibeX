@@ -373,34 +373,10 @@ impl PulseState {
             validate_payload_against_schema(&schema, &payload, "payload", &mut violations);
         }
 
-        let parent_env_hop = std::env::var("VIBEX_PULSE_HOP_COUNT")
-            .ok()
-            .and_then(|v| v.trim().parse::<u32>().ok());
-        let meta_parent_hop = meta
-            .and_then(|m| m.get("parent_hop_count").or_else(|| m.get("hopCount")))
-            .and_then(Value::as_u64)
-            .map(|v| v as u32);
-        let explicit_hop = arguments
-            .get("hop_count")
-            .or_else(|| arguments.get("hopCount"))
-            .and_then(Value::as_u64)
-            .map(|v| v as u32);
-
-        let hop_count = match (parent_env_hop.or(meta_parent_hop), explicit_hop) {
-            (Some(parent), Some(explicit)) => (parent.saturating_add(1)).max(explicit),
-            (Some(parent), None) => parent.saturating_add(1),
-            (None, Some(explicit)) => explicit,
-            (None, None) => 0,
-        };
+        let hop_count = compute_effective_hop_count(arguments, meta);
 
         if hop_count > MAX_HOP_COUNT {
-            return json!({
-                "isError": true,
-                "error_code": "hop_limit_exceeded",
-                "hopCount": hop_count,
-                "maxHopCount": MAX_HOP_COUNT,
-                "text": format!("Pulse anti-loop guard rejected event '{}': hopCount {} exceeds maximum {}.", event_type, hop_count, MAX_HOP_COUNT),
-            });
+            return hop_limit_exceeded_error(&event_type, hop_count);
         }
 
         if !violations.is_empty() {
@@ -424,6 +400,11 @@ impl PulseState {
             .filter(|s| !s.trim().is_empty())
             .map(str::to_string)
             .unwrap_or_else(|| format!("dlv_{}", Uuid::new_v4().simple()));
+        let source_instance_id =
+            str_field(arguments, &["source_instance_id", "sourceInstanceId"])
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .unwrap_or("vibex-mcp");
         let root_event_id = meta
             .and_then(|m| m.get("root_event_id").or_else(|| m.get("rootEventId")))
             .and_then(Value::as_str)
@@ -445,7 +426,7 @@ impl PulseState {
             "deliveryId": delivery_id,
             "source": {
                 "kind": "sdk_custom",
-                "instanceId": "vibex-mcp",
+                "instanceId": source_instance_id,
                 "trustLevel": trust_level,
             },
             "eventType": event_type,
@@ -483,65 +464,7 @@ impl PulseState {
         meta: Option<&Value>,
         env_mandate_override: Option<&str>,
     ) -> Value {
-        let name = str_field(arguments, &["name"]).unwrap_or("").to_string();
-        let description = str_field(arguments, &["description"]).map(str::to_string);
-        let eval_mode = str_field(arguments, &["eval_mode", "evalMode"]).unwrap_or("observe");
-        let temporal = arguments.get("temporal").cloned().unwrap_or(Value::Null);
-        let targets = arguments
-            .get("targets")
-            .cloned()
-            .or_else(|| {
-                arguments
-                    .get("target")
-                    .cloned()
-                    .map(|single| json!([single]))
-            })
-            .unwrap_or_else(|| json!([]));
-
-        let source_kind = match temporal.get("kind").and_then(Value::as_str) {
-            Some("cron" | "time_cron") => "time_cron",
-            Some("once" | "time_once") => "time_once",
-            Some("interval" | "time_interval") => "time_interval",
-            Some("inactivity_sla" | "time_sla") => "time_sla",
-            _ => "time_cron",
-        };
-
-        let mut normalized_temporal = temporal;
-        if let Some(obj) = normalized_temporal.as_object_mut()
-            && let Some(kind_str) = obj.get("kind").and_then(Value::as_str)
-        {
-            let canonical = match kind_str {
-                "time_cron" => "cron",
-                "time_once" => "once",
-                "time_interval" => "interval",
-                "time_sla" => "inactivity_sla",
-                other => other,
-            };
-            obj.insert("kind".into(), json!(canonical));
-        }
-
-        let synthesized = json!({
-            "enabled": arguments.get("enabled").and_then(Value::as_bool).unwrap_or(true),
-            "draft_only": arguments.get("draft_only").or_else(|| arguments.get("draftOnly")).and_then(Value::as_bool).unwrap_or(false),
-            "spec": {
-                "name": name,
-                "description": description,
-                "evalMode": eval_mode,
-                "orchestrator": "direct_reflex",
-                "filter": {
-                    "sourceKinds": [source_kind],
-                    "sourceInstanceIds": [],
-                    "eventTypes": [],
-                    "allowedActors": [],
-                    "conditions": [],
-                },
-                "temporal": normalized_temporal,
-                "debounceMs": 0,
-                "claimExclusive": false,
-                "targets": targets,
-            }
-        });
-
+        let synthesized = synthesize_timer_rule_args(arguments);
         self.save_or_propose_rule_internal(&synthesized, arguments, meta, env_mandate_override)
     }
 
@@ -561,86 +484,28 @@ impl PulseState {
         meta: Option<&Value>,
         env_mandate_override: Option<&str>,
     ) -> Value {
-        let mut spec = normalized_args
-            .get("spec")
-            .cloned()
-            .unwrap_or_else(|| normalized_args.clone());
-
-        let violations = validate_pulse_rule_spec(&spec);
-        if !violations.is_empty() {
-            return json!({
-                "isError": true,
-                "valid": false,
-                "violations": violations,
-                "text": format!("PulseRuleSpec validation failed with {} violation(s).", violations.len()),
-            });
-        }
-
-        let mandate_origin =
-            resolve_mandate_origin(env_mandate_override, meta, Some(raw_caller_args));
-        let requested_enabled = normalized_args
-            .get("enabled")
-            .and_then(Value::as_bool)
-            .unwrap_or(false);
-        let requested_draft = normalized_args
-            .get("draft_only")
-            .or_else(|| normalized_args.get("draftOnly"))
-            .and_then(Value::as_bool)
-            .unwrap_or(false);
-        let requested_mode = str_field(&spec, &["evalMode", "eval_mode"])
-            .unwrap_or("observe")
-            .to_string();
-
-        // CRITICAL SECURITY INVARIANT (`MandateOrigin`):
-        // When provenance is `untrusted_external`, NEVER allow `enabled = true`
-        // or `evalMode = "auto"`. Force `draftOnly = true`, `enabled = false`,
-        // `evalMode = "observe"`, and emit a structured notice!
-        let (final_enabled, final_draft_only, final_mode, security_notice) = if mandate_origin
-            == MandateOrigin::UntrustedExternal
-        {
-            (
-                false,
-                true,
-                "observe".to_string(),
-                Some(json!({
-                    "coerced": true,
-                    "code": "untrusted_mandate_draft_coercion",
-                    "mandateOrigin": "untrusted_external",
-                    "requestedEnabled": requested_enabled,
-                    "requestedEvalMode": requested_mode,
-                    "enforcedDraftOnly": true,
-                    "enforcedEnabled": false,
-                    "enforcedEvalMode": "observe",
-                    "message": "Caller MandateOrigin is untrusted_external; rule was coerced to draftOnly=true, enabled=false, evalMode=observe and requires explicit human confirmation.",
-                })),
-            )
-        } else {
-            let effective_enabled = if requested_draft {
-                false
-            } else {
-                requested_enabled
-            };
-            (effective_enabled, requested_draft, requested_mode, None)
+        let prepared = match prepare_rule_save(
+            normalized_args,
+            raw_caller_args,
+            meta,
+            env_mandate_override,
+        ) {
+            Ok(prepared) => prepared,
+            Err(validation_err) => return validation_err,
         };
 
-        if let Some(spec_obj) = spec.as_object_mut() {
-            spec_obj.remove("eval_mode");
-            spec_obj.insert("evalMode".into(), json!(final_mode));
-        }
-
-        let rule_id = str_field(normalized_args, &["id"])
-            .filter(|s| !s.trim().is_empty())
-            .map(str::to_string)
+        let rule_id = prepared
+            .id
             .unwrap_or_else(|| format!("rule_{}", Uuid::new_v4().simple()));
 
         let mut rule_view = json!({
             "id": rule_id,
             "revision": 1,
-            "enabled": final_enabled,
-            "draftOnly": final_draft_only,
-            "mandateOrigin": mandate_origin.as_str(),
-            "spec": spec,
-            "webhookRouteId": null,
+            "enabled": prepared.enabled,
+            "draftOnly": prepared.draft_only,
+            "mandateOrigin": prepared.mandate_origin.as_str(),
+            "spec": prepared.spec,
+            "webhookRouteId": prepared.webhook_route_id,
             "nextFireAt": null,
             "matchedCount": 0,
             "observedCount": 0,
@@ -674,7 +539,7 @@ impl PulseState {
             "valid": true,
             "violations": [],
         });
-        if let Some(notice) = security_notice
+        if let Some(notice) = prepared.security_notice
             && let Some(obj) = response.as_object_mut()
         {
             obj.insert("notice".into(), notice.clone());
@@ -719,11 +584,14 @@ impl PulseState {
                         "thread_key must follow '<platform>:<id>' format (e.g. 'jira:PROJ-123', 'github:org/repo#42', 'feishu:om_xxx').",
                     ));
                 }
-                if !matches!(subscriber_kind.as_str(), "session" | "bot" | "group") {
+                if !matches!(
+                    subscriber_kind.as_str(),
+                    "session" | "bot" | "group" | "workflow"
+                ) {
                     violations.push(violation(
                         "subscriber_kind",
                         "invalid_subscriber_kind",
-                        "subscriber_kind must be 'session', 'bot', or 'group'.",
+                        "subscriber_kind must be 'session', 'bot', 'group', or 'workflow'.",
                     ));
                 }
                 if subscriber_id.is_empty() {
@@ -818,7 +686,237 @@ impl PulseState {
     }
 }
 
-fn now_iso_placeholder() -> String {
+pub(crate) struct PreparedRuleSave {
+    pub id: Option<String>,
+    pub enabled: bool,
+    pub draft_only: bool,
+    pub mandate_origin: MandateOrigin,
+    pub webhook_route_id: Option<String>,
+    pub spec: Value,
+    pub security_notice: Option<Value>,
+}
+
+pub(crate) fn bool_field(value: &Value, keys: &[&str]) -> Option<bool> {
+    for key in keys {
+        if let Some(found) = value.get(*key).and_then(Value::as_bool) {
+            return Some(found);
+        }
+    }
+    None
+}
+
+pub(crate) fn compute_effective_hop_count(arguments: &Value, meta: Option<&Value>) -> u32 {
+    let parent_env_hop = std::env::var("VIBEX_PULSE_HOP_COUNT")
+        .ok()
+        .and_then(|v| v.trim().parse::<u32>().ok());
+    let meta_parent_hop = meta
+        .and_then(|m| m.get("parent_hop_count").or_else(|| m.get("hopCount")))
+        .and_then(Value::as_u64)
+        .map(|v| v as u32);
+    let explicit_hop = arguments
+        .get("hop_count")
+        .or_else(|| arguments.get("hopCount"))
+        .and_then(Value::as_u64)
+        .map(|v| v as u32);
+
+    match (parent_env_hop.or(meta_parent_hop), explicit_hop) {
+        (Some(parent), Some(explicit)) => (parent.saturating_add(1)).max(explicit),
+        (Some(parent), None) => parent.saturating_add(1),
+        (None, Some(explicit)) => explicit,
+        (None, None) => 0,
+    }
+}
+
+pub(crate) fn hop_limit_exceeded_error(event_type: &str, hop_count: u32) -> Value {
+    json!({
+        "isError": true,
+        "error_code": "hop_limit_exceeded",
+        "hopCount": hop_count,
+        "maxHopCount": MAX_HOP_COUNT,
+        "text": format!(
+            "Pulse anti-loop guard rejected event '{}': hopCount {} exceeds maximum {}.",
+            event_type, hop_count, MAX_HOP_COUNT
+        ),
+    })
+}
+
+pub(crate) fn synthesize_timer_rule_args(arguments: &Value) -> Value {
+    let id = str_field(arguments, &["id"])
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string);
+    let name = str_field(arguments, &["name"]).unwrap_or("").to_string();
+    let description = str_field(arguments, &["description"]).map(str::to_string);
+    let eval_mode = str_field(arguments, &["eval_mode", "evalMode"]).unwrap_or("observe");
+    let temporal = arguments.get("temporal").cloned().unwrap_or(Value::Null);
+    let targets = arguments
+        .get("targets")
+        .cloned()
+        .or_else(|| {
+            arguments
+                .get("target")
+                .cloned()
+                .map(|single| json!([single]))
+        })
+        .unwrap_or_else(|| json!([]));
+
+    let source_kind = match temporal.get("kind").and_then(Value::as_str) {
+        Some("cron" | "time_cron") => "time_cron",
+        Some("once" | "time_once") => "time_once",
+        Some("interval" | "time_interval") => "time_interval",
+        Some("inactivity_sla" | "time_sla") => "time_sla",
+        _ => "time_cron",
+    };
+
+    let mut normalized_temporal = temporal;
+    if let Some(obj) = normalized_temporal.as_object_mut()
+        && let Some(kind_str) = obj.get("kind").and_then(Value::as_str)
+    {
+        let canonical = match kind_str {
+            "time_cron" => "cron",
+            "time_once" => "once",
+            "time_interval" => "interval",
+            "time_sla" => "inactivity_sla",
+            other => other,
+        };
+        obj.insert("kind".into(), json!(canonical));
+    }
+
+    let draft_only = bool_field(
+        arguments,
+        &["draft_only", "draftOnly", "propose_only", "proposeOnly"],
+    )
+    .unwrap_or(false);
+
+    let mut synthesized = json!({
+        "enabled": bool_field(arguments, &["enabled"]).unwrap_or(true),
+        "draft_only": draft_only,
+        "spec": {
+            "name": name,
+            "description": description,
+            "evalMode": eval_mode,
+            "orchestrator": "direct_reflex",
+            "filter": {
+                "sourceKinds": [source_kind],
+                "sourceInstanceIds": [],
+                "eventTypes": [],
+                "allowedActors": [],
+                "conditions": [],
+            },
+            "temporal": normalized_temporal,
+            "debounceMs": 0,
+            "claimExclusive": false,
+            "targets": targets,
+        }
+    });
+    if let Some(id) = id
+        && let Some(obj) = synthesized.as_object_mut()
+    {
+        obj.insert("id".into(), json!(id));
+    }
+    synthesized
+}
+
+pub(crate) fn prepare_rule_save(
+    normalized_args: &Value,
+    raw_caller_args: &Value,
+    meta: Option<&Value>,
+    env_mandate_override: Option<&str>,
+) -> Result<PreparedRuleSave, Value> {
+    let raw_spec = normalized_args
+        .get("spec")
+        .cloned()
+        .unwrap_or_else(|| normalized_args.clone());
+    let mut spec = crate::pulse_bridge::normalize_rule_spec_camel_case(&raw_spec);
+
+    let violations = validate_pulse_rule_spec(&spec);
+    if !violations.is_empty() {
+        return Err(json!({
+            "isError": true,
+            "valid": false,
+            "violations": violations,
+            "text": format!("PulseRuleSpec validation failed with {} violation(s).", violations.len()),
+        }));
+    }
+
+    let mandate_origin =
+        resolve_mandate_origin(env_mandate_override, meta, Some(raw_caller_args));
+    let requested_enabled = bool_field(normalized_args, &["enabled"])
+        .or_else(|| bool_field(raw_caller_args, &["enabled"]))
+        .unwrap_or(false);
+    let requested_draft = bool_field(
+        normalized_args,
+        &["draft_only", "draftOnly", "propose_only", "proposeOnly"],
+    )
+    .or_else(|| {
+        bool_field(
+            raw_caller_args,
+            &["draft_only", "draftOnly", "propose_only", "proposeOnly"],
+        )
+    })
+    .unwrap_or(false);
+    let requested_mode = str_field(&spec, &["evalMode", "eval_mode"])
+        .unwrap_or("observe")
+        .to_string();
+
+    // CRITICAL SECURITY INVARIANT (`MandateOrigin` + draft/propose coercion):
+    // When provenance is `untrusted_external` OR `propose_only`/`draft_only` is
+    // requested, coerce `evalMode = "observe"`, `draftOnly = true`, `enabled = false`.
+    let (final_enabled, final_draft_only, final_mode, security_notice) =
+        if mandate_origin == MandateOrigin::UntrustedExternal {
+            (
+                false,
+                true,
+                "observe".to_string(),
+                Some(json!({
+                    "coerced": true,
+                    "code": "untrusted_mandate_draft_coercion",
+                    "mandateOrigin": "untrusted_external",
+                    "requestedEnabled": requested_enabled,
+                    "requestedEvalMode": requested_mode,
+                    "enforcedDraftOnly": true,
+                    "enforcedEnabled": false,
+                    "enforcedEvalMode": "observe",
+                    "message": "Caller MandateOrigin is untrusted_external; rule was coerced to draftOnly=true, enabled=false, evalMode=observe and requires explicit human confirmation.",
+                })),
+            )
+        } else if requested_draft {
+            (false, true, "observe".to_string(), None)
+        } else {
+            (requested_enabled, false, requested_mode, None)
+        };
+
+    if let Some(spec_obj) = spec.as_object_mut() {
+        spec_obj.remove("eval_mode");
+        spec_obj.insert("evalMode".into(), json!(final_mode));
+    }
+
+    let id = str_field(normalized_args, &["id"])
+        .or_else(|| str_field(raw_caller_args, &["id"]))
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string);
+    let webhook_route_id = str_field(
+        normalized_args,
+        &["webhook_route_id", "webhookRouteId"],
+    )
+    .or_else(|| str_field(raw_caller_args, &["webhook_route_id", "webhookRouteId"]))
+    .map(str::trim)
+    .filter(|s| !s.is_empty())
+    .map(str::to_string);
+
+    Ok(PreparedRuleSave {
+        id,
+        enabled: final_enabled,
+        draft_only: final_draft_only,
+        mandate_origin,
+        webhook_route_id,
+        spec,
+        security_notice,
+    })
+}
+
+pub(crate) fn now_iso_placeholder() -> String {
     "2026-11-15T00:00:00Z".to_string()
 }
 
@@ -873,7 +971,7 @@ fn default_builtin_schemas() -> Vec<Value> {
     ]
 }
 
-fn workflow_presets_catalog() -> Value {
+pub(crate) fn workflow_presets_catalog() -> Value {
     json!([
         {
             "kind": "direct_reflex",

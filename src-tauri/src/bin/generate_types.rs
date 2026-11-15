@@ -38,8 +38,9 @@ use agents::{
         ConversationPermissionRequest, ConversationPermissionResponse, ConversationPermissionView,
         ConversationPlanEntry, ConversationPromptSuggestion, ConversationQuestionRequest,
         ConversationQuestionResponse, ConversationRelationKind, ConversationRelationVisibility,
-        ConversationRowOp, ConversationRowOpBatch, ConversationRowPage, ConversationSessionGoal,
-        ConversationSessionModes, ConversationSessionNotice, ConversationSteeringEvent,
+        ConversationRowOp, ConversationRowOpBatch, ConversationRowPage, ConversationRowsSincePage,
+        ConversationSessionGoal, ConversationSessionModes, ConversationSessionNotice,
+        ConversationSteeringDeliveryMode, ConversationSteeringEvent,
         ConversationSummary, ConversationTerminalPatch, ConversationTerminalView,
         ConversationTimeline, ConversationTimelinePage, ConversationTimelineRow,
         ConversationToolCallPatch, ConversationTurnErrorKind, ConversationUsage,
@@ -408,6 +409,7 @@ const DESKTOP_SHELL_COMMANDS: &[&str] = &[
     "set_account_relay_lease",
     "set_host_tunnel_enabled",
     "start_create_host_tunnel",
+    "take_pending_model_router_import",
     "take_tauri_inspector_capture",
     "update_web_service_config",
 ];
@@ -843,6 +845,7 @@ fn replacement_declarations() -> BTreeMap<String, String> {
     insert_declaration::<ConversationChildSummaryView>(&mut decls);
     insert_declaration::<ConversationRelationKind>(&mut decls);
     insert_declaration::<ConversationRelationVisibility>(&mut decls);
+    insert_declaration::<ConversationSteeringDeliveryMode>(&mut decls);
     insert_declaration::<ConversationSteeringEvent>(&mut decls);
     insert_declaration::<ConversationSteeringStatus>(&mut decls);
     insert_declaration::<ConversationSteeringReceipt>(&mut decls);
@@ -890,6 +893,7 @@ fn replacement_declarations() -> BTreeMap<String, String> {
     insert_declaration::<ConversationRowOp>(&mut decls);
     insert_declaration::<ConversationRowOpBatch>(&mut decls);
     insert_declaration::<ConversationRowPage>(&mut decls);
+    insert_declaration::<ConversationRowsSincePage>(&mut decls);
     insert_declaration::<ConversationSessionModes>(&mut decls);
     insert_declaration::<ConversationSessionGoal>(&mut decls);
     insert_declaration::<ConversationPromptSuggestion>(&mut decls);

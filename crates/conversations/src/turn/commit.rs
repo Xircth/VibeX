@@ -17,7 +17,7 @@ use db::models::{
 };
 use deployment::Deployment;
 use git::{Commit, DiffTarget};
-use sqlx::SqlitePool;
+use sqlx::{SqliteConnection, SqlitePool};
 use uuid::Uuid;
 
 use super::{
@@ -25,7 +25,10 @@ use super::{
     collect_registered_before_turn_contributions, ensure_conversation_has_no_in_flight_turn,
     is_in_flight_turn_status, start::agent_blocks_with_display_text,
 };
-use crate::{ConversationEventAppender, ConversationServiceError};
+use crate::{
+    ConversationEventAppender, ConversationServiceError,
+    projection::{BatchConversationEvent, CheckpointMetadataUpdate},
+};
 
 impl ConversationSessionService {
     /// Idle-check, claim consumption, and Turn commit. Caller must hold the
@@ -469,7 +472,7 @@ async fn collect_checkpoint_file_changes<D: Deployment + ?Sized>(
     conversation_id: Uuid,
     checkpoint: &ConversationCheckpointRow,
 ) -> Result<CollectedCheckpointFileChanges, ConversationServiceError> {
-    let pool = &deployment.db().pool;
+    let pool = deployment.db().reader().as_pool();
     let conversation = ConversationRecord::find_by_id(pool, conversation_id)
         .await?
         .ok_or_else(|| {
@@ -577,7 +580,7 @@ pub async fn preview_checkpoint_file_changes<D: Deployment + ?Sized>(
     )
     .bind(conversation_id)
     .bind(ordinal)
-    .fetch_optional(&deployment.db().pool)
+    .fetch_optional(deployment.db().reader().as_pool())
     .await?
     .ok_or_else(|| {
         ConversationServiceError::NotFound(format!(
@@ -595,12 +598,21 @@ pub async fn preview_checkpoint_file_changes<D: Deployment + ?Sized>(
     })
 }
 
-pub async fn finalize_checkpoint_file_changes<D: Deployment + ?Sized>(
+/// Pre-computed git checkpoint diff result produced outside `BEGIN IMMEDIATE`.
+#[derive(Debug, Clone)]
+pub struct PreparedCheckpointFileChanges {
+    pub metadata: CheckpointMetadataUpdate,
+    pub event: Option<(ConversationEvent, BatchConversationEvent)>,
+}
+
+/// Read the checkpoint on `ReadPool` and compute all git worktree diffs outside any SQLite
+/// write transaction so `BEGIN IMMEDIATE` never performs filesystem or `git2` I/O.
+pub async fn prepare_checkpoint_file_changes<D: Deployment + ?Sized>(
     deployment: &D,
     conversation_id: Uuid,
     turn_id: Uuid,
-) -> Result<Option<ConversationEventEnvelope>, ConversationServiceError> {
-    let pool = &deployment.db().pool;
+) -> Result<Option<PreparedCheckpointFileChanges>, ConversationServiceError> {
+    let reader = deployment.db().reader().as_pool();
     let Some(checkpoint) = sqlx::query_as::<_, ConversationCheckpointRow>(
         r#"SELECT id, ordinal, before_snapshot_json
            FROM conversation_checkpoints
@@ -610,7 +622,7 @@ pub async fn finalize_checkpoint_file_changes<D: Deployment + ?Sized>(
     )
     .bind(conversation_id)
     .bind(turn_id)
-    .fetch_optional(pool)
+    .fetch_optional(reader)
     .await?
     else {
         return Ok(None);
@@ -633,21 +645,17 @@ pub async fn finalize_checkpoint_file_changes<D: Deployment + ?Sized>(
         "before": checkpoint.before_snapshot_json,
     }))?;
 
-    sqlx::query(
-        r#"UPDATE conversation_checkpoints
-           SET after_snapshot_json = ?,
-               diff_summary_json = ?,
-               finalized_at = datetime('now', 'subsec')
-           WHERE id = ?"#,
-    )
-    .bind(&after_snapshot_json)
-    .bind(&diff_summary_json)
-    .bind(checkpoint.id)
-    .execute(pool)
-    .await?;
+    let metadata = CheckpointMetadataUpdate {
+        checkpoint_id: checkpoint.id,
+        after_snapshot_json,
+        diff_summary_json: diff_summary_json.clone(),
+    };
 
     if files.is_empty() {
-        return Ok(None);
+        return Ok(Some(PreparedCheckpointFileChanges {
+            metadata,
+            event: None,
+        }));
     }
 
     let event = ConversationEvent::FileChangeSummaryUpdated {
@@ -661,33 +669,75 @@ pub async fn finalize_checkpoint_file_changes<D: Deployment + ?Sized>(
     let event_kind = value["kind"].as_str().unwrap_or("unknown").to_string();
     let normalized_json = serde_json::to_string(&event)?;
     let idempotency_key = format!("checkpoint:{turn_id}:file_changes");
-    let record = ConversationEventAppender::append(
-        pool,
-        AppendConversationEvent {
-            id: Uuid::new_v4(),
-            conversation_id,
-            turn_id: Some(turn_id),
-            binding_id: None,
-            connection_id: None,
-            prompt_id: None,
-            source: "system",
-            event_kind: &event_kind,
-            normalized_json: &normalized_json,
-            raw_json: Some(&diff_summary_json),
-            idempotency_key: Some(&idempotency_key),
-        },
-    )
-    .await?;
+    let batch_event = BatchConversationEvent {
+        id: Uuid::new_v4(),
+        conversation_id,
+        turn_id: Some(turn_id),
+        binding_id: None,
+        connection_id: None,
+        prompt_id: None,
+        source: "system".to_string(),
+        event_kind,
+        normalized_json,
+        raw_json: Some(diff_summary_json),
+        idempotency_key: Some(idempotency_key),
+        checkpoint_update: Some(metadata.clone()),
+    };
 
-    Ok(Some(ConversationEventEnvelope {
-        id: record.id,
-        conversation_id: record.conversation_id,
-        turn_id: record.turn_id,
-        sequence: record.sequence,
-        source: record.source,
-        event,
-        created_at: record.created_at,
+    Ok(Some(PreparedCheckpointFileChanges {
+        metadata,
+        event: Some((event, batch_event)),
     }))
+}
+
+pub async fn commit_checkpoint_metadata_on_connection(
+    conn: &mut SqliteConnection,
+    metadata: &CheckpointMetadataUpdate,
+) -> Result<(), sqlx::Error> {
+    crate::projection::applier_checkpoint_update(conn, metadata).await
+}
+
+pub async fn finalize_checkpoint_file_changes<D: Deployment + ?Sized>(
+    deployment: &D,
+    conversation_id: Uuid,
+    turn_id: Uuid,
+) -> Result<Option<ConversationEventEnvelope>, ConversationServiceError> {
+    let Some(prepared) = prepare_checkpoint_file_changes(deployment, conversation_id, turn_id).await? else {
+        return Ok(None);
+    };
+    let writer = deployment.db().writer().as_pool();
+    match prepared.event {
+        None => {
+            let mut conn = writer.acquire().await?;
+            commit_checkpoint_metadata_on_connection(&mut conn, &prepared.metadata).await?;
+            Ok(None)
+        }
+        Some((event, batch_event)) => {
+            let mut out =
+                ConversationEventAppender::append_batch(writer, &[batch_event]).await?;
+            if let Some((_, error)) = out.failed.pop() {
+                return Err(error.into());
+            }
+            let record = out
+                .committed
+                .pop()
+                .map(|c| c.record)
+                .ok_or_else(|| {
+                    ConversationServiceError::Internal(
+                        "checkpoint append_batch produced no committed event".into(),
+                    )
+                })?;
+            Ok(Some(ConversationEventEnvelope {
+                id: record.id,
+                conversation_id: record.conversation_id,
+                turn_id: record.turn_id,
+                sequence: record.sequence,
+                source: record.source,
+                event,
+                created_at: record.created_at,
+            }))
+        }
+    }
 }
 
 pub(super) async fn record_conversation_checkpoint(

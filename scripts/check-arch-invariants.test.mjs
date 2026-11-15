@@ -9,7 +9,10 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { test } from "node:test";
-import { runAllRules } from "./check-arch-invariants.mjs";
+import {
+  checkExecutorsFreeze,
+  runAllRules,
+} from "./check-arch-invariants.mjs";
 import { checkCatalog } from "./check-arch-catalog.mjs";
 import { checkContract } from "./check-arch-contract.mjs";
 import { checkDbDependencies } from "./check-arch-db-deps.mjs";
@@ -355,4 +358,36 @@ test("runAllRules aggregates results and --json shape stays path-free", () => {
   const text = JSON.stringify(result);
   assert.equal(text.includes(process.cwd()), false);
   assert.equal(text.includes("\"generatedAt\""), false);
+});
+
+test("I5 hits executor spawn regressions and legacy Claude/Codex ACP profile shims", () => {
+  const executorPath = "crates/executors/src/executors/claude.rs";
+  const executorSource = `pub fn spawn() {
+    let _ = std::process::Command::new("claude");
+}`;
+  const actionsPath = "crates/executors/src/actions/mod.rs";
+  const actionsSource = `pub enum ExecutorActionType {
+    ScriptRequest(ScriptRequest),
+    CodingAgentInitialRequest,
+}`;
+  const builtInsPath = "crates/agents/src/profiles/built_ins.rs";
+  const builtInsSource = `pub fn claude() {
+    let _ = "@zed-industries/claude-agent-acp";
+    let _ = "codex-acp";
+}`;
+  const root = fixture({
+    [executorPath]: executorSource,
+    [actionsPath]: actionsSource,
+    [builtInsPath]: builtInsSource,
+  });
+  try {
+    const { violations } = checkExecutorsFreeze({ rootDir: root });
+    assert.equal(violations.length, 4, messages(violations));
+    assert.match(messages(violations), /Command::new/);
+    assert.match(messages(violations), /CodingAgentInitialRequest/);
+    assert.match(messages(violations), /claude-agent-acp/);
+    assert.match(messages(violations), /codex-acp/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
 });

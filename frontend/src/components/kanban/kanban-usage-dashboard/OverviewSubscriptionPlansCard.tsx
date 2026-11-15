@@ -1,26 +1,23 @@
-import { useMemo } from 'react';
 import { ProgressBar } from '@astryxdesign/core/ProgressBar';
-import { useQueries } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { Package } from 'lucide-react';
-import type { AgentManagementView, AgentPlanUsage } from 'shared/types';
+import type { AgentManagementView } from 'shared/types';
 import { AgentManagementIcon } from '@/components/agents/AgentManagementIcon';
-import { agentManagementApi } from '@/features/agent-management';
 
-import {
-  isPlanCapableAgentId,
-  isSignedInSubscription,
-} from '../agentSubscriptionAuth';
 import {
   clampPercent,
   describeReset,
   describeWindowLabel,
   formatPlanType,
 } from '../planUsageFormat';
+import {
+  PLAN_USAGE_STALE_TIME_MS,
+  useActiveSubscriptionPlans,
+} from '../useActiveSubscriptionPlans';
 
 import { UsageCardHeader } from './UsageCards';
 
-export const PLAN_USAGE_STALE_TIME_MS = 180_000;
+export { PLAN_USAGE_STALE_TIME_MS };
 
 export function OverviewSubscriptionPlansCard({
   agents,
@@ -28,59 +25,7 @@ export function OverviewSubscriptionPlansCard({
   agents: AgentManagementView[];
 }) {
   const { t } = useTranslation('tasks');
-  const candidatePlanAgents = useMemo(
-    () =>
-      agents.filter(
-        (agent) =>
-          agent.enabled &&
-          agent.authentication === 'account' &&
-          isPlanCapableAgentId(agent.agent_id)
-      ),
-    [agents]
-  );
-
-  const authQueries = useQueries({
-    queries: candidatePlanAgents.map((agent) => ({
-      queryKey: ['agent-auth-mode', agent.agent_id],
-      queryFn: () => agentManagementApi.authMode(agent.agent_id),
-      staleTime: PLAN_USAGE_STALE_TIME_MS,
-      refetchOnWindowFocus: false,
-    })),
-  });
-
-  const subscribedPlanAgents = useMemo(
-    () =>
-      candidatePlanAgents.filter((agent, index) =>
-        isSignedInSubscription(agent, authQueries[index]?.data)
-      ),
-    [authQueries, candidatePlanAgents]
-  );
-
-  const planQueries = useQueries({
-    queries: subscribedPlanAgents.map((agent) => ({
-      queryKey: ['agent-plan-usage', agent.agent_id],
-      queryFn: () => agentManagementApi.planUsage(agent.agent_id),
-      staleTime: PLAN_USAGE_STALE_TIME_MS,
-      refetchOnWindowFocus: false,
-    })),
-  });
-
-  const activeSubscriptionPlans = useMemo(() => {
-    const items: Array<{
-      agent: AgentManagementView;
-      usage: AgentPlanUsage;
-    }> = [];
-    subscribedPlanAgents.forEach((agent, index) => {
-      const result = planQueries[index]?.data;
-      if (
-        result?.type === 'OK' &&
-        (result.usage.windows.length > 0 || result.usage.credits != null)
-      ) {
-        items.push({ agent, usage: result.usage });
-      }
-    });
-    return items;
-  }, [planQueries, subscribedPlanAgents]);
+  const { activeSubscriptionPlans } = useActiveSubscriptionPlans(agents);
 
   if (activeSubscriptionPlans.length === 0) {
     return null;

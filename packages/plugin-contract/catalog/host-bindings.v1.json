@@ -603,6 +603,16 @@
       "notes": "kv.* and settings.* are live; database.execute / database.query are declared but unimplemented."
     },
     {
+      "name": "storage.kv",
+      "kind": "capability",
+      "port_trait": "—",
+      "port_method": "get|set|delete|list",
+      "implementation": "crates/plugins/src/host_capability_broker.rs:call_plugin_data",
+      "reaches_core": false,
+      "status": "ready",
+      "notes": "v4 granular capability alias for storage kv operations."
+    },
+    {
       "name": "secrets",
       "kind": "capability",
       "port_trait": "—",
@@ -611,6 +621,26 @@
       "reaches_core": false,
       "status": "ready",
       "notes": ""
+    },
+    {
+      "name": "secret",
+      "kind": "capability",
+      "port_trait": "—",
+      "port_method": "get|put|delete",
+      "implementation": "crates/plugins/src/host_capability_broker.rs:call_secrets",
+      "reaches_core": false,
+      "status": "ready",
+      "notes": "v4 capability alias for secrets."
+    },
+    {
+      "name": "secret.keep",
+      "kind": "capability",
+      "port_trait": "—",
+      "port_method": "get|put|delete",
+      "implementation": "crates/plugins/src/host_capability_broker.rs:call_secrets",
+      "reaches_core": false,
+      "status": "ready",
+      "notes": "v4 granular capability alias for secrets."
     },
     {
       "name": "files",
@@ -623,6 +653,36 @@
       "notes": ""
     },
     {
+      "name": "fs",
+      "kind": "capability",
+      "port_trait": "—",
+      "port_method": "read|write|stat|list",
+      "implementation": "crates/plugins/src/host_capability_broker.rs:call_files",
+      "reaches_core": false,
+      "status": "ready",
+      "notes": "v4 capability alias for files."
+    },
+    {
+      "name": "fs.read",
+      "kind": "capability",
+      "port_trait": "—",
+      "port_method": "read|stat|list",
+      "implementation": "crates/plugins/src/host_capability_broker.rs:call_files",
+      "reaches_core": false,
+      "status": "ready",
+      "notes": "v4 granular capability alias for read-only file operations."
+    },
+    {
+      "name": "fs.write",
+      "kind": "capability",
+      "port_trait": "—",
+      "port_method": "write",
+      "implementation": "crates/plugins/src/host_capability_broker.rs:call_files",
+      "reaches_core": false,
+      "status": "ready",
+      "notes": "v4 granular capability alias for write file operations."
+    },
+    {
       "name": "network",
       "kind": "capability",
       "port_trait": "—",
@@ -631,6 +691,56 @@
       "reaches_core": false,
       "status": "ready",
       "notes": ""
+    },
+    {
+      "name": "net",
+      "kind": "capability",
+      "port_trait": "—",
+      "port_method": "fetch",
+      "implementation": "crates/plugins/src/host_capability_broker.rs:execute_network_fetch",
+      "reaches_core": false,
+      "status": "ready",
+      "notes": "v4 capability alias for network."
+    },
+    {
+      "name": "net.fetch",
+      "kind": "capability",
+      "port_trait": "—",
+      "port_method": "fetch",
+      "implementation": "crates/plugins/src/host_capability_broker.rs:execute_network_fetch",
+      "reaches_core": false,
+      "status": "ready",
+      "notes": "v4 granular capability alias for network fetch."
+    },
+    {
+      "name": "net.websocket",
+      "kind": "capability",
+      "port_trait": "—",
+      "port_method": "websocket",
+      "implementation": "crates/plugins/src/host_capability_broker.rs:call_plugin_data",
+      "reaches_core": false,
+      "status": "preview",
+      "notes": "v4 granular capability alias accepted by HostCapabilityBroker::supports()."
+    },
+    {
+      "name": "env",
+      "kind": "capability",
+      "port_trait": "—",
+      "port_method": "read",
+      "implementation": "crates/plugins/src/host_capability_broker.rs:call_plugin_data",
+      "reaches_core": false,
+      "status": "ready",
+      "notes": "v4 environment variable capability routed via call_plugin_data."
+    },
+    {
+      "name": "env.read",
+      "kind": "capability",
+      "port_trait": "—",
+      "port_method": "read",
+      "implementation": "crates/plugins/src/host_capability_broker.rs:call_plugin_data",
+      "reaches_core": false,
+      "status": "ready",
+      "notes": "v4 granular capability alias for environment variable reads."
     },
     {
       "name": "log",

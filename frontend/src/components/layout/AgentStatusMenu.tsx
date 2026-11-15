@@ -1,8 +1,19 @@
-import { useEffect, useId, useMemo, useState } from 'react';
+import { useEffect, useId, useMemo, useRef, useState } from 'react';
+import { ProgressBar } from '@astryxdesign/core/ProgressBar';
 import { useTranslation } from 'react-i18next';
-import type { AgentLifecycleState, AgentManagementView } from 'shared/types';
+import type {
+  AgentLifecycleState,
+  AgentManagementView,
+  AgentPlanUsage,
+} from 'shared/types';
 
 import { AgentManagementIcon } from '@/components/agents/AgentManagementIcon';
+import {
+  buildPlanQuotaRows,
+  clampPercent,
+  describeReset,
+  describeWindowLabel,
+} from '@/components/kanban/planUsageFormat';
 import type { AgentOperationState } from '@/features/agent-management';
 import { isEnabledInstalledAgent } from '@/features/agents/operationalAgent';
 import { AstryxStepper, AstryxStepperItem } from '@/features/basic-guide';
@@ -15,6 +26,8 @@ type AgentStatusMenuProps = {
   defaultAgentId: string | null;
   updatableAgentIds?: ReadonlySet<string>;
   operations?: Record<string, AgentOperationState>;
+  planUsages?: Partial<Record<string, AgentPlanUsage>>;
+  onMenuOpen?: () => void;
   onOpenAgentSettings?: (agentId: string) => void;
 };
 
@@ -43,14 +56,27 @@ export function AgentStatusMenu({
   defaultAgentId,
   updatableAgentIds,
   operations,
+  planUsages,
+  onMenuOpen,
   onOpenAgentSettings,
 }: AgentStatusMenuProps) {
-  const { t } = useTranslation(['statusbar', 'settings']);
+  const { t } = useTranslation(['statusbar', 'settings', 'tasks']);
   const [open, setOpen] = useState(false);
   const [forcedOpen, setForcedOpen] = useState(false);
+  const onMenuOpenRef = useRef(onMenuOpen);
+  onMenuOpenRef.current = onMenuOpen;
+
+  const menuOpen = open || forcedOpen;
+  const openMenu = () => {
+    if (!menuOpen) {
+      onMenuOpenRef.current?.();
+    }
+    setOpen(true);
+  };
 
   useEffect(() => {
     const onForceOpen = () => {
+      onMenuOpenRef.current?.();
       setForcedOpen(true);
       setOpen(true);
     };
@@ -62,7 +88,6 @@ export function AgentStatusMenu({
       );
   }, []);
 
-  const menuOpen = open || forcedOpen;
   const closeMenu = () => {
     setOpen(false);
     setForcedOpen(false);
@@ -101,11 +126,11 @@ export function AgentStatusMenu({
     <div
       className="relative flex h-5 items-center"
       data-basic-guide="agent-status-menu"
-      onMouseEnter={() => setOpen(true)}
+      onMouseEnter={openMenu}
       onMouseLeave={() => {
         if (!forcedOpen) setOpen(false);
       }}
-      onFocusCapture={() => setOpen(true)}
+      onFocusCapture={openMenu}
       onBlurCapture={(event) => {
         if (!event.currentTarget.contains(event.relatedTarget)) closeMenu();
       }}
@@ -122,7 +147,7 @@ export function AgentStatusMenu({
         aria-expanded={menuOpen}
         aria-label={triggerAria}
         className="flex h-5 items-center gap-1 rounded-full border border-border/60 bg-background/50 px-1.5 text-foreground/85 outline-none transition-colors hover:border-border hover:bg-accent/70 hover:text-foreground focus-visible:ring-1 focus-visible:ring-ring"
-        onClick={() => setOpen(true)}
+        onClick={openMenu}
       >
         <span
           aria-hidden="true"
@@ -144,7 +169,7 @@ export function AgentStatusMenu({
 
       {menuOpen && (
         <div className="absolute bottom-full right-0 z-50 pb-1.5">
-          <div className="product-context-menu w-max max-h-[min(24rem,calc(100vh-3rem))] min-w-72 max-w-[min(40rem,calc(100vw-1.5rem))] overflow-y-auto rounded-md border border-border bg-popover p-1 font-sans text-[13px] leading-5 text-popover-foreground shadow-none animate-in fade-in-0 slide-in-from-bottom-1 motion-reduce:animate-none">
+          <div className="product-context-menu w-max max-h-[min(28rem,calc(100vh-3rem))] min-w-72 max-w-[min(42rem,calc(100vw-1.5rem))] overflow-y-auto rounded-md border border-border bg-popover p-1 font-sans text-[13px] leading-5 text-popover-foreground shadow-none animate-in fade-in-0 slide-in-from-bottom-1 motion-reduce:animate-none">
             <div
               id={menuId}
               role="list"
@@ -162,6 +187,9 @@ export function AgentStatusMenu({
                   agent,
                   operations?.[agent.agent_id]
                 );
+                const quotaRows = buildPlanQuotaRows(
+                  planUsages?.[agent.agent_id]
+                );
                 const openSettings = () => {
                   onOpenAgentSettings?.(agent.agent_id);
                   closeMenu();
@@ -171,7 +199,10 @@ export function AgentStatusMenu({
                     key={agent.agent_id}
                     role="listitem"
                     aria-label={agent.display_name}
-                    className="col-span-full grid grid-cols-subgrid min-h-8 items-center gap-x-2 whitespace-nowrap rounded-md px-2 py-1 text-xs"
+                    className={cn(
+                      'col-span-full grid grid-cols-subgrid min-h-8 items-center gap-x-2 whitespace-nowrap rounded-md px-2 py-1 text-xs',
+                      quotaRows.length > 0 && 'gap-y-1 pb-1.5'
+                    )}
                   >
                     <span className="relative flex h-5 w-5 shrink-0 items-center justify-center">
                       <AgentManagementIcon agent={agent} className="h-4 w-4" />
@@ -249,6 +280,130 @@ export function AgentStatusMenu({
                     ) : (
                       <span />
                     )}
+                    {quotaRows.map((quotaRow, rowIndex) => (
+                      <div
+                        key={`quota-row-${rowIndex}`}
+                        data-testid={`agent-status-quota-row-${agent.agent_id}-${rowIndex}`}
+                        className="col-span-5 col-start-2 grid min-w-0 grid-cols-2 items-center gap-x-4 leading-4"
+                      >
+                        {quotaRow.map((item) => {
+                          if (item.kind === 'credits') {
+                            const creditsText = item.credits.unlimited
+                              ? t('usageDashboard.planUsage.creditsUnlimited', {
+                                  ns: 'tasks',
+                                })
+                              : t('usageDashboard.planUsage.creditsBalance', {
+                                  ns: 'tasks',
+                                  balance: item.credits.balance ?? '--',
+                                });
+                            return (
+                              <div
+                                key={item.id}
+                                title={creditsText}
+                                data-testid={`agent-status-quota-item-${agent.agent_id}-${item.id}`}
+                                className="flex min-w-0 items-center text-muted-foreground"
+                              >
+                                <span className="truncate tabular-nums">
+                                  {creditsText}
+                                </span>
+                              </div>
+                            );
+                          }
+
+                          const { window: quotaWindow } = item;
+                          const usedPercent = clampPercent(
+                            quotaWindow.usedPercent
+                          );
+                          const remainingPercent =
+                            usedPercent === null
+                              ? null
+                              : Math.max(0, 100 - usedPercent);
+                          const labelDesc = describeWindowLabel(quotaWindow);
+                          const windowLabel = t(
+                            `usageDashboard.planUsage.${labelDesc.key}`,
+                            labelDesc.count === undefined
+                              ? { ns: 'tasks' }
+                              : { ns: 'tasks', count: labelDesc.count }
+                          );
+                          const reset = describeReset(
+                            quotaWindow.resetsAtMs,
+                            Date.now()
+                          );
+                          const resetLabel =
+                            reset === null
+                              ? null
+                              : reset.kind === 'soon'
+                                ? t('usageDashboard.planUsage.resetsSoon', {
+                                    ns: 'tasks',
+                                  })
+                                : t(
+                                    `usageDashboard.planUsage.${
+                                      reset.kind === 'minutes'
+                                        ? 'resetsInMinutes'
+                                        : reset.kind === 'hours'
+                                          ? 'resetsInHours'
+                                          : 'resetsInDays'
+                                    }`,
+                                    { ns: 'tasks', count: reset.count }
+                                  );
+                          const tooltipText = [
+                            windowLabel,
+                            usedPercent !== null
+                              ? t('usageDashboard.planUsage.used', {
+                                  ns: 'tasks',
+                                  percent: usedPercent,
+                                })
+                              : null,
+                            remainingPercent !== null
+                              ? t('usageDashboard.planUsage.remaining', {
+                                  ns: 'tasks',
+                                  percent: remainingPercent,
+                                })
+                              : null,
+                            resetLabel,
+                          ]
+                            .filter(Boolean)
+                            .join(' · ');
+
+                          return (
+                            <div
+                              key={item.id}
+                              title={tooltipText}
+                              data-testid={`agent-status-quota-item-${agent.agent_id}-${item.id}`}
+                              className="flex min-w-0 items-center justify-between gap-2"
+                            >
+                              <span className="min-w-0 truncate text-muted-foreground">
+                                {windowLabel}
+                              </span>
+                              <span className="flex shrink-0 items-center gap-1.5">
+                                <span className="w-14 shrink-0">
+                                  <ProgressBar
+                                    value={usedPercent ?? 0}
+                                    max={100}
+                                    label={`${agent.display_name} ${windowLabel}`}
+                                    isLabelHidden
+                                    hasValueLabel={false}
+                                    variant={
+                                      usedPercent !== null && usedPercent >= 90
+                                        ? 'error'
+                                        : usedPercent !== null &&
+                                            usedPercent >= 70
+                                          ? 'warning'
+                                          : 'accent'
+                                    }
+                                  />
+                                </span>
+                                <span className="w-8 shrink-0 text-right font-mono tabular-nums text-muted-foreground">
+                                  {usedPercent === null
+                                    ? '--'
+                                    : `${usedPercent}%`}
+                                </span>
+                              </span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    ))}
                   </div>
                 );
               })}

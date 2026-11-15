@@ -264,4 +264,43 @@ describe('MarkdownRichTextEditor', () => {
     unmount();
     hostContainer.remove();
   });
+
+  it('suppresses false-dirty emissions when Lexical canonicalizes CRLF markdown and restores external baseline on undo', () => {
+    richtext.markdownToEditorStateJSON.mockImplementation((md: string) =>
+      JSON.stringify({ markdown: md.replace(/\r\n/g, '\n') })
+    );
+    const onMarkdownChange = vi.fn();
+    render(
+      <MarkdownRichTextEditor
+        markdown={'# Title\r\n\r\nParagraph'}
+        label="readme.md"
+        workspacePath="/workspace"
+        onMarkdownChange={onMarkdownChange}
+        onSave={vi.fn()}
+      />
+    );
+
+    const textbox = screen.getByRole('textbox', { name: 'readme.md' });
+    // Simulate Lexical's initial canonicalization emission (`\n` instead of `\r\n`)
+    fireEvent.change(textbox, {
+      target: { value: '# Title\n\nParagraph' },
+    });
+    expect(onMarkdownChange).not.toHaveBeenCalled();
+
+    // User makes a real edit
+    fireEvent.change(textbox, {
+      target: { value: '# Title\n\nEdited paragraph' },
+    });
+    expect(onMarkdownChange).toHaveBeenLastCalledWith(
+      '# Title\n\nEdited paragraph'
+    );
+
+    // User undoes back to canonicalized baseline -> restores exact external CRLF string
+    fireEvent.change(textbox, {
+      target: { value: '# Title\n\nParagraph' },
+    });
+    expect(onMarkdownChange).toHaveBeenLastCalledWith(
+      '# Title\r\n\r\nParagraph'
+    );
+  });
 });

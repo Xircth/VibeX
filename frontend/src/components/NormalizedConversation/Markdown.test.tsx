@@ -910,6 +910,205 @@ describe('Markdown raw HTML', () => {
 describe('Markdown closed-block LRU cache', () => {
   beforeEach(() => {
     resetMarkdownBlockElementCache();
+    shikiMock.createHighlighter.mockClear();
+    shikiMock.codeToTokensWithThemes.mockClear();
+    shikiMock.loadLanguage.mockClear();
+    mermaidMock.initialize.mockClear();
+    mermaidMock.render.mockClear();
+    mermaidMock.render.mockResolvedValue({
+      svg: '<svg xmlns="http://www.w3.org/2000/svg"><text>Mock diagram</text></svg>',
+    });
+  });
+
+  it('defers Shiki tokenization for unclosed streaming code fences and caches highlighted block once closed', async () => {
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+
+    const { container, rerender } = render(
+      <QueryClientProvider client={queryClient}>
+        <Markdown
+          value={'```typescript\nconst a = 1;'}
+          taskAttemptId="workspace-1"
+          workspacePath="C:/workspace/project"
+          isStreaming={true}
+        />
+      </QueryClientProvider>
+    );
+
+    const firstDeltaBlock = container.querySelector('.conv-md-codeblock');
+    expect(firstDeltaBlock).not.toBeNull();
+    expect(firstDeltaBlock).toHaveAttribute('data-highlight-state', 'deferred');
+    expect(firstDeltaBlock?.querySelector('code')).toHaveTextContent(
+      'const a = 1;'
+    );
+    expect(firstDeltaBlock?.querySelector('.conv-md-token')).toBeNull();
+    expect(shikiMock.codeToTokensWithThemes).not.toHaveBeenCalled();
+    expect(getMarkdownBlockElementCacheStats().entries).toBe(0);
+
+    // Second streaming delta inside the still-unclosed fence
+    rerender(
+      <QueryClientProvider client={queryClient}>
+        <Markdown
+          value={'```typescript\nconst a = 1;\nconst b = 2;'}
+          taskAttemptId="workspace-1"
+          workspacePath="C:/workspace/project"
+          isStreaming={true}
+        />
+      </QueryClientProvider>
+    );
+
+    const secondDeltaBlock = container.querySelector('.conv-md-codeblock');
+    expect(secondDeltaBlock).toHaveAttribute(
+      'data-highlight-state',
+      'deferred'
+    );
+    expect(secondDeltaBlock?.querySelector('code')?.textContent).toBe(
+      'const a = 1;\nconst b = 2;'
+    );
+    expect(secondDeltaBlock?.querySelector('.conv-md-token')).toBeNull();
+    expect(shikiMock.codeToTokensWithThemes).not.toHaveBeenCalled();
+    expect(getMarkdownBlockElementCacheStats().entries).toBe(0);
+
+    // Closing fence arrives and trailing text starts streaming
+    rerender(
+      <QueryClientProvider client={queryClient}>
+        <Markdown
+          value={'```typescript\nconst a = 1;\nconst b = 2;\n```\n\nTrailing text'}
+          taskAttemptId="workspace-1"
+          workspacePath="C:/workspace/project"
+          isStreaming={true}
+        />
+      </QueryClientProvider>
+    );
+
+    const closedBlock = container.querySelector('.conv-md-codeblock');
+    expect(closedBlock).not.toBeNull();
+    expect(closedBlock?.getAttribute('data-highlight-state')).not.toBe(
+      'deferred'
+    );
+    expect(getMarkdownBlockElementCacheStats().entries).toBe(1);
+    expect(getMarkdownBlockElementCacheStats().misses).toBe(1);
+
+    await waitFor(() => {
+      expect(closedBlock).toHaveAttribute(
+        'data-highlight-state',
+        'highlighted'
+      );
+      expect(container.textContent).toContain('Trailing text');
+    });
+    expect(shikiMock.codeToTokensWithThemes).toHaveBeenCalledTimes(1);
+    expect(shikiMock.codeToTokensWithThemes).toHaveBeenCalledWith(
+      'const a = 1;\nconst b = 2;',
+      expect.objectContaining({ lang: 'typescript' })
+    );
+
+    // Subsequent deltas into trailing text reuse the cached closed code block without re-tokenizing
+    rerender(
+      <QueryClientProvider client={queryClient}>
+        <Markdown
+          value={
+            '```typescript\nconst a = 1;\nconst b = 2;\n```\n\nTrailing text continues smoothly'
+          }
+          taskAttemptId="workspace-1"
+          workspacePath="C:/workspace/project"
+          isStreaming={true}
+        />
+      </QueryClientProvider>
+    );
+
+    expect(getMarkdownBlockElementCacheStats().entries).toBe(1);
+    expect(getMarkdownBlockElementCacheStats().hits).toBe(1);
+    expect(shikiMock.codeToTokensWithThemes).toHaveBeenCalledTimes(1);
+    await waitFor(() => {
+      expect(container.textContent).toContain(
+        'Trailing text continues smoothly'
+      );
+    });
+  });
+
+  it('defers Mermaid and Shiki work while streaming an unclosed Mermaid fence and renders SVG once closed', async () => {
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+
+    const { container, rerender } = render(
+      <QueryClientProvider client={queryClient}>
+        <Markdown
+          value={'```mermaid\ngraph TD\nA-->B'}
+          taskAttemptId="workspace-1"
+          workspacePath="C:/workspace/project"
+          isStreaming={true}
+        />
+      </QueryClientProvider>
+    );
+
+    const deferredBlock = container.querySelector('.conv-md-codeblock');
+    expect(deferredBlock).toHaveAttribute('data-highlight-state', 'deferred');
+    expect(mermaidMock.render).not.toHaveBeenCalled();
+    expect(shikiMock.codeToTokensWithThemes).not.toHaveBeenCalled();
+    expect(getMarkdownBlockElementCacheStats().entries).toBe(0);
+
+    rerender(
+      <QueryClientProvider client={queryClient}>
+        <Markdown
+          value={'```mermaid\ngraph TD\nA-->B\n```\n\nDiagram caption'}
+          taskAttemptId="workspace-1"
+          workspacePath="C:/workspace/project"
+          isStreaming={true}
+        />
+      </QueryClientProvider>
+    );
+
+    const diagram = await screen.findByRole('img', { name: /Mermaid/ });
+    expect(diagram.querySelector('svg')).toBeInTheDocument();
+    expect(mermaidMock.render).toHaveBeenCalledTimes(1);
+    expect(shikiMock.codeToTokensWithThemes).not.toHaveBeenCalled();
+    expect(getMarkdownBlockElementCacheStats().entries).toBe(1);
+  });
+
+  it('defers KaTeX compilation while streaming an unclosed latex fence and renders display math once closed', async () => {
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+
+    const { container, rerender } = render(
+      <QueryClientProvider client={queryClient}>
+        <Markdown
+          value={'```latex\n\\frac{1}{2'}
+          taskAttemptId="workspace-1"
+          workspacePath="C:/workspace/project"
+          isStreaming={true}
+        />
+      </QueryClientProvider>
+    );
+
+    const deferredBlock = container.querySelector('.conv-md-codeblock');
+    expect(deferredBlock).toHaveAttribute('data-highlight-state', 'deferred');
+    expect(deferredBlock?.querySelector('code')).toHaveTextContent(
+      '\\frac{1}{2'
+    );
+    expect(container.querySelector('.katex-error')).toBeNull();
+    expect(shikiMock.codeToTokensWithThemes).not.toHaveBeenCalled();
+    expect(getMarkdownBlockElementCacheStats().entries).toBe(0);
+
+    rerender(
+      <QueryClientProvider client={queryClient}>
+        <Markdown
+          value={'```latex\n\\frac{1}{2}\n```\n\nEquation ready'}
+          taskAttemptId="workspace-1"
+          workspacePath="C:/workspace/project"
+          isStreaming={true}
+        />
+      </QueryClientProvider>
+    );
+
+    await waitFor(() => {
+      expect(container.querySelector('.katex-display')).toBeInTheDocument();
+    });
+    expect(container.querySelector('.katex-error')).toBeNull();
+    expect(shikiMock.codeToTokensWithThemes).not.toHaveBeenCalled();
+    expect(getMarkdownBlockElementCacheStats().entries).toBe(1);
   });
 
   it('renders \\[...\\] and \\begin{align}...\\end{align} spanning blank lines as intact KaTeX blocks', async () => {

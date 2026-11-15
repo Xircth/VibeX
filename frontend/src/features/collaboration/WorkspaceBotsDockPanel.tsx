@@ -17,6 +17,7 @@ import './collaboration.css';
 
 const BOTS_DOCK_PICK_KEYS = [
   'activeDirectThreadId',
+  'hasActiveOverlay',
   'hasThread',
   'selected',
   'selectedId',
@@ -25,15 +26,21 @@ const BOTS_DOCK_PICK_KEYS = [
 
 function BotsDockPanelInner() {
   const { openOrFocusPanel } = usePanelActionsContext();
-  const { activeDirectThreadId, hasThread, selected, selectedId, t } =
-    useCollaborationSpacePick(BOTS_DOCK_PICK_KEYS);
+  const {
+    activeDirectThreadId,
+    hasActiveOverlay,
+    hasThread,
+    selected,
+    selectedId,
+    t,
+  } = useCollaborationSpacePick(BOTS_DOCK_PICK_KEYS);
   const previousSelectionRef = useRef<string | null>(null);
 
   const selectionKey =
     activeDirectThreadId || selectedId || (hasThread ? 'thread' : null);
 
   useEffect(() => {
-    if (!selectionKey) return;
+    if (!selectionKey || hasActiveOverlay) return;
     if (previousSelectionRef.current === null) {
       previousSelectionRef.current = selectionKey;
       return;
@@ -44,7 +51,7 @@ function BotsDockPanelInner() {
         selected?.name?.trim() || t('collaborationSpace.title', '协作空间');
       openOrFocusPanel(PANEL_IDS.COLLABORATION_SPACE, title);
     }
-  }, [openOrFocusPanel, selected?.name, selectionKey, t]);
+  }, [hasActiveOverlay, openOrFocusPanel, selected?.name, selectionKey, t]);
 
   return (
     <div

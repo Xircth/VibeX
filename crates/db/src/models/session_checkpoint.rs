@@ -10,6 +10,10 @@ pub struct SessionCheckpoint {
     pub ordinal: i64,
     pub repo_id: Uuid,
     pub before_head_commit: String,
+    #[sqlx(default)]
+    pub git_ref_name: Option<String>,
+    #[sqlx(default)]
+    pub commit_oid: Option<String>,
 }
 
 impl SessionCheckpoint {
@@ -31,16 +35,42 @@ impl SessionCheckpoint {
         repo_id: Uuid,
         before_head_commit: &str,
     ) -> Result<(), sqlx::Error> {
+        Self::insert_with_ref(
+            pool,
+            id,
+            session_id,
+            ordinal,
+            repo_id,
+            before_head_commit,
+            None,
+            None,
+        )
+        .await
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub async fn insert_with_ref(
+        pool: &SqlitePool,
+        id: Uuid,
+        session_id: Uuid,
+        ordinal: i64,
+        repo_id: Uuid,
+        before_head_commit: &str,
+        git_ref_name: Option<&str>,
+        commit_oid: Option<&str>,
+    ) -> Result<(), sqlx::Error> {
         sqlx::query(
             r#"INSERT INTO session_checkpoints
-               (id, session_id, ordinal, repo_id, before_head_commit)
-               VALUES (?, ?, ?, ?, ?)"#,
+               (id, session_id, ordinal, repo_id, before_head_commit, git_ref_name, commit_oid)
+               VALUES (?, ?, ?, ?, ?, ?, ?)"#,
         )
         .bind(id)
         .bind(session_id)
         .bind(ordinal)
         .bind(repo_id)
         .bind(before_head_commit)
+        .bind(git_ref_name)
+        .bind(commit_oid)
         .execute(pool)
         .await?;
         Ok(())
@@ -70,7 +100,7 @@ impl SessionCheckpoint {
         ordinal: i64,
     ) -> Result<Vec<Self>, sqlx::Error> {
         sqlx::query_as::<_, Self>(
-            r#"SELECT id, session_id, ordinal, repo_id, before_head_commit
+            r#"SELECT id, session_id, ordinal, repo_id, before_head_commit, git_ref_name, commit_oid
                FROM session_checkpoints
                WHERE session_id = ? AND ordinal = ?"#,
         )
@@ -130,14 +160,34 @@ mod tests {
                 .unwrap(),
             1
         );
-        SessionCheckpoint::insert(&pool, Uuid::new_v4(), session, 1, repo, "def456")
-            .await
-            .unwrap();
+        SessionCheckpoint::insert_with_ref(
+            &pool,
+            Uuid::new_v4(),
+            session,
+            1,
+            repo,
+            "def456",
+            Some("refs/vibex/checkpoints/test/1"),
+            Some("deadbeef"),
+        )
+        .await
+        .unwrap();
 
         let at_zero = SessionCheckpoint::find_by_ordinal(&pool, session, 0)
             .await
             .unwrap();
         assert_eq!(at_zero.len(), 1);
         assert_eq!(at_zero[0].before_head_commit, "abc123");
+        assert_eq!(at_zero[0].git_ref_name, None);
+
+        let at_one = SessionCheckpoint::find_by_ordinal(&pool, session, 1)
+            .await
+            .unwrap();
+        assert_eq!(at_one.len(), 1);
+        assert_eq!(
+            at_one[0].git_ref_name.as_deref(),
+            Some("refs/vibex/checkpoints/test/1")
+        );
+        assert_eq!(at_one[0].commit_oid.as_deref(), Some("deadbeef"));
     }
 }

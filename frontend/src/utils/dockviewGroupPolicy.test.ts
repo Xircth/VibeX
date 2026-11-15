@@ -119,14 +119,14 @@ describe('dockview group policy', () => {
     expect(isSessionPanelId(PANEL_IDS.FILE_TREE)).toBe(false);
   });
 
-  it('keeps welcome placeholder panels out of editor split targets while allowing A/B/C zone tabs', () => {
+  it('treats welcome and A/B/C zone tabs equally as splittable panels', () => {
     const editorGroup = group('group-editor-1');
     const leftGroup = group(GROUP_IDS.LEFT);
     const rightGroup = group(GROUP_IDS.RIGHT);
 
     expect(
       isSplittableEditorPanel({ id: PANEL_IDS.WELCOME, group: editorGroup })
-    ).toBe(false);
+    ).toBe(true);
     expect(
       isSplittableEditorPanel({ id: 'file:C:/repo/a.ts', group: editorGroup })
     ).toBe(true);
@@ -148,7 +148,7 @@ describe('dockview group policy', () => {
         group: rightGroup,
       })
     ).toBe(true);
-    expect(isPlaceholderPanelId(PANEL_IDS.WELCOME)).toBe(true);
+    expect(isPlaceholderPanelId(PANEL_IDS.WELCOME)).toBe(false);
   });
 
   it('orders editor groups by screen position before id fallback', () => {
@@ -187,5 +187,28 @@ describe('dockview group policy', () => {
         groups: [group(GROUP_IDS.RIGHT), group('group-right-2')],
       })
     ).toBe('group-right-1');
+  });
+
+  it('prioritizes explicit WeakMap role metadata on auto-created or transitioned groups while keeping plain mock compatibility', async () => {
+    const { setDockviewGroupRole } = await import('./dockviewGroupRole');
+
+    const autoSplitSession = group('2', [PANEL_IDS.FILE_TREE]);
+    expect(isLeftGroup(autoSplitSession)).toBe(true);
+
+    setDockviewGroupRole(autoSplitSession, 'session');
+    expect(isSessionGroup(autoSplitSession)).toBe(true);
+    expect(isLeftGroup(autoSplitSession)).toBe(false);
+    expect(isEditorGroup(autoSplitSession)).toBe(false);
+    expect(isBottomGroup(autoSplitSession)).toBe(false);
+
+    // Transitioning the same group reference from session -> editor updates policy immediately
+    setDockviewGroupRole(autoSplitSession, 'editor');
+    expect(isEditorGroup(autoSplitSession)).toBe(true);
+    expect(isSessionGroup(autoSplitSession)).toBe(false);
+
+    const explicitBottom = group('3', [PANEL_IDS.WELCOME]);
+    setDockviewGroupRole(explicitBottom, 'bottom');
+    expect(isBottomGroup(explicitBottom)).toBe(true);
+    expect(isEditorGroup(explicitBottom)).toBe(false);
   });
 });

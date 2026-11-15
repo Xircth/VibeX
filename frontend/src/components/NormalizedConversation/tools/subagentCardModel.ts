@@ -188,6 +188,31 @@ export function peelHostDelegationCall(use: ToolUseBlock): {
   input: Record<string, unknown> | null;
 } {
   const rawInput = inputRecord(use);
+  const wireCanonical = canonicalToolName(use.tool_name);
+  const inputMcpServer = readString(rawInput as JsonValue, [
+    'server',
+    'server_name',
+    'serverName',
+  ]);
+  const inputMcpTool = readString(rawInput as JsonValue, [
+    'tool',
+    'toolName',
+    ...(inputMcpServer || wireCanonical === 'mcptoolcall' ? ['tool_name'] : []),
+  ]);
+  const isMcpWrapper =
+    wireCanonical === 'mcptoolcall' || Boolean(inputMcpServer && inputMcpTool);
+  if (isMcpWrapper && inputMcpTool) {
+    const rawArgs = rawInput?.arguments ?? rawInput?.input;
+    const unwrapped =
+      typeof rawArgs === 'string'
+        ? asObject(parseJson(rawArgs))
+        : asObject(rawArgs);
+    return {
+      name: inputMcpTool,
+      input: unwrapped ?? {},
+    };
+  }
+
   const innerArgs = asObject(rawInput?.arguments);
   const input =
     rawInput &&
@@ -210,7 +235,7 @@ export function peelHostDelegationCall(use: ToolUseBlock): {
   const envelopeName = readString(input as JsonValue, 'tool_name');
   const innerInput = asObject(input?.tool_input);
   const wireIsEnvelope =
-    canonicalToolName(use.tool_name) === 'usetool' ||
+    wireCanonical === 'usetool' ||
     canonicalToolName(vendorName ?? '') === 'usetool' ||
     Boolean(envelopeName && innerInput);
   if (wireIsEnvelope && envelopeName) {
@@ -219,7 +244,7 @@ export function peelHostDelegationCall(use: ToolUseBlock): {
   // ACP may already have peeled `{tool_name, tool_input}` while the wire
   // title is still `use_tool`. Recover the companion tool from inner args.
   if (
-    canonicalToolName(use.tool_name) === 'usetool' ||
+    wireCanonical === 'usetool' ||
     canonicalToolName(vendorName ?? '') === 'usetool'
   ) {
     if (
@@ -380,6 +405,12 @@ function readSubagentTypeFromInput(
   return readString(cursorOneof as JsonValue, 'case');
 }
 
+function collabToolAction(input: Record<string, unknown> | null): string {
+  return canonicalToolName(
+    readString(input as JsonValue, ['tool', 'action']) ?? ''
+  );
+}
+
 export function isNativeSubagentTool(use: ToolUseBlock): boolean {
   if (isHostDelegationTool(use) || isHostDelegationLifecycleTool(use)) {
     return false;
@@ -400,6 +431,12 @@ export function isNativeSubagentTool(use: ToolUseBlock): boolean {
     );
   }
   const name = canonicalToolName(use.tool_name);
+  if (name === 'collabagenttoolcall' || name === 'collabtoolcall') {
+    const action = collabToolAction(input);
+    return (
+      !LIFECYCLE_WAIT_NAMES.has(action) && !LIFECYCLE_CLOSE_NAMES.has(action)
+    );
+  }
   if (LIFECYCLE_WAIT_NAMES.has(name) || LIFECYCLE_CLOSE_NAMES.has(name)) {
     return false;
   }
@@ -454,6 +491,13 @@ export function subagentLifecycleKind(
     }
     return null;
   }
+  const wireName = canonicalToolName(use.tool_name);
+  if (wireName === 'collabagenttoolcall' || wireName === 'collabtoolcall') {
+    const action = collabToolAction(inputRecord(use));
+    if (LIFECYCLE_WAIT_NAMES.has(action)) return 'wait';
+    if (LIFECYCLE_CLOSE_NAMES.has(action)) return 'close';
+    return null;
+  }
   const name = hostCompanionCanonicalName(peelHostDelegationCall(use).name);
   if (LIFECYCLE_WAIT_NAMES.has(name)) {
     return name === 'wait' && collectBindingIds(use, null).length === 0
@@ -498,6 +542,10 @@ export function collectBindingIds(
     pushBindingId(ids, input.agentThreadId);
     pushBindingId(ids, input.thread_id);
     pushBindingId(ids, input.threadId);
+    pushBindingId(ids, input.newThreadId);
+    pushBindingId(ids, input.new_thread_id);
+    pushBindingId(ids, input.receiverThreadIds);
+    pushBindingId(ids, input.receiver_thread_ids);
     pushBindingId(ids, input.agent_ids);
     pushBindingId(ids, input.agentIds);
     pushBindingId(ids, input.thread_ids);
@@ -1117,6 +1165,8 @@ const GENERIC_SUBAGENT_TOOL_NAMES = new Set([
   'spawnagent',
   'subagentlaunch',
   'subagentactivity',
+  'collabagenttoolcall',
+  'collabtoolcall',
   'tool',
 ]);
 
@@ -1152,7 +1202,11 @@ export function resolveSubagentAgentKind(
   if (vendorName === 'spawn_subagent' || name === 'spawnsubagent') {
     return 'grok';
   }
-  if (codexSubagentActivity(use)) {
+  if (
+    codexSubagentActivity(use) ||
+    name === 'collabagenttoolcall' ||
+    name === 'collabtoolcall'
+  ) {
     return 'codex';
   }
   if (
@@ -1193,11 +1247,17 @@ export function buildSubagentCardModel(
     readString(meta as JsonValue, 'codebuddy.ai/subagentType') ??
     codexSubagentName(codexSub?.path) ??
     (normalizeAgentKind(rawAgentType) ? null : rawAgentType);
+  const collabTool =
+    canonicalToolName(use.tool_name) === 'collabagenttoolcall' ||
+    canonicalToolName(use.tool_name) === 'collabtoolcall'
+      ? readString(input as JsonValue, ['tool', 'action'])
+      : null;
   const description =
     readString(input as JsonValue, ['description', 'title', 'name']) ??
     readString(claudeMeta as JsonValue, 'title') ??
     readString(airMeta as JsonValue, 'commandTitle') ??
     meaningfulToolNameDescription(use.tool_name) ??
+    collabTool ??
     null;
   const prompt = readString(input as JsonValue, ['prompt', 'task', 'input']);
   const progress = progressRecord(use, result);

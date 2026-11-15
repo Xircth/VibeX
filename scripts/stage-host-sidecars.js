@@ -87,17 +87,68 @@ function resolveSidecarSource(name, binDir, nativeBinDir, platform = process.pla
   throw new Error(`missing or empty sidecar ${triplePath}`);
 }
 
+function sweepRetiredStagedSidecars(destinationDir, baseFileName) {
+  let entries;
+  try {
+    entries = fs.readdirSync(destinationDir);
+  } catch {
+    return;
+  }
+  const oldPrefix = `${baseFileName}.old-`;
+  const tmpPrefix = `${baseFileName}.tmp-`;
+  for (const entry of entries) {
+    if (entry.startsWith(oldPrefix) || entry.startsWith(tmpPrefix)) {
+      try {
+        fs.unlinkSync(path.join(destinationDir, entry));
+      } catch {
+        // Still mapped on Windows; leave for a later sweep.
+      }
+    }
+  }
+}
+
 function copySidecar(name, sourcePath, destinationDir, triple) {
   if (!isBuiltSidecar(sourcePath)) {
     throw new Error(`missing or empty sidecar ${sourcePath}`);
   }
   const ext = process.platform === "win32" ? ".exe" : "";
   fs.mkdirSync(destinationDir, { recursive: true });
-  const to = path.join(destinationDir, `${name}-${triple}${ext}`);
-  fs.copyFileSync(sourcePath, to);
+  const baseFileName = `${name}-${triple}${ext}`;
+  sweepRetiredStagedSidecars(destinationDir, baseFileName);
+
+  const to = path.join(destinationDir, baseFileName);
+  const tmp = path.join(
+    destinationDir,
+    `${baseFileName}.tmp-${process.pid}-${Date.now()}`
+  );
+  fs.copyFileSync(sourcePath, tmp);
   if (process.platform !== "win32") {
-    fs.chmodSync(to, 0o755);
+    fs.chmodSync(tmp, 0o755);
   }
+
+  try {
+    fs.renameSync(tmp, to);
+  } catch (error) {
+    if (fs.existsSync(to)) {
+      try {
+        fs.renameSync(
+          to,
+          path.join(
+            destinationDir,
+            `${baseFileName}.old-${process.pid}-${Date.now()}`
+          )
+        );
+        fs.renameSync(tmp, to);
+      } catch (retryError) {
+        fs.rmSync(tmp, { force: true });
+        throw retryError;
+      }
+    } else {
+      fs.rmSync(tmp, { force: true });
+      throw error;
+    }
+  }
+
   if (!isBuiltSidecar(to)) {
     throw new Error(`staged sidecar is empty: ${to}`);
   }

@@ -311,7 +311,9 @@ impl CompanionSessionPort for CompanionSessionAdapter {
         response: AgentPermissionResponse,
     ) -> Result<bool, ApplicationError> {
         let decision = match &response {
-            AgentPermissionResponse::Selected { option_id, persist } => {
+            AgentPermissionResponse::Selected {
+                option_id, persist, ..
+            } => {
                 if *persist || option_id == "allow_always" {
                     "allow_always"
                 } else if option_id == "allow_once" || option_id.starts_with("allow") {

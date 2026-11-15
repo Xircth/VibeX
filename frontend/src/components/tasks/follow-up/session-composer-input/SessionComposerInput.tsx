@@ -34,6 +34,10 @@ import {
   insertComposerTextWithUndo,
   replaceComposerValueWithUndo,
 } from '../replaceComposerValueWithUndo';
+import {
+  mayContainStructuredComposerToken,
+  updateQuoteTokenAnnotation,
+} from '../sessionComposerStructuredTokens';
 import type { SessionComposerInputProps } from './sessionComposerTypes';
 import { handleComposerImagePaste } from './sessionComposerFiles';
 import { SessionComposerSurface } from './SessionComposerSurface';
@@ -53,7 +57,7 @@ export function SessionComposerInput({
   value: rawValue,
   disabled = false,
   className,
-  placeholder = '',
+  placeholder,
   promptSuggestion = null,
   onAcceptPromptSuggestion,
   onDismissPromptSuggestion,
@@ -86,6 +90,8 @@ export function SessionComposerInput({
   const composerHandleRef = useRef<ChatComposerInputHandle | null>(null);
   const composerRootRef = useRef<HTMLDivElement | null>(null);
   const lastCompositionEndAtRef = useRef(Number.NEGATIVE_INFINITY);
+  const lastSelfEmittedValueRef = useRef<string | null>(null);
+  const [isComposing, setIsComposing] = useState(false);
   const historyIndexRef = useRef(-1);
   const historyDraftRef = useRef('');
   const localSubmitsRef = useRef<string[]>([]);
@@ -103,6 +109,7 @@ export function SessionComposerInput({
     activeHoverToken,
     cancelHoverHide,
     hideTokenHover,
+    setQuoteEditing,
     handleTokenPointerOver,
     handleTokenPointerOut,
     handleTokenFocus,
@@ -153,10 +160,9 @@ export function SessionComposerInput({
       });
     return [...fromSdk, ...fromHost];
   }, [composerActions, sdkComposerActions]);
-  const atReference = useComposerAtReferencePanel({
-    composerRootRef,
-    composerHandleRef,
-    context: {
+
+  const atReferenceContext = useMemo(
+    () => ({
       sessionId,
       workspaceId,
       repoId,
@@ -165,35 +171,75 @@ export function SessionComposerInput({
       transport,
       spaceMembers,
       actions: mergedComposerActions,
-    },
+    }),
+    [
+      mergedComposerActions,
+      projectId,
+      repoId,
+      repoIds,
+      sessionId,
+      spaceMembers,
+      transport,
+      workspaceId,
+    ]
+  );
+
+  const atReference = useComposerAtReferencePanel({
+    composerRootRef,
+    composerHandleRef,
+    context: atReferenceContext,
     disabled,
     onChange,
   });
 
+  const bareAgentMentions =
+    agentMentions.capability === 'supported'
+      ? agentMentions.candidates
+      : undefined;
+  const hasPotentialTokens = mayContainStructuredComposerToken(value, {
+    bareAgentMentions,
+    spaceMembers,
+  });
+
   const preSyncCaretOffsetRef = useRef<number | null>(null);
   useLayoutEffect(() => {
+    if (
+      isComposing ||
+      !hasPotentialTokens ||
+      lastSelfEmittedValueRef.current === value
+    ) {
+      preSyncCaretOffsetRef.current = null;
+      return;
+    }
     const editor = getSessionComposerEditable(composerRootRef.current);
     preSyncCaretOffsetRef.current =
       editor && document.activeElement === editor
         ? getEditorCaretOffset(editor)
         : null;
-  }, [agentMentions.candidates, agentMentions.capability, spaceMembers, value]);
+  }, [bareAgentMentions, hasPotentialTokens, isComposing, spaceMembers, value]);
 
   useEffect(() => {
+    if (isComposing) return;
     const savedCaretOffset = preSyncCaretOffsetRef.current;
     preSyncCaretOffsetRef.current = null;
-    if (composerRootRef.current) {
-      restoreStructuredTokens(
-        composerRootRef.current,
-        value,
-        agentMentions.capability === 'supported'
-          ? agentMentions.candidates
-          : undefined,
-        savedCaretOffset,
-        spaceMembers
-      );
-    }
-  }, [agentMentions.candidates, agentMentions.capability, spaceMembers, value]);
+    lastSelfEmittedValueRef.current = null;
+    if (!hasPotentialTokens || !composerRootRef.current) return;
+    restoreStructuredTokens(
+      composerRootRef.current,
+      value,
+      bareAgentMentions,
+      savedCaretOffset,
+      spaceMembers
+    );
+  }, [bareAgentMentions, hasPotentialTokens, isComposing, spaceMembers, value]);
+
+  const handleSelfEmittedChange = useCallback(
+    (next: string) => {
+      lastSelfEmittedValueRef.current = next;
+      onChange(next);
+    },
+    [onChange]
+  );
 
   if (replaceValueRef) {
     replaceValueRef.current = (next: string) => {
@@ -423,12 +469,15 @@ export function SessionComposerInput({
     !value && !disabled && !atReference.panel && promptSuggestion?.trim()
       ? promptSuggestion.trim()
       : null;
+  const resolvedPlaceholder =
+    placeholder ??
+    t('composer.placeholder', 'Ask anything. @ files, $ skills, / commands');
   const effectivePlaceholder = activePromptSuggestion
     ? t('conversation:composer.promptSuggestion', {
         suggestion: activePromptSuggestion,
         defaultValue: `${activePromptSuggestion}\u3000Tab 采纳`,
       })
-    : placeholder;
+    : resolvedPlaceholder;
   const tryAcceptPromptSuggestionOnTab = useCallback(
     (event: KeyboardEvent<HTMLElement>): boolean => {
       if (
@@ -468,6 +517,32 @@ export function SessionComposerInput({
     ]
   );
 
+  const handleUpdateQuoteAnnotation = useCallback(
+    (anchor: HTMLElement, targetRaw: string, annotation: string) => {
+      const editor = getSessionComposerEditable(composerRootRef.current);
+      let occurrenceIndex = 0;
+      if (editor) {
+        const matchingChips = Array.from(
+          editor.querySelectorAll<HTMLElement>('[data-astryx-token]')
+        ).filter((chip) => chip.dataset.astryxTokenValue === targetRaw);
+        const foundIndex = matchingChips.indexOf(anchor);
+        if (foundIndex >= 0) {
+          occurrenceIndex = foundIndex;
+        }
+      }
+      const currentValue = composerHandleRef.current?.getValue() ?? value;
+      const nextValue = updateQuoteTokenAnnotation(
+        currentValue,
+        targetRaw,
+        annotation,
+        occurrenceIndex
+      );
+      if (nextValue === currentValue) return;
+      onChange(nextValue);
+    },
+    [onChange, value]
+  );
+
   return (
     <SessionComposerSurface
       dropZoneRef={dropZoneRef}
@@ -483,9 +558,14 @@ export function SessionComposerInput({
       handleTokenBlur={handleTokenBlur}
       composerRootRef={composerRootRef}
       value={value}
+      sessionId={sessionId}
       promptSuggestion={promptSuggestion}
+      hasActivePromptSuggestion={Boolean(activePromptSuggestion)}
+      isComposing={isComposing}
+      onCompositionStateChange={setIsComposing}
       onDismissPromptSuggestion={onDismissPromptSuggestion}
-      onChange={onChange}
+      onChange={handleSelfEmittedChange}
+      onUpdateQuoteAnnotation={handleUpdateQuoteAnnotation}
       atReference={atReference}
       className={className}
       effectivePlaceholder={effectivePlaceholder}
@@ -503,6 +583,7 @@ export function SessionComposerInput({
       quoteTokenTooltipId={quoteTokenTooltipId}
       cancelHoverHide={cancelHoverHide}
       hideTokenHover={hideTokenHover}
+      setQuoteEditing={setQuoteEditing}
     />
   );
 }

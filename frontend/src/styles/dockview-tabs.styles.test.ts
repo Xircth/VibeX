@@ -191,6 +191,9 @@ describe('workspace tab strip chrome', () => {
     const canvasOverlay = declarationsFor(
       '.workspace-stage-host > .kanban-overlay'
     );
+    const creationOverlay = declarationsFor(
+      '.workspace-stage-host > .workspace-stage-creation-overlay'
+    );
     const hiddenUnderlay = declarationsFor(
       ".workspace-stage-host[data-canvas-stage-active='true'] [class*='dockview-theme-ayu'] .dv-groupview:not( :is( [data-left-dock='true'], .dv-header-hidden, #group-left, [id^='group-left-'] ) )"
     );
@@ -199,6 +202,8 @@ describe('workspace tab strip chrome', () => {
     expect(stageGroup['box-shadow']?.value).toBe('none');
     expect(canvasOverlay['box-shadow']?.value).toBe('none');
     expect(canvasOverlay['border-radius']?.value).toBe('14px');
+    expect(creationOverlay['border-radius']?.value).toBe('14px');
+    expect(creationOverlay.overflow?.value).toBe('hidden');
     expect(hiddenUnderlay.visibility?.value).toBe('hidden');
     expect(hiddenUnderlay['pointer-events']?.value).toBe('none');
   });

@@ -51,7 +51,13 @@
     "externalBin": [
       "binaries/vibex-mcp",
       "binaries/vibex-workflow-mcp"
-    ]
+    ],
+    "resources": {
+      "../scripts/claude-native-driver.mjs": "scripts/claude-native-driver.mjs",
+      "../scripts/claude-native-events.mjs": "scripts/claude-native-events.mjs",
+      "../scripts/claude-native-cli.mjs": "scripts/claude-native-cli.mjs",
+      "../scripts/claude-native-models.mjs": "scripts/claude-native-models.mjs"
+    }
   },
   "plugins": {
     "shell": {

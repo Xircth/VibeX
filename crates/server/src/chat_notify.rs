@@ -81,8 +81,25 @@ impl ConversationEventPublisher for ChatDeliveryPublisher {
         notify_conversation_record(record).await;
     }
 
+    async fn publish_batch(&self, records: &[ConversationEventRecord]) {
+        self.inner.publish_batch(records).await;
+        for record in records {
+            notify_conversation_record(record).await;
+        }
+    }
+
     async fn publish_unpersisted(&self, record: &ConversationEventRecord) {
         self.inner.publish_unpersisted(record).await;
+    }
+
+    async fn publish_reset(&self, conversation_id: uuid::Uuid, last_sequence: i64) {
+        self.inner
+            .publish_reset(conversation_id, last_sequence)
+            .await;
+    }
+
+    async fn flush_conversation(&self, conversation_id: uuid::Uuid) {
+        self.inner.flush_conversation(conversation_id).await;
     }
 }
 

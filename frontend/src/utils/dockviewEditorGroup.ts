@@ -9,6 +9,7 @@ import {
   GROUP_IDS,
   MIN_RIGHT_PANEL_WIDTH,
   PANEL_IDS,
+  useLayoutStore,
 } from '@/stores/useLayoutStore';
 import {
   BOTTOM_PANEL_IDS,
@@ -22,7 +23,7 @@ import {
   listRightShellNavGroups,
   listSessionGroups,
 } from '@/utils/dockviewGroupPolicy';
-import { syncDockviewGroupRegistry } from '@/utils/dockviewHelpers';
+import { assignDockviewGroupIdAndRole } from '@/utils/dockviewGroupRole';
 import { gridLocationFromElement } from '@/utils/dockviewEditorSplit';
 import {
   DEFAULT_SESSION_PANEL_WIDTH,
@@ -84,15 +85,54 @@ function isSideColumn(slot: ReturnType<typeof slotOfZone>): boolean {
   return slot !== 'center' && slot !== 'bottom';
 }
 
-interface EditorColumnWidth {
+type ColumnKind = 'shellNav' | 'editor' | 'session' | 'bottom' | 'other';
+
+interface CapturedGroupGeometry {
+  group: DockviewGroup;
   id: string;
   width: number;
-  editor: boolean;
+  kind: ColumnKind;
+  location: number[];
   /** Groups with the same parent path share one split. */
   parentPath: string;
   /** That split assigns width. A vertical stack assigns height instead. */
   sharesWidth: boolean;
   index: number;
+}
+
+interface HorizontalBranchSummary {
+  branchIndex: number;
+  kind: ColumnKind;
+  reps: Array<{ group: DockviewGroup; width: number }>;
+}
+
+function classifyColumnGroup(group: DockviewGroup): ColumnKind {
+  if (isLeftGroup(group)) return 'shellNav';
+  if (isBottomGroup(group)) return 'bottom';
+  if (isSessionGroup(group)) return 'session';
+  if (isEditorGroup(group)) return 'editor';
+  return 'other';
+}
+
+function isZoneBKind(kind: ColumnKind): boolean {
+  return kind === 'editor' || kind === 'session' || kind === 'bottom';
+}
+
+function hasLocationPrefix(
+  location: readonly number[],
+  prefix: readonly number[]
+): boolean {
+  if (location.length < prefix.length) return false;
+  for (let index = 0; index < prefix.length; index += 1) {
+    if (location[index] !== prefix[index]) return false;
+  }
+  return true;
+}
+
+function isLiveVisibleGroup(api: DockviewApi, group: DockviewGroup): boolean {
+  return (
+    api.groups.some((candidate) => candidate === group) && group.api.isVisible
+  );
 }
 
 /**
@@ -104,8 +144,8 @@ function columnSharesWidth(location: readonly number[]): boolean {
   return location.length % 2 === 1;
 }
 
-function captureEditorColumnWidths(api: DockviewApi): EditorColumnWidth[] {
-  const columns: EditorColumnWidth[] = [];
+function captureZoneColumnWidths(api: DockviewApi): CapturedGroupGeometry[] {
+  const columns: CapturedGroupGeometry[] = [];
   for (const group of api.groups) {
     if (!group.api.isVisible || !(group.api.width > 0)) continue;
     let location: number[];
@@ -115,9 +155,11 @@ function captureEditorColumnWidths(api: DockviewApi): EditorColumnWidth[] {
       continue;
     }
     columns.push({
+      group,
       id: group.id,
       width: group.api.width,
-      editor: isEditorGroup(group),
+      kind: classifyColumnGroup(group),
+      location,
       parentPath: location.slice(0, -1).join('.'),
       sharesWidth: columnSharesWidth(location),
       index: location[location.length - 1] ?? 0,
@@ -126,116 +168,316 @@ function captureEditorColumnWidths(api: DockviewApi): EditorColumnWidth[] {
   return columns;
 }
 
-/**
- * Closing the last editor column removes it from [A | B | C]. Dockview then
- * hands B's width to every flexible sibling, which lands on the left dock.
- * Keep the dock and give that width to the session column.
- */
-function assignDismissedEditorWidthToSession(
+function summarizeHorizontalBranches(
   api: DockviewApi,
-  snapshot: readonly EditorColumnWidth[],
-  removed: EditorColumnWidth
-): void {
-  const visible = snapshot
-    .filter(
-      (column) =>
-        column.id !== removed.id &&
-        column.sharesWidth &&
-        column.parentPath === removed.parentPath
-    )
-    .flatMap((column) => {
-      const group = api.getGroup(column.id);
-      return group?.api.isVisible ? [{ column, group }] : [];
-    });
-  const session = visible.find(({ group }) => isSessionGroup(group));
-  if (!session) return;
+  snapshot: readonly CapturedGroupGeometry[],
+  hPrefix: readonly number[],
+  excludedBranch: number,
+  removedGroup: DockviewGroup
+): HorizontalBranchSummary[] {
+  const depth = hPrefix.length;
+  const byBranch = new Map<number, CapturedGroupGeometry[]>();
 
-  settleDockviewGroupWidths(
-    visible.map(({ column, group }) => ({
-      group,
-      width:
-        group.id === session.group.id
-          ? column.width + removed.width
-          : column.width,
-    }))
-  );
+  for (const entry of snapshot) {
+    if (entry.group === removedGroup) continue;
+    if (!isLiveVisibleGroup(api, entry.group)) continue;
+    if (!hasLocationPrefix(entry.location, hPrefix)) continue;
+    if (entry.location.length <= depth) continue;
+    const branchIndex = entry.location[depth]!;
+    if (branchIndex === excludedBranch) continue;
+    const list = byBranch.get(branchIndex) ?? [];
+    list.push(entry);
+    byBranch.set(branchIndex, list);
+  }
+
+  const summaries: HorizontalBranchSummary[] = [];
+  const sortedBranchIndices = [...byBranch.keys()].sort((a, b) => a - b);
+
+  for (const branchIndex of sortedBranchIndices) {
+    const entries = byBranch.get(branchIndex)!;
+    const kind: ColumnKind = entries.some((item) => item.kind === 'shellNav')
+      ? 'shellNav'
+      : entries.some((item) => item.kind === 'editor')
+        ? 'editor'
+        : entries.some((item) => item.kind === 'session')
+          ? 'session'
+          : entries.some((item) => item.kind === 'bottom')
+            ? 'bottom'
+            : 'other';
+
+    const directLeaf = entries.find(
+      (item) => item.location.length === depth + 1
+    );
+    if (directLeaf) {
+      summaries.push({
+        branchIndex,
+        kind,
+        reps: [{ group: directLeaf.group, width: directLeaf.width }],
+      });
+      continue;
+    }
+
+    const preferredRowEntry =
+      entries.find(
+        (item) => item.kind === 'editor' || item.kind === 'session'
+      ) ?? entries[0]!;
+    const vSlot = preferredRowEntry.location[depth + 1]!;
+    const rowEntries = entries.filter(
+      (item) => item.location[depth + 1] === vSlot
+    );
+    const verticalLeaf = rowEntries.find(
+      (item) => item.location.length === depth + 2
+    );
+    const reps = verticalLeaf
+      ? [{ group: verticalLeaf.group, width: verticalLeaf.width }]
+      : rowEntries
+          .filter((item) => item.location.length === depth + 3)
+          .sort((a, b) => a.index - b.index)
+          .map((item) => ({ group: item.group, width: item.width }));
+
+    if (reps.length > 0) {
+      summaries.push({ branchIndex, kind, reps });
+    }
+  }
+
+  return summaries;
 }
 
 /**
  * Dockview gives a removed view's size to every flexible sibling, so closing
- * an editor column in [A | B1 | B2 | C] also resizes A and C. Put that width
- * back and share it equally across the editor columns that remain in the row.
- * With no editor column left, the released width goes to the session.
+ * any Zone B tab bar (editor or session) also resizes Zone A shell-nav columns.
+ * Lock Zone A widths verbatim and distribute the closed column's width across
+ * remaining Zone B columns (preferring same-kind siblings first, then any
+ * remaining Zone B columns).
  */
-function rebalanceEditorColumnsAfterRemoval(
+function rebalanceZoneColumnsAfterRemoval(
   api: DockviewApi,
-  snapshot: readonly EditorColumnWidth[],
-  removedGroupId: string
+  snapshot: readonly CapturedGroupGeometry[],
+  removedGroup: DockviewGroup
 ): void {
-  const removed = snapshot.find((column) => column.id === removedGroupId);
-  if (!removed?.editor || !removed.sharesWidth) return;
-
-  const row = snapshot.filter(
-    (column) =>
-      column.editor &&
-      column.sharesWidth &&
-      column.parentPath === removed.parentPath
+  const removed = snapshot.find(
+    (column) => column.group === removedGroup || column.id === removedGroup.id
   );
-  const survivors = row
-    .filter((column) => column.id !== removedGroupId)
-    .sort((a, b) => a.index - b.index)
-    .flatMap((column) => {
-      const group = api.getGroup(column.id);
-      return group?.api.isVisible ? [group] : [];
-    });
-  if (survivors.length === 0) {
-    assignDismissedEditorWidthToSession(api, snapshot, removed);
+  if (!removed || (removed.kind !== 'editor' && removed.kind !== 'session')) {
     return;
   }
 
-  const total = row.reduce((sum, column) => sum + column.width, 0);
-  const base = Math.floor(total / survivors.length);
-  let remainder = total - base * survivors.length;
-  const targets: Array<{ group: DockviewGroup; width: number }> = [];
-
-  for (const column of snapshot) {
-    if (column.editor || column.id === removedGroupId) continue;
-    if (!column.sharesWidth || column.parentPath !== removed.parentPath) {
+  let hDepth = removed.location.length - 1;
+  while (hDepth >= 0) {
+    if (hDepth % 2 === 1) {
+      const vPrefix = removed.location.slice(0, hDepth);
+      const hasVerticalSurvivor = snapshot.some(
+        (entry) =>
+          entry.group !== removedGroup &&
+          hasLocationPrefix(entry.location, vPrefix) &&
+          isLiveVisibleGroup(api, entry.group)
+      );
+      if (hasVerticalSurvivor) {
+        return;
+      }
+      hDepth -= 1;
       continue;
     }
-    const group = api.getGroup(column.id);
-    if (!group?.api.isVisible) continue;
-    targets.push({ group, width: column.width });
+
+    const hPrefix = removed.location.slice(0, hDepth);
+    const removedBranch = removed.location[hDepth]!;
+    const branchPrefix = [...hPrefix, removedBranch];
+    const hasSameBranchSurvivor = snapshot.some(
+      (entry) =>
+        entry.group !== removedGroup &&
+        hasLocationPrefix(entry.location, branchPrefix) &&
+        isLiveVisibleGroup(api, entry.group)
+    );
+    if (hasSameBranchSurvivor) {
+      return;
+    }
+
+    const branches = summarizeHorizontalBranches(
+      api,
+      snapshot,
+      hPrefix,
+      removedBranch,
+      removedGroup
+    );
+    if (branches.length > 0 || hDepth === 0) {
+      break;
+    }
+    hDepth -= 1;
   }
 
-  for (const group of survivors) {
+  if (hDepth < 0) return;
+
+  const hPrefix = removed.location.slice(0, hDepth);
+  const removedBranch = removed.location[hDepth]!;
+  const branches = summarizeHorizontalBranches(
+    api,
+    snapshot,
+    hPrefix,
+    removedBranch,
+    removedGroup
+  );
+
+  if (hDepth === 0 && !branches.some((branch) => isZoneBKind(branch.kind))) {
+    const snapshotGroups = new Set(snapshot.map((entry) => entry.group));
+    const newlyVisibleZoneBGroups = api.groups.filter(
+      (group) =>
+        group !== removedGroup &&
+        group.api.isVisible &&
+        !snapshotGroups.has(group) &&
+        (isEditorGroup(group) || isSessionGroup(group))
+    );
+    for (const [idx, group] of newlyVisibleZoneBGroups.entries()) {
+      branches.push({
+        branchIndex: 1000 + idx,
+        kind: isSessionGroup(group) ? 'session' : 'editor',
+        reps: [{ group, width: 0 }],
+      });
+    }
+  }
+
+  const sameKindBranches = branches.filter(
+    (branch) => branch.kind === removed.kind
+  );
+  const recipientBranches =
+    sameKindBranches.length > 0
+      ? sameKindBranches
+      : branches.filter((branch) => isZoneBKind(branch.kind));
+
+  if (recipientBranches.length === 0) return;
+
+  const recipientSet = new Set(recipientBranches);
+  const recipientReps = recipientBranches.flatMap((branch) => branch.reps);
+  const totalPoolWidth =
+    removed.width + recipientReps.reduce((sum, rep) => sum + rep.width, 0);
+  const baseShare = Math.floor(totalPoolWidth / recipientReps.length);
+  let remainder = totalPoolWidth - baseShare * recipientReps.length;
+
+  const targets: Array<{ group: DockviewGroup; width: number }> = [];
+  const seenGroups = new Set<DockviewGroup>();
+  const pushTarget = (group: DockviewGroup, width: number) => {
+    if (seenGroups.has(group) || !(width > 0)) return;
+    seenGroups.add(group);
+    targets.push({ group, width });
+  };
+
+  if (hDepth > 0) {
+    const rootBranches = summarizeHorizontalBranches(
+      api,
+      snapshot,
+      [],
+      removed.location[0]!,
+      removedGroup
+    );
+    for (const rootBranch of rootBranches) {
+      for (const rep of rootBranch.reps) {
+        pushTarget(rep.group, rep.width);
+      }
+    }
+  }
+
+  for (const branch of branches) {
+    if (recipientSet.has(branch)) continue;
+    for (const rep of branch.reps) {
+      pushTarget(rep.group, rep.width);
+    }
+  }
+
+  for (const rep of recipientReps) {
     const extra = remainder > 0 ? 1 : 0;
     remainder -= extra;
-    targets.push({ group, width: base + extra });
+    pushTarget(rep.group, baseShare + extra);
   }
 
-  settleDockviewGroupWidths(targets);
+  if (targets.length > 0) {
+    settleDockviewGroupWidths(targets);
+  }
 }
 
 export function installEditorColumnWidthRebalance(
   api: DockviewApi,
   options?: { shouldRebalance?: () => boolean }
 ): { dispose(): void } {
-  let snapshot = captureEditorColumnWidths(api);
-  const layoutDisposable = api.onDidLayoutChange(() => {
-    snapshot = captureEditorColumnWidths(api);
+  let snapshot = captureZoneColumnWidths(api);
+  let refreshQueued = false;
+  let disposed = false;
+  const groupDisposables = new Map<DockviewGroup, Array<{ dispose(): void }>>();
+
+  const scheduleSnapshotRefresh = () => {
+    if (refreshQueued || disposed) return;
+    refreshQueued = true;
+    queueMicrotask(() => {
+      refreshQueued = false;
+      if (disposed) return;
+      const next = captureZoneColumnWidths(api);
+      if (
+        next.length > 0 ||
+        api.groups.every((group) => !group.api.isVisible)
+      ) {
+        snapshot = next;
+      }
+    });
+  };
+
+  const bindGroupListeners = (group: DockviewGroup) => {
+    if (groupDisposables.has(group)) return;
+    const subs: Array<{ dispose(): void }> = [];
+    if (group.api?.onDidDimensionsChange) {
+      subs.push(group.api.onDidDimensionsChange(scheduleSnapshotRefresh));
+    }
+    if (group.api?.onDidVisibilityChange) {
+      subs.push(group.api.onDidVisibilityChange(scheduleSnapshotRefresh));
+    }
+    groupDisposables.set(group, subs);
+  };
+
+  for (const group of api.groups) {
+    bindGroupListeners(group);
+  }
+
+  const addGroupDisposable = api.onDidAddGroup((group) => {
+    bindGroupListeners(group);
+    scheduleSnapshotRefresh();
   });
+
+  const removePanelDisposable = api.onDidRemovePanel(() => {
+    const live = captureZoneColumnWidths(api);
+    if (live.length > 0) {
+      snapshot = live;
+    }
+  });
+
+  const layoutDisposable = api.onDidLayoutChange(() => {
+    const live = captureZoneColumnWidths(api);
+    if (live.length > 0) {
+      snapshot = live;
+    }
+    scheduleSnapshotRefresh();
+  });
+
   const removeDisposable = api.onDidRemoveGroup((group) => {
+    const groupSubs = groupDisposables.get(group);
+    if (groupSubs) {
+      for (const sub of groupSubs) sub.dispose();
+      groupDisposables.delete(group);
+    }
     const shouldRebalance = options?.shouldRebalance?.() ?? true;
     if (shouldRebalance) {
-      rebalanceEditorColumnsAfterRemoval(api, snapshot, group.id);
+      rebalanceZoneColumnsAfterRemoval(api, snapshot, group);
     }
-    snapshot = captureEditorColumnWidths(api);
+    snapshot = captureZoneColumnWidths(api);
   });
+
   return {
     dispose() {
+      disposed = true;
+      addGroupDisposable.dispose();
+      removePanelDisposable.dispose();
       layoutDisposable.dispose();
       removeDisposable.dispose();
+      for (const subs of groupDisposables.values()) {
+        for (const sub of subs) sub.dispose();
+      }
+      groupDisposables.clear();
     },
   };
 }
@@ -265,25 +507,89 @@ export interface SlotColumnSnapshot {
   left?: number;
   right?: number;
   centerVisible: boolean;
+  shellNavWidths?: ReadonlyArray<{ group: DockviewGroup; width: number }>;
+  editorWidths?: ReadonlyArray<{ group: DockviewGroup; width: number }>;
+  sessionWidths?: ReadonlyArray<{ group: DockviewGroup; width: number }>;
+}
+
+function visibleHorizontalEditorRepresentatives(
+  api: DockviewApi
+): DockviewGroup[] {
+  const captured = captureZoneColumnWidths(api);
+  if (captured.length === 0) {
+    return getEditorGroups(api).filter((group) => group.api.isVisible);
+  }
+  const branches = summarizeHorizontalBranches(
+    api,
+    captured,
+    [],
+    -1,
+    {} as DockviewGroup
+  );
+  return branches
+    .filter((branch) => branch.kind === 'editor')
+    .flatMap((branch) => branch.reps.map((rep) => rep.group));
 }
 
 export function snapshotSlotColumnWidths(
   api: DockviewApi,
-  arrangement: LayoutArrangement
+  arrangement: LayoutArrangement,
+  preferredPrimaryDockWidth?: number
 ): SlotColumnSnapshot {
   const left = groupForZone(api, arrangement.left);
   const center = groupForZone(api, arrangement.center);
   const right = groupForZone(api, arrangement.right);
+  const primaryLeftGroup = getLeftGroup(api);
+  const shellNavGroups = [
+    ...listLeftShellNavGroups(api.groups),
+    ...listRightShellNavGroups(api.groups),
+  ];
+  const shellNavWidths = shellNavGroups.flatMap((group) => {
+    if (!group.api.isVisible) return [];
+    const width =
+      group === primaryLeftGroup &&
+      preferredPrimaryDockWidth &&
+      preferredPrimaryDockWidth > 0
+        ? preferredPrimaryDockWidth
+        : group.api.width;
+    return width > 0 ? [{ group, width }] : [];
+  });
+  const editorWidths = visibleHorizontalEditorRepresentatives(api).flatMap(
+    (group) =>
+      group.api.isVisible && group.api.width > 0
+        ? [{ group, width: group.api.width }]
+        : []
+  );
+  const sessionWidths = listSessionGroups(api.groups).flatMap((group) =>
+    group.api.isVisible && group.api.width > 0
+      ? [{ group, width: group.api.width }]
+      : []
+  );
+  const centerIsVisible =
+    arrangement.center === 'workspace'
+      ? editorWidths.length > 0 || !!center?.api.isVisible
+      : arrangement.center === 'session'
+        ? sessionWidths.length > 0 || !!center?.api.isVisible
+        : !!center?.api.isVisible;
   return {
-    left: left?.api.isVisible ? left.api.width : undefined,
+    left:
+      preferredPrimaryDockWidth && preferredPrimaryDockWidth > 0
+        ? preferredPrimaryDockWidth
+        : left?.api.isVisible
+          ? left.api.width
+          : undefined,
     right: right?.api.isVisible ? right.api.width : undefined,
-    centerVisible: !!center?.api.isVisible,
+    centerVisible: centerIsVisible,
+    shellNavWidths,
+    editorWidths,
+    sessionWidths,
   };
 }
 
 /**
- * Left/right leftover goes to the center slot. Center leftover goes to the
- * right slot. Side columns keep the pixel width they had before the change.
+ * Left/right leftover goes to the flexible center slot; when only one non-dock
+ * zone remains visible, it absorbs all non-dock width. All Zone A shell-nav
+ * columns keep their exact pixel widths from before the visibility change.
  */
 export function settleSlotColumnWidths(
   api: DockviewApi,
@@ -291,39 +597,158 @@ export function settleSlotColumnWidths(
   snapshot: SlotColumnSnapshot
 ): void {
   const left = groupForZone(api, arrangement.left);
-  const center = groupForZone(api, arrangement.center);
   const right = groupForZone(api, arrangement.right);
   const targets: Array<{ group: DockviewGroup; width: number }> = [];
+  const seenGroups = new Set<DockviewGroup>();
+  const pushTarget = (group: DockviewGroup, width: number) => {
+    if (seenGroups.has(group) || !group.api.isVisible || !(width > 0)) return;
+    seenGroups.add(group);
+    targets.push({ group, width });
+  };
 
-  if (left?.api.isVisible) {
+  let totalShellNavWidth = 0;
+  if (snapshot.shellNavWidths && snapshot.shellNavWidths.length > 0) {
+    for (const item of snapshot.shellNavWidths) {
+      if (item.group.api.isVisible && item.width > 0) {
+        pushTarget(item.group, item.width);
+        totalShellNavWidth += item.width;
+      }
+    }
+  } else if (arrangement.left === 'dock' && left?.api.isVisible) {
     const width =
       snapshot.left && snapshot.left > 0 ? snapshot.left : left.api.width;
     if (width > 0) {
-      targets.push({ group: left, width });
+      pushTarget(left, width);
+      totalShellNavWidth += width;
     }
-  }
-
-  const centerHidden =
-    snapshot.centerVisible && (!center || !center.api.isVisible);
-  if (centerHidden && right?.api.isVisible) {
-    const dockWidth = left?.api.isVisible
-      ? snapshot.left && snapshot.left > 0
-        ? snapshot.left
-        : left.api.width
-      : 0;
-    targets.push({
-      group: right,
-      width: Math.max(MIN_RIGHT_PANEL_WIDTH, api.width - dockWidth),
-    });
-  } else if (
-    center?.api.isVisible &&
-    right?.api.isVisible &&
-    snapshot.centerVisible
-  ) {
+  } else if (arrangement.right === 'dock' && right?.api.isVisible) {
     const width =
       snapshot.right && snapshot.right > 0 ? snapshot.right : right.api.width;
     if (width > 0) {
-      targets.push({ group: right, width });
+      pushTarget(right, width);
+      totalShellNavWidth += width;
+    }
+  }
+
+  for (const navGroup of [
+    ...listLeftShellNavGroups(api.groups),
+    ...listRightShellNavGroups(api.groups),
+  ]) {
+    if (navGroup.api.isVisible && !seenGroups.has(navGroup)) {
+      const fallbackSlotWidth =
+        arrangement.left === 'dock' && snapshot.left && snapshot.left > 0
+          ? snapshot.left
+          : arrangement.right === 'dock' && snapshot.right && snapshot.right > 0
+            ? snapshot.right
+            : undefined;
+      const width = intendedDockColumnWidth(
+        api.width,
+        navGroup.api.width,
+        fallbackSlotWidth
+      );
+      pushTarget(navGroup, width);
+      totalShellNavWidth += width;
+    }
+  }
+
+  const visibleSessions = listSessionGroups(api.groups).filter(
+    (group) => group.api.isVisible
+  );
+  const visibleEditors = visibleHorizontalEditorRepresentatives(api);
+  const hasVisibleEditor = visibleEditors.length > 0;
+  const hasVisibleSession = visibleSessions.length > 0;
+
+  if (!hasVisibleEditor && hasVisibleSession) {
+    const availableZoneB = Math.max(
+      visibleSessions.length * MIN_RIGHT_PANEL_WIDTH,
+      api.width - totalShellNavWidth
+    );
+    const share = Math.floor(availableZoneB / visibleSessions.length);
+    let remainder = availableZoneB - share * visibleSessions.length;
+    for (const sessionGroup of visibleSessions) {
+      const extra = remainder > 0 ? 1 : 0;
+      remainder -= extra;
+      pushTarget(sessionGroup, Math.max(MIN_RIGHT_PANEL_WIDTH, share + extra));
+    }
+  } else if (hasVisibleEditor && !hasVisibleSession) {
+    const availableZoneB = Math.max(
+      visibleEditors.length * CRUSHED_EDITOR_COLUMN_WIDTH,
+      api.width - totalShellNavWidth
+    );
+    const share = Math.floor(availableZoneB / visibleEditors.length);
+    let remainder = availableZoneB - share * visibleEditors.length;
+    for (const editorGroup of visibleEditors) {
+      const extra = remainder > 0 ? 1 : 0;
+      remainder -= extra;
+      pushTarget(editorGroup, share + extra);
+    }
+  } else if (hasVisibleEditor && hasVisibleSession && snapshot.centerVisible) {
+    const availableZoneB = Math.max(
+      MIN_EDITOR_COLUMN_WIDTH + MIN_RIGHT_PANEL_WIDTH,
+      api.width - totalShellNavWidth
+    );
+    if (arrangement.center === 'session') {
+      if (snapshot.editorWidths && snapshot.editorWidths.length > 0) {
+        for (const item of snapshot.editorWidths) {
+          pushTarget(item.group, item.width);
+        }
+      } else {
+        const fallbackEditorWidth = Math.max(
+          MIN_EDITOR_COLUMN_WIDTH,
+          Math.floor(availableZoneB / 2)
+        );
+        if (arrangement.right === 'workspace' && right?.api.isVisible) {
+          const width =
+            snapshot.right && snapshot.right > 0
+              ? snapshot.right
+              : right.api.width > CRUSHED_EDITOR_COLUMN_WIDTH
+                ? right.api.width
+                : fallbackEditorWidth;
+          pushTarget(right, width);
+        } else if (arrangement.left === 'workspace' && left?.api.isVisible) {
+          const width =
+            snapshot.left && snapshot.left > 0
+              ? snapshot.left
+              : left.api.width > CRUSHED_EDITOR_COLUMN_WIDTH
+                ? left.api.width
+                : fallbackEditorWidth;
+          pushTarget(left, width);
+        }
+      }
+    } else {
+      if (snapshot.sessionWidths && snapshot.sessionWidths.length > 0) {
+        for (const item of snapshot.sessionWidths) {
+          pushTarget(item.group, item.width);
+        }
+      } else {
+        const preferredSessionWidth =
+          useLayoutStore.getState().rightPanelWidth ||
+          DEFAULT_SESSION_PANEL_WIDTH;
+        const fallbackSessionWidth = Math.min(
+          Math.max(MIN_RIGHT_PANEL_WIDTH, preferredSessionWidth),
+          Math.max(
+            MIN_RIGHT_PANEL_WIDTH,
+            availableZoneB - MIN_EDITOR_COLUMN_WIDTH
+          )
+        );
+        if (arrangement.right === 'session' && right?.api.isVisible) {
+          const width =
+            snapshot.right && snapshot.right > 0
+              ? snapshot.right
+              : right.api.width >= MIN_RIGHT_PANEL_WIDTH
+                ? right.api.width
+                : fallbackSessionWidth;
+          pushTarget(right, width);
+        } else if (arrangement.left === 'session' && left?.api.isVisible) {
+          const width =
+            snapshot.left && snapshot.left > 0
+              ? snapshot.left
+              : left.api.width >= MIN_RIGHT_PANEL_WIDTH
+                ? left.api.width
+                : fallbackSessionWidth;
+          pushTarget(left, width);
+        }
+      }
     }
   }
 
@@ -455,6 +880,25 @@ function intendedDockColumnWidth(
   return Math.max(MIN_LEFT_PANEL_WIDTH, currentWidth);
 }
 
+export function preserveLeftDockGroupWidths<T>(
+  api: DockviewApi,
+  run: () => T
+): T {
+  const saved = [
+    ...listLeftShellNavGroups(api.groups),
+    ...listRightShellNavGroups(api.groups),
+  ].flatMap((group) =>
+    group.api.isVisible && group.api.width > 0
+      ? [{ group, width: group.api.width }]
+      : []
+  );
+  const result = run();
+  if (saved.length > 0) {
+    settleDockviewGroupWidths(saved);
+  }
+  return result;
+}
+
 /**
  * Re-apply dock and session column widths so the workspace editor absorbs
  * remaining space. Call after recreating a missing editor group: Dockview
@@ -479,8 +923,10 @@ export function restoreFlexibleEditorColumn(
     return;
   }
 
-  const leftIsSide =
-    !!leftGroup?.api.isVisible && isSideColumn(slotOfZone(arrangement, 'dock'));
+  const dockIsSide = isSideColumn(slotOfZone(arrangement, 'dock'));
+  const leftNavGroups = dockIsSide
+    ? listLeftShellNavGroups(api.groups).filter((group) => group.api.isVisible)
+    : [];
   const rightSessionIsSide =
     !!rightGroup?.api.isVisible &&
     isSideColumn(slotOfZone(arrangement, 'session'));
@@ -488,17 +934,33 @@ export function restoreFlexibleEditorColumn(
     (group) => group.api.isVisible
   );
 
-  if (!leftIsSide && !rightSessionIsSide && rightNavGroups.length === 0) {
+  if (
+    leftNavGroups.length === 0 &&
+    !rightSessionIsSide &&
+    rightNavGroups.length === 0
+  ) {
     return;
   }
 
   const gridWidth = api.width;
-  const nextDockWidth =
-    leftIsSide && leftGroup
-      ? intendedDockColumnWidth(gridWidth, leftGroup.api.width, dockWidth)
-      : 0;
-  const rightNavWidth = rightNavGroups.reduce(
-    (sum, group) => sum + intendedDockColumnWidth(gridWidth, group.api.width),
+  const leftNavTargets = leftNavGroups.map((group) => ({
+    group,
+    width: intendedDockColumnWidth(
+      gridWidth,
+      group.api.width,
+      group === leftGroup ? dockWidth : group.api.width
+    ),
+  }));
+  const nextDockWidth = leftNavTargets.reduce(
+    (sum, item) => sum + item.width,
+    0
+  );
+  const rightNavTargets = rightNavGroups.map((group) => ({
+    group,
+    width: intendedDockColumnWidth(gridWidth, group.api.width, group.api.width),
+  }));
+  const rightNavWidth = rightNavTargets.reduce(
+    (sum, item) => sum + item.width,
     0
   );
   const intendedSession = Math.max(
@@ -525,14 +987,11 @@ export function restoreFlexibleEditorColumn(
   if (rightSessionIsSide && rightGroup) {
     targets.push({ group: rightGroup, width: nextSessionWidth });
   }
-  if (leftIsSide && leftGroup) {
-    targets.push({ group: leftGroup, width: nextDockWidth });
+  for (const item of leftNavTargets) {
+    targets.push(item);
   }
-  for (const rightNavGroup of rightNavGroups) {
-    targets.push({
-      group: rightNavGroup,
-      width: intendedDockColumnWidth(gridWidth, rightNavGroup.api.width),
-    });
+  for (const item of rightNavTargets) {
+    targets.push(item);
   }
 
   settleDockviewGroupWidths(targets);
@@ -565,22 +1024,35 @@ export function revealEditorColumnForTerminal(
 
 /**
  * After the last editor tab closes, keep a hidden editor group as an anchor
- * and give the leftover width to the right-hand column.
+ * and give the leftover width to the remaining Zone B column(s) without
+ * disturbing Zone A widths.
  */
 export function dismissEmptyEditorColumn(
   api: DockviewApi,
   options: EnsureWelcomeEditorGroupOptions
 ): DockviewGroup | undefined {
-  const group = ensureWelcomeEditorGroup(api, options);
+  const preSnapshot = snapshotSlotColumnWidths(
+    api,
+    options.arrangement,
+    options.dockWidth
+  );
+  const group = ensureWelcomeEditorGroupInternal(api, options, false);
   if (group) {
-    setColumnVisible(api, options.arrangement, group, false);
+    if (group.api.isVisible) {
+      group.api.setVisible(false);
+    }
+    settleSlotColumnWidths(api, options.arrangement, {
+      ...preSnapshot,
+      centerVisible: true,
+    });
   }
   return group;
 }
 
-export function ensureWelcomeEditorGroup(
+function ensureWelcomeEditorGroupInternal(
   api: DockviewApi,
-  options: EnsureWelcomeEditorGroupOptions
+  options: EnsureWelcomeEditorGroupOptions,
+  restoreWidth: boolean
 ): DockviewGroup | undefined {
   const editorGroups = getEditorGroups(api);
   if (editorGroups.length > 0) {
@@ -598,7 +1070,7 @@ export function ensureWelcomeEditorGroup(
         inactive: true,
       });
     }
-    if (isEditorColumnCrushed(api)) {
+    if (restoreWidth && isEditorColumnCrushed(api)) {
       restoreFlexibleEditorColumn(
         api,
         options.arrangement,
@@ -611,7 +1083,7 @@ export function ensureWelcomeEditorGroup(
 
   const existingWelcome = api.getPanel(PANEL_IDS.WELCOME);
   if (existingWelcome) {
-    if (isEditorColumnCrushed(api)) {
+    if (restoreWidth && isEditorColumnCrushed(api)) {
       restoreFlexibleEditorColumn(
         api,
         options.arrangement,
@@ -677,13 +1149,26 @@ export function ensureWelcomeEditorGroup(
     inactive: true,
   });
 
-  (welcomePanel.group as { id: string }).id = getNextEditorGroupId(api);
-  syncDockviewGroupRegistry(api);
-  restoreFlexibleEditorColumn(
+  assignDockviewGroupIdAndRole(
     api,
-    options.arrangement,
-    options.sessionWidth,
-    options.dockWidth
+    welcomePanel.group,
+    getNextEditorGroupId(api),
+    'editor'
   );
+  if (restoreWidth) {
+    restoreFlexibleEditorColumn(
+      api,
+      options.arrangement,
+      options.sessionWidth,
+      options.dockWidth
+    );
+  }
   return welcomePanel.group;
+}
+
+export function ensureWelcomeEditorGroup(
+  api: DockviewApi,
+  options: EnsureWelcomeEditorGroupOptions
+): DockviewGroup | undefined {
+  return ensureWelcomeEditorGroupInternal(api, options, true);
 }

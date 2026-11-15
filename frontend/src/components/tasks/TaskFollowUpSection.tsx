@@ -54,14 +54,19 @@ import { useWorktree } from '@/contexts/WorktreeContext';
 import { useParams } from 'react-router-dom';
 
 import { SessionComposerTopbar } from './follow-up/SessionComposerTopbar';
-import { TerminalProfileControls } from './TerminalProfileControls';
 import { ReviewCommentsPreview } from './follow-up/ReviewCommentsPreview';
 import { MessageQueueIndicator } from './follow-up/MessageQueueIndicator';
 import { ActionBar } from './follow-up/ActionBar';
+import {
+  ComposerEngineHandoffModal,
+  useComposerEngineHandoff,
+} from './follow-up/ComposerEngineHandoffControl';
+import { resolveSessionModelDisplayLabel } from './follow-up/SessionSettingsSummary';
 import { ConversationStatusDock } from './follow-up/ConversationStatusDock';
 import { ConversationChildrenSummary } from '@/features/conversation/ConversationChildrenSummary';
 import { AgentQuestionCard } from './follow-up/AgentQuestionCard';
 import { PermissionRequestCard } from '@/components/NormalizedConversation/conversation/PermissionRequestCard';
+import { RateLimitRecoveryBanner } from '@/components/NormalizedConversation/RateLimitRecoveryBanner';
 import { SessionAsyncTaskBar } from '@/components/NormalizedConversation/conversation/SessionAsyncTaskBar';
 import { SessionGoalBar } from '@/components/NormalizedConversation/conversation/SessionGoalBar';
 import {
@@ -100,7 +105,6 @@ import {
 } from './follow-up/sessionComposerConflicts';
 import {
   getComposerSessionId,
-  getComposerSessionLabels,
   getComposerScratchTargetId,
   getComposerTopbarVisibility,
   getComposerWorkspaceId,
@@ -117,13 +121,13 @@ import {
 import {
   executeComposerSteer,
   getQueueSteerChannel,
+  resolveQueuePromoteSteeringTarget,
 } from './follow-up/sessionComposerSteering';
 import { canEnhancePrompt as getCanEnhancePrompt } from './follow-up/sessionComposerPromptEnhancement';
 import { useSessionComposerPromptEnhancement } from './follow-up/useSessionComposerPromptEnhancement';
 import { useSessionComposerContextCompact } from './follow-up/useSessionComposerContextCompact';
 import { useSessionComposerQueue } from './follow-up/useSessionComposerQueue';
 import { useSessionComposerImageUpload } from './follow-up/useSessionComposerImageUpload';
-import { useSessionComposerSessionRename } from './follow-up/useSessionComposerSessionRename';
 import { useSessionComposerSessionCallbacks } from './follow-up/useSessionComposerSessionCallbacks';
 import { useSessionComposerAttemptRefresh } from './follow-up/useSessionComposerAttemptRefresh';
 import { useSessionComposerDraftScratch } from './follow-up/useSessionComposerDraftScratch';
@@ -150,14 +154,15 @@ import { configuredBackendTransport } from '@/lib/backendTransport';
 import { createPluginControlApi } from '@/lib/api/plugins';
 import { deriveWorkspaceRootPath } from '@/components/panels/workspaceRootPath';
 import { useConversationAvailableCommands } from '@/features/conversation/useConversationAvailableCommands';
+import { conversationThreadMaxWidthClass } from '@/components/NormalizedConversation/ConversationTimeline';
+import { useLayoutStore } from '@/stores/useLayoutStore';
 
 interface TaskFollowUpSectionProps {
   taskId?: string | null;
   session?: Session;
   workspace?: Workspace;
   workspaceId?: string;
-  onJumpToPreviousUserMessage?: () => void;
-  showSessionSelector?: boolean;
+  widthMode?: 'bounded' | 'workspace';
   onSessionCreated?: (session: {
     sessionId: string;
     workspaceId: string;
@@ -166,10 +171,9 @@ interface TaskFollowUpSectionProps {
     sessionId: string;
     workspaceId: string;
   }) => void;
-  onCreateSessionRequested?: () => void;
   sessionState: Pick<
     UseWorkspaceSessionsResult,
-    'sessions' | 'selectedSessionId' | 'selectSession' | 'isNewSessionMode'
+    'selectSession' | 'isNewSessionMode'
   >;
 }
 
@@ -178,14 +182,19 @@ export function TaskFollowUpSection({
   session,
   workspace,
   workspaceId: workspaceIdProp,
-  onJumpToPreviousUserMessage,
-  showSessionSelector = true,
+  widthMode = 'bounded',
   onSessionCreated,
   onSessionSelected,
-  onCreateSessionRequested,
   sessionState,
 }: TaskFollowUpSectionProps) {
   const { t } = useTranslation('app');
+  const isEditorAreaVisible = useLayoutStore(
+    (state) => state.isEditorAreaVisible
+  );
+  const composerMaxWidthClass = conversationThreadMaxWidthClass(
+    widthMode,
+    isEditorAreaVisible
+  );
   const { activeWorktreeId } = useWorktree();
   const { workspaceId: routeWorkspaceId } = useParams<{
     workspaceId?: string;
@@ -197,8 +206,7 @@ export function TaskFollowUpSection({
     sessionWorkspaceId: session?.workspace_id,
   });
   const workspaceIdValue = workspaceId ?? undefined;
-  const { sessions, selectedSessionId, selectSession, isNewSessionMode } =
-    sessionState;
+  const { selectSession, isNewSessionMode } = sessionState;
   const isAwaitingNewSessionConfirmation = false;
   const sessionId = getComposerSessionId({
     isNewSessionMode,
@@ -243,12 +251,6 @@ export function TaskFollowUpSection({
   }, [storedPersona]);
   const liveCommands = useConversationAvailableCommands(sessionId);
   const { profiles, config } = useUserSystem();
-  const { selectedSessionLabel, compactSessionLabel } =
-    getComposerSessionLabels({
-      sessions,
-      selectedSessionId,
-      isNewSessionMode,
-    });
 
   const {
     isAttemptRunning,
@@ -285,9 +287,9 @@ export function TaskFollowUpSection({
     tokenUsageInfo,
     sessionModes,
     sessionConfigOptions,
-    conversationPlanEntries,
     conversationTurnInFlight,
     conversationSteeringTurnId,
+    conversationSteeringTarget,
     conversationDeliveryChannel,
     userMessageHistory,
   } = useEntries();
@@ -297,10 +299,11 @@ export function TaskFollowUpSection({
   });
   const steeringTarget = useMemo(
     () =>
-      conversationSteeringTurnId
-        ? { turnId: conversationSteeringTurnId }
-        : null,
-    [conversationSteeringTurnId]
+      conversationSteeringTarget ??
+      (conversationSteeringTurnId
+        ? { turnId: conversationSteeringTurnId, mode: 'native' as const }
+        : null),
+    [conversationSteeringTarget, conversationSteeringTurnId]
   );
   const pluginApi = useMemo(
     () => createPluginControlApi(configuredBackendTransport),
@@ -469,7 +472,8 @@ export function TaskFollowUpSection({
   // Publish the composer's effective profile so the conversation's reset-to-here
   // retry re-sends with the SAME model/variant selection (keeping the create form,
   // input box, and every actual turn — including resend — sourced identically).
-  const { setActiveExecutorProfile } = useActiveExecutorProfile();
+  const { setActiveExecutorProfile, setPendingAgentHandoff } =
+    useActiveExecutorProfile();
   useEffect(() => {
     setActiveExecutorProfile(effectiveExecutorProfile);
   }, [effectiveExecutorProfile, setActiveExecutorProfile]);
@@ -498,7 +502,10 @@ export function TaskFollowUpSection({
   useEffect(() => {
     setSelectedMode(null);
     setSelectedConfigValues({});
-  }, [sessionId, targetExecutor]);
+  }, [sessionId, targetExecutor, resolvedSessionExecutor]);
+  useEffect(() => {
+    setContinuationPolicy('portable');
+  }, [sessionId]);
 
   const { handleAfterSendCleanup } = useSessionComposerDraftHydration({
     scratchId: scratchIdValue,
@@ -518,9 +525,6 @@ export function TaskFollowUpSection({
   const { activeRetryProcessId } = useRetryUi();
   const isRetryActive = !!activeRetryProcessId;
 
-  const { handleRenameSession } = useSessionComposerSessionRename({
-    workspaceId,
-  });
   const [pendingSendOperationId, setPendingSendOperationId] = useState<
     string | null
   >(null);
@@ -528,6 +532,7 @@ export function TaskFollowUpSection({
   const {
     queueMessage,
     cancelQueue,
+    refreshQueueStatus,
     beginEditQueue,
     editingInput,
     moveQueue,
@@ -563,8 +568,16 @@ export function TaskFollowUpSection({
     question: pendingAgentQuestion,
     permissions: pendingPermissions,
     childrenDock,
+    rateLimit: activeRateLimit,
     sessionBindReady,
   } = useConversationStatus();
+  const engineHandoff = useComposerEngineHandoff({
+    sessionId,
+    hasExistingTurns: Boolean(sessionId && entries.length > 0),
+    currentExecutor:
+      effectiveExecutorProfile?.executor ?? resolvedSessionExecutor ?? null,
+    onApplyExecutorProfile: setSelectedExecutorProfile,
+  });
   const autoCreatedNewSessionRef = useRef(false);
   useEffect(() => {
     if (!isNewSessionMode) {
@@ -646,6 +659,56 @@ export function TaskFollowUpSection({
   const displaySessionConfigOptions = useMemo(
     () => visibleSessionConfigOptions(displayControls.sessionConfigOptions),
     [displayControls.sessionConfigOptions]
+  );
+  const fromModelLabel = useMemo(
+    () => resolveSessionModelDisplayLabel(sessionConfigOptions, {}),
+    [sessionConfigOptions]
+  );
+  const toModelLabel = useMemo(
+    () =>
+      resolveSessionModelDisplayLabel(
+        displaySessionConfigOptions,
+        selectedConfigValues
+      ),
+    [displaySessionConfigOptions, selectedConfigValues]
+  );
+  useEffect(() => {
+    if (
+      !isNewSessionMode &&
+      sessionId &&
+      isChangingAgent &&
+      resolvedSessionExecutor &&
+      targetExecutor &&
+      !persona
+    ) {
+      setPendingAgentHandoff({
+        sessionId,
+        fromAgent: resolvedSessionExecutor,
+        toAgent: targetExecutor,
+        fromModelLabel,
+        toModelLabel,
+        continuationPolicy,
+      });
+      return;
+    }
+    setPendingAgentHandoff(null);
+  }, [
+    continuationPolicy,
+    fromModelLabel,
+    isChangingAgent,
+    isNewSessionMode,
+    persona,
+    resolvedSessionExecutor,
+    sessionId,
+    setPendingAgentHandoff,
+    targetExecutor,
+    toModelLabel,
+  ]);
+  useEffect(
+    () => () => {
+      setPendingAgentHandoff(null);
+    },
+    [setPendingAgentHandoff]
   );
   // A live `config_option_update` can replace an effort's choice set after a
   // model change. Keep pending next-turn values aligned with that update, and
@@ -758,6 +821,7 @@ export function TaskFollowUpSection({
   const handleAfterSendWithSessionControlCleanup = useCallback(async () => {
     sentAttachmentsRef.current.forEach(revokeComposerImagePreviewUrl);
     sentAttachmentsRef.current = [];
+    setContinuationPolicy('portable');
     await handleAfterSendCleanup();
   }, [handleAfterSendCleanup]);
   const handleBeforeSend = useCallback(() => {
@@ -827,14 +891,6 @@ export function TaskFollowUpSection({
     () => buildPromptEnhancementContext(entries),
     [entries]
   );
-  const todos = useMemo(
-    () =>
-      conversationPlanEntries.map((entry) => ({
-        ...entry,
-        priority: entry.priority ?? null,
-      })),
-    [conversationPlanEntries]
-  );
   const hasPendingApproval = useMemo(
     () => hasPendingToolApproval(entries),
     [entries]
@@ -871,7 +927,7 @@ export function TaskFollowUpSection({
   const [isSteering, setIsSteering] = useState(false);
   const queueSteerChannel = getQueueSteerChannel({
     isTurnInFlight: conversationTurnInFlight,
-    steeringSupported: Boolean(steeringTarget),
+    steeringSupported: steeringTarget?.mode === 'native',
     currentTurnId: steeringTarget?.turnId ?? null,
     deliveryChannel: conversationDeliveryChannel,
     sessionEnhanceFeedbackOn: Boolean(liveFeedbackOn),
@@ -880,22 +936,33 @@ export function TaskFollowUpSection({
     async (queuedMessage: QueuedMessage) => {
       if (!sessionId || queuedMessage.status !== 'queued') return;
       const followUp = {
-        message: queuedMessage.data.message,
+        message: queuedMessage.data.agentMessage ?? queuedMessage.data.message,
         images: queuedMessage.data.images,
         pluginActions: queuedMessage.data.pluginActions,
       };
+      const promoteTarget = resolveQueuePromoteSteeringTarget({
+        queueSteerChannel,
+        steeringTarget,
+        followUp,
+      });
       setIsSteering(true);
       try {
         await executeComposerSteer({
           sessionId,
           previousDraft: queuedMessage.data.message,
           followUp,
-          steeringTarget:
-            queueSteerChannel === 'native' ? steeringTarget : null,
+          steeringTarget: promoteTarget,
+          promotedInputId: queuedMessage.id,
+          expectedRevision: Number(queuedMessage.revision),
+          allowInterruptRestart: promoteTarget?.mode === 'interrupt_restart',
           steer: (args) => conversationApi.steer(args),
           submitFeedback: (args) => conversationApi.submitFeedback(args),
-          onAfterSuccess: async () => {
-            await cancelQueue(queuedMessage);
+          onAfterSuccess: async (meta) => {
+            if (meta?.consumedPromotedInputAtomically) {
+              await refreshQueueStatus();
+            } else {
+              await cancelQueue(queuedMessage);
+            }
           },
           onRestoreDraft: () => undefined,
           onError: setFollowUpError,
@@ -915,6 +982,7 @@ export function TaskFollowUpSection({
     [
       cancelQueue,
       queueSteerChannel,
+      refreshQueueStatus,
       sessionId,
       setFollowUpError,
       steeringTarget,
@@ -1002,9 +1070,10 @@ export function TaskFollowUpSection({
   const showTopbar = getComposerTopbarVisibility({
     hasTokenUsageInfo: Boolean(tokenUsageInfo),
     hasCodexGoalState: false,
-    showSessionSelector,
-    sessionCount: sessions.length,
-    hasExecutorProfile: Boolean(effectiveExecutorProfile?.executor),
+    showChangedFileSummary,
+    hasExecutorProfile: Boolean(
+      effectiveExecutorProfile?.executor || resolvedSessionExecutor
+    ),
     hasComposerIdentity: Boolean(composerIdentity),
   });
 
@@ -1111,6 +1180,93 @@ export function TaskFollowUpSection({
     refetchAttemptBranch,
   });
 
+  const localMessageRef = useRef(localMessage);
+  localMessageRef.current = localMessage;
+
+  const onSendFollowUpRef = useRef(onSendFollowUp);
+  onSendFollowUpRef.current = onSendFollowUp;
+
+  const handleStableSendFollowUp = useCallback(() => {
+    void onSendFollowUpRef.current();
+  }, []);
+
+  const getLatestDraftValue = useCallback(
+    () => localMessageRef.current ?? '',
+    []
+  );
+
+  const handleStashDraft = useCallback(() => {
+    if (composerReplaceValueRef.current) {
+      composerReplaceValueRef.current('');
+    } else {
+      handleEditorChange('');
+    }
+  }, [handleEditorChange]);
+
+  const handleRestoreDraft = useCallback(
+    (restoredText: string) => {
+      if (composerReplaceValueRef.current) {
+        composerReplaceValueRef.current(restoredText);
+      } else {
+        handleEditorChange(restoredText);
+      }
+    },
+    [handleEditorChange]
+  );
+
+  const handleDismissPromptSuggestion = useCallback(() => {
+    if (sessionId) {
+      clearConversationPromptSuggestion(sessionId);
+    }
+  }, [sessionId]);
+
+  const handleResendLiveFeedback = useCallback(
+    (text?: string) => {
+      setLocalMessage(text ?? '');
+    },
+    [setLocalMessage]
+  );
+
+  const repoIds = useMemo(() => repos.map((repo) => repo.id), [repos]);
+
+  const composerInputContext = useMemo(
+    () => ({
+      workspaceId: workspaceIdValue,
+      workspacePath: composerWorkspacePath,
+      repoId: summaryRepoId ?? undefined,
+      repoIds,
+      executorProfile: effectiveExecutorProfile,
+      sessionId,
+      availableCommands: liveCommands.commands,
+      commandsLoading: liveCommands.loading,
+      transport: configuredBackendTransport,
+    }),
+    [
+      composerWorkspacePath,
+      configuredBackendTransport,
+      effectiveExecutorProfile,
+      liveCommands.commands,
+      liveCommands.loading,
+      repoIds,
+      sessionId,
+      summaryRepoId,
+      workspaceIdValue,
+    ]
+  );
+
+  const continuationConfig = useMemo(
+    () =>
+      sessionId && entries.length > 0 && !persona && !composerIdentity
+        ? {
+            policy: continuationPolicy,
+            onChange: setContinuationPolicy,
+          }
+        : null,
+    [composerIdentity, continuationPolicy, entries.length, persona, sessionId]
+  );
+
+  const hasDraft = Boolean(localMessage?.trim());
+
   if (!workspaceId) return null;
 
   return (
@@ -1123,58 +1279,67 @@ export function TaskFollowUpSection({
       >
         {/* Scrollable content area */}
         <div className="min-h-0 overflow-y-auto px-3">
-          <div className="space-y-2">
-            <div className="space-y-2">
-              <ReviewCommentsPreview reviewMarkdown={reviewMarkdown} />
+          <div className={cn('mx-auto w-full space-y-2', composerMaxWidthClass)}>
+            <ReviewCommentsPreview reviewMarkdown={reviewMarkdown} />
 
-              {branchStatus && (
-                <FollowUpConflictSection
-                  workspaceId={workspaceId}
-                  attemptBranch={attemptBranch}
-                  branchStatus={branchStatus}
-                  enableResolve={conflictActionState.enableResolve}
-                  enableAbort={conflictActionState.enableAbort}
-                  conflictResolutionInstructions={
-                    conflictResolutionInstructions
-                  }
-                />
-              )}
-
-              <SessionGoalBar
-                sessionGoal={storedSessionGoal}
-                fallbackGoal={codexGoalState}
-                sessionBindReady={sessionBindReady}
-                onGoalControl={sessionId ? handleGoalControl : undefined}
-                onSelectGoal={
-                  sessionId
-                    ? () => requestConversationScrollToGoal(sessionId)
-                    : undefined
+            {branchStatus && (
+              <FollowUpConflictSection
+                workspaceId={workspaceId}
+                attemptBranch={attemptBranch}
+                branchStatus={branchStatus}
+                enableResolve={conflictActionState.enableResolve}
+                enableAbort={conflictActionState.enableAbort}
+                conflictResolutionInstructions={
+                  conflictResolutionInstructions
                 }
               />
+            )}
 
-              <SessionAsyncTaskBar
-                tasks={storedAsyncTasks}
-                sessionBindReady={sessionBindReady}
-                onStopTask={sessionId ? handleStopAsyncTask : undefined}
-              />
+            <SessionGoalBar
+              sessionGoal={storedSessionGoal}
+              fallbackGoal={codexGoalState}
+              sessionBindReady={sessionBindReady}
+              onGoalControl={sessionId ? handleGoalControl : undefined}
+              onSelectGoal={
+                sessionId
+                  ? () => requestConversationScrollToGoal(sessionId)
+                  : undefined
+              }
+            />
 
-              <MessageQueueIndicator
-                isQueued={queueIndicatorState.isQueued}
-                queuedMessages={queueIndicatorState.queuedMessages}
-                delayedMessages={queueIndicatorState.delayedMessages}
-                canSteerQueued={Boolean(queueSteerChannel)}
-                steeringQueued={isSteering}
-                onSteerQueuedMessage={handleSteerQueuedMessage}
-                onEditQueuedMessage={handleEditQueuedMessage}
-                onDeleteQueuedMessage={cancelQueue}
-                onMoveQueuedMessage={moveQueue}
-                onDelayQueuedMessage={delayQueue}
+            <SessionAsyncTaskBar
+              tasks={storedAsyncTasks}
+              sessionBindReady={sessionBindReady}
+              onStopTask={sessionId ? handleStopAsyncTask : undefined}
+            />
+
+            <MessageQueueIndicator
+              isQueued={queueIndicatorState.isQueued}
+              queuedMessages={queueIndicatorState.queuedMessages}
+              delayedMessages={queueIndicatorState.delayedMessages}
+              canSteerQueued={Boolean(queueSteerChannel)}
+              steerChannel={queueSteerChannel}
+              steeringQueued={isSteering}
+              onSteerQueuedMessage={handleSteerQueuedMessage}
+              onEditQueuedMessage={handleEditQueuedMessage}
+              onDeleteQueuedMessage={cancelQueue}
+              onMoveQueuedMessage={moveQueue}
+              onDelayQueuedMessage={delayQueue}
+            />
+
+            {activeRateLimit ? (
+              <RateLimitRecoveryBanner
+                conversationId={activeRateLimit.conversationId}
+                rateLimit={activeRateLimit.state}
+                onUpdateAutoResume={activeRateLimit.onUpdateAutoResume}
+                onCancelWait={activeRateLimit.onCancelWait}
               />
-            </div>
+            ) : null}
           </div>
         </div>
 
         <SessionComposerFrame
+          widthClassName={composerMaxWidthClass}
           status={
             <ConversationStatusDock
               notices={conversationStatusNotices}
@@ -1234,39 +1399,17 @@ export function TaskFollowUpSection({
               executorProfile={effectiveExecutorProfile}
               sessionExecutor={resolvedSessionExecutor}
               composerIdentity={composerIdentity}
-              nextAgentControl={
-                <TerminalProfileControls
-                  profiles={profiles}
-                  selectedProfile={effectiveExecutorProfile}
-                  onChange={setSelectedExecutorProfile}
-                  dropdownSide="top"
-                />
-              }
-              continuation={sessionId && !composerIdentity ? {
-                policy: continuationPolicy,
-                onChange: setContinuationPolicy,
-              } : undefined}
               showChangedFileSummary={showChangedFileSummary}
               changedFileCount={fileCount}
               added={added}
               deleted={deleted}
               tokenUsageInfo={tokenUsageInfo}
-              todos={todos}
-              showSessionSelector={showSessionSelector}
-              sessions={sessions}
-              selectedSessionId={selectedSessionId}
-              compactSessionLabel={compactSessionLabel}
-              selectedSessionLabel={selectedSessionLabel}
-              onJumpToPreviousUserMessage={onJumpToPreviousUserMessage}
-              onSelectSession={handleSelectSession}
-              onStartNewSession={() => onCreateSessionRequested?.()}
-              onRenameSession={handleRenameSession}
             />
           )}
           <LiveFeedbackNotes
             notes={liveFeedbackNotes}
             conversationId={sessionId}
-            onResend={(text) => setLocalMessage(text ?? '')}
+            onResend={handleResendLiveFeedback}
           />
           <AgentMentionProvider
             transport={configuredBackendTransport}
@@ -1285,23 +1428,9 @@ export function TaskFollowUpSection({
                   ? storedPromptSuggestion
                   : null
               }
-              onDismissPromptSuggestion={() => {
-                if (sessionId) {
-                  clearConversationPromptSuggestion(sessionId);
-                }
-              }}
+              onDismissPromptSuggestion={handleDismissPromptSuggestion}
               messageHistory={userMessageHistory}
-              context={{
-                workspaceId: workspaceIdValue,
-                workspacePath: composerWorkspacePath,
-                repoId: summaryRepoId ?? undefined,
-                repoIds: repos.map((repo) => repo.id),
-                executorProfile: effectiveExecutorProfile,
-                sessionId,
-                availableCommands: liveCommands.commands,
-                commandsLoading: liveCommands.loading,
-                transport: configuredBackendTransport,
-              }}
+              context={composerInputContext}
               onSubmit={handleComposerSubmit}
               onAttachImages={handleAttachImages}
             />
@@ -1310,14 +1439,16 @@ export function TaskFollowUpSection({
           <ActionBar
             profiles={profiles}
             effectiveExecutorProfile={effectiveExecutorProfile}
-            onChangeExecutorProfile={setSelectedExecutorProfile}
-            showProfileControls={true}
+            onChangeExecutorProfile={engineHandoff.handleChangeExecutorProfile}
+            showProfileControls={!persona && !composerIdentity}
             sessionModes={displaySessionModes}
             selectedMode={selectedMode}
             onSelectMode={handleSelectMode}
             sessionConfigOptions={displaySessionConfigOptions}
             selectedConfigValues={selectedConfigValues}
             onSelectConfigOption={handleSelectConfigOption}
+            sessionControlsLoading={catalogQuery.isLoading}
+            continuation={continuationConfig}
             persona={persona}
             isEditable={isEditable}
             isAttemptRunning={isComposerExecutionRunning}
@@ -1334,15 +1465,23 @@ export function TaskFollowUpSection({
             isEnhancingPrompt={isEnhancingPrompt}
             canEnhancePrompt={canEnhancePrompt}
             conflictResolutionInstructions={conflictResolutionInstructions}
-            comments={comments}
+            hasComments={comments.length > 0}
+            sendShortcut={config?.send_message_shortcut ?? 'Enter'}
             onCompactContext={handleCompactContext}
             onStopExecution={stopExecution}
-            onSendFollowUp={onSendFollowUp}
+            onSendFollowUp={handleStableSendFollowUp}
             onEnhancePrompt={handleEnhancePrompt}
             onClearComments={clearComments}
             onAttachImages={handleAttachImages}
+            stashScopeId={workspaceIdValue ?? sessionId ?? 'global'}
+            hasDraft={hasDraft}
+            getDraftValue={getLatestDraftValue}
+            attachmentCount={attachedImages.length}
+            onStashDraft={handleStashDraft}
+            onRestoreDraft={handleRestoreDraft}
           />
         </SessionComposerFrame>
+        <ComposerEngineHandoffModal controller={engineHandoff} />
       </div>
     </TooltipProvider>
   );

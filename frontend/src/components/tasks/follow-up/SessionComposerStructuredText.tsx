@@ -29,10 +29,12 @@ import {
   MemberBotAvatar,
   deriveMemberBotAvatar,
 } from '@/features/collaboration/MemberBotAvatar';
+import { requestConversationScrollToQuote } from '@/lib/conversationScroll';
 import { cn } from '@/lib/utils';
 import { QuoteTokenPreview } from './QuoteTokenPreview';
 import {
   atReferenceChipLabel,
+  hasQuoteSourceAnchor,
   type SessionComposerStructuredToken,
   type SessionComposerStructuredTokenKind,
   type SessionComposerStructuredTokenSegment,
@@ -309,6 +311,7 @@ export function SessionComposerTokenChip({
   const hideTimerRef = useRef<number | null>(null);
   const [quotePreviewOpen, setQuotePreviewOpen] = useState(false);
   const isQuote = token.kind === 'quote';
+  const canJumpToQuoteSource = isQuote && hasQuoteSourceAnchor(token.quote);
   const showsPreview = isQuote || token.kind === 'element';
   const isMentionAll =
     token.kind === 'member_mention' && Boolean(token.mentionAll);
@@ -316,6 +319,14 @@ export function SessionComposerTokenChip({
     token.kind === 'member_mention' && !isMentionAll
       ? (token.memberAvatar ?? deriveMemberBotAvatar(token.value))
       : null;
+
+  const handleJumpToQuoteSource = () => {
+    if (!canJumpToQuoteSource || !token.quote) return;
+    requestConversationScrollToQuote({
+      ...token.quote,
+      snippet: token.value,
+    });
+  };
 
   const showQuotePreview = () => {
     if (hideTimerRef.current != null) {
@@ -342,7 +353,7 @@ export function SessionComposerTokenChip({
         ref={chipRef}
         className={getSessionComposerTokenChipClassName(
           token,
-          elementProps.className
+          cn(canJumpToQuoteSource && 'cursor-pointer', elementProps.className)
         )}
         data-testid="session-composer-token-chip"
         data-token-kind={token.kind}
@@ -378,6 +389,12 @@ export function SessionComposerTokenChip({
             ? elementProps.onMouseDown
             : (event) => event.preventDefault()
         }
+        onClick={(event) => {
+          elementProps.onClick?.(event);
+          if (!event.defaultPrevented && canJumpToQuoteSource) {
+            handleJumpToQuoteSource();
+          }
+        }}
         onPointerEnter={showsPreview ? showQuotePreview : undefined}
         onPointerLeave={showsPreview ? hideQuotePreview : undefined}
         onFocus={showsPreview ? showQuotePreview : undefined}
@@ -410,6 +427,10 @@ export function SessionComposerTokenChip({
         <QuoteTokenPreview
           anchor={chipRef.current}
           text={isQuote ? token.value : token.label}
+          quoteMeta={isQuote ? token.quote : undefined}
+          onJumpToSource={
+            canJumpToQuoteSource ? handleJumpToQuoteSource : undefined
+          }
           onPointerEnter={showQuotePreview}
           onPointerLeave={hideQuotePreview}
         />

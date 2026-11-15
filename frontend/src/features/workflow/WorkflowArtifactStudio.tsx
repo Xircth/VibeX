@@ -57,7 +57,13 @@ function releaseVersion(version: bigint | null | undefined) {
  * inspector, native Agent controls, run projection, and conversation surface
  * stay in WorkflowStudio; the plugin contributes only the file type and MCP.
  */
-export function WorkflowArtifactStudio({ filePath }: { filePath: string }) {
+export function WorkflowArtifactStudio({
+  filePath,
+  onDirtyChange,
+}: {
+  filePath: string;
+  onDirtyChange?: (dirty: boolean) => void;
+}) {
   const { t } = useTranslation('workflow');
   const { workspaceId } = useParams<{ workspaceId?: string }>();
   const transport = useBackendTransport();
@@ -324,6 +330,27 @@ export function WorkflowArtifactStudio({ filePath }: { filePath: string }) {
     ]
   );
 
+  const dirty = useMemo(
+    () =>
+      Boolean(
+        definition &&
+          savedDefinition &&
+          serializeDefinition(definition) !==
+            serializeDefinition(savedDefinition)
+      ),
+    [definition, savedDefinition]
+  );
+
+  useEffect(() => {
+    onDirtyChange?.(dirty);
+  }, [dirty, onDirtyChange]);
+
+  useEffect(() => {
+    return () => {
+      onDirtyChange?.(false);
+    };
+  }, [onDirtyChange]);
+
   if (loadError) {
     return (
       <div className="flex h-full items-center justify-center bg-background p-6 text-sm text-destructive">
@@ -338,9 +365,6 @@ export function WorkflowArtifactStudio({ filePath }: { filePath: string }) {
       </div>
     );
   }
-
-  const dirty =
-    serializeDefinition(definition) !== serializeDefinition(savedDefinition);
 
   return (
     <WorkflowStudio

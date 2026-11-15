@@ -13,6 +13,7 @@ import type {
   ConversationQuestionRequest,
   ConversationSessionNotice,
 } from 'shared/types';
+import type { RateLimitIndicatorState } from '@/components/NormalizedConversation/RateLimitRecoveryBanner';
 
 export type ConversationStatusNotice =
   | {
@@ -21,6 +22,7 @@ export type ConversationStatusNotice =
       error: ConversationError;
       onReload?: () => void | Promise<unknown>;
       onRebind?: () => void | Promise<unknown>;
+      onRetry?: () => void | Promise<unknown>;
     }
   | {
       id: string;
@@ -55,6 +57,17 @@ export type ConversationChildrenDock = {
   onOpenChild?: (conversationId: string, workspaceId?: string) => void;
 };
 
+export type ActiveConversationRateLimit = {
+  conversationId: string;
+  state: RateLimitIndicatorState;
+  onUpdateAutoResume: (params: {
+    conversationId: string;
+    autoResume: boolean;
+    continuationPrompt: string;
+  }) => Promise<void> | void;
+  onCancelWait: (conversationId: string) => Promise<void> | void;
+};
+
 type ConversationStatusContextValue = {
   enabled: boolean;
   notices: ConversationStatusNotice[];
@@ -67,6 +80,8 @@ type ConversationStatusContextValue = {
   setPermissions: (permissions: PendingConversationPermission[]) => void;
   childrenDock: ConversationChildrenDock | null;
   setChildrenDock: (dock: ConversationChildrenDock | null) => void;
+  rateLimit: ActiveConversationRateLimit | null;
+  setRateLimit: (rateLimit: ActiveConversationRateLimit | null) => void;
 };
 
 const ConversationStatusContext =
@@ -89,6 +104,8 @@ export function ConversationStatusProvider({
   >([]);
   const [childrenDock, setChildrenDock] =
     useState<ConversationChildrenDock | null>(null);
+  const [rateLimit, setRateLimit] =
+    useState<ActiveConversationRateLimit | null>(null);
   const value = useMemo(
     () => ({
       enabled,
@@ -102,8 +119,18 @@ export function ConversationStatusProvider({
       setPermissions,
       childrenDock,
       setChildrenDock,
+      rateLimit,
+      setRateLimit,
     }),
-    [childrenDock, enabled, notices, permissions, question, sessionBindReady]
+    [
+      childrenDock,
+      enabled,
+      notices,
+      permissions,
+      question,
+      rateLimit,
+      sessionBindReady,
+    ]
   );
 
   return (

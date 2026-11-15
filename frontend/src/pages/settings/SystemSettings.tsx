@@ -41,6 +41,7 @@ import { SETTINGS_CHANGED_EVENT } from '@/lib/frontendPreferences';
 import { useLocalDesktopHost } from '@/lib/desktopShell';
 
 import { SettingsSection } from './SettingsUi';
+import { DatabaseHealthSection } from './DatabaseHealthSection';
 import { useLiveSettingsCommit } from './useLiveSettingsCommit';
 import { AppUpdaterSection } from '@/components/settings/AppUpdaterSection';
 import { SurfaceLoading } from '@/components/layout/SurfaceLoading';
@@ -939,6 +940,8 @@ export function SystemSettings() {
             </SettingsSection>
           </>
         ) : null}
+
+        <DatabaseHealthSection />
 
         <SettingsSection icon={Trash2} title={t('system.clearLocalDataTitle')}>
           <div className="flex items-center justify-between gap-4">

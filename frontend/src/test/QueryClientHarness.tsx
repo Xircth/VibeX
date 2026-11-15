@@ -15,9 +15,14 @@ export function renderWithQueryClient(ui: ReactElement) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
-  return render(ui, {
-    wrapper: ({ children }) => (
-      <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
-    ),
-  });
+  return {
+    ...render(ui, {
+      wrapper: ({ children }) => (
+        <QueryClientProvider client={queryClient}>
+          {children}
+        </QueryClientProvider>
+      ),
+    }),
+    queryClient,
+  };
 }

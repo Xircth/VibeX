@@ -34,6 +34,27 @@ impl ConversationSessionService {
         conversation_id: Uuid,
         reason: Option<String>,
     ) -> Result<(), ConversationServiceError> {
+        self.cancel_turn_inner(conversation_id, reason, None, true)
+            .await
+    }
+
+    pub(super) async fn cancel_specific_turn(
+        &self,
+        conversation_id: Uuid,
+        expected_turn_id: Uuid,
+        reason: Option<String>,
+    ) -> Result<(), ConversationServiceError> {
+        self.cancel_turn_inner(conversation_id, reason, Some(expected_turn_id), false)
+            .await
+    }
+
+    async fn cancel_turn_inner(
+        &self,
+        conversation_id: Uuid,
+        reason: Option<String>,
+        expected_turn_id: Option<Uuid>,
+        cancel_queued_when_idle: bool,
+    ) -> Result<(), ConversationServiceError> {
         // Share the exact same per-Conversation critical section as start_turn.
         // Without this, a Workflow can expose its child Conversation as running,
         // receive Pause while the first prompt is still being prepared, and then
@@ -58,7 +79,12 @@ impl ConversationSessionService {
                     .map(|turn| turn.id),
                 None => None,
             };
-            if turn_id.is_none() {
+            if let Some(expected) = expected_turn_id
+                && turn_id != Some(expected)
+            {
+                return Ok(());
+            }
+            if turn_id.is_none() && cancel_queued_when_idle {
                 // Optimistic "generating" with no Turn yet: the durable input is
                 // queued. Stop must cancel it, or reload shows "queued" forever.
                 let inputs = ConversationInputControl::with_publisher(
@@ -75,6 +101,9 @@ impl ConversationSessionService {
             }
             (snapshot, turn_id)
         };
+        if expected_turn_id.is_some() && turn_id.is_none() {
+            return Ok(());
+        }
         let cancel_target = match (
             snapshot
                 .connection_id
@@ -172,6 +201,245 @@ impl ConversationSessionService {
         Ok(())
     }
 
+    /// Read-only atomic preflight check before rewinding a conversation and optionally
+    /// restoring workspace files from a Git `CheckpointRef`.
+    ///
+    /// Aborts with zero partial mutation (neither SQLite/engine state nor the working tree
+    /// is touched) if:
+    /// - `user_ordinal < 0`,
+    /// - the conversation does not exist,
+    /// - a turn is currently in flight,
+    /// - a turn anchor for `user_ordinal` is missing when turns exist, or
+    /// - `restore_files` is `true` and the workspace Git repo or checkpoint commit OID
+    ///   cannot be resolved.
+    pub async fn preflight_rewind(
+        &self,
+        conversation_id: Uuid,
+        user_ordinal: i64,
+        restore_files: bool,
+    ) -> Result<(), ConversationServiceError> {
+        self.preflight_rewind_with_checkpoint(conversation_id, user_ordinal, restore_files, None)
+            .await
+    }
+
+    pub async fn preflight_rewind_with_checkpoint(
+        &self,
+        conversation_id: Uuid,
+        user_ordinal: i64,
+        restore_files: bool,
+        checkpoint_handle: Option<&agents::checkpoint_ref::CheckpointRefHandle>,
+    ) -> Result<(), ConversationServiceError> {
+        if user_ordinal < 0 {
+            return Err(ConversationServiceError::BadRequest(
+                "ordinal must be non-negative".into(),
+            ));
+        }
+        let pool = &self.ctx.deployment.db().pool;
+        let conversation = ConversationRecord::find_by_id(pool, conversation_id).await?;
+        let session = Session::find_by_id(pool, conversation_id).await?;
+        let workspace_id = match (&conversation, &session) {
+            (Some(conv), _) => conv.workspace_id,
+            (None, Some(sess)) => sess.workspace_id,
+            (None, None) => {
+                return Err(ConversationServiceError::NotFound(
+                    "Conversation not found".into(),
+                ));
+            }
+        };
+
+        if let Some(ref conv) = conversation
+            && let Some(active_turn_id) = conv.active_turn_id
+            && let Some(active_turn) =
+                ConversationTurnRecord::find_by_id(pool, active_turn_id).await?
+            && is_in_flight_turn_status(&active_turn.status)
+        {
+            return Err(ConversationServiceError::Conflict(
+                "Cannot truncate while a Turn is in flight".into(),
+            ));
+        }
+
+        let turn_count: i64 =
+            sqlx::query_scalar("SELECT COUNT(1) FROM conversation_turns WHERE conversation_id = ?")
+                .bind(conversation_id)
+                .fetch_one(pool)
+                .await?;
+        if turn_count > 0 {
+            let anchor_exists: i64 = sqlx::query_scalar(
+                "SELECT EXISTS(SELECT 1 FROM conversation_turns WHERE conversation_id = ? AND ordinal >= ?)",
+            )
+            .bind(conversation_id)
+            .bind(user_ordinal + 1)
+            .fetch_one(pool)
+            .await?;
+            if anchor_exists == 0 {
+                return Err(ConversationServiceError::NotFound(format!(
+                    "Turn anchor at ordinal {user_ordinal} not found"
+                )));
+            }
+        }
+
+        if restore_files {
+            let workspace_root = if let Some(ws) =
+                db::models::workspace::Workspace::find_by_id(pool, workspace_id).await?
+                && let Some(container_ref) = ws
+                    .container_ref
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|s| !s.is_empty())
+            {
+                Some(std::path::PathBuf::from(container_ref))
+            } else {
+                ConversationAgentBindingRecord::latest_for_conversation(pool, conversation_id)
+                    .await?
+                    .map(|b| b.working_dir)
+                    .filter(|s| !s.trim().is_empty())
+                    .map(std::path::PathBuf::from)
+            };
+
+            let worktree = workspace_root.ok_or_else(|| {
+                ConversationServiceError::BadRequest(
+                    "Cannot restore files: conversation has no bound workspace directory".into(),
+                )
+            })?;
+
+            let cp = agents::checkpoint_ref::CheckpointRef::new();
+            let resolved_handle = if let Some(explicit) = checkpoint_handle {
+                explicit.clone()
+            } else {
+                let target_ord = i32::try_from(user_ordinal).map_err(|_| {
+                    ConversationServiceError::BadRequest(format!(
+                        "Checkpoint ordinal {user_ordinal} out of range"
+                    ))
+                })?;
+                let handles = cp
+                    .list_checkpoints(&worktree, conversation_id)
+                    .await
+                    .map_err(|err| match err {
+                        agents::checkpoint_ref::CheckpointRefError::NotAGitRepository(path) => {
+                            ConversationServiceError::BadRequest(format!(
+                                "`{}` is not inside a Git repository",
+                                path.display()
+                            ))
+                        }
+                        other => ConversationServiceError::Internal(other.to_string()),
+                    })?;
+                if let Some(found) = handles.into_iter().find(|h| h.turn_ordinal == target_ord) {
+                    found
+                } else {
+                    let stored_commit: Option<String> = sqlx::query_scalar(
+                        "SELECT COALESCE(NULLIF(commit_oid, ''), before_head_commit) \
+                         FROM session_checkpoints \
+                         WHERE session_id = ? AND ordinal = ? \
+                         LIMIT 1",
+                    )
+                    .bind(conversation_id)
+                    .bind(user_ordinal)
+                    .fetch_optional(pool)
+                    .await?
+                    .flatten();
+                    let Some(commit_oid) = stored_commit.filter(|s| !s.trim().is_empty()) else {
+                        return Err(ConversationServiceError::NotFound(format!(
+                            "Checkpoint ref for ordinal {user_ordinal} not found"
+                        )));
+                    };
+                    agents::checkpoint_ref::CheckpointRefHandle {
+                        conversation_id,
+                        turn_ordinal: target_ord,
+                        ref_name: agents::checkpoint_ref::CheckpointRef::ref_name(
+                            conversation_id,
+                            target_ord,
+                        ),
+                        commit_oid,
+                        head_commit_oid: None,
+                    }
+                }
+            };
+
+            cp.diff_summary(&worktree, &resolved_handle)
+                .await
+                .map_err(|err| match err {
+                    agents::checkpoint_ref::CheckpointRefError::NotAGitRepository(path) => {
+                        ConversationServiceError::BadRequest(format!(
+                            "`{}` is not inside a Git repository",
+                            path.display()
+                        ))
+                    }
+                    agents::checkpoint_ref::CheckpointRefError::CheckpointNotFound(name) => {
+                        ConversationServiceError::NotFound(format!(
+                            "Checkpoint `{name}` was not found"
+                        ))
+                    }
+                    other => ConversationServiceError::Internal(other.to_string()),
+                })?;
+        }
+
+        Ok(())
+    }
+
+    /// Atomically verifies both the Git checkpoint ref (when `restore_files` is `true`) and
+    /// the conversation turn anchor via [`Self::preflight_rewind_with_checkpoint`] before
+    /// mutating either the workspace tree or the conversation/engine state.
+    pub async fn atomic_rewind_to_turn(
+        &self,
+        conversation_id: Uuid,
+        user_ordinal: i64,
+        restore_files: bool,
+        checkpoint_handle: Option<agents::checkpoint_ref::CheckpointRefHandle>,
+    ) -> Result<Option<agents::checkpoint_ref::GitDiffSummary>, ConversationServiceError> {
+        self.preflight_rewind_with_checkpoint(
+            conversation_id,
+            user_ordinal,
+            restore_files,
+            checkpoint_handle.as_ref(),
+        )
+        .await?;
+
+        let summary = if restore_files {
+            let pool = &self.ctx.deployment.db().pool;
+            let workspace_id = ConversationRecord::find_by_id(pool, conversation_id)
+                .await?
+                .map(|c| c.workspace_id)
+                .or(Session::find_by_id(pool, conversation_id)
+                    .await?
+                    .map(|s| s.workspace_id))
+                .ok_or_else(|| ConversationServiceError::NotFound("Conversation not found".into()))?;
+            let worktree = if let Some(ws) =
+                db::models::workspace::Workspace::find_by_id(pool, workspace_id).await?
+                && let Some(container_ref) = ws
+                    .container_ref
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|s| !s.is_empty())
+            {
+                std::path::PathBuf::from(container_ref)
+            } else {
+                ConversationAgentBindingRecord::latest_for_conversation(pool, conversation_id)
+                    .await?
+                    .map(|b| std::path::PathBuf::from(b.working_dir))
+                    .ok_or_else(|| {
+                        ConversationServiceError::BadRequest(
+                            "Cannot restore files: conversation has no bound workspace directory"
+                                .into(),
+                        )
+                    })?
+            };
+            let cp = agents::checkpoint_ref::CheckpointRef::new();
+            let diff = if let Some(ref handle) = checkpoint_handle {
+                cp.restore(&worktree, handle).await
+            } else {
+                cp.restore_by_ordinal(&worktree, conversation_id, user_ordinal as i32)
+                    .await
+            }
+            .map_err(|err| ConversationServiceError::Internal(err.to_string()))?;
+            Some(diff)
+        } else {
+            None
+        };
+
+        self.truncate_to_turn(conversation_id, user_ordinal).await?;
+        Ok(summary)
+    }
+
     /// Reset-to-here: truncate the conversation back to *before* the user turn at
     /// `ordinal` — delete that turn and everything after it (events, turns,
     /// checkpoints) and rebuild the projection — so the caller can re-send that
@@ -209,55 +477,142 @@ impl ConversationSessionService {
                 "Cannot truncate while a Turn is in flight".into(),
             ));
         }
-        // Resolve and replace the visible history while the source native identity
-        // is still available for legacy transcript lookup.
-        crate::jsonl_history::truncate_transcript_to_user_ordinal(
+        if user_ordinal < 0 {
+            return Err(ConversationServiceError::BadRequest(
+                "ordinal must be non-negative".into(),
+            ));
+        }
+        let lease = crate::checkpoint_safety::CheckpointRollbackSafety::acquire_rollback_lease(
             pool,
-            conversation_id,
-            user_ordinal.max(0) as usize,
+            conversation.workspace_id,
+            &format!("truncate:{conversation_id}"),
         )
-        .await?;
-        // Detach before truncating the control log. The old ACP session still
-        // holds the removed suffix: if detach fails after that cut, the log is
-        // short while the binding
-        // still points at the full context, and the next send replays the deleted
-        // messages through `session/load`. The `AgentBindingRecovered` event is
-        // appended after the cut, since truncation drops every later sequence.
-        self.detach_agent_session(conversation_id).await?;
+        .await
+        .map_err(|err| match err {
+            crate::checkpoint_safety::RollbackSafetyError::Database(db_err) => {
+                ConversationServiceError::from(db_err)
+            }
+            other => ConversationServiceError::Conflict(other.to_string()),
+        })?;
 
-        // `user_ordinal` is the 0-based user-message index (same basis as the checkpoint
-        // ordinal / `reset_agent_session_to_checkpoint`). `conversation_turns.ordinal`
-        // is 1-based (created via `MAX(ordinal)+1`), so the turn to reset *from* is
-        // `user_ordinal + 1`; checkpoints share the 0-based basis.
-        let turn_ordinal = user_ordinal + 1;
-        ConversationProjector::truncate_to_turn_ordinal(pool, conversation_id, turn_ordinal)
+        let truncate_result: Result<(), ConversationServiceError> = async {
+            let _ = crate::ensure_legacy_jsonl_migrated_on_pool(pool, conversation_id).await?;
+            let turn_ordinal = user_ordinal + 1;
+            let turn_count: i64 = sqlx::query_scalar(
+                "SELECT COUNT(1) FROM conversation_turns WHERE conversation_id = ?",
+            )
+            .bind(conversation_id)
+            .fetch_one(pool)
             .await?;
-        SessionCheckpoint::delete_from_ordinal(pool, conversation_id, user_ordinal).await?;
-        ConversationRecord::update_active_turn(pool, conversation_id, None).await?;
-        // The live projector cursor may now point beyond the truncated event log.
-        // Invalidate it at the mutation boundary so the next committed event seeds a
-        // fresh projector from its actual predecessor sequence.
-        self.ctx
-            .row_projectors
-            .lock()
-            .await
-            .remove(&conversation_id);
+            if turn_count > 0 {
+                let anchor_exists: i64 = sqlx::query_scalar(
+                    "SELECT EXISTS(SELECT 1 FROM conversation_turns WHERE conversation_id = ? AND ordinal >= ?)",
+                )
+                .bind(conversation_id)
+                .bind(turn_ordinal)
+                .fetch_one(pool)
+                .await?;
+                if anchor_exists == 0 {
+                    return Err(ConversationServiceError::NotFound(format!(
+                        "Turn anchor at ordinal {user_ordinal} not found"
+                    )));
+                }
+            }
+            // For live NativeEngine sessions (e.g. Codex `thread/rollback`), attempt
+            // coordinated upstream turn rollback first when keeping at least one turn
+            // (`user_ordinal > 0`). If the bound engine does not support turn-count
+            // rollback or we are rewinding before Turn 1, detach before truncating the
+            // control log so the old session cannot replay deleted messages.
+            let turns_to_drop = u32::try_from(turn_count.saturating_sub(user_ordinal).max(1))
+                .unwrap_or(u32::MAX);
+            let native_rolled_back = if user_ordinal > 0
+                && self
+                    .ctx
+                    .agent_runtime
+                    .has_bound_acp_session(AgentSessionId(conversation_id))
+                    .await
+            {
+                let checkpoint_commit: Option<String> = sqlx::query_scalar(
+                    "SELECT COALESCE(NULLIF(commit_oid, ''), before_head_commit) \
+                     FROM session_checkpoints \
+                     WHERE session_id = ? AND ordinal = ? \
+                     LIMIT 1",
+                )
+                .bind(conversation_id)
+                .bind(user_ordinal)
+                .fetch_optional(pool)
+                .await?
+                .flatten();
+                let git_ref = i32::try_from(user_ordinal).ok().map(|ord| {
+                    agents::checkpoint_ref::CheckpointRef::ref_name(conversation_id, ord)
+                });
+                self.ctx
+                    .agent_runtime
+                    .rollback_turns(
+                        AgentSessionId(conversation_id),
+                        turns_to_drop,
+                        None,
+                        git_ref,
+                        checkpoint_commit,
+                    )
+                    .await
+                    .is_ok()
+            } else {
+                false
+            };
+            if !native_rolled_back {
+                self.detach_agent_session(conversation_id).await?;
+            }
 
-        self.update_runtime_state(conversation_id, |state| {
-            state.active_turn_id = None;
-            state.active_prompt_id = None;
-            state.turn_in_flight = false;
-            state.pending_user_message = None;
-        })
+            // `user_ordinal` is the 0-based user-message index (same basis as the checkpoint
+            // ordinal / `reset_agent_session_to_checkpoint`). `conversation_turns.ordinal`
+            // is 1-based (created via `MAX(ordinal)+1`), so the turn to reset *from* is
+            // `user_ordinal + 1`; checkpoints share the 0-based basis.
+            ConversationProjector::truncate_to_turn_ordinal(pool, conversation_id, turn_ordinal)
+                .await?;
+            SessionCheckpoint::delete_from_ordinal(pool, conversation_id, user_ordinal).await?;
+            ConversationRecord::update_active_turn(pool, conversation_id, None).await?;
+            // The live projector cursor may now point beyond the truncated event log.
+            // Invalidate it at the mutation boundary so the next committed event seeds a
+            // fresh projector from its actual predecessor sequence.
+            self.ctx
+                .row_projectors
+                .lock()
+                .await
+                .remove(&conversation_id);
+
+            self.update_runtime_state(conversation_id, |state| {
+                state.active_turn_id = None;
+                state.active_prompt_id = None;
+                state.turn_in_flight = false;
+                state.pending_user_message = None;
+            })
+            .await;
+            if !native_rolled_back {
+                self.record_agent_binding_recovered(
+                    conversation_id,
+                    agents::SessionRecoveryStrategy::Rebound,
+                    None,
+                )
+                .await?;
+            }
+            let last_sequence =
+                db::models::conversation_event::ConversationEventRecord::max_sequence(
+                    pool,
+                    conversation_id,
+                )
+                .await?;
+            self.ctx
+                .event_publisher
+                .publish_reset(conversation_id, last_sequence)
+                .await;
+
+            Ok(())
+        }
         .await;
-        self.record_agent_binding_recovered(
-            conversation_id,
-            agents::SessionRecoveryStrategy::Rebound,
-            None,
-        )
-        .await?;
 
-        Ok(())
+        let _ = lease.release().await;
+        truncate_result
     }
 
     pub async fn interrupt_orphaned_turn(
@@ -320,7 +675,6 @@ impl ConversationSessionService {
         turn_id: Uuid,
     ) -> Result<(), ConversationServiceError> {
         let pool = &self.ctx.deployment.db().pool;
-        crate::jsonl_history::preserve_unprompted_input(pool, conversation_id, turn_id).await?;
         crate::handoff::settle(pool, turn_id).await?;
         let permissions = ConversationPermissionRecord::list_for_turn(pool, turn_id).await?;
         for permission in permissions.into_iter().filter(|p| p.status == "pending") {
@@ -379,7 +733,6 @@ impl ConversationSessionService {
         turn_id: Uuid,
     ) -> Result<(), ConversationServiceError> {
         let pool = &self.ctx.deployment.db().pool;
-        crate::jsonl_history::preserve_unprompted_input(pool, conversation_id, turn_id).await?;
         crate::handoff::settle(pool, turn_id).await?;
         let permissions = ConversationPermissionRecord::list_for_turn(pool, turn_id).await?;
         for permission in permissions.into_iter().filter(|p| p.status == "pending") {
@@ -564,7 +917,7 @@ impl ConversationSessionService {
     /// `or_insert` a *second* mutex for the same conversation, after which both tasks
     /// believe they hold exclusive access — the very double in-flight Turn the lock
     /// exists to prevent (ADR-0061 §4.2, CONTEXT.md "In-flight turn").
-    pub(super) async fn drop_live_agent_connection(&self, conversation_id: Uuid) {
+    pub(crate) async fn drop_live_agent_connection(&self, conversation_id: Uuid) {
         let from_state = self
             .runtime_snapshot(conversation_id)
             .await
@@ -676,14 +1029,11 @@ impl ConversationSessionService {
         conversation_id: Uuid,
     ) -> Result<(), ConversationServiceError> {
         let pool = &self.ctx.deployment.db().pool;
-        // The source remains authoritative if its checkpoint cannot be persisted.
-        if let Err(error) =
-            crate::jsonl_history::preserve_transcript_before_detach(pool, conversation_id).await
-        {
-            self.drop_live_agent_connection(conversation_id).await;
-            self.forget_conversation_runtime(conversation_id).await;
-            return Err(error.into());
-        }
+        crate::runtime_events::flush_conversation_persistence(conversation_id).await;
+        self.ctx
+            .event_publisher
+            .flush_conversation(conversation_id)
+            .await;
         self.drop_live_agent_connection(conversation_id).await;
         self.forget_conversation_runtime(conversation_id).await;
         let _ = sqlx::query("UPDATE conversation_agent_bindings SET connection_id = NULL WHERE id = (SELECT active_agent_binding_id FROM sessions WHERE id = ?)")

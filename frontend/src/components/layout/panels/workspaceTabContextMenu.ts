@@ -1,22 +1,24 @@
-import { createElement, useContext, useMemo } from 'react';
+import { createElement, useContext, useEffect } from 'react';
 import { QueryClientContext } from '@tanstack/react-query';
-import { useTranslation } from 'react-i18next';
+import type { AgentManagementView } from 'shared/types';
 import { AgentIcon, getAgentName } from '@/components/agents/AgentIcon';
 import { useAppContextMenu } from '@/components/context-menu';
 import type { ProductContextMenuItem } from '@/components/context-menu/contextMenuTypes';
 import { useOptionalUserSystem } from '@/components/ConfigProvider';
-import { confirmDiscardMergePanel } from '@/components/panels/merge/mergePanelDirty';
+import { confirmCloseWorkspacePanel } from '@/components/panels/previewPanelDirty';
 import { toast } from '@/components/ui/toast';
 import { usePanelActionsContext } from '@/contexts/PanelActionsContext';
-import { useWorktree } from '@/contexts/WorktreeContext';
+import { useOptionalWorktree } from '@/contexts/WorktreeContext';
+import { agentManagementApi } from '@/features/agent-management';
 import { isEnabledInstalledAgent } from '@/features/agents/operationalAgent';
-import { useSelectableAgents } from '@/features/agents/useSelectableAgents';
 import { useOptionalCollaborationSpaceStore } from '@/features/collaboration/space/SpaceStoreContext';
 import { findHostBrowserContribution } from '@/features/host-browser/hostBrowserEngine';
 import {
   contributionMetadata,
-  usePluginHostContributions,
+  pluginContributionCatalogQueryKey,
 } from '@/hooks/usePluginHostContributions';
+import i18n from '@/i18n';
+import type { PluginContributionCatalogItem } from '@/lib/api/plugins';
 import { requestCreateAgentSessionInExecutionArea } from '@/lib/requestCreateSession';
 import {
   getDefaultTerminalShell,
@@ -169,6 +171,22 @@ export function buildWorkspaceTabContextMenu(
   const resolvedKind: WorkspaceTabContextMenuKind =
     actions.tabKind ?? (actions.isSessionTab ? 'session' : 'default');
 
+  const agentList = actions.agents ?? [];
+  const newSessionSubmenu: ProductContextMenuItem = {
+    type: 'submenu',
+    id: 'new-session',
+    label: labels.session ?? '会话',
+    onSelect: actions.openSession
+      ? () => actions.openSession?.(agentList[0]?.id)
+      : undefined,
+    children: agentList.map((agent) => ({
+      id: `agent-${agent.id}`,
+      label: agent.label,
+      iconNode: agent.iconNode,
+      onSelect: () => actions.openSession?.(agent.id),
+    })),
+  };
+
   if (
     resolvedKind === 'session' ||
     resolvedKind === 'terminal' ||
@@ -187,22 +205,6 @@ export function buildWorkspaceTabContextMenu(
     const newSeparator: ProductContextMenuItem = {
       type: 'separator',
       id: 'sep-new',
-    };
-
-    const agentList = actions.agents ?? [];
-    const newSessionSubmenu: ProductContextMenuItem = {
-      type: 'submenu',
-      id: 'new-session',
-      label: labels.session ?? '会话',
-      onSelect: actions.openSession
-        ? () => actions.openSession?.(agentList[0]?.id)
-        : undefined,
-      children: agentList.map((agent) => ({
-        id: `agent-${agent.id}`,
-        label: agent.label,
-        iconNode: agent.iconNode,
-        onSelect: () => actions.openSession?.(agent.id),
-      })),
     };
 
     if (resolvedKind === 'session') {
@@ -308,8 +310,9 @@ export function buildWorkspaceTabContextMenu(
     ];
   }
 
-  // Default tab menu (unchanged for all other tabs)
+  // Default tab menu
   const newItems: ProductContextMenuItem[] = [
+    ...(actions.openSession ? [newSessionSubmenu] : []),
     {
       id: 'new-note',
       label: labels.note,
@@ -410,13 +413,75 @@ export interface WorkspaceTabSessionContext {
   terminalCwd?: string | null;
 }
 
+const AGENT_CACHE_TTL_MS = 30_000;
+let cachedAgentRows: AgentManagementView[] | null = null;
+let cachedAgentRowsAt = 0;
+let pendingAgentBarRequest: Promise<AgentManagementView[]> | null = null;
+let unsubscribeAgentEvents: (() => void) | null = null;
+let isSubscribingAgentEvents = false;
+
+function ensureAgentManagementInvalidationSubscription(): void {
+  if (unsubscribeAgentEvents || isSubscribingAgentEvents) {
+    return;
+  }
+  isSubscribingAgentEvents = true;
+  void import('@/lib/backendTransport')
+    .then(({ backendListen }) =>
+      backendListen('agent-management-event', () => {
+        cachedAgentRowsAt = 0;
+        warmTabMenuAgentsCache(true);
+      })
+    )
+    .then((unlisten) => {
+      unsubscribeAgentEvents = unlisten;
+    })
+    .catch(() => {
+      // Ignore in test environments without backend transport event bridge.
+    })
+    .finally(() => {
+      isSubscribingAgentEvents = false;
+    });
+}
+
+function warmTabMenuAgentsCache(forceRefresh = false): void {
+  ensureAgentManagementInvalidationSubscription();
+  const isFresh =
+    cachedAgentRows !== null &&
+    !forceRefresh &&
+    Date.now() - cachedAgentRowsAt < AGENT_CACHE_TTL_MS;
+  if (isFresh || pendingAgentBarRequest !== null) {
+    return;
+  }
+  pendingAgentBarRequest = agentManagementApi
+    .bar()
+    .then((rows) => {
+      cachedAgentRows = rows;
+      cachedAgentRowsAt = Date.now();
+      return rows;
+    })
+    .catch(() => {
+      return cachedAgentRows ?? [];
+    })
+    .finally(() => {
+      pendingAgentBarRequest = null;
+    });
+}
+
+export function resetWorkspaceTabMenuCacheForTests(): void {
+  cachedAgentRows = null;
+  cachedAgentRowsAt = 0;
+  pendingAgentBarRequest = null;
+  unsubscribeAgentEvents?.();
+  unsubscribeAgentEvents = null;
+  isSubscribingAgentEvents = false;
+}
+
 export function useWorkspaceEditorTabMenu(
   api: EditorTabApi,
   closeCurrent: () => void,
   refreshCurrent?: () => void,
   sessionContext?: WorkspaceTabSessionContext
 ): { open: (event: MouseEvent) => void } | null {
-  const { t } = useTranslation('panels');
   const { openSurfaceMenu } = useAppContextMenu();
   const queryClient = useContext(QueryClientContext);
   const {
@@ -430,75 +495,26 @@ export function useWorkspaceEditorTabMenu(
     openPluginPanel,
     sortEditorGroupByName,
   } = usePanelActionsContext();
-  const pluginPanels = usePluginHostContributions('app_panel');
   const system = useOptionalUserSystem();
-  const { activeWorktreeId } = useWorktree();
+  const worktree = useOptionalWorktree();
+  const activeWorktreeId = worktree?.activeWorktreeId ?? null;
   const collabStore = useOptionalCollaborationSpaceStore();
-  const selectableAgents = useSelectableAgents();
-  const enabledAgents = useMemo<WorkspaceTabMenuAgentOption[]>(() => {
-    const installedEnabled = selectableAgents.filter(isEnabledInstalledAgent);
-    const list =
-      installedEnabled.length > 0
-        ? installedEnabled.map((agent) => ({
-            id: agent.agentId,
-            label: agent.displayName || getAgentName(agent.agentId),
-          }))
-        : Object.keys(system?.profiles ?? {}).map((agentId) => ({
-            id: agentId,
-            label: getAgentName(agentId),
-          }));
-    return list.map((agent) => ({
-      id: agent.id,
-      label: agent.label,
-      iconNode: createElement(AgentIcon, {
-        agent: agent.id,
-        className: 'h-3.5 w-3.5 shrink-0',
-      }),
-    }));
-  }, [selectableAgents, system?.profiles]);
-
-  const hostPlatform = terminalHostPlatform(system?.environment?.os_type);
-  const shells = getTerminalShellOptions(hostPlatform);
-  const defaultShell = getDefaultTerminalShell(
-    system?.config,
-    system?.environment?.os_type
-  );
-  const browser = findHostBrowserContribution(pluginPanels);
 
   const group = api.group;
-  if (
-    !group ||
-    (!isEditorGroup(group) && !isLeftGroup(group) && !isSessionGroup(group))
-  ) {
+  const isSupportedGroup = Boolean(
+    group &&
+      (isEditorGroup(group) || isLeftGroup(group) || isSessionGroup(group))
+  );
+
+  useEffect(() => {
+    if (isSupportedGroup) {
+      warmTabMenuAgentsCache();
+    }
+  }, [isSupportedGroup]);
+
+  if (!isSupportedGroup) {
     return null;
   }
-
-  const labels: WorkspaceTabMenuLabels = {
-    basicGroup: t('tabCreation.basicGroup', '基础'),
-    newGroup: t('tabCreation.new', '新建'),
-    refresh: t('tabCreation.refresh', '刷新'),
-    duplicateTerminal: t('tabCreation.duplicateTerminal', '复制Terminal'),
-    spaceDetails: t('tabCreation.spaceDetails', '详情信息'),
-    newAssistant: t('tabCreation.newAssistant', '新助手'),
-    newGroupChat: t('tabCreation.newGroupChat', '新群聊'),
-    session: t('tabCreation.session', '会话'),
-    sessionDetails: t('tabCreation.sessionDetails', '会话详情'),
-    processes: t('tabCreation.processes', '执行进程'),
-    close: t('tabCreation.close'),
-    closeCurrent: t('tabCreation.closeCurrent'),
-    closeOthers: t('tabCreation.closeOthers'),
-    split: t('tabCreation.split'),
-    splitDown: t('tabCreation.splitDown'),
-    splitLeft: t('tabCreation.splitLeft'),
-    splitRight: t('tabCreation.splitRight'),
-    new: t('tabCreation.new'),
-    note: t('tabCreation.note'),
-    review: t('tabCreation.review'),
-    terminal: t('tabCreation.terminal'),
-    browser: t('tabCreation.browser'),
-    sort: t('tabCreation.sort'),
-    sortByName: t('tabCreation.sortByName'),
-  };
 
   return {
     open(event) {
@@ -511,12 +527,74 @@ export function useWorkspaceEditorTabMenu(
       ) {
         return;
       }
+      warmTabMenuAgentsCache();
+
+      const t = i18n.getFixedT(null, 'panels');
+      const labels: WorkspaceTabMenuLabels = {
+        basicGroup: t('tabCreation.basicGroup', '基础'),
+        newGroup: t('tabCreation.new', '新建'),
+        refresh: t('tabCreation.refresh', '刷新'),
+        duplicateTerminal: t('tabCreation.duplicateTerminal', '复制Terminal'),
+        spaceDetails: t('tabCreation.spaceDetails', '详情信息'),
+        newAssistant: t('tabCreation.newAssistant', '新助手'),
+        newGroupChat: t('tabCreation.newGroupChat', '新群聊'),
+        session: t('tabCreation.session', '会话'),
+        sessionDetails: t('tabCreation.sessionDetails', '会话详情'),
+        processes: t('tabCreation.processes', '执行进程'),
+        close: t('tabCreation.close'),
+        closeCurrent: t('tabCreation.closeCurrent'),
+        closeOthers: t('tabCreation.closeOthers'),
+        split: t('tabCreation.split'),
+        splitDown: t('tabCreation.splitDown'),
+        splitLeft: t('tabCreation.splitLeft'),
+        splitRight: t('tabCreation.splitRight'),
+        new: t('tabCreation.new'),
+        note: t('tabCreation.note'),
+        review: t('tabCreation.review'),
+        terminal: t('tabCreation.terminal'),
+        browser: t('tabCreation.browser'),
+        sort: t('tabCreation.sort'),
+        sortByName: t('tabCreation.sortByName'),
+      };
+
+      const agentList =
+        cachedAgentRows !== null
+          ? cachedAgentRows.filter(isEnabledInstalledAgent).map((agent) => ({
+              id: agent.agent_id,
+              label: agent.display_name || getAgentName(agent.agent_id),
+            }))
+          : Object.keys(system?.profiles ?? {}).map((agentId) => ({
+              id: agentId,
+              label: getAgentName(agentId),
+            }));
+      const enabledAgents: WorkspaceTabMenuAgentOption[] = agentList.map(
+        (agent) => ({
+          id: agent.id,
+          label: agent.label,
+          iconNode: createElement(AgentIcon, {
+            agent: agent.id,
+            className: 'h-3.5 w-3.5 shrink-0',
+          }),
+        })
+      );
+
+      const hostPlatform = terminalHostPlatform(system?.environment?.os_type);
+      const shells = getTerminalShellOptions(hostPlatform);
+      const defaultShell = getDefaultTerminalShell(
+        system?.config,
+        system?.environment?.os_type
+      );
+      const catalogData = queryClient?.getQueryData<{
+        items?: PluginContributionCatalogItem[];
+      }>(pluginContributionCatalogQueryKey);
+      const pluginPanels = (catalogData?.items ?? []).filter(
+        (item) => item.kind === 'app_panel'
+      );
+      const browser = findHostBrowserContribution(pluginPanels);
+
       const panels = current.panels;
       const closePanel = (panel: (typeof panels)[number]) => {
-        if (
-          panel.api.component === PANEL_IDS.MERGE &&
-          !confirmDiscardMergePanel(panel.id)
-        ) {
+        if (!confirmCloseWorkspacePanel(panel.id, panel.api.component)) {
           return;
         }
         panel.api.close();
@@ -552,9 +630,7 @@ export function useWorkspaceEditorTabMenu(
           (termWsKey ? termState.activeTabByWorkspace[termWsKey] : null);
         const sourceSession = wsSessions.find((s) => s.tabId === targetTabId);
         const shellToUse =
-          sourceSession?.shell ||
-          sessionContext?.terminalShell ||
-          defaultShell;
+          sourceSession?.shell || sessionContext?.terminalShell || defaultShell;
         const cwdToUse =
           sourceSession?.cwd || sessionContext?.terminalCwd || null;
         runInEditorGroup(current.id, () => {
@@ -581,14 +657,6 @@ export function useWorkspaceEditorTabMenu(
         const runtime = collabStore?.getSnapshot();
         if (!runtime) return;
         api.setActive?.();
-        if (api.component !== PANEL_IDS.COLLABORATION_SPACE) {
-          runInEditorGroup(current.id, () => {
-            openOrFocusPanel(
-              PANEL_IDS.COLLABORATION_SPACE,
-              runtime.selected?.name ?? '协作空间'
-            );
-          });
-        }
         runtime.openCreateMemberDialog();
       };
 
@@ -596,14 +664,6 @@ export function useWorkspaceEditorTabMenu(
         const runtime = collabStore?.getSnapshot();
         if (!runtime) return;
         api.setActive?.();
-        if (api.component !== PANEL_IDS.COLLABORATION_SPACE) {
-          runInEditorGroup(current.id, () => {
-            openOrFocusPanel(
-              PANEL_IDS.COLLABORATION_SPACE,
-              runtime.selected?.name ?? '协作空间'
-            );
-          });
-        }
         runtime.openCreateSpaceDialog();
       };
 

@@ -193,9 +193,10 @@ impl AgentConnectionRunner {
             }
         }
 
-        let mut child = group_spawn_no_window(&mut command)
+        let (mut child, job) = group_spawn_no_window_with_job(&mut command)
             .map_err(|error| AgentError::Runtime(format!("failed to spawn ACP agent: {error}")))?;
         *self.child_pid.lock().unwrap() = child.id();
+        *self.process_job.lock().unwrap() = Some(job);
         let stdout = child
             .inner()
             .stdout
@@ -364,8 +365,14 @@ impl AgentConnectionRunner {
             let _ = stdout_closed_rx.await;
         })
         .await;
+        let process_job = self.process_job.lock().unwrap().take();
         if !matches!(stop, AcpProcessStop::ChildExited(_)) {
+            if let Some(ref job) = process_job {
+                let _ = job.terminate();
+            }
             let _ = kill_process_group(&mut child).await;
+        } else if let Some(job) = process_job {
+            job.close();
         }
         *self.child_pid.lock().unwrap() = None;
         if handshake_timed_out.load(Ordering::SeqCst) {
@@ -378,5 +385,54 @@ impl AgentConnectionRunner {
         let prompt_in_flight = self.active_prompt.lock().await.is_some();
         let stderr = self.stderr_tail.summary();
         resolve_acp_process_stop(stop, prompt_in_flight, stderr)
+    }
+
+    /// Builds the sanitized environment map and parent-env scrub list for a native engine
+    /// connection, delegating engine-specific executable binding and credential scrubbing
+    /// to [`crate::engine::NativeEngineDriver::prepare_launch_env`].
+    pub(in crate::manager) fn build_native_engine_launch_env(
+        &self,
+        driver: &dyn crate::engine::NativeEngineDriver,
+    ) -> AgentResult<(HashMap<String, String>, Vec<String>)> {
+        if !self.snapshot.working_dir.is_dir() {
+            return Err(AgentError::Runtime(format!(
+                "workspace working directory is missing: {}",
+                self.snapshot.working_dir.display()
+            )));
+        }
+
+        let launch_lock = &self.snapshot.launch_lock;
+        let mut launch_env = merged_agent_env(&self.snapshot.env);
+        for (key, value) in &launch_lock.env {
+            if !self.snapshot.env.contains_key(key) {
+                launch_env.insert(key.clone(), value.clone());
+            }
+        }
+
+        crate::prepare_and_bind_agent_runtime_temp(&self.snapshot.agent_id, &mut launch_env)
+            .map_err(|error| {
+                AgentError::Runtime(format!(
+                    "could not create a writable temporary directory for the native engine: {error}"
+                ))
+            })?;
+
+        let mut scrubbed_keys = Vec::new();
+        for key in
+            crate::built_in_auth_mode_scrubbed_env_keys(&self.snapshot.agent_id, &self.snapshot.env)
+        {
+            launch_env.remove(*key);
+            scrubbed_keys.push((*key).to_string());
+        }
+        launch_env.remove(PI_TRUST_WORKSPACE_ENV);
+        scrubbed_keys.push(PI_TRUST_WORKSPACE_ENV.to_string());
+
+        driver.prepare_launch_env(
+            &launch_lock.absolute_acp_program,
+            &self.snapshot.env,
+            &mut launch_env,
+            &mut scrubbed_keys,
+        );
+
+        Ok((launch_env, scrubbed_keys))
     }
 }

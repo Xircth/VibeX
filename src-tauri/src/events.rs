@@ -14,7 +14,6 @@ use futures::StreamExt;
 use serde::Serialize;
 use sqlx::SqlitePool;
 use tauri::{AppHandle, Emitter, EventTarget};
-use tokio::time::{self, Duration, MissedTickBehavior};
 use uuid::Uuid;
 
 use crate::state::AppState;
@@ -53,10 +52,6 @@ impl ConversationEventSink for TauriEventSink {
 }
 
 
-/// Persist coalesced streaming deltas on this interval. Overlay text still
-/// reaches the UI on the same flush; 80 ms is ~12 Hz and keeps SQLite's single
-/// writer from being the global clock (ADR-0061).
-const CONVERSATION_STREAM_FLUSH_INTERVAL: Duration = Duration::from_millis(80);
 
 #[derive(Debug, Clone, Copy, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -169,14 +164,18 @@ pub fn start_agent_event_forwarding(app: &AppHandle, state: &AppState) {
         loop {
             let mut recorder =
                 ConversationAgentEventRecorder::with_context(conversation_context.clone());
-            let mut flush_interval = time::interval(CONVERSATION_STREAM_FLUSH_INTERVAL);
-            flush_interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
 
             let step = std::panic::AssertUnwindSafe(async {
                 loop {
+                    let idle_deadline = recorder.next_idle_deadline();
                     tokio::select! {
-                        _ = flush_interval.tick() => {
-                            match recorder.flush_buffered().await {
+                        _ = async {
+                            match idle_deadline {
+                                Some(deadline) => tokio::time::sleep_until(deadline).await,
+                                None => std::future::pending::<()>().await,
+                            }
+                        } => {
+                            match recorder.flush_due().await {
                                 Ok(batch) => handle_recorded_conversation_batch(
                                     &conversation_pool,
                                     &app_handle,
@@ -610,6 +609,7 @@ mod tests {
                 request: AgentPermissionRequest {
                     id: AgentPermissionId::new(),
                     session_id: AgentSessionId::new(),
+                    revision: 0,
                     title: "Edit file".into(),
                     details: None,
                     options: Vec::new(),

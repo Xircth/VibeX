@@ -15,6 +15,7 @@ pub mod async_tasks;
 mod auth_mode;
 pub mod auth_status;
 pub mod capability;
+pub mod checkpoint_ref;
 pub mod cli_exposure;
 mod codex_auth;
 pub mod codex_goal;
@@ -27,6 +28,7 @@ pub mod delegation_inject;
 pub mod distribution;
 pub mod elicitation;
 mod end_turn_usage;
+pub mod engine;
 pub mod error;
 pub mod events;
 mod ext_question;
@@ -41,6 +43,7 @@ mod grok_usage;
 pub mod history;
 mod host_capabilities;
 mod hosted_terminal;
+pub mod idle_compaction;
 pub mod idle_sweep;
 pub mod ids;
 pub mod install_planner;
@@ -65,10 +68,12 @@ mod pi_commands;
 pub mod pi_trust;
 pub mod plan_usage;
 pub mod profiles;
+pub mod rate_limit_recovery;
 pub mod registry_client;
 pub mod request_status;
 pub mod runtime;
 mod runtime_temp;
+pub mod secret_resolution;
 pub mod session;
 mod session_bind_metrics;
 mod session_config_guard;
@@ -157,15 +162,17 @@ pub use conversation::{
     ConversationInputPayload, ConversationNoticeAction, ConversationPermissionRequest,
     ConversationPermissionResponse, ConversationPermissionView, ConversationPlanEntry,
     ConversationPromptSuggestion, ConversationQuestionRequest, ConversationQuestionResponse,
-    ConversationRelationKind, ConversationRelationVisibility, ConversationSessionGoal,
-    ConversationSessionModes, ConversationSessionNotice, ConversationSteeringEvent,
-    ConversationSummary, ConversationTerminalPatch, ConversationTerminalView, ConversationTimeline,
+    ConversationRelationKind, ConversationRelationVisibility, ConversationRowOp,
+    ConversationRowOpBatch, ConversationRowPage, ConversationRowsSincePage,
+    ConversationSessionGoal, ConversationSessionModes, ConversationSessionNotice,
+    ConversationSteeringDeliveryMode, ConversationSteeringEvent, ConversationSummary,
+    ConversationTerminalPatch, ConversationTerminalView, ConversationTimeline,
     ConversationTimelinePage, ConversationTimelineRow, ConversationToolCallPatch,
     ConversationUsage, ConversationWorkflowRef, ImageData, InternalMessageExtraction,
     InternalPromptBlock, MAX_INTERNAL_PROMPT_CONTRIBUTIONS_BYTES, MAX_TIMELINE_PREVIEW_BYTES,
     MessageTurn, SessionLoadFailureReason, SessionRecoveryStrategy, SessionStats, SubAgentToolCall,
-    TurnBlockedReason, TurnRole, TurnUsage, cap_content_blocks, cap_json_value, cap_preview_bytes,
-    cap_timeline_preview_fields, cap_timeline_row_preview_fields,
+    TimelineRow, TimelineTextStream, TurnBlockedReason, TurnRole, TurnUsage, cap_content_blocks,
+    cap_json_value, cap_preview_bytes, cap_timeline_preview_fields, cap_timeline_row_preview_fields,
     extract_and_strip_internal_messages, format_internal_prompt_contributions,
 };
 pub use cursor_auth::cursor_account_token;
@@ -231,9 +238,9 @@ pub use install_planner::{
 pub use launch_gate::{
     LaunchComponentEvidence, LaunchGate, LaunchGateError, bind_runtime_executable_env,
     component_dirs_precede_user_path, discover_acp_launch_lock_in_dirs,
-    discover_path_acp_launch_lock, launch_program_available, launch_program_is_vendor_cli,
-    lifecycle_ready_for_path_acp, missing_launch_program_error, prefer_path_launch_program,
-    runtime_executable_env_key, sanitize_runtime_executable_env,
+    discover_path_acp_launch_lock, launch_program_available, launch_program_is_legacy_acp_shim,
+    launch_program_is_vendor_cli, lifecycle_ready_for_path_acp, missing_launch_program_error,
+    prefer_path_launch_program, runtime_executable_env_key, sanitize_runtime_executable_env,
     sanitize_runtime_executable_lock_env,
 };
 pub use lifecycle::{
@@ -304,8 +311,9 @@ pub use profiles::{
     ProfileExternalCandidate, ProfileIcon, ProfileInstallSource, ProfileManagementAction,
     ProfileManagementActionKind, ProfileManagementProgram, ProfileRegistryBinding, ProfileTopology,
     RegistryEntryIdentity, acp_adapter_relation, acp_launch_args, adapter_bundles_runtime,
-    bundled_adapter_runtime_env_keys, profile_delivers_session_mcp, resolve_vendor_cli,
-    resolve_vendor_cli_in_extra_dirs,
+    bundled_adapter_runtime_env_keys, native_engine_extra_dirs, profile_delivers_session_mcp,
+    resolve_native_engine_cli, resolve_vendor_cli, resolve_vendor_cli_in_extra_dirs,
+    suppressed_registry_built_in_agent_id, suppressed_registry_ids_for_built_ins,
 };
 pub use registry_client::{
     OfficialRegistryHttpFetcher, REGISTRY_CONNECT_TIMEOUT, REGISTRY_ICON_FETCH_BUDGET,

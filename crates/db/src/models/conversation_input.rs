@@ -317,6 +317,36 @@ impl ConversationInputRecord {
         .await
     }
 
+    pub async fn min_queued_sort_key_on_connection(
+        conn: &mut SqliteConnection,
+        conversation_id: Uuid,
+    ) -> Result<Option<i64>, sqlx::Error> {
+        sqlx::query_scalar(
+            r#"SELECT MIN(sort_key)
+               FROM conversation_inputs
+               WHERE conversation_id = ? AND status = 'queued'"#,
+        )
+        .bind(conversation_id)
+        .fetch_one(conn)
+        .await
+    }
+
+    pub async fn find_by_id_for_conversation_on_connection(
+        conn: &mut SqliteConnection,
+        conversation_id: Uuid,
+        input_id: Uuid,
+    ) -> Result<Option<Self>, sqlx::Error> {
+        sqlx::query_as::<_, Self>(&format!(
+            r#"SELECT {INPUT_COLUMNS}
+               FROM conversation_inputs
+               WHERE conversation_id = ? AND id = ?"#
+        ))
+        .bind(conversation_id)
+        .bind(input_id)
+        .fetch_optional(conn)
+        .await
+    }
+
     pub async fn first_queued_id_on_connection(
         conn: &mut SqliteConnection,
         conversation_id: Uuid,

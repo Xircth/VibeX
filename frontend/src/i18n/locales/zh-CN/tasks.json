@@ -1,6 +1,11 @@
 {
   "composer": {
     "inputLabel": "消息",
+    "placeholder": "输入任意内容。@ 文件，$ 技能，/ 命令",
+    "send": "发送",
+    "stop": "停止",
+    "clearReview": "清除审查",
+    "resolveConflict": "解决冲突",
     "attachments": "附件",
     "attachFiles": "附加文件",
     "dropFiles": "松开以放入文件",
@@ -430,7 +435,8 @@
     "personaTeam": "团队",
     "personaSummary": "简介",
     "personaAgent": "Agent",
-    "sessionConfig": "会话配置"
+    "sessionConfig": "会话配置",
+    "defaultConfig": "使用默认配置"
   },
   "readyContent": {
     "back": "后退",
@@ -475,6 +481,7 @@
     "editMessage": "编辑队列消息",
     "deleteMessage": "删除队列消息",
     "steer": "纠偏",
+    "steerInterruptRestart": "中断并立即发送",
     "moveUp": "上移队列消息",
     "moveDown": "下移队列消息",
     "sending": "正在发送",
@@ -716,5 +723,18 @@
   "effortSlider": {
     "faster": "更快",
     "smarter": "更强"
+  },
+  "engineHandoff": {
+    "title": "从 {{sourceEngine}} 切换到 {{targetEngine}}",
+    "tokenBudget": "Token 预算",
+    "packedHeading": "打包内容",
+    "firstUserMessage": "首条用户消息",
+    "lastUserMessage": "末条用户消息",
+    "lastAssistantMessage": "末条助手消息",
+    "recentMessages": "近期 {{count}} 条消息（按时间倒序）",
+    "omittedWarning": "{{count}} 条历史消息被裁剪（可通过 MCP 回查）",
+    "expandPreview": "展开查看完整打包预览",
+    "collapsePreview": "收起完整打包预览",
+    "confirmSwitch": "确认切换"
   }
 }

@@ -14,6 +14,7 @@ const {
   openFilePreview,
   openLocalAppWindow,
   openNewTerminal,
+  openSessionTab,
   openSettingsSurface,
   openWebPreview,
   requestCreateSession,
@@ -39,6 +40,7 @@ const {
   openFilePreview: vi.fn(),
   openLocalAppWindow: vi.fn(),
   openNewTerminal: vi.fn(),
+  openSessionTab: vi.fn(),
   openSettingsSurface: vi.fn(),
   openWebPreview: vi.fn(),
   requestCreateSession: vi.fn(),
@@ -63,6 +65,7 @@ vi.mock('@/contexts/PanelActionsContext', () => ({
     openDiffPreview,
     openFilePreview,
     openNewTerminal,
+    openSessionTab,
     openWebPreview,
     showFileTree,
     toggleFileTree,
@@ -359,7 +362,7 @@ describe('DockviewWelcomePanel', () => {
       screen.getByRole('button', { name: /预览 Git Diffs/ })
     ).toBeInTheDocument();
     expect(
-      screen.getByRole('button', { name: /打开项目栏/ })
+      screen.getByRole('button', { name: /切换项目/ })
     ).toBeInTheDocument();
     expect(
       screen.getByRole('button', { name: /打开 Agent 设置/ })
@@ -385,11 +388,17 @@ describe('DockviewWelcomePanel', () => {
     expect(requestCreateSession).toHaveBeenCalledOnce();
   });
 
-  it('opens a session from the continue list', () => {
+  it('opens a session tab and navigates from the continue list', () => {
     renderPanel();
 
     fireEvent.click(screen.getByText('修复窗口选择器缩略图'));
 
+    expect(openSessionTab).toHaveBeenCalledWith({
+      sessionId: 'session-1',
+      workspaceId: 'workspace-1',
+      title: '修复窗口选择器缩略图',
+      agentId: 'grok',
+    });
     expect(activateExecutionSession).toHaveBeenCalledWith({
       sessionId: 'session-1',
       workspaceId: 'workspace-1',
@@ -404,7 +413,7 @@ describe('DockviewWelcomePanel', () => {
     renderPanel();
 
     fireEvent.click(screen.getByRole('button', { name: '打开设置' }));
-    fireEvent.click(screen.getByRole('button', { name: /打开项目栏/ }));
+    fireEvent.click(screen.getByRole('button', { name: /切换项目/ }));
     fireEvent.click(screen.getByRole('button', { name: /打开终端/ }));
     fireEvent.click(screen.getByRole('button', { name: /预览 Git Diffs/ }));
     fireEvent.click(screen.getByRole('button', { name: /打开 Agent 设置/ }));

@@ -107,6 +107,8 @@ export interface WorkspaceSessionSummary extends Session {
   taskId: string | null;
   name: string | null;
   status: SessionStatus;
+  agentId?: string | null;
+  model?: string | null;
   firstPrompt: string | null;
   isRunning: boolean;
   queueStatus: QueueStatus | null;
@@ -237,6 +239,9 @@ export function useWorkspaceSessions(
           name: session.name,
           status: session.status,
           executor: session.executor,
+          agent_id: session.agent_id,
+          agentId: session.agent_id ?? session.executor,
+          model: session.model,
           created_at: session.created_at,
           updated_at: session.updated_at,
           firstPrompt: session.first_prompt,

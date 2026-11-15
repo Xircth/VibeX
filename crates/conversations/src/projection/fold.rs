@@ -2,7 +2,8 @@ use std::collections::BTreeMap;
 
 use agents::conversation::{
     ContentBlock, ConversationError, ConversationErrorView, ConversationEvent, ConversationRowOp,
-    ConversationTimelineRow, MessageTurn, PlanEntry, TurnRole, cap_json_value, cap_preview_bytes,
+    ConversationSessionNotice, ConversationTimelineRow, MessageTurn, PlanEntry, TimelineRow,
+    TurnRole, cap_json_value, cap_preview_bytes,
 };
 use db::models::conversation_event::ConversationEventRecord;
 use serde::{Deserialize, Serialize};
@@ -10,7 +11,10 @@ use uuid::Uuid;
 
 use super::{
     ParsedEvent, ProjectionFold,
-    cache::{AssistantEmit, TouchedTurnRows, clear_session_connect_notices},
+    cache::{
+        AssistantEmit, TouchedTurnRows, clear_session_connect_notices, remove_side_row,
+        upsert_stable_notice,
+    },
     conversation_event_from_record, emit_captured_internal_message, merge_reported_turn_usage,
     rows::side_row,
 };
@@ -50,29 +54,7 @@ impl ProjectionFold {
                     let turn = turns.get_mut(&turn_id).expect("turn exists");
                     turn.user_revision = record.sequence;
                     turn.revision = record.sequence;
-                    turn.user.blocks = blocks
-                        .into_iter()
-                        .filter_map(|block| match block {
-                            agents::conversation::ConversationInputBlock::Text { text } => {
-                                Some(ContentBlock::Text { text })
-                            }
-                            agents::conversation::ConversationInputBlock::Image {
-                                uri,
-                                mime_type,
-                                ..
-                            } => Some(ContentBlock::Image {
-                                data: String::new(),
-                                mime_type,
-                                uri: Some(uri),
-                                width: None,
-                                height: None,
-                            }),
-                            agents::conversation::ConversationInputBlock::Resource { .. } => None,
-                            agents::conversation::ConversationInputBlock::Protocol { content } => {
-                                Some(ContentBlock::Protocol { content })
-                            }
-                        })
-                        .collect();
+                    turn.user.blocks = content_blocks_from_input(&blocks, true);
                     touched_turn_rows = Some(TouchedTurnRows::ChangedAt(turn_id, record.sequence));
                 }
             }
@@ -154,6 +136,7 @@ impl ProjectionFold {
                     {
                         *existing = plan;
                     } else {
+                        flush_trailing_raw_text(turn, record.conversation_id, turn_id);
                         turn.assistant.blocks.push(plan);
                     }
                     assistant_emit = Some(if row_existed {
@@ -240,6 +223,11 @@ impl ProjectionFold {
                                 )),
                                 _ => None,
                             });
+                    let append_delta = if settle_read {
+                        None
+                    } else {
+                        extract_tool_output_append(&tool_call)
+                    };
                     match existing_use {
                         Some((
                             tool_name,
@@ -280,6 +268,7 @@ impl ProjectionFold {
                             }
                         }
                         None => {
+                            flush_trailing_raw_text(turn, record.conversation_id, turn_id);
                             turn.assistant.blocks.push(ContentBlock::ToolUse {
                                 status: reported_status.clone(),
                                 tool_use_id: Some(call_id.clone()),
@@ -312,7 +301,7 @@ impl ProjectionFold {
                         _ => None,
                     });
                     let is_error = matches!(status, Some("failed"));
-                    let output_preview = if settle_read {
+                    let output_preview = if settle_read || append_delta.is_some() {
                         None
                     } else {
                         tool_call.raw_output.map(|output| {
@@ -322,25 +311,32 @@ impl ProjectionFold {
                             })
                         })
                     };
-                    if output_preview.is_some() || terminal {
-                        let existing_result =
-                            turn.assistant
-                                .blocks
-                                .iter_mut()
-                                .find_map(|block| match block {
-                                    ContentBlock::ToolResult {
-                                        tool_use_id: Some(id),
-                                        output_preview,
-                                        is_error,
-                                        ..
-                                    } if *id == call_id => Some((output_preview, is_error)),
-                                    _ => None,
-                                });
+                    if append_delta.is_some() || output_preview.is_some() || terminal {
+                        let existing_result = turn.assistant.blocks.iter_mut().find_map(|block| {
+                            match block {
+                                ContentBlock::ToolResult {
+                                    tool_use_id: Some(id),
+                                    output_preview,
+                                    is_error,
+                                    ..
+                                } if *id == call_id => Some((output_preview, is_error)),
+                                _ => None,
+                            }
+                        });
                         match existing_result {
                             Some((existing_output, existing_error)) => {
                                 if settle_read {
                                     *existing_output = None;
                                     *existing_error = false;
+                                } else if let Some(delta) = append_delta {
+                                    if !delta.is_empty() {
+                                        let next = match existing_output.as_deref() {
+                                            Some(prev) => format!("{prev}{delta}"),
+                                            None => delta,
+                                        };
+                                        *existing_output = Some(cap_preview_bytes(next));
+                                    }
+                                    *existing_error = is_error;
                                 } else {
                                     if output_preview.is_some() {
                                         *existing_output = output_preview;
@@ -349,9 +345,14 @@ impl ProjectionFold {
                                 }
                             }
                             None => {
+                                flush_trailing_raw_text(turn, record.conversation_id, turn_id);
+                                let initial = append_delta
+                                    .filter(|d| !d.is_empty())
+                                    .map(cap_preview_bytes)
+                                    .or(output_preview);
                                 turn.assistant.blocks.push(ContentBlock::ToolResult {
                                     tool_use_id: Some(call_id),
-                                    output_preview,
+                                    output_preview: initial,
                                     is_error,
                                     agent_stats: None,
                                 });
@@ -405,7 +406,9 @@ impl ProjectionFold {
                     }
                 }
             }
-            ConversationEvent::AgentSessionInfoUpdated { .. } => {}
+            ConversationEvent::AgentSessionInfoUpdated { patch } => {
+                apply_session_info_patch(side_rows, &mut deleted_rows, record, &patch);
+            }
             ConversationEvent::TurnCompleted { .. } => {
                 let turn_id = settle_turn(turns, turn_order, record, "settled");
                 touched_turn_rows = Some(TouchedTurnRows::ChangedAt(turn_id, record.sequence));
@@ -459,17 +462,29 @@ impl ProjectionFold {
                 } => {
                     ensure_turn(turns, turn_order, expected_turn_id, record);
                     let turn = turns.get_mut(&expected_turn_id).expect("turn exists");
-                    turn.pending_steering = Some((steering_id, content_blocks_from_input(&blocks)));
+                    turn.pending_steering =
+                        Some((steering_id, content_blocks_from_input(&blocks, false)));
                 }
                 agents::ConversationSteeringEvent::Accepted {
                     steering_id,
                     expected_turn_id,
+                    delivery_mode,
+                    ..
                 } => {
-                    ensure_turn(turns, turn_order, expected_turn_id, record);
-                    let turn = turns.get_mut(&expected_turn_id).expect("turn exists");
-                    apply_accepted_steering(turn, steering_id, record);
-                    touched_turn_rows =
-                        Some(TouchedTurnRows::ChangedAt(expected_turn_id, record.sequence));
+                    if matches!(
+                        delivery_mode,
+                        Some(agents::ConversationSteeringDeliveryMode::InterruptRestart)
+                    ) {
+                        if let Some(turn) = turns.get_mut(&expected_turn_id) {
+                            turn.pending_steering = None;
+                        }
+                    } else {
+                        ensure_turn(turns, turn_order, expected_turn_id, record);
+                        let turn = turns.get_mut(&expected_turn_id).expect("turn exists");
+                        apply_accepted_steering(turn, steering_id, record);
+                        touched_turn_rows =
+                            Some(TouchedTurnRows::ChangedAt(expected_turn_id, record.sequence));
+                    }
                 }
                 agents::ConversationSteeringEvent::Rejected {
                     expected_turn_id, ..
@@ -561,6 +576,13 @@ impl ProjectedTurn {
 
     pub(super) fn effective_user_phase(&self) -> String {
         match self.phase.as_str() {
+            "streaming" | "interrupted" | "failed" | "cancelled" => self.phase.clone(),
+            _ => "settled".into(),
+        }
+    }
+
+    pub(super) fn closed_segment_phase(&self) -> String {
+        match self.phase.as_str() {
             "interrupted" | "failed" | "cancelled" => self.phase.clone(),
             _ => "settled".into(),
         }
@@ -583,6 +605,26 @@ impl ProjectedTurn {
     }
 }
 
+fn new_message_turn(
+    id: String,
+    role: TurnRole,
+    blocks: Vec<ContentBlock>,
+    timestamp: chrono::DateTime<chrono::Utc>,
+    completed_at: Option<chrono::DateTime<chrono::Utc>>,
+) -> MessageTurn {
+    MessageTurn {
+        id,
+        role,
+        blocks,
+        timestamp,
+        usage: None,
+        duration_ms: None,
+        model: None,
+        completed_at,
+        agent_message_id: None,
+    }
+}
+
 pub(super) fn ensure_turn(
     turns: &mut BTreeMap<Uuid, ProjectedTurn>,
     turn_order: &mut Vec<Uuid>,
@@ -592,34 +634,13 @@ pub(super) fn ensure_turn(
     if turns.contains_key(&turn_id) {
         return;
     }
-
     turn_order.push(turn_id);
     turns.insert(
         turn_id,
         ProjectedTurn {
             turn_id,
-            user: MessageTurn {
-                id: format!("{turn_id}:user"),
-                role: TurnRole::User,
-                blocks: Vec::new(),
-                timestamp: record.created_at,
-                usage: None,
-                duration_ms: None,
-                model: None,
-                completed_at: None,
-                agent_message_id: None,
-            },
-            assistant: MessageTurn {
-                id: format!("{turn_id}:assistant"),
-                role: TurnRole::Assistant,
-                blocks: Vec::new(),
-                timestamp: record.created_at,
-                usage: None,
-                duration_ms: None,
-                model: None,
-                completed_at: None,
-                agent_message_id: None,
-            },
+            user: new_message_turn(format!("{turn_id}:user"), TurnRole::User, Vec::new(), record.created_at, None),
+            assistant: new_message_turn(format!("{turn_id}:assistant"), TurnRole::Assistant, Vec::new(), record.created_at, None),
             prefix_segments: Vec::new(),
             prefix_segment_revisions: Vec::new(),
             pending_steering: None,
@@ -631,6 +652,63 @@ pub(super) fn ensure_turn(
             emitted_internal_count: 0,
         },
     );
+}
+
+fn flush_trailing_raw_text(turn: &mut ProjectedTurn, conversation_id: Uuid, turn_id: Uuid) {
+    finalize_trailing_raw_text(turn, conversation_id, turn_id, true);
+}
+
+fn finalize_trailing_raw_text(
+    turn: &mut ProjectedTurn,
+    conversation_id: Uuid,
+    turn_id: Uuid,
+    clear_after: bool,
+) {
+    if turn.trailing_raw_text.is_empty() {
+        return;
+    }
+    let extracted = agents::extract_and_strip_internal_messages(
+        &turn.trailing_raw_text,
+        Some(conversation_id),
+        Some(turn_id),
+        false,
+    );
+    for captured in extracted
+        .captured
+        .into_iter()
+        .skip(turn.emitted_internal_count)
+    {
+        emit_captured_internal_message(captured);
+    }
+    match turn.assistant.blocks.last_mut() {
+        Some(ContentBlock::Text { text }) => {
+            if extracted.visible_text.is_empty() {
+                turn.assistant.blocks.pop();
+                turn.trailing_raw_text.clear();
+            } else {
+                *text = extracted.visible_text.clone();
+                if clear_after {
+                    turn.trailing_raw_text.clear();
+                } else {
+                    turn.trailing_raw_text = extracted.visible_text;
+                }
+            }
+        }
+        _ if !extracted.visible_text.is_empty() => {
+            if clear_after {
+                turn.trailing_raw_text.clear();
+            } else {
+                turn.trailing_raw_text = extracted.visible_text.clone();
+            }
+            turn.assistant.blocks.push(ContentBlock::Text {
+                text: extracted.visible_text,
+            });
+        }
+        _ => {
+            turn.trailing_raw_text.clear();
+        }
+    }
+    turn.emitted_internal_count = 0;
 }
 
 fn settle_turn(
@@ -645,48 +723,17 @@ fn settle_turn(
         .unwrap_or(record.conversation_id);
     ensure_turn(turns, turn_order, turn_id, record);
     let turn = turns.get_mut(&turn_id).expect("turn exists");
-    if !turn.trailing_raw_text.is_empty() {
-        let extracted = agents::extract_and_strip_internal_messages(
-            &turn.trailing_raw_text,
-            Some(record.conversation_id),
-            Some(turn_id),
-            false,
-        );
-        for captured in extracted
-            .captured
-            .into_iter()
-            .skip(turn.emitted_internal_count)
-        {
-            emit_captured_internal_message(captured);
-        }
-        match turn.assistant.blocks.last_mut() {
-            Some(ContentBlock::Text { text }) => {
-                if extracted.visible_text.is_empty() {
-                    turn.assistant.blocks.pop();
-                    turn.trailing_raw_text.clear();
-                } else {
-                    *text = extracted.visible_text.clone();
-                    turn.trailing_raw_text = extracted.visible_text;
-                }
-            }
-            _ if !extracted.visible_text.is_empty() => {
-                turn.trailing_raw_text = extracted.visible_text.clone();
-                turn.assistant.blocks.push(ContentBlock::Text {
-                    text: extracted.visible_text,
-                });
-            }
-            _ => {
-                turn.trailing_raw_text.clear();
-            }
-        }
-        turn.emitted_internal_count = 0;
-    }
+    finalize_trailing_raw_text(turn, record.conversation_id, turn_id, false);
     let prev_user_phase = turn.effective_user_phase();
+    let prev_closed_phase = turn.closed_segment_phase();
     if !(turn.phase == "failed" && phase == "settled") {
         turn.phase = phase.into();
     }
-    if turn.effective_user_phase() != prev_user_phase {
+    if turn.closed_segment_phase() != prev_closed_phase {
         turn.bump_all_segment_revisions(record.sequence);
+    } else if turn.effective_user_phase() != prev_user_phase {
+        turn.user_revision = record.sequence;
+        turn.revision = record.sequence;
     } else {
         turn.revision = record.sequence;
     }
@@ -747,6 +794,7 @@ fn collapse_ws(value: &str) -> String {
 
 fn content_blocks_from_input(
     blocks: &[agents::conversation::ConversationInputBlock],
+    include_protocol: bool,
 ) -> Vec<ContentBlock> {
     blocks
         .iter()
@@ -761,6 +809,13 @@ fn content_blocks_from_input(
                     uri: Some(uri.clone()),
                     width: None,
                     height: None,
+                })
+            }
+            agents::conversation::ConversationInputBlock::Protocol { content }
+                if include_protocol =>
+            {
+                Some(ContentBlock::Protocol {
+                    content: content.clone(),
                 })
             }
             agents::conversation::ConversationInputBlock::Resource { .. }
@@ -795,32 +850,24 @@ fn insert_mid_turn_user_slice(
         turn.prefix_segments.push(closed);
         turn.prefix_segment_revisions.push(record.sequence);
         let next = turn.prefix_segments.len() + 1;
-        turn.assistant = MessageTurn {
-            id: format!("{}:assistant:{next}", turn.turn_id),
-            role: TurnRole::Assistant,
-            blocks: Vec::new(),
-            timestamp: record.created_at,
-            usage: None,
-            duration_ms: None,
-            model: None,
-            completed_at: None,
-            agent_message_id: None,
-        };
+        turn.assistant = new_message_turn(
+            format!("{}:assistant:{next}", turn.turn_id),
+            TurnRole::Assistant,
+            Vec::new(),
+            record.created_at,
+            None,
+        );
         turn.trailing_raw_text.clear();
         turn.emitted_internal_count = 0;
     }
     if !blocks.is_empty() {
-        turn.prefix_segments.push(MessageTurn {
-            id: format!("{}:steer:{slice_id}", turn.turn_id),
-            role: TurnRole::User,
+        turn.prefix_segments.push(new_message_turn(
+            format!("{}:steer:{slice_id}", turn.turn_id),
+            TurnRole::User,
             blocks,
-            timestamp: record.created_at,
-            usage: None,
-            duration_ms: None,
-            model: None,
-            completed_at: Some(record.created_at),
-            agent_message_id: None,
-        });
+            record.created_at,
+            Some(record.created_at),
+        ));
         turn.prefix_segment_revisions.push(record.sequence);
     }
     turn.revision = record.sequence;
@@ -831,6 +878,84 @@ pub(super) fn append_thinking_block(blocks: &mut Vec<ContentBlock>, text: String
         existing.push_str(&text);
     } else {
         blocks.push(ContentBlock::Thinking { text });
+    }
+}
+
+fn extract_tool_output_append(
+    tool_call: &agents::conversation::ConversationToolCallPatch,
+) -> Option<String> {
+    let meta_append = tool_call
+        .metadata
+        .as_ref()
+        .and_then(serde_json::Value::as_object)
+        .is_some_and(|m| {
+            ["raw_output_append", "rawOutputAppend", "append", "delta", "terminalOutputDelta"]
+                .iter()
+                .any(|k| m.get(*k).and_then(serde_json::Value::as_bool) == Some(true))
+        });
+    if tool_call.raw_output.is_none() || meta_append {
+        tool_call.raw_output_append.clone().or_else(|| {
+            meta_append
+                .then(|| tool_call.raw_output.as_ref()?.as_str().map(str::to_owned))
+                .flatten()
+        })
+    } else {
+        None
+    }
+}
+
+fn apply_session_info_patch(
+    side_rows: &mut Vec<TimelineRow>,
+    deleted_rows: &mut Vec<ConversationRowOp>,
+    record: &ConversationEventRecord,
+    patch: &serde_json::Value,
+) {
+    let Some(obj) = patch.as_object() else { return };
+    let notice = |title: &str, message: Option<String>, severity: &str, id: String| {
+        ConversationSessionNotice { title: title.into(), message, severity: severity.into(), announcement_id: Some(id), ..Default::default() }
+    };
+    match obj.get("autoCompactionInProgress").and_then(|v| v.as_bool()) {
+        Some(true) => upsert_stable_notice(
+            side_rows,
+            "notice:context-compaction",
+            record.sequence,
+            notice("Compacting conversation context…", obj.get("trigger").and_then(|v| v.as_str()).map(|t| format!("Trigger: {t}")), "info", "context_compaction".into()),
+        ),
+        Some(false) => remove_side_row(side_rows, deleted_rows, "notice:context-compaction", record.sequence),
+        None => {}
+    }
+    if let Some(warn) = obj.get("modelConsistencyWarning") {
+        if warn.is_null() {
+            remove_side_row(side_rows, deleted_rows, "notice:model-consistency-warning", record.sequence);
+        } else {
+            let msg = warn.as_str().map(str::to_owned).or_else(|| {
+                let w = warn.as_object()?;
+                w.get("message").and_then(|v| v.as_str()).map(str::to_owned).or_else(|| {
+                    let req = w.get("requestedModel").or_else(|| w.get("requested_model"))?.as_str()?;
+                    let srv = w.get("servedModel").or_else(|| w.get("served_model"))?.as_str()?;
+                    Some(format!("Requested model `{req}`, but provider served `{srv}`."))
+                })
+            });
+            upsert_stable_notice(side_rows, "notice:model-consistency-warning", record.sequence, notice("Model consistency warning", msg, "warning", "model_consistency_warning".into()));
+        }
+    }
+    if let Some(rl) = obj.get("rateLimits").and_then(|v| v.as_object()) {
+        let win = rl.get("primary").and_then(|v| v.as_object()).unwrap_or(rl);
+        let reset = rl.get("resetAt").or_else(|| rl.get("resetsAt")).or_else(|| win.get("resetsAt")).or_else(|| win.get("resetAt"));
+        let status = rl.get("status").and_then(|v| v.as_str()).unwrap_or("");
+        let zero_quota = rl.get("requestsRemaining").and_then(|v| v.as_i64()) == Some(0)
+            || rl.get("tokensRemaining").and_then(|v| v.as_i64()) == Some(0);
+        let full_util = rl.get("utilization").and_then(|v| v.as_f64()).is_some_and(|u| (0.9999..=1.05).contains(&u) || u >= 100.0)
+            || win.get("usedPercent").and_then(|v| v.as_f64()).is_some_and(|u| u >= 100.0);
+        let limited = rl.get("isRateLimited").and_then(|v| v.as_bool()).unwrap_or_else(|| {
+            matches!(status, "rejected" | "rate_limited" | "exceeded" | "limited") || ((zero_quota || full_util) && reset.is_some())
+        });
+        if limited {
+            let meta = serde_json::json!({ "kind": "rate_limit", "isRateLimited": true, "limitedAt": record.created_at.to_rfc3339(), "resetAt": reset });
+            upsert_stable_notice(side_rows, "notice:rate-limit", record.sequence, notice("Rate limit reached", rl.get("message").and_then(|v| v.as_str()).map(str::to_owned), "warning", meta.to_string()));
+        } else {
+            remove_side_row(side_rows, deleted_rows, "notice:rate-limit", record.sequence);
+        }
     }
 }
 
@@ -1293,83 +1418,79 @@ mod tests {
     #[test]
     fn conversation_projection_fixtures_are_present_and_parse() {
         let fixtures = [
-            (
-                "happy-path",
-                include_str!("../../../db/fixtures/conversation-projection/happy-path.json"),
-            ),
-            (
-                "no-assistant-output-error",
-                include_str!(
-                    "../../../db/fixtures/conversation-projection/no-assistant-output-error.json"
-                ),
-            ),
-            (
-                "permission-blocked",
-                include_str!(
-                    "../../../db/fixtures/conversation-projection/permission-blocked.json"
-                ),
-            ),
-            (
-                "tool-heavy",
-                include_str!("../../../db/fixtures/conversation-projection/tool-heavy.json"),
-            ),
-            (
-                "terminal",
-                include_str!("../../../db/fixtures/conversation-projection/terminal.json"),
-            ),
-            (
-                "file-change",
-                include_str!("../../../db/fixtures/conversation-projection/file-change.json"),
-            ),
+            ("happy-path", include_str!("../../../db/fixtures/conversation-projection/happy-path.json")),
+            ("no-assistant-output-error", include_str!("../../../db/fixtures/conversation-projection/no-assistant-output-error.json")),
+            ("permission-blocked", include_str!("../../../db/fixtures/conversation-projection/permission-blocked.json")),
+            ("tool-heavy", include_str!("../../../db/fixtures/conversation-projection/tool-heavy.json")),
+            ("terminal", include_str!("../../../db/fixtures/conversation-projection/terminal.json")),
+            ("file-change", include_str!("../../../db/fixtures/conversation-projection/file-change.json")),
         ];
-
         for (expected_name, raw) in fixtures {
             let value: serde_json::Value = serde_json::from_str(raw).expect("fixture json");
             assert_eq!(value["name"], expected_name);
             assert_eq!(value["projectionVersion"], CONVERSATION_PROJECTION_VERSION);
-            assert!(
-                value["events"]
-                    .as_array()
-                    .is_some_and(|events| !events.is_empty())
-            );
-            assert!(
-                value["expectedTimeline"]
-                    .as_array()
-                    .is_some_and(|rows| !rows.is_empty())
-            );
+            assert!(value["events"].as_array().is_some_and(|e| !e.is_empty()));
+            assert!(value["expectedTimeline"].as_array().is_some_and(|r| !r.is_empty()));
         }
     }
 
     #[test]
     fn occupancy_update_keeps_reported_protocol_buckets() {
-        let existing = TurnUsage {
-            input_tokens: 20,
-            output_tokens: 10,
-            cache_creation_input_tokens: 0,
-            cache_read_input_tokens: 70,
-            context_used: None,
-            context_window_max: None,
-            cost_amount: None,
-            cost_currency: None,
-        };
+        let existing = TurnUsage { input_tokens: 20, output_tokens: 10, cache_read_input_tokens: 70, ..Default::default() };
         let merged = merge_reported_turn_usage(
             Some(existing),
-            &ConversationUsage {
-                input_tokens: 0,
-                output_tokens: 0,
-                cache_creation_input_tokens: 0,
-                cache_read_input_tokens: 0,
-                context_used: Some(12_000),
-                context_window_max: Some(200_000),
-                cost_amount: None,
-                cost_currency: None,
-                model: None,
-            },
+            &ConversationUsage { context_used: Some(12_000), context_window_max: Some(200_000), ..Default::default() },
         );
-        assert_eq!(merged.input_tokens, 20);
-        assert_eq!(merged.output_tokens, 10);
-        assert_eq!(merged.cache_read_input_tokens, 70);
-        assert_eq!(merged.context_used, Some(12_000));
-        assert_eq!(merged.context_window_max, Some(200_000));
+        assert_eq!((merged.input_tokens, merged.output_tokens, merged.cache_read_input_tokens), (20, 10, 70));
+        assert_eq!((merged.context_used, merged.context_window_max), (Some(12_000), Some(200_000)));
+    }
+
+    #[test]
+    fn session_info_notices_and_tool_output_append_fold_cleanly() {
+        use agents::conversation::{ContentBlock, ConversationToolCallPatch};
+        let (cid, tid) = (Uuid::new_v4(), Uuid::new_v4());
+        let with_turn = |seq, ev: &ConversationEvent| {
+            let mut r = diagnostic_record(cid, seq, ev);
+            r.turn_id = Some(tid);
+            r
+        };
+        let patch = |raw_output_append: Option<&str>, raw_output: Option<serde_json::Value>| {
+            ConversationEvent::ToolCallUpsert {
+                tool_call: ConversationToolCallPatch {
+                    tool_call_id: "c1".into(), title: Some("Bash".into()), kind: Some("execute".into()),
+                    status: Some("in_progress".into()), raw_input: None, raw_output,
+                    raw_output_append: raw_output_append.map(str::to_owned),
+                    content: None, locations: None, metadata: None, images: Vec::new(),
+                },
+            }
+        };
+        let info_on = ConversationEvent::AgentSessionInfoUpdated {
+            patch: serde_json::json!({
+                "autoCompactionInProgress": true, "trigger": "auto",
+                "modelConsistencyWarning": { "requestedModel": "claude-opus-4-6", "servedModel": "claude-sonnet-4-5" },
+                "rateLimits": { "utilization": 1.0, "resetAt": "2026-11-15T12:00:00Z" }
+            }),
+        };
+        let info_off = ConversationEvent::AgentSessionInfoUpdated {
+            patch: serde_json::json!({ "autoCompactionInProgress": false, "rateLimits": { "isRateLimited": false } }),
+        };
+        let timeline = ConversationProjector::project_records(cid, &[
+            with_turn(1, &patch(Some("chunk-1\n"), None)),
+            with_turn(2, &patch(Some("chunk-2\n"), None)),
+            diagnostic_record(cid, 3, &info_on),
+        ]).expect("projection succeeds");
+        assert!(timeline.rows.iter().any(|r| r.row_id == "notice:context-compaction"));
+        assert!(timeline.rows.iter().any(|r| r.row_id == "notice:model-consistency-warning"));
+        assert!(timeline.rows.iter().any(|r| r.row_id == "notice:rate-limit"));
+        let output = timeline.rows.iter().find_map(|r| match &r.row {
+            ConversationTimelineRow::MessageTurn { turn, .. } => turn.blocks.iter().find_map(|b| match b {
+                ContentBlock::ToolResult { output_preview, .. } => output_preview.clone(),
+                _ => None,
+            }),
+            _ => None,
+        });
+        assert_eq!(output.as_deref(), Some("chunk-1\nchunk-2\n"));
+        let cleared = ConversationProjector::project_records(cid, &[diagnostic_record(cid, 1, &info_on), diagnostic_record(cid, 2, &info_off)]).expect("clears");
+        assert!(!cleared.rows.iter().any(|r| r.row_id == "notice:context-compaction" || r.row_id == "notice:rate-limit"));
     }
 }

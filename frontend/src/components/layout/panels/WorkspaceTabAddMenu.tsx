@@ -5,6 +5,7 @@ import {
   Bot,
   FileDiff,
   GitFork,
+  House,
   Info,
   Plus,
   Puzzle,
@@ -60,6 +61,7 @@ export function WorkspaceTabAddMenu({
     openOrFocusPanel,
     openTerminalEditorTab,
     openPluginPanel,
+    openWelcomeTab,
     runInEditorGroup,
   } = usePanelActionsContext();
   const pluginPanels = usePluginHostContributions('app_panel');
@@ -312,6 +314,10 @@ export function WorkspaceTabAddMenu({
         <DropdownMenuLabel className="px-2 py-1 text-[11px] font-medium text-muted-foreground">
           {t('tabCreation.sections.features')}
         </DropdownMenuLabel>
+        <DropdownMenuItem onSelect={() => runInThisGroup(openWelcomeTab)}>
+          <House />
+          {t('panelRegistry.welcome')}
+        </DropdownMenuItem>
         {canOpenNotes ? (
           <DropdownMenuItem onSelect={() => runInThisGroup(openNotes)}>
             <StickyNote />

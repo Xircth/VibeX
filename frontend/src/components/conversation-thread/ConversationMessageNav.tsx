@@ -1,1 +1,4 @@
-export { ConversationMessageNav } from '@/components/NormalizedConversation/thread/ConversationMessageNav';
+export {
+  ConversationMessageNav,
+  resolveScrubEntryIndex,
+} from '@/components/NormalizedConversation/thread/ConversationMessageNav';

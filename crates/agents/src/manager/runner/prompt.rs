@@ -190,6 +190,7 @@ impl AgentConnectionRunner {
                                 recorded_usage.as_ref(),
                             )
                             .await;
+                            let had_turn_failure = turn_failure.is_some();
                             if let Some(error) = turn_failure {
                                 if error.code.as_deref() == Some("agent_connection_lost") {
                                     self.session_map.write().await.remove(&session_id);
@@ -238,6 +239,81 @@ impl AgentConnectionRunner {
                                         }),
                                     },
                                 );
+                            }
+                            if !had_turn_failure {
+                                let served_model = recorded_usage
+                                    .as_ref()
+                                    .and_then(|u| u.model.clone())
+                                    .or_else(|| usage.as_ref().and_then(|u| u.model.clone()));
+                                let requested_model = if let Some(override_model) = confirmed_config
+                                    .iter()
+                                    .find(|opt| opt.key == "model")
+                                    .map(|opt| opt.value.clone())
+                                {
+                                    Some(override_model)
+                                } else if let Some(pref_model) = self
+                                    .preferred_controls
+                                    .read()
+                                    .await
+                                    .get(&session_id)
+                                    .and_then(|prefs| {
+                                        prefs
+                                            .config
+                                            .iter()
+                                            .find(|opt| opt.key == "model")
+                                            .map(|opt| opt.value.clone())
+                                    })
+                                {
+                                    Some(pref_model)
+                                } else {
+                                    self.session_controls
+                                        .read()
+                                        .await
+                                        .get(&session_id)
+                                        .and_then(|s| s.asserted_config_values.get("model").cloned())
+                                        .or_else(|| {
+                                            self.snapshot.env.get("VIBEX_DEFAULT_MODEL").cloned()
+                                        })
+                                };
+                                let custom_base_url = ["ANTHROPIC_BASE_URL", "OPENAI_BASE_URL"]
+                                    .into_iter()
+                                    .filter_map(|k| {
+                                        self.snapshot
+                                            .env
+                                            .get(k)
+                                            .or_else(|| self.snapshot.launch_lock.env.get(k))
+                                    })
+                                    .map(|u| u.trim())
+                                    .any(|u| {
+                                        !u.is_empty()
+                                            && !u.contains("api.anthropic.com")
+                                            && !u.contains("api.openai.com")
+                                    });
+                                let alias_targets = if self.snapshot.agent_id.as_str() == "claude_code" {
+                                    let mut merged_env = self.snapshot.launch_lock.env.clone();
+                                    merged_env.extend(self.snapshot.env.clone());
+                                    crate::end_turn_usage::collect_claude_model_aliases(&merged_env)
+                                } else {
+                                    std::collections::HashMap::new()
+                                };
+                                if let Some(mismatch) =
+                                    crate::end_turn_usage::check_launch_vs_served_model_with_aliases(
+                                        requested_model.as_deref(),
+                                        served_model.as_deref(),
+                                        custom_base_url,
+                                        &alias_targets,
+                                    )
+                                {
+                                    self.emit(
+                                        Some(session_id),
+                                        Some(prompt_id),
+                                        AgentEvent::SessionInfoUpdated {
+                                            patch: serde_json::json!({
+                                                "modelConsistencyWarning": mismatch,
+                                            }),
+                                        },
+                                    );
+                                }
                             }
                             self.emit(
                                 Some(session_id),
@@ -748,6 +824,11 @@ impl AgentConnectionRunner {
                         Some(AgentConnectionCommand::DiscardSession { result_tx, .. }) => {
                             let _ = result_tx.send(Err(AgentError::Runtime(
                                 "cannot discard a session while a turn is in progress".into(),
+                            )));
+                        }
+                        Some(AgentConnectionCommand::RollbackTurns { result_tx, .. }) => {
+                            let _ = result_tx.send(Err(AgentError::Runtime(
+                                "cannot rollback turns while a turn is in progress".into(),
                             )));
                         }
                         Some(AgentConnectionCommand::GoalControl {

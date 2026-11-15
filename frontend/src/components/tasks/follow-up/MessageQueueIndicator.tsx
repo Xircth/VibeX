@@ -12,6 +12,7 @@ import {
   Trash2,
 } from 'lucide-react';
 import type { QueuedMessage } from './sessionComposerQueue';
+import type { ComposerSteerChannel } from './sessionComposerSteering';
 import { cn } from '@/lib/utils';
 
 export function formatCountdownTimer(
@@ -38,6 +39,7 @@ interface MessageQueueIndicatorProps {
   queuedMessages?: QueuedMessage[];
   delayedMessages?: QueuedMessage[];
   canSteerQueued?: boolean;
+  steerChannel?: ComposerSteerChannel | null;
   steeringQueued?: boolean;
   onSteerQueuedMessage?: (message: QueuedMessage) => void;
   onEditQueuedMessage?: (message: QueuedMessage) => void;
@@ -51,6 +53,7 @@ export function MessageQueueIndicator({
   queuedMessages = [],
   delayedMessages = [],
   canSteerQueued = false,
+  steerChannel = null,
   steeringQueued = false,
   onSteerQueuedMessage,
   onEditQueuedMessage,
@@ -216,7 +219,16 @@ export function MessageQueueIndicator({
                       </QueueAction>
                       {canSteerQueued ? (
                         <QueueAction
-                          label={t('messageQueue.steer')}
+                          testId={`steer-queued-message-${message.id}`}
+                          label={
+                            steerChannel === 'interrupt_restart'
+                              ? t('messageQueue.steerInterruptRestart', {
+                                  defaultValue: 'Interrupt and send now',
+                                })
+                              : t('messageQueue.steer', {
+                                  defaultValue: 'Steer',
+                                })
+                          }
                           disabled={
                             claimed || steeringQueued || !onSteerQueuedMessage
                           }

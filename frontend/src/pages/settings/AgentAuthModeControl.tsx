@@ -52,6 +52,7 @@ import {
 import { AgentAccountIdentity } from './AgentAccountIdentity';
 import { CodexDeviceLogin } from './CodexDeviceLogin';
 import { HeadlessAccountTokenField } from './QoderLaunchTokenField';
+import { AgentSectionHeading } from './SettingsSection';
 
 type AuthDraft = {
   mode: string;
@@ -375,76 +376,81 @@ export function AgentAuthModeControl({
       aria-labelledby={`${agentId}-auth-mode-heading`}
       className="agent-auth-mode-surface"
     >
-      <div className="agent-section-heading agent-section-heading-flat">
-        <h3 id={`${agentId}-auth-mode-heading`}>
-          {t('settings:agents.authTitle')}
-        </h3>
-        <div className="agent-auth-mode-heading-tools">
-          {panel === 'configuration' ? headingExtra : null}
-          {view && kindTabs.length > 1 ? (
-            <div
-              className="agent-auth-mode-tabs astryx-segmented-control"
-              role="tablist"
-              aria-label={t('settings:agents.authModeAria', {
-                agent: displayName,
-              })}
-            >
-              {kindTabs.map((kind) => {
-                const selected = kind === selectedKind;
-                const viewKind = view.options.find(
-                  (option) => option.value === view.mode
-                )?.kind;
-                const draft = selected && viewKind !== kind;
-                const fullLabel = t(authKindTabLabelKey(kind));
-                const TabIcon = authKindTabIcon(kind);
-                return (
-                  <button
-                    key={kind}
-                    id={authKindTabId(agentId, kind)}
-                    type="button"
-                    role="tab"
-                    aria-label={fullLabel}
-                    aria-selected={selected}
-                    aria-controls={`${agentId}-auth-mode-panel`}
-                    tabIndex={selected ? 0 : -1}
-                    className={cn(
-                      'astryx-segmented-control-item',
-                      selected && 'is-active',
-                      draft && 'is-draft'
-                    )}
-                    disabled={saving || locked}
-                    onClick={() => void selectKind(kind)}
-                    onKeyDown={(event) => {
-                      if (event.key === 'ArrowRight') {
-                        event.preventDefault();
-                        moveTabFocus(kind, 1);
-                      } else if (event.key === 'ArrowLeft') {
-                        event.preventDefault();
-                        moveTabFocus(kind, -1);
-                      } else if (event.key === 'Enter' || event.key === ' ') {
-                        event.preventDefault();
-                        void selectKind(kind);
-                      }
-                    }}
-                  >
-                    <TabIcon
-                      aria-hidden="true"
-                      className="agent-auth-mode-tab-icon"
-                    />
-                    <span>{fullLabel}</span>
-                    {draft ? (
-                      <span
-                        className="agent-auth-mode-tab-draft"
-                        aria-label={t('settings:agents.authModeUnsaved')}
+      <AgentSectionHeading
+        headingId={`${agentId}-auth-mode-heading`}
+        title={t('settings:agents.authTitle')}
+        description={t('settings:agents.authDescription')}
+        className="agent-section-heading-flat"
+      >
+        {(panel === 'configuration' && headingExtra) ||
+        (view && kindTabs.length > 1) ? (
+          <div className="agent-auth-mode-heading-tools">
+            {panel === 'configuration' ? headingExtra : null}
+            {view && kindTabs.length > 1 ? (
+              <div
+                className="agent-auth-mode-tabs astryx-segmented-control"
+                role="tablist"
+                aria-label={t('settings:agents.authModeAria', {
+                  agent: displayName,
+                })}
+              >
+                {kindTabs.map((kind) => {
+                  const selected = kind === selectedKind;
+                  const viewKind = view.options.find(
+                    (option) => option.value === view.mode
+                  )?.kind;
+                  const draft = selected && viewKind !== kind;
+                  const fullLabel = t(authKindTabLabelKey(kind));
+                  const TabIcon = authKindTabIcon(kind);
+                  return (
+                    <button
+                      key={kind}
+                      id={authKindTabId(agentId, kind)}
+                      type="button"
+                      role="tab"
+                      aria-label={fullLabel}
+                      aria-selected={selected}
+                      aria-controls={`${agentId}-auth-mode-panel`}
+                      tabIndex={selected ? 0 : -1}
+                      className={cn(
+                        'astryx-segmented-control-item',
+                        selected && 'is-active',
+                        draft && 'is-draft'
+                      )}
+                      disabled={saving || locked}
+                      onClick={() => void selectKind(kind)}
+                      onKeyDown={(event) => {
+                        if (event.key === 'ArrowRight') {
+                          event.preventDefault();
+                          moveTabFocus(kind, 1);
+                        } else if (event.key === 'ArrowLeft') {
+                          event.preventDefault();
+                          moveTabFocus(kind, -1);
+                        } else if (event.key === 'Enter' || event.key === ' ') {
+                          event.preventDefault();
+                          void selectKind(kind);
+                        }
+                      }}
+                    >
+                      <TabIcon
+                        aria-hidden="true"
+                        className="agent-auth-mode-tab-icon"
                       />
-                    ) : null}
-                  </button>
-                );
-              })}
-            </div>
-          ) : null}
-        </div>
-      </div>
+                      <span>{fullLabel}</span>
+                      {draft ? (
+                        <span
+                          className="agent-auth-mode-tab-draft"
+                          aria-label={t('settings:agents.authModeUnsaved')}
+                        />
+                      ) : null}
+                    </button>
+                  );
+                })}
+              </div>
+            ) : null}
+          </div>
+        ) : null}
+      </AgentSectionHeading>
 
       <div className="agent-auth-mode-frame" data-panel={panel}>
         {loading && !view ? (

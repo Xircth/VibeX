@@ -211,6 +211,9 @@ impl ServerApplicationDomains {
                                 text: prompt.clone(),
                                 images: Vec::new(),
                                 principal: json!({ "source": "pulse_session_steer" }),
+                                promoted_input_id: None,
+                                promoted_input_expected_revision: None,
+                                allow_interrupt_restart: false,
                             })
                             .await
                             .is_ok()

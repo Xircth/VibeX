@@ -165,7 +165,7 @@ pub(crate) async fn write_member_session_config(
             && existing_session.agent_id.as_ref() != Some(&parsed_agent)
         {
             if existing_session.agent_id.is_some() {
-                let _ = crate::jsonl_history::preserve_transcript_before_detach(pool, cid).await;
+                crate::runtime_events::flush_conversation_persistence(cid).await;
             }
             sqlx::query(
                 r#"UPDATE sessions

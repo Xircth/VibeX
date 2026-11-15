@@ -45,7 +45,7 @@ impl RetryIncidentLedger {
     }
 }
 
-/// codex-acp 2.2.2 allocates `turn:error` first, then
+/// Codex AIR sessionFailure allocates `turn:error` first, then
 /// `turn:error:<worker epoch>:<incident number>` after recovered content.
 pub(crate) fn codex_retry_incident(update: &Value) -> Option<(&str, u64)> {
     let air = update.pointer("/_meta/jetbrains/air")?;
@@ -105,8 +105,7 @@ pub(crate) fn registry_extension(
     ))
 }
 
-/// claude-code-acp 0.94.0 forwards SDK 0.3.22 system.api_retry when
-/// session metadata enables raw SDK messages.
+/// Claude raw SDK messages forward `system.api_retry` during transient retries.
 pub(crate) fn extension(
     kind: Option<AgentKind>,
     method: &str,

@@ -245,7 +245,7 @@ describe('onboarding Agent model', () => {
     });
   });
 
-  it('treats a discovered vendor CLI as present and still installs the ACP adapter', () => {
+  it('treats a discovered NativeEngine CLI as ready without installing an ACP adapter', () => {
     const options = buildOnboardingAgentOptions(
       [
         managed({
@@ -253,7 +253,7 @@ describe('onboarding Agent model', () => {
           display_name: 'Claude Code',
           local_runtime: {
             path: 'C:\\Users\\developer\\AppData\\Roaming\\npm\\claude.cmd',
-            version: '2.1.173 (Claude Code)',
+            version: '2.1.325 (Claude Code)',
           },
         }),
         managed({ agent_id: 'codex', display_name: 'Codex' }),
@@ -268,11 +268,33 @@ describe('onboarding Agent model', () => {
     expect(options[0]).toMatchObject({
       agentId: 'claude_code',
       runtimeInstalled: true,
-      needsInstallation: true,
+      needsInstallation: false,
     });
     expect(options[1]).toMatchObject({
       agentId: 'codex',
       runtimeInstalled: false,
+      needsInstallation: true,
+    });
+  });
+
+  it('treats a discovered AdapterBacked vendor CLI as present and still installs the ACP adapter', () => {
+    const options = buildOnboardingAgentOptions(
+      [
+        managed({
+          agent_id: 'zcode',
+          display_name: 'ZCode',
+          local_runtime: {
+            path: 'C:\\Users\\developer\\AppData\\Roaming\\npm\\zcode.cmd',
+            version: '1.0.0',
+          },
+        }),
+      ],
+      []
+    );
+
+    expect(options[0]).toMatchObject({
+      agentId: 'zcode',
+      runtimeInstalled: true,
       needsInstallation: true,
     });
   });

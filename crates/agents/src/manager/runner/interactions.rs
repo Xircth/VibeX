@@ -6,33 +6,125 @@ impl AgentConnectionRunner {
         permission_id: &str,
         response: AgentPermissionResponse,
     ) {
-        let pending = self.pending_permissions.lock().await.remove(permission_id);
-        if let Some(pending) = pending {
-            let persist = response.should_persist_auto_approve(&pending.options);
-            let _ = pending.tx.send(response.clone());
-            self.emit(
-                Some(pending.session_id),
-                None,
-                AgentEvent::PermissionResponded {
-                    permission_id: pending.permission_id,
-                    response,
-                    auto: false,
-                },
-            );
-            if persist {
-                self.persist_connection_auto_approve().await;
+        enum PermissionLookup {
+            NotFound,
+            StaleRevision {
+                session_id: AgentSessionId,
+                expected: u64,
+                actual: u64,
+            },
+            InvalidOption {
+                session_id: AgentSessionId,
+                option_id: String,
+            },
+            Accepted(PendingPermission),
+        }
+
+        let outcome = {
+            let mut guard = self.pending_permissions.lock().await;
+            match guard.get(permission_id) {
+                None => PermissionLookup::NotFound,
+                Some(pending) => {
+                    if let AgentPermissionResponse::Selected {
+                        ref option_id,
+                        expected_revision,
+                        ..
+                    } = response
+                    {
+                        if let Some(expected) = expected_revision
+                            && expected != pending.revision
+                        {
+                            PermissionLookup::StaleRevision {
+                                session_id: pending.session_id,
+                                expected,
+                                actual: pending.revision,
+                            }
+                        } else if !pending.options.is_empty()
+                            && !pending.options.iter().any(|opt| opt.id == *option_id)
+                        {
+                            PermissionLookup::InvalidOption {
+                                session_id: pending.session_id,
+                                option_id: option_id.clone(),
+                            }
+                        } else {
+                            match guard.remove(permission_id) {
+                                Some(removed) => PermissionLookup::Accepted(removed),
+                                None => PermissionLookup::NotFound,
+                            }
+                        }
+                    } else {
+                        match guard.remove(permission_id) {
+                            Some(removed) => PermissionLookup::Accepted(removed),
+                            None => PermissionLookup::NotFound,
+                        }
+                    }
+                }
             }
-        } else {
-            self.emit(
-                None,
-                None,
-                AgentEvent::RawAcpDiagnostic {
-                    raw: serde_json::json!({
-                        "kind": "unknown_permission_response",
-                        "permission_id": permission_id,
-                    }),
-                },
-            );
+        };
+
+        match outcome {
+            PermissionLookup::Accepted(pending) => {
+                let persist = response.should_persist_auto_approve(&pending.options);
+                let _ = pending.tx.send(response.clone());
+                self.emit(
+                    Some(pending.session_id),
+                    None,
+                    AgentEvent::PermissionResponded {
+                        permission_id: pending.permission_id,
+                        response,
+                        auto: false,
+                    },
+                );
+                if persist {
+                    self.persist_connection_auto_approve().await;
+                }
+            }
+            PermissionLookup::StaleRevision {
+                session_id,
+                expected,
+                actual,
+            } => {
+                self.emit(
+                    Some(session_id),
+                    None,
+                    AgentEvent::RawAcpDiagnostic {
+                        raw: serde_json::json!({
+                            "kind": "stale_permission_revision_rejected",
+                            "permission_id": permission_id,
+                            "expected_revision": expected,
+                            "actual_revision": actual,
+                        }),
+                    },
+                );
+            }
+            PermissionLookup::InvalidOption {
+                session_id,
+                option_id,
+            } => {
+                self.emit(
+                    Some(session_id),
+                    None,
+                    AgentEvent::RawAcpDiagnostic {
+                        raw: serde_json::json!({
+                            "kind": "invalid_permission_option_rejected",
+                            "permission_id": permission_id,
+                            "option_id": option_id,
+                        }),
+                    },
+                );
+            }
+            PermissionLookup::NotFound => {
+                self.emit(
+                    None,
+                    None,
+                    AgentEvent::RawAcpDiagnostic {
+                        raw: serde_json::json!({
+                            "kind": "unknown_permission_response",
+                            "permission_id": permission_id,
+                        }),
+                    },
+                );
+            }
         }
     }
 
@@ -47,9 +139,10 @@ impl AgentConnectionRunner {
             let request = AgentPermissionRequest {
                 id: pending.permission_id,
                 session_id: pending.session_id,
-                title: String::new(),
-                details: None,
+                title: pending.title,
+                details: pending.details,
                 options: pending.options.clone(),
+                revision: pending.revision,
             };
             let response = decide_auto_permission_response(mode, &request)
                 .unwrap_or(AgentPermissionResponse::Cancelled);

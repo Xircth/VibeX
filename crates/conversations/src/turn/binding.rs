@@ -40,13 +40,6 @@ impl ConversationSessionService {
                 &connection_id.to_string(),
             )
             .await?;
-            crate::jsonl_history::prepare_binding_transcript(
-                pool,
-                conversation_id,
-                &binding,
-                connection_id,
-            )
-            .await?;
             ConversationAgentBindingRecord::activate(pool, conversation_id, binding.id).await
         }
         .await;
@@ -331,54 +324,6 @@ impl ConversationSessionService {
         self.interrupt_orphaned_turn(conversation_id).await?;
         let runtime_session_id = AgentSessionId(conversation_id);
 
-        if let Some(bound_acp_session_id) = self
-            .ctx
-            .agent_runtime
-            .bound_acp_session_id(runtime_session_id)
-            .await
-            && let Ok(controls) = self
-                .ctx
-                .agent_runtime
-                .session_controls_snapshot(runtime_session_id)
-                .await
-        {
-            let pool = &self.ctx.deployment.db().pool;
-            if let Some(persisted_session) = Session::find_by_id(pool, conversation_id).await?
-                && let Some(agent_id) = persisted_session.agent_id
-            {
-                let connection_id = self
-                    .ctx
-                    .agent_runtime
-                    .live_connection_id(runtime_session_id)
-                    .await
-                    .ok_or(agents::AgentError::AcpSessionNotBound)?;
-                let active =
-                    ConversationAgentBindingRecord::active_for_conversation(pool, conversation_id)
-                        .await?;
-                if active.as_ref().is_some_and(|binding| {
-                    binding.resume_allowed
-                        && binding.connection_id.as_deref()
-                            == Some(connection_id.to_string().as_str())
-                }) && agents::transcript_target::is_bound(connection_id)
-                {
-                    return Ok(controls);
-                }
-                self.commit_native_binding(
-                    conversation_id,
-                    &agent_id,
-                    "",
-                    &bound_acp_session_id,
-                    connection_id,
-                )
-                .await?;
-            }
-            self.ctx
-                .agent_runtime
-                .commit_prepared_session(runtime_session_id)
-                .await;
-            return Ok(controls);
-        }
-
         let pool = &self.ctx.deployment.db().pool;
         let mut persisted_session = Session::find_by_id(pool, conversation_id)
             .await?
@@ -402,8 +347,111 @@ impl ConversationSessionService {
                     "Conversation {conversation_id} has no supported coding agent"
                 ))
             })?;
+
+        if let Some(bound_acp_session_id) = self
+            .ctx
+            .agent_runtime
+            .bound_acp_session_id(runtime_session_id)
+            .await
+        {
+            let live_agent_id = self
+                .ctx
+                .agent_runtime
+                .session_agent_id(runtime_session_id)
+                .await;
+            if live_agent_id.as_ref() == Some(&agent_id)
+                && let Ok(controls) = self
+                    .ctx
+                    .agent_runtime
+                    .session_controls_snapshot(runtime_session_id)
+                    .await
+            {
+                let connection_id = self
+                    .ctx
+                    .agent_runtime
+                    .live_connection_id(runtime_session_id)
+                    .await
+                    .ok_or(agents::AgentError::AcpSessionNotBound)?;
+                let active =
+                    ConversationAgentBindingRecord::active_for_conversation(pool, conversation_id)
+                        .await?;
+                if active.as_ref().is_some_and(|binding| {
+                    binding.agent_id == agent_id
+                        && binding.resume_allowed
+                        && binding.connection_id.as_deref()
+                            == Some(connection_id.to_string().as_str())
+                }) {
+                    return Ok(controls);
+                }
+                self.commit_native_binding(
+                    conversation_id,
+                    &agent_id,
+                    "",
+                    &bound_acp_session_id,
+                    connection_id,
+                )
+                .await?;
+                self.ctx
+                    .agent_runtime
+                    .commit_prepared_session(runtime_session_id)
+                    .await;
+                return Ok(controls);
+            } else if live_agent_id.is_some() {
+                // Live connection belongs to the previous Agent before a cross-Agent switch;
+                // release it so we never return stale controls or overwrite the target binding.
+                self.drop_live_agent_connection(conversation_id).await;
+            }
+        }
+
         let bindings =
             ConversationAgentBindingRecord::list_for_conversation(pool, conversation_id).await?;
+        let active_binding_any_agent =
+            ConversationAgentBindingRecord::active_for_conversation(pool, conversation_id).await?;
+        if working_dir_override.is_none()
+            && active_binding_any_agent
+                .as_ref()
+                .is_some_and(|binding| binding.agent_id != agent_id)
+            && conversation_has_recorded_turns(pool, conversation_id).await?
+        {
+            // Pending cross-Agent handoff boundary: keep `sessions.active_agent_binding_id`
+            // pointing at the previous turn's Agent until `prepare_turn_continuation` runs on
+            // the next prompt (so Stage B/C portable history & delta calculation remain intact),
+            // while returning the target Agent's controls + saved defaults for the composer UI.
+            let remembered_for_target = restorable_agent_binding(&bindings, &agent_id);
+            let preferences = self
+                .resolved_session_control_preferences(pool, &agent_id, remembered_for_target)
+                .await;
+            let mut controls = match crate::load_capability_catalog_for_session_defaults(
+                pool,
+                &self.ctx.agent_runtime,
+                &agent_id,
+            )
+            .await
+            {
+                Ok(snapshot) => snapshot,
+                Err(_) => {
+                    let fallback_json: Option<String> = sqlx::query_scalar(
+                        r#"SELECT controls_json
+                           FROM agent_capability_catalog
+                           WHERE agent_type = ?
+                           ORDER BY retrieved_at DESC, generation DESC
+                           LIMIT 1"#,
+                    )
+                    .bind(agent_id.as_str())
+                    .fetch_optional(pool)
+                    .await
+                    .ok()
+                    .flatten();
+                    fallback_json
+                        .and_then(|raw| {
+                            serde_json::from_str::<AgentSessionControlsSnapshot>(&raw).ok()
+                        })
+                        .unwrap_or_default()
+                }
+            };
+            apply_preferences_to_controls_snapshot(&mut controls, &preferences);
+            return Ok(controls);
+        }
         if restorable_agent_binding(&bindings, &agent_id).is_none()
             && let Some(ext) = persisted_session
                 .external_session_id
@@ -435,8 +483,11 @@ impl ConversationSessionService {
                 )
                 .await;
             } else {
-                crate::jsonl_history::preserve_transcript_before_detach(pool, conversation_id)
-                    .await?;
+                crate::flush_conversation_persistence(conversation_id).await;
+                self.ctx
+                    .event_publisher
+                    .flush_conversation(conversation_id)
+                    .await;
                 persisted_session.external_session_id = None;
                 let _ = sqlx::query(
                     r#"UPDATE sessions
@@ -596,8 +647,11 @@ impl ConversationSessionService {
                 strategy,
                 Some(agents::SessionRecoveryStrategy::CreatedNewSession)
             ) {
-                crate::jsonl_history::preserve_transcript_before_detach(pool, conversation_id)
-                    .await?;
+                crate::flush_conversation_persistence(conversation_id).await;
+                self.ctx
+                    .event_publisher
+                    .flush_conversation(conversation_id)
+                    .await;
             }
             restore_strategy = strategy;
             snapshot
@@ -616,8 +670,11 @@ impl ConversationSessionService {
                     .as_ref()
                     .is_some_and(|binding| binding.agent_id != agent_id)
             {
-                crate::jsonl_history::preserve_transcript_before_detach(pool, conversation_id)
-                    .await?;
+                crate::flush_conversation_persistence(conversation_id).await;
+                self.ctx
+                    .event_publisher
+                    .flush_conversation(conversation_id)
+                    .await;
             }
             let prepared = self
                 .ctx
@@ -855,19 +912,28 @@ pub(crate) async fn conversation_has_recorded_turns(
     pool: &SqlitePool,
     conversation_id: Uuid,
 ) -> Result<bool, sqlx::Error> {
-    if !db::models::conversation_turn::ConversationTurnRecord::list_for_conversation(
-        pool,
-        conversation_id,
+    let _ = crate::ensure_legacy_jsonl_migrated_on_pool(pool, conversation_id).await?;
+    let has_recorded: i64 = sqlx::query_scalar(
+        r#"SELECT EXISTS(
+               SELECT 1 FROM conversation_turns
+                WHERE conversation_id = ?1
+                  AND NOT (status = 'pending' AND prompt_id IS NULL)
+           ) OR EXISTS(
+               SELECT 1 FROM conversation_events
+                WHERE conversation_id = ?1
+                  AND event_kind IN (
+                      'assistant_text_delta',
+                      'assistant_reasoning_delta',
+                      'assistant_content_appended',
+                      'tool_call_upsert',
+                      'turn_completed'
+                  )
+           )"#,
     )
-    .await?
-    .iter()
-    .all(|turn| turn.status == "pending" && turn.prompt_id.is_none())
-    {
-        return Ok(true);
-    }
-    Ok(crate::jsonl_history::load_all_turns(pool, conversation_id)
-        .await?
-        .is_some_and(|turns| !turns.is_empty()))
+    .bind(conversation_id)
+    .fetch_one(pool)
+    .await?;
+    Ok(has_recorded != 0)
 }
 
 async fn linked_agent_for_external_session(
@@ -1108,6 +1174,35 @@ pub(super) fn binding_config_selection(
                 .collect()
         })
         .unwrap_or_default()
+}
+
+fn apply_preferences_to_controls_snapshot(
+    controls: &mut AgentSessionControlsSnapshot,
+    preferences: &SessionControlPreferences,
+) {
+    if let Some(mode) = preferences
+        .mode
+        .as_deref()
+        .map(str::trim)
+        .filter(|m| !m.is_empty())
+        && controls.modes.iter().any(|candidate| candidate.id == mode)
+    {
+        controls.current_mode = Some(mode.to_string());
+    }
+    for override_item in &preferences.config {
+        let key = override_item.key.trim();
+        let val = override_item.value.trim();
+        if key.is_empty() || val.is_empty() {
+            continue;
+        }
+        if let Some(opt) = controls.config_options.iter_mut().find(|o| o.key == key) {
+            let valid =
+                opt.choices.is_empty() || opt.choices.iter().any(|choice| choice.value == val);
+            if valid {
+                opt.value = Some(serde_json::Value::String(val.to_string()));
+            }
+        }
+    }
 }
 
 fn is_placeholder_acp_session_id(id: &str) -> bool {

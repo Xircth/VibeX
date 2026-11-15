@@ -337,5 +337,6 @@ describe('SystemSettings', () => {
     expect(confirmOptions).toBeDefined();
     await act(async () => confirmOptions.action.onClick());
     expect(mocks.updateDataDir).toHaveBeenCalledWith('/Volumes/SSD/VibeXData');
+    expect(screen.getByTestId('database-health-section')).toBeInTheDocument();
   });
 });

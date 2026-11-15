@@ -104,4 +104,58 @@ describe('AssistantDetailsCustomizeTab', () => {
       expect.objectContaining({ name: '小A改' })
     );
   });
+
+  it('synchronously updates displayed Bot Agent and reloads config when the conversation switches Agent', async () => {
+    let currentServerAgent = 'CLAUDE_CODE';
+    collaborationCall.mockImplementation(
+      async (_cap: string, method: string) => {
+        if (method === 'member.config.get') {
+          return {
+            memberId: 'mem-a',
+            config: {
+              agent_id: currentServerAgent,
+              mode_id: currentServerAgent === 'codex' ? 'auto' : 'default',
+              config_values:
+                currentServerAgent === 'codex'
+                  ? { model: 'gpt-5.4' }
+                  : { model: 'grok-4.6' },
+              persona_prompt: '你是小A',
+            },
+          };
+        }
+        return {};
+      }
+    );
+
+    const { queryClient } = render(
+      <AssistantDetailsCustomizeTab
+        memberId="mem-a"
+        conversationId="conv-1"
+        initialName="小A"
+        initialAvatar={deriveMemberBotAvatar('小A')}
+      />
+    );
+
+    const agentReadonly = await screen.findByTestId(
+      'collaboration-assistant-agent-readonly'
+    );
+    await waitFor(() => {
+      expect(agentReadonly).toHaveTextContent('Claude Code');
+    });
+
+    currentServerAgent = 'codex';
+    const { syncSessionAgentInCaches } = await import(
+      '@/lib/sessionQueryCache'
+    );
+    const { act } = await import('@testing-library/react');
+    act(() => {
+      syncSessionAgentInCaches(queryClient, 'conv-1', 'CODEX');
+    });
+
+    await waitFor(() => {
+      expect(
+        screen.getByTestId('collaboration-assistant-agent-readonly')
+      ).toHaveTextContent('Codex');
+    });
+  });
 });

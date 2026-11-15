@@ -220,6 +220,23 @@ describe('TurnStats', () => {
     expect(screen.getByText('2m 0s')).toBeInTheDocument();
     expect(screen.queryByText(/h/)).not.toBeInTheDocument();
   });
+
+  it('hides the live status badge when hideStatus is true without dropping elapsed time', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-03-22T00:00:05.000Z'));
+
+    render(
+      <LiveTurnStats
+        startedAt="2026-03-22T00:00:00.000Z"
+        statusLabel="请求重试中"
+        hideStatus
+      />
+    );
+
+    expect(screen.queryByText('请求重试中')).not.toBeInTheDocument();
+    expect(screen.queryByText('状态')).not.toBeInTheDocument();
+    expect(screen.getByText('5s')).toBeInTheDocument();
+  });
 });
 
 describe('turnTokenTotal', () => {

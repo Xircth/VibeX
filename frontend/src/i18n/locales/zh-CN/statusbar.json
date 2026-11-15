@@ -20,6 +20,12 @@
   "automationFailureTitle": "自动化运行失败",
   "pulseObserveTitle": "Pulse 观察候选（{{count}}）",
   "openProject": "打开 {{name}}",
+  "backgroundProjects": {
+    "ariaLabel": "后台活跃项目",
+    "runningStatus": "{{count}} 个会话运行中",
+    "moreProjectsAria": "另外 {{count}} 个后台活跃项目",
+    "moreProjectsTitle": "更多后台活跃项目"
+  },
   "backgroundTasksTitle": "{{count}} 个后台任务运行中",
   "updateAvailableTitle": "有新版本可更新",
   "update": {

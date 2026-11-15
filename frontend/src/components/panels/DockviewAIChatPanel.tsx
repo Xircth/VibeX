@@ -14,10 +14,17 @@ import { sessionListTitle } from '@/components/workspace-session-list/workspaceS
 import { useOptionalKanbanSessionContext } from '@/contexts/KanbanSessionContext';
 import { usePanelActionsContext } from '@/contexts/PanelActionsContext';
 import { useOptionalProject } from '@/contexts/ProjectContext';
-import { useRightPanelSlot } from '@/contexts/RightPanelSlotContext';
+import {
+  retainRightPanelHost,
+  useRightPanelSlot,
+} from '@/contexts/RightPanelSlotContext';
 import { useOptionalWorktree } from '@/contexts/WorktreeContext';
 import { useKanbanProjectSessions } from '@/hooks/useKanbanProjectSessions';
-import { PANEL_IDS } from '@/stores/useLayoutStore';
+import { requestWorkspaceCreateSessionOverlay } from '@/lib/requestCreateSession';
+import {
+  DEFAULT_MAX_WARM_HIDDEN_PANELS,
+  useDockviewPanelKeepAlive,
+} from './workspaceTabKeepAlive';
 
 export interface SessionTabPanelParams {
   sessionId?: string;
@@ -40,12 +47,23 @@ function WorkspaceSessionTabContent({
   const isGitProject = Boolean(projectContext?.project?.is_git);
   const kanbanSession = useOptionalKanbanSessionContext();
   const worktree = useOptionalWorktree();
-  const { openSessionTab, openOrFocusPanel } = usePanelActionsContext();
+  const { openSessionTab } = usePanelActionsContext();
   const { sessions } = useKanbanProjectSessions(projectId);
   const matchingSession = useMemo(
     () => sessions.find((item) => item.id === sessionId) ?? null,
     [sessionId, sessions]
   );
+  const isSessionKeepAlivePinned = Boolean(
+    matchingSession?.isRunning ||
+      matchingSession?.status === 'inprogress' ||
+      matchingSession?.status === 'inreview' ||
+      matchingSession?.pinnedAt
+  );
+  const { isVisible, shouldKeepMounted } = useDockviewPanelKeepAlive(panelApi, {
+    scope: `session-tab:${projectId ?? 'global'}`,
+    maxWarmHidden: DEFAULT_MAX_WARM_HIDDEN_PANELS,
+    pinned: isSessionKeepAlivePinned,
+  });
 
   useEffect(() => {
     if (!matchingSession) return;
@@ -81,12 +99,12 @@ function WorkspaceSessionTabContent({
       syncActiveSession();
     }
 
-    const disposable = panelApi.onDidActiveChange((event) => {
+    const disposable = panelApi.onDidActiveChange?.((event) => {
       if (event.isActive) {
         syncActiveSession();
       }
     });
-    return () => disposable.dispose();
+    return () => disposable?.dispose();
   }, [
     kanbanSession,
     matchingSession?.taskId,
@@ -119,8 +137,8 @@ function WorkspaceSessionTabContent({
   );
 
   const handleCreateSessionRequested = useCallback(() => {
-    openOrFocusPanel(PANEL_IDS.AI_CHAT, 'AI Chat');
-  }, [openOrFocusPanel]);
+    requestWorkspaceCreateSessionOverlay(panelApi.group?.id ?? null);
+  }, [panelApi.group?.id]);
 
   return (
     <div
@@ -128,22 +146,28 @@ function WorkspaceSessionTabContent({
       data-panel="ai-chat"
       data-session-id={sessionId}
     >
-      {isGitProject ? <BranchInfoHeader workspaceId={workspaceId} /> : null}
+      {isGitProject && isVisible ? (
+        <BranchInfoHeader workspaceId={workspaceId} />
+      ) : null}
       <div className="right-panel-conversation-region relative flex-1 min-h-0 overflow-hidden">
-        <KanbanSessionConversationView
-          workspaceId={workspaceId}
-          sessionId={sessionId}
-          embedded
-          interactive
-          markViewed
-          showSessionSelector={false}
-          onSessionCreated={handleSessionCreated}
-          onSessionSelected={handleSessionSelected}
-          onCreateSessionRequested={handleCreateSessionRequested}
-          className="h-full"
-          imagePreviewPresentation="workspace-tab"
-          conversationWidthMode="workspace"
-        />
+        {shouldKeepMounted ? (
+          <KanbanSessionConversationView
+            workspaceId={workspaceId}
+            sessionId={sessionId}
+            embedded
+            interactive
+            markViewed={isVisible}
+            showSessionSelector={false}
+            onSessionCreated={handleSessionCreated}
+            onSessionSelected={handleSessionSelected}
+            onCreateSessionRequested={handleCreateSessionRequested}
+            className="h-full"
+            imagePreviewPresentation="workspace-tab"
+            conversationWidthMode="workspace"
+          />
+        ) : (
+          <div className="h-full w-full" data-testid="hibernated-session-tab" />
+        )}
       </div>
     </div>
   );
@@ -175,7 +199,9 @@ function DockviewAIChatPanel(
     if (!container) return;
 
     container.appendChild(host);
+    const releaseHost = retainRightPanelHost(host);
     return () => {
+      releaseHost();
       if (host.parentElement === container) {
         container.removeChild(host);
       }

@@ -128,4 +128,37 @@ describe('AgentRuntimeStatus', () => {
     );
     expect(screen.queryByText('32s')).not.toBeInTheDocument();
   });
+
+  it('renders cleanly inside the message stream with titleOverride and tabular timer', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-11-13T00:00:05Z'));
+
+    render(
+      <AgentRuntimeStatus
+        placement="stream"
+        titleOverride="会话加载异常，正在重连 2/10 次…"
+        notice={{
+          title: 'Agent connection',
+          severity: 'warning',
+          connection_status: {
+            status: 'recovering',
+            bound: false,
+            connection_id: 'conn-1',
+            message: null,
+            since: '2026-11-13T00:00:00Z',
+          },
+        }}
+        onCancel={vi.fn()}
+      />
+    );
+
+    const card = screen.getByTestId('agent-connection-status');
+    expect(card).toHaveAttribute('data-placement', 'stream');
+    expect(card.closest('.conv-entry-item')).not.toBeNull();
+    expect(screen.getByRole('status')).toHaveTextContent(
+      '会话加载异常，正在重连 2/10 次…'
+    );
+    expect(screen.getByText('5s')).toHaveClass('tabular-nums');
+    expect(screen.getByRole('button', { name: '取消请求' })).toBeVisible();
+  });
 });

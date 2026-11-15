@@ -58,10 +58,22 @@ function stageIndexForProgress(progress: number, stageCount: number) {
   return 0;
 }
 
+function operationStageKeys(
+  kind: AgentOperationState['kind'],
+  nativeEngine: boolean
+): readonly string[] {
+  const base = operationStages[kind];
+  if (!nativeEngine) return base;
+  return base.map((stage) =>
+    stage === 'stageAcpCheck' ? 'stageRuntimeCheck' : stage
+  );
+}
+
 function operationMessage(
   t: TFunction<'settings'>,
   language: string | undefined,
-  operation: AgentOperationState
+  operation: AgentOperationState,
+  nativeEngine: boolean
 ): string {
   if (!language?.startsWith('en') && operation.message?.trim()) {
     return operation.message;
@@ -73,6 +85,11 @@ function operationMessage(
     return t('agents.operationInterrupted');
   }
   if (operation.status === 'queued') return t('agents.operationQueued');
+  if (nativeEngine) {
+    return t(`agents.operationProgressNative.${operation.kind}`, {
+      defaultValue: t(`agents.operationProgress.${operation.kind}`),
+    });
+  }
   return t(`agents.operationProgress.${operation.kind}`);
 }
 
@@ -85,25 +102,35 @@ function localizedOperationLogLine(
   const key = {
     正在进行基础环境检查: 'envCheck',
     '正在进行 ACP 检查': 'acpCheck',
+    正在检查原生引擎环境: 'nativeEnvCheck',
+    正在检查运行环境: 'nativeEnvCheck',
     正在进行安装准备: 'prepare',
     正在解析已锁定的安装方案: 'resolvePlan',
+    '正在安装 Agent 运行时': 'installNativeRuntime',
+    正在安装运行时: 'installNativeRuntime',
     '正在安装 ACP': 'installAcp',
+    正在验证原生引擎就绪: 'verifyNative',
     '正在验证 ACP 握手': 'verifyAcp',
     正在绑定用户环境命令: 'publishCommand',
     正在发布本地终端命令: 'publishCommand',
     安装完成: 'complete',
+    安装与验证完成: 'completeNative',
     '安装与 ACP 验证完成': 'complete',
     操作已取消: 'canceled',
     正在取消操作: 'canceling',
   }[line] as
     | 'envCheck'
     | 'acpCheck'
+    | 'nativeEnvCheck'
     | 'prepare'
     | 'resolvePlan'
     | 'installRuntime'
+    | 'installNativeRuntime'
     | 'installAcp'
+    | 'verifyNative'
     | 'verifyAcp'
     | 'publishCommand'
+    | 'completeNative'
     | 'complete'
     | 'canceled'
     | 'canceling'
@@ -113,22 +140,25 @@ function localizedOperationLogLine(
 
 export function AgentOperationProgress({
   operation,
+  nativeEngine = false,
   onCancel,
 }: {
   operation: AgentOperationState;
+  nativeEngine?: boolean;
   onCancel?: () => void;
 }) {
   const { t, i18n } = useTranslation('settings');
   const logRef = useRef<HTMLDivElement>(null);
   const progress = Math.min(100, Math.max(0, operation.progressPercent ?? 0));
-  const stages = operationStages[operation.kind].map((stage) =>
+  const stages = operationStageKeys(operation.kind, nativeEngine).map((stage) =>
     t(`agents.${stage}`)
   );
   const currentStageIndex = stageIndexForProgress(progress, stages.length);
   const localizedOperationMessage = operationMessage(
     t,
     i18n.resolvedLanguage,
-    operation
+    operation,
+    nativeEngine
   );
   const logLines =
     operation.logs && operation.logs.length > 0

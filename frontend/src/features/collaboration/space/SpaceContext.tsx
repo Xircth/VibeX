@@ -4,6 +4,7 @@ import {
   useMemo,
   useRef,
   useSyncExternalStore,
+  type MutableRefObject,
   type ReactNode,
 } from 'react';
 
@@ -27,25 +28,61 @@ export {
 };
 
 import type { SpaceInitialTarget } from './types';
-import { CollaborationCanvasCreateOverlay } from '../CollaborationCreateOverlay';
+import {
+  CollaborationCanvasCreateOverlay,
+  CollaborationStageCreateOverlay,
+} from '../CollaborationCreateOverlay';
 
-export function CollaborationSpaceProvider({
+function CollaborationSpaceRuntimeBridge({
+  workspaceId,
+  initialTarget,
+  valueRef,
+  listenersRef,
+}: {
+  workspaceId: string | null;
+  initialTarget?: SpaceInitialTarget | null;
+  valueRef: MutableRefObject<CollaborationSpaceRuntime | null>;
+  listenersRef: MutableRefObject<Set<CollaborationSpaceListener>>;
+}) {
+  const value = useCollaborationSpaceRuntime(workspaceId, { initialTarget });
+  valueRef.current = value;
+
+  useLayoutEffect(() => {
+    for (const listener of listenersRef.current) {
+      listener();
+    }
+  });
+
+  return null;
+}
+
+export function OptionalCollaborationSpaceProvider({
+  enabled,
   workspaceId,
   initialTarget,
   children,
 }: {
+  enabled: boolean;
   workspaceId: string | null;
   initialTarget?: SpaceInitialTarget | null;
   children: ReactNode;
 }) {
-  const value = useCollaborationSpaceRuntime(workspaceId, { initialTarget });
-  const valueRef = useRef<CollaborationSpaceRuntime>(value);
-  valueRef.current = value;
+  const valueRef = useRef<CollaborationSpaceRuntime | null>(null);
+  if (!enabled) {
+    valueRef.current = null;
+  }
   const listenersRef = useRef<Set<CollaborationSpaceListener>>(new Set());
 
   const store = useMemo<CollaborationSpaceStore>(
     () => ({
-      getSnapshot: () => valueRef.current,
+      getSnapshot: () => {
+        if (!valueRef.current) {
+          throw new Error(
+            'CollaborationSpaceStore read while CollaborationSpaceProvider is disabled'
+          );
+        }
+        return valueRef.current;
+      },
       subscribe: (listener) => {
         listenersRef.current.add(listener);
         return () => {
@@ -56,17 +93,40 @@ export function CollaborationSpaceProvider({
     []
   );
 
-  useLayoutEffect(() => {
-    for (const listener of listenersRef.current) {
-      listener();
-    }
-  });
-
   return (
-    <CollaborationSpaceStoreContext.Provider value={store}>
+    <CollaborationSpaceStoreContext.Provider value={enabled ? store : null}>
+      {enabled ? (
+        <CollaborationSpaceRuntimeBridge
+          workspaceId={workspaceId}
+          initialTarget={initialTarget}
+          valueRef={valueRef}
+          listenersRef={listenersRef}
+        />
+      ) : null}
       {children}
-      <CollaborationCanvasCreateOverlay />
+      {enabled ? <CollaborationCanvasCreateOverlay /> : null}
+      {enabled ? <CollaborationStageCreateOverlay /> : null}
     </CollaborationSpaceStoreContext.Provider>
+  );
+}
+
+export function CollaborationSpaceProvider({
+  workspaceId,
+  initialTarget,
+  children,
+}: {
+  workspaceId: string | null;
+  initialTarget?: SpaceInitialTarget | null;
+  children: ReactNode;
+}) {
+  return (
+    <OptionalCollaborationSpaceProvider
+      enabled
+      workspaceId={workspaceId}
+      initialTarget={initialTarget}
+    >
+      {children}
+    </OptionalCollaborationSpaceProvider>
   );
 }
 

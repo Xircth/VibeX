@@ -106,6 +106,7 @@ export function ConversationStatusDock({
                 error={notice.error}
                 onReload={notice.onReload}
                 onRebind={notice.onRebind}
+                onRetry={notice.onRetry}
                 onDismiss={() => dismissNotice(notice)}
                 dismissLabel={`${t('statusDock.dismiss')} ${notice.id}`}
                 placement="composer"

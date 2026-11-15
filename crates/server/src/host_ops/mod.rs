@@ -1005,12 +1005,13 @@ impl ServerApplicationDomains {
             .ensure_container_exists(&workspace)
             .await
             .map_err(internal_error)?;
+        let agent_id = session_agent_id_from_executor(args.executor.as_deref());
         serialize(
             Session::create(
                 &self.pool,
                 &CreateSession {
                     executor: args.executor,
-                    agent_id: None,
+                    agent_id,
                     task_id: args.task_id.or(Some(workspace.task_id)),
                     name: args.name,
                     initial_prompt: args.initial_prompt,
@@ -1032,12 +1033,13 @@ impl ServerApplicationDomains {
             .ensure_container_exists(&workspace)
             .await
             .map_err(internal_error)?;
+        let agent_id = session_agent_id_from_executor(args.executor.as_deref());
         serialize(
             Session::create(
                 &self.pool,
                 &CreateSession {
                     executor: args.executor,
-                    agent_id: None,
+                    agent_id,
                     task_id: Some(workspace.task_id),
                     name: args.name,
                     initial_prompt: None,

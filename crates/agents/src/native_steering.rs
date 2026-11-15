@@ -9,11 +9,10 @@ use api_types::{AgentId, AgentKind};
 
 use crate::capability::AcpCapabilityNormalizer;
 
-const CLAUDE_AGENT_ACP_PACKAGE: &str = "@agentclientprotocol/claude-agent-acp";
 const CLAUDE_STEERING_MIN_VERSION: &str = "0.65.0";
 
 /// Registry policy: native steering only when this returns a floor the running
-/// adapter version must meet. `None` means never native, even if advertised.
+/// engine/adapter version must meet. `None` means never native, even if advertised.
 pub(crate) fn steering_prompt_required_min_version(agent_kind: AgentKind) -> Option<&'static str> {
     match agent_kind {
         AgentKind::ClaudeCode => Some(CLAUDE_STEERING_MIN_VERSION),
@@ -23,15 +22,9 @@ pub(crate) fn steering_prompt_required_min_version(agent_kind: AgentKind) -> Opt
 
 fn steering_policy_agent(
     agent_id: &AgentId,
-    agent_info: Option<&Implementation>,
+    _agent_info: Option<&Implementation>,
 ) -> Option<AgentKind> {
-    if let Some(kind) = AgentKind::from_lenient(agent_id.as_str()) {
-        return Some(kind);
-    }
-    if agent_info.is_some_and(|info| info.name == CLAUDE_AGENT_ACP_PACKAGE) {
-        return Some(AgentKind::ClaudeCode);
-    }
-    None
+    AgentKind::from_lenient(agent_id.as_str())
 }
 
 fn version_at_least(version: &str, min: &str) -> bool {
@@ -68,7 +61,7 @@ fn steering_version_ok(agent_info: Option<&Implementation>, min: &str) -> bool {
 }
 
 /// Native steering only when advertised, the agent has a `promptRequired`
-/// policy, and the running adapter version meets the floor.
+/// policy, and the running engine/adapter version meets the floor.
 pub(crate) fn synthesize_native_steering(
     agent_id: &AgentId,
     initialize_meta: Option<&serde_json::Value>,
@@ -96,8 +89,8 @@ mod tests {
 
     #[test]
     fn synthesize_native_steering_requires_all_three_gates() {
-        let proven = Implementation::new("claude-agent-acp", "0.65.0");
-        let stale = Implementation::new("claude-agent-acp", "0.64.1");
+        let proven = Implementation::new("claude-native", "2.1.325");
+        let stale = Implementation::new("claude-native", "0.64.1");
         let claude = AgentId::parse("claude_code").unwrap();
         let codex = AgentId::parse("codex").unwrap();
 
@@ -125,33 +118,15 @@ mod tests {
     }
 
     #[test]
-    fn a_custom_agent_running_claude_agent_acp_steers_natively() {
+    fn unknown_custom_agent_does_not_steer_natively() {
         let advertised = advertised();
-        let claude = Implementation::new(CLAUDE_AGENT_ACP_PACKAGE, "0.85.1");
-        let stale = Implementation::new(CLAUDE_AGENT_ACP_PACKAGE, "0.64.1");
+        let info = Implementation::new("custom-agent", "2.1.325");
         let custom = AgentId::parse("claude-code-2").unwrap();
 
-        assert!(synthesize_native_steering(
-            &custom,
-            Some(&advertised),
-            Some(&claude)
-        ));
         assert!(!synthesize_native_steering(
             &custom,
             Some(&advertised),
-            Some(&stale)
-        ));
-        assert!(!synthesize_native_steering(&custom, None, Some(&claude)));
-        assert!(!synthesize_native_steering(
-            &custom,
-            Some(&advertised),
-            None
-        ));
-        let other = Implementation::new("not-claude-agent-acp", "0.85.1");
-        assert!(!synthesize_native_steering(
-            &custom,
-            Some(&advertised),
-            Some(&other)
+            Some(&info)
         ));
     }
 

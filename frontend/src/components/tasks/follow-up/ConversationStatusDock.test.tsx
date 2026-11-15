@@ -637,4 +637,31 @@ describe('ConversationStatusDock', () => {
     );
     expect(within(dock).getByText('部分会话记录无法显示')).toBeInTheDocument();
   });
+
+  it('surfaces manual retry on turn-error cards inside the dock', async () => {
+    const onRetry = vi.fn().mockResolvedValue(undefined);
+    render(
+      <ConversationStatusDock
+        notices={[
+          {
+            id: 'error-turn-1',
+            kind: 'turn-error',
+            error: {
+              message: 'upstream internal error',
+              code: 'internal_error',
+              raw: null,
+              kind: 'service_error',
+            },
+            onReload: vi.fn(),
+            onRetry,
+          },
+        ]}
+      />
+    );
+
+    const retryButton = screen.getByRole('button', { name: '手动重试' });
+    fireEvent.click(retryButton);
+    expect(onRetry).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(retryButton).not.toBeDisabled());
+  });
 });

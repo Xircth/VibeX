@@ -30,6 +30,11 @@ import {
   applyLeftGroupHeaderHiding,
   syncDockviewGroupRegistry,
 } from '@/utils/dockviewHelpers';
+import { assignDockviewGroupIdAndRole } from '@/utils/dockviewGroupRole';
+import {
+  confirmCloseWorkspacePanel,
+  isPreviewPanelDirty,
+} from '@/components/panels/previewPanelDirty';
 import { preloadMonacoEditor } from '@/lib/monacoPreload';
 import { backendCall, backendListen } from '@/lib/backendTransport';
 import {
@@ -128,6 +133,7 @@ import {
 import {
   ensureWelcomeEditorGroup,
   isEditorColumnCrushed,
+  preserveLeftDockGroupWidths,
   restoreFlexibleEditorColumn,
   revealEditorColumnForTerminal,
   setColumnVisible,
@@ -557,7 +563,12 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
         primary &&
         primary.element?.getAttribute('data-shell-nav-side') !== 'right'
       ) {
-        (primary as { id: string }).id = GROUP_IDS.LEFT;
+        assignDockviewGroupIdAndRole(
+          dockviewApi,
+          primary,
+          GROUP_IDS.LEFT,
+          'left'
+        );
       }
       for (const group of leftGroups) {
         if (
@@ -567,7 +578,12 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
           continue;
         }
         if (!group.id.startsWith(LEFT_GROUP_PREFIX)) {
-          (group as { id: string }).id = getNextLeftGroupId(dockviewApi);
+          assignDockviewGroupIdAndRole(
+            dockviewApi,
+            group,
+            getNextLeftGroupId(dockviewApi),
+            'left'
+          );
         }
       }
     }
@@ -580,11 +596,21 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
       const primary =
         sessionGroups.find((group) => group.id === GROUP_IDS.RIGHT) ??
         sessionGroups[0];
-      (primary as { id: string }).id = GROUP_IDS.RIGHT;
+      assignDockviewGroupIdAndRole(
+        dockviewApi,
+        primary,
+        GROUP_IDS.RIGHT,
+        'session'
+      );
       for (const group of sessionGroups) {
         if (group === primary) continue;
         if (!group.id.startsWith(RIGHT_GROUP_PREFIX)) {
-          (group as { id: string }).id = getNextRightGroupId(dockviewApi);
+          assignDockviewGroupIdAndRole(
+            dockviewApi,
+            group,
+            getNextRightGroupId(dockviewApi),
+            'session'
+          );
         }
       }
     }
@@ -598,13 +624,15 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
     const dockviewApi = apiRef.current;
     if (!dockviewApi) return undefined;
 
+    const leftGroup = getLeftGroup(dockviewApi);
     const group = ensureWelcomeEditorGroup(dockviewApi, {
       arrangement: getLayoutArrangement(),
       sessionWidth: useLayoutStore.getState().rightPanelWidth,
+      dockWidth: leftGroup?.api.isVisible ? leftGroup.api.width : undefined,
     });
     normalizeEditorGroupIds(dockviewApi);
     return group;
-  }, [normalizeEditorGroupIds]);
+  }, [getLeftGroup, normalizeEditorGroupIds]);
 
   const getActiveEditorGroup = useCallback(() => {
     const dockviewApi = apiRef.current;
@@ -1028,26 +1056,25 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
       while (
         diffPreviewPanelQueueRef.current.length > MAX_OPEN_DIFF_PREVIEW_PANELS
       ) {
-        const oldestPanelId = diffPreviewPanelQueueRef.current[0];
-        if (!oldestPanelId) break;
-
-        // Keep the just-opened panel when trimming the queue.
-        if (
-          keepPanelId &&
-          oldestPanelId === keepPanelId &&
-          diffPreviewPanelQueueRef.current.length > 1
-        ) {
-          diffPreviewPanelQueueRef.current = [
-            ...diffPreviewPanelQueueRef.current.slice(1),
-            oldestPanelId,
-          ];
-          continue;
+        const candidateIndex = diffPreviewPanelQueueRef.current.findIndex(
+          (panelId) =>
+            Boolean(panelId) &&
+            panelId !== keepPanelId &&
+            !isPreviewPanelDirty(panelId)
+        );
+        if (candidateIndex < 0) {
+          break;
         }
 
-        diffPreviewPanelQueueRef.current =
-          diffPreviewPanelQueueRef.current.slice(1);
+        const [evictPanelId] = diffPreviewPanelQueueRef.current.splice(
+          candidateIndex,
+          1
+        );
+        if (!evictPanelId) {
+          break;
+        }
 
-        const oldestPanel = dockviewApi.getPanel(oldestPanelId);
+        const oldestPanel = dockviewApi.getPanel(evictPanelId);
         if (!oldestPanel) {
           continue;
         }
@@ -1451,6 +1478,9 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
 
     const panel = dockviewApi.getPanel(panelId);
     if (!panel) return;
+    if (!confirmCloseWorkspacePanel(panel.id, panel.api?.component)) {
+      return;
+    }
 
     dockviewApi.removePanel(panel);
   }, []);
@@ -1763,7 +1793,12 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
         !created.group.id.startsWith(LEFT_GROUP_PREFIX) &&
         created.group.id !== GROUP_IDS.LEFT
       ) {
-        (created.group as { id: string }).id = getNextLeftGroupId(dockviewApi);
+        assignDockviewGroupIdAndRole(
+          dockviewApi,
+          created.group,
+          getNextLeftGroupId(dockviewApi),
+          'left'
+        );
       }
 
       finishLeftDockChange();
@@ -2034,6 +2069,11 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
     const dockviewApi = apiRef.current;
     if (!dockviewApi) return;
 
+    const leftGroup = getLeftGroup(dockviewApi);
+    const dockWidthBefore = leftGroup?.api.isVisible
+      ? leftGroup.api.width
+      : undefined;
+
     const existingWelcome = dockviewApi.getPanel(PANEL_IDS.WELCOME);
     if (existingWelcome) {
       setColumnVisible(
@@ -2046,18 +2086,31 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
         restoreFlexibleEditorColumn(
           dockviewApi,
           getLayoutArrangement(),
-          useLayoutStore.getState().rightPanelWidth
+          useLayoutStore.getState().rightPanelWidth,
+          dockWidthBefore
         );
       }
       existingWelcome.api.setActive();
       return;
     }
 
+    const preferredGroup = preferredEditorGroupIdRef.current
+      ? dockviewApi.getGroup(preferredEditorGroupIdRef.current)
+      : undefined;
     const activeEditorGroup =
-      (dockviewApi.activeGroup && isEditorGroup(dockviewApi.activeGroup)
+      (preferredGroup &&
+      (isEditorGroup(preferredGroup) || isSessionGroup(preferredGroup))
+        ? preferredGroup
+        : undefined) ??
+      (dockviewApi.activeGroup &&
+      (isEditorGroup(dockviewApi.activeGroup) ||
+        isSessionGroup(dockviewApi.activeGroup))
         ? dockviewApi.activeGroup
         : undefined) ??
       getEditorGroups(dockviewApi).find((group) => group.api.isVisible) ??
+      listSessionGroups(dockviewApi.groups).find(
+        (group) => group.api.isVisible
+      ) ??
       getEditorGroups(dockviewApi)[0];
 
     if (activeEditorGroup) {
@@ -2071,7 +2124,8 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
         restoreFlexibleEditorColumn(
           dockviewApi,
           getLayoutArrangement(),
-          useLayoutStore.getState().rightPanelWidth
+          useLayoutStore.getState().rightPanelWidth,
+          dockWidthBefore
         );
       }
       const panel = dockviewApi.addPanel({
@@ -2094,11 +2148,17 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
       restoreFlexibleEditorColumn(
         dockviewApi,
         getLayoutArrangement(),
-        useLayoutStore.getState().rightPanelWidth
+        useLayoutStore.getState().rightPanelWidth,
+        dockWidthBefore
       );
     }
     dockviewApi.getPanel(PANEL_IDS.WELCOME)?.api.setActive();
-  }, [getEditorGroups, normalizeEditorGroupIds, recreateWelcomeEditorGroup]);
+  }, [
+    getEditorGroups,
+    getLeftGroup,
+    normalizeEditorGroupIds,
+    recreateWelcomeEditorGroup,
+  ]);
 
   const toggleFileTree = useCallback(() => {
     toggleLeftDockPanel(PANEL_IDS.FILE_TREE);
@@ -2334,17 +2394,26 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
         const visibleSessionGroups = sessionGroups.filter(
           (group) => group.api.isVisible
         );
+        const nonEmptyHiddenSessionGroups = sessionGroups.filter(
+          (group) => !group.api.isVisible && group.panels.length > 0
+        );
+        const hasVisibleEditorGroup = getEditorGroups(dockviewApi).some(
+          (group) => group.api.isVisible
+        );
+        const candidateSessionGroups =
+          visibleSessionGroups.length > 0
+            ? visibleSessionGroups
+            : nonEmptyHiddenSessionGroups.length > 0 || !hasVisibleEditorGroup
+              ? sessionGroups
+              : [];
         const activeSessionGroupId =
           dockviewApi.activeGroup && isSessionGroup(dockviewApi.activeGroup)
             ? dockviewApi.activeGroup.id
             : undefined;
-        targetGroup =
-          leastPopulatedEditorGroup(
-            visibleSessionGroups.length > 0
-              ? visibleSessionGroups
-              : sessionGroups,
-            activeSessionGroupId
-          ) ?? getRightGroup(dockviewApi);
+        targetGroup = leastPopulatedEditorGroup(
+          candidateSessionGroups,
+          activeSessionGroupId
+        );
       }
 
       if (!targetGroup) {
@@ -2356,16 +2425,18 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
           getEditorGroups(dockviewApi)[0]?.panels[0] ??
           getLeftGroup(dockviewApi)?.panels[0] ??
           dockviewApi.panels[0];
-        targetGroup = fallbackReference
-          ? dockviewApi.addGroup({
-              id: GROUP_IDS.RIGHT,
-              referencePanel: fallbackReference,
-              direction: 'right',
-            })
-          : dockviewApi.addGroup({
-              id: GROUP_IDS.RIGHT,
-              direction: 'right',
-            });
+        targetGroup = preserveLeftDockGroupWidths(dockviewApi, () =>
+          fallbackReference
+            ? dockviewApi.addGroup({
+                id: GROUP_IDS.RIGHT,
+                referencePanel: fallbackReference,
+                direction: 'right',
+              })
+            : dockviewApi.addGroup({
+                id: GROUP_IDS.RIGHT,
+                direction: 'right',
+              })
+        );
         (
           targetGroup as unknown as { element?: HTMLElement }
         ).element?.setAttribute('data-session-dock', 'true');
@@ -2413,7 +2484,6 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
       getActiveEditorGroup,
       getEditorGroups,
       getLeftGroup,
-      getRightGroup,
       normalizeEditorGroupIds,
     ]
   );

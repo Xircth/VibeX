@@ -61,6 +61,7 @@ export {
   shouldConfirmResendCheckpoint,
   type ResendCheckpointDialogProps,
   type ResendCheckpointResult,
+  type RollbackSafetyReport,
 } from './shared/ResendCheckpointDialog';
 export {
   FolderPickerDialog,

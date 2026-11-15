@@ -7,18 +7,21 @@
 
 pub mod bundle;
 pub mod capability_catalog;
+pub mod checkpoint_safety;
 pub mod collaboration;
 pub mod collaboration_cards;
 pub mod collaboration_sidebar;
 pub mod commit_reminder;
 pub mod continuation;
+pub mod event_folding;
 pub mod export;
-mod handoff;
+pub mod handoff;
 pub mod host;
 pub mod input;
 pub mod isolated_workspace;
 pub mod jsonl_history;
 mod legacy_transcript_checkpoint;
+pub mod live_coalescer;
 pub mod live_pipeline;
 pub mod member_memory;
 pub mod projection;
@@ -44,11 +47,24 @@ pub use capability_catalog::{
     read_matching_capability_catalog_for_defaults, read_matching_open_capability_catalog,
     record_open_capability_catalog, refresh_open_capability_catalog,
 };
+pub use checkpoint_safety::{
+    CheckpointRollbackSafety, DEFAULT_ROLLBACK_LEASE_TTL_SECS, RollbackSafetyError,
+    RollbackSafetyReport, WorkspaceRollbackLeaseGuard, ensure_workspace_leases_schema,
+};
 pub use collaboration::{
     HotGroupTracker, SessionProcessWarmup, SpaceWarmupResult, spawn_delayed_input_promoter,
     spawn_idle_session_sweeper, warmup_space_members,
 };
+pub use event_folding::{
+    DEFAULT_FOLD_INITIAL_DELAY, DEFAULT_FOLD_INTERVAL, EventFoldReport, EventFolder, FoldReport,
+    FoldedEvent, FoldedEventType, RECENT_TURN_BUFFER, spawn_periodic_event_folding_worker,
+};
 pub use export::{render_html, render_markdown};
+pub use handoff::{
+    ConversationEngineHandoffPackedItem, ConversationEngineHandoffPreview,
+    DEFAULT_HANDOFF_TOKEN_BUDGET, DeterministicHandoffService, EngineHandoffConfirmation,
+    HandoffContext, HandoffError,
+};
 pub use host::{
     DefaultConversationHost, resolve_absolute_workspace_agent_working_dir,
     resolve_agent_runtime_launch_settings, resolve_workspace_agent_working_dir,
@@ -61,16 +77,22 @@ pub use input::{
     ConversationInputView, ReorderConversationInput, SubmitConversationInput,
     UpdateConversationInput,
 };
+pub use live_coalescer::{COALESCE_WINDOW, LiveRowOpCoalescer, MAX_PENDING_UPDATES};
 pub use live_pipeline::{
     ConversationEventSink, ConversationLivePipeline, WorkspaceSessionsChanged,
 };
 pub use projection::{
-    CONVERSATION_PROJECTION_VERSION, CachedRowProjector, ConversationEventAppender,
+    BatchAppendResult, BatchConversationEvent, CONVERSATION_PROJECTION_VERSION, CachedRowProjector,
+    CheckpointMetadataUpdate, CommittedConversationEvent, ConversationEventAppender,
     ConversationProjector, ConversationRowProjectors, ConversationRowWindow,
-    ConversationStateApplier, IncrementalRowProjector, OPEN_TIMELINE_ROW_LIMIT,
-    OpenConversationProjection, clear_internal_message_listeners,
-    evict_least_recently_used_projectors, extend_coalesced_row_ops,
-    register_internal_message_listener, subscribe_internal_messages,
+    ConversationRowsSincePage, ConversationStateApplier, IncrementalRowProjector, MAX_BATCH_BYTES,
+    MAX_BATCH_EVENTS, MAX_WINDOW_BYTES, OPEN_TIMELINE_ROW_LIMIT, OpenConversationProjection,
+    TimelineKeysetCursor, backfill_next_legacy_batch, clear_internal_message_listeners,
+    decode_timeline_cursor, encode_timeline_cursor, ensure_legacy_jsonl_migrated,
+    ensure_legacy_jsonl_migrated_on_pool, evict_least_recently_used_projectors,
+    extend_coalesced_row_ops, register_acp_replay_history_probe,
+    register_internal_message_listener, spawn_legacy_jsonl_backfill_worker,
+    subscribe_internal_messages,
 };
 pub use relation::{
     ConversationChildSummaryView, ConversationRelationControl, ConversationRelationView,
@@ -78,7 +100,7 @@ pub use relation::{
 };
 pub use runtime_events::{
     ConversationAgentEventRecorder, RecordedConversationBatch, RecordedConversationCompletion,
-    RuntimeEventRecordError, start_agent_event_persistence,
+    RuntimeEventRecordError, flush_conversation_persistence, start_agent_event_persistence,
     start_agent_event_persistence_with_observer,
 };
 pub use scoped_control::{
@@ -86,6 +108,7 @@ pub use scoped_control::{
 };
 pub use search::{
     ConversationSearchHit, backfill_missing, reindex_from_projection, search_conversations,
+    search_conversations_with_offset,
 };
 pub use service::{
     AfterTurnEvent, AgentRuntimeLaunchSettings, BeforeTurnContext, ConversationContext,
@@ -94,9 +117,10 @@ pub use service::{
     ConversationStartTurnInput, ConversationSteerInput, ConversationSteeringReceipt,
     ConversationSteeringStatus, ConversationTurnSnapshot, CreateDelegatedConversation,
     CreateForkConversation, CreateWorkflowConversation, ForkVisibleConversation,
-    NoopConversationEventPublisher, QueuedConversationInputClaim, RuntimeEventNotification,
-    clear_turn_hooks, create_delegated_conversation, create_fork_conversation,
-    create_workflow_conversation, finalize_checkpoint_file_changes, fork_visible_conversation,
+    NoopConversationEventPublisher, PreparedCheckpointFileChanges, QueuedConversationInputClaim,
+    RuntimeEventNotification, clear_turn_hooks, commit_checkpoint_metadata_on_connection,
+    create_delegated_conversation, create_fork_conversation, create_workflow_conversation,
+    finalize_checkpoint_file_changes, fork_visible_conversation, prepare_checkpoint_file_changes,
     preview_checkpoint_file_changes, register_after_turn_hook, register_before_turn_hook,
     remember_creation_session_controls, subscribe_after_turn_events, subscribe_runtime_events,
 };

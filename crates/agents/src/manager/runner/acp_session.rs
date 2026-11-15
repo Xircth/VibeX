@@ -475,6 +475,9 @@ impl AgentConnectionRunner {
                         .await;
                     let _ = result_tx.send(result);
                 }
+                AgentConnectionCommand::RollbackTurns { result_tx, .. } => {
+                    let _ = result_tx.send(Ok(()));
+                }
                 AgentConnectionCommand::Disconnect => break,
             }
         }

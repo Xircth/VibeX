@@ -91,7 +91,7 @@ describe('AgentRail', () => {
     expect(buttons).toHaveLength(3);
   });
 
-  it('marks the active agent with aria-checked=true and raised-control class', () => {
+  it('marks the active agent with aria-checked=true, transparent background, and a right-side vertical indicator bar', () => {
     renderRail(
       <AgentRail
         profiles={{}}
@@ -102,9 +102,20 @@ describe('AgentRail', () => {
     );
     const claudeButton = screen.getByLabelText('Claude Code');
     expect(claudeButton).toHaveAttribute('aria-checked', 'true');
-    expect(claudeButton.className).toContain('raised-control');
+    expect(claudeButton).toHaveClass('bg-transparent');
+    expect(claudeButton).not.toHaveClass('bg-[var(--surface-control-hover)]');
+    expect(claudeButton).not.toHaveClass('ring-1');
+    const indicator = claudeButton.querySelector(
+      '[data-testid="agent-rail-active-indicator"]'
+    );
+    expect(indicator).not.toBeNull();
+    expect(indicator).toHaveClass('bg-foreground', 'w-0.5');
+
     const codexButton = screen.getByLabelText('Codex');
     expect(codexButton).toHaveAttribute('aria-checked', 'false');
+    expect(
+      codexButton.querySelector('[data-testid="agent-rail-active-indicator"]')
+    ).toBeNull();
   });
 
   it('calls onChangeExecutorProfile when an inactive agent is clicked', () => {

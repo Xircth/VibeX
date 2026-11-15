@@ -13,12 +13,11 @@ import {
   useState,
   type UIEvent,
 } from 'react';
-import { Loader2 } from 'lucide-react';
 import { ConversationTimelineSkeleton } from '@/components/logs/ConversationTimelineSkeleton';
 import { ConversationFindBar } from '@/components/NormalizedConversation/conversation/ConversationFindBar';
 import { findInConversationTimeline } from '@/lib/conversationFind';
 import { useTranslation } from 'react-i18next';
-import { useSearchParams } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useAppContextMenu } from '@/components/context-menu';
 import type { ProductContextMenuItem } from '@/components/context-menu/contextMenuTypes';
 import { ConversationSelectionToolbar } from '@/components/NormalizedConversation/ConversationSelectionToolbar';
@@ -27,9 +26,13 @@ import { exportConversation } from '@/lib/exportConversation';
 import { requestCreateSessionInExecutionArea } from '@/lib/requestCreateSession';
 import {
   CONVERSATION_SCROLL_TO_GOAL_EVENT,
+  CONVERSATION_SCROLL_TO_QUOTE_EVENT,
   CONVERSATION_SCROLL_TO_TURN_EVENT,
+  consumePendingConversationJump,
+  pulseQuoteTargetElement,
   requestConversationScrollToGoal,
   type ConversationScrollToGoalDetail,
+  type ConversationScrollToQuoteDetail,
   type ConversationScrollToTurnDetail,
 } from '@/lib/conversationScroll';
 import { writeClipboardViaBridge } from '@/vscode/bridge';
@@ -71,6 +74,7 @@ import {
 } from '@/components/NormalizedConversation/conversation/childConversationStack';
 
 import { SubagentLifecycleProvider } from '@/components/NormalizedConversation/tools/SubagentLifecycleContext';
+import { AgentRuntimeStatus } from '@/components/tasks/follow-up/AgentRuntimeStatus';
 import { ConversationStatusDock } from '@/components/tasks/follow-up/ConversationStatusDock';
 import { ArtifactTimelineCard } from '@/components/NormalizedConversation/ArtifactTimelineCard';
 import { PluginTimelineCards } from '@/components/plugins/PluginTimelineCards';
@@ -80,6 +84,10 @@ import { conversationApi } from '@/features/conversation/conversationApi';
 import { getComposerSteeringTarget } from '@/components/tasks/follow-up/sessionComposerSteering';
 import { ConversationChildrenSummary } from '@/features/conversation/ConversationChildrenSummary';
 import { PiProjectTrustBanner } from '@/features/conversation/PiProjectTrustBanner';
+import {
+  deriveInlineStreamRuntimeStatus,
+  type InlineStreamRuntimeStatus,
+} from '@/features/conversation/inlineRuntimeStatus';
 import {
   AGENT_BINDING_LOAD_FAILURE_NOTICE_ROW_ID,
   AGENT_CONNECTION_RECOVERING_NOTICE_ROW_ID,
@@ -94,10 +102,12 @@ import { ConfirmDialog } from '@/components/dialogs';
 import {
   ResendCheckpointDialog,
   shouldConfirmResendCheckpoint,
+  type RollbackSafetyReport,
 } from '@/components/dialogs';
 import { loadResendCheckpointPreview } from '@/components/logs/resendCheckpointPreview';
 import { getErrorMessage } from '@/lib/modals';
 import { toast } from '@/components/ui/toast';
+import { SideChatPane } from './sidechat/SideChatPane';
 import { TurnStats } from './thread/TurnStats';
 import { LiveTurnStats } from './thread/LiveTurnStats';
 import {
@@ -112,8 +122,12 @@ import {
   type ConversationMessageNavEntry,
 } from './thread/messageNavEntries';
 import {
+  isAgentHandoffHostNote,
   isDurableHostNote,
+  normalizeAgentIdentity,
+  parseAgentHandoffNotice,
   shouldShowDurableHostNote,
+  type ConversationSessionModesState,
   type ConversationTimelineItem,
   type ConversationTimelineTurn,
 } from '@/features/conversation/conversationStore';
@@ -145,6 +159,12 @@ import {
   virtualRowFoldEdge,
 } from '@/components/logs/assistantVirtualSlices';
 import { TimelineImagePanel } from '@/components/NormalizedConversation/TimelineDecodedImage';
+import {
+  ConversationTailHandoff,
+  TimelineAgentHandoffRow,
+} from '@/components/NormalizedConversation/ContextHandoffDivider';
+import { RateLimitRecoveryBanner } from '@/components/NormalizedConversation/RateLimitRecoveryBanner';
+import { useConversationRateLimitState } from '@/components/NormalizedConversation/useConversationRateLimitState';
 import { cn } from '@/lib/utils';
 import { isContextCompactPrompt } from '@/lib/contextCompact';
 import { composerMessageHistoryFromTurns } from '@/components/tasks/follow-up/sessionComposerHistory';
@@ -183,12 +203,12 @@ function timelineItemAsMessage(
 }
 
 export function conversationThreadMaxWidthClass(
-  widthMode: 'bounded' | 'workspace',
-  isEditorAreaVisible: boolean
-): 'max-w-none' | 'max-w-6xl' {
-  return widthMode === 'workspace' && !isEditorAreaVisible
-    ? 'max-w-none'
-    : 'max-w-6xl';
+  _widthMode: 'bounded' | 'workspace' = 'bounded',
+  _isEditorAreaVisible = true
+): 'max-w-3xl' {
+  void _widthMode;
+  void _isEditorAreaVisible;
+  return 'max-w-3xl';
 }
 
 export const LOAD_OLDER_THRESHOLD_PX = 240;
@@ -581,20 +601,32 @@ function InlineTimelineSideRow({
   if (row.kind === 'artifact_revision') {
     return <ArtifactTimelineCard artifact={row.artifact} />;
   }
-  if (row.kind === 'session_notice' && isDurableHostNote(entry)) {
-    return (
-      <div className="conv-entry-item px-4 py-1">
-        <div className="conv-compact-notice whitespace-pre-wrap break-words text-[var(--text-primary)]">
-          <div className="text-xs text-[var(--text-muted)]">
-            {row.notice.title}
+  if (row.kind === 'session_notice') {
+    const handoff = parseAgentHandoffNotice(entry);
+    if (handoff) {
+      return <TimelineAgentHandoffRow handoff={handoff} />;
+    }
+    if (isDurableHostNote(entry)) {
+      return (
+        <div className="conv-entry-item px-4 py-1">
+          <div className="conv-compact-notice whitespace-pre-wrap break-words text-[var(--text-primary)]">
+            <div className="text-xs text-[var(--text-muted)]">
+              {row.notice.title}
+            </div>
+            {row.notice.message ? <div>{row.notice.message}</div> : null}
           </div>
-          {row.notice.message ? <div>{row.notice.message}</div> : null}
         </div>
-      </div>
-    );
+      );
+    }
   }
   return null;
 }
+
+const EMPTY_TIMELINE_SESSION_MODES: ConversationSessionModesState = {
+  current: null,
+  modes: [],
+};
+const EMPTY_TIMELINE_CONFIG_OPTIONS: AgentSessionConfigOption[] = [];
 
 /**
  * Conversation view backed by the canonical VibeX event log: projected timeline
@@ -613,6 +645,7 @@ const AgentTimelineConversation = forwardRef<
 ) {
   const { t } = useTranslation(['panels', 'conversation', 'common', 'tasks']);
   const { openSurfaceMenu } = useAppContextMenu();
+  const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const queryClient = useQueryClient();
   const { config } = useUserSystem();
@@ -703,6 +736,7 @@ const AgentTimelineConversation = forwardRef<
   const setConversationStatusQuestion = conversationStatus?.setQuestion;
   const setConversationStatusPermissions = conversationStatus?.setPermissions;
   const setConversationChildrenDock = conversationStatus?.setChildrenDock;
+  const setConversationStatusRateLimit = conversationStatus?.setRateLimit;
   const usesComposerStatusDock = conversationStatus?.enabled ?? false;
   const { hidePersonaHostNotes } = useSessionSurfaceChrome();
   const timeline = conversation.timeline;
@@ -940,16 +974,6 @@ const AgentTimelineConversation = forwardRef<
     }
     return ids;
   }, [sideRows]);
-  const runtimeStatusRows = useMemo(
-    () =>
-      sideRows.filter(
-        (entry) =>
-          entry.row.kind === 'session_notice' &&
-          (entry.row.notice.connection_status ||
-            entry.row.notice.request_status)
-      ),
-    [sideRows]
-  );
   const sessionNoticeRows = sideRows.filter(
     (entry) =>
       entry.row.kind === 'session_notice' &&
@@ -967,8 +991,88 @@ const AgentTimelineConversation = forwardRef<
   );
   const latestSessionNoticeRow = [...sessionNoticeRows]
     .reverse()
-    .find((entry) => !isDurableHostNote(entry));
-  const hasReconnectNotice = Boolean(reconnectNoticeRow);
+    .find(
+      (entry) =>
+        !isDurableHostNote(entry) &&
+        entry.row_id !== AGENT_CONNECTION_RECOVERING_NOTICE_ROW_ID &&
+        entry.row_id !== AGENT_SESSION_CONNECT_ERROR_NOTICE_ROW_ID &&
+        entry.row_id !== AUTO_PERMISSION_NOTICE_ROW_ID
+    );
+  const latestInterruptedRow = useMemo(() => {
+    const latestRow = [...timeline]
+      .reverse()
+      .find(
+        (row) => row.turn.role === 'user' && !row.turn.id.includes(':steer:')
+      );
+    return latestRow?.phase === 'interrupted' ? latestRow : null;
+  }, [timeline]);
+  const hasPendingPermission = useMemo(
+    () =>
+      sideRows.some(
+        (entry) =>
+          entry.row.kind === 'permission_request' &&
+          entry.row.request.status === 'pending'
+      ),
+    [sideRows]
+  );
+  const streamingAssistantRow = useMemo(
+    () =>
+      timeline.find(
+        (turn) => turn.turn.role === 'assistant' && turn.phase === 'streaming'
+      ) ?? null,
+    [timeline]
+  );
+  const hasRunningTool = useMemo(
+    () =>
+      streamingAssistantRow?.turn.blocks.some(
+        (block) =>
+          block.type === 'tool_use' &&
+          (block.status === 'in_progress' || block.status === 'pending')
+      ) ?? false,
+    [streamingAssistantRow]
+  );
+  const inlineRuntimePresentation = useMemo(
+    () =>
+      deriveInlineStreamRuntimeStatus({
+        connecting: conversation.connecting,
+        connection: runtimeStatus.connection,
+        request: runtimeStatus.request,
+        reconnectNotice:
+          reconnectNoticeRow?.row.kind === 'session_notice'
+            ? reconnectNoticeRow.row.notice
+            : null,
+        connectErrorNotice:
+          connectErrorNoticeRow?.row.kind === 'session_notice'
+            ? connectErrorNoticeRow.row.notice
+            : null,
+        latestTurnError,
+        hasLatestTurnErrorRow: Boolean(latestTurnErrorRow),
+        hasLatestInterruptedRow: Boolean(latestInterruptedRow),
+        isTurnInFlight,
+        hasStreamingAssistantRow: Boolean(streamingAssistantRow),
+        hasInteraction: Boolean(pendingQuestionRow) || hasPendingPermission,
+        hasRunningTool,
+        currentTurnId: streamingAssistantRow
+          ? vibexTurnIdFromTimelineRowId(streamingAssistantRow.turn.id)
+          : (conversation.currentTurnId ?? undefined),
+      }),
+    [
+      connectErrorNoticeRow,
+      conversation.connecting,
+      conversation.currentTurnId,
+      hasPendingPermission,
+      hasRunningTool,
+      isTurnInFlight,
+      latestInterruptedRow,
+      latestTurnError,
+      latestTurnErrorRow,
+      pendingQuestionRow,
+      reconnectNoticeRow,
+      runtimeStatus.connection,
+      runtimeStatus.request,
+      streamingAssistantRow,
+    ]
+  );
 
   // Feed the composer's context-usage ring (EntriesContext). The setter is
   // stable, and useOptionalEntries no-ops outside a provider (e.g. logs panel).
@@ -982,26 +1086,36 @@ const AgentTimelineConversation = forwardRef<
     setTokenUsageInfo?.(composerTokenUsage);
   }, [setTokenUsageInfo, composerTokenUsage]);
 
-  // Feed the composer's mode picker with the agent-advertised session modes for
-  // this conversation (same EntriesContext bridge as the usage ring).
+  // Feed the composer's mode picker and config options only when the hydrated
+  // controls belong to the session's current Agent, preventing cross-Agent
+  // bleed or React Query cache poisoning across an engine switch.
+  const sessionAgentType = (attempt.session?.agent_id ??
+    attempt.session?.executor) as AgentKind | null;
+  const normalizedSessionAgent = normalizeAgentIdentity(sessionAgentType);
+  const controlsMatchSessionAgent =
+    !normalizedSessionAgent ||
+    !conversation.controlsAgentId ||
+    conversation.controlsAgentId === normalizedSessionAgent;
   const setSessionModes = entries?.setSessionModes;
-  const conversationSessionModes = conversation.sessionModes;
+  const conversationSessionModes = controlsMatchSessionAgent
+    ? conversation.sessionModes
+    : EMPTY_TIMELINE_SESSION_MODES;
   useEffect(() => {
     setSessionModes?.(conversationSessionModes);
   }, [setSessionModes, conversationSessionModes]);
 
-  // Same bridge for the agent-advertised config options (model / permission
-  // mode / …) so the composer renders live ACP selectors, not static presets.
   const setSessionConfigOptions = entries?.setSessionConfigOptions;
-  const conversationSessionConfigOptions = conversation.sessionConfigOptions;
+  const conversationSessionConfigOptions = controlsMatchSessionAgent
+    ? conversation.sessionConfigOptions
+    : EMPTY_TIMELINE_CONFIG_OPTIONS;
   useEffect(() => {
     setSessionConfigOptions?.(conversationSessionConfigOptions);
   }, [setSessionConfigOptions, conversationSessionConfigOptions]);
-  const sessionAgentType = (attempt.session?.agent_id ??
-    attempt.session?.executor) as AgentKind | null;
   useEffect(() => {
     if (
       !sessionAgentType ||
+      !normalizedSessionAgent ||
+      conversation.controlsAgentId !== normalizedSessionAgent ||
       (conversationSessionModes.modes.length === 0 &&
         conversationSessionConfigOptions.length === 0)
     ) {
@@ -1018,8 +1132,10 @@ const AgentTimelineConversation = forwardRef<
     });
   }, [
     attempt.id,
+    conversation.controlsAgentId,
     conversationSessionConfigOptions,
     conversationSessionModes,
+    normalizedSessionAgent,
     queryClient,
     sessionAgentType,
   ]);
@@ -1029,6 +1145,7 @@ const AgentTimelineConversation = forwardRef<
   const setConversationPlanEntries = entries?.setConversationPlanEntries;
   const setConversationTurnInFlight = entries?.setConversationTurnInFlight;
   const setConversationSteeringTurnId = entries?.setConversationSteeringTurnId;
+  const setConversationSteeringTarget = entries?.setConversationSteeringTarget;
   const setConversationDeliveryChannel =
     entries?.setConversationDeliveryChannel;
   const conversationPlanEntries = useMemo(
@@ -1042,17 +1159,20 @@ const AgentTimelineConversation = forwardRef<
     setConversationTurnInFlight?.(isTurnInFlight);
   }, [isTurnInFlight, setConversationTurnInFlight]);
   useEffect(() => {
+    const target = getComposerSteeringTarget({
+      isTurnInFlight,
+      steeringSupported: conversation.steeringSupported,
+      currentTurnId: conversation.currentTurnId,
+    });
+    setConversationSteeringTarget?.(target);
     setConversationSteeringTurnId?.(
-      getComposerSteeringTarget({
-        isTurnInFlight,
-        steeringSupported: conversation.steeringSupported,
-        currentTurnId: conversation.currentTurnId,
-      })?.turnId ?? null
+      target?.mode === 'native' ? target.turnId : null
     );
   }, [
     conversation.currentTurnId,
     conversation.steeringSupported,
     isTurnInFlight,
+    setConversationSteeringTarget,
     setConversationSteeringTurnId,
   ]);
   useEffect(() => {
@@ -1530,6 +1650,88 @@ const AgentTimelineConversation = forwardRef<
     };
   }, [scrollToIndex, sessionId, timelineItems]);
 
+  useEffect(() => {
+    const applyJumpDetail = (detail: ConversationScrollToQuoteDetail) => {
+      if (
+        detail.conversationId &&
+        sessionId &&
+        detail.conversationId !== sessionId
+      ) {
+        return;
+      }
+      const needle = detail.snippet?.trim();
+      let index = -1;
+      if (detail.messageId) {
+        const targetTurnPrefix = vibexTurnIdFromTimelineRowId(detail.messageId);
+        index = timelineItems.findIndex(
+          (item) =>
+            (item.kind === 'message' &&
+              (item.item.turn.id === detail.messageId ||
+                item.item.key === detail.messageId ||
+                (Boolean(targetTurnPrefix) &&
+                  vibexTurnIdFromTimelineRowId(item.item.turn.id) ===
+                    targetTurnPrefix))) ||
+            (item.kind === 'side' && item.row.row_id === detail.messageId)
+        );
+      }
+      if (index < 0 && detail.turnId) {
+        index = timelineItems.findIndex(
+          (item) =>
+            item.kind === 'message' &&
+            (item.item.turn.id === detail.turnId ||
+              vibexTurnIdFromTimelineRowId(item.item.turn.id) === detail.turnId)
+        );
+      }
+      if (index < 0 && detail.turnOrdinal != null) {
+        let userOrdinal = 0;
+        index = timelineItems.findIndex((item) => {
+          if (item.kind !== 'message') return false;
+          if (item.item.turn.role === 'user') {
+            userOrdinal += 1;
+          }
+          return userOrdinal === detail.turnOrdinal;
+        });
+      }
+      if (index < 0 && needle) {
+        index = timelineItems.findIndex(
+          (item) =>
+            item.kind === 'message' && turnCopyText(item.item.turn).includes(needle)
+        );
+      }
+      if (index >= 0) {
+        scrollToTimelineIndexWithAlign(index, 'center', true);
+      }
+      const runPulse = () => {
+        if (containerRef.current) {
+          pulseQuoteTargetElement(containerRef.current, detail);
+        }
+      };
+      runPulse();
+      window.setTimeout(runPulse, 140);
+    };
+
+    if (timelineItems.length > 0) {
+      const pending = consumePendingConversationJump(sessionId);
+      if (pending) {
+        applyJumpDetail(pending);
+      }
+    }
+
+    const onJumpToQuote = (event: Event) => {
+      const detail = (event as CustomEvent<ConversationScrollToQuoteDetail>)
+        .detail;
+      if (!detail) return;
+      applyJumpDetail(detail);
+    };
+    window.addEventListener(CONVERSATION_SCROLL_TO_QUOTE_EVENT, onJumpToQuote);
+    return () => {
+      window.removeEventListener(
+        CONVERSATION_SCROLL_TO_QUOTE_EVENT,
+        onJumpToQuote
+      );
+    };
+  }, [scrollToTimelineIndexWithAlign, sessionId, timelineItems]);
+
   const updateScrollMargin = useCallback(() => {
     const container = containerRef.current;
     const list = virtualListRef.current;
@@ -1777,12 +1979,21 @@ const AgentTimelineConversation = forwardRef<
         row.key === lastAssistantKey
           ? mergeMissingTurnStats(settled, liveStats)
           : settled;
-      return row.phase === 'streaming' && !hasReconnectNotice ? (
+      return row.phase === 'streaming' &&
+        !inlineRuntimePresentation.isConnectionRecovering ? (
         <LiveTurnStats
+          hideStatus={inlineRuntimePresentation.suppressLiveTurnStatsStatus}
           statusLabel={
-            runtimeStatus.connection && !runtimeStatus.connection.bound
+            (runtimeStatus.connection && !runtimeStatus.connection.bound) ||
+            (conversation.connecting && !runtimeStatus.connection?.bound)
               ? t(
-                  `runtime.connection.${runtimeStatus.connection.status === 'ready' ? 'binding' : runtimeStatus.connection.status}`
+                  `runtime.connection.${
+                    runtimeStatus.connection
+                      ? runtimeStatus.connection.status === 'ready'
+                        ? 'binding'
+                        : runtimeStatus.connection.status
+                      : 'connecting'
+                  }`
                 )
               : t(
                   `runtime.request.${requestStatusKey({
@@ -1790,12 +2001,7 @@ const AgentTimelineConversation = forwardRef<
                     currentTurnId: vibexTurnId,
                     connection: runtimeStatus.connection,
                     hasInteraction:
-                      Boolean(pendingQuestionRow) ||
-                      sideRows.some(
-                        (entry) =>
-                          entry.row.kind === 'permission_request' &&
-                          entry.row.request.status === 'pending'
-                      ),
+                      Boolean(pendingQuestionRow) || hasPendingPermission,
                     hasRunningTool: row.turn.blocks.some(
                       (block) =>
                         block.type === 'tool_use' &&
@@ -1825,11 +2031,12 @@ const AgentTimelineConversation = forwardRef<
       detachFromBottom,
       forkSupported,
       handleForkFromTurn,
-      hasReconnectNotice,
+      hasPendingPermission,
+      inlineRuntimePresentation.isConnectionRecovering,
+      inlineRuntimePresentation.suppressLiveTurnStatsStatus,
       runtimeStatus.connection,
       runtimeStatus.request,
       pendingQuestionRow,
-      sideRows,
       t,
       isTurnInFlight,
       jumpToVirtualIndex,
@@ -1853,14 +2060,6 @@ const AgentTimelineConversation = forwardRef<
     return map;
   }, [conversation.userTurnsBeforeOffset, timelineItems]);
   const lastUserRowKey = navEntries.at(-1)?.key ?? null;
-  const latestInterruptedRow = useMemo(() => {
-    const latestRow = [...timeline]
-      .reverse()
-      .find(
-        (row) => row.turn.role === 'user' && !row.turn.id.includes(':steer:')
-      );
-    return latestRow?.phase === 'interrupted' ? latestRow : null;
-  }, [timeline]);
 
   // Same ordinal keyed by turn id (message rows are `${turnId}:user` or `acp-N`), for the
   // per-turn files-changed Undo which rolls back to that turn's checkpoint.
@@ -2016,18 +2215,31 @@ const AgentTimelineConversation = forwardRef<
         console.warn('checkpoint preview unavailable', error);
       }
 
+      let safetyReport: RollbackSafetyReport | undefined;
+      if (typeof conversationApi.checkRollbackSafety === 'function') {
+        try {
+          safetyReport = await conversationApi.checkRollbackSafety({
+            conversationId: session.id,
+            ordinal,
+          });
+        } catch (error) {
+          console.warn('rollback safety check unavailable', error);
+        }
+      }
+
       let restoreFiles = false;
       if (
-        !previewUnavailable &&
         shouldConfirmResendCheckpoint({
           files: rollbackFiles,
           previewUnavailable: false,
+          safetyReport,
         })
       ) {
         const choice = await ResendCheckpointDialog.show({
           title: t('timeline.resendMessageTitle'),
           files: rollbackFiles,
           previewUnavailable,
+          safetyReport,
         });
         if (choice === 'dismissed') return false;
         restoreFiles = choice === 'restore';
@@ -2085,6 +2297,51 @@ const AgentTimelineConversation = forwardRef<
     ]
   );
 
+  const handleCancelRuntimeRequest = useCallback(async () => {
+    try {
+      await conversationCancel();
+    } catch (error) {
+      toast.error(getErrorMessage(error));
+    }
+  }, [conversationCancel]);
+
+  const latestRetryableUserRow = useMemo(
+    () =>
+      !isTurnInFlight
+        ? [...timeline]
+            .reverse()
+            .find(
+              (entry) =>
+                entry.turn.role === 'user' &&
+                !entry.turn.id.includes(':steer:')
+            ) ?? null
+        : null,
+    [isTurnInFlight, timeline]
+  );
+
+  const handleRetryLatestTurn = useMemo(
+    () =>
+      latestRetryableUserRow
+        ? () =>
+            handleRetry(
+              latestRetryableUserRow.turn,
+              userOrdinalByKey.get(latestRetryableUserRow.key) ?? 0
+            )
+        : undefined,
+    [handleRetry, latestRetryableUserRow, userOrdinalByKey]
+  );
+
+  const scrollTailOverlayIntoView = useCallback(() => {
+    const container = containerRef.current;
+    if (!container || !isAtBottomRef.current) return;
+    runProgrammaticScroll(() => {
+      container.scrollTo({
+        top: container.scrollHeight,
+        behavior: 'auto',
+      });
+    });
+  }, [runProgrammaticScroll]);
+
   const statusNotices = useMemo(() => {
     const notices: ConversationStatusNotice[] = [];
     const pushSessionNotice = (
@@ -2097,48 +2354,15 @@ const AgentTimelineConversation = forwardRef<
       if (isResendColdStartNotice(row.row_id, row.row.notice)) return;
       if (notices.some((notice) => notice.id === row.row_id)) return;
       const notice = row.row.notice;
-      const retryRow =
-        notice.request_status && !isTurnInFlight
-          ? [...timeline]
-              .reverse()
-              .find(
-                (entry) =>
-                  entry.turn.role === 'user' &&
-                  !entry.turn.id.includes(':steer:')
-              )
-          : undefined;
       notices.push({
         id: row.row_id,
         kind: 'session-notice' as const,
         notice,
-        onCancel:
-          (notice.request_status && isTurnInFlight) ||
-          (notice.connection_status &&
-            !notice.connection_status.bound &&
-            ['ready', 'connecting', 'recovering'].includes(
-              notice.connection_status.status
-            ))
-            ? async () => {
-                try {
-                  await conversationCancel();
-                } catch (error) {
-                  toast.error(getErrorMessage(error));
-                }
-              }
-            : undefined,
-        onRetry: retryRow
-          ? () =>
-              handleRetry(
-                retryRow.turn,
-                userOrdinalByKey.get(retryRow.key) ?? 0
-              )
-          : undefined,
         onRebind: sessionNoticeNeedsRebind(notice, row.row_id)
           ? conversationRebindSession
           : undefined,
         onReload:
-          row.row_id === AGENT_BINDING_LOAD_FAILURE_NOTICE_ROW_ID ||
-          row.row.notice.connection_status
+          row.row_id === AGENT_BINDING_LOAD_FAILURE_NOTICE_ROW_ID
             ? conversationReconnectAndReload
             : undefined,
         onNewConversation:
@@ -2158,64 +2382,9 @@ const AgentTimelineConversation = forwardRef<
         error: latestTurnError,
         onReload: conversationReconnectAndReload,
         onRebind: conversationRebindSession,
+        onRetry: handleRetryLatestTurn,
       });
-    } else {
-      pushSessionNotice(connectErrorNoticeRow);
     }
-    for (const row of runtimeStatusRows) {
-      if (row.row.kind !== 'session_notice') continue;
-      const request = row.row.notice.request_status;
-      if (
-        request &&
-        isTurnInFlight &&
-        ['completed', 'failed', 'cancelled', 'interrupted'].includes(
-          request.activity.phase
-        )
-      )
-        continue;
-      if (
-        request &&
-        !isTurnInFlight &&
-        !['failed', 'cancelled', 'interrupted'].includes(request.activity.phase)
-      )
-        continue;
-      if (request) {
-        const phase = requestStatusKey({
-          request,
-          connection: runtimeStatus.connection,
-          hasInteraction:
-            Boolean(pendingQuestionRow) ||
-            sideRows.some(
-              (entry) =>
-                entry.row.kind === 'permission_request' &&
-                entry.row.request.status === 'pending'
-            ),
-          hasRunningTool: timeline.some(
-            (turn) =>
-              turn.phase === 'streaming' &&
-              turn.turn.blocks.some(
-                (block) =>
-                  block.type === 'tool_use' &&
-                  (block.status === 'in_progress' || block.status === 'pending')
-              )
-          ),
-        });
-        pushSessionNotice({
-          ...row,
-          row: {
-            kind: 'session_notice',
-            notice: {
-              ...row.row.notice,
-              request_status: {
-                ...request,
-                activity: { ...request.activity, phase },
-              },
-            },
-          },
-        });
-      } else pushSessionNotice(row);
-    }
-    pushSessionNotice(reconnectNoticeRow);
     pushSessionNotice(autoPermissionNoticeRow);
     if (latestInterruptedRow) {
       notices.push({
@@ -2228,32 +2397,20 @@ const AgentTimelineConversation = forwardRef<
           ),
       });
     }
-    if (
-      latestSessionNoticeRow?.row_id !== reconnectNoticeRow?.row_id &&
-      latestSessionNoticeRow?.row_id !== connectErrorNoticeRow?.row_id &&
-      latestSessionNoticeRow?.row_id !== autoPermissionNoticeRow?.row_id
-    ) {
+    if (latestSessionNoticeRow?.row_id !== autoPermissionNoticeRow?.row_id) {
       pushSessionNotice(latestSessionNoticeRow);
     }
     return notices;
   }, [
     autoPermissionNoticeRow,
-    runtimeStatusRows,
-    runtimeStatus.connection,
-    pendingQuestionRow,
-    sideRows,
-    timeline,
-    isTurnInFlight,
-    connectErrorNoticeRow,
     conversationReconnectAndReload,
-    conversationCancel,
     conversationRebindSession,
     handleRetry,
+    handleRetryLatestTurn,
     latestInterruptedRow,
     latestSessionNoticeRow,
     latestTurnError,
     latestTurnErrorRow,
-    reconnectNoticeRow,
     searchParams,
     setSearchParams,
     userOrdinalByKey,
@@ -2291,6 +2448,40 @@ const AgentTimelineConversation = forwardRef<
     return () => setConversationStatusPermissions?.([]);
   }, [composerPermissions, setConversationStatusPermissions]);
 
+  const {
+    rateLimit: activeRateLimitState,
+    handleUpdateAutoResume: handleRateLimitAutoResume,
+    handleCancelWait: handleRateLimitCancelWait,
+  } = useConversationRateLimitState({
+    sessionId,
+    agentId: attempt.session?.agent_id ?? attempt.session?.executor,
+    sessionRecord: attempt.session,
+    sideRows,
+    latestTurnError,
+    latestTurnErrorRowId: latestTurnErrorRow?.row_id ?? null,
+  });
+
+  useEffect(() => {
+    if (!usesComposerStatusDock || !sessionId || !activeRateLimitState) {
+      setConversationStatusRateLimit?.(null);
+      return;
+    }
+    setConversationStatusRateLimit?.({
+      conversationId: sessionId,
+      state: activeRateLimitState,
+      onUpdateAutoResume: handleRateLimitAutoResume,
+      onCancelWait: handleRateLimitCancelWait,
+    });
+    return () => setConversationStatusRateLimit?.(null);
+  }, [
+    activeRateLimitState,
+    handleRateLimitAutoResume,
+    handleRateLimitCancelWait,
+    sessionId,
+    setConversationStatusRateLimit,
+    usesComposerStatusDock,
+  ]);
+
   return (
     <div ref={panelRef} className="relative flex h-full min-h-0 flex-col">
       {findOpen ? (
@@ -2298,9 +2489,34 @@ const AgentTimelineConversation = forwardRef<
           query={findQuery}
           current={findMatches.length === 0 ? 0 : findMatchIndex + 1}
           total={findMatches.length}
+          workspaceId={attempt.id}
+          currentConversationId={sessionId}
           onQueryChange={setFindQuery}
           onNext={() => goToFindMatch(1)}
           onPrevious={() => goToFindMatch(-1)}
+          onSelectGlobalHit={(hit) => {
+            if (!hit.conversation_id || hit.conversation_id === sessionId) {
+              return;
+            }
+            const targetWorkspaceId = hit.workspace_id || attempt.id;
+            if (kanbanSessions) {
+              kanbanSessions.openSessionFromList({
+                sessionId: hit.conversation_id,
+                workspaceId: targetWorkspaceId,
+              });
+            } else if (task?.project_id && targetWorkspaceId) {
+              navigate(
+                `/local-projects/${task.project_id}/workspaces/${targetWorkspaceId}/sessions/${hit.conversation_id}`
+              );
+            } else {
+              setSearchParams((prev) => {
+                const next = new URLSearchParams(prev);
+                next.set('sessionId', hit.conversation_id);
+                next.delete('createSession');
+                return next;
+              });
+            }
+          }}
           onClose={() => {
             setFindOpen(false);
             setFindQuery('');
@@ -2457,16 +2673,6 @@ const AgentTimelineConversation = forwardRef<
               <>
                 <SubagentLifecycleProvider turns={timelineTurns}>
                   <div className="conv-thread-content min-w-0">
-                    {conversation.connecting ? (
-                      <div className="mb-2 flex justify-center text-muted-foreground">
-                        <div className="flex items-center gap-2 rounded-full border bg-background/90 px-3 py-1.5 text-xs shadow-sm">
-                          <Loader2 className="h-4 w-4 animate-spin" />
-                          <span>
-                            {t('conversation:statusDock.connectingTitle')}
-                          </span>
-                        </div>
-                      </div>
-                    ) : null}
                     {attempt.session?.executor === 'workflow' && sessionId ? (
                       <WorkflowRunCard runId={sessionId} />
                     ) : null}
@@ -2516,6 +2722,17 @@ const AgentTimelineConversation = forwardRef<
                               key={virtualRow.key}
                               ref={rowVirtualizer.measureElement}
                               data-index={virtualRow.index}
+                              data-turn-id={
+                                row
+                                  ? vibexTurnIdFromTimelineRowId(row.turn.id)
+                                  : undefined
+                              }
+                              data-message-id={row?.turn.id}
+                              data-block-index={
+                                entry.slice?.kind === 'block'
+                                  ? entry.slice.itemIndex
+                                  : undefined
+                              }
                               className={cn(
                                 'conv-turn-row absolute left-0 top-0 w-full',
                                 foldEdge === 'tail' ? 'is-fold-tail' : 'pb-3',
@@ -2578,7 +2795,8 @@ const AgentTimelineConversation = forwardRef<
                                   hasTurnError={
                                     turnIdsWithErrors.has(
                                       vibexTurnIdFromTimelineRowId(row.turn.id)
-                                    ) || hasReconnectNotice
+                                    ) ||
+                                    inlineRuntimePresentation.isConnectionRecovering
                                   }
                                   slice={entry.slice}
                                   isLastSlice={entry.isLast}
@@ -2615,6 +2833,30 @@ const AgentTimelineConversation = forwardRef<
                         })}
                       </div>
                     </TimelineImagePanel>
+                    {inlineRuntimePresentation.status ? (
+                      <InlineStreamRuntimeRow
+                        status={inlineRuntimePresentation.status}
+                        onReveal={scrollTailOverlayIntoView}
+                        onReconnect={conversationReconnectAndReload}
+                        onCancel={handleCancelRuntimeRequest}
+                        onRetry={handleRetryLatestTurn}
+                      />
+                    ) : null}
+                    <ConversationTailHandoff
+                      sessionId={sessionId}
+                      hasMessages={timeline.length > 0}
+                      fallbackFromModel={liveStats.model}
+                      sessionConfigOptions={conversationSessionConfigOptions}
+                      suppressedByInlineHandoff={(() => {
+                        const tailItem =
+                          timelineItems[timelineItems.length - 1];
+                        return Boolean(
+                          tailItem?.kind === 'side' &&
+                            isAgentHandoffHostNote(tailItem.row)
+                        );
+                      })()}
+                      onReveal={scrollTailOverlayIntoView}
+                    />
                     {!usesComposerStatusDock &&
                     pendingPermissions.length > 0 ? (
                       <div className="sticky bottom-0 z-10 space-y-2 pt-2">
@@ -2673,6 +2915,14 @@ const AgentTimelineConversation = forwardRef<
               sessionBindReady={conversation.sessionBindReady}
               onStopTask={conversation.stopAsyncTask}
             />
+            {sessionId && activeRateLimitState ? (
+              <RateLimitRecoveryBanner
+                conversationId={sessionId}
+                rateLimit={activeRateLimitState}
+                onUpdateAutoResume={handleRateLimitAutoResume}
+                onCancelWait={handleRateLimitCancelWait}
+              />
+            ) : null}
           </div>
           <ConversationStatusDock
             notices={statusNotices}
@@ -2707,8 +2957,51 @@ const AgentTimelineConversation = forwardRef<
           />
         );
       })}
+      {sessionId ? (
+        <SideChatPane
+          conversationId={sessionId}
+          turns={conversation.timeline}
+          workspacePath={workspaceRoot}
+        />
+      ) : null}
     </div>
   );
 });
+
+function InlineStreamRuntimeRow({
+  status,
+  onReveal,
+  onReconnect,
+  onCancel,
+  onRetry,
+}: {
+  status: InlineStreamRuntimeStatus;
+  onReveal: () => void;
+  onReconnect: () => void | Promise<unknown>;
+  onCancel: () => void | Promise<unknown>;
+  onRetry?: () => void | Promise<unknown>;
+}) {
+  const onRevealRef = useRef(onReveal);
+  onRevealRef.current = onReveal;
+  const phaseKey =
+    status.notice.connection_status?.status ??
+    status.notice.request_status?.activity.phase ??
+    status.kind;
+
+  useLayoutEffect(() => {
+    onRevealRef.current();
+  }, [status.kind, phaseKey, status.titleOverride]);
+
+  return (
+    <AgentRuntimeStatus
+      notice={status.notice}
+      placement="stream"
+      titleOverride={status.titleOverride}
+      onReconnect={status.canReconnect ? onReconnect : undefined}
+      onCancel={status.canCancel ? onCancel : undefined}
+      onRetry={status.canRetry ? onRetry : undefined}
+    />
+  );
+}
 
 export default AgentTimelineConversation;

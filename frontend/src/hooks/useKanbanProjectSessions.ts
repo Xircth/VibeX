@@ -298,8 +298,23 @@ export function useKanbanProjectSessions(projectId: string | undefined) {
       };
 
       const queryKey = ['session', summary.id] as const;
-      if (!queryClient.getQueryData<Session>(queryKey)) {
-        queryClient.setQueryData<Session>(queryKey, session);
+      const existing = queryClient.getQueryData<Session>(queryKey);
+      if (
+        !existing ||
+        existing.agent_id !== session.agent_id ||
+        existing.executor !== session.executor ||
+        existing.status !== session.status ||
+        existing.name !== session.name ||
+        existing.updated_at !== session.updated_at
+      ) {
+        queryClient.setQueryData<Session>(queryKey, {
+          ...existing,
+          ...session,
+          external_session_id: existing?.external_session_id ?? null,
+          parent_session_id: existing?.parent_session_id ?? null,
+          parent_tool_use_id: existing?.parent_tool_use_id ?? null,
+          delegation_call_id: existing?.delegation_call_id ?? null,
+        });
       }
     });
   }, [queryClient, sessionSummaries, workspaces]);

@@ -4,6 +4,11 @@ import type {
   AgentPreflightView,
 } from 'shared/types';
 
+import {
+  isNativeEngineAgent,
+  type NativeEngineAgentHint,
+} from './agentProvisioning';
+
 const BOOTSTRAP_DEPENDENCY_IDS = new Set([
   'dependency.node',
   'dependency.npm',
@@ -35,15 +40,36 @@ export function writePreflightSnapshot(view: AgentPreflightView): void {
 }
 
 export function presentPreflightItems(
-  items: AgentPreflightItemView[]
+  items: AgentPreflightItemView[],
+  agentOrId?: NativeEngineAgentHint
 ): AgentPreflightItemView[] {
+  const nativeEngine = isNativeEngineAgent(agentOrId);
+  const hasPrimaryItem = items.some(
+    (item) => item.id === 'acp' || item.id === 'native_runtime'
+  );
   return items
-    .filter((item) => item.id !== 'runtime')
-    .map((item) =>
-      BOOTSTRAP_DEPENDENCY_IDS.has(item.id) && item.status === 'fail'
-        ? { ...item, status: 'warning' }
-        : item
-    );
+    .filter(
+      (item) =>
+        item.id !== 'membership' &&
+        (item.id !== 'runtime' || (nativeEngine && !hasPrimaryItem))
+    )
+    .map((item) => {
+      let next =
+        BOOTSTRAP_DEPENDENCY_IDS.has(item.id) && item.status === 'fail'
+          ? { ...item, status: 'warning' as const }
+          : item;
+      const isPrimaryItem =
+        next.id === 'acp' ||
+        next.id === 'native_runtime' ||
+        (nativeEngine && next.id === 'runtime');
+      if (
+        isPrimaryItem &&
+        (next.label === 'ACP 适配器' || next.label === '原生引擎运行时')
+      ) {
+        next = { ...next, label: '运行入口' };
+      }
+      return next;
+    });
 }
 
 export function isAuthPreflightItem(item: AgentPreflightItemView): boolean {

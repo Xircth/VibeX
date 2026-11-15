@@ -1,11 +1,15 @@
-import type {
-  ClipboardEvent,
-  DragEvent,
-  FocusEvent,
-  KeyboardEvent,
-  MutableRefObject,
-  PointerEvent,
-  RefObject,
+import {
+  useEffect,
+  useState,
+  type ClipboardEvent,
+  type DragEvent,
+  type FocusEvent,
+  type KeyboardEvent,
+  type MouseEvent,
+  type MutableRefObject,
+  type PointerEvent,
+  type RefObject,
+  type UIEvent,
 } from 'react';
 import { useTranslation } from 'react-i18next';
 import { FolderOpen } from 'lucide-react';
@@ -14,6 +18,7 @@ import {
   type ChatComposerInputHandle,
   type ChatComposerTrigger,
 } from '@astryxdesign/core/Chat';
+import { requestConversationScrollToQuote } from '@/lib/conversationScroll';
 import { cn } from '@/lib/utils';
 import { prepareImageFileForUpload } from '@/utils/clipboard';
 import { isAttachableFile } from '@/utils/mediaAttachments';
@@ -25,10 +30,32 @@ import {
 } from '../sessionComposerSubmitHotkey';
 import { ComposerAtReferencePanel } from '../ComposerAtReferenceMenu';
 import type { SendMessageShortcut } from 'shared/types';
-import type { SessionComposerStructuredToken } from '../sessionComposerStructuredTokens';
+import {
+  hasQuoteSourceAnchor,
+  type SessionComposerStructuredToken,
+} from '../sessionComposerStructuredTokens';
+import {
+  getHoverableTokenFromEventTarget,
+  getStructuredHoverToken,
+} from './composerSearch';
 import { getSessionComposerEditable } from './sessionComposerDom';
 import { PreviewElementTokenTooltip } from './PreviewElementTokenTooltip';
 import type { useComposerAtReferencePanel } from '../useComposerAtReferencePanel';
+
+type ScrollFadeState = 'none' | 'top' | 'bottom' | 'both';
+
+function computeScrollFade(element: HTMLElement): ScrollFadeState {
+  if (element.scrollHeight <= element.clientHeight + 2) {
+    return 'none';
+  }
+  const canScrollUp = element.scrollTop > 2;
+  const canScrollDown =
+    element.scrollTop + element.clientHeight < element.scrollHeight - 2;
+  if (canScrollUp && canScrollDown) return 'both';
+  if (canScrollUp) return 'top';
+  if (canScrollDown) return 'bottom';
+  return 'none';
+}
 
 export function SessionComposerSurface({
   dropZoneRef,
@@ -44,9 +71,14 @@ export function SessionComposerSurface({
   handleTokenBlur,
   composerRootRef,
   value,
+  sessionId,
   promptSuggestion,
+  hasActivePromptSuggestion = false,
+  isComposing,
+  onCompositionStateChange,
   onDismissPromptSuggestion,
   onChange,
+  onUpdateQuoteAnnotation,
   atReference,
   className,
   effectivePlaceholder,
@@ -64,6 +96,7 @@ export function SessionComposerSurface({
   quoteTokenTooltipId,
   cancelHoverHide,
   hideTokenHover,
+  setQuoteEditing,
 }: {
   dropZoneRef: RefObject<HTMLDivElement | null>;
   handleDragOver: (event: DragEvent<HTMLDivElement>) => void;
@@ -80,9 +113,18 @@ export function SessionComposerSurface({
   handleTokenBlur: (event: FocusEvent<HTMLDivElement>) => void;
   composerRootRef: RefObject<HTMLDivElement | null>;
   value: string;
+  sessionId?: string | null;
   promptSuggestion: string | null | undefined;
+  hasActivePromptSuggestion?: boolean;
+  isComposing: boolean;
+  onCompositionStateChange: (composing: boolean) => void;
   onDismissPromptSuggestion?: () => void;
   onChange: (value: string) => void;
+  onUpdateQuoteAnnotation?: (
+    anchor: HTMLElement,
+    targetRaw: string,
+    annotation: string
+  ) => void;
   atReference: ReturnType<typeof useComposerAtReferencePanel>;
   className?: string;
   effectivePlaceholder: string;
@@ -106,8 +148,49 @@ export function SessionComposerSurface({
   quoteTokenTooltipId: string;
   cancelHoverHide: () => void;
   hideTokenHover: (anchor: HTMLElement, delayMs?: number) => void;
+  setQuoteEditing?: (editing: boolean) => void;
 }) {
   const { t } = useTranslation('tasks');
+  const [scrollFade, setScrollFade] = useState<ScrollFadeState>('none');
+
+  useEffect(() => {
+    if (!value) {
+      setScrollFade((prev) => (prev === 'none' ? prev : 'none'));
+      return;
+    }
+    const editable = getSessionComposerEditable(composerRootRef.current);
+    if (!editable) return;
+    const next = computeScrollFade(editable);
+    setScrollFade((prev) => (prev === next ? prev : next));
+  }, [composerRootRef, value]);
+
+  const handleEditorScrollCapture = (event: UIEvent<HTMLDivElement>) => {
+    const target = event.target;
+    if (!(target instanceof HTMLElement)) return;
+    if (!target.hasAttribute('contenteditable')) return;
+    const next = computeScrollFade(target);
+    setScrollFade((prev) => (prev === next ? prev : next));
+  };
+
+  const jumpToQuoteToken = (token: SessionComposerStructuredToken) => {
+    if (token.kind !== 'quote' || !hasQuoteSourceAnchor(token.quote)) return;
+    requestConversationScrollToQuote({
+      ...token.quote,
+      conversationId:
+        token.quote?.conversationId ?? (sessionId || undefined),
+      snippet: token.value,
+    });
+  };
+
+  const handleSurfaceClick = (event: MouseEvent<HTMLDivElement>) => {
+    const anchor = getHoverableTokenFromEventTarget(event.target);
+    if (!anchor) return;
+    const token = getStructuredHoverToken(anchor);
+    if (token?.kind === 'quote' && hasQuoteSourceAnchor(token.quote)) {
+      jumpToQuoteToken(token);
+    }
+  };
+
   return (
     <div
       ref={dropZoneRef}
@@ -130,17 +213,28 @@ export function SessionComposerSurface({
       ) : null}
       <div
         className={cn(
-          'min-h-[40px] rounded-lg bg-background/35 px-1.5 pb-1 pt-0 transition-colors focus-within:bg-background/50',
+          'session-composer-input-surface min-h-[3.25rem] px-1 pb-1 pt-0',
           disabled && 'opacity-60'
         )}
         data-testid="session-composer-input-surface"
+        data-prompt-suggestion={
+          hasActivePromptSuggestion && !isComposing ? 'true' : undefined
+        }
+        data-scroll-fade={scrollFade !== 'none' ? scrollFade : undefined}
         onKeyDown={(event) => {
           tryAcceptPromptSuggestionOnTab(event);
         }}
+        onClick={handleSurfaceClick}
+        onScrollCapture={handleEditorScrollCapture}
         onPointerOver={handleTokenPointerOver}
         onPointerOut={handleTokenPointerOut}
         onFocusCapture={handleTokenFocus}
-        onBlurCapture={handleTokenBlur}
+        onBlurCapture={(event) => {
+          onCompositionStateChange(false);
+          handleTokenBlur(event);
+        }}
+        onCompositionStartCapture={() => onCompositionStateChange(true)}
+        onCompositionEndCapture={() => onCompositionStateChange(false)}
       >
         <ChatComposerInput
           ref={composerRootRef}
@@ -150,15 +244,17 @@ export function SessionComposerSurface({
               onDismissPromptSuggestion?.();
             }
             onChange(next);
-            queueMicrotask(() => atReference.detect());
+            if (atReference.isOpen || next.includes('@')) {
+              queueMicrotask(() => atReference.detect());
+            }
           }}
           isDisabled={disabled}
           className={cn(
-            'session-composer-editor min-h-[32px] w-full px-0.5 pb-1 pt-0 font-sans subpixel-antialiased text-[13px] leading-5 tracking-[0.005em]',
+            'session-composer-editor min-h-[3.25rem] w-full px-0.5 pb-1 pt-0 font-sans subpixel-antialiased text-[13px] leading-5 tracking-[0.005em]',
             className
           )}
           maxRows={7}
-          placeholder={effectivePlaceholder}
+          placeholder={isComposing ? '' : effectivePlaceholder}
           label={t('composer.inputLabel')}
           hasHistory={false}
           pasteAsToken={false}
@@ -263,6 +359,23 @@ export function SessionComposerSurface({
             anchor={activeHoverToken.anchor}
             id={quoteTokenTooltipId}
             text={activeHoverToken.token.value}
+            quoteMeta={activeHoverToken.token.quote}
+            onJumpToSource={
+              hasQuoteSourceAnchor(activeHoverToken.token.quote)
+                ? () => jumpToQuoteToken(activeHoverToken.token)
+                : undefined
+            }
+            onUpdateAnnotation={
+              !disabled && onUpdateQuoteAnnotation
+                ? (nextNote) =>
+                    onUpdateQuoteAnnotation(
+                      activeHoverToken.anchor,
+                      activeHoverToken.token.raw,
+                      nextNote
+                    )
+                : undefined
+            }
+            onEditingChange={setQuoteEditing}
             onPointerEnter={cancelHoverHide}
             onPointerLeave={() => hideTokenHover(activeHoverToken.anchor, 120)}
           />

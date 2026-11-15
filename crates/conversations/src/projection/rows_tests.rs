@@ -418,8 +418,11 @@
         .await;
 
         let skipped_artifact_snapshot = serde_json::to_string(&ProjectionSnapshotState {
+            full_fold: true,
             turns: Vec::new(),
+            turn_metrics: std::collections::BTreeMap::new(),
             side_rows: Vec::new(),
+            side_row_turns: std::collections::BTreeMap::new(),
             last_sequence: record.sequence,
             auto_permission_approvals: 0,
         })
@@ -760,6 +763,8 @@
                 event: agents::conversation::ConversationSteeringEvent::Accepted {
                     steering_id,
                     expected_turn_id: turn_id,
+                    delivery_mode: Some(agents::ConversationSteeringDeliveryMode::Native),
+                    restarted_turn_id: None,
                 },
             },
             None,
@@ -1279,14 +1284,29 @@
         assert!(full.rows.len() > 5);
         assert_eq!(open.timeline.rows.len(), 5);
         assert!(open.timeline.truncated_from_start);
-        assert_eq!(
-            open.timeline.older_cursor,
-            Some((full.rows.len() - 5).to_string())
-        );
+        let decoded_cursor = open
+            .timeline
+            .older_cursor
+            .as_deref()
+            .and_then(crate::projection::decode_timeline_cursor)
+            .expect("opaque keyset older_cursor");
+        assert_eq!(decoded_cursor.row_id, open.timeline.rows[0].row_id);
         assert_eq!(
             open.timeline.rows.last().map(|row| row.row_id.as_str()),
             full.rows.last().map(|row| row.row_id.as_str())
         );
+        let page = ConversationProjector::project_timeline_page(
+            &pool,
+            conversation_id,
+            open.timeline.older_cursor.as_deref(),
+            None,
+            None,
+            3,
+        )
+        .await
+        .expect("keyset page");
+        assert_eq!(page.rows.len(), 3);
+        assert_eq!(page.rows.last().unwrap().row_id, full.rows[full.rows.len() - 6].row_id);
         let window = ConversationProjector::project_row_window(&pool, conversation_id, 2, 3)
             .await
             .expect("window");
@@ -1382,6 +1402,246 @@
             .expect("rows since from row table");
         assert_eq!(last_sequence, snapshot.last_sequence);
         assert_eq!(changed.len(), full.rows.len());
+    }
+
+    #[tokio::test]
+    async fn model_consistency_mismatch_raw_diagnostic_does_not_leak_session_notice() {
+        let payload = serde_json::json!({
+            "kind": "model_consistency_mismatch",
+            "requestedModel": "sonnet",
+            "servedModel": "claude-opus-5-5"
+        });
+        assert!(super::diagnostic_session_notice("model_consistency_mismatch", Some(&payload)).is_none());
+
+        let pool = setup_pool().await;
+        let (conversation_id, turn_id) = seed_turn(&pool).await;
+        ConversationEventAppender::append(
+            &pool,
+            AppendConversationEvent {
+                id: Uuid::new_v4(),
+                conversation_id,
+                turn_id: Some(turn_id),
+                binding_id: None,
+                connection_id: Some("connection-1"),
+                prompt_id: Some("prompt-1"),
+                source: "acp",
+                event_kind: "raw_acp_diagnostic",
+                normalized_json: r#"{"kind":"raw_acp_diagnostic","label":"model_consistency_mismatch","payload":{"kind":"model_consistency_mismatch","requestedModel":"sonnet","servedModel":"claude-opus-5-5"}}"#,
+                raw_json: None,
+                idempotency_key: None,
+            },
+        )
+        .await
+        .expect("append diagnostic");
+
+        let timeline = ConversationProjector::project(&pool, conversation_id)
+            .await
+            .expect("project timeline");
+        assert!(
+            !timeline.rows.iter().any(|row| matches!(
+                &row.row,
+                ConversationTimelineRow::SessionNotice { notice }
+                    if notice.title.contains("未识别的会话更新") || notice.title.contains("model_consistency_mismatch")
+            )),
+            "legacy model_consistency_mismatch diagnostic must not surface raw notice"
+        );
+    }
+
+    #[tokio::test]
+    async fn user_turn_projects_streaming_while_in_flight_and_settles_on_turn_completed() {
+        let pool = setup_pool().await;
+        let (conversation_id, turn_id) = seed_turn(&pool).await;
+
+        append_event(
+            &pool,
+            conversation_id,
+            Some(turn_id),
+            "user",
+            ConversationEvent::UserTurnCreated {
+                blocks: vec![ConversationInputBlock::Text {
+                    text: "ping".into(),
+                }],
+                workflow_refs: Vec::new(),
+            },
+            None,
+        )
+        .await;
+
+        let open_rows = ConversationProjector::project(&pool, conversation_id)
+            .await
+            .expect("project open turn")
+            .rows;
+        let user_row_id = format!("{turn_id}:user");
+        let open_user = open_rows
+            .iter()
+            .find(|row| row.row_id == user_row_id)
+            .expect("user row present");
+        let open_revision = open_user.revision;
+        match &open_user.row {
+            ConversationTimelineRow::MessageTurn { phase, .. } => {
+                assert_eq!(phase, "streaming");
+            }
+            other => panic!("expected user message_turn row, got {other:?}"),
+        }
+
+        append_event(
+            &pool,
+            conversation_id,
+            Some(turn_id),
+            "runtime",
+            ConversationEvent::TurnCompleted { stop_reason: None },
+            None,
+        )
+        .await;
+
+        let settled_rows = ConversationProjector::project(&pool, conversation_id)
+            .await
+            .expect("project settled turn")
+            .rows;
+        let settled_user = settled_rows
+            .iter()
+            .find(|row| row.row_id == user_row_id)
+            .expect("settled user row present");
+        assert!(
+            settled_user.revision > open_revision,
+            "settling user row must bump revision so delta subscribers receive phase='settled'"
+        );
+        match &settled_user.row {
+            ConversationTimelineRow::MessageTurn { phase, .. } => {
+                assert_eq!(phase, "settled");
+            }
+            other => panic!("expected user message_turn row, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn agent_handoff_diagnostic_projects_inline_host_note_and_model_consistency_diagnostic_is_suppressed() {
+        let pool = setup_pool().await;
+        let (conversation_id, turn_id) = seed_turn(&pool).await;
+
+        append_event(
+            &pool,
+            conversation_id,
+            Some(turn_id),
+            "user",
+            ConversationEvent::UserTurnCreated {
+                blocks: vec![ConversationInputBlock::Text {
+                    text: "hello".into(),
+                }],
+                workflow_refs: Vec::new(),
+            },
+            None,
+        )
+        .await;
+        append_event(
+            &pool,
+            conversation_id,
+            Some(turn_id),
+            "runtime",
+            ConversationEvent::TurnCompleted { stop_reason: None },
+            None,
+        )
+        .await;
+
+        // 1. `model_consistency_mismatch` raw diagnostic must NOT leak as "未识别的会话更新"
+        append_event(
+            &pool,
+            conversation_id,
+            Some(turn_id),
+            "acp",
+            ConversationEvent::RawDiagnosticRecorded {
+                label: "model_consistency_mismatch".into(),
+                payload: Some(serde_json::json!({
+                    "sessionUpdate": "model_consistency_mismatch",
+                    "requestedModel": "claude-opus-4-6",
+                    "effectiveModel": "gpt-5.4",
+                })),
+            },
+            None,
+        )
+        .await;
+
+        // 2. `agent_handoff` raw diagnostic projects durable inline host note keyed by turn boundary
+        append_event(
+            &pool,
+            conversation_id,
+            None,
+            "host",
+            ConversationEvent::RawDiagnosticRecorded {
+                label: "agent_handoff".into(),
+                payload: Some(serde_json::json!({
+                    "afterTurnId": turn_id.to_string(),
+                    "fromAgent": "claude_code",
+                    "fromModel": "claude-opus-4-6",
+                    "toAgent": "codex",
+                    "switchedAt": "2026-11-15T12:00:00Z",
+                })),
+            },
+            None,
+        )
+        .await;
+
+        let rows = ConversationProjector::project(&pool, conversation_id)
+            .await
+            .expect("project handoff")
+            .rows;
+        assert!(
+            !rows.iter().any(|row| matches!(
+                &row.row,
+                ConversationTimelineRow::SessionNotice { notice }
+                    if notice.title.contains("未识别的会话更新")
+            )),
+            "model_consistency_mismatch and agent_handoff must never leak as unrecognized session updates"
+        );
+
+        let expected_row_id = format!("host-note:agent-handoff:after:{turn_id}");
+        let handoff_row = rows
+            .iter()
+            .find(|row| row.row_id == expected_row_id)
+            .expect("inline agent handoff host note projected");
+        match &handoff_row.row {
+            ConversationTimelineRow::SessionNotice { notice } => {
+                assert_eq!(
+                    notice.announcement_id.as_deref(),
+                    Some(expected_row_id.as_str())
+                );
+                let parsed: serde_json::Value =
+                    serde_json::from_str(notice.message.as_deref().unwrap_or("{}")).unwrap();
+                assert_eq!(parsed["fromAgent"], "claude_code");
+                assert_eq!(parsed["toAgent"], "codex");
+            }
+            other => panic!("expected session_notice row, got {other:?}"),
+        }
+
+        // 3. Switching back to the same source agent before sending a new turn removes the row
+        append_event(
+            &pool,
+            conversation_id,
+            None,
+            "host",
+            ConversationEvent::RawDiagnosticRecorded {
+                label: "agent_handoff".into(),
+                payload: Some(serde_json::json!({
+                    "afterTurnId": turn_id.to_string(),
+                    "fromAgent": "claude_code",
+                    "toAgent": "claude_code",
+                    "switchedAt": "2026-11-15T12:01:00Z",
+                })),
+            },
+            None,
+        )
+        .await;
+
+        let rows_after_revert = ConversationProjector::project(&pool, conversation_id)
+            .await
+            .expect("project reverted handoff")
+            .rows;
+        assert!(
+            rows_after_revert
+                .iter()
+                .all(|row| row.row_id != expected_row_id),
+            "reverting to source agent before any new turn must delete the boundary handoff row"
+        );
     }
 
 #[path = "rows_tests_interactions.rs"]

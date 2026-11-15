@@ -3,12 +3,14 @@ import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { AgentSessionConfigOption, AgentSessionMode } from 'shared/types';
 import { AgentIcon, getAgentName } from '@/components/agents/AgentIcon';
+import { isEnabledInstalledAgent } from '@/features/agents/operationalAgent';
 import type { ConversationSessionModesState } from '@/features/conversation/conversationStore';
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuLabel,
+  DropdownMenuSeparator,
   DropdownMenuSub,
   DropdownMenuSubContent,
   DropdownMenuSubTrigger,
@@ -16,6 +18,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { cn } from '@/lib/utils';
 import { EffortSlider } from '@/components/tasks/effort-slider/EffortSlider';
+import { AgentRail, type AgentRailProps } from './AgentRail';
 import {
   configOptionDisplayState,
   jsonValueToString,
@@ -48,6 +51,13 @@ export type SessionPersona = {
   teamName?: string;
   summary?: string;
   agentName: string;
+};
+
+export type SessionAgentRailConfig = Omit<AgentRailProps, 'disabled'>;
+
+export type SessionContinuationConfig = {
+  policy: 'portable' | 'fresh';
+  onChange: (policy: 'portable' | 'fresh') => void;
 };
 
 function normalizedOption(option: AgentSessionConfigOption) {
@@ -133,11 +143,39 @@ function effortLabel(value: string, fallback: string): string {
   return fallback;
 }
 
+export function resolveSessionModelDisplayLabel(
+  options: AgentSessionConfigOption[] | undefined,
+  pending: Record<string, string> = {}
+): string | null {
+  if (!options || options.length === 0) return null;
+  const visible = visibleSessionConfigOptions(options);
+  const modelOption = visible.find(isModelOption);
+  if (!modelOption) return null;
+  const choices = resolvedConfigOptionChoices(modelOption, visible, pending);
+  if (choices.length > 0) {
+    const { displayChoices, presentedActiveValue } = configOptionDisplayState(
+      modelOption,
+      pending[modelOption.key] ?? null,
+      choices
+    );
+    const activeChoice = displayChoices.find(
+      (choice) => choice.value === presentedActiveValue
+    );
+    const label = (activeChoice?.name ?? presentedActiveValue).trim();
+    return label || null;
+  }
+  const fallback = (
+    pending[modelOption.key] ?? jsonValueToString(modelOption.value ?? null)
+  ).trim();
+  return fallback || null;
+}
+
 /**
  * A compact, human-readable entry point for the session choices that agents
- * advertise over ACP. The closed state reads like a short sentence; the open
- * state preserves one clear action per row and keeps each choice one level
- * deeper, close to the trigger that opened it.
+ * advertise over ACP. The closed state shows only the Agent icon, active
+ * model/agent name (with Fast rainbow flow when active), and reasoning effort;
+ * the open state preserves one clear action per row and, in the main composer,
+ * hosts a left agent-selection rail alongside the selected agent's settings.
  */
 export function SessionSettingsSummary({
   sessionModes,
@@ -153,6 +191,9 @@ export function SessionSettingsSummary({
   agentIconLight = null,
   agentIconDark = null,
   agentIconSvg = null,
+  agentRail = null,
+  continuation = null,
+  controlsLoading = false,
 }: {
   sessionModes?: ConversationSessionModesState;
   selectedMode?: string | null;
@@ -167,8 +208,11 @@ export function SessionSettingsSummary({
   agentIconLight?: string | null;
   agentIconDark?: string | null;
   agentIconSvg?: string | null;
+  agentRail?: SessionAgentRailConfig | null;
+  continuation?: SessionContinuationConfig | null;
+  controlsLoading?: boolean;
 }) {
-  const { t } = useTranslation(['tasks', 'common']);
+  const { t } = useTranslation(['tasks', 'common', 'app']);
   const activeModeId = selectedMode ?? sessionModes?.current ?? null;
   const visibleOptions = useMemo(
     () => visibleSessionConfigOptions(options),
@@ -258,6 +302,36 @@ export function SessionSettingsSummary({
       );
   }, [onSelectConfigOption, pending, presentableOptions, t, visibleOptions]);
 
+  const showAgentRail = useMemo(
+    () =>
+      !persona &&
+      Boolean(agentRail?.profiles) &&
+      (agentRail?.selectableAgents.some(isEnabledInstalledAgent) ?? false),
+    [agentRail?.profiles, agentRail?.selectableAgents, persona]
+  );
+
+  const railSelectedAgentId =
+    agentRail?.effectiveExecutorProfile?.executor ?? null;
+  const railSelectedAgent = useMemo(
+    () =>
+      railSelectedAgentId
+        ? (agentRail?.selectableAgents.find(
+            (agent) => agent.agentId === railSelectedAgentId
+          ) ?? null)
+        : null,
+    [agentRail?.selectableAgents, railSelectedAgentId]
+  );
+  const resolvedAgentId = agentIcon ?? railSelectedAgentId;
+  const resolvedIconLight =
+    agentIconLight ?? railSelectedAgent?.iconLight ?? null;
+  const resolvedIconDark = agentIconDark ?? railSelectedAgent?.iconDark ?? null;
+  const resolvedIconSvg = agentIconSvg ?? railSelectedAgent?.iconSvg ?? null;
+  const selectedAgentLabel =
+    railSelectedAgent?.displayName ??
+    (resolvedAgentId
+      ? getAgentName(resolvedAgentId)
+      : t('sessionSettings.title'));
+
   const summary: SummaryItem[] = [
     ...(activeMode?.label
       ? [
@@ -288,19 +362,62 @@ export function SessionSettingsSummary({
         },
       ];
     }),
+    ...(continuation?.policy === 'fresh'
+      ? [
+          {
+            key: 'continuation-fresh',
+            label: t('app:continuation.fresh'),
+            isFast: false,
+            isModel: false,
+          },
+        ]
+      : []),
   ];
 
-  if (!persona && summary.length === 0) return null;
+  if (!persona && !showAgentRail && !continuation && summary.length === 0) {
+    return null;
+  }
 
   const fastEnabled = summary.some((item) => item.isFast);
-  const modelCarriesFastState =
-    fastEnabled && summary.some((item) => item.isModel);
-  const visibleSummary = modelCarriesFastState
-    ? summary.filter((item) => !item.isFast)
-    : summary;
+  const modelRow = configRows.find(
+    (row) => isModelOption(row.option) && !row.toggleValues
+  );
+  const effortRow = configRows.find(
+    (row) => isEffortOption(row.option) && !row.toggleValues
+  );
+  const primaryNameLabel =
+    modelRow?.activeLabel ?? (resolvedAgentId ? selectedAgentLabel : null);
+  const visibleSummary: Array<{
+    key: string;
+    label: string;
+    isPrimaryName: boolean;
+  }> = [
+    ...(primaryNameLabel
+      ? [
+          {
+            key: modelRow?.option.key ?? 'agent-name',
+            label: primaryNameLabel,
+            isPrimaryName: true,
+          },
+        ]
+      : []),
+    ...(effortRow
+      ? [
+          {
+            key: effortRow.option.key,
+            label: effortRow.activeLabel,
+            isPrimaryName: false,
+          },
+        ]
+      : []),
+  ];
+  const summaryText =
+    summary.length > 0
+      ? summary.map((item) => item.label).join(' · ')
+      : selectedAgentLabel;
   const triggerLabel = persona
     ? persona.name
-    : `${t('sessionSettings.title')}: ${summary.map((item) => item.label).join(' · ')}`;
+    : `${t('sessionSettings.title')}: ${summaryText}`;
   const hasSessionControls =
     (Boolean(onSelectMode) && presentableModes.length > 0) ||
     configRows.length > 0;
@@ -357,32 +474,34 @@ export function SessionSettingsSummary({
             'active:scale-[0.98]'
           )}
         >
-          {agentIcon ? (
+          {resolvedAgentId ? (
             <AgentIcon
-              agent={agentIcon}
+              agent={resolvedAgentId}
               className="h-3.5 w-3.5 shrink-0"
-              iconLight={agentIconLight}
-              iconDark={agentIconDark}
-              iconSvg={agentIconSvg}
+              iconLight={resolvedIconLight}
+              iconDark={resolvedIconDark}
+              iconSvg={resolvedIconSvg}
             />
           ) : null}
           <span className="truncate">
             {persona
               ? persona.name
-              : visibleSummary.map((item, index) => (
-                  <span key={item.key}>
-                    {index > 0 ? <span aria-hidden="true"> · </span> : null}
-                    <span
-                      className={cn(
-                        modelCarriesFastState &&
-                          item.isModel &&
-                          'composer-fast-model-flow'
-                      )}
-                    >
-                      {item.label}
+              : visibleSummary.length > 0
+                ? visibleSummary.map((item, index) => (
+                    <span key={item.key}>
+                      {index > 0 ? <span aria-hidden="true"> · </span> : null}
+                      <span
+                        className={cn(
+                          fastEnabled &&
+                            item.isPrimaryName &&
+                            'composer-fast-model-flow'
+                        )}
+                      >
+                        {item.label}
+                      </span>
                     </span>
-                  </span>
-                ))}
+                  ))
+                : selectedAgentLabel}
           </span>
           <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform duration-150 group-data-[state=open]:rotate-180" />
         </button>
@@ -391,7 +510,11 @@ export function SessionSettingsSummary({
         side={dropdownSide}
         align="start"
         sideOffset={8}
-        className="w-[min(22rem,calc(100vw-2rem))]"
+        className={cn(
+          showAgentRail
+            ? 'w-[min(25rem,calc(100vw-2rem))] overflow-hidden rounded-lg border border-border/80 bg-popover p-0'
+            : 'w-[min(22rem,calc(100vw-2rem))]'
+        )}
       >
         {persona ? (
           <>
@@ -426,12 +549,66 @@ export function SessionSettingsSummary({
               </DropdownMenuSub>
             ) : null}
           </>
+        ) : showAgentRail && agentRail ? (
+          <div
+            data-testid="session-settings-layered-shell"
+            className="flex min-h-[11rem] items-stretch bg-popover p-1"
+          >
+            <div className="relative w-10 shrink-0">
+              <div
+                data-testid="session-settings-agent-rail"
+                className="absolute inset-0 overflow-y-auto overflow-x-hidden overscroll-contain bg-popover px-1.5 py-1 [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden [&::-webkit-scrollbar]:h-0 [&::-webkit-scrollbar]:w-0"
+              >
+                <AgentRail
+                  profiles={agentRail.profiles}
+                  effectiveExecutorProfile={agentRail.effectiveExecutorProfile}
+                  onChangeExecutorProfile={agentRail.onChangeExecutorProfile}
+                  disabled={disabled}
+                  selectableAgents={agentRail.selectableAgents}
+                />
+              </div>
+            </div>
+            <div
+              data-testid="session-settings-detail-card"
+              className="relative z-10 max-h-[min(18rem,var(--radix-dropdown-menu-content-available-height))] min-h-[10.5rem] min-w-0 flex-1 overflow-y-auto bg-popover p-1"
+            >
+              {hasSessionControls ? (
+                sessionControlRows
+              ) : (
+                <div className="px-2.5 py-1.5 text-xs text-muted-foreground">
+                  {controlsLoading
+                    ? t('sessionCreation.controlsLoading')
+                    : t('sessionSettings.defaultConfig')}
+                </div>
+              )}
+              {continuation ? (
+                <>
+                  <DropdownMenuSeparator />
+                  <ContinuationRow
+                    policy={continuation.policy}
+                    onSelect={continuation.onChange}
+                    disabled={disabled}
+                  />
+                </>
+              ) : null}
+            </div>
+          </div>
         ) : (
           <>
             <DropdownMenuLabel className="px-2.5 py-1.5 text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
               {t('sessionSettings.title')}
             </DropdownMenuLabel>
             {sessionControlRows}
+            {continuation ? (
+              <>
+                {hasSessionControls ? <DropdownMenuSeparator /> : null}
+                <ContinuationRow
+                  policy={continuation.policy}
+                  onSelect={continuation.onChange}
+                  disabled={disabled}
+                />
+              </>
+            ) : null}
           </>
         )}
       </DropdownMenuContent>
@@ -654,5 +831,61 @@ function ToggleRow({
         {row.activeLabel}
       </span>
     </DropdownMenuItem>
+  );
+}
+
+function ContinuationRow({
+  policy,
+  onSelect,
+  disabled,
+}: {
+  policy: 'portable' | 'fresh';
+  onSelect: (policy: 'portable' | 'fresh') => void;
+  disabled: boolean;
+}) {
+  const { t } = useTranslation('app');
+  const [open, setOpen] = useState(false);
+  const choices: Array<{ value: 'portable' | 'fresh'; label: string }> = [
+    { value: 'portable', label: t('continuation.portable') },
+    { value: 'fresh', label: t('continuation.fresh') },
+  ];
+  const activeLabel =
+    policy === 'fresh'
+      ? t('continuation.fresh')
+      : t('continuation.portable');
+
+  return (
+    <DropdownMenuSub open={open} onOpenChange={setOpen}>
+      <DropdownMenuSubTrigger
+        disabled={disabled}
+        onClick={() => setOpen(true)}
+        className="px-2.5 py-1.5"
+      >
+        <span className="min-w-0 flex-1 truncate text-sm font-semibold">
+          {t('continuation.context')}
+        </span>
+        <RowValue>{activeLabel}</RowValue>
+      </DropdownMenuSubTrigger>
+      <DropdownMenuSubContent className="min-w-[13rem]">
+        <DropdownMenuLabel className="px-2.5 py-1.5 text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
+          {t('continuation.context')}
+        </DropdownMenuLabel>
+        {choices.map((choice) => {
+          const active = choice.value === policy;
+          return (
+            <DropdownMenuItem
+              key={choice.value}
+              onSelect={() => {
+                setOpen(false);
+                onSelect(choice.value);
+              }}
+            >
+              <span className="min-w-0 flex-1 truncate">{choice.label}</span>
+              {active ? <Check className="h-4 w-4" /> : null}
+            </DropdownMenuItem>
+          );
+        })}
+      </DropdownMenuSubContent>
+    </DropdownMenuSub>
   );
 }

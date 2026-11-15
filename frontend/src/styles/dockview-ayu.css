@@ -545,6 +545,15 @@
   box-shadow: none;
 }
 
+.workspace-stage-host > .workspace-stage-creation-overlay {
+  border-radius: 14px;
+  overflow: hidden;
+}
+
+.workspace-stage-host > .workspace-stage-creation-overlay > * {
+  border-radius: inherit;
+}
+
 [class*='dockview-theme-ayu'].dv-dockview,
 .dv-dockview[class*='dockview-theme-ayu'],
 [class*='dockview-theme-ayu'] .dv-grid-view,

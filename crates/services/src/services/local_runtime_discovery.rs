@@ -69,7 +69,9 @@ pub async fn discover_built_in_local_runtimes(
                 }
             };
             let acp_adapter = match profile.topology {
-                ProfileTopology::NativeAcp => local_runtime.clone(),
+                ProfileTopology::NativeAcp | ProfileTopology::NativeEngine(_) => {
+                    local_runtime.clone()
+                }
                 ProfileTopology::AdapterBacked => {
                     match discover_profile_acp_adapter(&profile).await {
                         Ok(evidence) => Some(evidence),
@@ -159,24 +161,22 @@ async fn discover_profile_local_runtime(
             )
         })
         .ok_or_else(|| anyhow::anyhow!("Profile does not declare a local Runtime candidate"))?;
-    probe_user_runtime_candidate(candidate.executable, candidate.version_args).await
-}
-
-/// Probe a Runtime the *user* installed.
-///
-/// VibeX publishes its managed Runtime into the user's `~/.local/bin` under the
-/// vendor command name, so the first PATH hit is VibeX's own artifact on a
-/// machine where the user has nothing. Adoption asks whether the user already
-/// had a Runtime, and a shim VibeX wrote is not an answer to that question.
-async fn probe_user_runtime_candidate(
-    executable: &str,
-    version_args: &[&str],
-) -> anyhow::Result<LocalRuntimeEvidence> {
-    let candidates = agents::resolve_user_runtime_commands(executable).await;
-    if candidates.is_empty() {
-        anyhow::bail!("no user-installed Runtime `{executable}` was found on PATH");
+    let mut candidates = agents::resolve_user_runtime_commands(candidate.executable).await;
+    if matches!(profile.topology, ProfileTopology::NativeEngine(_))
+        && let Some(home) = dirs::home_dir()
+        && let Some(extra_cli) = agents::resolve_native_engine_cli(profile.agent_id.as_str(), &home)
+        && agents::published_cli_shim_agent(&extra_cli).is_none()
+        && !candidates.iter().any(|existing| existing == &extra_cli)
+    {
+        candidates.push(extra_cli);
     }
-    probe_resolved_candidates(candidates, version_args).await
+    if candidates.is_empty() {
+        anyhow::bail!(
+            "no user-installed Runtime `{}` was found on PATH",
+            candidate.executable
+        );
+    }
+    probe_resolved_candidates(candidates, candidate.version_args).await
 }
 
 async fn probe_candidate(
@@ -307,10 +307,22 @@ fn write_cached_probe_version(path: &std::path::Path, revision: &str, version: &
     }
 }
 
+struct KillGroupOnDrop(Option<command_group::AsyncGroupChild>);
+
+impl Drop for KillGroupOnDrop {
+    fn drop(&mut self) {
+        if let Some(mut child) = self.0.take() {
+            let _ = child.start_kill();
+        }
+    }
+}
+
 async fn probe_version(
     executable: &std::path::Path,
     version_args: &[&str],
 ) -> anyhow::Result<Option<String>> {
+    use tokio::io::AsyncReadExt;
+
     let revision = executable_file_revision(executable);
     if let Some(revision) = revision.as_deref()
         && let Some(cached) = read_cached_probe_version(executable, revision)
@@ -318,15 +330,50 @@ async fn probe_version(
         return Ok(Some(cached));
     }
     let mut command = utils::process::new_hidden_tokio_command(executable, version_args);
-    command.kill_on_drop(true);
-    let output = tokio::time::timeout(LOCAL_RUNTIME_VERSION_TIMEOUT, command.output())
-        .await
-        .map_err(|_| anyhow::anyhow!("external Runtime version probe timed out"))??;
-    if !output.status.success() {
+    command
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .kill_on_drop(true);
+    let mut child = utils::process::group_spawn_no_window(&mut command)?;
+    let mut stdout_pipe = child
+        .inner()
+        .stdout
+        .take()
+        .ok_or_else(|| anyhow::anyhow!("version probe missing stdout"))?;
+    let mut stderr_pipe = child
+        .inner()
+        .stderr
+        .take()
+        .ok_or_else(|| anyhow::anyhow!("version probe missing stderr"))?;
+    let mut guard = KillGroupOnDrop(Some(child));
+
+    let (status, stdout_bytes, stderr_bytes) = tokio::time::timeout(
+        LOCAL_RUNTIME_VERSION_TIMEOUT,
+        async {
+            let child_ref = guard.0.as_mut().expect("active probe child");
+            let read_out = async {
+                let mut buf = Vec::new();
+                stdout_pipe.read_to_end(&mut buf).await?;
+                Ok::<Vec<u8>, std::io::Error>(buf)
+            };
+            let read_err = async {
+                let mut buf = Vec::new();
+                stderr_pipe.read_to_end(&mut buf).await?;
+                Ok::<Vec<u8>, std::io::Error>(buf)
+            };
+            tokio::try_join!(child_ref.wait(), read_out, read_err)
+        },
+    )
+    .await
+    .map_err(|_| anyhow::anyhow!("external Runtime version probe timed out"))??;
+    let _ = guard.0.take();
+
+    if !status.success() {
         anyhow::bail!("external Runtime version probe failed");
     }
-    let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
-    let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+    let stdout = String::from_utf8_lossy(&stdout_bytes).trim().to_string();
+    let stderr = String::from_utf8_lossy(&stderr_bytes).trim().to_string();
     let version = [stdout, stderr].into_iter().find(|value| !value.is_empty());
     if let (Some(revision), Some(version)) = (revision.as_deref(), version.as_deref()) {
         write_cached_probe_version(executable, revision, version);

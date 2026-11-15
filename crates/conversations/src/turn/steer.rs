@@ -22,15 +22,36 @@ use super::{
 use crate::ConversationServiceError;
 
 enum SteeringSettlement {
-    Accepted,
-    Rejected { code: &'static str, message: String },
-    Unknown { message: String },
+    Accepted {
+        delivery_mode: agents::ConversationSteeringDeliveryMode,
+        restarted_turn_id: Option<Uuid>,
+    },
+    Rejected {
+        code: &'static str,
+        message: String,
+    },
+    Unknown {
+        message: String,
+    },
+}
+
+const INTERRUPT_RESTART_WAIT_TIMEOUT: std::time::Duration = std::time::Duration::from_millis(5_000);
+const INTERRUPT_RESTART_POLL_INTERVAL: std::time::Duration = std::time::Duration::from_millis(25);
+
+fn deterministic_steer_input_operation_id(operation_id: Uuid) -> Uuid {
+    let digest = Sha256::digest(format!("conversation-steer-input:{operation_id}"));
+    let mut bytes = [0u8; 16];
+    bytes.copy_from_slice(&digest[..16]);
+    bytes[6] = (bytes[6] & 0x0f) | 0x40;
+    bytes[8] = (bytes[8] & 0x3f) | 0x80;
+    Uuid::from_bytes(bytes)
 }
 
 impl ConversationSessionService {
-    /// Inject guidance into exactly one currently active Turn. This never
-    /// falls back to queueing or starting a new Turn: the caller receives a
-    /// durable accepted/rejected/unknown receipt for the negotiated wire call.
+    /// Inject guidance into an active Turn via native in-flight steering when
+    /// negotiated, or coordinate a crash-safe `interrupt_restart` fallback
+    /// (front-of-queue promotion/persistence -> cancel active Turn -> bounded
+    /// terminal wait -> dispatch) when `allow_interrupt_restart` is enabled.
     pub async fn steer(
         &self,
         input: ConversationSteerInput,
@@ -48,7 +69,11 @@ impl ConversationSessionService {
             }))?)
         );
         let pool = &self.ctx.deployment.db().pool;
-        let existing_requested_id = if let Some(existing) =
+        let inputs = crate::ConversationInputControl::with_publisher(
+            pool.clone(),
+            self.ctx.event_publisher.clone(),
+        );
+        let existing_requested_id = if let Some(mut existing) =
             ConversationSteeringRecord::find_by_operation(
                 pool,
                 input.conversation_id,
@@ -67,6 +92,38 @@ impl ConversationSessionService {
                 )));
             }
             if existing.status != "requested" {
+                if existing.status == "accepted"
+                    && existing.delivery_mode.as_deref() == Some("interrupt_restart")
+                    && existing.restarted_turn_id.is_none()
+                {
+                    let input_op_id = deterministic_steer_input_operation_id(input.operation_id);
+                    let resolved_turn_id = if let Some(promoted_id) = input.promoted_input_id {
+                        inputs
+                            .find(input.conversation_id, promoted_id)
+                            .await
+                            .ok()
+                            .and_then(|view| view.turn_id)
+                    } else {
+                        db::models::conversation_input::ConversationInputRecord::find_by_operation(
+                            pool,
+                            input.conversation_id,
+                            input_op_id,
+                        )
+                        .await?
+                        .and_then(|rec| rec.turn_id)
+                    };
+                    if let Some(restarted_turn_id) = resolved_turn_id {
+                        let mut conn = pool.acquire().await?;
+                        ConversationSteeringRecord::update_restarted_turn_on_connection(
+                            &mut conn,
+                            input.conversation_id,
+                            existing.id,
+                            restarted_turn_id,
+                        )
+                        .await?;
+                        existing.restarted_turn_id = Some(restarted_turn_id);
+                    }
+                }
                 return steering_receipt(existing);
             }
             Some(existing.id)
@@ -100,6 +157,33 @@ impl ConversationSessionService {
             return Err(ConversationServiceError::Conflict(format!(
                 "Turn {active_turn_id} is no longer active"
             )));
+        }
+
+        let mut promoted_requires_restart = false;
+        if let Some(promoted_id) = input.promoted_input_id {
+            let promoted_view = inputs.find(input.conversation_id, promoted_id).await?;
+            if existing_requested_id.is_none() {
+                if !matches!(
+                    promoted_view.status,
+                    crate::ConversationInputStatus::Queued
+                        | crate::ConversationInputStatus::Scheduled
+                ) {
+                    return Err(ConversationServiceError::Conflict(format!(
+                        "Conversation input {promoted_id} is no longer queued"
+                    )));
+                }
+                if let Some(expected_rev) = input.promoted_input_expected_revision
+                    && promoted_view.revision != expected_rev
+                {
+                    return Err(ConversationServiceError::Conflict(format!(
+                        "Conversation input {promoted_id} revision changed (expected {expected_rev}, actual {})",
+                        promoted_view.revision
+                    )));
+                }
+            }
+            if !promoted_view.payload.workflow_refs.is_empty() {
+                promoted_requires_restart = true;
+            }
         }
 
         let execution_workspace_id = crate::isolated_workspace::execution_workspace_id(
@@ -160,7 +244,7 @@ impl ConversationSessionService {
                         expected_turn_id: input.expected_turn_id,
                         payload_digest,
                         blocks: visible_blocks,
-                        principal: input.principal,
+                        principal: input.principal.clone(),
                     },
                 },
                 Some(format!(
@@ -181,10 +265,8 @@ impl ConversationSessionService {
             .active_prompt_id
             .as_deref()
             .and_then(parse_agent_prompt_id);
-        if runtime.active_turn_id != Some(input.expected_turn_id)
-            || connection_id.is_none()
-            || prompt_id.is_none()
-        {
+        let host_owns_turn = runtime.active_turn_id == Some(input.expected_turn_id);
+        if !host_owns_turn {
             return self
                 .settle_steering(
                     input.conversation_id,
@@ -197,26 +279,45 @@ impl ConversationSessionService {
                 )
                 .await;
         }
+
         let controls = self
             .ctx
             .agent_runtime
             .session_controls_snapshot(runtime_session_id)
             .await;
-        if !controls
+        let native_steering_negotiated = controls
             .as_ref()
             .ok()
             .and_then(|controls| controls.capabilities.as_ref())
-            .is_some_and(|capabilities| capabilities.steering)
+            .is_some_and(|capabilities| capabilities.steering);
+
+        if connection_id.is_none()
+            || prompt_id.is_none()
+            || !native_steering_negotiated
+            || promoted_requires_restart
         {
+            if input.allow_interrupt_restart {
+                return self
+                    .execute_interrupt_restart(&conversation, steering_id, &input)
+                    .await;
+            }
+            let (code, message) = if connection_id.is_none() || prompt_id.is_none() {
+                (
+                    "turn_not_live",
+                    "The expected Turn is not live on this host".to_string(),
+                )
+            } else {
+                (
+                    "steering_unsupported",
+                    "Agent did not negotiate in-flight steering".to_string(),
+                )
+            };
             return self
                 .settle_steering(
                     input.conversation_id,
                     steering_id,
                     input.expected_turn_id,
-                    SteeringSettlement::Rejected {
-                        code: "steering_unsupported",
-                        message: "Agent did not negotiate in-flight steering".to_string(),
-                    },
+                    SteeringSettlement::Rejected { code, message },
                 )
                 .await;
         }
@@ -236,7 +337,22 @@ impl ConversationSessionService {
             .await;
         let settlement = match result {
             Ok(receipt) => match receipt.outcome {
-                agents::AgentSteerOutcome::Injected => SteeringSettlement::Accepted,
+                agents::AgentSteerOutcome::Injected => {
+                    if let Some(promoted_id) = input.promoted_input_id {
+                        inputs
+                            .consume_for_native_steer(
+                                input.conversation_id,
+                                promoted_id,
+                                deterministic_steer_input_operation_id(input.operation_id),
+                                input.promoted_input_expected_revision,
+                            )
+                            .await?;
+                    }
+                    SteeringSettlement::Accepted {
+                        delivery_mode: agents::ConversationSteeringDeliveryMode::Native,
+                        restarted_turn_id: None,
+                    }
+                }
                 agents::AgentSteerOutcome::PromptRequired => SteeringSettlement::Rejected {
                     code: "no_running_turn",
                     message: receipt
@@ -262,10 +378,17 @@ impl ConversationSessionService {
                     }
                 }
             },
-            Err(agents::AgentError::SteeringUnsupported) => SteeringSettlement::Rejected {
-                code: "steering_unsupported",
-                message: "Agent did not negotiate in-flight steering".to_string(),
-            },
+            Err(agents::AgentError::SteeringUnsupported) => {
+                if input.allow_interrupt_restart {
+                    return self
+                        .execute_interrupt_restart(&conversation, steering_id, &input)
+                        .await;
+                }
+                SteeringSettlement::Rejected {
+                    code: "steering_unsupported",
+                    message: "Agent did not negotiate in-flight steering".to_string(),
+                }
+            }
             Err(agents::AgentError::PromptConflict { .. })
             | Err(agents::AgentError::PromptNotFound(_)) => SteeringSettlement::Rejected {
                 code: "turn_conflict",
@@ -284,6 +407,133 @@ impl ConversationSessionService {
         .await
     }
 
+    async fn execute_interrupt_restart(
+        &self,
+        conversation: &ConversationRecord,
+        steering_id: Uuid,
+        input: &ConversationSteerInput,
+    ) -> Result<ConversationSteeringReceipt, ConversationServiceError> {
+        let pool = &self.ctx.deployment.db().pool;
+        let inputs = crate::ConversationInputControl::with_publisher(
+            pool.clone(),
+            self.ctx.event_publisher.clone(),
+        );
+        let input_op_id = deterministic_steer_input_operation_id(input.operation_id);
+
+        // Step 1: Lock front-of-queue position BEFORE cancelling the active turn so
+        // any terminal-event queue pump dispatches this steered input first.
+        let target_input_view = if let Some(promoted_id) = input.promoted_input_id {
+            inputs
+                .promote_to_front(
+                    input.conversation_id,
+                    promoted_id,
+                    input_op_id,
+                    input.promoted_input_expected_revision,
+                )
+                .await?
+        } else {
+            let agent_id = resolve_conversation_agent_id(pool, conversation.id).await?;
+            inputs
+                .submit_at_front(crate::SubmitConversationInput {
+                    conversation_id: input.conversation_id,
+                    operation_id: input_op_id,
+                    payload: agents::ConversationInputPayload {
+                        continuation_policy: None,
+                        expected_binding_revision: None,
+                        agent_id,
+                        workspace_id: conversation.workspace_id,
+                        executor_profile_id: None,
+                        text: input.text.clone(),
+                        display_text: None,
+                        images: input.images.clone(),
+                        mode_override: None,
+                        config_overrides: Vec::new(),
+                        workflow_refs: Vec::new(),
+                        file_refs: Vec::new(),
+                        internal_prompt_contributions: Vec::new(),
+                        collaboration_origin: None,
+                    },
+                    principal: input.principal.clone(),
+                })
+                .await?
+        };
+        let target_input_id = target_input_view.id;
+
+        // Step 2: Cancel only `expected_turn_id` without wiping queued inputs if the
+        // turn raced to completion right before cancellation.
+        self.cancel_specific_turn(
+            input.conversation_id,
+            input.expected_turn_id,
+            Some("interrupt_restart".to_string()),
+        )
+        .await?;
+
+        // Step 3: Bounded wait (up to 5_000ms without holding turn_lock) for the
+        // cancelled turn to exit in-flight, then idempotently pump the queue.
+        let deadline = tokio::time::Instant::now() + INTERRUPT_RESTART_WAIT_TIMEOUT;
+        let mut previous_turn_settled = false;
+        loop {
+            let turn_still_in_flight =
+                ConversationTurnRecord::find_by_id(pool, input.expected_turn_id)
+                    .await?
+                    .is_some_and(|turn| is_in_flight_turn_status(&turn.status));
+            let active_pointer_still_old =
+                ConversationRecord::find_by_id(pool, input.conversation_id)
+                    .await?
+                    .and_then(|conv| conv.active_turn_id)
+                    == Some(input.expected_turn_id);
+            if !turn_still_in_flight && !active_pointer_still_old {
+                previous_turn_settled = true;
+                break;
+            }
+            if tokio::time::Instant::now() >= deadline {
+                break;
+            }
+            tokio::time::sleep(INTERRUPT_RESTART_POLL_INTERVAL).await;
+        }
+
+        let mut restarted_turn_id = None;
+        if previous_turn_settled {
+            if let Err(error) = self.dispatch_next_queued_input(input.conversation_id).await {
+                tracing::warn!(
+                    conversation_id = %input.conversation_id,
+                    %steering_id,
+                    %error,
+                    "interrupt_restart dispatch failed; steered input remains at queue front"
+                );
+            }
+            loop {
+                let maybe_view = inputs.find(input.conversation_id, target_input_id).await.ok();
+                restarted_turn_id = maybe_view.as_ref().and_then(|view| view.turn_id);
+                let still_launching = match &maybe_view {
+                    Some(view) if view.status == crate::ConversationInputStatus::Claimed => true,
+                    Some(view) => match view.turn_id {
+                        Some(turn_id) => ConversationTurnRecord::find_by_id(pool, turn_id)
+                            .await?
+                            .is_some_and(|turn| turn.status == "pending"),
+                        None => false,
+                    },
+                    None => false,
+                };
+                if !still_launching || tokio::time::Instant::now() >= deadline {
+                    break;
+                }
+                tokio::time::sleep(INTERRUPT_RESTART_POLL_INTERVAL).await;
+            }
+        }
+
+        self.settle_steering(
+            input.conversation_id,
+            steering_id,
+            input.expected_turn_id,
+            SteeringSettlement::Accepted {
+                delivery_mode: agents::ConversationSteeringDeliveryMode::InterruptRestart,
+                restarted_turn_id,
+            },
+        )
+        .await
+    }
+
     async fn settle_steering(
         &self,
         conversation_id: Uuid,
@@ -292,9 +542,14 @@ impl ConversationSessionService {
         settlement: SteeringSettlement,
     ) -> Result<ConversationSteeringReceipt, ConversationServiceError> {
         let event = match settlement {
-            SteeringSettlement::Accepted => agents::ConversationSteeringEvent::Accepted {
+            SteeringSettlement::Accepted {
+                delivery_mode,
+                restarted_turn_id,
+            } => agents::ConversationSteeringEvent::Accepted {
                 steering_id,
                 expected_turn_id,
+                delivery_mode: Some(delivery_mode),
+                restarted_turn_id,
             },
             SteeringSettlement::Rejected { code, message } => {
                 agents::ConversationSteeringEvent::Rejected {
@@ -377,7 +632,9 @@ impl ConversationSessionService {
         )
         .await?;
         let decision = match &response {
-            AgentPermissionResponse::Selected { option_id, persist } => {
+            AgentPermissionResponse::Selected {
+                option_id, persist, ..
+            } => {
                 if *persist || option_id == "allow_always" {
                     "allow_always"
                 } else if option_id == "allow_once" || option_id.starts_with("allow") {
@@ -543,6 +800,28 @@ impl ConversationSessionService {
     }
 }
 
+async fn resolve_conversation_agent_id(
+    pool: &sqlx::SqlitePool,
+    conversation_id: Uuid,
+) -> Result<agents::AgentId, ConversationServiceError> {
+    let raw: Option<String> = sqlx::query_scalar(
+        r#"SELECT COALESCE(
+               agent_id,
+               (SELECT agent_id FROM conversation_agent_bindings
+                WHERE conversation_id = sessions.id
+                ORDER BY created_at DESC LIMIT 1)
+           )
+           FROM sessions WHERE id = ?"#,
+    )
+    .bind(conversation_id)
+    .fetch_optional(pool)
+    .await?
+    .flatten();
+    let agent_str = raw.as_deref().unwrap_or("codex");
+    agents::AgentId::parse(agent_str)
+        .map_err(|error| ConversationServiceError::BadRequest(error.to_string()))
+}
+
 pub(super) fn steering_receipt(
     record: ConversationSteeringRecord,
 ) -> Result<ConversationSteeringReceipt, ConversationServiceError> {
@@ -557,6 +836,18 @@ pub(super) fn steering_receipt(
             )));
         }
     };
+    let delivery_mode = match record.delivery_mode.as_deref() {
+        Some("native") => Some(agents::ConversationSteeringDeliveryMode::Native),
+        Some("interrupt_restart") => {
+            Some(agents::ConversationSteeringDeliveryMode::InterruptRestart)
+        }
+        None => None,
+        Some(other) => {
+            return Err(ConversationServiceError::Internal(format!(
+                "Invalid steering delivery_mode `{other}`"
+            )));
+        }
+    };
     Ok(ConversationSteeringReceipt {
         steering_id: record.id,
         conversation_id: record.conversation_id,
@@ -565,5 +856,7 @@ pub(super) fn steering_receipt(
         status,
         code: record.code,
         message: record.message,
+        delivery_mode,
+        restarted_turn_id: record.restarted_turn_id,
     })
 }

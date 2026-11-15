@@ -77,4 +77,52 @@ describe('MessageQueueIndicator', () => {
 
     expect(onDelay).toHaveBeenCalledWith(normalMsg, 300);
   });
+
+  it('renders channel-aware promote steer button on queued items across native and interrupt_restart channels', () => {
+    const secondMsg: QueuedMessage = {
+      ...normalMsg,
+      id: 'msg-normal-2',
+      operationId: 'op-3',
+      sortKey: 2n,
+      data: {
+        message: '第三条待提权消息',
+        agentMessage: '第三条待提权消息',
+        images: [],
+        pluginActions: [],
+      },
+    };
+    const onSteer = vi.fn();
+
+    const { rerender } = render(
+      <MessageQueueIndicator
+        queuedMessages={[normalMsg, secondMsg]}
+        canSteerQueued={true}
+        steerChannel="interrupt_restart"
+        onSteerQueuedMessage={onSteer}
+      />
+    );
+
+    const normalQueue = screen.getByTestId('normal-message-queue');
+    fireEvent.click(normalQueue.querySelector('button')!);
+
+    const steerBtn = screen.getByTestId('steer-queued-message-msg-normal-2');
+    expect(steerBtn.getAttribute('aria-label')).toBe('中断并立即发送');
+    fireEvent.click(steerBtn);
+    expect(onSteer).toHaveBeenCalledWith(secondMsg);
+
+    rerender(
+      <MessageQueueIndicator
+        queuedMessages={[normalMsg, secondMsg]}
+        canSteerQueued={true}
+        steerChannel="native"
+        onSteerQueuedMessage={onSteer}
+      />
+    );
+
+    expect(
+      screen
+        .getByTestId('steer-queued-message-msg-normal-2')
+        .getAttribute('aria-label')
+    ).toBe('纠偏');
+  });
 });

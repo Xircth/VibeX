@@ -11,15 +11,22 @@ const appSurfaceTransport = createBackendAppSurfaceTransport(
 export function PluginArtifactEditor({
   opener,
   filePath,
+  onDirtyChange,
 }: {
   opener: ResolvedPluginFileOpener;
   filePath: string;
+  onDirtyChange?: (dirty: boolean) => void;
 }) {
   if (
     opener.nativeRenderer === 'workflow.studio' ||
     opener.nativeRenderer === 'host.renderer.workflow.studio'
   ) {
-    return <WorkflowArtifactStudio filePath={filePath} />;
+    return (
+      <WorkflowArtifactStudio
+        filePath={filePath}
+        onDirtyChange={onDirtyChange}
+      />
+    );
   }
   return (
     <AppSurfaceHost

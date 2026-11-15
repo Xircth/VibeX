@@ -47,11 +47,42 @@ const OPAQUE_TOOL_ID =
  */
 const PLACEHOLDER_TOOL_NAMES = new Set(['tool', 'usetool', 'function', 'call']);
 
-function unwrapMcpArguments(parsed: unknown): unknown {
+function unwrapMcpArguments(parsed: unknown, toolName?: string): unknown {
   if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
     return parsed;
   }
   const record = parsed as Record<string, unknown>;
+  const isCodexMcpEnvelope =
+    canonicalName(toolName ?? '') === 'mcptoolcall' ||
+    record.type === 'mcpToolCall' ||
+    (typeof record.server === 'string' &&
+      record.server.trim().length > 0 &&
+      typeof record.tool === 'string' &&
+      record.tool.trim().length > 0 &&
+      ('arguments' in record || 'input' in record));
+  if (isCodexMcpEnvelope) {
+    const rawArgs = record.arguments ?? record.input;
+    if (typeof rawArgs === 'string') {
+      try {
+        const innerParsed: unknown = JSON.parse(rawArgs);
+        if (
+          innerParsed &&
+          typeof innerParsed === 'object' &&
+          !Array.isArray(innerParsed)
+        ) {
+          return innerParsed;
+        }
+      } catch {
+        return rawArgs;
+      }
+    }
+    if (rawArgs && typeof rawArgs === 'object' && !Array.isArray(rawArgs)) {
+      return rawArgs;
+    }
+    if (rawArgs == null) {
+      return {};
+    }
+  }
   const inner = record.arguments;
   if (!inner || typeof inner !== 'object' || Array.isArray(inner)) {
     return parsed;
@@ -69,7 +100,7 @@ function unwrapMcpArguments(parsed: unknown): unknown {
   return parsed;
 }
 
-function parseInput(use: ToolUseBlock): unknown {
+function parseRawInput(use: ToolUseBlock): unknown {
   if (!use.input_preview) return null;
   try {
     const parsed: unknown = JSON.parse(use.input_preview);
@@ -85,12 +116,12 @@ function parseInput(use: ToolUseBlock): unknown {
     ) {
       const inner = (parsed as Record<string, string>).preview;
       try {
-        return unwrapMcpArguments(JSON.parse(inner));
+        return JSON.parse(inner);
       } catch {
         return inner;
       }
     }
-    return unwrapMcpArguments(parsed);
+    return parsed;
   } catch {
     return use.input_preview;
   }
@@ -103,6 +134,8 @@ function parseInput(use: ToolUseBlock): unknown {
 const OUTPUT_TEXT_KEYS = [
   'stdout',
   'stderr',
+  'aggregatedOutput',
+  'aggregated_output',
   'output',
   'combinedOutput',
   'formatted_output',
@@ -133,7 +166,24 @@ function extractOutputParts(value: unknown, depth = 0): string[] {
     const parts = extractOutputParts(record[key], depth + 1);
     if (parts.length > 0) return parts;
   }
+  const errorObj = asRecord(record.error);
+  const errorMsg = firstString(errorObj, 'message');
+  if (errorMsg) return [errorMsg];
   return [];
+}
+
+function isSilentCommandEnvelope(value: unknown): boolean {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  const record = value as Record<string, unknown>;
+  return (
+    record.type === 'commandExecution' ||
+    'aggregatedOutput' in record ||
+    'aggregated_output' in record ||
+    'stdout' in record ||
+    'stderr' in record ||
+    'exitCode' in record ||
+    'exit_code' in record
+  );
 }
 
 function extractOutputText(
@@ -144,6 +194,7 @@ function extractOutputText(
   if (typeof result?.value === 'string') return result.value;
   const parts = extractOutputParts(result?.value);
   if (parts.length > 0) return parts.join('\n');
+  if (isSilentCommandEnvelope(result?.value)) return null;
   return preview;
 }
 
@@ -158,6 +209,8 @@ const FILE_PATH_KEYS = [
   'target_file',
   'targetFile',
   'path',
+  'move_path',
+  'movePath',
   'filename',
   'file',
   'abs_path',
@@ -330,11 +383,14 @@ function firstCommand(obj: Record<string, unknown>): string | null {
 
 /** An edit/write carries the new contents; a plain read never does. */
 function looksLikeEdit(obj: Record<string, unknown>): boolean {
+  if (Array.isArray(obj.changes)) return true;
   return [
     'old_string',
     'new_string',
     'old_str',
     'new_str',
+    'oldText',
+    'newText',
     'content',
     'contents',
     'patch',
@@ -358,6 +414,7 @@ const SHELL_NAMES = new Set([
   'executecommand',
   'execute',
   'command',
+  'commandexecution',
   'commandrun',
   'runcommand',
   'run',
@@ -412,6 +469,7 @@ const WEB_NAMES = new Set([
 const EDIT_NAMES = new Set([
   'edit',
   'editfile',
+  'filechange',
   'multiedit',
   'write',
   'writefile',
@@ -453,6 +511,17 @@ function editChanges(
   const path = firstPath(obj);
   if (!path) return null;
 
+  const rawChangeKind =
+    typeof obj.kind === 'string'
+      ? obj.kind
+      : firstString(asRecord(obj.kind), 'type');
+  if (rawChangeKind?.trim().toLowerCase() === 'delete') {
+    return {
+      path,
+      changes: [{ action: 'delete' }],
+    };
+  }
+
   const diff = firstString(obj, 'unified_diff', 'diff', 'patch');
   if (diff) {
     return {
@@ -461,7 +530,7 @@ function editChanges(
         {
           action: 'edit',
           unified_diff: normalizeToolDiff(path, diff),
-          has_line_numbers: false,
+          has_line_numbers: /^@@ -\d+(?:,\d+)? \+\d+(?:,\d+)? @@/m.test(diff),
         },
       ],
     };
@@ -594,11 +663,26 @@ function fileEditPreviews(
   const obj = asRecord(parsed);
   const members = obj.edits ?? obj.changes;
   if (Array.isArray(members)) {
-    return members.flatMap((member) => {
+    const parentPath = firstPath(obj);
+    const mergedByPath = new Map<string, FileEditPreview>();
+    for (const member of members) {
       const record = asRecord(member);
-      const edit = editChanges({ file_path: firstPath(obj), ...record });
-      return edit ? [edit] : [];
-    });
+      const edit = editChanges({
+        ...(parentPath ? { file_path: parentPath } : {}),
+        ...record,
+      });
+      if (!edit) continue;
+      const existing = mergedByPath.get(edit.path);
+      if (existing) {
+        existing.changes.push(...edit.changes);
+      } else {
+        mergedByPath.set(edit.path, {
+          path: edit.path,
+          changes: [...edit.changes],
+        });
+      }
+    }
+    return Array.from(mergedByPath.values());
   }
   const edit = editChanges(obj);
   return edit ? [edit] : [];
@@ -610,6 +694,19 @@ export function toolResultFromPreview(
   if (preview == null) return null;
   try {
     const value: JsonValue = JSON.parse(preview);
+    if (
+      value &&
+      typeof value === 'object' &&
+      !Array.isArray(value) &&
+      (value as Record<string, unknown>).type === 'mcpToolCall' &&
+      'result' in (value as Record<string, unknown>) &&
+      (value as Record<string, unknown>).result != null
+    ) {
+      return {
+        type: { type: 'json' },
+        value: (value as Record<string, unknown>).result as JsonValue,
+      };
+    }
     return typeof value === 'string'
       ? { type: { type: 'markdown' }, value }
       : { type: { type: 'json' }, value };
@@ -660,8 +757,13 @@ function toolActionType(
     (LIST_DIR_NAMES.has(name) ? path : null);
   const parsedOutput = structuredResult?.value;
   const outputRecord = asRecord(parsedOutput);
+  const actionQueries = nestedRecord(obj, 'action').queries;
+  const firstActionQuery = Array.isArray(actionQueries)
+    ? actionQueries.find((q): q is string => typeof q === 'string' && q.trim().length > 0) ?? null
+    : null;
   const query =
     firstStringDeep(obj, 'pattern', 'query', 'q', 'glob', 'regex') ??
+    firstActionQuery ??
     (outputRecord
       ? firstStringDeep(outputRecord, 'pattern', 'query', 'q')
       : null);
@@ -773,13 +875,16 @@ function toolActionType(
     subagentType ||
     name === 'spawnsubagent' ||
     name === 'spawnagent' ||
-    name === 'subagentlaunch'
+    name === 'subagentlaunch' ||
+    name === 'collabagenttoolcall' ||
+    name === 'collabtoolcall'
   ) {
     return {
       action: 'task_create',
       description:
-        firstString(obj, 'description', 'title', 'name') ?? labelName,
-      subagent_type: subagentType,
+        firstString(obj, 'description', 'title', 'name', 'prompt', 'tool') ??
+        labelName,
+      subagent_type: subagentType ?? firstString(obj, 'tool'),
       result: structuredResult,
     };
   }
@@ -799,7 +904,7 @@ function displayToolName(
 ): string {
   if (!OPAQUE_TOOL_ID.test(toolName.trim())) return toolName;
   if (looksLikeEdit(obj)) {
-    const path = firstPath(obj);
+    const path = firstPath(obj) ?? fileEditPreviews(obj, null)[0]?.path ?? null;
     return path
       ? i18n.t('app:turnTool.editFile', { path })
       : i18n.t('app:turnTool.editFileGeneric');
@@ -814,18 +919,43 @@ type McpToolMeta = {
   prompt: string | null;
 };
 
-function extractMcpToolMeta(meta: JsonValue | null | undefined): McpToolMeta {
+function extractMcpToolMeta(
+  meta: JsonValue | null | undefined,
+  toolName?: string,
+  rawParsedInput?: unknown
+): McpToolMeta {
   const metaRecord = asRecord(meta);
   const mcpRecord = asRecord(metaRecord.mcp);
   const airMcpRecord = asRecord(
     asRecord(asRecord(metaRecord.jetbrains).air).mcp
   );
+  const rawInputRecord = asRecord(rawParsedInput);
+  const isMcpWireName = canonicalName(toolName ?? '') === 'mcptoolcall';
+  const inputServer = firstString(
+    rawInputRecord,
+    'server',
+    'server_name',
+    'serverName'
+  );
+  const inputTool = firstString(
+    rawInputRecord,
+    'tool',
+    'toolName',
+    ...(inputServer || isMcpWireName ? ['tool_name'] : [])
+  );
+  const prefixedMatch = (toolName ?? '').trim().match(/^mcp__([^_].*?)__(.+)$/i);
   const server =
     firstString(mcpRecord, 'server', 'server_name', 'serverName') ??
-    firstString(airMcpRecord, 'server', 'server_name', 'serverName');
+    firstString(airMcpRecord, 'server', 'server_name', 'serverName') ??
+    (isMcpWireName || (inputServer && inputTool) ? inputServer : null) ??
+    prefixedMatch?.[1] ??
+    null;
   const tool =
     firstString(mcpRecord, 'tool', 'tool_name', 'toolName') ??
-    firstString(airMcpRecord, 'tool', 'tool_name', 'toolName');
+    firstString(airMcpRecord, 'tool', 'tool_name', 'toolName') ??
+    (isMcpWireName || (inputServer && inputTool) ? inputTool : null) ??
+    prefixedMatch?.[2] ??
+    null;
   const prompt = firstString(
     metaRecord,
     'prompt',
@@ -868,6 +998,7 @@ function resolveMcpToolName(toolName: string, mcpMeta: McpToolMeta): string {
   if (mcpMeta.tool) {
     if (
       !trimmed ||
+      canonicalName(trimmed) === 'mcptoolcall' ||
       (mcpMeta.server &&
         (trimmed === `${mcpMeta.server}_${mcpMeta.tool}` ||
           trimmed === `${mcpMeta.server}__${mcpMeta.tool}` ||
@@ -942,6 +1073,8 @@ export function toolBlockToNormalizedEntry(
     }
   }
 
+  const rawParsedInput = parseRawInput(use);
+  const parsed = unwrapMcpArguments(rawParsedInput, use.tool_name);
   const rawToolResult = toolResultFromPreview(outputPreview);
   const rawOutput = extractOutputText(outputPreview, rawToolResult);
   const statusKind: 'created' | 'success' | 'failed' =
@@ -963,7 +1096,7 @@ export function toolBlockToNormalizedEntry(
         ? ({ status: 'failed' } as const)
         : ({ status: 'success' } as const);
 
-  const mcpMeta = extractMcpToolMeta(use.meta);
+  const mcpMeta = extractMcpToolMeta(use.meta, use.tool_name, rawParsedInput);
   const outputIsActionSummary = isAntigravityMcpActionSummary(
     mcpMeta,
     statusKind,
@@ -974,16 +1107,24 @@ export function toolBlockToNormalizedEntry(
     : mcpMeta.prompt;
   const toolResult = outputIsActionSummary ? null : rawToolResult;
   const output = outputIsActionSummary ? null : rawOutput;
+  const existingMetaRecord = asRecord(use.meta);
+  const needsMcpMetaBackfill =
+    Boolean(mcpMeta.server && mcpMeta.tool) &&
+    firstString(asRecord(existingMetaRecord.mcp), 'tool', 'tool_name', 'toolName') == null;
   const effectiveMeta: JsonValue | null =
-    inferredDescription && !mcpMeta.prompt
+    (inferredDescription && !mcpMeta.prompt) || needsMcpMetaBackfill
       ? ({
-          ...asRecord(use.meta),
-          prompt: inferredDescription,
+          ...existingMetaRecord,
+          ...(inferredDescription && !mcpMeta.prompt
+            ? { prompt: inferredDescription }
+            : {}),
+          ...(needsMcpMetaBackfill
+            ? { mcp: { server: mcpMeta.server, tool: mcpMeta.tool } }
+            : {}),
         } as JsonValue)
       : ((use.meta ?? null) as JsonValue);
   const effectiveToolName = resolveMcpToolName(use.tool_name, mcpMeta);
 
-  const parsed = parseInput(use);
   let editPreviews: FileEditPreview[] | null = null;
   const getFileEdits = () =>
     (editPreviews ??= fileEditPreviews(parsed, use.input_preview ?? null));

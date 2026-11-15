@@ -99,4 +99,66 @@ describe('ConversationSelectionToolbar', () => {
       conversationId: 'conv-quote-source',
     });
   });
+
+  it('captures turn/message/block anchor metadata and attaches inline annotations', async () => {
+    const { getSessionComposerStructuredTokens } = await import(
+      '@/components/tasks/follow-up/sessionComposerStructuredTokens'
+    );
+    const rootRef = createRef<HTMLDivElement>();
+    render(
+      <div>
+        <div ref={rootRef}>
+          <div
+            data-turn-id="turn-9"
+            data-message-id="turn-9:assistant"
+            data-block-index="1"
+          >
+            <p> Prefix context:<span>validate token expiry</span> after refresh</p>
+          </div>
+        </div>
+        <ConversationSelectionToolbar
+          rootRef={rootRef}
+          conversationId="conv-anchor-9"
+        />
+      </div>
+    );
+
+    const target = screen.getByText('validate token expiry');
+    const range = document.createRange();
+    range.selectNodeContents(target);
+    const selection = window.getSelection();
+    selection?.removeAllRanges();
+    selection?.addRange(range);
+    fireEvent.mouseUp(target);
+
+    const annotateBtn = await screen.findByTestId(
+      'conversation-selection-annotate'
+    );
+    fireEvent.click(annotateBtn);
+
+    const input = await screen.findByTestId(
+      'conversation-selection-annotation-input'
+    );
+    fireEvent.change(input, {
+      target: { value: 'handle clock skew gracefully' },
+    });
+    fireEvent.keyDown(input, { key: 'Enter' });
+
+    expect(insertToken).toHaveBeenCalledTimes(1);
+    const insertedArg = (
+      insertToken.mock.calls as unknown as Array<[{ value: string }]>
+    )[0]?.[0];
+    const [parsed] = getSessionComposerStructuredTokens(insertedArg?.value ?? '');
+    expect(parsed).toMatchObject({
+      kind: 'quote',
+      value: 'validate token expiry',
+      quote: {
+        conversationId: 'conv-anchor-9',
+        turnId: 'turn-9',
+        messageId: 'turn-9:assistant',
+        blockIndex: 1,
+        annotation: 'handle clock skew gracefully',
+      },
+    });
+  });
 });

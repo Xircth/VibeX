@@ -10,9 +10,9 @@ use application::ApplicationError;
 use conversations::{
     CONVERSATION_PROJECTION_VERSION, ConversationBundleError, ConversationForkResult,
     ConversationImportResult, ConversationProjector, ConversationRelationControl,
-    CreateConversationRelation, ForkVisibleConversation, export_conversation_bundle,
-    fork_visible_conversation, import_conversation_bundle, jsonl_history,
-    preview_checkpoint_file_changes, render_html, render_markdown,
+    CreateConversationRelation, ForkVisibleConversation, OPEN_TIMELINE_ROW_LIMIT,
+    ensure_legacy_jsonl_migrated_on_pool, export_conversation_bundle, fork_visible_conversation,
+    import_conversation_bundle, preview_checkpoint_file_changes, render_html, render_markdown,
     session_stats_with_usage_snapshot,
 };
 use db::models::{
@@ -176,10 +176,17 @@ impl ServerApplicationDomains {
             from_index: Option<u32>,
         }
         let args: DetailArgs = parse(args)?;
+        if args.tail_turns.is_some() && args.from_index.is_some() {
+            return Err(ApplicationError::bad_request(
+                "tailTurns and fromIndex are mutually exclusive",
+            ));
+        }
         let id = parse_uuid(&args.conversation_id)?;
-        let request = jsonl_history::parse_window(args.tail_turns, args.from_index)
-            .map_err(ApplicationError::bad_request)?;
-        let mut detail = load_conversation_detail(&self.pool, id, request).await?;
+        let row_limit = args
+            .tail_turns
+            .map(|turns| (turns as usize).saturating_mul(2).clamp(1, 500))
+            .unwrap_or(OPEN_TIMELINE_ROW_LIMIT);
+        let mut detail = load_conversation_detail(&self.pool, id, row_limit).await?;
         if let Some(detail) = detail.as_mut()
             && let Some(retained) = self
                 .conversations
@@ -210,6 +217,7 @@ impl ServerApplicationDomains {
         let args: EventsSinceArgs = parse(args)?;
         let conversation_id = parse_uuid(&args.conversation_id)?;
         let _ = args.limit;
+        let _ = ensure_legacy_jsonl_migrated_on_pool(&self.pool, conversation_id).await;
         let (rows, last_sequence) =
             ConversationProjector::rows_since(&self.pool, conversation_id, args.after_sequence)
                 .await
@@ -220,6 +228,24 @@ impl ServerApplicationDomains {
             last_sequence,
             rows,
         })
+    }
+
+    pub(crate) async fn conversation_rows_since(
+        &self,
+        args: Value,
+    ) -> Result<Value, ApplicationError> {
+        let args: EventsSinceArgs = parse(args)?;
+        let conversation_id = parse_uuid(&args.conversation_id)?;
+        let _ = args.limit;
+        let _ = ensure_legacy_jsonl_migrated_on_pool(&self.pool, conversation_id).await;
+        let page = ConversationProjector::rows_since_with_tombstones(
+            &self.pool,
+            conversation_id,
+            args.after_sequence,
+        )
+        .await
+        .map_err(internal_error)?;
+        serialize(page)
     }
 
     pub(crate) async fn conversation_ensure_session_controls(
@@ -303,39 +329,35 @@ impl ServerApplicationDomains {
         #[derive(Deserialize)]
         #[serde(rename_all = "camelCase")]
         struct TimelinePageArgs {
+            #[serde(alias = "sessionId", alias = "session_id", alias = "conversation_id")]
             conversation_id: String,
+            #[serde(default)]
             cursor: Option<String>,
+            #[serde(default, alias = "before_sort_index")]
+            before_sort_index: Option<i64>,
+            #[serde(default)]
+            start: Option<usize>,
+            #[serde(default)]
             limit: Option<usize>,
         }
         let args: TimelinePageArgs = parse(args)?;
         let conversation_id = parse_uuid(&args.conversation_id)?;
-        let start = args
-            .cursor
-            .as_deref()
-            .and_then(|value| value.parse::<usize>().ok())
-            .unwrap_or(0);
         let bounded_limit = args
             .limit
             .unwrap_or(100)
             .clamp(1, conversations::turn_window::MAX_WINDOW_TURNS);
-        let page = jsonl_history::load_page(&self.pool, conversation_id, start, bounded_limit)
-            .await
-            .map_err(internal_error)?;
-        let (cursor, next_cursor, rows) = match page {
-            Some(page) => (
-                Some(page.start.to_string()),
-                page.next_cursor.map(|index| index.to_string()),
-                page.rows,
-            ),
-            None => (args.cursor, None, Vec::new()),
-        };
-        serialize(json!({
-            "conversation_id": conversation_id,
-            "projection_version": CONVERSATION_PROJECTION_VERSION,
-            "cursor": cursor,
-            "next_cursor": next_cursor,
-            "rows": rows,
-        }))
+        let _ = ensure_legacy_jsonl_migrated_on_pool(&self.pool, conversation_id).await;
+        let page = ConversationProjector::project_timeline_page(
+            &self.pool,
+            conversation_id,
+            args.cursor.as_deref(),
+            args.before_sort_index,
+            args.start,
+            bounded_limit,
+        )
+        .await
+        .map_err(internal_error)?;
+        serialize(page)
     }
 
     pub(crate) async fn conversation_timeline_image(
@@ -389,6 +411,7 @@ impl ServerApplicationDomains {
             query: String,
             workspace_id: Option<String>,
             limit: Option<i64>,
+            offset: Option<i64>,
         }
         let args: SearchArgs = parse(args)?;
         let workspace_id = args
@@ -396,11 +419,12 @@ impl ServerApplicationDomains {
             .as_deref()
             .and_then(|value| Uuid::parse_str(value).ok());
         let mut conn = self.pool.acquire().await.map_err(internal_error)?;
-        let hits = conversations::search_conversations(
+        let hits = conversations::search_conversations_with_offset(
             &mut conn,
             &args.query,
             workspace_id,
             args.limit.unwrap_or(50),
+            args.offset.unwrap_or(0),
         )
         .await
         .map_err(internal_error)?;
@@ -541,11 +565,16 @@ impl ServerApplicationDomains {
         if let Ok(uuid) = Uuid::parse_str(stripped) {
             return Ok(Some(uuid));
         }
-        let turns = jsonl_history::load_all_turns(&self.pool, source_id)
+        if let Some((prefix, _)) = stripped.split_once(':')
+            && let Ok(uuid) = Uuid::parse_str(prefix)
+        {
+            return Ok(Some(uuid));
+        }
+        let _ = ensure_legacy_jsonl_migrated_on_pool(self.writer_pool(), source_id).await;
+        let turns = ConversationProjector::project_turns_summary(self.writer_pool(), source_id)
             .await
-            .map_err(internal_error)?
-            .unwrap_or_default();
-        let db_turns = ConversationTurnRecord::list_for_conversation(&self.pool, source_id)
+            .map_err(internal_error)?;
+        let db_turns = ConversationTurnRecord::list_for_conversation(self.writer_pool(), source_id)
             .await
             .map_err(internal_error)?;
         let mut round_index: Option<usize> = None;
@@ -577,7 +606,7 @@ impl ServerApplicationDomains {
         overlay_mode: Option<String>,
         overlay_config_json: Option<String>,
     ) -> Result<ConversationForkResult, ApplicationError> {
-        let summary = DbConversationSummary::find_by_id(&self.pool, source_id)
+        let summary = DbConversationSummary::find_by_id(self.writer_pool(), source_id)
             .await
             .map_err(internal_error)?
             .ok_or_else(|| {
@@ -849,18 +878,17 @@ async fn export_title_and_timeline(
         .and_then(|summary| summary.title)
         .filter(|title| !title.trim().is_empty())
         .unwrap_or_else(|| "会话".to_string());
-    let turns = jsonl_history::load_all_turns(pool, conversation_id)
+    let _ = ensure_legacy_jsonl_migrated_on_pool(pool, conversation_id).await;
+    let timeline = ConversationProjector::project(pool, conversation_id)
         .await
-        .map_err(internal_error)?
-        .unwrap_or_default();
-    let timeline = jsonl_history::timeline_from_turns(conversation_id, &turns);
+        .map_err(internal_error)?;
     Ok((title, timeline))
 }
 
 pub async fn load_conversation_detail(
     pool: &SqlitePool,
     id: Uuid,
-    request: conversations::turn_window::TurnWindowReq,
+    row_limit: usize,
 ) -> Result<Option<HostConversationDetail>, ApplicationError> {
     let Some(summary) = DbConversationSummary::find_by_id(pool, id)
         .await
@@ -868,16 +896,15 @@ pub async fn load_conversation_detail(
     else {
         return Ok(None);
     };
-    let history = jsonl_history::load_window(pool, id, request)
+    let _ = ensure_legacy_jsonl_migrated_on_pool(pool, id).await;
+    let open = ConversationProjector::project_open(pool, id, row_limit)
         .await
-        .map_err(internal_error)?
-        .unwrap_or_else(jsonl_history::WindowedHistory::empty);
-    let timeline = jsonl_history::timeline_from_window(id, &history);
+        .map_err(internal_error)?;
     let usage_snapshot = ConversationUsageSnapshotRecord::find(pool, id)
         .await
         .map_err(internal_error)?;
     let session_stats =
-        session_stats_with_usage_snapshot(history.session_stats.clone(), usage_snapshot.as_ref());
+        session_stats_with_usage_snapshot(open.session_stats, usage_snapshot.as_ref());
     let current_turn = current_turn_for_conversation(pool, id).await?;
     let in_flight_user_turn_id = current_turn.as_ref().and_then(|turn| {
         matches!(
@@ -890,22 +917,45 @@ pub async fn load_conversation_detail(
     let persona = conversations::collaboration::conversation_persona(pool, id)
         .await
         .map_err(internal_error)?;
+    let latest_handoff_seq = latest_agent_handoff_sequence(pool, id).await?;
     let (session_modes, session_config_options) = load_conversation_session_controls(
         pool,
         id,
         summary.agent_id.as_ref().map(|a| a.as_str()),
         active_binding.as_ref().map(|b| b.agent_type.as_str()),
         persona.as_ref().map(|p| p.agent_name.as_str()),
+        latest_handoff_seq,
     )
     .await?;
+    let turns_total = summary.message_count.max(0) as u32;
+    let available_commands = if active_binding.as_ref().is_none_or(|binding| {
+        summary
+            .agent_id
+            .as_ref()
+            .is_none_or(|summary_agent| summary_agent.as_str() == binding.agent_type)
+    }) {
+        latest_event_since(
+            pool,
+            id,
+            "available_commands_updated",
+            latest_handoff_seq,
+            |event| match event {
+                ConversationEvent::AvailableCommandsUpdated { commands } => Some(commands),
+                _ => None,
+            },
+        )
+        .await?
+    } else {
+        None
+    };
     Ok(Some(HostConversationDetail {
         summary,
-        turns: history.turns,
-        timeline,
-        turns_offset: history.offset as u32,
-        turns_total: history.total as u32,
-        prefix_hash: Some(history.meta.prefix_hash),
-        user_turns_before_offset: history.meta.user_before as u32,
+        turns: Vec::new(),
+        timeline: open.timeline,
+        turns_offset: 0,
+        turns_total,
+        prefix_hash: None,
+        user_turns_before_offset: 0,
         active_binding,
         current_turn,
         projection_version: CONVERSATION_PROJECTION_VERSION,
@@ -914,16 +964,7 @@ pub async fn load_conversation_detail(
         session_modes,
         session_config_options,
         persona,
-        available_commands: latest_event(
-            pool,
-            id,
-            "available_commands_updated",
-            |event| match event {
-                ConversationEvent::AvailableCommandsUpdated { commands } => Some(commands),
-                _ => None,
-            },
-        )
-        .await?,
+        available_commands,
         session_goal: latest_event(pool, id, "session_goal_updated", |event| match event {
             ConversationEvent::SessionGoalUpdated { goal, .. } => Some(ConversationSessionGoal {
                 goal,
@@ -943,6 +984,7 @@ async fn load_conversation_session_controls(
     summary_agent_id: Option<&str>,
     binding_agent_id: Option<&str>,
     persona_agent_id: Option<&str>,
+    min_sequence_exclusive: i64,
 ) -> Result<
     (
         Option<ConversationSessionModes>,
@@ -950,28 +992,58 @@ async fn load_conversation_session_controls(
     ),
     ApplicationError,
 > {
-    let live_modes = latest_event(
-        pool,
-        conversation_id,
-        "session_mode_updated",
-        |event| match event {
-            ConversationEvent::SessionModeUpdated { current, modes } => {
-                Some(ConversationSessionModes { current, modes })
-            }
-            _ => None,
-        },
-    )
-    .await?;
-    let live_options = latest_event(
-        pool,
-        conversation_id,
-        "session_config_options_updated",
-        |event| match event {
-            ConversationEvent::SessionConfigOptionsUpdated { options } => Some(options),
-            _ => None,
-        },
-    )
-    .await?;
+    let parse_lenient_agent_id = |raw: Option<&str>| {
+        raw.map(str::trim)
+            .filter(|s| !s.is_empty())
+            .and_then(|s| {
+                agents::AgentId::parse(s).ok().or_else(|| {
+                    agents::AgentKind::from_lenient(s)
+                        .and_then(|kind| agents::AgentId::parse(kind.as_str()).ok())
+                })
+            })
+    };
+    let parsed_summary_agent = parse_lenient_agent_id(summary_agent_id);
+    let mut parsed_binding_agent = parse_lenient_agent_id(binding_agent_id);
+    if parsed_binding_agent.is_none()
+        && let Ok(Some(latest_binding)) =
+            ConversationAgentBindingRecord::latest_for_conversation(pool, conversation_id).await
+    {
+        parsed_binding_agent = Some(latest_binding.agent_id);
+    }
+    let binding_matches_summary = match (&parsed_summary_agent, &parsed_binding_agent) {
+        (Some(summary_agent), Some(binding_agent)) => summary_agent == binding_agent,
+        _ => true,
+    };
+
+    let (live_modes, live_options) = if binding_matches_summary {
+        let modes = latest_event_since(
+            pool,
+            conversation_id,
+            "session_mode_updated",
+            min_sequence_exclusive,
+            |event| match event {
+                ConversationEvent::SessionModeUpdated { current, modes } => {
+                    Some(ConversationSessionModes { current, modes })
+                }
+                _ => None,
+            },
+        )
+        .await?;
+        let options = latest_event_since(
+            pool,
+            conversation_id,
+            "session_config_options_updated",
+            min_sequence_exclusive,
+            |event| match event {
+                ConversationEvent::SessionConfigOptionsUpdated { options } => Some(options),
+                _ => None,
+            },
+        )
+        .await?;
+        (modes, options)
+    } else {
+        (None, None)
+    };
     let had_live_modes = live_modes.as_ref().is_some_and(|m| !m.modes.is_empty());
     let live_option_keys: std::collections::HashSet<String> = live_options
         .as_ref()
@@ -980,17 +1052,9 @@ async fn load_conversation_session_controls(
     let mut session_modes = live_modes;
     let mut session_config_options = live_options.unwrap_or_default();
 
-    let resolved_agent_id = summary_agent_id
-        .or(binding_agent_id)
-        .or(persona_agent_id)
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-        .and_then(|raw| {
-            agents::AgentId::parse(raw).ok().or_else(|| {
-                agents::AgentKind::from_lenient(raw)
-                    .and_then(|kind| agents::AgentId::parse(kind.as_str()).ok())
-            })
-        });
+    let resolved_agent_id = parsed_summary_agent
+        .or(parsed_binding_agent)
+        .or_else(|| parse_lenient_agent_id(persona_agent_id));
 
     if let Some(agent_id) = resolved_agent_id.as_ref() {
         let mut catalog =
@@ -1043,8 +1107,9 @@ async fn load_conversation_session_controls(
         }
     }
 
-    if let Ok(Some(binding)) =
-        ConversationAgentBindingRecord::active_for_conversation(pool, conversation_id).await
+    if binding_matches_summary
+        && let Ok(Some(binding)) =
+            ConversationAgentBindingRecord::active_for_conversation(pool, conversation_id).await
     {
         if !had_live_modes
             && let Some(mode) = binding
@@ -1071,9 +1136,59 @@ async fn load_conversation_session_controls(
                 }
             }
         }
+    } else if !binding_matches_summary
+        && let Some(agent_id) = resolved_agent_id.as_ref()
+    {
+        let saved_defaults = db::models::agent_management::SessionDefaultRepository::new(pool.clone())
+            .list_for_agent(agent_id)
+            .await
+            .unwrap_or_default();
+        for record in saved_defaults {
+            let Ok(parsed_val) = serde_json::from_str::<Value>(&record.value_json) else {
+                continue;
+            };
+            let Some(val_str) = parsed_val.as_str().map(str::trim).filter(|s| !s.is_empty()) else {
+                continue;
+            };
+            if record.option_id == "mode" {
+                if let Some(modes) = session_modes.as_mut()
+                    && modes.modes.iter().any(|m| m.id == val_str)
+                {
+                    modes.current = Some(val_str.to_string());
+                }
+            } else if let Some(opt) = session_config_options
+                .iter_mut()
+                .find(|o| o.key == record.option_id)
+            {
+                let valid = opt.choices.is_empty()
+                    || opt.choices.iter().any(|choice| choice.value == val_str);
+                if valid {
+                    opt.value = Some(Value::String(val_str.to_string()));
+                }
+            }
+        }
     }
 
     Ok((session_modes, session_config_options))
+}
+
+async fn latest_agent_handoff_sequence(
+    pool: &SqlitePool,
+    conversation_id: Uuid,
+) -> Result<i64, ApplicationError> {
+    let seq: Option<i64> = sqlx::query_scalar(
+        r#"SELECT MAX(sequence)
+           FROM conversation_events
+           WHERE conversation_id = ?
+             AND event_kind = 'raw_diagnostic_recorded'
+             AND normalized_json LIKE '%"agent_handoff"%'"#,
+    )
+    .bind(conversation_id)
+    .fetch_optional(pool)
+    .await
+    .map_err(internal_error)?
+    .flatten();
+    Ok(seq.unwrap_or(0))
 }
 
 async fn latest_event<T>(
@@ -1082,14 +1197,26 @@ async fn latest_event<T>(
     kind: &str,
     map: impl FnOnce(ConversationEvent) -> Option<T>,
 ) -> Result<Option<T>, ApplicationError> {
+    latest_event_since(pool, conversation_id, kind, 0, map).await
+}
+
+async fn latest_event_since<T>(
+    pool: &SqlitePool,
+    conversation_id: Uuid,
+    kind: &str,
+    min_sequence_exclusive: i64,
+    map: impl FnOnce(ConversationEvent) -> Option<T>,
+) -> Result<Option<T>, ApplicationError> {
     let record = ConversationEventRecord::latest_of_kind(pool, conversation_id, kind)
         .await
         .map_err(internal_error)?;
-    Ok(record.and_then(|record| {
-        serde_json::from_str::<ConversationEvent>(&record.normalized_json)
-            .ok()
-            .and_then(map)
-    }))
+    Ok(record
+        .filter(|record| record.sequence > min_sequence_exclusive)
+        .and_then(|record| {
+            serde_json::from_str::<ConversationEvent>(&record.normalized_json)
+                .ok()
+                .and_then(map)
+        }))
 }
 
 async fn active_binding_for_conversation(

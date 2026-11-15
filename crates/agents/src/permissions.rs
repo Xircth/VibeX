@@ -63,6 +63,9 @@ pub struct AgentPermissionRequest {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub details: Option<serde_json::Value>,
     pub options: Vec<AgentPermissionOption>,
+    #[serde(default)]
+    #[ts(type = "number")]
+    pub revision: u64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
@@ -75,6 +78,10 @@ pub enum AgentPermissionResponse {
         /// Not part of the ACP option itself; stripped before the agent sees the outcome.
         #[serde(default, skip_serializing_if = "std::ops::Not::not")]
         persist: bool,
+        /// Optional optimistic concurrency token matching `AgentPermissionRequest::revision`.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional, type = "number")]
+        expected_revision: Option<u64>,
     },
     Cancelled,
 }
@@ -84,6 +91,15 @@ impl AgentPermissionResponse {
         Self::Selected {
             option_id: option_id.into(),
             persist: false,
+            expected_revision: None,
+        }
+    }
+
+    pub fn selected_with_revision(option_id: impl Into<String>, expected_revision: u64) -> Self {
+        Self::Selected {
+            option_id: option_id.into(),
+            persist: false,
+            expected_revision: Some(expected_revision),
         }
     }
 
@@ -91,13 +107,16 @@ impl AgentPermissionResponse {
         Self::Selected {
             option_id: option_id.into(),
             persist: true,
+            expected_revision: None,
         }
     }
 
     /// "始终允许" / ACP `allow_always` both mean: answer this request and YOLO the rest.
     pub fn should_persist_auto_approve(&self, options: &[AgentPermissionOption]) -> bool {
         match self {
-            Self::Selected { option_id, persist } => {
+            Self::Selected {
+                option_id, persist, ..
+            } => {
                 *persist
                     || options.iter().any(|option| {
                         option.id == *option_id
@@ -111,6 +130,15 @@ impl AgentPermissionResponse {
     pub fn option_id(&self) -> Option<&str> {
         match self {
             Self::Selected { option_id, .. } => Some(option_id.as_str()),
+            Self::Cancelled => None,
+        }
+    }
+
+    pub fn expected_revision(&self) -> Option<u64> {
+        match self {
+            Self::Selected {
+                expected_revision, ..
+            } => *expected_revision,
             Self::Cancelled => None,
         }
     }
@@ -195,6 +223,7 @@ mod tests {
             title: "Run tool".to_string(),
             details: None,
             options,
+            revision: 1,
         }
     }
 
@@ -365,5 +394,22 @@ mod tests {
             !AgentPermissionResponse::selected("allow-once").should_persist_auto_approve(&options)
         );
         assert!(!AgentPermissionResponse::Cancelled.should_persist_auto_approve(&options));
+    }
+
+    #[test]
+    fn selected_with_revision_preserves_expected_revision_across_json() {
+        let with_rev = AgentPermissionResponse::selected_with_revision("accept", 7);
+        assert_eq!(with_rev.option_id(), Some("accept"));
+        assert_eq!(with_rev.expected_revision(), Some(7));
+
+        let encoded = serde_json::to_value(&with_rev).expect("serialize response");
+        assert_eq!(encoded["expected_revision"], 7);
+        let decoded: AgentPermissionResponse =
+            serde_json::from_value(encoded).expect("deserialize response");
+        assert_eq!(decoded, with_rev);
+
+        let without_rev = AgentPermissionResponse::selected("accept");
+        let encoded_without = serde_json::to_value(&without_rev).expect("serialize plain");
+        assert!(encoded_without.get("expected_revision").is_none());
     }
 }

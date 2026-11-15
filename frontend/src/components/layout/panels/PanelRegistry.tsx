@@ -98,19 +98,36 @@ export function createLazyDockviewPanel(
   loader: () => Promise<DockviewPanelModule>,
   retryDelayMs = 200
 ): React.FC<IDockviewPanelProps> {
+  let cachedLazyComponent: React.LazyExoticComponent<
+    ComponentType<IDockviewPanelProps>
+  > | null = null;
+
+  const getOrCreateLazyComponent = () => {
+    if (!cachedLazyComponent) {
+      const nextLazy = lazy(() =>
+        loadPanelModuleWithRetry(loader, retryDelayMs).catch((error) => {
+          if (cachedLazyComponent === nextLazy) {
+            cachedLazyComponent = null;
+          }
+          throw error;
+        })
+      );
+      cachedLazyComponent = nextLazy;
+    }
+    return cachedLazyComponent;
+  };
+
   return function LazyDockviewPanel(props: IDockviewPanelProps) {
     const [generation, setGeneration] = useState(0);
-    const [Panel, setPanel] = useState(() =>
-      lazy(() => loadPanelModuleWithRetry(loader, retryDelayMs))
-    );
+    const [Panel, setPanel] = useState(getOrCreateLazyComponent);
 
     return (
       <DockviewPanelErrorBoundary
         key={generation}
         onRetry={() => {
-          setPanel(() =>
-            lazy(() => loadPanelModuleWithRetry(loader, retryDelayMs))
-          );
+          cachedLazyComponent = null;
+          const nextPanel = getOrCreateLazyComponent();
+          setPanel(() => nextPanel);
           setGeneration((current) => current + 1);
         }}
       >

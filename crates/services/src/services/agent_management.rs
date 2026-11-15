@@ -139,8 +139,16 @@ impl AgentManagementApplicationService {
                 profile
                     .registry_binding
                     .as_ref()
-                    .map(|binding| (binding.registry_id, &profile.agent_id))
+                    .map(|binding| (binding.registry_id, profile.agent_id.as_str()))
             })
+            .chain(
+                agents::suppressed_registry_ids_for_built_ins()
+                    .iter()
+                    .filter_map(|registry_id| {
+                        agents::suppressed_registry_built_in_agent_id(registry_id)
+                            .map(|canonical_id| (*registry_id, canonical_id))
+                    }),
+            )
             .collect::<HashMap<_, _>>();
         let memberships = memberships
             .into_iter()
@@ -164,8 +172,10 @@ impl AgentManagementApplicationService {
                 canonical_by_registry_id
                     .get(registry_id)
                     .is_none_or(|canonical_id| {
-                        *canonical_id == &membership.agent_id
-                            || !membership_ids.contains(*canonical_id)
+                        *canonical_id == membership.agent_id.as_str()
+                            || !membership_ids
+                                .iter()
+                                .any(|member_id| member_id.as_str() == *canonical_id)
                     })
             })
             .collect::<Vec<_>>();
@@ -354,12 +364,17 @@ impl AgentManagementApplicationService {
             AgentRegistrySnapshotStore::new(RegistrySnapshotRepository::new(self.pool.clone()));
         let snapshot = store.load().await?;
         let profiles = BuiltInProfileCatalog::bundled();
+        let suppressed_ids = agents::suppressed_registry_ids_for_built_ins();
         let mut rows = snapshot
             .as_ref()
             .map(|snapshot| {
                 snapshot
                     .entries
                     .iter()
+                    .filter(|entry| {
+                        !suppressed_ids.contains(&entry.registry_id.as_str())
+                            && !suppressed_ids.contains(&entry.agent_id.as_str())
+                    })
                     .map(|entry| AgentRegistryViewRow {
                         agent_id: entry.agent_id.clone(),
                         registry_id: Some(entry.registry_id.clone()),
@@ -845,6 +860,65 @@ impl AgentManagementApplicationService {
         .bind(authentication_required)
         .execute(&self.pool)
         .await?;
+        Ok(())
+    }
+
+    pub async fn reconcile_legacy_shim_lock(
+        &self,
+        agent_id: &AgentId,
+        native_path: Option<&Path>,
+        probed_version: Option<&str>,
+        sha256: Option<&str>,
+    ) -> Result<()> {
+        if let (Some(native_path), Some(sha256)) = (native_path, sha256) {
+            let version = probed_version.unwrap_or("0.0.0");
+            let path_display = native_path.display().to_string();
+            sqlx::query(
+                r#"UPDATE agent_install_component
+                   SET component_kind = 'combined_runtime',
+                       absolute_path = ?,
+                       version = ?,
+                       sha256 = ?,
+                       ownership = 'external'
+                   WHERE lock_id = (
+                     SELECT current_lock_id FROM agent_installation WHERE agent_id = ?
+                   )"#,
+            )
+            .bind(&path_display)
+            .bind(version)
+            .bind(sha256)
+            .bind(agent_id.as_str())
+            .execute(&self.pool)
+            .await?;
+            sqlx::query(
+                r#"UPDATE agent_install_lock
+                   SET resolved_json = json_set(
+                         resolved_json,
+                         '$.absolute_acp_program', ?,
+                         '$.args', json('[]'),
+                         '$.runtime_version', ?,
+                         '$.acp_version', ?
+                       )
+                   WHERE id = (
+                     SELECT current_lock_id FROM agent_installation WHERE agent_id = ?
+                   )"#,
+            )
+            .bind(&path_display)
+            .bind(version)
+            .bind(version)
+            .bind(agent_id.as_str())
+            .execute(&self.pool)
+            .await?;
+        } else {
+            sqlx::query(
+                r#"UPDATE agent_installation
+                   SET lifecycle = 'needs_repair', updated_at = CURRENT_TIMESTAMP
+                   WHERE agent_id = ? AND active_operation IS NULL"#,
+            )
+            .bind(agent_id.as_str())
+            .execute(&self.pool)
+            .await?;
+        }
         Ok(())
     }
 }

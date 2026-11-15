@@ -51,7 +51,18 @@ export default function DockviewSessionDetailsPanel(
     attempt?.session?.id ||
     null;
   const conversation = useConversationTimeline(sessionId);
-  const facts = useConversationSessionFacts(sessionId);
+  const rawFacts = useConversationSessionFacts(sessionId);
+  const fallbackAgentId =
+    attempt?.session?.id === sessionId
+      ? (attempt.session.agent_id ?? attempt.session.executor ?? null)
+      : null;
+  const facts = useMemo(
+    () =>
+      rawFacts.agentId || !fallbackAgentId
+        ? rawFacts
+        : { ...rawFacts, agentId: fallbackAgentId },
+    [fallbackAgentId, rawFacts]
+  );
   const { openDiffPreview } = usePanelActionsContext();
   const focusDiffPath = useGitDiffNavigationStore((state) => state.focusPath);
   const branch = attempt?.branch?.trim() || null;

@@ -1,16 +1,12 @@
-//! Session-request `_meta` that must ride on every Claude session RPC
+//! Session-request `_meta` that rides on Claude session RPCs
 //! (`session/new`, `load`, `resume`, `fork`), plus AIR `promptSuggestions`
 //! extraction.
 //!
-//! claude-agent-acp 0.82+ treats an AIR client that does not subscribe to raw
-//! SDK messages as missing tool `_meta`, subagent text, and permission
-//! presentation. claude-agent-acp 0.92.0+ also enables SDK promptSuggestions by
-//! default for AIR clients: interactive Composer sessions pass
-//! `wants_prompt_suggestions = true`, whereas one-shot / headless / automation
-//! connections pass `false` so the adapter does not run a post-turn prediction
-//! call. Every session RPC (`new`/`load`/`resume`/`fork`) on the same
-//! connection must carry the identical `_meta.claudeCode` object so the adapter
-//! never restarts the session due to option drift.
+//! Interactive Composer sessions pass `wants_prompt_suggestions = true`,
+//! whereas one-shot / headless / automation connections pass `false` so no
+//! post-turn prediction call is triggered. Every session RPC (`new`/`load`/
+//! `resume`/`fork`) on the same connection carries the identical
+//! `_meta.claudeCode` object so options remain stable across turns.
 
 use api_types::{AgentId, AgentKind};
 use serde_json::{Map, Value};

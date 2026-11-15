@@ -1,6 +1,11 @@
 {
   "composer": {
     "inputLabel": "Message",
+    "placeholder": "Ask anything. @ files, $ skills, / commands",
+    "send": "Send",
+    "stop": "Stop",
+    "clearReview": "Clear review",
+    "resolveConflict": "Resolve conflicts",
     "attachments": "Attachments",
     "attachFiles": "Attach files",
     "dropFiles": "Drop files here",
@@ -430,7 +435,8 @@
     "personaTeam": "Team",
     "personaSummary": "Summary",
     "personaAgent": "Agent",
-    "sessionConfig": "Session"
+    "sessionConfig": "Session",
+    "defaultConfig": "Using default settings"
   },
   "readyContent": {
     "back": "Back",
@@ -475,6 +481,7 @@
     "editMessage": "Edit queued message",
     "deleteMessage": "Delete queued message",
     "steer": "Steer",
+    "steerInterruptRestart": "Interrupt and send now",
     "moveUp": "Move queued message up",
     "moveDown": "Move queued message down",
     "sending": "Sending",
@@ -716,5 +723,18 @@
   "effortSlider": {
     "faster": "Faster",
     "smarter": "Smarter"
+  },
+  "engineHandoff": {
+    "title": "Switch from {{sourceEngine}} to {{targetEngine}}",
+    "tokenBudget": "Token budget",
+    "packedHeading": "Packed context",
+    "firstUserMessage": "First user message",
+    "lastUserMessage": "Latest user message",
+    "lastAssistantMessage": "Latest assistant reply",
+    "recentMessages": "Recent {{count}} messages (reverse chronological)",
+    "omittedWarning": "{{count}} earlier messages omitted (retrievable via MCP)",
+    "expandPreview": "Expand full packed preview",
+    "collapsePreview": "Hide full packed preview",
+    "confirmSwitch": "Confirm switch"
   }
 }

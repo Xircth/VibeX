@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import type { AgentSessionConfigOption } from 'shared/types';
@@ -84,30 +84,49 @@ describe('SessionSettingsSummary', () => {
     expect(screen.queryByText('Mode')).not.toBeInTheDocument();
   });
 
-  it('puts the selected session values into one readable trigger', () => {
+  it('puts only Name and Reasoning Effort into the visible pill while keeping full settings in aria-label', () => {
     render(
       <SessionSettingsSummary
+        agentIcon="claude_code"
         sessionModes={{
           current: 'plan',
           modes: [{ id: 'plan', label: 'Plan' }],
         }}
-        options={OPTIONS}
+        options={[
+          ...OPTIONS,
+          {
+            key: 'sandbox_network',
+            label: 'Network',
+            value: 'enabled',
+            choices: [
+              { value: 'disabled', label: 'Disabled' },
+              { value: 'enabled', label: 'Enabled' },
+            ],
+          },
+        ]}
         pending={{}}
+        continuation={{
+          policy: 'fresh',
+          onChange: vi.fn(),
+        }}
         onSelectMode={vi.fn()}
         onSelectConfigOption={vi.fn()}
       />
     );
 
-    expect(
-      screen.getByRole('button', {
-        name: '本次会话: Plan · 5.6 Terra · 高',
-      })
-    ).toBeInTheDocument();
+    const trigger = screen.getByRole('button', {
+      name: '本次会话: Plan · 5.6 Terra · 高 · Enabled · 全新上下文',
+    });
+    expect(trigger).toBeInTheDocument();
+    expect(trigger).toHaveTextContent('5.6 Terra · 高');
+    expect(trigger).not.toHaveTextContent('Plan');
+    expect(trigger).not.toHaveTextContent('Enabled');
+    expect(trigger).not.toHaveTextContent('全新上下文');
   });
 
-  it('moves the Fast indicator onto the model name without widening the summary', async () => {
+  it('moves the Fast indicator onto the model or agent name without widening the summary', async () => {
     const user = userEvent.setup();
-    const { container } = render(
+    const { container, rerender } = render(
       <SessionSettingsSummary
         options={[OPTIONS[0], CODEX_FAST_OPTION, OPTIONS[2]]}
         pending={{ 'fast-mode': 'on' }}
@@ -130,6 +149,22 @@ describe('SessionSettingsSummary', () => {
 
     await user.click(screen.getByTestId('session-settings-summary'));
     expect(screen.getByText('开启')).toHaveClass('text-primary');
+
+    rerender(
+      <SessionSettingsSummary
+        agentIcon="codex"
+        options={[CODEX_FAST_OPTION, OPTIONS[2]]}
+        pending={{ 'fast-mode': 'on' }}
+        onSelectConfigOption={vi.fn()}
+      />
+    );
+    expect(screen.getByText('Codex')).toHaveClass('composer-fast-model-flow');
+    expect(screen.getByTestId('session-settings-summary')).toHaveTextContent(
+      'Codex · 高'
+    );
+    expect(
+      screen.getByTestId('session-settings-summary')
+    ).not.toHaveTextContent('Fast');
   });
 
   it('opens an option row into its choices and toggles Fast in place', async () => {
@@ -279,5 +314,163 @@ describe('SessionSettingsSummary', () => {
     fireEvent.click(await screen.findByRole('menuitem', { name: '完全访问' }));
 
     expect(onSelectMode).toHaveBeenCalledWith('bypassPermissions');
+  });
+
+  it('keeps the closed summary compact and renders the left AgentRail only inside the expanded popover', async () => {
+    const user = userEvent.setup();
+    const onChangeExecutorProfile = vi.fn();
+    render(
+      <SessionSettingsSummary
+        options={OPTIONS}
+        pending={{}}
+        onSelectConfigOption={vi.fn()}
+        agentRail={{
+          profiles: {},
+          effectiveExecutorProfile: { executor: 'claude_code', variant: null },
+          onChangeExecutorProfile,
+          selectableAgents: [
+            {
+              agentId: 'claude_code',
+              displayName: 'Claude Code',
+              iconLight: null,
+              iconDark: null,
+              iconSvg: null,
+              enabled: true,
+              lifecycle: 'ready',
+              runnable: true,
+              settingsFeatures: [],
+            },
+            {
+              agentId: 'codex',
+              displayName: 'Codex',
+              iconLight: null,
+              iconDark: null,
+              iconSvg: null,
+              enabled: true,
+              lifecycle: 'ready',
+              runnable: true,
+              settingsFeatures: [],
+            },
+          ],
+        }}
+      />
+    );
+
+    expect(screen.queryByRole('radiogroup')).not.toBeInTheDocument();
+
+    await user.click(screen.getByTestId('session-settings-summary'));
+    expect(screen.getByRole('radiogroup', { name: '切换 Agent' })).toBeInTheDocument();
+    const layeredShell = screen.getByTestId('session-settings-layered-shell');
+    const railContainer = screen.getByTestId('session-settings-agent-rail');
+    const detailCard = screen.getByTestId('session-settings-detail-card');
+    const outerPopover = layeredShell.closest('[data-floating-layer="popover"]');
+    expect(outerPopover).toHaveClass(
+      'rounded-lg',
+      'border',
+      'border-border/80',
+      'bg-popover'
+    );
+    expect(outerPopover).not.toHaveClass('border-2');
+    expect(layeredShell).toHaveClass('flex', 'min-h-[11rem]', 'items-stretch', 'p-1');
+    expect(railContainer).toHaveClass(
+      'absolute',
+      'inset-0',
+      'overflow-y-auto',
+      '[scrollbar-width:none]',
+      '[&::-webkit-scrollbar]:hidden',
+      'bg-popover'
+    );
+    expect(railContainer).not.toHaveClass('bg-[var(--surface-sidebar)]');
+    expect(detailCard).toHaveClass('min-h-[10.5rem]', 'bg-popover', 'p-1');
+    expect(detailCard).not.toHaveClass('border');
+    expect(detailCard).not.toHaveClass('border-border/80');
+    expect(within(detailCard).queryByText('Claude Code')).not.toBeInTheDocument();
+    expect(within(detailCard).queryByText('本次会话')).not.toBeInTheDocument();
+    expect(within(detailCard).getByText('Model')).toBeInTheDocument();
+
+    await user.click(screen.getByRole('radio', { name: 'Codex' }));
+    expect(onChangeExecutorProfile).toHaveBeenCalledWith({
+      executor: 'codex',
+      variant: null,
+    });
+    expect(screen.getByRole('radiogroup', { name: '切换 Agent' })).toBeInTheDocument();
+  });
+
+  it('stays mounted with the selected agent name when an agent advertises no session options and supports continuation policy', async () => {
+    const user = userEvent.setup();
+    const onContinuationChange = vi.fn();
+    const { rerender } = render(
+      <SessionSettingsSummary
+        options={[]}
+        pending={{}}
+        agentRail={{
+          profiles: {},
+          effectiveExecutorProfile: { executor: 'codex', variant: null },
+          onChangeExecutorProfile: vi.fn(),
+          selectableAgents: [
+            {
+              agentId: 'codex',
+              displayName: 'Codex',
+              iconLight: null,
+              iconDark: null,
+              iconSvg: null,
+              enabled: true,
+              lifecycle: 'ready',
+              runnable: true,
+              settingsFeatures: [],
+            },
+          ],
+        }}
+        continuation={{
+          policy: 'portable',
+          onChange: onContinuationChange,
+        }}
+      />
+    );
+
+    expect(
+      screen.getByRole('button', { name: '本次会话: Codex' })
+    ).toBeInTheDocument();
+
+    await user.click(screen.getByTestId('session-settings-summary'));
+    expect(screen.getByText('使用默认配置')).toBeInTheDocument();
+    await user.click(screen.getByText('下一条输入的上下文'));
+    fireEvent.click(await screen.findByRole('menuitem', { name: '全新上下文' }));
+    expect(onContinuationChange).toHaveBeenCalledWith('fresh');
+
+    rerender(
+      <SessionSettingsSummary
+        options={[]}
+        pending={{}}
+        agentRail={{
+          profiles: {},
+          effectiveExecutorProfile: { executor: 'codex', variant: null },
+          onChangeExecutorProfile: vi.fn(),
+          selectableAgents: [
+            {
+              agentId: 'codex',
+              displayName: 'Codex',
+              iconLight: null,
+              iconDark: null,
+              iconSvg: null,
+              enabled: true,
+              lifecycle: 'ready',
+              runnable: true,
+              settingsFeatures: [],
+            },
+          ],
+        }}
+        continuation={{
+          policy: 'fresh',
+          onChange: onContinuationChange,
+        }}
+      />
+    );
+
+    const updatedTrigger = screen.getByRole('button', {
+      name: '本次会话: 全新上下文',
+    });
+    expect(updatedTrigger).toHaveTextContent('Codex');
+    expect(updatedTrigger).not.toHaveTextContent('全新上下文');
   });
 });

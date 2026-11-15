@@ -12,6 +12,7 @@ const {
   openOrFocusPanel,
   openTerminalEditorTab,
   openPluginPanel,
+  openWelcomeTab,
   runInEditorGroup,
   usePluginHostContributions,
   useSelectableAgents,
@@ -22,6 +23,7 @@ const {
   openOrFocusPanel: vi.fn(),
   openTerminalEditorTab: vi.fn(),
   openPluginPanel: vi.fn(),
+  openWelcomeTab: vi.fn(),
   runInEditorGroup: vi.fn((_groupId: string, action: () => void) => action()),
   usePluginHostContributions: vi.fn((): unknown[] => []),
   useSelectableAgents: vi.fn((): unknown[] => []),
@@ -35,6 +37,7 @@ vi.mock('@/contexts/PanelActionsContext', () => ({
     openOrFocusPanel,
     openTerminalEditorTab,
     openPluginPanel,
+    openWelcomeTab,
     runInEditorGroup,
   }),
 }));
@@ -135,6 +138,7 @@ describe('WorkspaceTabAddMenu', () => {
     expect(
       screen.queryByRole('menuitem', { name: '会话列表' })
     ).not.toBeInTheDocument();
+    expect(screen.getByRole('menuitem', { name: '欢迎' })).toBeVisible();
     expect(screen.getByRole('menuitem', { name: '笔记' })).toBeVisible();
     expect(screen.getByRole('menuitem', { name: '审阅' })).toBeVisible();
     expect(screen.getByRole('menuitem', { name: '执行进程' })).toBeVisible();
@@ -164,6 +168,13 @@ describe('WorkspaceTabAddMenu', () => {
   it('opens feature and info panels in the current group', () => {
     const props = headerProps();
     render(<WorkspaceTabAddMenu {...props} />);
+
+    fireEvent.pointerDown(screen.getByRole('button', { name: '新建标签页' }), {
+      button: 0,
+      ctrlKey: false,
+    });
+    fireEvent.click(screen.getByRole('menuitem', { name: '欢迎' }));
+    expect(openWelcomeTab).toHaveBeenCalledOnce();
 
     fireEvent.pointerDown(screen.getByRole('button', { name: '新建标签页' }), {
       button: 0,

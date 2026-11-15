@@ -46,7 +46,9 @@ vi.mock('./CollaborationSpaceRuntime', async () => {
 
 import {
   CollaborationSpaceProvider,
+  OptionalCollaborationSpaceProvider,
   useCollaborationSpacePick,
+  useHasCollaborationSpaceProvider,
 } from './SpaceContext';
 
 const SIDEBAR_KEYS = ['selectedId', 'renderSupervisorSlot'] as const;
@@ -161,5 +163,63 @@ describe('useCollaborationSpacePick render isolation', () => {
     expect(screen.getByTestId('overlay-dialog').textContent).toBe('open');
     expect(seenOverlayRenderFns).toHaveLength(2);
     expect(seenOverlayRenderFns[0]).not.toBe(seenOverlayRenderFns[1]);
+  });
+
+  it('keeps children mounted without remounting when OptionalCollaborationSpaceProvider toggles enabled', () => {
+    let mountCount = 0;
+    let unmountCount = 0;
+
+    function ActiveSpaceProbe() {
+      const { selectedId } = useCollaborationSpacePick(['selectedId']);
+      return <span data-testid="active-space-id">{selectedId}</span>;
+    }
+
+    function PersistentLayoutChild() {
+      const hasProvider = useHasCollaborationSpaceProvider();
+      useEffect(() => {
+        mountCount += 1;
+        return () => {
+          unmountCount += 1;
+        };
+      }, []);
+      return (
+        <div data-testid="persistent-child">
+          {hasProvider ? <ActiveSpaceProbe /> : 'disabled'}
+        </div>
+      );
+    }
+
+    const { rerender } = render(
+      <OptionalCollaborationSpaceProvider enabled={false} workspaceId="ws-1">
+        <PersistentLayoutChild />
+      </OptionalCollaborationSpaceProvider>
+    );
+
+    const initialElement = screen.getByTestId('persistent-child');
+    expect(initialElement.textContent).toBe('disabled');
+    expect(mountCount).toBe(1);
+    expect(unmountCount).toBe(0);
+
+    rerender(
+      <OptionalCollaborationSpaceProvider enabled={true} workspaceId="ws-1">
+        <PersistentLayoutChild />
+      </OptionalCollaborationSpaceProvider>
+    );
+
+    expect(screen.getByTestId('persistent-child')).toBe(initialElement);
+    expect(screen.getByTestId('active-space-id').textContent).toBe('space-1');
+    expect(mountCount).toBe(1);
+    expect(unmountCount).toBe(0);
+
+    rerender(
+      <OptionalCollaborationSpaceProvider enabled={false} workspaceId="ws-1">
+        <PersistentLayoutChild />
+      </OptionalCollaborationSpaceProvider>
+    );
+
+    expect(screen.getByTestId('persistent-child')).toBe(initialElement);
+    expect(initialElement.textContent).toBe('disabled');
+    expect(mountCount).toBe(1);
+    expect(unmountCount).toBe(0);
   });
 });

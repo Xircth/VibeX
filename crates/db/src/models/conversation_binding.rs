@@ -58,15 +58,23 @@ impl ConversationAgentBindingRecord {
         binding_id: Uuid,
     ) -> Result<(), sqlx::Error> {
         let result = sqlx::query(
-            "UPDATE sessions SET active_agent_binding_id = ?,
-                 binding_revision = binding_revision + CASE WHEN active_agent_binding_id IS ? THEN 0 ELSE 1 END,
-                 agent_id = (SELECT agent_id FROM conversation_agent_bindings WHERE id = ?),
-                 external_session_id = (SELECT acp_session_id FROM conversation_agent_bindings WHERE id = ?)
-             WHERE id = ? AND EXISTS (SELECT 1 FROM conversation_agent_bindings
-                 WHERE id = ? AND conversation_id = ? AND resume_allowed = 1)",
+            "UPDATE sessions SET active_agent_binding_id = ?1,
+                 binding_revision = binding_revision + CASE WHEN active_agent_binding_id IS ?1 THEN 0 ELSE 1 END,
+                 model = CASE
+                     WHEN agent_id IS NOT NULL AND agent_id != (SELECT agent_id FROM conversation_agent_bindings WHERE id = ?1)
+                     THEN NULL
+                     ELSE model
+                 END,
+                 agent_id = (SELECT agent_id FROM conversation_agent_bindings WHERE id = ?1),
+                 agent_type = (SELECT agent_id FROM conversation_agent_bindings WHERE id = ?1),
+                 executor = (SELECT agent_id FROM conversation_agent_bindings WHERE id = ?1),
+                 external_session_id = (SELECT acp_session_id FROM conversation_agent_bindings WHERE id = ?1),
+                 updated_at = datetime('now', 'subsec')
+             WHERE id = ?2 AND EXISTS (SELECT 1 FROM conversation_agent_bindings
+                 WHERE id = ?1 AND conversation_id = ?2 AND resume_allowed = 1)",
         )
-        .bind(binding_id).bind(binding_id).bind(binding_id).bind(binding_id)
-        .bind(conversation_id).bind(binding_id).bind(conversation_id)
+        .bind(binding_id)
+        .bind(conversation_id)
         .execute(conn).await?;
         if result.rows_affected() != 1 {
             return Err(sqlx::Error::Protocol(

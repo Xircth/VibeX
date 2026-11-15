@@ -79,6 +79,8 @@ impl ConversationExecutionPort for FakeExecution {
             status: ConversationSteeringStatus::Accepted,
             code: None,
             message: None,
+            delivery_mode: Some(application::ConversationSteeringDeliveryMode::Native),
+            restarted_turn_id: None,
         };
         self.steering.lock().expect("steering calls").push(request);
         Ok(receipt)
@@ -102,6 +104,7 @@ async fn steering_binds_operation_expected_turn_and_principal_in_the_core() {
     let conversation_id = Uuid::new_v4();
     let expected_turn_id = Uuid::new_v4();
     let operation_id = Uuid::new_v4();
+    let promoted_input_id = Uuid::new_v4();
 
     let receipt = core
         .steer_conversation_turn(
@@ -112,6 +115,9 @@ async fn steering_binds_operation_expected_turn_and_principal_in_the_core() {
                 expected_turn_id,
                 text: "Prioritize the failing test".to_string(),
                 images: Vec::new(),
+                promoted_input_id: Some(promoted_input_id),
+                expected_revision: Some(3),
+                allow_interrupt_restart: true,
             },
         )
         .await
@@ -122,6 +128,9 @@ async fn steering_binds_operation_expected_turn_and_principal_in_the_core() {
     assert_eq!(calls.len(), 1);
     assert_eq!(calls[0].operation_id, operation_id);
     assert_eq!(calls[0].expected_turn_id, expected_turn_id);
+    assert_eq!(calls[0].promoted_input_id, Some(promoted_input_id));
+    assert_eq!(calls[0].promoted_input_expected_revision, Some(3));
+    assert!(calls[0].allow_interrupt_restart);
     assert_eq!(calls[0].principal["kind"], "local_desktop");
 }
 
@@ -429,6 +438,8 @@ async fn start_turn_is_launched_through_the_injected_execution_port() {
                 workflow_refs: Vec::new(),
                 internal_prompt_contributions: Vec::new(),
                 operation_id: None,
+                continuation_policy: None,
+                expected_binding_revision: None,
             },
         )
         .await

@@ -703,26 +703,26 @@ mod tests {
 
     #[tokio::test]
     async fn verifies_a_disk_file_that_matches_the_official_tarball() {
-        let content = b"trusted adapter entry".as_slice();
+        let content = b"trusted runtime entry".as_slice();
         let disk_sha256 = format!("{:x}", Sha256::digest(content));
         let tarball = build_tarball(&[("package/dist/index.js", content)]);
         let metadata = serde_json::json!({
             "versions": {
-                "1.1.9": {
+                "0.169.0": {
                     "dist": {
                         "integrity": sha512_base64(&tarball),
-                        "tarball": "https://registry.npmjs.org/@agentclientprotocol/codex-acp/-/codex-acp-1.1.9.tgz",
+                        "tarball": "https://registry.npmjs.org/@openai/codex/-/codex-0.169.0.tgz",
                     }
                 }
             }
         });
         let fetcher = ScriptedFetcher(Mutex::new(HashMap::from([
             (
-                "https://registry.npmjs.org/@agentclientprotocol%2fcodex-acp".to_string(),
+                "https://registry.npmjs.org/@openai%2fcodex".to_string(),
                 serde_json::to_vec(&metadata).unwrap(),
             ),
             (
-                "https://registry.npmjs.org/@agentclientprotocol/codex-acp/-/codex-acp-1.1.9.tgz"
+                "https://registry.npmjs.org/@openai/codex/-/codex-0.169.0.tgz"
                     .to_string(),
                 tarball,
             ),
@@ -730,8 +730,8 @@ mod tests {
 
         let outcome = verify_npm_component_file(
             &fetcher,
-            "@agentclientprotocol/codex-acp",
-            "1.1.9",
+            "@openai/codex",
+            "0.169.0",
             &disk_sha256,
         )
         .await;
@@ -874,69 +874,79 @@ mod tests {
         let fetcher = ScriptedFetcher(Mutex::new(HashMap::from([(
             "https://registry.npmjs.org/@openai%2fcodex".to_string(),
             serde_json::to_vec(&serde_json::json!({
-                "dist-tags": { "latest": "0.148.0" },
-                "versions": { "0.148.0": { "dist": { "integrity": "sha512-x", "tarball": "https://example/x.tgz" } } }
+                "dist-tags": { "latest": "0.170.0" },
+                "versions": { "0.170.0": { "dist": { "integrity": "sha512-x", "tarball": "https://example/x.tgz" } } }
             }))
             .unwrap(),
         )])));
         assert_eq!(
             fetch_npm_latest(&fetcher, "@openai/codex").await.unwrap(),
-            "0.148.0"
+            "0.170.0"
         );
     }
 
     #[tokio::test]
-    async fn overlays_npm_latest_onto_an_npx_adapter() {
+    async fn overlays_npm_latest_onto_an_npx_component() {
         let fetcher = ScriptedFetcher(Mutex::new(HashMap::from([(
-            "https://registry.npmjs.org/@agentclientprotocol%2fcodex-acp".to_string(),
+            "https://registry.npmjs.org/@openai%2fcodex".to_string(),
             serde_json::to_vec(&serde_json::json!({
-                "dist-tags": { "latest": "1.10.0" },
-                "versions": { "1.10.0": { "dist": { "integrity": "sha512-x", "tarball": "https://example/x.tgz" } } }
+                "dist-tags": { "latest": "0.170.0" },
+                "versions": { "0.170.0": { "dist": { "integrity": "sha512-x", "tarball": "https://example/x.tgz" } } }
             }))
             .unwrap(),
         )])));
         let mut plan = crate::ResolvedInstallPlan {
             agent_id: crate::AgentId::parse("codex").unwrap(),
             source: crate::LockedInstallSource::BuiltInProfile,
-            version: "0.146.0".into(),
+            version: "0.169.0".into(),
             platform: "test".into(),
             components: vec![crate::PlannedInstallComponent {
-                component_id: "acp_adapter".into(),
+                component_id: "combined_runtime".into(),
                 distribution_kind: crate::PlannedDistributionKind::Npx,
-                version: "1.7.0".into(),
-                resolved_source: "@agentclientprotocol/codex-acp@1.7.0".into(),
-                command: "npx".into(),
+                version: "0.169.0".into(),
+                resolved_source: "@openai/codex@0.169.0".into(),
+                command: "codex".into(),
                 args: Vec::new(),
                 env: Default::default(),
                 trust: crate::ArtifactTrust::EcosystemIntegrityRequired,
             }],
         };
         let fetched = overlay_npx_latest_versions(&mut plan, &fetcher).await;
-        assert_eq!(fetched, ["acp_adapter"]);
-        assert_eq!(plan.components[0].version, "1.10.0");
+        assert_eq!(fetched, ["combined_runtime"]);
+        assert_eq!(plan.components[0].version, "0.170.0");
         assert_eq!(
             plan.components[0].resolved_source,
-            "@agentclientprotocol/codex-acp@1.10.0"
+            "@openai/codex@0.170.0"
         );
     }
 
     #[test]
     fn warns_when_the_runtime_misses_the_acp_dependency_range() {
         let requirements = std::collections::BTreeMap::from([(
-            "@openai/codex".to_string(),
-            "^0.148.0".to_string(),
+            "@earendil-works/pi-coding-agent".to_string(),
+            "^0.83.0".to_string(),
         )]);
         assert!(
-            runtime_acp_compatibility_warning("@openai/codex", "0.148.0", &requirements).is_none()
+            runtime_acp_compatibility_warning(
+                "@earendil-works/pi-coding-agent",
+                "0.83.0",
+                &requirements
+            )
+            .is_none()
         );
         assert_eq!(
-            runtime_acp_compatibility_warning("@openai/codex", "0.146.0", &requirements).as_deref(),
-            Some("@openai/codex 0.146.0 does not satisfy ACP requirement ^0.148.0")
+            runtime_acp_compatibility_warning(
+                "@earendil-works/pi-coding-agent",
+                "0.80.0",
+                &requirements
+            )
+            .as_deref(),
+            Some("@earendil-works/pi-coding-agent 0.80.0 does not satisfy ACP requirement ^0.83.0")
         );
         assert!(
             runtime_acp_compatibility_warning(
                 "@anthropic-ai/claude-code",
-                "2.1.222",
+                "2.1.325",
                 &requirements
             )
             .is_none()
@@ -946,8 +956,8 @@ mod tests {
     #[test]
     fn splits_package_and_version_from_npm_specs() {
         assert_eq!(
-            split_npm_spec("@agentclientprotocol/codex-acp@1.1.9"),
-            Some(("@agentclientprotocol/codex-acp", "1.1.9"))
+            split_npm_spec("@openai/codex@0.169.0"),
+            Some(("@openai/codex", "0.169.0"))
         );
         assert_eq!(split_npm_spec("cli@3.0.49"), Some(("cli", "3.0.49")));
         assert_eq!(split_npm_spec("no-version"), None);
@@ -1011,7 +1021,7 @@ mod tests {
         let verdict = verify_external_component_change(
             &fetcher,
             "binary",
-            None,
+            Some("agy-acp-server@1.4.1"),
             None,
             Path::new("/usr/local/bin/tool"),
             "abc123",
@@ -1042,7 +1052,7 @@ mod tests {
         let verdict = verify_external_component_change(
             &fetcher,
             "npx",
-            Some("@anthropic-ai/claude-code@2.1.211"),
+            Some("@anthropic-ai/claude-code@2.1.325"),
             None,
             Path::new("/usr/local/bin/claude"),
             "deadbeef",
@@ -1056,31 +1066,30 @@ mod tests {
         let tarball = build_tarball(&[("package/dist/index.js", b"official content")]);
         let metadata = serde_json::json!({
             "versions": {
-                "1.1.9": {
+                "0.0.34": {
                     "dist": {
                         "integrity": sha512_base64(&tarball),
-                        "tarball": "https://registry.npmjs.org/@agentclientprotocol/codex-acp/-/codex-acp-1.1.9.tgz",
+                        "tarball": "https://registry.npmjs.org/pi-acp/-/pi-acp-0.0.34.tgz",
                     }
                 }
             }
         });
         let fetcher = ScriptedFetcher(Mutex::new(HashMap::from([
             (
-                "https://registry.npmjs.org/@agentclientprotocol%2fcodex-acp".to_string(),
+                "https://registry.npmjs.org/pi-acp".to_string(),
                 serde_json::to_vec(&metadata).unwrap(),
             ),
             (
-                "https://registry.npmjs.org/@agentclientprotocol/codex-acp/-/codex-acp-1.1.9.tgz"
-                    .to_string(),
+                "https://registry.npmjs.org/pi-acp/-/pi-acp-0.0.34.tgz".to_string(),
                 tarball,
             ),
         ])));
         let verdict = verify_external_component_change(
             &fetcher,
             "npx",
-            Some("@agentclientprotocol/codex-acp@1.1.9"),
+            Some("pi-acp@0.0.34"),
             None,
-            Path::new("/usr/local/lib/node_modules/@agentclientprotocol/codex-acp/dist/index.js"),
+            Path::new("/usr/local/lib/node_modules/pi-acp/dist/index.js"),
             &"deadbeef".repeat(8),
         )
         .await;

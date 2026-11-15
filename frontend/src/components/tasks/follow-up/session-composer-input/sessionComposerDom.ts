@@ -6,6 +6,7 @@ import {
 import {
   formatSessionComposerCommand,
   getSessionComposerStructuredTokenSegments,
+  mayContainStructuredComposerToken,
   type SessionComposerStructuredToken,
 } from '../sessionComposerStructuredTokens';
 
@@ -304,6 +305,14 @@ export function restoreStructuredTokens(
   savedCaretOffset?: number | null,
   spaceMembers?: AtReferenceMember[]
 ): void {
+  if (
+    !mayContainStructuredComposerToken(value, {
+      bareAgentMentions,
+      spaceMembers,
+    })
+  ) {
+    return;
+  }
   const editor = getSessionComposerEditable(composerRoot);
   if (!editor) return;
 

@@ -38,7 +38,10 @@ import {
 import { isEditorTerminalPanelId } from '@/lib/workspaceTerminalTabs';
 import { PANEL_IDS, type PanelId } from '@/stores/useLayoutStore';
 import { isSessionPanelId } from '@/utils/dockviewGroupPolicy';
-import { confirmDiscardMergePanel } from '@/components/panels/merge/mergePanelDirty';
+import {
+  confirmCloseWorkspacePanel,
+  useIsWorkspacePanelDirty,
+} from '@/components/panels/previewPanelDirty';
 import { QueryClientContext } from '@tanstack/react-query';
 import { useAppContextMenu } from '@/components/context-menu';
 import {
@@ -90,15 +93,48 @@ const PANEL_TAB_ICONS: Partial<Record<string, [LucideIcon, string]>> = {
   'member-session': [Bot, 'member-session'],
 };
 
+function SessionTabMarkerBadge({
+  marker,
+}: {
+  marker: { bar: string; hue?: string };
+}) {
+  return (
+    <span
+      className={cn(
+        'workspace-tab-icon workspace-session-tab-marker h-2 w-2 shrink-0 rounded-full',
+        marker.bar
+      )}
+      data-tab-icon="session-marker"
+      data-testid="workspace-session-tab-marker"
+      style={marker.hue ? { backgroundColor: `hsl(${marker.hue})` } : undefined}
+      aria-hidden="true"
+    />
+  );
+}
+
+function BoundSessionTabMarker({ sessionId }: { sessionId: string }) {
+  const openSessionIds = useWorkspaceOpenSessionIds();
+  const marker = React.useMemo(
+    () => resolveSessionTabMarker(sessionId, openSessionIds),
+    [openSessionIds, sessionId]
+  );
+  if (!marker) {
+    return null;
+  }
+  return <SessionTabMarkerBadge marker={marker} />;
+}
+
 export function WorkspaceTabIcon({
   component,
   params,
   isBoundSessionTab,
+  sessionId,
   sessionMarker,
 }: {
   component: string;
   params: WorkspaceTabParams;
   isBoundSessionTab?: boolean;
+  sessionId?: string | null;
   sessionMarker?: { bar: string; hue?: string } | null;
 }) {
   const faviconUrl = params.faviconUrl?.trim() || null;
@@ -132,23 +168,13 @@ export function WorkspaceTabIcon({
     );
   }
 
-  if (isBoundSessionTab && sessionMarker) {
-    return (
-      <span
-        className={cn(
-          'workspace-tab-icon workspace-session-tab-marker h-2 w-2 shrink-0 rounded-full',
-          sessionMarker.bar
-        )}
-        data-tab-icon="session-marker"
-        data-testid="workspace-session-tab-marker"
-        style={
-          sessionMarker.hue
-            ? { backgroundColor: `hsl(${sessionMarker.hue})` }
-            : undefined
-        }
-        aria-hidden="true"
-      />
-    );
+  if (isBoundSessionTab) {
+    if (sessionMarker) {
+      return <SessionTabMarkerBadge marker={sessionMarker} />;
+    }
+    if (sessionId) {
+      return <BoundSessionTabMarker sessionId={sessionId} />;
+    }
   }
 
   if (
@@ -241,7 +267,7 @@ export function WorkspaceDockviewTab({
     params ?? {}
   );
   const isMiddleMouseButton = React.useRef(false);
-  const openSessionIds = useWorkspaceOpenSessionIds();
+  const isPreviewDirty = useIsWorkspacePanelDirty(api.id, api.component);
 
   React.useEffect(() => {
     const disposable = api.onDidTitleChange((event) => {
@@ -283,30 +309,23 @@ export function WorkspaceDockviewTab({
         ? 'session'
         : 'default';
   const isBoundSessionTab = Boolean(sessionId);
-  const sessionMarker = React.useMemo(
-    () =>
-      isBoundSessionTab
-        ? resolveSessionTabMarker(sessionId, openSessionIds)
-        : null,
-    [isBoundSessionTab, openSessionIds, sessionId]
-  );
 
   const effectiveHideClose = Boolean(hideClose);
 
   const queryClient = React.useContext(QueryClientContext);
   const refreshTab = React.useCallback(() => {
+    if (!confirmCloseWorkspacePanel(api.id, api.component)) {
+      return;
+    }
     requestPreviewTabRefresh({
       panelId: api.id,
       filePath: tabParams?.filePath ?? null,
       queryClient,
     });
-  }, [api.id, queryClient, tabParams?.filePath]);
+  }, [api.component, api.id, queryClient, tabParams?.filePath]);
 
   const closeTab = React.useCallback(() => {
-    if (
-      api.component === PANEL_IDS.MERGE &&
-      !confirmDiscardMergePanel(api.id)
-    ) {
+    if (!confirmCloseWorkspacePanel(api.id, api.component)) {
       return;
     }
     if (closeActionOverride) {
@@ -351,6 +370,12 @@ export function WorkspaceDockviewTab({
         const group = api.group;
         const panels = group?.panels ?? [];
         const index = panels.findIndex((panel) => panel.id === api.id);
+        const closeSiblingPanel = (panel: (typeof panels)[number]) => {
+          if (!confirmCloseWorkspacePanel(panel.id, panel.api.component)) {
+            return;
+          }
+          panel.api.close();
+        };
         openSurfaceMenu(event, [
           {
             id: 'refresh',
@@ -370,7 +395,7 @@ export function WorkspaceDockviewTab({
             onSelect: () => {
               panels
                 .filter((panel) => panel.id !== api.id)
-                .forEach((panel) => panel.api.close());
+                .forEach(closeSiblingPanel);
             },
           },
           {
@@ -379,7 +404,7 @@ export function WorkspaceDockviewTab({
             disabled:
               effectiveHideClose || index < 0 || index >= panels.length - 1,
             onSelect: () => {
-              panels.slice(index + 1).forEach((panel) => panel.api.close());
+              panels.slice(index + 1).forEach(closeSiblingPanel);
             },
           },
         ]);
@@ -408,9 +433,16 @@ export function WorkspaceDockviewTab({
         component={api.component}
         params={tabParams}
         isBoundSessionTab={isBoundSessionTab}
-        sessionMarker={sessionMarker}
+        sessionId={sessionId}
       />
       <span className="dv-default-tab-content">{title}</span>
+      {isPreviewDirty && (
+        <span
+          data-testid="workspace-tab-dirty-indicator"
+          aria-hidden="true"
+          className="h-1.5 w-1.5 shrink-0 rounded-full bg-[hsl(var(--warning))]"
+        />
+      )}
       {!effectiveHideClose && (
         <div
           className="dv-default-tab-action rounded-full"

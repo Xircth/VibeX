@@ -145,7 +145,8 @@ impl AgentConnectionRunner {
         let attempted_load = true;
         let load_result = if attempted_load {
             *self.pending_session_id.lock().await = Some(session_id);
-            self.begin_load_replay(&external_session_id).await;
+            self.begin_load_replay(session_id, &external_session_id)
+                .await;
             self.emit_connection_status(AgentConnectionStatus::Recovering, None, Some(session_id));
             let result = self
                 .send_load_session_rpc(
@@ -157,7 +158,7 @@ impl AgentConnectionRunner {
                     wants_prompt_suggestions,
                 )
                 .await;
-            self.end_load_replay(&external_session_id, result.is_ok())
+            self.end_load_replay(session_id, &external_session_id, result.is_ok())
                 .await;
             *self.pending_session_id.lock().await = None;
             result

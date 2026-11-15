@@ -12,6 +12,10 @@ import { useEditorSettingsStore } from '@/stores/useEditorSettingsStore';
 import { requestPreviewTabRefresh } from '@/utils/previewTabRefresh';
 
 import DockviewPreviewPanel from './DockviewPreviewPanel';
+import {
+  isPreviewPanelDirty,
+  resetPreviewPanelDirtyForTests,
+} from './previewPanelDirty';
 
 const api = vi.hoisted(() => ({
   resolveFileOpener: vi.fn(),
@@ -280,6 +284,7 @@ describe('DockviewPreviewPanel', () => {
     useEditorSettingsStore.setState({
       markdownPreviewMode: 'richtext',
     });
+    resetPreviewPanelDirtyForTests();
   });
 
   it('resolves transient conversation images without serializing their data', () => {
@@ -673,5 +678,37 @@ describe('DockviewPreviewPanel', () => {
       'const version = 2;'
     );
     expect(queryClientMock.invalidateQueries).toHaveBeenCalled();
+    expect(isPreviewPanelDirty('preview:src/index.ts')).toBe(false);
+  });
+
+  it('publishes unsaved edit dirty state for the tab header and clears it on save and unmount', async () => {
+    const panelId = 'file:/workspace/src/feature.ts';
+    const props = {
+      ...panelProps('src/feature.ts'),
+      api: { id: panelId },
+    } as unknown as IDockviewPanelProps;
+    fileContent.data = 'export const x = 1;';
+
+    const { rerender, unmount } = render(<DockviewPreviewPanel {...props} />);
+
+    const sourceInput = await screen.findByLabelText('File source');
+    expect(isPreviewPanelDirty(panelId)).toBe(false);
+
+    fireEvent.change(sourceInput, {
+      target: { value: 'export const x = 2;' },
+    });
+    expect(isPreviewPanelDirty(panelId)).toBe(true);
+
+    fireEvent.keyDown(sourceInput, { key: 's', ctrlKey: true });
+    rerender(<DockviewPreviewPanel {...props} />);
+    expect(isPreviewPanelDirty(panelId)).toBe(false);
+
+    fireEvent.change(sourceInput, {
+      target: { value: 'export const x = 3;' },
+    });
+    expect(isPreviewPanelDirty(panelId)).toBe(true);
+
+    unmount();
+    expect(isPreviewPanelDirty(panelId)).toBe(false);
   });
 });

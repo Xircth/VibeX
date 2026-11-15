@@ -32,12 +32,9 @@ pub fn lifecycle_ready_for_path_acp(lifecycle: AgentLifecycleState) -> AgentLife
     }
 }
 
-/// Resolve the Built-in Profile ACP launch command the same way CodeG's
-/// connect gate uses `is_cmd_available` / `resolve_npx_command`: PATH (plus
-/// user npm prefix / login-shell repair), never a vendor CLI.
-///
-/// MUST NEVER call `resolve_vendor_cli` or accept a wrapper agent's native
-/// vendor CLI (`claude`, `codex`, `zcode`) as an ACP launch program.
+/// Resolve the Built-in Profile launch command from PATH (plus user npm prefix,
+/// login-shell repair, and native-engine vendor installer directories), never
+/// accepting a wrapper agent's raw vendor CLI or a retired ACP wrapper shim.
 pub async fn discover_path_acp_launch_lock(agent_id: &AgentId) -> Option<SessionLaunchLock> {
     let catalog = BuiltInProfileCatalog::bundled();
     let profile = catalog.profile(agent_id)?;
@@ -47,9 +44,18 @@ pub async fn discover_path_acp_launch_lock(agent_id: &AgentId) -> Option<Session
             ProfileComponent::AcpAdapter | ProfileComponent::CombinedRuntime
         )
     })?;
-    let executable = workspace_utils::shell::resolve_executable_path(candidate.executable).await?;
+    let executable = match workspace_utils::shell::resolve_executable_path(candidate.executable).await {
+        Some(path) => path,
+        None if matches!(profile.topology, crate::ProfileTopology::NativeEngine(_)) => {
+            let home = dirs::home_dir()?;
+            crate::resolve_native_engine_cli(agent_id.as_str(), &home)?
+        }
+        None => return None,
+    };
     let executable = prefer_direct_spawn_executable(executable);
-    if !launch_program_available(&executable) || launch_program_is_vendor_cli(agent_id, &executable)
+    if !launch_program_available(&executable)
+        || launch_program_is_vendor_cli(agent_id, &executable)
+        || launch_program_is_legacy_acp_shim(agent_id, &executable)
     {
         return None;
     }
@@ -64,10 +70,10 @@ pub async fn discover_path_acp_launch_lock(agent_id: &AgentId) -> Option<Session
     })
 }
 
-/// Deterministic directory-scoped helper used by tests to verify that ACP launch
-/// resolution only accepts the ACP adapter / combined runtime command and never
-/// falls back to a wrapper agent's vendor CLI (`claude`, `codex`, `zcode`), even
-/// when that vendor CLI is present in the searched directories.
+/// Deterministic directory-scoped helper used to resolve a Profile's launch
+/// executable inside `dirs` (including `native_engine_extra_dirs` under `dirs`
+/// when `dirs` contains a user home root for a `NativeEngine` profile), while
+/// rejecting wrapper vendor CLIs (`zcode`, `pi`) and legacy ACP wrapper shims.
 pub fn discover_acp_launch_lock_in_dirs(
     agent_id: &AgentId,
     dirs: &[PathBuf],
@@ -80,7 +86,7 @@ pub fn discover_acp_launch_lock_in_dirs(
             ProfileComponent::AcpAdapter | ProfileComponent::CombinedRuntime
         )
     })?;
-    let executable = dirs.iter().find_map(|dir| {
+    let direct = dirs.iter().find_map(|dir| {
         #[cfg(windows)]
         let names = [
             format!("{}.exe", candidate.executable),
@@ -94,9 +100,18 @@ pub fn discover_acp_launch_lock_in_dirs(
             .into_iter()
             .map(|name| dir.join(name))
             .find(|path| path.is_file())
-    })?;
+    });
+    let executable = match direct {
+        Some(path) => path,
+        None if matches!(profile.topology, crate::ProfileTopology::NativeEngine(_)) => dirs
+            .iter()
+            .find_map(|dir| crate::resolve_native_engine_cli(agent_id.as_str(), dir))?,
+        None => return None,
+    };
     let executable = prefer_direct_spawn_executable(executable);
-    if !launch_program_available(&executable) || launch_program_is_vendor_cli(agent_id, &executable)
+    if !launch_program_available(&executable)
+        || launch_program_is_vendor_cli(agent_id, &executable)
+        || launch_program_is_legacy_acp_shim(agent_id, &executable)
     {
         return None;
     }
@@ -111,9 +126,9 @@ pub fn discover_acp_launch_lock_in_dirs(
     })
 }
 
-/// Whether `program` names a wrapper agent's native vendor CLI (`claude`,
-/// `codex`, `zcode`) rather than its ACP adapter. Wrapper agents must never
-/// spawn the vendor CLI directly for ACP sessions.
+/// Whether `program` names a wrapper agent's native vendor CLI (`zcode`, `pi`)
+/// rather than its ACP adapter. Wrapper agents must never spawn the vendor CLI
+/// directly for ACP sessions.
 pub fn launch_program_is_vendor_cli(agent_id: &AgentId, program: &Path) -> bool {
     let Some(name) = launch_command_name(program) else {
         return false;
@@ -134,6 +149,37 @@ pub fn launch_program_is_vendor_cli(agent_id: &AgentId, program: &Path) -> bool 
     false
 }
 
+/// Whether `program` points to a retired ACP wrapper shim (`claude-agent-acp`,
+/// `claude-code-acp`, `codex-acp`) for a profile that now runs as a
+/// `ProfileTopology::NativeEngine`. Stale locks pointing at legacy shims must
+/// be rejected so launch/reconcile re-resolves native `claude` / `codex` or
+/// requests repair.
+pub fn launch_program_is_legacy_acp_shim(agent_id: &AgentId, program: &Path) -> bool {
+    let Some(name) = launch_command_name(program) else {
+        return false;
+    };
+    let catalog = BuiltInProfileCatalog::bundled();
+    let Some(profile) = catalog.profile(agent_id) else {
+        return false;
+    };
+    let mode_env = std::env::var("VIBEX_ENGINE_MODE").ok();
+    let effective = profile.effective_topology(
+        crate::engine::EngineRuntimePreference::NativeFirst,
+        mode_env.as_deref(),
+    );
+    if !matches!(effective, crate::ProfileTopology::NativeEngine(_)) {
+        return false;
+    }
+    match crate::AgentKind::from_lenient(agent_id.as_str()) {
+        Some(crate::AgentKind::ClaudeCode) => matches!(
+            name.to_ascii_lowercase().as_str(),
+            "claude-agent-acp" | "claude-code-acp" | "claude-acp"
+        ),
+        Some(crate::AgentKind::Codex) => name.eq_ignore_ascii_case("codex-acp"),
+        _ => false,
+    }
+}
+
 /// Prefer a same-named command on PATH over a stale Installation lock path.
 /// Windows npm shims resolve `.exe` before `.cmd` so the launch program is
 /// directly spawnable when both exist.
@@ -151,13 +197,6 @@ pub fn prefer_path_launch_program(locked: &Path) -> PathBuf {
 
 /// Whether VibeX's own component directories may precede the user's `PATH` in a
 /// launch environment.
-///
-/// An adapter that ships its own vendor CLI (`claude_code`, `codex`) must keep
-/// VibeX's copy first: it was built against that exact CLI. An adapter that does
-/// not bundle one resolves its runtime from `PATH` — `pi-acp` spawns `pi` — and
-/// pushing VibeX's component directories ahead of the user's would silently
-/// shadow a runtime the user already installed. Appending keeps VibeX's copy
-/// reachable as a fallback when the user has none.
 pub fn component_dirs_precede_user_path(agent_id: &AgentId) -> bool {
     crate::adapter_bundles_runtime(agent_id)
 }
@@ -381,8 +420,8 @@ mod tests {
     #[test]
     fn path_launch_uses_the_command_stem_and_falls_back_to_the_lock() {
         assert_eq!(
-            launch_command_name(Path::new("codex-acp.cmd")),
-            Some("codex-acp")
+            launch_command_name(Path::new("codex.cmd")),
+            Some("codex")
         );
         let missing = PathBuf::from("/definitely/not/here/vibex-acp");
         assert_eq!(prefer_path_launch_program(&missing), missing);
@@ -421,72 +460,28 @@ mod tests {
     }
 
     #[test]
-    fn bundled_adapter_runtime_env_is_never_injected() {
+    fn native_engine_profiles_do_not_inject_adapter_runtime_env_or_shadow_user_path() {
         let dir = tempfile::tempdir().unwrap();
         let exe = dir.path().join("codex.exe");
         fs::write(&exe, b"").unwrap();
 
         let mut env = BTreeMap::new();
         bind_runtime_executable_env(&AgentId::parse("codex").unwrap(), &exe, &mut env);
-        assert!(!env.contains_key("CODEX_PATH"));
-    }
+        assert!(env.is_empty());
 
-    #[test]
-    fn adapter_runtime_env_omits_cmd_shims_without_an_exe() {
-        let dir = tempfile::tempdir().unwrap();
         let cmd = dir.path().join("claude.cmd");
         fs::write(&cmd, b"").unwrap();
-
-        let mut env = BTreeMap::new();
         bind_runtime_executable_env(&AgentId::parse("claude_code").unwrap(), &cmd, &mut env);
-        assert!(!env.contains_key("CLAUDE_CODE_EXECUTABLE"));
-    }
+        assert!(env.is_empty());
 
-    #[test]
-    fn sanitizing_launch_env_drops_stale_cmd_bindings() {
-        let mut env = HashMap::from([(
-            "CODEX_PATH".to_string(),
-            r"C:\Users\developer\AppData\Roaming\npm\codex.cmd".to_string(),
-        )]);
-        sanitize_runtime_executable_env(&AgentId::parse("codex").unwrap(), &mut env);
-        assert!(!env.contains_key("CODEX_PATH"));
+        let mut runtime_env = HashMap::new();
+        sanitize_runtime_executable_env(&AgentId::parse("codex").unwrap(), &mut runtime_env);
+        sanitize_runtime_executable_lock_env(&AgentId::parse("claude_code").unwrap(), &mut env);
 
-        let mut lock_env = BTreeMap::from([(
-            "CLAUDE_CODE_EXECUTABLE".to_string(),
-            r"\\?\C:\Users\developer\AppData\Roaming\npm\claude.cmd".to_string(),
-        )]);
-        sanitize_runtime_executable_lock_env(
-            &AgentId::parse("claude_code").unwrap(),
-            &mut lock_env,
-        );
-        assert!(!lock_env.contains_key("CLAUDE_CODE_EXECUTABLE"));
-    }
-
-    #[test]
-    fn sanitizing_launch_env_drops_bundled_adapter_exe_bindings() {
-        let dir = tempfile::tempdir().unwrap();
-        let exe = dir.path().join("claude.exe");
-        fs::write(&exe, b"").unwrap();
-        let mut env = HashMap::from([(
-            "CLAUDE_CODE_EXECUTABLE".to_string(),
-            exe.display().to_string(),
-        )]);
-        sanitize_runtime_executable_env(&AgentId::parse("claude_code").unwrap(), &mut env);
-        assert!(!env.contains_key("CLAUDE_CODE_EXECUTABLE"));
-    }
-
-    #[test]
-    fn only_a_bundled_runtime_may_shadow_the_user_path() {
-        for agent_id in ["claude_code", "codex"] {
-            assert!(
-                component_dirs_precede_user_path(&AgentId::parse(agent_id).unwrap()),
-                "{agent_id} ships its runtime with the adapter and must stay ahead of PATH"
-            );
-        }
-        for agent_id in ["pi", "opencode", "cursor"] {
+        for agent_id in ["claude_code", "codex", "pi", "opencode", "cursor"] {
             assert!(
                 !component_dirs_precede_user_path(&AgentId::parse(agent_id).unwrap()),
-                "{agent_id} resolves its runtime from PATH and must not shadow the user's"
+                "{agent_id} resolves its runtime from the user environment and must not shadow PATH"
             );
         }
     }
@@ -510,24 +505,62 @@ mod tests {
     #[test]
     fn bundled_adapter_profiles_launch_the_acp_command_not_the_vendor_cli() {
         let catalog = BuiltInProfileCatalog::bundled();
-        for (agent_id, adapter, vendor) in [
-            ("claude_code", "claude-agent-acp", "claude"),
-            ("codex", "codex-acp", "codex"),
-            ("pi", "pi-acp", "pi"),
-        ] {
-            let profile = catalog.profile(&AgentId::parse(agent_id).unwrap()).unwrap();
-            let acp = profile
-                .external_candidates
+        let pi = catalog
+            .profile(&AgentId::parse("pi").unwrap())
+            .expect("pi profile");
+        let acp = pi
+            .external_candidates
+            .iter()
+            .find(|candidate| candidate.component == ProfileComponent::AcpAdapter)
+            .unwrap();
+        assert_eq!(acp.executable, "pi-acp");
+        assert!(
+            pi.external_candidates
                 .iter()
-                .find(|candidate| candidate.component == ProfileComponent::AcpAdapter)
-                .unwrap();
-            assert_eq!(acp.executable, adapter);
-            assert!(
-                profile
-                    .external_candidates
-                    .iter()
-                    .any(|candidate| candidate.executable == vendor)
-            );
-        }
+                .any(|candidate| candidate.executable == "pi")
+        );
+        assert!(super::launch_program_is_vendor_cli(
+            &AgentId::parse("pi").unwrap(),
+            Path::new("/usr/local/bin/pi")
+        ));
+        assert!(super::launch_program_is_vendor_cli(
+            &AgentId::parse("zcode").unwrap(),
+            Path::new("/usr/local/bin/zcode")
+        ));
+    }
+
+    #[test]
+    fn native_engine_profiles_accept_official_cli_and_reject_legacy_acp_shims() {
+        let claude = AgentId::parse("claude_code").unwrap();
+        let codex = AgentId::parse("codex").unwrap();
+
+        assert!(!super::launch_program_is_vendor_cli(
+            &claude,
+            Path::new("/usr/local/bin/claude")
+        ));
+        assert!(!super::launch_program_is_vendor_cli(
+            &codex,
+            Path::new("/usr/local/bin/codex")
+        ));
+        assert!(super::launch_program_is_legacy_acp_shim(
+            &claude,
+            Path::new("/usr/local/bin/claude-agent-acp")
+        ));
+        assert!(super::launch_program_is_legacy_acp_shim(
+            &claude,
+            Path::new("/usr/local/bin/claude-code-acp")
+        ));
+        assert!(super::launch_program_is_legacy_acp_shim(
+            &codex,
+            Path::new(r"C:\Users\dev\AppData\Roaming\npm\codex-acp.cmd")
+        ));
+        assert!(!super::launch_program_is_legacy_acp_shim(
+            &claude,
+            Path::new("/usr/local/bin/claude")
+        ));
+        assert!(!super::launch_program_is_legacy_acp_shim(
+            &codex,
+            Path::new("/usr/local/bin/codex")
+        ));
     }
 }

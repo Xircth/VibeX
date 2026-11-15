@@ -7,11 +7,14 @@ import {
   getSessionComposerPluginActionInvocations,
   getSessionComposerStructuredTokenSegments,
   getSessionComposerStructuredTokens,
+  hasQuoteSourceAnchor,
   insertFileReferenceToken,
   insertPreviewElementToken,
   insertQuoteToken,
+  mayContainStructuredComposerToken,
   quoteTokenChipLabel,
   serializeSessionComposerBackendMessage,
+  updateQuoteTokenAnnotation,
 } from './sessionComposerStructuredTokens';
 
 describe('session composer structured commands', () => {
@@ -474,5 +477,101 @@ describe('session composer structured commands', () => {
         mentionAll: true,
       }),
     ]);
+  });
+
+  it('round-trips quote anchor metadata and serializes inline annotations idempotently', () => {
+    const raw = formatQuoteToken('const count = items.length;', {
+      conversationId: 'conv-42',
+      turnId: 'turn-7',
+      messageId: 'turn-7:assistant',
+      blockIndex: 2,
+      utf16Offset: 14,
+      prefixAnchor: 'Here is the bug: ',
+      suffixAnchor: ' // guard null',
+      comment: 'check null safety [urgent]',
+    });
+
+    const tokens = getSessionComposerStructuredTokens(`Fix ${raw} please`);
+    expect(tokens).toHaveLength(1);
+    expect(tokens[0]).toMatchObject({
+      kind: 'quote',
+      value: 'const count = items.length;',
+      quote: {
+        conversationId: 'conv-42',
+        turnId: 'turn-7',
+        messageId: 'turn-7:assistant',
+        blockIndex: 2,
+        utf16Offset: 14,
+        prefixAnchor: 'Here is the bug: ',
+        suffixAnchor: ' // guard null',
+        annotation: 'check null safety [urgent]',
+      },
+    });
+    expect(hasQuoteSourceAnchor(tokens[0]?.quote)).toBe(true);
+
+    const serialized = serializeSessionComposerBackendMessage(
+      `Fix ${raw} please`
+    );
+    expect(serialized).toBe(
+      'Fix [:quote](const count = items.length;) (Note: check null safety [urgent]) please'
+    );
+    expect(serializeSessionComposerBackendMessage(serialized)).toBe(serialized);
+  });
+
+  it('updates and clears inline annotations on an existing quote token while preserving anchors', () => {
+    const initial = formatQuoteToken('useLayoutEffect(() => {})', {
+      turnId: 'turn-3',
+      messageId: 'turn-3:assistant',
+    });
+    const draft = `Inspect ${initial} carefully`;
+
+    const annotated = updateQuoteTokenAnnotation(
+      draft,
+      initial,
+      'avoid layout thrashing'
+    );
+    const [tokenAfterEdit] = getSessionComposerStructuredTokens(annotated);
+    expect(tokenAfterEdit?.quote).toEqual({
+      turnId: 'turn-3',
+      messageId: 'turn-3:assistant',
+      annotation: 'avoid layout thrashing',
+    });
+    expect(serializeSessionComposerBackendMessage(annotated)).toBe(
+      `Inspect ${formatQuoteToken('useLayoutEffect(() => {})')} (Note: avoid layout thrashing) carefully`
+    );
+
+    const cleared = updateQuoteTokenAnnotation(
+      annotated,
+      tokenAfterEdit!.raw,
+      ''
+    );
+    const [tokenAfterClear] = getSessionComposerStructuredTokens(cleared);
+    expect(tokenAfterClear?.quote).toEqual({
+      turnId: 'turn-3',
+      messageId: 'turn-3:assistant',
+    });
+    expect(serializeSessionComposerBackendMessage(cleared)).toBe(
+      `Inspect ${formatQuoteToken('useLayoutEffect(() => {})')} carefully`
+    );
+  });
+
+  it('short-circuits plain text via mayContainStructuredComposerToken while preserving markdown, @member, and &agent triggers', () => {
+    expect(mayContainStructuredComposerToken('')).toBe(false);
+    expect(
+      mayContainStructuredComposerToken('ordinary prose with @email and &amp;')
+    ).toBe(false);
+    expect(
+      mayContainStructuredComposerToken('See [@:App.tsx](src/App.tsx)')
+    ).toBe(true);
+    expect(
+      mayContainStructuredComposerToken('Ping @小A please', {
+        spaceMembers: [{ id: 'm1', nickname: '小A' }],
+      })
+    ).toBe(true);
+    expect(
+      mayContainStructuredComposerToken('Ask &Codex now', {
+        bareAgentMentions: [{ agent_kind: 'codex', display_name: 'Codex' }],
+      })
+    ).toBe(true);
   });
 });

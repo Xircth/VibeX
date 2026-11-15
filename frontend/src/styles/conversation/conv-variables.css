@@ -5,6 +5,7 @@
 
 :root,
 .legacy-design {
+  --conv-thread-max-width: 48rem;
   --conv-user-bg: var(--surface-topbar);
   --conv-user-text: var(--text-strong);
   --conv-user-code-bg: var(--surface-control);

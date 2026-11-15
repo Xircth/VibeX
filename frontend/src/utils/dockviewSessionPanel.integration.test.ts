@@ -1,8 +1,11 @@
 import { beforeAll, describe, expect, it } from 'vitest';
 import { createDockview, type DockviewApi } from 'dockview-core';
+import { ensureDockviewSessionPanel } from '@/components/layout/ideLayoutGroupNormalization';
 import { PANEL_IDS } from '@/stores/useLayoutStore';
 import {
   addSessionPanelWithoutStealingFocus,
+  getLiveDockviewApi,
+  isDockviewApiDisposed,
   revealSessionPanelWithoutStealingFocus,
 } from './dockviewSessionPanel';
 
@@ -100,6 +103,29 @@ describe('revealSessionPanelWithoutStealingFocus', () => {
     expect(session.element.contains(panel.view.content.element)).toBe(true);
 
     api.dispose();
+  });
+
+  it('does not throw "invalid location" when called on a disposed Dockview instance', () => {
+    const api = createApi();
+    const { session } = buildWelcomeAndSessionGroup(api);
+    const panel = addSessionPanelWithoutStealingFocus(api, session);
+
+    expect(isDockviewApiDisposed(api)).toBe(false);
+    expect(getLiveDockviewApi(api)).toBe(api);
+
+    api.dispose();
+
+    expect(isDockviewApiDisposed(api)).toBe(true);
+    expect(getLiveDockviewApi(api)).toBeNull();
+    // Raw Dockview leaves `model.panels` populated after emptying `_tabs` on
+    // dispose, causing direct `openPanel` to throw `Error("invalid location")`.
+    expect(() =>
+      panel.group.model.openPanel(panel, { skipSetGroupActive: true })
+    ).toThrow('invalid location');
+
+    expect(() => revealSessionPanelWithoutStealingFocus(panel)).not.toThrow();
+    expect(() => ensureDockviewSessionPanel(api)).not.toThrow();
+    expect(ensureDockviewSessionPanel(api)).toBeUndefined();
   });
 });
 

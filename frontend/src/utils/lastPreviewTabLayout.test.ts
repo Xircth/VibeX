@@ -10,11 +10,11 @@ import {
 } from './lastPreviewTabLayout';
 
 describe('last preview tab layout', () => {
-  it('dismisses an empty or welcome-only editor column', () => {
+  it('dismisses only truly empty editor columns while keeping welcome tabs open', () => {
     expect(editorColumnShouldDismiss([])).toBe(true);
     expect(editorColumnShouldDismiss([{ panels: [] }])).toBe(true);
     expect(editorColumnShouldDismiss([{ panels: [{ id: 'welcome' }] }])).toBe(
-      true
+      false
     );
     expect(editorColumnShouldDismiss([{ panels: [{ id: 'file:a' }] }])).toBe(
       false
@@ -47,7 +47,7 @@ describe('last preview tab layout', () => {
     ).toBe(false);
   });
 
-  it('hides the editor after the last real editor tab is closed', () => {
+  it('keeps the editor open when welcome remains and hides only after all tabs are closed', () => {
     expect(
       shouldDismissEditorColumnAfterPanelRemoval(
         {
@@ -58,6 +58,18 @@ describe('last preview tab layout', () => {
           },
         },
         [{ panels: [{ id: PANEL_IDS.WELCOME }] }]
+      )
+    ).toBe(false);
+    expect(
+      shouldDismissEditorColumnAfterPanelRemoval(
+        {
+          id: PANEL_IDS.WELCOME,
+          group: {
+            id: 'group-editor-1',
+            panels: [],
+          },
+        },
+        [{ panels: [] }]
       )
     ).toBe(true);
   });

@@ -22,6 +22,8 @@ pub(super) async fn native_claude_draft(claude_home: &Path) -> Result<Option<Imp
         ("haiku", "ANTHROPIC_DEFAULT_HAIKU_MODEL"),
         ("sonnet", "ANTHROPIC_DEFAULT_SONNET_MODEL"),
         ("opus", "ANTHROPIC_DEFAULT_OPUS_MODEL"),
+        ("fable", "ANTHROPIC_DEFAULT_FABLE_MODEL"),
+        ("subagent", "CLAUDE_CODE_SUBAGENT_MODEL"),
         ("customOption", "ANTHROPIC_CUSTOM_MODEL_OPTION"),
         ("customOptionName", "ANTHROPIC_CUSTOM_MODEL_OPTION_NAME"),
         (
@@ -60,6 +62,8 @@ pub(super) const CLAUDE_ENV_KEYS: &[&str] = &[
     "ANTHROPIC_DEFAULT_HAIKU_MODEL",
     "ANTHROPIC_DEFAULT_SONNET_MODEL",
     "ANTHROPIC_DEFAULT_OPUS_MODEL",
+    "ANTHROPIC_DEFAULT_FABLE_MODEL",
+    "CLAUDE_CODE_SUBAGENT_MODEL",
     "ANTHROPIC_CUSTOM_MODEL_OPTION",
     "ANTHROPIC_CUSTOM_MODEL_OPTION_NAME",
     "ANTHROPIC_CUSTOM_MODEL_OPTION_DESCRIPTION",
@@ -91,6 +95,8 @@ pub(super) async fn apply_claude(
         ("haiku", "ANTHROPIC_DEFAULT_HAIKU_MODEL"),
         ("sonnet", "ANTHROPIC_DEFAULT_SONNET_MODEL"),
         ("opus", "ANTHROPIC_DEFAULT_OPUS_MODEL"),
+        ("fable", "ANTHROPIC_DEFAULT_FABLE_MODEL"),
+        ("subagent", "CLAUDE_CODE_SUBAGENT_MODEL"),
         ("customOption", "ANTHROPIC_CUSTOM_MODEL_OPTION"),
         ("customOptionName", "ANTHROPIC_CUSTOM_MODEL_OPTION_NAME"),
         (

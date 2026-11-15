@@ -20,6 +20,7 @@ export type ConversationScrollToQuoteDetail = {
   conversationId?: string;
   turnId?: string;
   messageId?: string;
+  turnOrdinal?: number;
   blockIndex?: number;
   snippet?: string;
   utf16Offset?: number;
@@ -29,7 +30,34 @@ export type ConversationScrollToQuoteDetail = {
 
 const QUOTE_PULSE_CLASS = 'conv-quote-anchor-pulse';
 const QUOTE_PULSE_DURATION_MS = 1400;
+const PENDING_JUMP_TTL_MS = 8000;
 const activePulseTimers = new WeakMap<HTMLElement, number>();
+const pendingConversationJumps = new Map<
+  string,
+  { detail: ConversationScrollToQuoteDetail; expiresAt: number }
+>();
+
+export function recordPendingConversationJump(
+  conversationId: string,
+  detail: ConversationScrollToQuoteDetail
+): void {
+  if (!conversationId) return;
+  pendingConversationJumps.set(conversationId, {
+    detail: { ...detail, conversationId },
+    expiresAt: Date.now() + PENDING_JUMP_TTL_MS,
+  });
+}
+
+export function consumePendingConversationJump(
+  conversationId: string | null | undefined
+): ConversationScrollToQuoteDetail | null {
+  if (!conversationId) return null;
+  const entry = pendingConversationJumps.get(conversationId);
+  if (!entry) return null;
+  pendingConversationJumps.delete(conversationId);
+  if (entry.expiresAt < Date.now()) return null;
+  return entry.detail;
+}
 
 export function requestConversationScrollToTurn(
   conversationId: string,
@@ -57,7 +85,12 @@ export function requestConversationScrollToGoal(conversationId: string): void {
 export function requestConversationScrollToQuote(
   detail: ConversationScrollToQuoteDetail
 ): void {
-  if (!detail.turnId && !detail.messageId && !detail.snippet?.trim()) {
+  if (
+    !detail.turnId &&
+    !detail.messageId &&
+    detail.turnOrdinal === undefined &&
+    !detail.snippet?.trim()
+  ) {
     return;
   }
   window.dispatchEvent(

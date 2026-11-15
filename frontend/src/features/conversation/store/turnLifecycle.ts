@@ -13,7 +13,6 @@ import type {
   TimelineRow,
 } from 'shared/types';
 
-import { getSessionComposerStructuredTokens } from '@/components/tasks/follow-up/sessionComposerStructuredTokens';
 import { plausibleTurnStartMs } from '@/components/conversation-thread/turnClock';
 import { mergeReportedTurnUsage } from '../reportedTurnUsage';
 import {
@@ -24,37 +23,37 @@ import {
   TERMINAL_ROW_PHASES,
   combineWindowAndLiveRows,
   dropSeededInitialPrompt,
-  hasPotentialStructuredToken,
   insertTimelineRow,
   isLateSettledAssistantAppend,
   isLiveProjectorRowId,
-  isLiveTurnConvergedInWindow,
   mergeAssistantBlocks,
   mergePatchedBlocks,
   messageTurnPairKey,
   overlayLiveText,
   preserveStructuredUserText,
-  promptsMatch,
+  preserveStructuredUserTextFromLiveRows,
+  pruneConvergedLiveState,
   rebuildRowIndex,
   reconcileOptimisticTurnAgainstUserRow,
   reconcileOptimisticTurns,
   reconcileOptimisticTurnsAgainstRows,
   settleIdleOpenTail,
   toBigInt,
-  userTurnText,
-  windowBlocksCoverLiveBlocks,
 } from './queue';
 
 /**
- * Dumb-container conversation store (消灭双投影).
+ * Single-authority conversation store (SQLite `timeline_rows` + live `row_ops`).
  *
- * The backend `ProjectionFold` is the single projector. The frontend never folds
- * events — it only:
- *   - upserts backend-computed `TimelineRow`s by `row_id` (idempotent by `revision`), and
- *   - concatenates streaming text into a per-row `liveText` overlay (cleared when that
- *     row is next upserted).
- * Initial load, live stream, and gap backfill all consume the same `TimelineRow`.
+ * The backend projector is the sole projection authority. The frontend only:
+ *   - stores SQLite window pages (`windowRows`) and live incremental updates (`liveRows`)
+ *     under shared canonical `row_id`s, governed strictly by monotonic `revision`,
+ *   - accumulates streaming deltas into a per-row `liveText` overlay, and
+ *   - applies `Delete` tombstones and `reset: true` resync signals deterministically.
  */
+
+export type ResettableConversationRowOpBatch = ConversationRowOpBatch & {
+  reset?: boolean;
+};
 
 /** Agent-advertised session modes for a conversation, plus the current one. */
 export type ConversationSessionModesState = {
@@ -95,26 +94,39 @@ export type LiveTextOverlay = {
   revision: bigint;
 };
 
+export function normalizeAgentIdentity(
+  raw: string | null | undefined
+): string | null {
+  const trimmed = raw?.trim() ?? '';
+  if (!trimmed) return null;
+  return trimmed.toLowerCase().replace(/[-_\s]+/g, '');
+}
+
 export type ConversationStoreEntry = {
   conversationId: string;
   detail: DbConversationDetail | null;
-  /** Persisted window rows from `get_conversation_detail_window` and older pagination. */
+  /** Persisted window rows from `conversation_detail` and older keyset pagination. */
   windowRows: TimelineRow[];
-  /** Live rows from the current unconverged turn's `row_ops` (`{turn}:user`, `{turn}:assistant`, steer, side rows). */
+  /** Live incremental rows from `row_ops` (`{turn}:user`, `{turn}:assistant`, steer, side rows). */
   liveRows: TimelineRow[];
-  /** Combined rendered rows (`windowRows` followed by `liveRows`, aligned by turn position and prompt text). */
+  /** Combined rendered rows (`windowRows` merged with `liveRows` by canonical `row_id` and `revision`). */
   rows: TimelineRow[];
   /** Per-row streaming-text overlay (`row_id` → chunks since last upsert). */
   liveText: Record<string, LiveTextOverlay>;
   lastSequence: bigint;
+  /** Highest authoritative SQLite snapshot/backfill sequence applied (`load_success` / `apply_gap_rows`). */
+  loadedLastSequence: bigint;
   projectionVersion: number | null;
   currentTurnId: string | null;
   loading: boolean;
   error: string | null;
   gap: ConversationGapState;
   optimisticTurns: MessageTurn[];
+  /** User `row_id`s that already existed when each optimistic turn was queued, for deterministic causality. */
+  optimisticBaselineUserRowIds: Record<string, string[]>;
   // Agent-advertised session controls (delivered alongside row-op batches). Drive the
   // composer's mode/config picker; empty until the agent advertises them.
+  controlsAgentId: string | null;
   sessionModes: ConversationSessionModesState;
   sessionConfigOptions: AgentSessionConfigOption[];
   /** Agent-advertised slash/skill catalog. `null` until the first update. */
@@ -146,6 +158,7 @@ export type ConversationStoreAction =
       type: 'load_success';
       conversationId: string;
       detail: DbConversationDetail;
+      forceReplaceWindow?: boolean;
     }
   | { type: 'load_error'; conversationId: string; error: string | null }
   | {
@@ -153,7 +166,13 @@ export type ConversationStoreAction =
       conversationId: string;
       controls: AgentSessionControlsSnapshot;
     }
-  | { type: 'row_ops'; batch: ConversationRowOpBatch }
+  | { type: 'row_ops'; batch: ResettableConversationRowOpBatch }
+  | {
+      type: 'apply_gap_rows';
+      conversationId: string;
+      ops: ConversationRowOp[];
+      lastSequence: bigint;
+    }
   | {
       type: 'upsert_rows';
       conversationId: string;
@@ -188,17 +207,12 @@ export function conversationStoreReducer(
         const detailLastSequence = toBigInt(
           action.detail.timeline.last_sequence
         );
-        const keepRealtimeRows = entry.lastSequence > detailLastSequence;
+        const forceReplace = Boolean(action.forceReplaceWindow);
+        const keepRealtimeRows =
+          !forceReplace && entry.lastSequence > detailLastSequence;
         const incomingRows = action.detail.timeline.rows;
-
-        // Promote any in-flight live-id rows that were seeded into `windowRows`
-        // (e.g. unit tests calling `loaded([streamingUser(...)])`) before replacing
-        // `windowRows` with the server window.
-        const priorLiveRows = promoteUnconvergedStreamingLiveRows(
-          entry.windowRows,
-          entry.liveRows,
-          incomingRows
-        );
+        const priorLiveRows = forceReplace ? [] : entry.liveRows;
+        const priorLiveText = forceReplace ? {} : entry.liveText;
 
         const incomingIds = new Set(incomingRows.map((row) => row.row_id));
         const baseWindowRows =
@@ -213,7 +227,8 @@ export function conversationStoreReducer(
         );
         const reconciledWindow = reconcileOptimisticTurnsAgainstRows(
           entry.optimisticTurns,
-          droppedWindowSeed
+          droppedWindowSeed,
+          entry.optimisticBaselineUserRowIds
         );
         const consumedOptimistic =
           reconciledWindow.optimisticTurns.length <
@@ -226,13 +241,13 @@ export function conversationStoreReducer(
             ),
             Boolean(action.detail.in_flight_user_turn_id) || consumedOptimistic
           ),
-          priorLiveRows
+          forceReplace ? [] : [...entry.windowRows, ...priorLiveRows]
         );
 
         const prunedLive = pruneConvergedLiveState(
           windowRows,
           priorLiveRows,
-          entry.liveText
+          priorLiveText
         );
         const liveRows = dropSeededInitialPrompt(
           action.conversationId,
@@ -249,12 +264,60 @@ export function conversationStoreReducer(
           liveText
         );
 
+        const nextOptimisticTurns = keepRealtimeRows
+          ? reconcileOptimisticTurns(
+              entry.optimisticTurns,
+              action.detail.timeline,
+              entry.optimisticBaselineUserRowIds
+            )
+          : reconciledWindow.optimisticTurns;
+        const optimisticBaselineUserRowIds = pruneOptimisticBaselines(
+          entry.optimisticBaselineUserRowIds,
+          nextOptimisticTurns
+        );
+
         // `rows` is the timeline the view renders. Keeping the same rows on
         // `detail` duplicated the open window for as long as the card was mounted.
         const detail = {
           ...action.detail,
           timeline: { ...action.detail.timeline, rows: [] },
         };
+        const detailAgentId = normalizeAgentIdentity(
+          action.detail.summary.agent_id ??
+            action.detail.active_binding?.agent_type ??
+            null
+        );
+        const agentChanged = Boolean(
+          detailAgentId &&
+            entry.controlsAgentId &&
+            detailAgentId !== entry.controlsAgentId
+        );
+        const nextSessionModes = action.detail.session_modes
+          ? {
+              current: action.detail.session_modes.current ?? null,
+              modes: action.detail.session_modes.modes,
+            }
+          : agentChanged
+            ? { current: null, modes: [] }
+            : entry.sessionModes;
+        const nextSessionConfigOptions =
+          action.detail.session_config_options &&
+          action.detail.session_config_options.length > 0
+            ? action.detail.session_config_options
+            : agentChanged
+              ? []
+              : entry.sessionConfigOptions;
+        const nextAvailableCommands =
+          action.detail.available_commands !== undefined &&
+          action.detail.available_commands !== null
+            ? action.detail.available_commands
+            : agentChanged
+              ? null
+              : entry.availableCommands;
+        const hasAnyControls =
+          nextSessionModes.modes.length > 0 ||
+          Boolean(nextSessionModes.current) ||
+          nextSessionConfigOptions.length > 0;
         return {
           ...entry,
           detail,
@@ -265,36 +328,26 @@ export function conversationStoreReducer(
           lastSequence: keepRealtimeRows
             ? entry.lastSequence
             : detailLastSequence,
+          loadedLastSequence: forceReplace
+            ? detailLastSequence
+            : detailLastSequence > entry.loadedLastSequence
+              ? detailLastSequence
+              : entry.loadedLastSequence,
           projectionVersion: action.detail.projection_version,
           currentTurnId: action.detail.current_turn?.id ?? entry.currentTurnId,
           loading: false,
           error: null,
           gap: { kind: 'none' } satisfies ConversationGapState,
-          optimisticTurns: keepRealtimeRows
-            ? reconcileOptimisticTurns(
-                entry.optimisticTurns,
-                action.detail.timeline
-              )
-            : reconciledWindow.optimisticTurns,
+          optimisticTurns: nextOptimisticTurns,
+          optimisticBaselineUserRowIds,
           // Hydrate agent-advertised session controls from the persisted event
           // log so a reopened conversation renders real ACP pickers immediately;
           // live row-op batches keep them fresh afterwards.
-          sessionModes: action.detail.session_modes
-            ? {
-                current: action.detail.session_modes.current ?? null,
-                modes: action.detail.session_modes.modes,
-              }
-            : entry.sessionModes,
-          sessionConfigOptions:
-            action.detail.session_config_options &&
-            action.detail.session_config_options.length > 0
-              ? action.detail.session_config_options
-              : entry.sessionConfigOptions,
-          availableCommands:
-            action.detail.available_commands !== undefined &&
-            action.detail.available_commands !== null
-              ? action.detail.available_commands
-              : entry.availableCommands,
+          controlsAgentId:
+            detailAgentId ?? (hasAnyControls ? entry.controlsAgentId : null),
+          sessionModes: nextSessionModes,
+          sessionConfigOptions: nextSessionConfigOptions,
+          availableCommands: nextAvailableCommands,
           sessionGoal:
             action.detail.session_goal !== undefined &&
             action.detail.session_goal !== null
@@ -340,21 +393,39 @@ export function conversationStoreReducer(
         error: action.error,
       }));
     case 'session_controls_hydrated':
-      return updateEntry(state, action.conversationId, (entry) => ({
-        ...entry,
-        sessionModes:
-          action.controls.modes.length > 0 || action.controls.current_mode
-            ? {
-                current: action.controls.current_mode ?? null,
-                modes: action.controls.modes,
-              }
-            : entry.sessionModes,
-        sessionConfigOptions:
-          action.controls.config_options.length > 0
-            ? action.controls.config_options
-            : entry.sessionConfigOptions,
-        availableCommands:
-          action.controls.available_commands ?? entry.availableCommands,
+      return updateEntry(state, action.conversationId, (entry) => {
+        const entryAgentId =
+          normalizeAgentIdentity(
+            entry.detail?.summary.agent_id ??
+              entry.detail?.active_binding?.agent_type ??
+              null
+          ) ?? entry.controlsAgentId;
+        const agentChanged = Boolean(
+          entryAgentId &&
+            entry.controlsAgentId &&
+            entryAgentId !== entry.controlsAgentId
+        );
+        return {
+          ...entry,
+          controlsAgentId: entryAgentId,
+          sessionModes:
+            action.controls.modes.length > 0 || action.controls.current_mode
+              ? {
+                  current: action.controls.current_mode ?? null,
+                  modes: action.controls.modes,
+                }
+              : agentChanged
+                ? { current: null, modes: [] }
+                : entry.sessionModes,
+          sessionConfigOptions:
+            action.controls.config_options.length > 0
+              ? action.controls.config_options
+              : agentChanged
+                ? []
+                : entry.sessionConfigOptions,
+          availableCommands:
+            action.controls.available_commands ??
+            (agentChanged ? null : entry.availableCommands),
         sessionGoal:
           action.controls.goal !== undefined ||
           action.controls.goal_actions !== undefined
@@ -373,28 +444,35 @@ export function conversationStoreReducer(
           action.controls.async_tasks && action.controls.async_tasks.length > 0
             ? action.controls.async_tasks
             : entry.asyncTasks,
-        promptSuggestion:
-          action.controls.prompt_suggestion !== undefined
-            ? (action.controls.prompt_suggestion ?? null)
-            : entry.promptSuggestion,
-      }));
+          promptSuggestion:
+            action.controls.prompt_suggestion !== undefined
+              ? (action.controls.prompt_suggestion ?? null)
+              : entry.promptSuggestion,
+        };
+      });
     case 'row_ops': {
       return updateEntry(state, action.batch.conversation_id, (entry) => {
         return applyRowOpBatch(entry, action.batch);
       });
     }
+    case 'apply_gap_rows':
+      return updateEntry(state, action.conversationId, (entry) =>
+        applyGapRows(entry, action.ops, action.lastSequence)
+      );
     case 'upsert_rows':
       return updateEntry(state, action.conversationId, (entry) => {
         let windowRows = entry.windowRows;
         let liveRows = entry.liveRows;
         let liveText = entry.liveText;
         let optimisticTurns = entry.optimisticTurns;
+        let optimisticBaselineUserRowIds = entry.optimisticBaselineUserRowIds;
         let prepended = 0;
         let prependedUserTurns = 0;
         if (action.protectLoaded) {
           const existing = new Set(windowRows.map((row) => row.row_id));
           const older: TimelineRow[] = [];
           const updates: TimelineRow[] = [];
+          const olderUserRowIds: string[] = [];
           for (const row of action.rows) {
             if (!existing.has(row.row_id)) {
               older.push(row);
@@ -402,14 +480,23 @@ export function conversationStoreReducer(
               prepended += 1;
               if (
                 row.row.kind === 'message_turn' &&
-                row.row.turn.role === 'user' &&
-                !row.row_id.includes(':steer:')
+                row.row.turn.role === 'user'
               ) {
-                prependedUserTurns += 1;
+                olderUserRowIds.push(row.row_id);
+                if (!row.row_id.includes(':steer:')) {
+                  prependedUserTurns += 1;
+                }
               }
             } else {
               updates.push(row);
             }
+          }
+          if (olderUserRowIds.length > 0 && optimisticTurns.length > 0) {
+            optimisticBaselineUserRowIds = extendOptimisticBaselines(
+              optimisticBaselineUserRowIds,
+              optimisticTurns,
+              olderUserRowIds
+            );
           }
           windowRows = [...older, ...windowRows];
           if (updates.length > 0) {
@@ -438,7 +525,8 @@ export function conversationStoreReducer(
           for (const row of action.rows) {
             const reconciled = reconcileOptimisticTurnAgainstUserRow(
               optimisticTurns,
-              row
+              row,
+              optimisticBaselineUserRowIds
             );
             optimisticTurns = reconciled.optimisticTurns;
             const applied = upsertRow(
@@ -451,6 +539,10 @@ export function conversationStoreReducer(
             liveRows = applied.rows;
             liveText = applied.liveText;
           }
+          optimisticBaselineUserRowIds = pruneOptimisticBaselines(
+            optimisticBaselineUserRowIds,
+            optimisticTurns
+          );
           liveRows = dropSeededInitialPrompt(action.conversationId, liveRows);
         }
         const rows = combineWindowAndLiveRows(
@@ -469,6 +561,7 @@ export function conversationStoreReducer(
         const windowStartChanged =
           nextOlderCursor !== entry.olderCursor ||
           nextLoadedToStart !== entry.loadedToStart;
+        const incomingLastSeq = toBigInt(action.lastSequence);
         return {
           ...entry,
           windowRows,
@@ -476,10 +569,15 @@ export function conversationStoreReducer(
           rows,
           liveText,
           optimisticTurns,
+          optimisticBaselineUserRowIds,
           lastSequence:
-            action.lastSequence > entry.lastSequence
-              ? action.lastSequence
+            incomingLastSeq > entry.lastSequence
+              ? incomingLastSeq
               : entry.lastSequence,
+          loadedLastSequence:
+            !action.protectLoaded && incomingLastSeq > entry.loadedLastSequence
+              ? incomingLastSeq
+              : entry.loadedLastSequence,
           olderCursor: nextOlderCursor,
           prefixHash: windowStartChanged ? null : entry.prefixHash,
           userTurnsBeforeOffset: Math.max(
@@ -496,15 +594,26 @@ export function conversationStoreReducer(
       return updateEntry(state, action.conversationId, (entry) => ({
         ...entry,
         optimisticTurns: [...entry.optimisticTurns, action.turn],
+        optimisticBaselineUserRowIds: {
+          ...entry.optimisticBaselineUserRowIds,
+          [action.turn.id]: collectUserRowIds(entry.windowRows, entry.liveRows),
+        },
         promptSuggestion: null,
       }));
     case 'remove_optimistic_turn':
-      return updateEntry(state, action.conversationId, (entry) => ({
-        ...entry,
-        optimisticTurns: entry.optimisticTurns.filter(
+      return updateEntry(state, action.conversationId, (entry) => {
+        const optimisticTurns = entry.optimisticTurns.filter(
           (turn) => turn.id !== action.turnId
-        ),
-      }));
+        );
+        return {
+          ...entry,
+          optimisticTurns,
+          optimisticBaselineUserRowIds: pruneOptimisticBaselines(
+            entry.optimisticBaselineUserRowIds,
+            optimisticTurns
+          ),
+        };
+      });
     case 'clear_prompt_suggestion':
       return updateEntry(state, action.conversationId, (entry) =>
         entry.promptSuggestion === null
@@ -522,25 +631,82 @@ export function conversationStoreReducer(
   }
 }
 
-function applyRowOpBatch(
-  entry: ConversationStoreEntry,
-  batch: ConversationRowOpBatch
-): ConversationStoreEntry {
-  let windowRows = entry.windowRows;
-  let liveRows = entry.liveRows;
-  let liveText = entry.liveText;
-  let currentTurnId = entry.currentTurnId;
-  let optimisticTurns = entry.optimisticTurns;
+function collectUserRowIds(
+  windowRows: TimelineRow[],
+  liveRows: TimelineRow[]
+): string[] {
+  const seen = new Set<string>();
+  for (const row of [...windowRows, ...liveRows]) {
+    if (row.row.kind === 'message_turn' && row.row.turn.role === 'user') {
+      seen.add(row.row_id);
+    }
+  }
+  return Array.from(seen);
+}
+
+function pruneOptimisticBaselines(
+  baselines: Record<string, string[]>,
+  optimisticTurns: MessageTurn[]
+): Record<string, string[]> {
+  if (optimisticTurns.length === 0) return {};
+  const activeIds = new Set(optimisticTurns.map((turn) => turn.id));
+  const next: Record<string, string[]> = {};
+  for (const [turnId, ids] of Object.entries(baselines)) {
+    if (activeIds.has(turnId)) {
+      next[turnId] = ids;
+    }
+  }
+  return next;
+}
+
+function extendOptimisticBaselines(
+  baselines: Record<string, string[]>,
+  optimisticTurns: MessageTurn[],
+  extraUserRowIds: string[]
+): Record<string, string[]> {
+  const next: Record<string, string[]> = { ...baselines };
+  for (const turn of optimisticTurns) {
+    const current = next[turn.id] ?? [];
+    const merged = new Set([...current, ...extraUserRowIds]);
+    next[turn.id] = Array.from(merged);
+  }
+  return next;
+}
+
+function applyOpsSequence(
+  initial: {
+    windowRows: TimelineRow[];
+    liveRows: TimelineRow[];
+    liveText: Record<string, LiveTextOverlay>;
+    currentTurnId: string | null;
+    optimisticTurns: MessageTurn[];
+    optimisticBaselineUserRowIds: Record<string, string[]>;
+  },
+  ops: ConversationRowOp[],
+  loadedWatermark: bigint
+): {
+  windowRows: TimelineRow[];
+  liveRows: TimelineRow[];
+  liveText: Record<string, LiveTextOverlay>;
+  currentTurnId: string | null;
+  optimisticTurns: MessageTurn[];
+  sawUserTurnUpsert: boolean;
+} {
+  let { windowRows, liveRows, liveText, currentTurnId, optimisticTurns } =
+    initial;
   let sawUserTurnUpsert = false;
   const rowIndexById = new Map(
     liveRows.map((row, index) => [row.row_id, index] as const)
   );
-
-  for (const op of batch.ops) {
+  for (const op of ops) {
+    if (loadedWatermark > 0n && opRevision(op) <= loadedWatermark) {
+      continue;
+    }
     if (op.op === 'upsert') {
       const reconciled = reconcileOptimisticTurnAgainstUserRow(
         optimisticTurns,
-        op.row
+        op.row,
+        initial.optimisticBaselineUserRowIds
       );
       optimisticTurns = reconciled.optimisticTurns;
       const applied = upsertRow(
@@ -570,23 +736,17 @@ function applyRowOpBatch(
       liveRows = applied.rows;
       liveText = applied.liveText;
     } else if (op.op === 'delete') {
-      const revision = toBigInt(op.revision);
-      const existingIndex = rowIndexById.get(op.row_id);
-      const existing =
-        existingIndex === undefined ? undefined : liveRows[existingIndex];
-      if (existing && revision >= toBigInt(existing.revision)) {
-        liveRows = liveRows.filter((row) => row.row_id !== op.row_id);
-        rebuildRowIndex(liveRows, rowIndexById);
-      }
-      const windowExisting = windowRows.find((row) => row.row_id === op.row_id);
-      if (windowExisting && revision >= toBigInt(windowExisting.revision)) {
-        windowRows = windowRows.filter((row) => row.row_id !== op.row_id);
-      }
-      const overlay = liveText[op.row_id];
-      if (overlay && revision >= overlay.revision) {
-        liveText = { ...liveText };
-        delete liveText[op.row_id];
-      }
+      const deleted = applyDeleteTombstone(
+        windowRows,
+        liveRows,
+        liveText,
+        op.row_id,
+        toBigInt(op.revision),
+        rowIndexById
+      );
+      windowRows = deleted.windowRows;
+      liveRows = deleted.liveRows;
+      liveText = deleted.liveText;
     } else {
       liveText = appendLiveText(
         liveText,
@@ -597,9 +757,137 @@ function applyRowOpBatch(
       );
     }
   }
+  return {
+    windowRows,
+    liveRows,
+    liveText,
+    currentTurnId,
+    optimisticTurns,
+    sawUserTurnUpsert,
+  };
+}
+
+function applyGapRows(
+  entry: ConversationStoreEntry,
+  ops: ConversationRowOp[],
+  incomingLastSequence: bigint
+): ConversationStoreEntry {
+  const applied = applyOpsSequence(entry, ops, 0n);
+  const optimisticBaselineUserRowIds = pruneOptimisticBaselines(
+    entry.optimisticBaselineUserRowIds,
+    applied.optimisticTurns
+  );
+  const windowRows = dropSeededInitialPrompt(
+    entry.conversationId,
+    applied.windowRows
+  );
+  const prunedLive = pruneConvergedLiveState(
+    windowRows,
+    applied.liveRows,
+    applied.liveText
+  );
+  const liveRows = dropSeededInitialPrompt(
+    entry.conversationId,
+    prunedLive.liveRows
+  );
+  const liveText = retainStreamingLiveText(
+    [...windowRows, ...liveRows],
+    prunedLive.liveText
+  );
+  const rows = combineWindowAndLiveRows(
+    entry.conversationId,
+    windowRows,
+    liveRows,
+    liveText
+  );
+  const nextSeq = toBigInt(incomingLastSequence);
+
+  return {
+    ...entry,
+    windowRows,
+    liveRows,
+    rows,
+    liveText,
+    currentTurnId: applied.currentTurnId,
+    optimisticTurns: applied.optimisticTurns,
+    optimisticBaselineUserRowIds,
+    lastSequence: nextSeq > entry.lastSequence ? nextSeq : entry.lastSequence,
+    loadedLastSequence:
+      nextSeq > entry.loadedLastSequence ? nextSeq : entry.loadedLastSequence,
+    gap: { kind: 'none' },
+  };
+}
+
+function applyDeleteTombstone(
+  windowRows: TimelineRow[],
+  liveRows: TimelineRow[],
+  liveText: Record<string, LiveTextOverlay>,
+  rowId: string,
+  revision: bigint,
+  liveRowIndexById: Map<string, number>
+): {
+  windowRows: TimelineRow[];
+  liveRows: TimelineRow[];
+  liveText: Record<string, LiveTextOverlay>;
+} {
+  let nextWindowRows = windowRows;
+  let nextLiveRows = liveRows;
+  let nextLiveText = liveText;
+
+  const existingIndex = liveRowIndexById.get(rowId);
+  const existing =
+    existingIndex === undefined ? undefined : nextLiveRows[existingIndex];
+  if (existing && revision >= toBigInt(existing.revision)) {
+    nextLiveRows = nextLiveRows.filter((row) => row.row_id !== rowId);
+    rebuildRowIndex(nextLiveRows, liveRowIndexById);
+  }
+  const windowExisting = nextWindowRows.find((row) => row.row_id === rowId);
+  if (windowExisting && revision >= toBigInt(windowExisting.revision)) {
+    nextWindowRows = nextWindowRows.filter((row) => row.row_id !== rowId);
+  }
+  const overlay = nextLiveText[rowId];
+  if (overlay && revision >= overlay.revision) {
+    nextLiveText = { ...nextLiveText };
+    delete nextLiveText[rowId];
+  }
+  return {
+    windowRows: nextWindowRows,
+    liveRows: nextLiveRows,
+    liveText: nextLiveText,
+  };
+}
+
+function applyRowOpBatch(
+  entry: ConversationStoreEntry,
+  batch: ResettableConversationRowOpBatch
+): ConversationStoreEntry {
+  const isReset = Boolean(batch.reset);
+  const applied = applyOpsSequence(
+    {
+      windowRows: isReset ? [] : entry.windowRows,
+      liveRows: isReset ? [] : entry.liveRows,
+      liveText: isReset ? {} : entry.liveText,
+      currentTurnId: isReset ? null : entry.currentTurnId,
+      optimisticTurns: entry.optimisticTurns,
+      optimisticBaselineUserRowIds: entry.optimisticBaselineUserRowIds,
+    },
+    batch.ops,
+    isReset ? 0n : entry.loadedLastSequence
+  );
+  let { windowRows, liveRows } = applied;
+  const { liveText, currentTurnId, optimisticTurns, sawUserTurnUpsert } =
+    applied;
+  const optimisticBaselineUserRowIds = pruneOptimisticBaselines(
+    entry.optimisticBaselineUserRowIds,
+    optimisticTurns
+  );
 
   let rows: TimelineRow[];
-  if (windowRows === entry.windowRows && liveRows === entry.liveRows) {
+  if (
+    !isReset &&
+    windowRows === entry.windowRows &&
+    liveRows === entry.liveRows
+  ) {
     rows = entry.rows;
   } else {
     liveRows = dropSeededInitialPrompt(entry.conversationId, liveRows);
@@ -613,7 +901,9 @@ function applyRowOpBatch(
   }
 
   const lastSequence = toBigInt(batch.last_sequence);
-  const gap = detectSequenceGap(entry.lastSequence, batch);
+  const gap: ConversationGapState = isReset
+    ? { kind: 'none' }
+    : detectSequenceGap(entry.lastSequence, batch);
   return {
     ...entry,
     windowRows,
@@ -622,9 +912,26 @@ function applyRowOpBatch(
     liveText,
     currentTurnId,
     optimisticTurns,
-    lastSequence:
-      lastSequence > entry.lastSequence ? lastSequence : entry.lastSequence,
+    optimisticBaselineUserRowIds,
+    lastSequence: isReset
+      ? lastSequence
+      : lastSequence > entry.lastSequence
+        ? lastSequence
+        : entry.lastSequence,
+    loadedLastSequence: isReset ? 0n : entry.loadedLastSequence,
+    olderCursor: isReset ? null : entry.olderCursor,
+    prefixHash: isReset ? null : entry.prefixHash,
+    userTurnsBeforeOffset: isReset ? 0 : entry.userTurnsBeforeOffset,
+    loadedToStart: isReset ? true : entry.loadedToStart,
     gap,
+    controlsAgentId:
+      batch.session_modes != null || batch.session_config_options != null
+        ? (normalizeAgentIdentity(
+            entry.detail?.summary.agent_id ??
+              entry.detail?.active_binding?.agent_type ??
+              null
+          ) ?? entry.controlsAgentId)
+        : entry.controlsAgentId,
     sessionModes: batch.session_modes
       ? {
           current: batch.session_modes.current ?? null,
@@ -700,21 +1007,6 @@ function upsertRow(
     ) {
       return { rows, liveText };
     }
-    if (!windowExisting && windowRows && isTerminalMessageRow(incoming)) {
-      const turnKey = messageTurnPairKey(incoming.row_id);
-      if (
-        turnKey &&
-        !rows.some((row) => messageTurnPairKey(row.row_id) === turnKey) &&
-        isLiveTurnConvergedInWindow(
-          turnKey,
-          windowRows,
-          [...rows, incoming],
-          liveText
-        )
-      ) {
-        return { rows, liveText };
-      }
-    }
     const isOverlayTerminalTransition = Boolean(
       !windowExisting &&
         liveText[incoming.row_id] &&
@@ -779,31 +1071,6 @@ function upsertRow(
   return { rows: nextRows, liveText: nextLive };
 }
 
-function withMergedTurnUsage(
-  existing: TimelineRow,
-  incoming: TimelineRow
-): TimelineRow {
-  if (
-    existing.row.kind !== 'message_turn' ||
-    incoming.row.kind !== 'message_turn'
-  ) {
-    return incoming;
-  }
-  return {
-    ...incoming,
-    row: {
-      ...incoming.row,
-      turn: {
-        ...incoming.row.turn,
-        usage: mergeReportedTurnUsage(
-          existing.row.turn.usage,
-          incoming.row.turn.usage
-        ),
-      },
-    },
-  };
-}
-
 function preserveAssistantBlocksOnColdUpsert(
   existing: TimelineRow,
   incoming: TimelineRow,
@@ -821,25 +1088,24 @@ function preserveAssistantBlocksOnColdUpsert(
   const incomingRevision = toBigInt(incoming.revision);
   if (existing === incoming) {
     if (!overlay) return incoming;
-    const overlayBlocks = overlayLiveText([], overlay);
-    if (
-      incoming.row.turn.blocks.length > 0 &&
-      windowBlocksCoverLiveBlocks(incoming.row.turn.blocks, overlayBlocks)
-    ) {
-      return incoming;
-    }
     if (
       overlay.revision > incomingRevision ||
-      incoming.row.turn.blocks.length === 0 ||
-      forceApplyOverlay
+      incoming.row.turn.blocks.length === 0
     ) {
+      const mergedBlocks =
+        incoming.row.turn.blocks.length > 0
+          ? mergeAssistantBlocks(
+              incoming.row.turn.blocks,
+              overlayLiveText([], overlay)
+            )
+          : overlayLiveText([], overlay);
       return {
         ...incoming,
         row: {
           ...incoming.row,
           turn: {
             ...incoming.row.turn,
-            blocks: overlayLiveText(incoming.row.turn.blocks, overlay),
+            blocks: mergedBlocks,
           },
         },
       };
@@ -849,10 +1115,7 @@ function preserveAssistantBlocksOnColdUpsert(
   const shouldApplyOverlay = Boolean(
     overlay &&
       (incomingRevision >= overlay.revision || forceApplyOverlay) &&
-      !windowBlocksCoverLiveBlocks(
-        existing.row.turn.blocks,
-        overlayLiveText([], overlay)
-      )
+      overlay.revision > toBigInt(existing.revision)
   );
   const baseBlocks =
     shouldApplyOverlay && overlay
@@ -860,12 +1123,6 @@ function preserveAssistantBlocksOnColdUpsert(
       : existing.row.turn.blocks;
   if (baseBlocks.length === 0) {
     return incoming;
-  }
-  if (
-    incoming.row.turn.blocks.length > 0 &&
-    windowBlocksCoverLiveBlocks(incoming.row.turn.blocks, baseBlocks)
-  ) {
-    return withMergedTurnUsage(existing, incoming);
   }
   const mergedBlocks =
     incoming.row.turn.blocks.length > 0
@@ -890,6 +1147,62 @@ function preserveAssistantBlocksOnColdUpsert(
   };
 }
 
+function advanceOverlayOnPatch(
+  liveText: Record<string, LiveTextOverlay>,
+  rowId: string,
+  overlay: LiveTextOverlay | undefined,
+  revision: bigint,
+  consumeOverlay: boolean
+): Record<string, LiveTextOverlay> {
+  if (consumeOverlay) {
+    const nextLive = { ...liveText };
+    delete nextLive[rowId];
+    return nextLive;
+  }
+  if (overlay && overlay.revision <= revision) {
+    return { ...liveText, [rowId]: { ...overlay, revision: revision + 1n } };
+  }
+  return liveText;
+}
+
+function patchExistingMessageRow(
+  existing: TimelineRow & { row: { kind: 'message_turn'; turn: MessageTurn } },
+  op: Extract<ConversationRowOp, { op: 'patch_blocks' }>,
+  overlay: LiveTextOverlay | undefined,
+  revision: bigint,
+  allRows: TimelineRow[]
+): { patched: TimelineRow; consumeOverlay: boolean } {
+  const consumeOverlay = Boolean(
+    overlay &&
+      overlay.revision <= revision &&
+      willAppendNewPatchedBlock(existing.row.turn.blocks, op.blocks)
+  );
+  const baseBlocks =
+    consumeOverlay && overlay
+      ? overlayLiveText(existing.row.turn.blocks, overlay)
+      : existing.row.turn.blocks;
+  return {
+    consumeOverlay,
+    patched: {
+      ...existing,
+      revision: op.revision,
+      row: {
+        ...existing.row,
+        phase: op.phase,
+        turn: {
+          ...existing.row.turn,
+          timestamp:
+            plausibleTurnStartMs(existing.row.turn.timestamp) !== null
+              ? existing.row.turn.timestamp
+              : assistantStartTimestamp(allRows, op.row_id),
+          blocks: mergePatchedBlocks(baseBlocks, op.blocks),
+          usage: mergeReportedTurnUsage(existing.row.turn.usage, op.usage),
+        },
+      },
+    },
+  };
+}
+
 function applyPatchBlocks(
   rows: TimelineRow[],
   liveText: Record<string, LiveTextOverlay>,
@@ -900,57 +1213,34 @@ function applyPatchBlocks(
   const revision = toBigInt(op.revision);
   const index = rowIndexById.get(op.row_id);
   const overlay = liveText[op.row_id];
+  const allRows = windowRows ? [...windowRows, ...rows] : rows;
   if (index === undefined) {
     const windowExisting = windowRows?.find((row) => row.row_id === op.row_id);
     if (windowExisting && windowExisting.row.kind === 'message_turn') {
       if (revision < toBigInt(windowExisting.revision)) {
         return { rows, liveText };
       }
-      const consumeOverlay = Boolean(
-        overlay &&
-          overlay.revision <= revision &&
-          willAppendNewPatchedBlock(windowExisting.row.turn.blocks, op.blocks)
-      );
-      const baseBlocks =
-        consumeOverlay && overlay
-          ? overlayLiveText(windowExisting.row.turn.blocks, overlay)
-          : windowExisting.row.turn.blocks;
-      const patched: TimelineRow = {
-        ...windowExisting,
-        revision: op.revision,
-        row: {
-          ...windowExisting.row,
-          phase: op.phase,
-          turn: {
-            ...windowExisting.row.turn,
-            timestamp:
-              plausibleTurnStartMs(windowExisting.row.turn.timestamp) !== null
-                ? windowExisting.row.turn.timestamp
-                : assistantStartTimestamp(
-                    windowRows ? [...windowRows, ...rows] : rows,
-                    op.row_id
-                  ),
-            blocks: mergePatchedBlocks(baseBlocks, op.blocks),
-            usage: mergeReportedTurnUsage(
-              windowExisting.row.turn.usage,
-              op.usage
-            ),
-          },
+      const { patched, consumeOverlay } = patchExistingMessageRow(
+        windowExisting as TimelineRow & {
+          row: { kind: 'message_turn'; turn: MessageTurn };
         },
-      };
+        op,
+        overlay,
+        revision,
+        allRows
+      );
       const nextRows = insertTimelineRow(rows, patched);
       rebuildRowIndex(nextRows, rowIndexById);
-      let nextLive = liveText;
-      if (consumeOverlay) {
-        nextLive = { ...liveText };
-        delete nextLive[op.row_id];
-      } else if (overlay && overlay.revision <= revision) {
-        nextLive = {
-          ...liveText,
-          [op.row_id]: { ...overlay, revision: revision + 1n },
-        };
-      }
-      return { rows: nextRows, liveText: nextLive };
+      return {
+        rows: nextRows,
+        liveText: advanceOverlayOnPatch(
+          liveText,
+          op.row_id,
+          overlay,
+          revision,
+          consumeOverlay
+        ),
+      };
     }
     if (revision < maxLiveRowRevision(rows)) {
       return { rows, liveText };
@@ -961,25 +1251,21 @@ function applyPatchBlocks(
     const baseBlocks =
       consumeOverlay && overlay ? overlayLiveText([], overlay) : [];
     const stub = stubAssistantRow(
-      {
-        ...op,
-        blocks: mergePatchedBlocks(baseBlocks, op.blocks),
-      },
-      windowRows ? [...windowRows, ...rows] : rows
+      { ...op, blocks: mergePatchedBlocks(baseBlocks, op.blocks) },
+      allRows
     );
     const nextRows = insertTimelineRow(rows, stub);
     rebuildRowIndex(nextRows, rowIndexById);
-    let nextLive = liveText;
-    if (consumeOverlay) {
-      nextLive = { ...liveText };
-      delete nextLive[op.row_id];
-    } else if (overlay && overlay.revision <= revision) {
-      nextLive = {
-        ...liveText,
-        [op.row_id]: { ...overlay, revision: revision + 1n },
-      };
-    }
-    return { rows: nextRows, liveText: nextLive };
+    return {
+      rows: nextRows,
+      liveText: advanceOverlayOnPatch(
+        liveText,
+        op.row_id,
+        overlay,
+        revision,
+        consumeOverlay
+      ),
+    };
   }
   const existing = rows[index];
   if (
@@ -989,47 +1275,27 @@ function applyPatchBlocks(
   ) {
     return { rows, liveText };
   }
-  const consumeOverlay = Boolean(
-    overlay &&
-      overlay.revision <= revision &&
-      willAppendNewPatchedBlock(existing.row.turn.blocks, op.blocks)
-  );
-  const baseBlocks =
-    consumeOverlay && overlay
-      ? overlayLiveText(existing.row.turn.blocks, overlay)
-      : existing.row.turn.blocks;
-  const nextRows = rows.slice();
-  nextRows[index] = {
-    ...existing,
-    revision: op.revision,
-    row: {
-      ...existing.row,
-      phase: op.phase,
-      turn: {
-        ...existing.row.turn,
-        timestamp:
-          plausibleTurnStartMs(existing.row.turn.timestamp) !== null
-            ? existing.row.turn.timestamp
-            : assistantStartTimestamp(
-                windowRows ? [...windowRows, ...rows] : rows,
-                op.row_id
-              ),
-        blocks: mergePatchedBlocks(baseBlocks, op.blocks),
-        usage: mergeReportedTurnUsage(existing.row.turn.usage, op.usage),
-      },
+  const { patched, consumeOverlay } = patchExistingMessageRow(
+    existing as TimelineRow & {
+      row: { kind: 'message_turn'; turn: MessageTurn };
     },
+    op,
+    overlay,
+    revision,
+    allRows
+  );
+  const nextRows = rows.slice();
+  nextRows[index] = patched;
+  return {
+    rows: nextRows,
+    liveText: advanceOverlayOnPatch(
+      liveText,
+      op.row_id,
+      overlay,
+      revision,
+      consumeOverlay
+    ),
   };
-  let nextLive = liveText;
-  if (consumeOverlay) {
-    nextLive = { ...liveText };
-    delete nextLive[op.row_id];
-  } else if (overlay && overlay.revision <= revision) {
-    nextLive = {
-      ...liveText,
-      [op.row_id]: { ...overlay, revision: revision + 1n },
-    };
-  }
-  return { rows: nextRows, liveText: nextLive };
 }
 
 function willAppendNewPatchedBlock(
@@ -1121,36 +1387,6 @@ function maxLiveRowRevision(rows: TimelineRow[]): bigint {
   return max;
 }
 
-function preserveStructuredUserTextFromLiveRows(
-  windowRows: TimelineRow[],
-  liveRows: TimelineRow[]
-): TimelineRow[] {
-  if (windowRows.length === 0 || liveRows.length === 0) return windowRows;
-  const liveUsers = liveRows.filter((row) => {
-    if (row.row.kind !== 'message_turn' || row.row.turn.role !== 'user') {
-      return false;
-    }
-    const text = userTurnText(row.row.turn);
-    return (
-      hasPotentialStructuredToken(text) &&
-      getSessionComposerStructuredTokens(text).length > 0
-    );
-  });
-  if (liveUsers.length === 0) return windowRows;
-  return windowRows.map((row) => {
-    if (row.row.kind !== 'message_turn' || row.row.turn.role !== 'user') {
-      return row;
-    }
-    const windowTurn = row.row.turn;
-    const match = liveUsers.find(
-      (live) =>
-        live.row.kind === 'message_turn' &&
-        promptsMatch(userTurnText(live.row.turn), userTurnText(windowTurn))
-    );
-    return match ? preserveStructuredUserText(match, row) : row;
-  });
-}
-
 function appendLiveText(
   liveText: Record<string, LiveTextOverlay>,
   windowRows: TimelineRow[],
@@ -1203,105 +1439,6 @@ function retainStreamingLiveText(
   return next;
 }
 
-/**
- * Promote streaming live-id rows that were placed in `windowRows` via initial
- * `loaded(...)` in unit tests so a subsequent file-window `load_success` (`acp-*`)
- * treats them as part of `liveRows` until the file window converges.
- */
-function promoteUnconvergedStreamingLiveRows(
-  previousWindowRows: TimelineRow[],
-  currentLiveRows: TimelineRow[],
-  incomingWindowRows: TimelineRow[]
-): TimelineRow[] {
-  const incomingIds = new Set(incomingWindowRows.map((row) => row.row_id));
-  const liveIds = new Set(currentLiveRows.map((row) => row.row_id));
-  const activeLiveTurnKeys = new Set(
-    currentLiveRows
-      .map((row) => messageTurnPairKey(row.row_id))
-      .filter((key): key is string => Boolean(key))
-  );
-  const promoted: TimelineRow[] = [];
-  for (const row of previousWindowRows) {
-    if (incomingIds.has(row.row_id) || liveIds.has(row.row_id)) continue;
-    const turnKey = messageTurnPairKey(row.row_id);
-    if (
-      isLiveProjectorRowId(row.row_id) &&
-      row.row.kind === 'message_turn' &&
-      (row.row.phase === 'streaming' ||
-        (turnKey !== null && activeLiveTurnKeys.has(turnKey)))
-    ) {
-      promoted.push(row);
-    }
-  }
-  return promoted.length > 0
-    ? [...promoted, ...currentLiveRows]
-    : currentLiveRows;
-}
-
-/**
- * Clear live rows and overlays only after `windowRows` contains the converged
- * turn content. Never clear `liveRows` merely because `in_flight_user_turn_id`
- * is null when the window does not yet reflect the completed turn.
- */
-function pruneConvergedLiveState(
-  windowRows: TimelineRow[],
-  liveRows: TimelineRow[],
-  liveText: Record<string, LiveTextOverlay>
-): {
-  liveRows: TimelineRow[];
-  liveText: Record<string, LiveTextOverlay>;
-} {
-  const turnKeys = new Set<string>();
-  for (const row of liveRows) {
-    const key = messageTurnPairKey(row.row_id);
-    if (key) turnKeys.add(key);
-  }
-  for (const rowId of Object.keys(liveText)) {
-    const key = messageTurnPairKey(rowId);
-    if (key) turnKeys.add(key);
-  }
-  const windowSideRevisions = new Map<string, bigint>();
-  for (const row of windowRows) {
-    if (row.row.kind !== 'message_turn') {
-      const baseId = row.row_id.split('|')[0] ?? row.row_id;
-      windowSideRevisions.set(baseId, toBigInt(row.revision));
-    }
-  }
-  const filteredSideLiveRows = liveRows.filter((row) => {
-    if (row.row.kind === 'message_turn') return true;
-    const baseId = row.row_id.split('|')[0] ?? row.row_id;
-    const winRev = windowSideRevisions.get(baseId);
-    return winRev === undefined || toBigInt(row.revision) > winRev;
-  });
-  if (turnKeys.size === 0) {
-    return { liveRows: filteredSideLiveRows, liveText };
-  }
-
-  const convergedKeys = new Set<string>();
-  for (const key of turnKeys) {
-    if (isLiveTurnConvergedInWindow(key, windowRows, liveRows, liveText)) {
-      convergedKeys.add(key);
-    }
-  }
-
-  if (convergedKeys.size === 0) {
-    return { liveRows: filteredSideLiveRows, liveText };
-  }
-
-  const nextLiveRows = filteredSideLiveRows.filter((row) => {
-    const key = messageTurnPairKey(row.row_id);
-    return !key || !convergedKeys.has(key);
-  });
-  const nextLiveText: Record<string, LiveTextOverlay> = {};
-  for (const [rowId, overlay] of Object.entries(liveText)) {
-    const key = messageTurnPairKey(rowId);
-    if (!key || !convergedKeys.has(key)) {
-      nextLiveText[rowId] = overlay;
-    }
-  }
-  return { liveRows: nextLiveRows, liveText: nextLiveText };
-}
-
 function createEntry(conversationId: string): ConversationStoreEntry {
   return {
     conversationId,
@@ -1311,12 +1448,15 @@ function createEntry(conversationId: string): ConversationStoreEntry {
     rows: [],
     liveText: {},
     lastSequence: 0n,
+    loadedLastSequence: 0n,
     projectionVersion: null,
     currentTurnId: null,
     loading: false,
     error: null,
     gap: { kind: 'none' },
     optimisticTurns: [],
+    optimisticBaselineUserRowIds: {},
+    controlsAgentId: null,
     sessionModes: { current: null, modes: [] },
     sessionConfigOptions: [],
     availableCommands: null,

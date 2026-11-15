@@ -125,7 +125,12 @@ async fn list_agents(pool: &SqlitePool, refresh: bool) -> anyhow::Result<Vec<Age
         let mut extras = snapshot
             .entries
             .into_iter()
-            .filter(|entry| !built_in_ids.contains(&entry.agent_id))
+            .filter(|entry| {
+                !built_in_ids.contains(&entry.agent_id)
+                    && agents::suppressed_registry_built_in_agent_id(&entry.registry_id).is_none()
+                    && agents::suppressed_registry_built_in_agent_id(entry.agent_id.as_str())
+                        .is_none()
+            })
             .map(|entry| {
                 let status = statuses
                     .get(entry.agent_id.as_str())
@@ -147,6 +152,21 @@ async fn list_agents(pool: &SqlitePool, refresh: bool) -> anyhow::Result<Vec<Age
     Ok(entries)
 }
 
+pub(crate) fn is_native_engine_profile(agent_id: &AgentId) -> bool {
+    let catalog = BuiltInProfileCatalog::bundled();
+    let Some(profile) = catalog.profile(agent_id) else {
+        return false;
+    };
+    let mode_env = std::env::var("VIBEX_ENGINE_MODE").ok();
+    matches!(
+        profile.effective_topology(
+            agents::engine::EngineRuntimePreference::NativeFirst,
+            mode_env.as_deref(),
+        ),
+        ProfileTopology::NativeEngine(_)
+    )
+}
+
 fn profile_detail(profile: &BuiltInProfile) -> String {
     let names = profile
         .external_candidates
@@ -156,6 +176,7 @@ fn profile_detail(profile: &BuiltInProfile) -> String {
     match profile.topology {
         ProfileTopology::AdapterBacked => format!("adapter {}", names.join(" + ")),
         ProfileTopology::NativeAcp => format!("native {}", names.join(" ")),
+        ProfileTopology::NativeEngine(_) => format!("native engine {}", names.join(" ")),
     }
 }
 
@@ -354,6 +375,10 @@ where
     if let Some(executable) = uv.as_ref().and_then(|path| path.parent()) {
         utils::shell::expose_user_bin_to_process_path(executable);
     }
+    let native_engine = is_native_engine_profile(&plan.agent_id);
+    if native_engine {
+        on_progress(20, "正在检查原生引擎环境");
+    }
     on_progress(
         22,
         &format!(
@@ -383,7 +408,9 @@ where
     } else {
         None
     };
-    let installation = if let Some(adopted) = try_adopt(&plan.agent_id, plan, &user_env).await? {
+    let installation = if let Some(adopted) =
+        try_adopt_at_home(&plan.agent_id, plan, &user_env, Some(&home)).await?
+    {
         println!("Using the user-environment CLI that already matches the planned versions.");
         for component in &adopted.components {
             on_progress(
@@ -398,6 +425,9 @@ where
         }
         adopted
     } else {
+        if native_engine {
+            on_progress(48, "正在安装 Agent 运行时");
+        }
         install_plan(
             plan,
             &mut user_env,
@@ -407,48 +437,86 @@ where
         )
         .await?
     };
-    on_progress(
-        85,
-        &format!(
-            "$ {} {} (verify ACP handshake)",
-            installation.launch_lock.absolute_acp_program.display(),
-            installation.launch_lock.args.join(" ")
-        ),
-    );
+    if native_engine {
+        on_progress(85, "正在验证原生引擎就绪");
+    } else {
+        on_progress(
+            85,
+            &format!(
+                "$ {} {} (verify ACP handshake)",
+                installation.launch_lock.absolute_acp_program.display(),
+                installation.launch_lock.args.join(" ")
+            ),
+        );
+    }
     ensure_installation_matches_plan(plan, &installation)?;
     persist_lock(pool, plan, &installation).await?;
     let working_dir = data_dir.join("agents").join(plan.agent_id.as_str());
     tokio::fs::create_dir_all(&working_dir).await?;
     match verify_handshake(&plan.agent_id, &installation.launch_lock, &working_dir).await {
         Ok(()) => {
-            on_progress(95, "[handshake] ACP initialize check passed");
+            if native_engine {
+                on_progress(95, "安装与验证完成");
+            } else {
+                on_progress(95, "[handshake] ACP initialize check passed");
+            }
         }
         Err(error) => {
-            println!(
-                "Installed CLI; ACP handshake will be retried when a session starts ({error})"
-            );
-            on_progress(
-                95,
-                &format!("[handshake] deferred until session start: {error}"),
-            );
+            if native_engine {
+                println!(
+                    "Installed native runtime; readiness check will be retried when a session starts ({error})"
+                );
+                on_progress(
+                    95,
+                    &format!("[verify] deferred until session start: {error}"),
+                );
+            } else {
+                println!(
+                    "Installed CLI; ACP handshake will be retried when a session starts ({error})"
+                );
+                on_progress(
+                    95,
+                    &format!("[handshake] deferred until session start: {error}"),
+                );
+            }
         }
     }
-    let summary = format!(
-        "[ready] {} runtime={} acp={}",
-        plan.agent_id.as_str(),
-        if installation.launch_lock.runtime_version.is_empty() {
-            "n/a"
-        } else {
-            &installation.launch_lock.runtime_version
-        },
-        installation.launch_lock.acp_version
-    );
-    println!(
-        "Installed {} runtime {} / ACP {}",
-        plan.agent_id.as_str(),
-        installation.launch_lock.runtime_version,
-        installation.launch_lock.acp_version
-    );
+    let summary = if native_engine {
+        format!(
+            "[ready] {} runtime={}",
+            plan.agent_id.as_str(),
+            if installation.launch_lock.runtime_version.is_empty() {
+                &installation.launch_lock.acp_version
+            } else {
+                &installation.launch_lock.runtime_version
+            }
+        )
+    } else {
+        format!(
+            "[ready] {} runtime={} acp={}",
+            plan.agent_id.as_str(),
+            if installation.launch_lock.runtime_version.is_empty() {
+                "n/a"
+            } else {
+                &installation.launch_lock.runtime_version
+            },
+            installation.launch_lock.acp_version
+        )
+    };
+    if native_engine {
+        println!(
+            "Installed {} native runtime {}",
+            plan.agent_id.as_str(),
+            installation.launch_lock.runtime_version
+        );
+    } else {
+        println!(
+            "Installed {} runtime {} / ACP {}",
+            plan.agent_id.as_str(),
+            installation.launch_lock.runtime_version,
+            installation.launch_lock.acp_version
+        );
+    }
     on_progress(98, &summary);
     Ok(())
 }
@@ -637,10 +705,43 @@ struct InstalledPlan {
     components: Vec<InstalledComponent>,
 }
 
-async fn try_adopt(
+async fn resolve_local_candidate_executable(
+    agent_id: &AgentId,
+    executable: &str,
+    home: Option<&Path>,
+) -> Option<PathBuf> {
+    if let Some(path) = utils::shell::resolve_executable_path(executable).await
+        && !agents::launch_program_is_legacy_acp_shim(agent_id, &path)
+    {
+        return Some(path);
+    }
+    if is_native_engine_profile(agent_id)
+        && let Some(resolved) = home
+            .map(Path::to_path_buf)
+            .or_else(dirs::home_dir)
+            .and_then(|home_dir| agents::resolve_native_engine_cli(agent_id.as_str(), &home_dir))
+        && !agents::launch_program_is_legacy_acp_shim(agent_id, &resolved)
+    {
+        return Some(resolved);
+    }
+    None
+}
+
+async fn try_adopt_at_home(
     agent_id: &AgentId,
     plan: &ResolvedInstallPlan,
     user_env: &UserEnvironmentLayout,
+    home: Option<&Path>,
+) -> anyhow::Result<Option<InstalledPlan>> {
+    try_adopt_with_options(agent_id, plan, user_env, home, true).await
+}
+
+async fn try_adopt_with_options(
+    agent_id: &AgentId,
+    plan: &ResolvedInstallPlan,
+    user_env: &UserEnvironmentLayout,
+    home: Option<&Path>,
+    check_system_path: bool,
 ) -> anyhow::Result<Option<InstalledPlan>> {
     let catalog = BuiltInProfileCatalog::bundled();
     let Some(profile) = catalog.profile(agent_id) else {
@@ -659,7 +760,14 @@ async fn try_adopt(
             }
             return Ok(None);
         }
-        let Some(path) = utils::shell::resolve_executable_path(candidate.executable).await else {
+        let path = if check_system_path {
+            resolve_local_candidate_executable(agent_id, candidate.executable, home).await
+        } else if is_native_engine_profile(agent_id) {
+            home.and_then(|home_dir| agents::resolve_native_engine_cli(agent_id.as_str(), home_dir))
+        } else {
+            None
+        };
+        let Some(path) = path else {
             if candidate.component == ProfileComponent::AgentRuntime {
                 continue;
             }
@@ -667,6 +775,9 @@ async fn try_adopt(
         };
         let path =
             utils::process::prefer_direct_spawn_executable(tokio::fs::canonicalize(&path).await?);
+        if agents::launch_program_is_legacy_acp_shim(agent_id, &path) {
+            return Ok(None);
+        }
         let version = probe_version(&path, candidate.version_args)
             .await
             .unwrap_or_default();
@@ -721,7 +832,7 @@ where
     let mut components = Vec::new();
     for component in &plan.components {
         let version_args = component_version_args(&plan.agent_id, &component.component_id);
-        if let Some(existing) = existing_component(component, version_args).await {
+        if let Some(existing) = existing_component(&plan.agent_id, component, version_args).await {
             println!(
                 "Reusing {} {} at {}",
                 component.component_id,
@@ -796,7 +907,7 @@ fn ensure_installation_matches_plan(
     match decide_user_environment_adopt(&plan_required_components(plan), &observed) {
         UserEnvironmentAdoptDecision::Adopt => Ok(()),
         UserEnvironmentAdoptDecision::Install { missing, outdated } => anyhow::bail!(
-            "installed ACP does not match the update plan (missing {missing:?}, outdated {outdated:?})"
+            "installed runtime does not match the update plan (missing {missing:?}, outdated {outdated:?})"
         ),
     }
 }
@@ -816,7 +927,7 @@ fn build_installed_plan(
     let acp = components
         .iter()
         .find(|component| matches!(component.kind.as_str(), "acp_adapter" | "combined_runtime"))
-        .ok_or_else(|| anyhow::anyhow!("installation is missing the ACP executable"))?;
+        .ok_or_else(|| anyhow::anyhow!("installation is missing the primary executable"))?;
     let args = plan
         .components
         .iter()
@@ -877,6 +988,7 @@ fn component_version_args(agent_id: &AgentId, component_id: &str) -> &'static [&
 }
 
 async fn existing_component(
+    agent_id: &AgentId,
     component: &PlannedInstallComponent,
     version_args: &[&str],
 ) -> Option<(PathBuf, String)> {
@@ -887,9 +999,12 @@ async fn existing_component(
     if command.is_empty() || command == "npm" || command == "uv" {
         return None;
     }
-    let path = utils::shell::resolve_executable_path(command).await?;
+    let path = resolve_local_candidate_executable(agent_id, command, None).await?;
     let path =
         utils::process::prefer_direct_spawn_executable(tokio::fs::canonicalize(path).await.ok()?);
+    if agents::launch_program_is_legacy_acp_shim(agent_id, &path) {
+        return None;
+    }
     let version = probe_version(&path, version_args).await?;
     existing_path_satisfies_component(&component.component_id, &version, &component.version)
         .then_some((path, version))
@@ -1270,1357 +1385,10 @@ async fn ensure_managed_node(managed_artifacts_dir: &Path) -> anyhow::Result<Nod
     result
 }
 
-async fn ensure_managed_uv(managed_artifacts_dir: &Path) -> anyhow::Result<PathBuf> {
-    let platform = current_platform();
-    let artifact = managed_uv_artifact(&platform)
-        .ok_or_else(|| anyhow::anyhow!("uv is not supported on {platform}"))?;
-    let final_executable = managed_uv_executable(managed_artifacts_dir)
-        .ok_or_else(|| anyhow::anyhow!("could not resolve managed uv path"))?;
-    if tokio::fs::metadata(&final_executable).await.is_ok() {
-        println!(
-            "Using managed uv {MANAGED_UV_VERSION}: {}",
-            final_executable.display()
-        );
-        return Ok(final_executable);
-    }
-
-    let base = managed_artifacts_dir.join("agent-tools").join("uv");
-    tokio::fs::create_dir_all(&base).await?;
-    let staging = base.join(format!(".staging-{}", Uuid::new_v4()));
-    tokio::fs::create_dir_all(&staging).await?;
-    let filename = format!("uv-{}.{}", artifact.target, artifact.extension);
-    let url = format!(
-        "https://github.com/astral-sh/uv/releases/download/{MANAGED_UV_VERSION}/{filename}"
-    );
-    println!("Downloading managed uv {MANAGED_UV_VERSION} ({platform})");
-    let result = async {
-        let bytes = download_archive(&url, MAX_MANAGED_TOOL_BYTES).await?;
-        let actual = format!("{:x}", Sha256::digest(&bytes));
-        if !actual.eq_ignore_ascii_case(artifact.sha256) {
-            anyhow::bail!(
-                "uv archive SHA-256 mismatch: expected {}, found {actual}",
-                artifact.sha256
-            );
-        }
-        extract_archive(&bytes, &url, &staging)?;
-        let staged = staging
-            .join(format!("uv-{}", artifact.target))
-            .join(if cfg!(windows) { "uv.exe" } else { "uv" });
-        let staged = if staged.is_file() {
-            staged
-        } else {
-            find_staged_executable(&staging, if cfg!(windows) { "uv.exe" } else { "uv" })?
-        };
-        let version_root = base.join(MANAGED_UV_VERSION).join(&platform);
-        tokio::fs::create_dir_all(&version_root).await?;
-        let dest_dir = version_root.join(format!("uv-{}", artifact.target));
-        tokio::fs::create_dir_all(&dest_dir).await?;
-        let dest = dest_dir.join(if cfg!(windows) { "uv.exe" } else { "uv" });
-        tokio::fs::copy(&staged, &dest).await?;
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            let mut permissions = tokio::fs::metadata(&dest).await?.permissions();
-            permissions.set_mode(0o755);
-            tokio::fs::set_permissions(&dest, permissions).await?;
-        }
-        let _ = tokio::fs::remove_dir_all(&staging).await;
-        println!("Managed uv {MANAGED_UV_VERSION} installed");
-        Ok(dest)
-    }
-    .await;
-    if result.is_err() {
-        let _ = tokio::fs::remove_dir_all(&staging).await;
-    }
-    result
-}
-
-async fn ensure_managed_bun(managed_artifacts_dir: &Path) -> anyhow::Result<PathBuf> {
-    let platform = current_platform();
-    let artifact = managed_bun_artifact(&platform)
-        .ok_or_else(|| anyhow::anyhow!("Bun is not supported on {platform}"))?;
-    let final_executable = managed_bun_executable(managed_artifacts_dir)
-        .ok_or_else(|| anyhow::anyhow!("could not resolve managed Bun path"))?;
-    if tokio::fs::metadata(&final_executable).await.is_ok() {
-        println!(
-            "Using managed Bun {MANAGED_BUN_VERSION}: {}",
-            final_executable.display()
-        );
-        return Ok(final_executable);
-    }
-
-    let base = managed_artifacts_dir.join("agent-tools").join("bun");
-    tokio::fs::create_dir_all(&base).await?;
-    let staging = base.join(format!(".staging-{}", Uuid::new_v4()));
-    tokio::fs::create_dir_all(&staging).await?;
-    let urls = managed_bun_download_urls(&artifact);
-    println!("Downloading managed Bun {MANAGED_BUN_VERSION} ({platform})");
-    let result = async {
-        let (url, bytes) = download_archive_from(&urls, MAX_MANAGED_TOOL_BYTES).await?;
-        let actual = format!("{:x}", Sha256::digest(&bytes));
-        if !actual.eq_ignore_ascii_case(artifact.sha256) {
-            anyhow::bail!(
-                "Bun archive SHA-256 mismatch: expected {}, found {actual}",
-                artifact.sha256
-            );
-        }
-        extract_archive(&bytes, &url, &staging)?;
-        let exe_name = if cfg!(windows) { "bun.exe" } else { "bun" };
-        let staged = staging
-            .join(format!("bun-{}", artifact.target))
-            .join(exe_name);
-        let staged = if staged.is_file() {
-            staged
-        } else {
-            find_staged_executable(&staging, exe_name)?
-        };
-        let version_root = base.join(MANAGED_BUN_VERSION).join(&platform);
-        tokio::fs::create_dir_all(&version_root).await?;
-        let dest_dir = version_root.join(format!("bun-{}", artifact.target));
-        tokio::fs::create_dir_all(&dest_dir).await?;
-        let dest = dest_dir.join(exe_name);
-        tokio::fs::copy(&staged, &dest).await?;
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            let mut permissions = tokio::fs::metadata(&dest).await?.permissions();
-            permissions.set_mode(0o755);
-            tokio::fs::set_permissions(&dest, permissions).await?;
-        }
-        let _ = tokio::fs::remove_dir_all(&staging).await;
-        println!("Managed Bun {MANAGED_BUN_VERSION} installed");
-        Ok(dest)
-    }
-    .await;
-    if result.is_err() {
-        let _ = tokio::fs::remove_dir_all(&staging).await;
-    }
-    result
-}
-
-async fn run_npm_global_install<F>(
-    npm: &Path,
-    component: &PlannedInstallComponent,
-    user_env: &UserEnvironmentLayout,
-    node: Option<&NodeRuntime>,
-    on_progress: &mut F,
-) -> anyhow::Result<()>
-where
-    F: FnMut(u8, &str),
-{
-    let cmd_line = format!(
-        "$ npm install -g --force --prefix {} {}",
-        user_env.npm_prefix.display(),
-        component.resolved_source
-    );
-    println!("{cmd_line}");
-    on_progress(55, &cmd_line);
-    let mut command = utils::process::new_hidden_tokio_command(npm, std::iter::empty::<&str>());
-    if std::env::var_os("NODE_USE_ENV_PROXY").is_none() {
-        command.env("NODE_USE_ENV_PROXY", "1");
-    }
-    if let Some(runtime) = node {
-        prepend_command_path(&mut command, &runtime.bin_dir);
-        command.env("npm_config_prefix", &user_env.npm_prefix);
-    }
-    command.args(npm_global_install_args(
-        &user_env.npm_prefix,
-        &component.resolved_source,
-    ));
-    run_command_with_progress("npm install -g", command, 68, on_progress).await
-}
-
-async fn install_npm<F>(
-    component: &PlannedInstallComponent,
-    user_env: &mut UserEnvironmentLayout,
-    node: Option<&NodeRuntime>,
-    on_progress: &mut F,
-) -> anyhow::Result<PathBuf>
-where
-    F: FnMut(u8, &str),
-{
-    let npm = node
-        .map(|runtime| runtime.npm.clone())
-        .or(utils::shell::resolve_executable_path("npm").await)
-        .ok_or_else(|| anyhow::anyhow!("npm was not found; install Node.js and npm first"))?;
-    if let Err(error) = run_npm_global_install(&npm, component, user_env, node, on_progress).await {
-        let fallback = user_env.user_npm_prefix();
-        if !npm_install_permission_denied(&error.to_string()) || fallback == user_env.npm_prefix {
-            return Err(error);
-        }
-        println!("Permission denied, retrying with user prefix...");
-        on_progress(
-            62,
-            &format!(
-                "[npm] permission denied on global prefix, retrying with {}",
-                fallback.display()
-            ),
-        );
-        *user_env = user_env.clone().with_npm_prefix(fallback);
-        prepare_user_environment(user_env).await?;
-        run_npm_global_install(&npm, component, user_env, node, on_progress).await?;
-    }
-    let package = npm_spec_name(&component.resolved_source);
-    let name = if command_is_placeholder(&component.command) {
-        package.rsplit('/').next().unwrap_or(package.as_str())
-    } else {
-        Path::new(&component.command)
-            .file_name()
-            .and_then(|name| name.to_str())
-            .unwrap_or(&component.command)
-    };
-    let bin = resolve_npm_shim(&user_env.npm_bin, name).ok_or_else(|| {
-        anyhow::anyhow!(
-            "npm install did not produce `{}` under {}",
-            name,
-            user_env.npm_bin.display()
-        )
-    })?;
-    Ok(utils::process::prefer_direct_spawn_executable(
-        tokio::fs::canonicalize(bin).await?,
-    ))
-}
-
-fn command_is_placeholder(command: &str) -> bool {
-    command.is_empty() || command == "npm"
-}
-
-async fn live_npm_global_prefix(node: Option<&NodeRuntime>) -> Option<PathBuf> {
-    let npm = if let Some(runtime) = node {
-        runtime.npm.clone()
-    } else {
-        utils::shell::resolve_executable_path(if cfg!(windows) { "npm.cmd" } else { "npm" }).await?
-    };
-    let mut command = utils::process::new_hidden_tokio_command(&npm, std::iter::empty::<&str>());
-    if let Some(runtime) = node {
-        prepend_command_path(&mut command, &runtime.bin_dir);
-    }
-    command.arg("prefix").arg("-g").kill_on_drop(true);
-    let output = tokio::time::timeout(std::time::Duration::from_secs(3), command.output())
-        .await
-        .ok()?
-        .ok()?;
-    if !output.status.success() {
-        return None;
-    }
-    let decoded = utils::process::decode_process_output(&output.stdout);
-    let prefix = decoded.lines().next()?.trim().to_string();
-    if prefix.is_empty() {
-        None
-    } else {
-        Some(PathBuf::from(prefix))
-    }
-}
-
-async fn install_uv<F>(
-    component: &PlannedInstallComponent,
-    user_env: &UserEnvironmentLayout,
-    uv: Option<&Path>,
-    on_progress: &mut F,
-) -> anyhow::Result<PathBuf>
-where
-    F: FnMut(u8, &str),
-{
-    let uv = uv
-        .map(Path::to_path_buf)
-        .or(utils::shell::resolve_executable_path("uv").await)
-        .ok_or_else(|| anyhow::anyhow!("uv was not found; install uv first"))?;
-    let cmd_line = format!(
-        "$ uv tool install --force --no-config {}",
-        component.resolved_source
-    );
-    println!("$ uv tool install {}", component.resolved_source);
-    on_progress(55, &cmd_line);
-    let mut command = utils::process::new_hidden_tokio_command(&uv, std::iter::empty::<&str>());
-    command
-        .arg("tool")
-        .arg("install")
-        .arg("--force")
-        .arg("--no-config");
-    if component.resolved_source.starts_with("hermes-agent[") {
-        command.arg("--python").arg("3.13");
-    }
-    command
-        .arg(&component.resolved_source)
-        .env("UV_TOOL_DIR", &user_env.uv_tool_dir)
-        .env("UV_TOOL_BIN_DIR", &user_env.uv_tool_bin)
-        .env("UV_PYTHON_INSTALL_DIR", &user_env.uv_python_dir)
-        .env("UV_CACHE_DIR", &user_env.uv_cache_dir);
-    run_command_with_progress("uv tool install", command, 68, on_progress).await?;
-    let name = Path::new(&component.command)
-        .file_name()
-        .and_then(|name| name.to_str())
-        .unwrap_or(component.command.as_str());
-    let bin = if cfg!(windows) {
-        user_env.uv_tool_bin.join(format!("{name}.exe"))
-    } else {
-        user_env.uv_tool_bin.join(name)
-    };
-    if tokio::fs::metadata(&bin).await.is_err() {
-        anyhow::bail!("uv tool install did not produce `{}`", bin.display());
-    }
-    Ok(utils::process::prefer_direct_spawn_executable(
-        tokio::fs::canonicalize(bin).await?,
-    ))
-}
-
-async fn install_binary<F>(
-    agent_id: &AgentId,
-    component: &PlannedInstallComponent,
-    user_env: &UserEnvironmentLayout,
-    on_progress: &mut F,
-) -> anyhow::Result<PathBuf>
-where
-    F: FnMut(u8, &str),
-{
-    if is_kiro_official_installer(agent_id, &component.resolved_source) {
-        on_progress(55, &format!("GET {}", component.resolved_source));
-        return install_kiro_from_official_installer(component, user_env).await;
-    }
-    println!(
-        "Downloading {} ({})",
-        component.component_id, component.version
-    );
-    on_progress(55, &format!("GET {}", component.resolved_source));
-    let bytes = reqwest::get(&component.resolved_source)
-        .await?
-        .error_for_status()?
-        .bytes()
-        .await?;
-    on_progress(
-        65,
-        &format!(
-            "[download] {} ({} bytes)",
-            component.component_id,
-            bytes.len()
-        ),
-    );
-    let staging = utils::path::unique_vibex_scratch_dir("agent")?;
-    let extract_result = extract_archive(&bytes, &component.resolved_source, &staging);
-    let staged =
-        match extract_result.and_then(|_| find_staged_executable(&staging, &component.command)) {
-            Ok(path) => path,
-            Err(error) => {
-                let _ = tokio::fs::remove_dir_all(&staging).await;
-                return Err(error);
-            }
-        };
-    tokio::fs::create_dir_all(&user_env.user_bin).await?;
-    let destination = user_bin_destination(&user_env.user_bin, &component.command, &staged);
-    let siblings = BuiltInProfileCatalog::bundled()
-        .profile(agent_id)
-        .map(|profile| profile.binary_required_siblings(cfg!(windows)))
-        .unwrap_or(&[]);
-    let install_result =
-        install_staged_binary_and_siblings(&staged, &destination, &user_env.user_bin, siblings)
-            .await;
-    let _ = tokio::fs::remove_dir_all(&staging).await;
-    install_result?;
-    Ok(utils::process::prefer_direct_spawn_executable(
-        tokio::fs::canonicalize(destination).await?,
-    ))
-}
-
-async fn install_staged_binary_and_siblings(
-    staged: &Path,
-    destination: &Path,
-    user_bin: &Path,
-    siblings: &[&str],
-) -> anyhow::Result<()> {
-    replace_executable_file(staged, destination).await?;
-    if let Some(staged_dir) = staged.parent() {
-        for sibling in siblings {
-            let name = Path::new(sibling)
-                .file_name()
-                .and_then(|name| name.to_str())
-                .unwrap_or(sibling);
-            let source = staged_dir.join(name);
-            if !source.is_file() {
-                anyhow::bail!("extracted archive is missing required sibling `{name}`");
-            }
-            replace_executable_file(&source, &user_bin.join(name)).await?;
-        }
-    }
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        let mut permissions = tokio::fs::metadata(destination).await?.permissions();
-        permissions.set_mode(0o755);
-        tokio::fs::set_permissions(destination, permissions).await?;
-    }
-    Ok(())
-}
-
-/// Replaces `destination` with `source` in the same directory so an active or
-/// lingering process holding `destination` open (Windows `ERROR_SHARING_VIOLATION`
-/// / `os error 32` or Unix `ETXTBSY`) does not block binary ACP updates.
-async fn replace_executable_file(source: &Path, destination: &Path) -> anyhow::Result<()> {
-    let parent = destination
-        .parent()
-        .ok_or_else(|| anyhow::anyhow!("destination `{}` has no parent", destination.display()))?;
-    let file_name = destination
-        .file_name()
-        .and_then(|name| name.to_str())
-        .ok_or_else(|| {
-            anyhow::anyhow!("destination `{}` has no file name", destination.display())
-        })?;
-    cleanup_stale_replaced_files(parent, file_name).await;
-
-    let temp_new = parent.join(format!(".{file_name}.new-{}", Uuid::new_v4()));
-    tokio::fs::copy(source, &temp_new).await?;
-
-    if tokio::fs::rename(&temp_new, destination).await.is_ok() {
-        return Ok(());
-    }
-
-    let aside = parent.join(format!(".{file_name}.old-{}", Uuid::new_v4()));
-    let moved_aside = tokio::fs::rename(destination, &aside).await.is_ok();
-    match tokio::fs::rename(&temp_new, destination).await {
-        Ok(()) => {
-            if moved_aside {
-                let _ = tokio::fs::remove_file(&aside).await;
-            }
-            Ok(())
-        }
-        Err(error) => {
-            let _ = tokio::fs::remove_file(&temp_new).await;
-            if moved_aside {
-                let _ = tokio::fs::rename(&aside, destination).await;
-            }
-            Err(error.into())
-        }
-    }
-}
-
-async fn cleanup_stale_replaced_files(parent: &Path, file_name: &str) {
-    let old_prefix = format!(".{file_name}.old-");
-    let new_prefix = format!(".{file_name}.new-");
-    let Ok(mut entries) = tokio::fs::read_dir(parent).await else {
-        return;
-    };
-    while let Ok(Some(entry)) = entries.next_entry().await {
-        let Some(name) = entry.file_name().to_str().map(str::to_string) else {
-            continue;
-        };
-        if name.starts_with(&old_prefix) || name.starts_with(&new_prefix) {
-            let _ = tokio::fs::remove_file(entry.path()).await;
-        }
-    }
-}
-
-fn is_kiro_official_installer(agent_id: &AgentId, source: &str) -> bool {
-    let lower = source_path(source).to_ascii_lowercase();
-    agent_id.as_str() == "kiro"
-        && (lower.ends_with(".ps1") || lower.ends_with(".msi") || lower.ends_with("/install"))
-}
-
-fn sanitize_kiro_powershell_script(script: &str) -> String {
-    script
-        .lines()
-        .map(|line| {
-            let trimmed = line.trim();
-            if trimmed.starts_with("Read-Host") {
-                "# Read-Host disabled for unattended install"
-            } else if trimmed.starts_with("Remove-Item") && trimmed.contains("$tempDir") {
-                "# Preserve downloaded MSI in staging for fallback extraction"
-            } else {
-                line
-            }
-        })
-        .collect::<Vec<_>>()
-        .join("\r\n")
-}
-
-async fn install_kiro_from_official_installer(
-    component: &PlannedInstallComponent,
-    user_env: &UserEnvironmentLayout,
-) -> anyhow::Result<PathBuf> {
-    let staging = utils::path::unique_vibex_scratch_dir("kiro")?;
-    let result = if cfg!(windows) {
-        install_kiro_windows_with_fallback(component, user_env, &staging).await
-    } else {
-        install_kiro_unix_installer(component, user_env, &staging).await
-    };
-    let _ = tokio::fs::remove_dir_all(&staging).await;
-    result
-}
-
-async fn resolve_installed_kiro_binary(user_env: &UserEnvironmentLayout) -> Option<PathBuf> {
-    let _ = utils::shell::refresh_process_path_after_install().await;
-    if cfg!(windows) {
-        let mut candidates = Vec::new();
-        for env_key in ["ProgramFiles", "ProgramW6432"] {
-            if let Some(root) = std::env::var_os(env_key).map(PathBuf::from) {
-                candidates.push(root.join("Kiro-Cli").join("kiro-cli.exe"));
-            }
-        }
-        candidates.push(PathBuf::from(r"C:\Program Files\Kiro-Cli\kiro-cli.exe"));
-        candidates.push(user_env.user_bin.join("kiro-cli.exe"));
-        for candidate in candidates {
-            if candidate.is_file() {
-                if let Some(parent) = candidate.parent() {
-                    utils::shell::expose_user_bin_to_process_path(parent);
-                }
-                if let Ok(canon) = tokio::fs::canonicalize(&candidate).await {
-                    return Some(utils::process::prefer_direct_spawn_executable(canon));
-                }
-                return Some(candidate);
-            }
-        }
-    } else {
-        let candidate = user_env.user_bin.join("kiro-cli");
-        if candidate.is_file()
-            && let Ok(canon) = tokio::fs::canonicalize(&candidate).await
-        {
-            return Some(utils::process::prefer_direct_spawn_executable(canon));
-        }
-    }
-    if let Some(resolved) = utils::shell::resolve_executable_path("kiro-cli").await
-        && let Ok(canon) = tokio::fs::canonicalize(&resolved).await
-    {
-        return Some(utils::process::prefer_direct_spawn_executable(canon));
-    }
-    None
-}
-
-async fn install_kiro_windows_with_fallback(
-    component: &PlannedInstallComponent,
-    user_env: &UserEnvironmentLayout,
-    staging: &Path,
-) -> anyhow::Result<PathBuf> {
-    // 1. Try the official https://cli.kiro.dev/install.ps1 script with PowerShell
-    //    ExecutionPolicy Bypass and non-interactive sanitization.
-    if source_path(&component.resolved_source)
-        .to_ascii_lowercase()
-        .ends_with(".ps1")
-    {
-        println!(
-            "Running Kiro official PowerShell installer: {}",
-            component.resolved_source
-        );
-        if let Ok(response) = reqwest::get(&component.resolved_source).await
-            && let Ok(response) = response.error_for_status()
-            && let Ok(script_text) = response.text().await
-        {
-            let sanitized = sanitize_kiro_powershell_script(&script_text);
-            let script_path = staging.join("install.ps1");
-            if tokio::fs::write(&script_path, sanitized).await.is_ok() {
-                let mut cmd = utils::process::new_hidden_tokio_command(
-                    "powershell.exe",
-                    [
-                        "-NoProfile",
-                        "-NonInteractive",
-                        "-ExecutionPolicy",
-                        "Bypass",
-                        "-File",
-                    ],
-                );
-                cmd.arg(&script_path)
-                    .env("TEMP", staging)
-                    .env("TMP", staging)
-                    .stdin(std::process::Stdio::null())
-                    .kill_on_drop(true);
-                let _ = tokio::time::timeout(
-                    std::time::Duration::from_secs(180),
-                    run_command("powershell install.ps1", cmd),
-                )
-                .await;
-                if let Some(installed) = resolve_installed_kiro_binary(user_env).await {
-                    return Ok(installed);
-                }
-            }
-        }
-    }
-
-    // 2. Fallback: Use MSI already downloaded by install.ps1 in staging, or download
-    //    the official Windows MSI from Kiro's manifest.json and verify SHA-256.
-    let msi_from_ps1 = staging.join("kiro-cli-installer").join("kiro-cli.msi");
-    let msi_path = if msi_from_ps1.is_file() {
-        msi_from_ps1
-    } else {
-        download_kiro_windows_msi(component, staging).await?
-    };
-
-    // 2a. Try standard silent MSI install (`msiexec /i <msi> /quiet /norestart`).
-    let mut msi_install = utils::process::new_hidden_tokio_command("msiexec.exe", ["/i"]);
-    msi_install
-        .arg(&msi_path)
-        .arg("/quiet")
-        .arg("/norestart")
-        .stdin(std::process::Stdio::null())
-        .kill_on_drop(true);
-    let _ = tokio::time::timeout(
-        std::time::Duration::from_secs(120),
-        run_command("msiexec /i", msi_install),
-    )
-    .await;
-    if let Some(installed) = resolve_installed_kiro_binary(user_env).await {
-        return Ok(installed);
-    }
-
-    // 2b. Non-admin permission fallback: `msiexec /a <msi> /qn TARGETDIR=<extract_dir>`
-    //     unpacks the MSI into user-writable storage without requiring Administrator privileges.
-    let extract_dir = staging.join("extracted");
-    tokio::fs::create_dir_all(&extract_dir).await?;
-    let target_dir_arg = format!("TARGETDIR={}", extract_dir.display());
-    let mut msi_extract = utils::process::new_hidden_tokio_command("msiexec.exe", ["/a"]);
-    msi_extract
-        .arg(&msi_path)
-        .arg("/qn")
-        .arg(&target_dir_arg)
-        .stdin(std::process::Stdio::null())
-        .kill_on_drop(true);
-    tokio::time::timeout(
-        std::time::Duration::from_secs(120),
-        run_command("msiexec /a", msi_extract),
-    )
-    .await
-    .map_err(|_| anyhow::anyhow!("msiexec administrative extraction timed out"))??;
-
-    let staged_exe = find_staged_executable(&extract_dir, "kiro-cli.exe")?;
-    tokio::fs::create_dir_all(&user_env.user_bin).await?;
-    if let Some(staged_dir) = staged_exe.parent() {
-        for entry in std::fs::read_dir(staged_dir)? {
-            let entry = entry?;
-            let path = entry.path();
-            if path.is_file()
-                && let Some(name) = path.file_name()
-            {
-                replace_executable_file(&path, &user_env.user_bin.join(name)).await?;
-            }
-        }
-    } else {
-        replace_executable_file(&staged_exe, &user_env.user_bin.join("kiro-cli.exe")).await?;
-    }
-    utils::shell::expose_user_bin_to_process_path(&user_env.user_bin);
-    let dest = user_env.user_bin.join("kiro-cli.exe");
-    Ok(utils::process::prefer_direct_spawn_executable(
-        tokio::fs::canonicalize(dest).await?,
-    ))
-}
-
-async fn download_kiro_windows_msi(
-    component: &PlannedInstallComponent,
-    staging: &Path,
-) -> anyhow::Result<PathBuf> {
-    let (msi_url, expected_sha256) = if source_path(&component.resolved_source)
-        .to_ascii_lowercase()
-        .ends_with(".msi")
-    {
-        (component.resolved_source.clone(), None)
-    } else {
-        const KIRO_MANIFEST_URL: &str =
-            "https://prod.download.cli.kiro.dev/stable/latest/manifest.json";
-        let manifest: serde_json::Value = reqwest::get(KIRO_MANIFEST_URL)
-            .await?
-            .error_for_status()?
-            .json()
-            .await?;
-        let pkg = manifest
-            .get("packages")
-            .and_then(serde_json::Value::as_array)
-            .and_then(|pkgs| {
-                pkgs.iter().find(|p| {
-                    p.get("os").and_then(serde_json::Value::as_str) == Some("windows")
-                        && p.get("fileType").and_then(serde_json::Value::as_str) == Some("msi")
-                        && p.get("architecture").and_then(serde_json::Value::as_str)
-                            == Some("x86_64")
-                })
-            })
-            .ok_or_else(|| {
-                anyhow::anyhow!("Kiro manifest.json does not contain a Windows x86_64 MSI package")
-            })?;
-        let download = pkg
-            .get("download")
-            .and_then(serde_json::Value::as_str)
-            .ok_or_else(|| anyhow::anyhow!("Kiro MSI package is missing download path"))?;
-        let sha256 = pkg
-            .get("sha256")
-            .and_then(serde_json::Value::as_str)
-            .map(str::to_string);
-        (
-            format!("https://prod.download.cli.kiro.dev/stable/{download}"),
-            sha256,
-        )
-    };
-    println!("Downloading Kiro Windows MSI: {msi_url}");
-    let bytes = reqwest::get(&msi_url)
-        .await?
-        .error_for_status()?
-        .bytes()
-        .await?;
-    if let Some(expected) = expected_sha256 {
-        let actual = format!("{:x}", Sha256::digest(&bytes));
-        if !actual.eq_ignore_ascii_case(&expected) {
-            anyhow::bail!("Kiro MSI SHA-256 mismatch: expected {expected}, found {actual}");
-        }
-    }
-    let msi_path = staging.join("kiro-cli.msi");
-    tokio::fs::write(&msi_path, &bytes).await?;
-    Ok(msi_path)
-}
-
-async fn install_kiro_unix_installer(
-    component: &PlannedInstallComponent,
-    user_env: &UserEnvironmentLayout,
-    staging: &Path,
-) -> anyhow::Result<PathBuf> {
-    println!(
-        "Running Kiro official installer: {}",
-        component.resolved_source
-    );
-    let script_bytes = reqwest::get(&component.resolved_source)
-        .await?
-        .error_for_status()?
-        .bytes()
-        .await?;
-    let script_path = staging.join("install.sh");
-    tokio::fs::write(&script_path, &script_bytes).await?;
-    let mut cmd = utils::process::new_hidden_tokio_command("bash", [&script_path]);
-    cmd.stdin(std::process::Stdio::null()).kill_on_drop(true);
-    tokio::time::timeout(
-        std::time::Duration::from_secs(180),
-        run_command("bash install.sh", cmd),
-    )
-    .await
-    .map_err(|_| anyhow::anyhow!("Kiro installer script timed out"))??;
-    resolve_installed_kiro_binary(user_env)
-        .await
-        .ok_or_else(|| anyhow::anyhow!("Kiro installer finished but `kiro-cli` was not found"))
-}
-
-fn user_bin_destination(user_bin: &Path, command: &str, staged: &Path) -> PathBuf {
-    let name = Path::new(command)
-        .file_name()
-        .and_then(|name| name.to_str())
-        .unwrap_or(command);
-    if cfg!(windows) {
-        let lower = name.to_ascii_lowercase();
-        if lower.ends_with(".cmd") || lower.ends_with(".exe") || lower.ends_with(".bat") {
-            user_bin.join(name)
-        } else if staged
-            .extension()
-            .and_then(|extension| extension.to_str())
-            .is_some_and(|extension| extension.eq_ignore_ascii_case("cmd"))
-        {
-            user_bin.join(format!("{name}.cmd"))
-        } else {
-            user_bin.join(format!("{name}.exe"))
-        }
-    } else {
-        user_bin.join(name)
-    }
-}
-
-fn extract_archive(bytes: &[u8], source: &str, destination: &Path) -> anyhow::Result<()> {
-    if source_path(source).to_ascii_lowercase().ends_with(".zip") {
-        let mut archive = zip::ZipArchive::new(std::io::Cursor::new(bytes))?;
-        archive.extract(destination)?;
-        return Ok(());
-    }
-    if is_single_file_gzip(source, bytes) {
-        let mut decoded = Vec::new();
-        flate2::read::GzDecoder::new(bytes).read_to_end(&mut decoded)?;
-        if looks_like_tar(&decoded) {
-            return extract_tar(bytes, destination);
-        }
-        std::fs::create_dir_all(destination)?;
-        std::fs::write(destination.join(gzip_member_name(source)), &decoded)?;
-        return Ok(());
-    }
-    extract_tar(bytes, destination)
-}
-
-fn source_path(source: &str) -> &str {
-    source.split(['?', '#']).next().unwrap_or(source)
-}
-
-fn is_single_file_gzip(source: &str, bytes: &[u8]) -> bool {
-    let path = source_path(source).to_ascii_lowercase();
-    path.ends_with(".gz")
-        && !path.ends_with(".tar.gz")
-        && !path.ends_with(".tgz")
-        && bytes.starts_with(&[0x1f, 0x8b])
-}
-
-fn looks_like_tar(bytes: &[u8]) -> bool {
-    bytes.len() >= 262 && &bytes[257..262] == b"ustar"
-}
-
-fn gzip_member_name(source: &str) -> String {
-    let path = source_path(source);
-    let file = path.rsplit(['/', '\\']).next().unwrap_or("payload");
-    let name = file
-        .to_ascii_lowercase()
-        .ends_with(".gz")
-        .then(|| &file[..file.len() - 3])
-        .filter(|name| !name.is_empty())
-        .unwrap_or("payload");
-    name.to_string()
-}
-
-fn extract_tar(bytes: &[u8], destination: &Path) -> anyhow::Result<()> {
-    let archive = destination.join("download.archive");
-    std::fs::write(&archive, bytes)?;
-    let mut command = std::process::Command::new("tar");
-    utils::process::configure_std_command_no_window(&mut command);
-    let status = command
-        .arg("-xf")
-        .arg(&archive)
-        .arg("-C")
-        .arg(destination)
-        .status()?;
-    let _ = std::fs::remove_file(&archive);
-    if !status.success() {
-        anyhow::bail!("tar extract failed with {status}");
-    }
-    Ok(())
-}
-
-fn find_staged_executable(root: &Path, command: &str) -> anyhow::Result<PathBuf> {
-    let relative = PathBuf::from(command);
-    let direct = root.join(&relative);
-    if direct.is_file() {
-        return Ok(direct);
-    }
-    let file_name = relative
-        .file_name()
-        .ok_or_else(|| anyhow::anyhow!("binary command `{command}` is not a file name"))?;
-    let mut named = None;
-    let mut only_file = None;
-    let mut file_count = 0usize;
-    let mut stack = vec![root.to_path_buf()];
-    while let Some(dir) = stack.pop() {
-        for entry in std::fs::read_dir(dir)? {
-            let entry = entry?;
-            let path = entry.path();
-            if path.is_dir() {
-                stack.push(path);
-                continue;
-            }
-            if path.file_name().and_then(|name| name.to_str()) == Some("download.archive") {
-                continue;
-            }
-            file_count += 1;
-            if path.file_name() == Some(file_name) {
-                named = Some(path.clone());
-            }
-            only_file = Some(path);
-        }
-    }
-    if let Some(path) = named {
-        return Ok(path);
-    }
-    if file_count == 1 {
-        return only_file.ok_or_else(|| anyhow::anyhow!("extracted archive is empty"));
-    }
-    anyhow::bail!("extracted archive does not contain `{command}`")
-}
-
-async fn prepare_user_environment(user_env: &UserEnvironmentLayout) -> anyhow::Result<()> {
-    tokio::fs::create_dir_all(&user_env.user_bin).await?;
-    tokio::fs::create_dir_all(&user_env.npm_bin).await?;
-    tokio::fs::create_dir_all(&user_env.uv_tool_dir).await?;
-    for directory in user_env.path_entries() {
-        utils::shell::expose_user_bin_to_process_path(&directory);
-    }
-    let _ = utils::shell::refresh_process_path_after_install().await;
-    Ok(())
-}
-
-async fn verify_handshake(
-    agent_id: &AgentId,
-    lock: &SessionLaunchLock,
-    working_dir: &Path,
-) -> anyhow::Result<()> {
-    let (event_tx, _event_rx) = agents::manager::manager_event_channel();
-    let manager = AgentConnectionManager::new(event_tx);
-    let connection_id = AgentConnectionId::new();
-    let (_snapshot, ready) = manager
-        .register_connection(AgentConnectionLaunch {
-            connection_id,
-            agent_id: agent_id.clone(),
-            launch_lock: lock.clone(),
-            workspace_id: Uuid::nil(),
-            working_dir: working_dir.to_path_buf(),
-            additional_directories: Vec::new(),
-            auto_approve_mode: AgentAutoApproveMode::Off,
-            env: HashMap::new(),
-        })
-        .await;
-    let readiness = tokio::time::timeout(std::time::Duration::from_secs(30), ready).await;
-    let _ = manager.disconnect(connection_id).await;
-    readiness
-        .map_err(|_| anyhow::anyhow!("ACP handshake timed out"))?
-        .map_err(|_| anyhow::anyhow!("ACP process exited before initialize"))??;
-    Ok(())
-}
-
-async fn persist_lock(
-    pool: &SqlitePool,
-    plan: &ResolvedInstallPlan,
-    installation: &InstalledPlan,
-) -> anyhow::Result<()> {
-    let lock_id = Uuid::new_v4();
-    let source = match &plan.source {
-        LockedInstallSource::BuiltInProfile => serde_json::json!({ "kind": "built_in_profile" }),
-        LockedInstallSource::BuiltInProfileWithRegistry {
-            snapshot_id,
-            registry_id,
-        } => serde_json::json!({
-            "kind": "built_in_profile_with_registry",
-            "snapshot_id": snapshot_id,
-            "registry_id": registry_id,
-        }),
-        LockedInstallSource::OfficialRegistry {
-            snapshot_id,
-            registry_id,
-        } => serde_json::json!({
-            "kind": "official_registry",
-            "snapshot_id": snapshot_id,
-            "registry_id": registry_id,
-        }),
-        LockedInstallSource::UserDefinition { definition_sha256 } => serde_json::json!({
-            "kind": "user_definition",
-            "definition_sha256": definition_sha256,
-        }),
-    };
-    let resolved_json = serde_json::json!({
-        "source": source,
-        "frozen_plan": plan,
-        "absolute_acp_program": installation.launch_lock.absolute_acp_program,
-        "args": installation.launch_lock.args,
-        "env": installation.launch_lock.env,
-        "runtime_version": installation.launch_lock.runtime_version,
-        "acp_version": installation.launch_lock.acp_version,
-    })
-    .to_string();
-    let mut transaction = pool.begin().await?;
-    sqlx::query(
-        r#"INSERT INTO agent_install_lock
-           (id, agent_id, registry_version, platform, distribution_kind, resolved_json, created_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?)"#,
-    )
-    .bind(lock_id.to_string())
-    .bind(plan.agent_id.as_str())
-    .bind(plan.registry_bound_version())
-    .bind(&plan.platform)
-    .bind(
-        plan.components
-            .first()
-            .map(|component| format!("{:?}", component.distribution_kind).to_lowercase())
-            .unwrap_or_else(|| "unknown".to_string()),
-    )
-    .bind(resolved_json)
-    .bind(Utc::now().to_rfc3339())
-    .execute(&mut *transaction)
-    .await?;
-    for component in &installation.components {
-        sqlx::query(
-            r#"INSERT INTO agent_install_component
-               (id, lock_id, component_kind, absolute_path, version, sha256,
-                trust_state, ownership, shared_resource_key)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"#,
-        )
-        .bind(Uuid::new_v4().to_string())
-        .bind(lock_id.to_string())
-        .bind(&component.kind)
-        .bind(component.absolute_path.display().to_string())
-        .bind(&component.version)
-        .bind(&component.sha256)
-        .bind("user_environment")
-        .bind("external")
-        .bind(Option::<String>::None)
-        .execute(&mut *transaction)
-        .await?;
-    }
-    sqlx::query(
-        r#"INSERT INTO agent_installation
-           (agent_id, ownership, lifecycle, current_lock_id, rollback_lock_id,
-            active_operation, active_operation_id, updated_at)
-           VALUES (?, 'external', 'ready', ?, NULL, NULL, NULL, CURRENT_TIMESTAMP)
-           ON CONFLICT(agent_id) DO UPDATE SET
-             ownership = excluded.ownership,
-             rollback_lock_id = agent_installation.current_lock_id,
-             current_lock_id = excluded.current_lock_id,
-             lifecycle = 'ready',
-             active_operation = NULL,
-             active_operation_id = NULL,
-             updated_at = CURRENT_TIMESTAMP"#,
-    )
-    .bind(plan.agent_id.as_str())
-    .bind(lock_id.to_string())
-    .execute(&mut *transaction)
-    .await?;
-    sqlx::query(
-        r#"UPDATE agent_diagnostic
-           SET read_at = COALESCE(read_at, CURRENT_TIMESTAMP)
-           WHERE agent_id = ?
-             AND severity = 'error'
-             AND read_at IS NULL"#,
-    )
-    .bind(plan.agent_id.as_str())
-    .execute(&mut *transaction)
-    .await?;
-    transaction.commit().await?;
-    Ok(())
-}
-
-async fn probe_version(executable: &Path, version_args: &[&str]) -> Option<String> {
-    if version_args.is_empty() {
-        return None;
-    }
-    let mut command =
-        utils::process::new_hidden_tokio_command(executable, version_args.iter().copied());
-    command.kill_on_drop(true);
-    let output = tokio::time::timeout(std::time::Duration::from_secs(5), command.output())
-        .await
-        .ok()?
-        .ok()?;
-    if !output.status.success() {
-        return None;
-    }
-    let stdout = utils::process::decode_process_output(&output.stdout);
-    let stderr = utils::process::decode_process_output(&output.stderr);
-    let text = if stdout.trim().is_empty() {
-        stderr
-    } else {
-        stdout
-    };
-    let text = text.trim();
-    if text.is_empty() {
-        None
-    } else {
-        Some(text.to_string())
-    }
-}
-
-async fn file_sha256(path: &Path) -> anyhow::Result<String> {
-    let bytes = tokio::fs::read(path).await?;
-    Ok(format!("{:x}", Sha256::digest(bytes)))
-}
-
-async fn run_command(label: &str, mut command: tokio::process::Command) -> anyhow::Result<()> {
-    let output = command.output().await?;
-    if output.status.success() {
-        return Ok(());
-    }
-    let detail = utils::process::command_output_detail(&output)
-        .unwrap_or_else(|| format!("exit status {}", output.status));
-    anyhow::bail!("{label} failed: {detail}")
-}
-
-async fn run_command_with_progress<F>(
-    label: &str,
-    mut command: tokio::process::Command,
-    percent: u8,
-    on_progress: &mut F,
-) -> anyhow::Result<()>
-where
-    F: FnMut(u8, &str),
-{
-    let output = command.output().await?;
-    let stdout = utils::process::decode_process_output(&output.stdout);
-    let stderr = utils::process::decode_process_output(&output.stderr);
-    for line in stdout
-        .lines()
-        .chain(stderr.lines())
-        .map(str::trim)
-        .filter(|line| !line.is_empty())
-        .take(40)
-    {
-        on_progress(percent, line);
-    }
-    if output.status.success() {
-        return Ok(());
-    }
-    let detail = utils::process::command_output_detail(&output)
-        .unwrap_or_else(|| format!("exit status {}", output.status));
-    anyhow::bail!("{label} failed: {detail}")
-}
+#[path = "agent_install/installers.rs"]
+mod installers;
+pub(self) use installers::*;
 
 #[cfg(test)]
-mod tests {
-    use agents::{
-        LockedInstallSource, PlannedDistributionKind, PlannedInstallComponent,
-        node_verified_for_install, uv_verified_for_install,
-    };
-
-    use super::*;
-
-    #[test]
-    fn raw_gzip_archive_installs_as_the_single_binary() {
-        use flate2::{Compression, write::GzEncoder};
-
-        let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
-        encoder.write_all(b"traex-binary").unwrap();
-        let bytes = encoder.finish().unwrap();
-        let destination = std::env::temp_dir().join(format!("vibex-gz-test-{}", Uuid::new_v4()));
-        std::fs::create_dir_all(&destination).unwrap();
-        extract_archive(
-            &bytes,
-            "https://example.invalid/traex-windows-x86_64.exe.gz",
-            &destination,
-        )
-        .unwrap();
-        let staged = find_staged_executable(&destination, "traex").unwrap();
-        assert_eq!(std::fs::read(&staged).unwrap(), b"traex-binary");
-        let _ = std::fs::remove_dir_all(&destination);
-    }
-
-    #[test]
-    fn host_install_plans_npx_without_a_system_node() {
-        let platform = current_platform();
-        assert!(
-            node_verified_for_install(false, &platform),
-            "Host ACP install must plan npx distributions on {platform} without a system Node"
-        );
-    }
-
-    #[test]
-    fn connected_app_host_install_downloads_node_with_mirrors() {
-        let artifact = managed_node_artifact("linux-x86_64").expect("linux node");
-        let urls = managed_node_download_urls(&artifact);
-        assert!(
-            urls[0].starts_with("https://nodejs.org/dist/"),
-            "{}",
-            urls[0]
-        );
-        assert!(
-            urls.iter().any(|url| url.contains("npmmirror.com")),
-            "a self-hosted Host must be able to bootstrap Node without SSH upload"
-        );
-    }
-
-    #[test]
-    fn host_install_plans_uvx_without_a_system_uv() {
-        let platform = current_platform();
-        assert!(
-            uv_verified_for_install(false, &platform),
-            "Host ACP install must plan uvx distributions on {platform} without a system uv"
-        );
-    }
-
-    #[test]
-    fn managed_node_runtime_is_under_the_user_toolchain_root() {
-        let root = PathBuf::from("/tmp/vibex-share");
-        let runtime = managed_node_runtime(&root).expect("current platform has managed Node");
-        let path = runtime.node.to_string_lossy().replace('\\', "/");
-        assert!(
-            path.contains("agent-tools/node"),
-            "managed Node must live under agent-tools: {path}"
-        );
-        assert!(path.contains(MANAGED_NODE_VERSION));
-    }
-
-    fn acp_plan(version: &str) -> ResolvedInstallPlan {
-        ResolvedInstallPlan {
-            agent_id: AgentId::parse("codex").unwrap(),
-            source: LockedInstallSource::BuiltInProfile,
-            version: "0.146.0".into(),
-            platform: "test".into(),
-            components: vec![PlannedInstallComponent {
-                component_id: "acp_adapter".into(),
-                distribution_kind: PlannedDistributionKind::Npx,
-                version: version.into(),
-                resolved_source: format!("@agentclientprotocol/codex-acp@{version}"),
-                command: "npm".into(),
-                args: Vec::new(),
-                env: Default::default(),
-                trust: agents::ArtifactTrust::EcosystemIntegrityRequired,
-            }],
-        }
-    }
-
-    fn acp_installation(version: &str) -> InstalledPlan {
-        InstalledPlan {
-            launch_lock: SessionLaunchLock {
-                agent_id: AgentId::parse("codex").unwrap(),
-                absolute_acp_program: PathBuf::from("/tmp/codex-acp"),
-                args: Vec::new(),
-                env: Default::default(),
-                runtime_version: String::new(),
-                acp_version: version.into(),
-            },
-            components: vec![InstalledComponent {
-                kind: "acp_adapter".into(),
-                absolute_path: PathBuf::from("/tmp/codex-acp"),
-                version: version.into(),
-                sha256: None,
-            }],
-        }
-    }
-
-    #[test]
-    fn host_update_rejects_a_lock_that_is_still_behind_npm_latest() {
-        let error = ensure_installation_matches_plan(
-            &acp_plan("1.10.0"),
-            &acp_installation("@agentclientprotocol/codex-acp 1.8.0"),
-        )
-        .unwrap_err();
-        assert!(error.to_string().contains("outdated"), "{error}");
-    }
-
-    #[test]
-    fn host_update_accepts_the_planned_adapter_version() {
-        ensure_installation_matches_plan(&acp_plan("1.10.0"), &acp_installation("1.10.0")).unwrap();
-    }
-
-    #[test]
-    fn kiro_powershell_installer_sanitization_removes_interactive_prompt_and_preserves_staged_msi()
-    {
-        let kiro = AgentId::parse("kiro").unwrap();
-        assert!(is_kiro_official_installer(
-            &kiro,
-            "https://cli.kiro.dev/install.ps1"
-        ));
-        assert!(is_kiro_official_installer(
-            &kiro,
-            "https://cli.kiro.dev/install"
-        ));
-        assert!(!is_kiro_official_installer(
-            &kiro,
-            "https://prod.download.cli.kiro.dev/stable/2.33.1/kirocli-x86_64-linux.zip"
-        ));
-
-        let original = r#"
-$tempDir = Join-Path ([System.IO.Path]::GetTempPath()) "kiro-cli-install-$(Get-Random)"
-Remove-Item -Path $tempDir -Recurse -Force -ErrorAction SilentlyContinue
-Read-Host "Press Enter to exit"
-"#;
-        let sanitized = sanitize_kiro_powershell_script(original);
-        assert!(
-            !sanitized.contains("Read-Host \"Press Enter to exit\""),
-            "non-interactive execution must not block on Read-Host: {sanitized}"
-        );
-        assert!(
-            !sanitized.lines().any(|line| line.trim()
-                == "Remove-Item -Path $tempDir -Recurse -Force -ErrorAction SilentlyContinue"),
-            "tempDir removal must be commented out so MSI fallback can reuse the downloaded file: {sanitized}"
-        );
-    }
-
-    #[test]
-    fn antigravity_component_version_args_remain_empty_so_install_does_not_spawn_blocking_version_probe()
-     {
-        let antigravity = AgentId::parse("antigravity").unwrap();
-        assert!(
-            component_version_args(&antigravity, "combined_runtime").is_empty(),
-            "Antigravity blocks on --version and must not be spawned for version probing"
-        );
-    }
-
-    #[tokio::test]
-    async fn binary_install_replaces_in_use_executable_and_siblings_without_sharing_violation() {
-        let temp = tempfile::tempdir().unwrap();
-        let staging = temp.path().join("staging");
-        let user_bin = temp.path().join("bin");
-        tokio::fs::create_dir_all(&staging).await.unwrap();
-        tokio::fs::create_dir_all(&user_bin).await.unwrap();
-
-        let dest_exe = user_bin.join(if cfg!(windows) {
-            "agy_acp_server.exe"
-        } else {
-            "agy_acp_server"
-        });
-        let dest_sibling = user_bin.join(if cfg!(windows) {
-            "localharness_external.exe"
-        } else {
-            "localharness_external"
-        });
-        tokio::fs::write(&dest_exe, b"old-server").await.unwrap();
-        tokio::fs::write(&dest_sibling, b"old-sibling")
-            .await
-            .unwrap();
-
-        // Simulate Windows image section lock (no FILE_SHARE_WRITE, only read/delete sharing,
-        // or even no delete sharing if we test rename fallback when overwrite is denied).
-        // On Windows, a running .exe allows FILE_SHARE_READ | FILE_SHARE_DELETE (rename works,
-        // opening for write fails with os error 32).
-        #[cfg(windows)]
-        let (_locked_exe, _locked_sibling) = {
-            use std::os::windows::fs::OpenOptionsExt;
-            const FILE_SHARE_READ: u32 = 0x00000001;
-            const FILE_SHARE_DELETE: u32 = 0x00000004;
-            let f1 = std::fs::OpenOptions::new()
-                .read(true)
-                .share_mode(FILE_SHARE_READ | FILE_SHARE_DELETE)
-                .open(&dest_exe)
-                .unwrap();
-            let f2 = std::fs::OpenOptions::new()
-                .read(true)
-                .share_mode(FILE_SHARE_READ | FILE_SHARE_DELETE)
-                .open(&dest_sibling)
-                .unwrap();
-            // Verify direct copy fails with os error 32 (ERROR_SHARING_VIOLATION)
-            let direct_err = std::fs::copy(&dest_exe, &dest_exe).unwrap_err();
-            assert_eq!(direct_err.raw_os_error(), Some(32));
-            (f1, f2)
-        };
-
-        let staged_exe = staging.join(dest_exe.file_name().unwrap());
-        let staged_sibling = staging.join(dest_sibling.file_name().unwrap());
-        tokio::fs::write(&staged_exe, b"new-server").await.unwrap();
-        tokio::fs::write(&staged_sibling, b"new-sibling")
-            .await
-            .unwrap();
-
-        let sibling_name = dest_sibling.file_name().unwrap().to_str().unwrap();
-        install_staged_binary_and_siblings(&staged_exe, &dest_exe, &user_bin, &[sibling_name])
-            .await
-            .expect("updating a running/locked binary and its sibling must succeed");
-
-        assert_eq!(tokio::fs::read(&dest_exe).await.unwrap(), b"new-server");
-        assert_eq!(
-            tokio::fs::read(&dest_sibling).await.unwrap(),
-            b"new-sibling"
-        );
-    }
-
-    #[cfg(windows)]
-    #[tokio::test]
-    async fn run_npm_global_install_handles_spaced_npm_cmd_and_spaced_prefix() {
-        let temp = tempfile::tempdir().unwrap();
-        let node_dir = temp.path().join("Program Files").join("nodejs");
-        let prefix_dir = temp.path().join("Program Files").join("npm global");
-        tokio::fs::create_dir_all(&node_dir).await.unwrap();
-        tokio::fs::create_dir_all(&prefix_dir).await.unwrap();
-
-        let marker = prefix_dir.join("installed.txt");
-        let npm_cmd = node_dir.join("npm.cmd");
-        let script = format!(
-            "@echo off\r\necho %~6^|%*> \"{}\"\r\nexit /b 0\r\n",
-            marker.display()
-        );
-        tokio::fs::write(&npm_cmd, script).await.unwrap();
-
-        let component = PlannedInstallComponent {
-            component_id: "acp_adapter".into(),
-            distribution_kind: PlannedDistributionKind::Npx,
-            version: "0.12.0".into(),
-            resolved_source: "@zed-industries/claude-code-acp@0.12.0".into(),
-            command: "npm".into(),
-            args: Vec::new(),
-            env: Default::default(),
-            trust: agents::ArtifactTrust::EcosystemIntegrityRequired,
-        };
-        let user_env = UserEnvironmentLayout::for_current_user(temp.path())
-            .with_npm_prefix(prefix_dir.clone());
-
-        run_npm_global_install(&npm_cmd, &component, &user_env, None, &mut |_, _| {})
-            .await
-            .expect("npm.cmd in spaced Program Files path with spaced --prefix must succeed");
-
-        let recorded = tokio::fs::read_to_string(&marker).await.unwrap();
-        let trimmed = recorded.trim();
-        assert!(
-            trimmed.starts_with(&format!("{}|", prefix_dir.display())),
-            "expected prefix `{}` in `{trimmed}`",
-            prefix_dir.display()
-        );
-        assert!(
-            trimmed.ends_with("@zed-industries/claude-code-acp@0.12.0"),
-            "expected package spec at end of `{trimmed}`"
-        );
-    }
-}
+#[path = "agent_install/tests.rs"]
+mod tests;

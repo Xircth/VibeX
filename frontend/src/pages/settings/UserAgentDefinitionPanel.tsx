@@ -10,6 +10,7 @@ import type {
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 
+import { AgentSectionHeading } from './SettingsSection';
 import { UserAgentDefinitionEditor } from './UserAgentDefinitionEditor';
 
 type UserAgentDefinitionPanelProps = {
@@ -75,11 +76,11 @@ export function UserAgentDefinitionPanel({
       aria-labelledby="user-agent-definition-title"
       className="agent-flat-section"
     >
-      <div className="agent-section-heading">
-        <div className="flex flex-wrap items-center gap-2">
-          <h3 id="user-agent-definition-title">
-            {t('agents.userDefinitionTitle')}
-          </h3>
+      <AgentSectionHeading
+        headingId="user-agent-definition-title"
+        title={t('agents.userDefinitionTitle')}
+        description={t('agents.userDefinitionDescription')}
+        titleAddon={
           <span
             className={cn(
               'agent-registry-status',
@@ -93,7 +94,8 @@ export function UserAgentDefinitionPanel({
               ? t('agents.userDefinitionPending')
               : t('agents.userDefinitionSynced')}
           </span>
-        </div>
+        }
+      >
         <Button
           className="h-8"
           disabled={loading || operationActive}
@@ -104,9 +106,9 @@ export function UserAgentDefinitionPanel({
           <Pencil aria-hidden="true" className="mr-1.5 h-3.5 w-3.5" />
           {t('agents.userDefinitionEdit')}
         </Button>
-      </div>
+      </AgentSectionHeading>
 
-      <div className="overflow-hidden rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-content)]">
+      <div className="agent-user-definition-card overflow-hidden rounded-lg bg-[var(--surface-content)]">
         {definition.reinstall_required ? (
           <div className="flex flex-wrap items-center justify-between gap-3 border-b border-warning/25 bg-warning/[0.08] px-4 py-3 text-xs">
             <div className="flex min-w-0 items-start gap-2 text-warning">

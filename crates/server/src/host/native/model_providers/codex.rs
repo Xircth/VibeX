@@ -576,11 +576,21 @@ pub(super) async fn apply_codex(
         .and_then(Value::as_array)
         .cloned()
         .unwrap_or_default();
+    let catalog_path = codex_home.join(CODEX_CATALOG_FILE);
+    let source_path = codex_home.join(CODEX_SOURCE_FILE);
+    let catalog_original = filesystem.read(&catalog_path).await?;
+    let source_original = filesystem.read(&source_path).await?;
     if !catalog_models.is_empty() {
         table.insert(
             "model_catalog_json".to_string(),
             toml::Value::String(CODEX_CATALOG_FILE.to_string()),
         );
+    } else if table
+        .get("model_catalog_json")
+        .and_then(toml::Value::as_str)
+        == Some(CODEX_CATALOG_FILE)
+    {
+        table.remove("model_catalog_json");
     }
     let auth_bytes = serde_json::to_vec_pretty(&auth)
         .map_err(|error| format!("序列化 Codex auth.json 失败：{error}"))?;
@@ -602,10 +612,6 @@ pub(super) async fn apply_codex(
         },
     ];
     if !catalog_models.is_empty() {
-        let catalog_path = codex_home.join(CODEX_CATALOG_FILE);
-        let source_path = codex_home.join(CODEX_SOURCE_FILE);
-        let catalog_original = filesystem.read(&catalog_path).await?;
-        let source_original = filesystem.read(&source_path).await?;
         let catalog_bytes = serde_json::to_vec_pretty(catalog_document.as_ref().expect("catalog"))
             .map_err(|error| format!("序列化 Codex 模型目录失败：{error}"))?;
         let source_bytes =
@@ -623,6 +629,23 @@ pub(super) async fn apply_codex(
             replacement: Some(source_bytes),
             sensitive: false,
         });
+    } else {
+        if catalog_original.is_some() {
+            mutations.push(NativeFileMutation {
+                path: catalog_path,
+                expected: catalog_original,
+                replacement: None,
+                sensitive: false,
+            });
+        }
+        if source_original.is_some() {
+            mutations.push(NativeFileMutation {
+                path: source_path,
+                expected: source_original,
+                replacement: None,
+                sensitive: false,
+            });
+        }
     }
     apply_projection_mutations(&mutations).await
 }

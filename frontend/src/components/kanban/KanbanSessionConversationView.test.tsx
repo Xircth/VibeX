@@ -95,7 +95,16 @@ vi.mock('@/components/logs/VirtualizedList', () => ({
 }));
 
 vi.mock('@/components/tasks/TaskFollowUpSection', () => ({
-  TaskFollowUpSection: () => <div data-testid="follow-up-section" />,
+  TaskFollowUpSection: ({
+    widthMode,
+  }: {
+    widthMode?: 'bounded' | 'workspace';
+  }) => (
+    <div
+      data-testid="follow-up-section"
+      data-width-mode={widthMode ?? 'bounded'}
+    />
+  ),
 }));
 
 vi.mock('@/contexts/EntriesContext', () => ({
@@ -226,12 +235,14 @@ describe('shouldActivateConversationSlot', () => {
 });
 
 describe('KanbanSessionConversationView', () => {
-  it('carries workspace image-preview presentation through the placement surface', () => {
+  it('carries workspace image-preview presentation and widthMode through the placement surface to both list and composer', () => {
     const workspace = createWorkspace('workspace-preview');
+    const session = createSession('session-preview', workspace.id);
     const queryClient = new QueryClient({
       defaultOptions: { queries: { retry: false } },
     });
     queryClient.setQueryData(['taskAttempt', workspace.id], workspace);
+    queryClient.setQueryData(['session', session.id], session);
 
     render(
       <MemoryRouter>
@@ -239,6 +250,8 @@ describe('KanbanSessionConversationView', () => {
           <KanbanSessionConversationPlacementProvider>
             <KanbanSessionConversationView
               workspaceId={workspace.id}
+              sessionId={session.id}
+              interactive
               imagePreviewPresentation="workspace-tab"
               conversationWidthMode="workspace"
             />
@@ -252,6 +265,10 @@ describe('KanbanSessionConversationView', () => {
       'workspace-tab'
     );
     expect(screen.getByTestId('virtualized-list')).toHaveAttribute(
+      'data-width-mode',
+      'workspace'
+    );
+    expect(screen.getByTestId('follow-up-section')).toHaveAttribute(
       'data-width-mode',
       'workspace'
     );

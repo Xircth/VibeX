@@ -1,23 +1,9 @@
+use agents::engine::NativeEngineKind;
 use agents::{
-    AgentId, BuiltInProfileCatalog, NativeConfigFieldKind, NativeConfigSurface, ProfileComponent,
-    ProfileInstallSource, ProfileManagementActionKind, RegistryEntryIdentity,
+    AgentId, BuiltInProfileCatalog, ProfileComponent, ProfileInstallSource,
+    ProfileManagementActionKind, ProfileTopology, RegistryEntryIdentity,
 };
 use api_types::{AgentKind, AgentSettingsFeature};
-
-fn native_field<'a>(
-    catalog: &'a BuiltInProfileCatalog,
-    agent_id: &str,
-    field_id: &str,
-) -> &'a agents::NativeConfigField {
-    catalog
-        .profile(&AgentId::parse(agent_id).unwrap())
-        .unwrap()
-        .native_config
-        .iter()
-        .flat_map(|binding| binding.fields)
-        .find(|field| field.field_id == field_id)
-        .unwrap_or_else(|| panic!("missing {agent_id}.{field_id}"))
-}
 
 #[test]
 fn hermes_profile_uses_the_official_desktop_brand_icon() {
@@ -38,12 +24,20 @@ fn codeg_pinned_distribution_matrix_is_exact() {
     assert_eq!(
         profile("claude_code").install_sources.len(),
         1,
-        "claude_code must only pin AcpAdapter"
+        "claude_code pins its official CombinedRuntime"
+    );
+    assert_eq!(
+        profile("claude_code").topology,
+        ProfileTopology::NativeEngine(NativeEngineKind::ClaudeNative)
     );
     assert_eq!(
         profile("codex").install_sources.len(),
         1,
-        "codex must only pin AcpAdapter"
+        "codex pins its official CombinedRuntime"
+    );
+    assert_eq!(
+        profile("codex").topology,
+        ProfileTopology::NativeEngine(NativeEngineKind::CodexNative)
     );
     assert_eq!(
         profile("pi").install_sources.len(),
@@ -54,19 +48,19 @@ fn codeg_pinned_distribution_matrix_is_exact() {
     for (id, component, package, version, command, node) in [
         (
             "claude_code",
-            ProfileComponent::AcpAdapter,
-            "@agentclientprotocol/claude-agent-acp",
-            "0.94.0",
-            "claude-agent-acp",
+            ProfileComponent::CombinedRuntime,
+            "@anthropic-ai/claude-code",
+            "2.1.325",
+            "claude",
             ">=22",
         ),
         (
             "codex",
-            ProfileComponent::AcpAdapter,
-            "@agentclientprotocol/codex-acp",
-            "2.2.2",
-            "codex-acp",
-            ">=20.3",
+            ProfileComponent::CombinedRuntime,
+            "@openai/codex",
+            "0.169.0",
+            "codex",
+            ">=20",
         ),
         (
             "openclaw",
@@ -188,11 +182,18 @@ fn codeg_pinned_distribution_matrix_is_exact() {
                 "deepseek-acp 0.9.0 npm integrity"
             );
         }
-        if id == "claude_code" && component == ProfileComponent::AcpAdapter {
+        if id == "claude_code" {
             assert_eq!(
                 *integrity,
-                "sha512-3quBG9QaMKhETZPF0QaD/Ue2C0UCQDzDztDbzs8AVYM8RQKX93TPL0YzJl7sx06qYPLQvxrCDdiAp5a6cgFfZg==",
-                "claude-agent-acp 0.94.0 npm integrity"
+                "sha512-OUxCb0sx734zJh9zGTP9oF01gZ44DCGFaw7hgD4byepjRRGyvHzgUOwC7dlCgVIljV6CiEVDjq+anY3GUvKFQw==",
+                "@anthropic-ai/claude-code 2.1.325 npm integrity"
+            );
+        }
+        if id == "codex" {
+            assert_eq!(
+                *integrity,
+                "sha512-KhzYlkKPxoNssR8CEm45IjqnFWn7UtlF4CiD3tOJPea51xBs7MaHy0UQG9GSbCqk6Lrjn5QdJDV0QD1/FgWlGw==",
+                "@openai/codex 0.169.0 npm integrity"
             );
         }
         if id == "hermes" {
@@ -818,37 +819,56 @@ fn built_in_profiles_are_declarative_and_bind_explicitly() {
         }));
     }
 
-    // Adapter-backed Agents install the adapter alone; the adapter carries the
-    // vendor CLI and is therefore a declared login entry point, or an installed
-    // Agent would report its account actions as unavailable.
-    for (id, adapter) in [("claude_code", "claude-agent-acp"), ("codex", "codex-acp")] {
+    // Native-engine Agents launch and authenticate directly through their official CLI.
+    for (id, expected_cli) in [("claude_code", "claude"), ("codex", "codex")] {
         let profile = catalog.profile(&AgentId::parse(id).unwrap()).unwrap();
+        assert!(
+            profile.registry_binding.is_none(),
+            "{id} must not bind to an ACP Registry wrapper package"
+        );
         let login = profile
             .management_actions
             .iter()
             .find(|action| action.kind == ProfileManagementActionKind::Login)
             .unwrap();
-        assert!(
-            login.programs.iter().any(|entry| entry.program == adapter),
-            "{id} login must be drivable by `{adapter}`"
+        assert_eq!(
+            login
+                .programs
+                .iter()
+                .map(|entry| entry.program)
+                .collect::<Vec<_>>(),
+            vec![expected_cli],
+            "{id} login must run official `{expected_cli}` CLI only"
         );
-    }
-
-    for id in ["claude_code", "codex"] {
-        let profile = catalog.profile(&AgentId::parse(id).unwrap()).unwrap();
         assert!(profile.management_actions.iter().any(|action| {
             action.kind == ProfileManagementActionKind::Subscription && action.url.is_some()
         }));
     }
 
-    let renamed = RegistryEntryIdentity {
-        registry_id: "claude-acp".to_string(),
+    let bound_antigravity = RegistryEntryIdentity {
+        registry_id: "antigravity-acp".to_string(),
         display_name: "Renamed by upstream".to_string(),
     };
     assert_eq!(
-        catalog.resolve_registry_entry(&renamed),
-        Some(&AgentId::parse("claude_code").unwrap())
+        catalog.resolve_registry_entry(&bound_antigravity),
+        Some(&AgentId::parse("antigravity").unwrap())
     );
+
+    for suppressed in ["claude-acp", "claude-code-acp", "codex-acp"] {
+        assert!(
+            agents::suppressed_registry_ids_for_built_ins().contains(&suppressed),
+            "{suppressed} must be suppressed from ACP Registry marketplace"
+        );
+        let entry = RegistryEntryIdentity {
+            registry_id: suppressed.to_string(),
+            display_name: "Legacy ACP Wrapper".to_string(),
+        };
+        assert_eq!(
+            catalog.resolve_registry_entry(&entry),
+            None,
+            "{suppressed} must not bind to native built-in profiles"
+        );
+    }
 
     let similar_but_unbound = RegistryEntryIdentity {
         registry_id: "claude-acp-community".to_string(),
@@ -887,13 +907,13 @@ fn built_in_profiles_are_declarative_and_bind_explicitly() {
         ]
     );
     assert!(
-        catalog
+        !catalog
             .profile(&AgentId::parse("claude_code").unwrap())
             .unwrap()
             .adapter_bundles_runtime()
     );
     assert!(
-        catalog
+        !catalog
             .profile(&AgentId::parse("codex").unwrap())
             .unwrap()
             .adapter_bundles_runtime()
@@ -960,503 +980,16 @@ fn every_built_in_binary_has_an_expected_sha256() {
 }
 
 #[test]
-fn built_in_profiles_keep_codeg_advanced_configuration_contract() {
-    let catalog = BuiltInProfileCatalog::bundled();
-
-    for (agent_id, field_ids) in [
-        (
-            "claude_code",
-            &[
-                "haiku_model",
-                "sonnet_model",
-                "opus_model",
-                "claude_send_attribution_header",
-                "claude_disable_nonessential_traffic",
-            ][..],
-        ),
-        (
-            "codex",
-            &[
-                "codex_approval_policy",
-                "codex_responses_websockets",
-                "codex_network_access",
-                "codex_exclude_tmpdir",
-                "codex_exclude_slash_tmp",
-            ][..],
-        ),
-        (
-            "antigravity",
-            &[
-                "antigravity_tool_permission",
-                "antigravity_agent_mode",
-                "antigravity_terminal_sandbox",
-                "antigravity_telemetry",
-                "antigravity_permissions",
-            ][..],
-        ),
-        (
-            "kimi_code",
-            &[
-                "kimi_provider_env",
-                "kimi_support_efforts",
-                "kimi_default_effort",
-            ][..],
-        ),
-        ("pi", &["pi_custom_providers"][..]),
-        (
-            "grok",
-            &[
-                "grok_custom_model_id",
-                "grok_api_backend",
-                "grok_context_window",
-                "grok_auto_compact_threshold",
-            ][..],
-        ),
-        (
-            "cursor",
-            &["cursor_model", "cursor_force", "cursor_sandbox_mode"][..],
-        ),
-        ("deepseek_harness", &["deepseek_harness_api_key"][..]),
-    ] {
-        for field_id in field_ids {
-            native_field(&catalog, agent_id, field_id);
-        }
-    }
-
-    let hermes_provider = native_field(&catalog, "hermes", "hermes_provider");
-    assert_eq!(hermes_provider.kind, NativeConfigFieldKind::Select);
-    assert_eq!(hermes_provider.options.len(), 37);
-    for provider in [
-        "openrouter",
-        "anthropic",
-        "kimi-coding-cn",
-        "openai-codex",
-        "google-gemini-cli",
-        "bedrock",
-    ] {
-        assert!(
-            hermes_provider
-                .options
-                .iter()
-                .any(|(value, _)| *value == provider),
-            "missing Hermes provider {provider}"
-        );
-    }
-
-    assert_eq!(
-        native_field(&catalog, "claude_code", "haiku_model").path,
-        ["env", "ANTHROPIC_DEFAULT_HAIKU_MODEL"]
-    );
-    assert_eq!(
-        native_field(&catalog, "grok", "grok_permission").path,
-        ["ui", "permission_mode"]
-    );
-    assert_eq!(
-        native_field(&catalog, "grok", "grok_permission")
-            .options
-            .iter()
-            .map(|(value, _)| *value)
-            .collect::<Vec<_>>(),
-        ["ask", "auto", "always-approve"]
-    );
-    assert_eq!(
-        native_field(&catalog, "cursor", "cursor_sandbox_mode").path,
-        ["sandbox", "mode"]
-    );
-    assert_eq!(
-        native_field(&catalog, "deepseek_harness", "deepseek_harness_api_key").path,
-        ["refs", "DEEPSEEK_API_KEY"]
-    );
-}
-
-#[test]
-fn codeg_directory_semantics_and_settings_capabilities_are_profile_declared() {
-    let catalog = BuiltInProfileCatalog::bundled();
-    let profile = |id: &str| catalog.profile(&AgentId::parse(id).unwrap()).unwrap();
-
-    let antigravity = profile("antigravity");
-    assert_eq!(
-        antigravity.native_config[0].directory_override_env,
-        Some("GEMINI_HOME")
-    );
-    assert_eq!(
-        antigravity.native_config[0].override_relative_path,
-        "antigravity-acp/settings.json"
-    );
-    assert_eq!(
-        antigravity.native_config[1].override_relative_path,
-        "antigravity-cli/settings.json"
-    );
-    assert_eq!(
-        antigravity
-            .account_evidence
-            .as_ref()
-            .unwrap()
-            .override_relative_directory,
-        "antigravity-acp"
-    );
-    assert!(
-        antigravity
-            .settings_features
-            .contains(&AgentSettingsFeature::AuthenticationMode)
-    );
-    assert!(
-        antigravity
-            .settings_features
-            .contains(&AgentSettingsFeature::ReusableModelProviders)
-    );
-
-    let cline = profile("cline");
-    assert!(
-        cline
-            .native_config
-            .iter()
-            .all(|binding| binding.directory_override_env == Some("CLINE_DIR"))
-    );
-    assert_eq!(
-        cline
-            .account_evidence
-            .as_ref()
-            .unwrap()
-            .directory_override_env,
-        Some("CLINE_DIR")
-    );
-
-    let codebuddy = profile("codebuddy");
-    assert_eq!(
-        codebuddy.native_config[0].directory_override_env,
-        Some("CODEBUDDY_CONFIG_DIR")
-    );
-    assert!(!codebuddy.authentication_required_by_default);
-    assert!(codebuddy.account_evidence.is_none());
-    assert!(
-        profile("cursor").account_evidence.is_none(),
-        "Cursor account login is stored in the platform secret store, not a config file"
-    );
-    assert!(
-        profile("opencode")
-            .settings_features
-            .contains(&AgentSettingsFeature::OpenCodeProviders)
-    );
-    assert!(
-        profile("deepseek_harness")
-            .settings_features
-            .contains(&AgentSettingsFeature::AuthenticationMode)
-    );
-    assert!(
-        profile("omp")
-            .settings_features
-            .contains(&AgentSettingsFeature::AuthenticationMode)
-    );
-    assert!(
-        profile("omp")
-            .settings_features
-            .contains(&AgentSettingsFeature::ReusableModelProviders)
-    );
-    assert!(
-        profile("deepseek_harness")
-            .settings_features
-            .contains(&AgentSettingsFeature::DshPlugins)
-    );
-    assert!(
-        profile("grok")
-            .settings_features
-            .contains(&AgentSettingsFeature::GrokPlugins)
-    );
-    assert!(
-        profile("pi")
-            .settings_features
-            .contains(&AgentSettingsFeature::PiPlugins)
-    );
-    assert!(
-        profile("pi")
-            .settings_features
-            .contains(&AgentSettingsFeature::ReusableModelProviders)
-    );
-    for id in [
-        "claude_code",
-        "codex",
-        "antigravity",
-        "gemini",
-        "kimi_code",
-        "pi",
-        "grok",
-        "hermes",
-        "openclaw",
-        "cline",
-        "codebuddy",
-        "qoder",
-        "auggie",
-        "trae",
-        "command_code",
-        "zcode",
-        "omp",
-    ] {
-        assert!(
-            catalog.supports_reusable_model_providers(&AgentId::parse(id).unwrap()),
-            "{id} exposes reusable Model Providers and must be able to probe them"
-        );
-    }
-    for id in ["cursor", "opencode", "deepseek_harness", "kiro"] {
-        assert!(
-            !catalog.supports_reusable_model_providers(&AgentId::parse(id).unwrap()),
-            "{id} does not expose reusable Model Providers"
-        );
-    }
-
-    for id in [
-        "claude_code",
-        "codex",
-        "antigravity",
-        "opencode",
-        "cline",
-        "hermes",
-        "codebuddy",
-        "kimi_code",
-        "grok",
-        "cursor",
-        "deepseek_harness",
-        "qoder",
-        "kiro",
-        "auggie",
-        "trae",
-        "command_code",
-        "zcode",
-        "omp",
-    ] {
-        assert!(
-            profile(id)
-                .settings_features
-                .contains(&AgentSettingsFeature::NativeMcp),
-            "{id} must declare native MCP support"
-        );
-    }
-    for id in ["openclaw", "pi"] {
-        assert!(
-            !profile(id)
-                .settings_features
-                .contains(&AgentSettingsFeature::NativeMcp),
-            "{id} must not be offered as a native MCP target"
-        );
-    }
-    for id in [
-        "claude_code",
-        "codex",
-        "antigravity",
-        "openclaw",
-        "opencode",
-        "cline",
-        "hermes",
-        "codebuddy",
-        "kimi_code",
-        "pi",
-        "grok",
-        "cursor",
-        "deepseek_harness",
-        "qoder",
-        "kiro",
-        "auggie",
-        "trae",
-        "command_code",
-        "zcode",
-        "omp",
-    ] {
-        assert!(
-            profile(id)
-                .settings_features
-                .contains(&AgentSettingsFeature::NativeSkills),
-            "{id} must declare native Skills support"
-        );
-    }
-}
-
-#[test]
-fn native_config_surfaces_keep_runtime_fields_out_of_authentication() {
-    let catalog = BuiltInProfileCatalog::bundled();
-    let surface =
-        |agent_id: &str, field_id: &str| native_field(&catalog, agent_id, field_id).surface;
-
-    assert_eq!(
-        surface("claude_code", "anthropic_base_url"),
-        NativeConfigSurface::Authentication
-    );
-    assert_eq!(
-        surface("claude_code", "anthropic_api_key"),
-        NativeConfigSurface::Authentication
-    );
-    for field_id in ["haiku_model", "sonnet_model", "opus_model"] {
-        assert_eq!(
-            surface("claude_code", field_id),
-            NativeConfigSurface::Authentication,
-            "{field_id} belongs on the official API authentication surface"
-        );
-    }
-    for field_id in [
-        "effort_level",
-        "permission_mode",
-        "include_co_authored_by",
-        "claude_send_attribution_header",
-        "claude_disable_nonessential_traffic",
-        "auto_updates_channel",
-    ] {
-        assert_eq!(
-            surface("claude_code", field_id),
-            NativeConfigSurface::Configuration,
-            "{field_id} must stay in configuration management"
-        );
-    }
-
-    assert_eq!(
-        surface("codex", "openai_api_key"),
-        NativeConfigSurface::Authentication
-    );
-    assert_eq!(
-        surface("codex", "codex_openai_base_url"),
-        NativeConfigSurface::Authentication
-    );
-    assert_eq!(
-        surface("codex", "codex_model_provider"),
-        NativeConfigSurface::Authentication
-    );
-    assert_eq!(
-        surface("codex", "codex_reasoning_effort"),
-        NativeConfigSurface::Configuration
-    );
-    assert_eq!(
-        surface("codex", "codex_approval_policy"),
-        NativeConfigSurface::Configuration
-    );
-    assert_eq!(
-        surface("codex", "codex_responses_websockets"),
-        NativeConfigSurface::Configuration
-    );
-
-    assert_eq!(
-        surface("antigravity", "antigravity_api_key"),
-        NativeConfigSurface::Authentication
-    );
-    assert_eq!(
-        surface("antigravity", "antigravity_auth"),
-        NativeConfigSurface::Authentication
-    );
-    assert_eq!(
-        surface("antigravity", "antigravity_cloud_project"),
-        NativeConfigSurface::Authentication
-    );
-    for field_id in [
-        "antigravity_tool_permission",
-        "antigravity_agent_mode",
-        "antigravity_terminal_sandbox",
-        "antigravity_telemetry",
-        "antigravity_permissions",
-    ] {
-        assert_eq!(
-            surface("antigravity", field_id),
-            NativeConfigSurface::Configuration,
-            "{field_id} must stay in configuration management"
-        );
-    }
-
-    assert_eq!(
-        surface("grok", "grok_base_url"),
-        NativeConfigSurface::Authentication
-    );
-    assert_eq!(
-        surface("grok", "grok_api_key"),
-        NativeConfigSurface::Authentication
-    );
-    assert_eq!(
-        surface("grok", "grok_effort"),
-        NativeConfigSurface::Configuration
-    );
-    assert_eq!(
-        surface("opencode", "opencode_anthropic_api_key"),
-        NativeConfigSurface::Authentication
-    );
-    assert_eq!(
-        surface("opencode", "opencode_share"),
-        NativeConfigSurface::Configuration
-    );
-    assert_eq!(
-        surface("grok", "grok_permission"),
-        NativeConfigSurface::Configuration
-    );
-    assert_eq!(
-        surface("cursor", "cursor_model"),
-        NativeConfigSurface::Configuration
-    );
-    assert_eq!(
-        surface("cursor", "cursor_force"),
-        NativeConfigSurface::Configuration
-    );
-}
-
-#[test]
-fn codex_native_reasoning_effort_includes_max_and_ultra() {
-    let catalog = BuiltInProfileCatalog::bundled();
-    let values: Vec<_> = native_field(&catalog, "codex", "codex_reasoning_effort")
-        .options
-        .iter()
-        .map(|(value, _)| *value)
-        .collect();
-
-    assert_eq!(
-        values,
-        ["minimal", "low", "medium", "high", "xhigh", "max", "ultra"]
-    );
-}
-
-#[test]
-fn official_account_evidence_requires_a_live_token_not_residue() {
-    let catalog = BuiltInProfileCatalog::bundled();
-    let evidence = |id: &str| {
-        catalog
-            .profile(&AgentId::parse(id).unwrap())
-            .unwrap()
-            .account_evidence
-            .as_ref()
-            .unwrap()
-    };
-
-    let claude = evidence("claude_code");
-    assert!(claude.matches(&serde_json::json!({
-        "claudeAiOauth": { "accessToken": "tok" }
-    })));
-    assert!(!claude.matches(&serde_json::json!({
-        "claudeAiOauth": {}
-    })));
-    assert!(!claude.matches(&serde_json::json!({})));
-
-    let codex = evidence("codex");
-    assert!(codex.matches(&serde_json::json!({
-        "tokens": { "access_token": "tok" }
-    })));
-    assert!(!codex.matches(&serde_json::json!({
-        "tokens": { "refresh_token": "stale" }
-    })));
-    assert!(!codex.matches(&serde_json::json!({ "tokens": {} })));
-}
-
-#[test]
 fn acp_adapter_relation_covers_only_wrapper_agents() {
-    let claude = agents::acp_adapter_relation("claude_code").expect("claude relation");
-    assert_eq!(claude.native_cmd, "claude");
-    assert_eq!(claude.shared_config_dir, "~/.claude");
-    assert!(claude.extra_dirs.contains(&".claude/local"));
-    assert!(claude.extra_dirs.contains(&".local/bin"));
-    assert_eq!(claude.docs_url, agents::ACP_ADAPTER_DOCS_URL);
-
-    let codex = agents::acp_adapter_relation("codex").expect("codex relation");
-    assert_eq!(codex.native_cmd, "codex");
-    assert_eq!(codex.shared_config_dir, "~/.codex");
-    assert!(codex.extra_dirs.contains(&".local/bin"));
-
     let zcode = agents::acp_adapter_relation("zcode").expect("zcode relation");
     assert_eq!(zcode.native_cmd, "zcode");
     assert_eq!(zcode.shared_config_dir, "~/.zcode");
     assert!(zcode.extra_dirs.contains(&".local/bin"));
+    assert_eq!(zcode.docs_url, "https://github.com/william0wang/zcode-acp");
 
     for direct in [
+        "claude_code",
+        "codex",
         "opencode",
         "gemini",
         "grok",
@@ -1474,7 +1007,7 @@ fn acp_adapter_relation_covers_only_wrapper_agents() {
     ] {
         assert!(
             agents::acp_adapter_relation(direct).is_none(),
-            "{direct} ships native ACP or separate runtime policy and must not declare a wrapper relation"
+            "{direct} ships native engine, native ACP, or separate runtime policy and must not declare a wrapper relation"
         );
     }
 }
@@ -1482,55 +1015,95 @@ fn acp_adapter_relation_covers_only_wrapper_agents() {
 #[test]
 fn resolve_vendor_cli_hits_extra_dirs_while_spawn_ignores_vendor_cli() {
     let temp = tempfile::tempdir().unwrap();
+    let local_bin = temp.path().join(".local").join("bin");
+    std::fs::create_dir_all(&local_bin).unwrap();
+    #[cfg(windows)]
+    let zcode_bin = local_bin.join("zcode.exe");
+    #[cfg(not(windows))]
+    let zcode_bin = local_bin.join("zcode");
+    std::fs::write(&zcode_bin, b"fake-zcode").unwrap();
+
+    let relation = agents::acp_adapter_relation("zcode").unwrap();
+    let resolved = agents::resolve_vendor_cli_in_extra_dirs(
+        relation.native_cmd,
+        relation.extra_dirs,
+        temp.path(),
+    );
+    assert_eq!(resolved.as_deref(), Some(zcode_bin.as_path()));
+
+    let zcode_id = AgentId::parse("zcode").unwrap();
+    assert!(
+        agents::launch_program_is_vendor_cli(&zcode_id, &zcode_bin),
+        "zcode binary must be recognized as vendor CLI and rejected for ACP launch"
+    );
+    assert!(
+        agents::discover_acp_launch_lock_in_dirs(&zcode_id, std::slice::from_ref(&local_bin))
+            .is_none(),
+        "ACP spawn discovery must never select vendor CLI even when its directory is searched"
+    );
+
+    #[cfg(windows)]
+    let adapter_bin = local_bin.join("zcode-acp-server.cmd");
+    #[cfg(not(windows))]
+    let adapter_bin = local_bin.join("zcode-acp-server");
+    std::fs::write(&adapter_bin, b"fake-adapter").unwrap();
+    assert!(!agents::launch_program_is_vendor_cli(
+        &zcode_id,
+        &adapter_bin
+    ));
+    let lock = agents::discover_acp_launch_lock_in_dirs(&zcode_id, &[local_bin])
+        .expect("adapter binary should be accepted for ACP launch");
+    assert_eq!(lock.absolute_acp_program, adapter_bin);
+}
+
+#[test]
+fn native_engine_discovery_resolves_extra_dirs_and_rejects_legacy_shims() {
+    let temp = tempfile::tempdir().unwrap();
     let claude_local = temp.path().join(".claude").join("local");
+    let codex_win_dir = temp
+        .path()
+        .join("AppData")
+        .join("Local")
+        .join("Programs")
+        .join("OpenAI")
+        .join("Codex")
+        .join("bin");
     std::fs::create_dir_all(&claude_local).unwrap();
+    std::fs::create_dir_all(&codex_win_dir).unwrap();
+
     #[cfg(windows)]
     let claude_bin = claude_local.join("claude.exe");
     #[cfg(not(windows))]
     let claude_bin = claude_local.join("claude");
     std::fs::write(&claude_bin, b"fake-claude").unwrap();
 
-    let relation = agents::acp_adapter_relation("claude_code").unwrap();
-    let resolved = agents::resolve_vendor_cli_in_extra_dirs(
-        relation.native_cmd,
-        relation.extra_dirs,
-        temp.path(),
+    #[cfg(windows)]
+    let codex_bin = codex_win_dir.join("codex.exe");
+    #[cfg(not(windows))]
+    let codex_bin = codex_win_dir.join("codex");
+    std::fs::write(&codex_bin, b"fake-codex").unwrap();
+
+    assert_eq!(
+        agents::resolve_native_engine_cli("claude_code", temp.path()).as_deref(),
+        Some(claude_bin.as_path())
     );
-    assert_eq!(resolved.as_deref(), Some(claude_bin.as_path()));
+    assert_eq!(
+        agents::resolve_native_engine_cli("codex", temp.path()).as_deref(),
+        Some(codex_bin.as_path())
+    );
 
     let claude_id = AgentId::parse("claude_code").unwrap();
-    assert!(
-        agents::launch_program_is_vendor_cli(&claude_id, &claude_bin),
-        "claude binary must be recognized as vendor CLI and rejected for ACP launch"
-    );
-    assert!(
+    let codex_id = AgentId::parse("codex").unwrap();
+    assert!(!agents::launch_program_is_vendor_cli(&claude_id, &claude_bin));
+    assert!(!agents::launch_program_is_vendor_cli(&codex_id, &codex_bin));
+
+    let claude_lock =
         agents::discover_acp_launch_lock_in_dirs(&claude_id, std::slice::from_ref(&claude_local))
-            .is_none(),
-        "ACP spawn discovery must never select vendor CLI even when its directory is searched"
-    );
+            .expect("native claude binary should be accepted");
+    assert_eq!(claude_lock.absolute_acp_program, claude_bin);
 
-    #[cfg(windows)]
-    let adapter_bin = claude_local.join("claude-agent-acp.cmd");
-    #[cfg(not(windows))]
-    let adapter_bin = claude_local.join("claude-agent-acp");
-    std::fs::write(&adapter_bin, b"fake-adapter").unwrap();
-    assert!(!agents::launch_program_is_vendor_cli(
-        &claude_id,
-        &adapter_bin
-    ));
-    let lock = agents::discover_acp_launch_lock_in_dirs(&claude_id, &[claude_local])
-        .expect("adapter binary should be accepted for ACP launch");
-    assert_eq!(lock.absolute_acp_program, adapter_bin);
-}
-
-#[test]
-fn omp_native_config_exposes_approval_mode_select_field() {
-    let catalog = BuiltInProfileCatalog::bundled();
-    let field = native_field(&catalog, "omp", "omp_approval_mode");
-    assert_eq!(field.label, "工具审批模式");
-    assert_eq!(field.path, &["tools", "approvalMode"]);
-    assert_eq!(field.kind, NativeConfigFieldKind::Select);
-    assert_eq!(field.surface, NativeConfigSurface::Configuration);
-    let values: Vec<_> = field.options.iter().map(|(value, _)| *value).collect();
-    assert_eq!(values, ["always-ask", "always-ask-cached", "write", "yolo"]);
+    let codex_lock =
+        agents::discover_acp_launch_lock_in_dirs(&codex_id, std::slice::from_ref(&codex_win_dir))
+            .expect("native codex binary should be accepted");
+    assert_eq!(codex_lock.absolute_acp_program, codex_bin);
 }

@@ -163,20 +163,20 @@ describe('AgentTimelineConversation composer runtime bridge', () => {
 });
 
 describe('AgentTimelineConversation workspace width', () => {
-  it('removes the reading-width cap when the workspace editor area is collapsed', () => {
+  it('keeps the reading-width cap when the workspace editor area is collapsed', () => {
     expect(conversationThreadMaxWidthClass('workspace', false)).toBe(
-      'max-w-none'
+      'max-w-3xl'
     );
   });
 
   it('keeps the reading-width cap in normal split layouts', () => {
     expect(conversationThreadMaxWidthClass('workspace', true)).toBe(
-      'max-w-6xl'
+      'max-w-3xl'
     );
   });
 
   it('keeps bounded surfaces capped when the workspace editor state is collapsed', () => {
-    expect(conversationThreadMaxWidthClass('bounded', false)).toBe('max-w-6xl');
+    expect(conversationThreadMaxWidthClass('bounded', false)).toBe('max-w-3xl');
   });
 });
 

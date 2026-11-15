@@ -1,6 +1,10 @@
 import { act, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { RightPanelSlotContext } from '@/contexts/RightPanelSlotContext';
+import {
+  getRightPanelHostConsumerCount,
+  RightPanelSlotContext,
+  useIsRightPanelHostAttached,
+} from '@/contexts/RightPanelSlotContext';
 import {
   DEFAULT_KANBAN_ARRANGEMENT,
   resetKanbanArrangement,
@@ -169,5 +173,61 @@ describe('KanbanSessionSlot', () => {
     fireEvent.mouseUp(document);
 
     expect(useLayoutStore.getState().kanbanSessionWidth).toBe(460);
+  });
+
+  it('retains the shared host while owning kanban placement and releases it when collapsed or switched to workspace', () => {
+    const host = document.createElement('div');
+    host.textContent = 'session-host';
+
+    function AttachmentProbe({ target }: { target: HTMLElement | null }) {
+      const attached = useIsRightPanelHostAttached(target);
+      return <span data-testid="host-attached">{String(attached)}</span>;
+    }
+
+    const view = render(
+      <RightPanelSlotContext.Provider value={{ host, placement: 'kanban' }}>
+        <AttachmentProbe target={host} />
+        <AttachmentProbe target={null} />
+        <KanbanSessionSlot side="right" active />
+      </RightPanelSlotContext.Provider>
+    );
+
+    const probes = screen.getAllByTestId('host-attached');
+    expect(probes[0]).toHaveTextContent('true');
+    // `host === null` always reports attached for standalone backward compatibility.
+    expect(probes[1]).toHaveTextContent('true');
+    expect(getRightPanelHostConsumerCount(host)).toBe(1);
+
+    // Switching placement away from kanban releases host ownership.
+    view.rerender(
+      <RightPanelSlotContext.Provider value={{ host, placement: 'workspace' }}>
+        <AttachmentProbe target={host} />
+        <AttachmentProbe target={null} />
+        <KanbanSessionSlot side="right" active />
+      </RightPanelSlotContext.Provider>
+    );
+
+    expect(screen.getAllByTestId('host-attached')[0]).toHaveTextContent(
+      'false'
+    );
+    expect(getRightPanelHostConsumerCount(host)).toBe(0);
+
+    // Restoring kanban placement re-attaches, and collapsing the kanban session zone releases it.
+    view.rerender(
+      <RightPanelSlotContext.Provider value={{ host, placement: 'kanban' }}>
+        <AttachmentProbe target={host} />
+        <AttachmentProbe target={null} />
+        <KanbanSessionSlot side="right" active />
+      </RightPanelSlotContext.Provider>
+    );
+    expect(getRightPanelHostConsumerCount(host)).toBe(1);
+
+    act(() => {
+      useLayoutStore.getState().setKanbanSessionVisible(false);
+    });
+    expect(getRightPanelHostConsumerCount(host)).toBe(0);
+    expect(screen.getAllByTestId('host-attached')[0]).toHaveTextContent(
+      'false'
+    );
   });
 });

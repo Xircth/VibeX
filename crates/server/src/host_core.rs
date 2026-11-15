@@ -196,6 +196,36 @@ pub fn host_application_core(
     agent_management_runtime: Arc<AgentManagementRuntimeState>,
     delegation_broker: Option<Arc<delegation::DelegationBroker>>,
 ) -> ApplicationCore<SqliteConversationRepository> {
+    let events_for_recovery = events.clone();
+    let conversations_for_recovery = conversations.clone();
+    let pool_for_recovery = pool.clone();
+    let rate_limit_recovery = Arc::new(
+        agents::rate_limit_recovery::UsageLimitRecovery::with_resume_callback(
+            move |session_id, continuation_prompt| {
+                events_for_recovery.emit(
+                    "conversation-events",
+                    serde_json::json!({
+                        "conversationId": session_id,
+                        "kind": "rate_limit_auto_resume",
+                        "continuationPrompt": continuation_prompt,
+                    }),
+                );
+                let conv_ctx = conversations_for_recovery.clone();
+                let resume_pool = pool_for_recovery.clone();
+                if let Ok(handle) = tokio::runtime::Handle::try_current() {
+                    handle.spawn(async move {
+                        dispatch_rate_limit_auto_resume(
+                            &resume_pool,
+                            &conv_ctx,
+                            session_id,
+                            continuation_prompt,
+                        )
+                        .await;
+                    });
+                }
+            },
+        ),
+    );
     let domains = Arc::new(ServerApplicationDomains {
         pool: pool.clone(),
         plugin_updates: Arc::new(crate::host::plugin_updates::PluginUpdates::load(
@@ -222,6 +252,8 @@ pub fn host_application_core(
         agent_management_runtime,
         delegation_broker,
         prompt_enhancement: Arc::new(tokio::sync::Mutex::new(None)),
+        rate_limit_recovery,
+        side_chats: Arc::new(tokio::sync::Mutex::new(std::collections::HashMap::new())),
     });
     domains.spawn_plugin_updates();
     domains.spawn_pulse_temporal_worker();
@@ -246,4 +278,52 @@ pub fn host_application_core(
         domains,
         workflows,
     )
+}
+
+async fn dispatch_rate_limit_auto_resume(
+    pool: &SqlitePool,
+    conv_ctx: &ConversationContext,
+    conversation_id: uuid::Uuid,
+    continuation_prompt: String,
+) {
+    let Ok(Some(session)) = db::models::session::Session::find_by_id(pool, conversation_id).await
+    else {
+        return;
+    };
+    let raw_agent = match db::models::conversation::ConversationAgentBindingRecord::latest_for_conversation(
+        pool,
+        conversation_id,
+    )
+    .await
+    {
+        Ok(Some(binding)) => Some(binding.agent_id.as_str().to_string()),
+        _ => session.executor.clone(),
+    };
+    let Some(raw_agent) = raw_agent else {
+        return;
+    };
+    let Ok(agent_id) = agents::AgentId::parse(&raw_agent) else {
+        return;
+    };
+    let _ = conversations::ConversationSessionService::new(conv_ctx.clone())
+        .start_turn(conversations::ConversationStartTurnInput {
+            continuation_policy: None,
+            expected_binding_revision: None,
+            agent_id,
+            workspace_id: session.workspace_id,
+            conversation_id,
+            executor_profile_id: None,
+            text: continuation_prompt,
+            display_text: None,
+            images: Vec::new(),
+            mode_override: None,
+            config_overrides: Vec::new(),
+            workflow_refs: Vec::new(),
+            file_refs: Vec::new(),
+            internal_prompt_contributions: Vec::new(),
+            queued_input_claim: None,
+            operation_id: Some(uuid::Uuid::new_v4()),
+            collaboration_origin: None,
+        })
+        .await;
 }

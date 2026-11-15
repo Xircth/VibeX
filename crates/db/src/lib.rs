@@ -11,6 +11,7 @@ use utils::assets::asset_dir;
 
 pub mod conversation_repository;
 pub mod data_dir_migration;
+pub mod health;
 mod local_data_reset;
 pub mod models;
 pub mod workflow_queries;
@@ -19,6 +20,10 @@ pub use conversation_repository::SqliteConversationRepository;
 pub use data_dir_migration::{
     checkpoint_and_remap_data_dir_paths, remap_sqlite_data_dir_paths,
     remap_sqlite_file_data_dir_paths,
+};
+pub use health::{
+    DbHealthReport, DbOptimizeReport, check_db_service_health, check_health, optimize_wal,
+    optimize_wal_on_pool,
 };
 pub use local_data_reset::{clear_local_database_rows, reset_local_database};
 
@@ -659,6 +664,7 @@ fn sqlite_write_connect_options(database_path: &Path) -> SqliteConnectOptions {
         .pragma("cache_size", "-4000")
         .pragma("temp_store", "MEMORY")
         .pragma("journal_size_limit", "134217728")
+        .pragma("wal_autocheckpoint", "1000")
 }
 
 fn sqlite_read_connect_options(database_path: &Path) -> SqliteConnectOptions {
@@ -722,7 +728,7 @@ impl DBService {
         );
         let write_options = SqliteConnectOptions::from_str(&uri)?
             .create_if_missing(true)
-            .foreign_keys(true)
+            .foreign_keys(false)
             .busy_timeout(Duration::from_secs(10))
             .pragma("cache_size", "-4000")
             .pragma("temp_store", "MEMORY");
@@ -735,9 +741,12 @@ impl DBService {
             .connect_with(write_options)
             .await?;
         run_migrations(&writer_pool).await?;
+        sqlx::query("PRAGMA foreign_keys = OFF")
+            .execute(&writer_pool)
+            .await?;
 
         let read_options = SqliteConnectOptions::from_str(&uri)?
-            .foreign_keys(true)
+            .foreign_keys(false)
             .busy_timeout(Duration::from_secs(10))
             .pragma("cache_size", "-4000")
             .pragma("temp_store", "MEMORY")

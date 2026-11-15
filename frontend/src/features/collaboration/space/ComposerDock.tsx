@@ -397,22 +397,29 @@ export const ComposerDock = memo(function ComposerDock() {
               />
             </div>
           ) : null}
-          <MessageQueueIndicator
-            queuedMessages={spaceQueuedMessages}
-            delayedMessages={userDelayedSpaceMessages}
-            onEditQueuedMessage={handleEditSpaceQueuedMessage}
-            onDeleteQueuedMessage={(message) => {
-              void handleDeleteSpaceQueuedMessage(message);
-            }}
-            onDelayQueuedMessage={
-              // delaySeconds is not supported for private chats.
-              activeDirectThreadId
-                ? undefined
-                : (message, delaySeconds) => {
-                    void handleDelaySpaceQueuedMessage(message, delaySeconds);
-                  }
-            }
-          />
+          <div className="collaboration-composer-queue">
+            <div className="collaboration-composer-queue-inner">
+              <MessageQueueIndicator
+                queuedMessages={spaceQueuedMessages}
+                delayedMessages={userDelayedSpaceMessages}
+                onEditQueuedMessage={handleEditSpaceQueuedMessage}
+                onDeleteQueuedMessage={(message) => {
+                  void handleDeleteSpaceQueuedMessage(message);
+                }}
+                onDelayQueuedMessage={
+                  // delaySeconds is not supported for private chats.
+                  activeDirectThreadId
+                    ? undefined
+                    : (message, delaySeconds) => {
+                        void handleDelaySpaceQueuedMessage(
+                          message,
+                          delaySeconds
+                        );
+                      }
+                }
+              />
+            </div>
+          </div>
           <SessionComposerFrame
             onFocus={markDraftTargetFocused}
             status={

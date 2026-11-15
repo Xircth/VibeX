@@ -1,41 +1,8 @@
 import { fireEvent, render, screen } from '@testing-library/react';
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
 
 import { TooltipProvider } from '@/components/ui/tooltip';
-import type { WorkspaceSessionSummary } from '@/hooks/useWorkspaceSessions';
 import { SessionComposerTopbar } from './SessionComposerTopbar';
-
-function sessionSummary(
-  overrides: Partial<WorkspaceSessionSummary> = {}
-): WorkspaceSessionSummary {
-  return {
-    id: 'session-1',
-    workspace_id: 'workspace-1',
-    task_id: null,
-    taskId: null,
-    name: null,
-    initial_prompt: null,
-    status: 'todo',
-    executor: null,
-    external_session_id: null,
-    agent_id: null,
-    parent_session_id: null,
-    parent_tool_use_id: null,
-    delegation_call_id: null,
-    created_at: '2026-05-26T00:00:00.000Z',
-    updated_at: '2026-05-26T00:00:00.000Z',
-    firstPrompt: null,
-    isRunning: false,
-    queueStatus: null,
-    displayName: 'Main session',
-    workspaceName: null,
-    workspaceBranch: 'main',
-    statusLabel: 'active',
-    continuityMode: 'resume_in_place',
-    continuityLabel: 'current',
-    ...overrides,
-  };
-}
 
 function renderTopbar(
   props: Partial<Parameters<typeof SessionComposerTopbar>[0]> = {}
@@ -51,16 +18,6 @@ function renderTopbar(
         deleted={0}
         codexGoalState={null}
         tokenUsageInfo={null}
-        todos={[]}
-        showSessionSelector={false}
-        sessions={[]}
-        selectedSessionId={undefined}
-        compactSessionLabel="Session"
-        selectedSessionLabel="Session"
-        onJumpToPreviousUserMessage={undefined}
-        onSelectSession={vi.fn()}
-        onStartNewSession={vi.fn()}
-        onRenameSession={vi.fn()}
         {...props}
       />
     </TooltipProvider>
@@ -68,13 +25,6 @@ function renderTopbar(
 }
 
 describe('SessionComposerTopbar', () => {
-  it('lets the user change the context carried by the next input', () => {
-    const onChange = vi.fn();
-    renderTopbar({ continuation: { policy: 'portable', onChange } });
-    fireEvent.change(screen.getByRole('combobox'), { target: { value: 'fresh' } });
-    expect(onChange).toHaveBeenCalledWith('fresh');
-  });
-
   it('does not reserve redundant space below the controls', () => {
     const { container } = renderTopbar();
 
@@ -82,23 +32,16 @@ describe('SessionComposerTopbar', () => {
     expect(container.querySelector('.composer-topbar')).not.toHaveClass('pb-2');
   });
 
-  it('renders file summary, todo status, and jump control behavior', () => {
-    const onJump = vi.fn();
-
+  it('renders file summary toggle and omits removed todo, jump, and session selector controls', () => {
     renderTopbar({
       showChangedFileSummary: true,
       changedFileCount: 3,
       added: 12,
       deleted: 4,
-      todos: [
-        { content: 'Review topbar', status: 'completed', priority: null },
-      ],
-      onJumpToPreviousUserMessage: onJump,
     });
 
     const diffsButton = screen.getByRole('button', { name: '3 CHANGES' });
     expect(diffsButton).toBeInTheDocument();
-    expect(screen.getByText('1')).toBeInTheDocument();
 
     fireEvent.click(diffsButton);
     expect(screen.getByText('+12')).toBeInTheDocument();
@@ -109,13 +52,12 @@ describe('SessionComposerTopbar', () => {
       screen.getByRole('button', { name: '3 CHANGES' })
     ).toBeInTheDocument();
 
-    fireEvent.click(
-      screen.getByRole('button', {
+    expect(screen.queryByRole('button', { name: '任务列表' })).toBeNull();
+    expect(
+      screen.queryByRole('button', {
         name: '\u56de\u5230\u4e0a\u4e00\u6761\u7528\u6237\u6d88\u606f',
       })
-    );
-
-    expect(onJump).toHaveBeenCalledTimes(1);
+    ).toBeNull();
   });
 
   it('shows a member identity instead of the agent icon when provided', () => {
@@ -134,47 +76,15 @@ describe('SessionComposerTopbar', () => {
     expect(screen.queryByRole('img', { name: 'Codex' })).toBeNull();
   });
 
-  it('keeps the agent icon bare and restores todo and jump control chrome', () => {
+  it('keeps the agent icon bare without extra button controls on the right', () => {
     renderTopbar({
       executorProfile: { executor: 'codex' },
-      onJumpToPreviousUserMessage: vi.fn(),
     });
 
     const agentIcon = screen.getByRole('img', { name: 'Codex' });
     expect(agentIcon.parentElement).not.toHaveClass('bg-muted/40');
     expect(agentIcon.parentElement).not.toHaveClass('composer-control');
     expect(agentIcon.parentElement).not.toHaveClass('border');
-
-    const todoButton = screen.getByRole('button', { name: '任务列表' });
-    expect(todoButton).toHaveClass('composer-control');
-
-    const jumpButton = screen.getByRole('button', {
-      name: '\u56de\u5230\u4e0a\u4e00\u6761\u7528\u6237\u6d88\u606f',
-    });
-    expect(jumpButton).toHaveClass('composer-control');
-  });
-
-  it('gates the session selector and disabled jump control', () => {
-    const onSelectSession = vi.fn();
-
-    renderTopbar({
-      showSessionSelector: true,
-      sessions: [sessionSummary()],
-      selectedSessionId: 'session-1',
-      compactSessionLabel: 'Main',
-      selectedSessionLabel: 'Main session',
-      onSelectSession,
-    });
-
-    const sessionSelector = screen.getByTitle('Main session');
-    expect(sessionSelector).toHaveClass('raised-control', 'h-5');
-    expect(sessionSelector).not.toHaveClass('h-7');
-
-    const jumpButton = screen.getByRole('button', {
-      name: '\u56de\u5230\u4e0a\u4e00\u6761\u7528\u6237\u6d88\u606f',
-    });
-    expect(jumpButton).toBeDisabled();
-
-    expect(onSelectSession).not.toHaveBeenCalled();
+    expect(screen.queryAllByRole('button')).toHaveLength(0);
   });
 });

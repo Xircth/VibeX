@@ -89,10 +89,16 @@ export type AgentPermissionRequest = {
   title: string;
   details?: unknown;
   options: AgentPermissionOption[];
+  revision?: number;
 };
 
 export type AgentPermissionResponse =
-  | { kind: 'selected'; option_id: string; persist?: boolean }
+  | {
+      kind: 'selected';
+      option_id: string;
+      persist?: boolean;
+      expected_revision?: number;
+    }
   | { kind: 'cancelled' };
 
 export type AgentSessionMode = {

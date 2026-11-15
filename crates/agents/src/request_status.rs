@@ -79,7 +79,9 @@ pub(crate) fn activity_for_event(event: &crate::AgentEvent) -> Option<RequestAct
     use crate::AgentEvent;
     let phase = match event {
         AgentEvent::RequestActivity { activity, .. } => return Some(activity.clone()),
-        AgentEvent::PromptStarted { .. } => RequestPhase::WaitingAgent,
+        AgentEvent::PromptStarted { .. } | AgentEvent::PromptAccepted { .. } => {
+            RequestPhase::WaitingAgent
+        }
         AgentEvent::MessageChunk { content } if !matches!(content, crate::AgentContentBlock::Text { text } if text.is_empty()) => {
             RequestPhase::Responding
         }
@@ -121,3 +123,18 @@ pub(crate) fn activity_for_event(event: &crate::AgentEvent) -> Option<RequestAct
     };
     Some(RequestActivity::phase(phase))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{AgentEvent, AgentPromptId};
+
+    #[test]
+    fn prompt_accepted_maps_to_waiting_agent_activity() {
+        let activity = activity_for_event(&AgentEvent::PromptAccepted {
+            prompt_id: AgentPromptId::new(),
+        });
+        assert_eq!(activity, Some(RequestActivity::phase(RequestPhase::WaitingAgent)));
+    }
+}
+

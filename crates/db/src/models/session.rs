@@ -443,7 +443,13 @@ impl Session {
                        WHEN ?2 IS NOT NULL AND agent_id IS NOT NULL AND agent_id != ?2 THEN NULL
                        ELSE external_session_id
                    END,
+                   model = CASE
+                       WHEN ?2 IS NOT NULL AND agent_id IS NOT NULL AND agent_id != ?2 THEN NULL
+                       ELSE model
+                   END,
                    agent_id = COALESCE(?2, agent_id),
+                   agent_type = COALESCE(?2, agent_type),
+                   executor = COALESCE(?2, executor),
                    updated_at = datetime('now', 'subsec')
                WHERE id = ?3"#,
         )

@@ -16,19 +16,92 @@ type SearchParamsSetter = (
   navigateOpts?: NavigateOptions
 ) => void;
 
-export function requestCreateSessionInExecutionArea(
-  setSearchParams: SearchParamsSetter,
-  currentSearchParams: URLSearchParams
+export const DISMISS_CREATE_SESSION_OVERLAY_EVENT =
+  'vibex:dismiss-create-session-overlay';
+
+export const DISMISS_COLLABORATION_CREATE_OVERLAY_EVENT =
+  'vibex:dismiss-collaboration-create-overlay';
+
+export interface DismissCollaborationCreateOverlayDetail {
+  exceptSource?: unknown;
+}
+
+export const REQUEST_CREATE_SESSION_OVERLAY_EVENT =
+  'vibex:request-create-session-overlay';
+
+export interface RequestCreateSessionOverlayEventDetail {
+  targetGroupId?: string | null;
+}
+
+export function dismissCreateSessionOverlays() {
+  if (typeof window === 'undefined') return;
+  window.dispatchEvent(new CustomEvent(DISMISS_CREATE_SESSION_OVERLAY_EVENT));
+}
+
+export function dismissCollaborationCreateOverlays(exceptSource?: unknown) {
+  if (typeof window === 'undefined') return;
+  window.dispatchEvent(
+    new CustomEvent<DismissCollaborationCreateOverlayDetail>(
+      DISMISS_COLLABORATION_CREATE_OVERLAY_EVENT,
+      { detail: { exceptSource } }
+    )
+  );
+}
+
+export function requestWorkspaceCreateSessionOverlay(
+  targetGroupId?: string | null
 ) {
+  dismissCollaborationCreateOverlays();
+
   const canvasController = getCanvasWorkspaceController();
   if (canvasController?.createSession) {
     canvasController.createSession();
     return;
   }
+
   const layout = useLayoutStore.getState();
-  layout.setRightPanelVisible(true);
   if (layout.activeTab === 'kanban') {
+    layout.setRightPanelVisible(true);
     layout.setKanbanSessionVisible(true);
+  }
+
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(
+      new CustomEvent<RequestCreateSessionOverlayEventDetail>(
+        REQUEST_CREATE_SESSION_OVERLAY_EVENT,
+        {
+          detail: { targetGroupId: targetGroupId ?? null },
+        }
+      )
+    );
+  }
+}
+
+export function requestCreateSessionInExecutionArea(
+  setSearchParams: SearchParamsSetter,
+  currentSearchParams: URLSearchParams
+) {
+  dismissCollaborationCreateOverlays();
+
+  const canvasController = getCanvasWorkspaceController();
+  if (canvasController?.createSession) {
+    canvasController.createSession();
+    return;
+  }
+
+  const layout = useLayoutStore.getState();
+  if (layout.activeTab === 'kanban') {
+    layout.setRightPanelVisible(true);
+    layout.setKanbanSessionVisible(true);
+  } else if (typeof window !== 'undefined') {
+    window.dispatchEvent(
+      new CustomEvent<RequestCreateSessionOverlayEventDetail>(
+        REQUEST_CREATE_SESSION_OVERLAY_EVENT,
+        {
+          detail: { targetGroupId: null },
+        }
+      )
+    );
   }
 
   const nextSearchParams = new URLSearchParams(currentSearchParams);
@@ -48,9 +121,11 @@ export function requestCreateAgentSessionInExecutionArea(
   agentId: string,
   targetGroupId?: string | null
 ) {
+  dismissCollaborationCreateOverlays();
+
   const layout = useLayoutStore.getState();
-  layout.setRightPanelVisible(true);
   if (layout.activeTab === 'kanban') {
+    layout.setRightPanelVisible(true);
     layout.setKanbanSessionVisible(true);
   }
 

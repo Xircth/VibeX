@@ -11,6 +11,7 @@ import type {
 } from './onboardingAgentModel';
 import { AgentPreflightCard } from '@/pages/settings/AgentPreflightCheckItem';
 import { presentPreflightItems } from '@/pages/settings/agentPreflightSnapshot';
+import { isNativeEngineAgent } from '@/pages/settings/agentProvisioning';
 import { useTranslation } from 'react-i18next';
 import { Loader2, RefreshCw, X } from 'lucide-react';
 import type {
@@ -442,6 +443,7 @@ export function OnboardingAgentDetail({
         {operation ? (
           <AgentOperationProgress
             operation={operation}
+            nativeEngine={isNativeEngineAgent(agent)}
             onCancel={
               operationBusy
                 ? () =>
@@ -455,12 +457,14 @@ export function OnboardingAgentDetail({
         {checkState?.report || preflight ? (
           <ul className="agent-preflight-grid">
             {presentPreflightItems(
-              (checkState?.report ?? preflight)!.items
+              (checkState?.report ?? preflight)!.items,
+              agent
             ).map((item) => (
               <AgentPreflightCard
                 key={item.id}
                 item={item}
                 busy={busy || Boolean(checkState?.checking)}
+                nativeEngine={isNativeEngineAgent(agent)}
               />
             ))}
           </ul>

@@ -63,11 +63,13 @@ import { requestCreateSessionInExecutionArea } from '@/lib/requestCreateSession'
 import { useFileTreeStore } from '@/stores/useFileTreeStore';
 import { useWindowProjectsStore } from '@/stores/useWindowProjectsStore';
 import { useNavigateWithSearch } from '@/hooks/useNavigateWithSearch';
+import { sessionListAgentKey } from '@/components/kanban/session-hub/utils';
 import {
   flattenProjectTree,
   RecentProjectItem,
 } from '@/components/welcome/RecentProjectItem';
 import { WorkspaceSessionRow } from '@/components/workspace-session-list/WorkspaceSessionList';
+import { sessionListTitle } from '@/components/workspace-session-list/workspaceSessionListModel';
 import {
   pickRandomProjectRootFile,
   resolveWelcomeWorkspaceRootPath,
@@ -264,6 +266,7 @@ function DockviewWelcomePanel(_props: IDockviewPanelProps) {
     openDiffPreview,
     openFilePreview,
     openNewTerminal,
+    openSessionTab,
     openWebPreview,
     showFileTree,
   } = usePanelActionsContext();
@@ -469,6 +472,12 @@ function DockviewWelcomePanel(_props: IDockviewPanelProps) {
 
   const handleSessionClick = useCallback(
     (session: KanbanProjectSessionRecord) => {
+      openSessionTab({
+        sessionId: session.id,
+        workspaceId: session.workspace.id,
+        title: sessionListTitle(session),
+        agentId: sessionListAgentKey(session),
+      });
       activateExecutionSession(session.placement);
       setActiveWorktree(session.workspace.id, session.taskId);
       if (projectId) {
@@ -477,7 +486,13 @@ function DockviewWelcomePanel(_props: IDockviewPanelProps) {
         );
       }
     },
-    [activateExecutionSession, navigateWithSearch, projectId, setActiveWorktree]
+    [
+      activateExecutionSession,
+      navigateWithSearch,
+      openSessionTab,
+      projectId,
+      setActiveWorktree,
+    ]
   );
 
   const handleOpenSettings = useCallback(() => {

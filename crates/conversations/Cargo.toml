@@ -36,3 +36,7 @@ sqlx = { version = "0.8.6", features = ["runtime-tokio", "sqlite", "chrono", "uu
 local-deployment = { path = "../local-deployment" }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
 tempfile = { workspace = true }
+
+[[bench]]
+name = "projection_bench"
+harness = false

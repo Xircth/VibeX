@@ -663,7 +663,10 @@ export const MessageTurnView = memo(function MessageTurnView({
     const showSpaceSender = shouldShowGroupMemberSender(spaceOrigin);
     if (editing && onEditRetry) {
       return (
-        <div className="conv-entry-item conv-user-turn conv-user-turn-editing">
+        <div
+          className="conv-entry-item conv-user-turn conv-user-turn-editing"
+          data-message-id={turn.id}
+        >
           <UserMessageEditor
             initialText={text}
             onCancel={() => setEditing(false)}
@@ -673,7 +676,10 @@ export const MessageTurnView = memo(function MessageTurnView({
       );
     }
     return (
-      <div className="conv-entry-item conv-user-turn group">
+      <div
+        className="conv-entry-item conv-user-turn group"
+        data-message-id={turn.id}
+      >
         <div className="flex w-full max-w-full flex-col items-end gap-1.5">
           <UserMessageAttachments
             images={images}
@@ -843,7 +849,10 @@ export const MessageTurnView = memo(function MessageTurnView({
           segment.kind === 'fold' && segment.startIndex === slice.startIndex
       )?.items ?? [];
     return (
-      <div className="conv-entry-item conv-assistant-msg conv-msg-hover group px-4 py-2 text-sm">
+      <div
+        className="conv-entry-item conv-assistant-msg conv-msg-hover group px-4 py-2 text-sm"
+        data-message-id={turn.id}
+      >
         <CollapsedProcessGroup
           expansionKey={`${turn.id}:${slice.startIndex}`}
           durationMs={foldDurationMs(foldedItems)}
@@ -859,7 +868,10 @@ export const MessageTurnView = memo(function MessageTurnView({
     (showStreamingStatus && items.length === 0 && !slice)
   ) {
     return (
-      <div className="conv-entry-item conv-assistant-msg conv-msg-hover group px-4 py-2 text-sm">
+      <div
+        className="conv-entry-item conv-assistant-msg conv-msg-hover group px-4 py-2 text-sm"
+        data-message-id={turn.id}
+      >
         <AssistantStreamingStatus hasContent={false} />
       </div>
     );
@@ -868,7 +880,11 @@ export const MessageTurnView = memo(function MessageTurnView({
     const item = items[slice.itemIndex];
     if (!item) return null;
     return (
-      <div className="conv-entry-item conv-assistant-msg conv-msg-hover group px-4 py-2 text-sm">
+      <div
+        className="conv-entry-item conv-assistant-msg conv-msg-hover group px-4 py-2 text-sm"
+        data-message-id={turn.id}
+        data-block-index={slice.itemIndex}
+      >
         <div className="conv-assistant-body">
           {renderUnits([item])}
           {isLastSlice && showStreamingStatus ? (
@@ -912,7 +928,10 @@ export const MessageTurnView = memo(function MessageTurnView({
   );
 
   return (
-    <div className="conv-entry-item conv-assistant-msg conv-msg-hover group px-4 py-2 text-sm">
+    <div
+      className="conv-entry-item conv-assistant-msg conv-msg-hover group px-4 py-2 text-sm"
+      data-message-id={turn.id}
+    >
       <div className="conv-assistant-body">
         {body}
         {showStreamingStatus ? (

@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useRef } from 'react';
 import { useKanbanSessionContext } from '@/contexts/KanbanSessionContext';
-import { useRightPanelSlot } from '@/contexts/RightPanelSlotContext';
+import {
+  retainRightPanelHost,
+  useRightPanelSlot,
+} from '@/contexts/RightPanelSlotContext';
 import { useLayoutStore } from '@/stores/useLayoutStore';
 import {
   kanbanSessionResizeHandleSide,
@@ -81,7 +84,9 @@ export function KanbanSessionSlot({
     if (!container) return;
 
     container.appendChild(host);
+    const releaseHost = retainRightPanelHost(host);
     return () => {
+      releaseHost();
       if (host.parentElement === container) {
         container.removeChild(host);
       }

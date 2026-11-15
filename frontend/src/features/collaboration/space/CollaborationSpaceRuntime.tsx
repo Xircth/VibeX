@@ -69,11 +69,19 @@ import {
   formatCompactSessionAge,
   workspaceSessionStatusTone,
 } from '@/components/workspace-session-list/workspaceSessionListModel';
+import { getWorkspaceStageCreationHost } from '@/components/layout/workspaceStageCreationHost';
 import { useOptionalPanelActionsContext } from '@/contexts/PanelActionsContext';
+import { NativeSurfaceOcclusionHold } from '@/contexts/WorkspaceOverlayContext';
 import { useOptionalProject } from '@/contexts/ProjectContext';
 import { useAttemptRepo } from '@/hooks/useAttemptRepo';
 import { useMediaQuery } from '@/hooks/useMediaQuery';
 import { imagesApi, sessionsApi } from '@/lib/api';
+import {
+  DISMISS_COLLABORATION_CREATE_OVERLAY_EVENT,
+  dismissCollaborationCreateOverlays,
+  dismissCreateSessionOverlays,
+  type DismissCollaborationCreateOverlayDetail,
+} from '@/lib/requestCreateSession';
 import { PANEL_IDS } from '@/stores/useLayoutStore';
 import { backendListen } from '@/lib/backendTransport';
 import { requestComposerTokenInsert } from '@/lib/composerInsert';
@@ -3343,6 +3351,28 @@ export function useCollaborationSpaceRuntime(
     }
   }, [setThreadVisible]);
 
+  const runtimeInstanceIdRef = useRef(Symbol('collaboration-space-runtime'));
+
+  useEffect(() => {
+    const handleDismiss = (event: Event) => {
+      const detail = (
+        event as CustomEvent<DismissCollaborationCreateOverlayDetail>
+      ).detail;
+      if (detail?.exceptSource === runtimeInstanceIdRef.current) return;
+      closeAllOverlays();
+    };
+    window.addEventListener(
+      DISMISS_COLLABORATION_CREATE_OVERLAY_EVENT,
+      handleDismiss
+    );
+    return () => {
+      window.removeEventListener(
+        DISMISS_COLLABORATION_CREATE_OVERLAY_EVENT,
+        handleDismiss
+      );
+    };
+  }, [closeAllOverlays]);
+
   useEffect(() => {
     if (!hasActiveOverlay) return;
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -3436,6 +3466,8 @@ export function useCollaborationSpaceRuntime(
   );
 
   const openCreateSpaceDialog = () => {
+    dismissCreateSessionOverlays();
+    dismissCollaborationCreateOverlays(runtimeInstanceIdRef.current);
     closeAllOverlays();
     ensureMessageAreaOpenForOverlay();
     setSpaceName('');
@@ -3450,6 +3482,8 @@ export function useCollaborationSpaceRuntime(
     spaceId?: string,
     defaultSource?: MemberSourceOption
   ) => {
+    dismissCreateSessionOverlays();
+    dismissCollaborationCreateOverlays(runtimeInstanceIdRef.current);
     closeAllOverlays();
     ensureMessageAreaOpenForOverlay();
     const resolvedSpaceId =
@@ -3458,9 +3492,6 @@ export function useCollaborationSpaceRuntime(
         ? selectedId
         : undefined) ||
         (spaces[0]?.space_id ?? unassignedId));
-    if (spaceId && spaces.some((item) => item.space_id === spaceId)) {
-      setSelectedId(spaceId);
-    }
     const resolvedSource: MemberSourceOption = defaultSource
       ? defaultSource
       : roles.length === 0 && agents.length > 0
@@ -4047,6 +4078,12 @@ export function useCollaborationSpaceRuntime(
           : [...current, nextCreated]
       );
       selectSpace(createdSpaceId);
+      if (getWorkspaceStageCreationHost()) {
+        hostPanelActions?.openOrFocusPanel(
+          PANEL_IDS.COLLABORATION_SPACE,
+          nextCreated.name || trimmedName
+        );
+      }
     }
     const page = await collaborationCall<{ spaces?: Space[] }>(
       'collaboration',
@@ -4065,6 +4102,12 @@ export function useCollaborationSpaceRuntime(
       );
       if (!createdSpaceId && page.spaces[0]?.space_id) {
         selectSpace(page.spaces[0].space_id);
+        if (getWorkspaceStageCreationHost()) {
+          hostPanelActions?.openOrFocusPanel(
+            PANEL_IDS.COLLABORATION_SPACE,
+            page.spaces[0].name || trimmedName
+          );
+        }
       }
     }
   };
@@ -4115,6 +4158,12 @@ export function useCollaborationSpaceRuntime(
         chatList: chatListRef.current,
       });
       openPrivateChat(target.spaceId, target.member, target.threadId);
+      if (getWorkspaceStageCreationHost()) {
+        hostPanelActions?.openOrFocusPanel(
+          PANEL_IDS.COLLABORATION_SPACE,
+          displayName(target.member) || trimmedNickname
+        );
+      }
       return;
     }
 
@@ -4179,6 +4228,12 @@ export function useCollaborationSpaceRuntime(
         chatList: chatListRef.current,
       });
       openPrivateChat(target.spaceId, target.member, target.threadId);
+      if (getWorkspaceStageCreationHost()) {
+        hostPanelActions?.openOrFocusPanel(
+          PANEL_IDS.COLLABORATION_SPACE,
+          displayName(target.member) || trimmedNickname
+        );
+      }
       if (target.threadId) {
         const bootstrapKeys = [
           target.threadId,
@@ -8120,7 +8175,9 @@ export function useCollaborationSpaceRuntime(
     );
   };
 
-  const renderMessageAreaOverlay = (surface: 'thread' | 'canvas' = 'thread') => {
+  const renderMessageAreaOverlay = (
+    surface: 'thread' | 'canvas' | 'stage' = 'thread'
+  ) => {
     if (!hasActiveOverlay) return null;
 
     const overlayTitle = createOpen
@@ -8131,8 +8188,10 @@ export function useCollaborationSpaceRuntime(
       <div
         className={
           surface === 'canvas'
-            ? 'collaboration-thread-overlay pointer-events-auto relative flex max-h-full w-[440px] max-w-full items-center'
-            : 'collaboration-thread-overlay absolute inset-0 z-10 flex items-center justify-center p-6'
+            ? 'collaboration-thread-overlay is-canvas-panel pointer-events-auto relative flex max-h-full w-[440px] max-w-full items-center'
+            : surface === 'stage'
+              ? 'collaboration-thread-overlay is-stage-modal pointer-events-auto absolute inset-0 z-10 flex items-center justify-center p-6'
+              : 'collaboration-thread-overlay pointer-events-auto absolute inset-0 z-10 flex items-center justify-center p-6'
         }
         onMouseDown={(event) => {
           if (event.target === event.currentTarget) {
@@ -8140,6 +8199,7 @@ export function useCollaborationSpaceRuntime(
           }
         }}
       >
+        <NativeSurfaceOcclusionHold />
         <div
           role="dialog"
           aria-modal="true"

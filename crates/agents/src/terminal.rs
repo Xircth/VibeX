@@ -1,5 +1,5 @@
 use std::{
-    collections::{HashMap, HashSet, VecDeque},
+    collections::{HashMap, VecDeque},
     path::{Path, PathBuf},
     process::Stdio,
     sync::{
@@ -10,15 +10,21 @@ use std::{
 };
 
 use base64::{Engine, engine::general_purpose::STANDARD as BASE64};
+use command_group::AsyncGroupChild;
 use serde::{Deserialize, Serialize};
 use tokio::{
     io::AsyncReadExt,
-    process::Child,
     sync::{Mutex, Notify, RwLock, broadcast},
     task::JoinHandle,
 };
 use ts_rs::TS;
-use workspace_utils::{process::new_hidden_tokio_command, shell::refresh_process_path};
+use workspace_utils::{
+    process::{
+        ProcessTreeJob, configure_tokio_command_no_window, group_spawn_no_window_with_job,
+        new_hidden_tokio_command,
+    },
+    shell::refresh_process_path,
+};
 
 use crate::{
     ids::{AgentSessionId, AgentTerminalId},
@@ -269,6 +275,7 @@ struct AgentTerminalSession {
     exit_status: Arc<RwLock<Option<AgentTerminalExit>>>,
     exit_notify: Arc<Notify>,
     kill_notify: Arc<Notify>,
+    process_job: ProcessTreeJob,
     truncated: Arc<RwLock<bool>>,
     reader_handles: Mutex<Vec<JoinHandle<()>>>,
 }
@@ -341,17 +348,17 @@ impl AgentTerminalRegistry {
         let fallback_shell = resolve_fallback_shell(self.default_shell.snapshot().await.as_deref());
         let can_retry_through_shell =
             can_retry_command_through_shell(&args.command, &args.args, &fallback_shell);
-        let mut child = match direct.spawn() {
-            Ok(child) => child,
+        let (mut child, process_job) = match group_spawn_no_window_with_job(&mut direct) {
+            Ok(spawned) => spawned,
             Err(error) if is_unrunnable_program_error(&error) && can_retry_through_shell => {
                 let mut wrapped = shell_wrapped_command(&fallback_shell, &args.command);
                 configure_terminal_command(&mut wrapped, args, cwd.as_ref());
-                wrapped.spawn()?
+                group_spawn_no_window_with_job(&mut wrapped)?
             }
             Err(error) => return Err(error),
         };
-        let stdout = child.stdout.take();
-        let stderr = child.stderr.take();
+        let stdout = child.inner().stdout.take();
+        let stderr = child.inner().stderr.take();
 
         let session = Arc::new(AgentTerminalSession {
             agent_session_id: args.session_id,
@@ -364,6 +371,7 @@ impl AgentTerminalRegistry {
             exit_status: Arc::new(RwLock::new(None)),
             exit_notify: Arc::new(Notify::new()),
             kill_notify: Arc::new(Notify::new()),
+            process_job: process_job.clone(),
             truncated: Arc::new(RwLock::new(false)),
             reader_handles: Mutex::new(Vec::new()),
         });
@@ -391,6 +399,7 @@ impl AgentTerminalRegistry {
             terminal_id,
             Arc::clone(&session),
             child,
+            process_job,
             self.lifecycle_tx.clone(),
         ));
 
@@ -606,6 +615,7 @@ impl AgentTerminalRegistry {
                 session.exit_notify.notify_waiters();
             }
         }
+        session.process_job.terminate();
         {
             let mut subscribers = session.subscribers.lock().await;
             for tap in subscribers.drain(..) {
@@ -728,49 +738,17 @@ fn is_already_reaped(_err: &std::io::Error) -> bool {
     false
 }
 
-async fn signal_tree(pid: Option<u32>, signal: &str) -> Vec<u32> {
-    let Some(pid) = pid else {
-        return Vec::new();
-    };
-    let config = kill_tree::Config {
-        signal: signal.to_string(),
-        include_target: true,
-    };
-    match kill_tree::tokio::kill_tree_with_config(pid, &config).await {
-        Ok(outputs) => outputs
-            .into_iter()
-            .filter_map(|output| match output {
-                kill_tree::Output::Killed { process_id, .. } => Some(process_id),
-                kill_tree::Output::MaybeAlreadyTerminated { .. } => None,
-            })
-            .collect(),
-        Err(err) => {
-            tracing::error!("kill_tree({signal}) failed for pid {pid}: {err}");
-            Vec::new()
-        }
-    }
-}
-
-async fn sweep_survivors(signalled: &HashSet<u32>, root: Option<u32>) {
-    for &pid in signalled {
-        if Some(pid) == root {
-            continue;
-        }
-        signal_tree(Some(pid), "SIGKILL").await;
-    }
-}
-
-/// Sole owner of a spawned terminal's `Child` for the process's whole life.
+/// Sole owner of a spawned terminal's `AsyncGroupChild` for the process's whole life.
 /// Callers signal kill rather than holding a pid, so every kill runs while this
-/// task still holds the un-reaped child.
+/// task still holds the un-reaped child and OS `ProcessTreeJob`.
 async fn own_terminal_process(
     terminal_id: AgentTerminalId,
     session: Arc<AgentTerminalSession>,
-    mut child: Child,
+    mut child: AsyncGroupChild,
+    process_job: ProcessTreeJob,
     lifecycle_tx: broadcast::Sender<AgentTerminalLifecycleEvent>,
 ) {
     let pid = child.id();
-    let mut signalled: HashSet<u32> = HashSet::new();
     let mut escalate_at: Option<tokio::time::Instant> = None;
     let mut kill_requested = false;
     let mut escalated = false;
@@ -791,13 +769,15 @@ async fn own_terminal_process(
                 Ok(status) => break map_exit_status(status),
                 Err(err) if is_already_reaped(&err) => {
                     tracing::error!(
+                        ?pid,
                         "ACP terminal child was reaped elsewhere; exit status unavailable: {err}"
                     );
                     break AgentTerminalExit::Unknown;
                 }
                 Err(err) => {
-                    tracing::error!("failed waiting for ACP terminal process to exit: {err}");
-                    signalled.extend(signal_tree(pid, "SIGKILL").await);
+                    tracing::error!(?pid, "failed waiting for ACP terminal process to exit: {err}");
+                    process_job.terminate();
+                    let _ = child.inner().start_kill();
 
                     let deadline = *wait_error_deadline
                         .get_or_insert_with(|| tokio::time::Instant::now() + WAIT_ERROR_BUDGET);
@@ -824,15 +804,20 @@ async fn own_terminal_process(
             () = escalate => {
                 escalate_at = None;
                 escalated = true;
-                signalled.extend(signal_tree(pid, "SIGKILL").await);
-                let _ = child.start_kill();
+                process_job.terminate();
+                let _ = child.inner().start_kill();
             }
             () = session.kill_notify.notified() => {
-                let signal = if escalated { "SIGKILL" } else { "SIGTERM" };
-                signalled.extend(signal_tree(pid, signal).await);
-                #[cfg(windows)]
-                {
-                    let _ = child.start_kill();
+                if escalated {
+                    process_job.terminate();
+                    let _ = child.inner().start_kill();
+                } else {
+                    process_job.signal_graceful();
+                    #[cfg(windows)]
+                    {
+                        let _ = child.start_kill();
+                        let _ = child.inner().start_kill();
+                    }
                 }
                 if !kill_requested {
                     kill_requested = true;
@@ -843,7 +828,7 @@ async fn own_terminal_process(
     };
 
     if kill_requested {
-        sweep_survivors(&signalled, pid).await;
+        process_job.terminate();
     }
 
     if published_without_reaping {
@@ -858,7 +843,7 @@ fn configure_terminal_command(
     args: &AgentTerminalCreateRequest,
     cwd: Option<&PathBuf>,
 ) {
-    command
+    configure_tokio_command_no_window(command)
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -1100,6 +1085,7 @@ fn is_unrunnable_program_error(error: &std::io::Error) -> bool {
 /// Wrap a whole command line as one argv element of the platform shell.
 fn shell_wrapped_command(shell: &str, line: &str) -> tokio::process::Command {
     let mut command = new_hidden_tokio_command(PathBuf::from(shell), std::iter::empty::<&str>());
+    configure_tokio_command_no_window(&mut command);
     match classify_shell_family(shell) {
         ShellFamily::PowerShell => {
             command.args(["-NoLogo", "-NoProfile", "-Command", line]);
@@ -1134,551 +1120,4 @@ pub async fn configured_terminal_shell() -> Option<String> {
 }
 
 #[cfg(test)]
-mod tests {
-    use std::{path::Path, time::Duration};
-
-    use super::{
-        AgentTerminalCreateRequest, AgentTerminalRegistry, DEFAULT_OUTPUT_BYTE_LIMIT,
-        HARD_OUTPUT_BYTE_LIMIT, OutputTap, TERMINAL_OUTPUT_BUFFER, TerminalOutputChunk,
-        can_retry_command_through_shell, default_platform_shell, effective_output_byte_limit,
-        is_utf8_boundary_byte, resolve_fallback_shell, resolve_terminal_cwd, shell_wrapped_command,
-        trim_output_history,
-    };
-    use crate::{
-        ids::AgentSessionId,
-        shell_flavor::{ShellFamily, classify_shell_family},
-    };
-
-    #[test]
-    fn agent_output_byte_limit_is_hard_capped() {
-        assert_eq!(effective_output_byte_limit(None), DEFAULT_OUTPUT_BYTE_LIMIT);
-        assert_eq!(
-            effective_output_byte_limit(Some(0)),
-            DEFAULT_OUTPUT_BYTE_LIMIT
-        );
-        assert_eq!(
-            effective_output_byte_limit(Some(u64::MAX)),
-            HARD_OUTPUT_BYTE_LIMIT
-        );
-        assert_eq!(effective_output_byte_limit(Some(4096)), 4096);
-    }
-
-    fn request(command: &str) -> AgentTerminalCreateRequest {
-        AgentTerminalCreateRequest {
-            session_id: AgentSessionId::new(),
-            command: command.to_string(),
-            args: Vec::new(),
-            cwd: None,
-            env: Vec::new(),
-            output_byte_limit: Some(4096),
-        }
-    }
-
-    async fn run_and_capture(command: &str) -> String {
-        run_request(request(command)).await
-    }
-
-    async fn run_request(request: AgentTerminalCreateRequest) -> String {
-        let registry = AgentTerminalRegistry::new();
-        let terminal_id = registry
-            .create_terminal(&request)
-            .await
-            .expect("create terminal");
-        let _ = registry.wait_for_exit(terminal_id).await;
-        let snapshot = registry
-            .snapshot_output(terminal_id)
-            .await
-            .expect("terminal snapshot");
-        registry.release_terminal(terminal_id).await;
-        snapshot.output
-    }
-
-    fn wrapped_argv(shell: &str, line: &str) -> (String, Vec<String>) {
-        let command = shell_wrapped_command(shell, line);
-        let std_command = command.as_std();
-        (
-            std_command.get_program().to_string_lossy().to_string(),
-            std_command
-                .get_args()
-                .map(|value| value.to_string_lossy().to_string())
-                .collect(),
-        )
-    }
-
-    #[test]
-    fn posix_wrap_passes_the_line_as_one_argument() {
-        let (program, args) = wrapped_argv("/bin/sh", "echo hello world");
-        assert_eq!(program, "/bin/sh");
-        assert_eq!(args, vec!["-c".to_string(), "echo hello world".to_string()]);
-    }
-
-    #[test]
-    fn powershell_wrap_uses_command_flag() {
-        let (program, args) = wrapped_argv("pwsh.exe", "Get-ChildItem");
-        assert_eq!(program, "pwsh.exe");
-        assert_eq!(
-            args,
-            vec![
-                "-NoLogo".to_string(),
-                "-NoProfile".to_string(),
-                "-Command".to_string(),
-                "Get-ChildItem".to_string(),
-            ]
-        );
-    }
-
-    #[test]
-    fn cmd_wrap_uses_slash_c() {
-        let (program, args) = wrapped_argv("cmd.exe", "echo hello");
-        assert_eq!(program, "cmd.exe");
-        assert_eq!(
-            args,
-            vec![
-                "/D".to_string(),
-                "/S".to_string(),
-                "/C".to_string(),
-                "echo hello".to_string(),
-            ]
-        );
-    }
-
-    #[test]
-    fn whitespace_command_without_args_retries_through_posix_shell() {
-        assert!(can_retry_command_through_shell(
-            "echo hello world",
-            &[],
-            "/bin/sh"
-        ));
-        assert!(!can_retry_command_through_shell("pwd", &[], "/bin/sh"));
-        assert!(!can_retry_command_through_shell(
-            "git",
-            &["status".to_string()],
-            "/bin/sh"
-        ));
-        assert!(can_retry_command_through_shell("dir", &[], "cmd.exe"));
-    }
-
-    #[test]
-    fn unknown_unix_shells_are_posix() {
-        assert_eq!(classify_shell_family("/bin/sh"), ShellFamily::Posix);
-        assert!(!ShellFamily::Posix.resolves_bare_builtins());
-        assert!(ShellFamily::Cmd.resolves_bare_builtins());
-        assert!(ShellFamily::PowerShell.resolves_bare_builtins());
-    }
-
-    fn touch(path: &Path) {
-        if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent).expect("create parent");
-        }
-        std::fs::write(path, []).expect("touch");
-    }
-
-    #[test]
-    fn unset_windows_shell_prefers_powershell_then_cmd_never_git_bash() {
-        let dir = tempfile::tempdir().expect("temp dir");
-        let cmd = dir.path().join("System32").join("cmd.exe");
-        let powershell = dir.path().join("WindowsPowerShell").join("powershell.exe");
-        touch(&cmd);
-        touch(&powershell);
-
-        assert_eq!(
-            super::default_windows_platform_shell(
-                [powershell.clone()],
-                [cmd.clone()],
-                Some(r"C:\Windows\System32\cmd.exe".to_string()),
-            ),
-            powershell.to_string_lossy()
-        );
-        assert_eq!(
-            super::default_windows_platform_shell(
-                [],
-                [cmd.clone()],
-                Some(r"C:\Windows\System32\cmd.exe".to_string()),
-            ),
-            cmd.to_string_lossy()
-        );
-        assert_eq!(
-            super::default_windows_platform_shell(
-                [],
-                [],
-                Some("  C:\\Windows\\System32\\cmd.exe  ".to_string()),
-            ),
-            r"C:\Windows\System32\cmd.exe"
-        );
-        assert_eq!(
-            super::default_windows_platform_shell([], [], None),
-            "cmd.exe"
-        );
-    }
-
-    #[test]
-    fn configured_shell_is_used_as_agent_fallback() {
-        assert_eq!(resolve_fallback_shell(Some("pwsh.exe")), "pwsh.exe");
-        assert_eq!(resolve_fallback_shell(Some("cmd.exe")), "cmd.exe");
-        assert_eq!(
-            resolve_fallback_shell(Some("warp")),
-            default_platform_shell()
-        );
-        assert_eq!(
-            resolve_fallback_shell(Some("   ")),
-            default_platform_shell()
-        );
-        assert_eq!(resolve_fallback_shell(None), default_platform_shell());
-    }
-
-    #[test]
-    fn configured_bash_uses_git_bash_when_present() {
-        let dir = tempfile::tempdir().expect("temp dir");
-        let bash = dir.path().join("Git").join("bin").join("bash.exe");
-        touch(&bash);
-        assert_eq!(
-            super::prefer_git_bash([bash.clone()], "bash.exe"),
-            bash.to_string_lossy()
-        );
-        assert_eq!(super::prefer_git_bash([], "bash.exe"), "bash.exe");
-    }
-
-    #[tokio::test]
-    async fn default_shell_config_hot_swaps_on_the_next_create() {
-        let registry = AgentTerminalRegistry::new();
-        assert_eq!(registry.default_shell().await, None);
-        registry
-            .set_default_shell(Some("  pwsh.exe  ".to_string()))
-            .await;
-        assert_eq!(registry.default_shell().await.as_deref(), Some("pwsh.exe"));
-        registry.set_default_shell(None).await;
-        assert_eq!(registry.default_shell().await, None);
-    }
-
-    #[test]
-    fn wsl_stub_bash_is_not_treated_as_git_bash() {
-        assert!(super::is_wsl_bash(Path::new(
-            r"C:\Windows\System32\bash.exe"
-        )));
-        assert!(super::is_wsl_bash(Path::new("/Windows/System32/bash.exe")));
-        assert!(!super::is_wsl_bash(Path::new(
-            r"C:\Program Files\Git\bin\bash.exe"
-        )));
-    }
-
-    #[test]
-    fn omitted_cwd_falls_back_to_a_real_session_directory() {
-        let dir = tempfile::tempdir().expect("temp dir");
-        let resolved = resolve_terminal_cwd(None, dir.path()).expect("resolve omitted cwd");
-        assert_eq!(resolved.as_deref(), Some(dir.path()));
-    }
-
-    #[test]
-    fn explicit_cwd_is_kept_even_when_missing() {
-        let dir = tempfile::tempdir().expect("temp dir");
-        let missing = dir
-            .path()
-            .join("vibex-nonexistent-cwd")
-            .join("does")
-            .join("not")
-            .join("exist");
-        let resolved = resolve_terminal_cwd(Some(&missing), dir.path()).expect("keep explicit cwd");
-        assert_eq!(resolved.as_deref(), Some(missing.as_path()));
-    }
-
-    #[test]
-    fn relative_cwd_is_rejected() {
-        let dir = tempfile::tempdir().expect("temp dir");
-        let error = resolve_terminal_cwd(Some(Path::new("relative/path")), dir.path())
-            .expect_err("relative cwd");
-        assert_eq!(error.kind(), std::io::ErrorKind::InvalidInput);
-    }
-
-    #[tokio::test]
-    async fn whitespace_command_runs_through_shell() {
-        let output = run_and_capture("echo \"hello world\"").await;
-        assert!(
-            output.contains("hello world"),
-            "shell did not run the whitespace command; got:\n{output}"
-        );
-    }
-
-    #[cfg(unix)]
-    #[tokio::test]
-    async fn shell_operators_evaluate() {
-        let output = run_and_capture("true && echo OK").await;
-        assert!(
-            output.contains("OK"),
-            "shell operators did not evaluate; got:\n{output}"
-        );
-    }
-
-    #[cfg(unix)]
-    #[tokio::test]
-    async fn grok_style_bash_lc_command_line_runs() {
-        let output = run_and_capture("/bin/bash -lc pwd").await;
-        assert!(
-            output.contains('/'),
-            "grok-style bash -lc line did not run; got:\n{output:?}"
-        );
-    }
-
-    #[cfg(unix)]
-    #[tokio::test]
-    async fn unset_default_runs_the_platform_shell_not_the_login_shell() {
-        assert_eq!(default_platform_shell(), "/bin/sh");
-        let output = run_and_capture("echo \"ran-under=$0\"").await;
-        assert!(
-            output.contains("ran-under=/bin/sh"),
-            "unset default did not run through /bin/sh; got:\n{output}"
-        );
-    }
-
-    #[cfg(unix)]
-    #[tokio::test]
-    async fn overlong_command_line_falls_back_to_shell() {
-        let marker = "x".repeat(5000);
-        let mut request = request(&format!("echo {marker}"));
-        request.output_byte_limit = Some(64 * 1024);
-        let output = run_request(request).await;
-        assert!(
-            output.contains(&marker),
-            "overlong command line did not run via the shell fallback; got {} bytes",
-            output.len()
-        );
-    }
-
-    #[cfg(unix)]
-    #[tokio::test]
-    async fn explicit_args_bypass_shell_wrap() {
-        let mut request = request("/bin/echo");
-        request.args = vec!["hello world".into()];
-        let output = run_request(request).await;
-        assert!(
-            output.contains("hello world"),
-            "direct exec did not pass the single arg through; got:\n{output}"
-        );
-    }
-
-    #[cfg(unix)]
-    #[tokio::test]
-    async fn shell_wrapped_command_respects_cwd() {
-        let dir = tempfile::tempdir().expect("temp dir");
-        let canonical = dir.path().canonicalize().expect("canonicalize");
-        let mut request = request("pwd && echo done");
-        request.cwd = Some(dir.path().display().to_string());
-        let output = run_request(request).await;
-        assert!(
-            output.contains(canonical.to_string_lossy().as_ref()) && output.contains("done"),
-            "shell-wrapped command ignored cwd; got:\n{output}"
-        );
-    }
-
-    #[cfg(unix)]
-    #[tokio::test]
-    async fn space_containing_executable_is_direct_execd() {
-        use std::os::unix::fs::PermissionsExt;
-
-        let dir = tempfile::tempdir().expect("temp dir");
-        let binary = dir.path().join("my tool");
-        std::fs::write(&binary, "#!/bin/sh\necho acp-space-ok\n").expect("write tool");
-        std::fs::set_permissions(&binary, std::fs::Permissions::from_mode(0o755)).expect("chmod");
-        let output = run_and_capture(binary.to_str().expect("utf8 path")).await;
-        assert!(
-            output.contains("acp-space-ok"),
-            "space-containing executable was not exec'd directly; got:\n{output}"
-        );
-    }
-
-    #[tokio::test]
-    async fn empty_command_is_rejected() {
-        let registry = AgentTerminalRegistry::new();
-        let error = registry
-            .create_terminal(&request("   "))
-            .await
-            .expect_err("empty command");
-        assert_eq!(error.kind(), std::io::ErrorKind::InvalidInput);
-    }
-
-    fn hang_request() -> AgentTerminalCreateRequest {
-        #[cfg(windows)]
-        {
-            AgentTerminalCreateRequest {
-                session_id: AgentSessionId::new(),
-                command: "ping".to_string(),
-                args: vec!["-n".to_string(), "30".to_string(), "127.0.0.1".to_string()],
-                cwd: None,
-                env: Vec::new(),
-                output_byte_limit: Some(4096),
-            }
-        }
-        #[cfg(not(windows))]
-        {
-            AgentTerminalCreateRequest {
-                session_id: AgentSessionId::new(),
-                command: "sleep".to_string(),
-                args: vec!["30".to_string()],
-                cwd: None,
-                env: Vec::new(),
-                output_byte_limit: Some(4096),
-            }
-        }
-    }
-
-    /// Codeg parity: an outstanding `wait_for_exit` on a command that never
-    /// exits must not block `terminal/output` or `terminal/kill`. Those stay
-    /// on the ACP dispatch loop; wait_for_exit is answered off it.
-    #[tokio::test]
-    async fn output_and_kill_work_while_wait_for_exit_is_outstanding() {
-        let registry = AgentTerminalRegistry::new();
-        let terminal_id = registry
-            .create_terminal(&hang_request())
-            .await
-            .expect("create hang terminal");
-
-        let wait = registry.wait_for_exit(terminal_id);
-        tokio::pin!(wait);
-        tokio::select! {
-            _ = &mut wait => panic!("wait_for_exit returned before the command was killed"),
-            _ = tokio::time::sleep(Duration::from_millis(100)) => {}
-        }
-
-        tokio::time::timeout(
-            Duration::from_secs(5),
-            registry.snapshot_output(terminal_id),
-        )
-        .await
-        .expect("terminal_output blocked behind an outstanding wait_for_exit")
-        .expect("snapshot");
-
-        tokio::time::timeout(Duration::from_secs(10), registry.kill_terminal(terminal_id))
-            .await
-            .expect("kill_terminal blocked behind an outstanding wait_for_exit");
-
-        tokio::time::timeout(Duration::from_secs(5), wait)
-            .await
-            .expect("the outstanding wait never resolved after the kill")
-            .expect("wait for exit");
-
-        registry.release_terminal(terminal_id).await;
-    }
-
-    #[cfg(unix)]
-    #[tokio::test]
-    async fn has_running_for_session_is_true_only_while_the_child_is_alive() {
-        let registry = AgentTerminalRegistry::new();
-        let session_id = AgentSessionId::new();
-        let other_session = AgentSessionId::new();
-        let terminal_id = registry
-            .create_terminal(&AgentTerminalCreateRequest {
-                session_id,
-                command: "sleep".to_string(),
-                args: vec!["30".to_string()],
-                cwd: None,
-                env: Vec::new(),
-                output_byte_limit: Some(4096),
-            })
-            .await
-            .expect("create sleep terminal");
-
-        assert!(registry.has_running_for_session(session_id).await);
-        assert!(!registry.has_running_for_session(other_session).await);
-
-        assert!(registry.kill_terminal(terminal_id).await);
-        let _ = registry.wait_for_exit(terminal_id).await;
-        assert!(!registry.has_running_for_session(session_id).await);
-
-        registry.release_terminal(terminal_id).await;
-    }
-
-    #[test]
-    fn trim_output_history_prefers_line_boundary_after_overflow() {
-        let mut history = vec![b'a'; DEFAULT_OUTPUT_BYTE_LIMIT + 10];
-        history[12] = b'\n';
-
-        assert!(trim_output_history(&mut history, DEFAULT_OUTPUT_BYTE_LIMIT));
-
-        assert_eq!(history.len(), DEFAULT_OUTPUT_BYTE_LIMIT + 10 - 13);
-        assert_eq!(history[0], b'a');
-    }
-
-    #[test]
-    fn trim_output_history_does_not_start_with_utf8_continuation_byte() {
-        let mut history = vec![b'a'; DEFAULT_OUTPUT_BYTE_LIMIT + 4];
-        let bytes = [0xe5, 0xa5, 0xbd];
-        history[2..2 + bytes.len()].copy_from_slice(&bytes);
-
-        assert!(trim_output_history(&mut history, DEFAULT_OUTPUT_BYTE_LIMIT));
-
-        assert!(
-            history
-                .first()
-                .is_none_or(|byte| is_utf8_boundary_byte(*byte))
-        );
-    }
-
-    #[tokio::test]
-    async fn output_tap_drops_the_oldest_chunk_when_full() {
-        let tap = OutputTap::new();
-        for index in 0..=TERMINAL_OUTPUT_BUFFER {
-            tap.push(TerminalOutputChunk {
-                seq: index as u64 + 1,
-                data: vec![index as u8],
-            });
-        }
-        assert_eq!(
-            tap.recv().await,
-            Some(TerminalOutputChunk {
-                seq: 2,
-                data: vec![1]
-            })
-        );
-        for _ in 1..TERMINAL_OUTPUT_BUFFER - 1 {
-            assert!(tap.recv().await.is_some());
-        }
-        assert_eq!(
-            tap.recv().await,
-            Some(TerminalOutputChunk {
-                seq: TERMINAL_OUTPUT_BUFFER as u64 + 1,
-                data: vec![TERMINAL_OUTPUT_BUFFER as u8]
-            })
-        );
-        tap.close();
-        assert_eq!(tap.recv().await, None);
-    }
-
-    #[tokio::test]
-    async fn release_all_for_session_terminates_running_process_and_unblocks_watchdog() {
-        let registry = AgentTerminalRegistry::new();
-        let session_id = AgentSessionId::new();
-        let (command, args) = if cfg!(windows) {
-            (
-                "powershell.exe".to_string(),
-                vec![
-                    "-NoLogo".to_string(),
-                    "-NoProfile".to_string(),
-                    "-Command".to_string(),
-                    "Start-Sleep -Seconds 30".to_string(),
-                ],
-            )
-        } else {
-            ("sleep".to_string(), vec!["30".to_string()])
-        };
-        let terminal_id = registry
-            .create_terminal(&AgentTerminalCreateRequest {
-                session_id,
-                command,
-                args,
-                cwd: None,
-                env: Vec::new(),
-                output_byte_limit: Some(4096),
-            })
-            .await
-            .expect("create long-running terminal");
-
-        assert!(registry.has_running_for_session(session_id).await);
-
-        let released = registry.release_all_for_session(session_id).await;
-        assert_eq!(released, vec![terminal_id]);
-        assert!(
-            !registry.has_running_for_session(session_id).await,
-            "has_running_for_session must be false immediately after release_all_for_session"
-        );
-        assert!(!registry.exists(terminal_id).await);
-    }
-}
+mod tests;

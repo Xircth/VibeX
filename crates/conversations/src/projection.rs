@@ -1,6 +1,8 @@
 mod applier;
+mod backfill;
 mod cache;
 mod fold;
+mod query;
 mod rows;
 mod runtime_status;
 
@@ -27,17 +29,31 @@ use sqlx::{SqliteConnection, SqlitePool};
 use tokio::sync::broadcast;
 use uuid::Uuid;
 
+pub use agents::conversation::ConversationRowsSincePage;
 pub use self::{
-    applier::{ConversationEventAppender, ConversationStateApplier},
+    applier::{
+        BatchAppendResult, BatchConversationEvent, CheckpointMetadataUpdate,
+        CommittedConversationEvent, ConversationEventAppender, ConversationStateApplier,
+        MAX_BATCH_BYTES, MAX_BATCH_EVENTS,
+    },
+    backfill::{
+        backfill_next_legacy_batch, ensure_legacy_jsonl_migrated,
+        ensure_legacy_jsonl_migrated_on_pool, register_acp_replay_history_probe,
+        spawn_legacy_jsonl_backfill_worker,
+    },
     cache::{
         CachedRowProjector, ConversationRowProjectors, IncrementalRowProjector,
         evict_least_recently_used_projectors, extend_coalesced_row_ops,
     },
+    query::{
+        MAX_WINDOW_BYTES, TimelineKeysetCursor, decode_timeline_cursor, encode_timeline_cursor,
+    },
 };
+pub(crate) use self::applier::apply_checkpoint_metadata_update_on_conn as applier_checkpoint_update;
 use self::{
     cache::{antigravity_conversation, decode_timeline_row_records, record_rebuilt_projector_fold},
     fold::ProjectedTurn,
-    rows::{annotate_fork_point_rows, message_rows},
+    rows::annotate_fork_point_rows,
 };
 
 /// Occupancy-only usage must not erase a protocol breakdown already stored on
@@ -91,7 +107,6 @@ pub(super) fn merge_reported_turn_usage(
 // v23 adds replayable connection/request facts, with independent binding readiness.
 pub const CONVERSATION_PROJECTION_VERSION: u32 = 23;
 pub const OPEN_TIMELINE_ROW_LIMIT: usize = 16;
-const SNAPSHOT_REFRESH_EVENT_GAP: i64 = 40;
 
 pub struct OpenConversationProjection {
     pub timeline: ConversationTimeline,
@@ -204,11 +219,7 @@ pub(crate) fn emit_captured_internal_message(message: agents::CapturedInternalMe
 pub struct ConversationProjector;
 
 impl ConversationProjector {
-    /// Project a conversation timeline, resuming from the materialized snapshot.
-    ///
-    /// Loads the snapshot fold (when its projection version matches) and replays only
-    /// the tail (`events_since(last_sequence)`) instead of the whole event log — the
-    /// root-cause fix for the read amplification in 架构报告 A-3 / 代码报告 §5.1.
+    /// Project a conversation timeline, resuming from a full materialized snapshot when present.
     pub async fn project(
         pool: &SqlitePool,
         conversation_id: Uuid,
@@ -219,14 +230,15 @@ impl ConversationProjector {
         annotate_fork_points(pool, timeline).await
     }
 
-    /// Open-conversation window: last `limit` rows on the wire, stats from the
-    /// materialized snapshot so truncated history is not treated as the session total.
+    /// Open-conversation window: pure read path (never writes to SQLite, safe on `ReadPool`).
     pub async fn project_open(
         pool: &SqlitePool,
         conversation_id: Uuid,
         limit: usize,
     ) -> Result<OpenConversationProjection, sqlx::Error> {
-        if let Some(open) = Self::try_materialized_open(pool, conversation_id, limit).await? {
+        if let Some(open) = Self::try_materialized_open_with_budget(pool, conversation_id, limit)
+            .await?
+        {
             let timeline = annotate_fork_points(pool, open.timeline).await?;
             return Ok(OpenConversationProjection {
                 timeline,
@@ -235,18 +247,18 @@ impl ConversationProjector {
         }
         let fold = Self::fold(pool, conversation_id).await?;
         let session_stats = fold.session_stats();
-        if let Err(error) = Self::persist_fold_to_pool(pool, conversation_id, &fold).await {
-            tracing::warn!("conversation timeline row persist failed: {error}");
-        }
-        let timeline =
-            annotate_fork_points(pool, fold.into_open_timeline(conversation_id, limit)).await?;
+        let timeline = annotate_fork_points(
+            pool,
+            fold.into_open_timeline_with_budget(conversation_id, limit),
+        )
+        .await?;
         Ok(OpenConversationProjection {
             timeline,
             session_stats,
         })
     }
 
-    /// Page a row window without cloning the unrequested rows onto the response.
+    /// Page a row window without cloning unrequested rows onto the response (pure read path).
     pub async fn project_row_window(
         pool: &SqlitePool,
         conversation_id: Uuid,
@@ -261,9 +273,6 @@ impl ConversationProjector {
             return Ok(window);
         }
         let fold = Self::fold(pool, conversation_id).await?;
-        if let Err(error) = Self::persist_fold_to_pool(pool, conversation_id, &fold).await {
-            tracing::warn!("conversation timeline row persist failed: {error}");
-        }
         let mut window = fold.into_row_window(start, limit);
         let (fork_session, agent_kind) = fork_capability(pool, conversation_id).await?;
         annotate_fork_point_rows(&mut window.rows, fork_session, agent_kind);
@@ -306,9 +315,8 @@ impl ConversationProjector {
         Ok(fold.into_timeline(conversation_id))
     }
 
-    /// Timeline rows whose state changed after `after_sequence` (`revision >
-    /// after_sequence`), plus the conversation's last sequence. Powers gap backfill:
-    /// the frontend upserts these rows. Pulls rows, not raw events.
+    /// Timeline rows whose state changed after `after_sequence` (`revision > after_sequence`),
+    /// plus the conversation's last sequence.
     pub async fn rows_since(
         pool: &SqlitePool,
         conversation_id: Uuid,
@@ -334,8 +342,7 @@ impl ConversationProjector {
         Ok((fold.changed_rows_since(after_sequence), fold.last_sequence))
     }
 
-    /// Load the snapshot fold for a conversation, or an empty fold when there is no
-    /// usable snapshot (missing, or a stale projection version that must be rebuilt).
+    /// Read non-message side rows for a conversation (pure read path, safe on `ReadPool`).
     pub async fn persisted_side_rows(
         pool: &SqlitePool,
         conversation_id: Uuid,
@@ -347,7 +354,6 @@ impl ConversationProjector {
         };
         if !snapshot_fresh {
             let fold = Self::fold(pool, conversation_id).await?;
-            let _ = Self::persist_fold_to_pool(pool, conversation_id, &fold).await;
             return Ok(fold.side_rows);
         }
         let records =
@@ -359,120 +365,8 @@ impl ConversationProjector {
             .collect())
     }
 
-    /// Refresh the materialized snapshot on turn settle, on side-row changes, and
-    /// every `SNAPSHOT_REFRESH_EVENT_GAP` events during a long in-flight turn so
-    /// detail/gap reloads do not replay the whole turn.
-    pub(super) async fn refresh_snapshot_on_settle(
-        conn: &mut SqliteConnection,
-        record: &ConversationEventRecord,
-    ) -> Result<(), sqlx::Error> {
-        let settled = matches!(
-            record.event_kind.as_str(),
-            "turn_completed" | "turn_failed" | "turn_cancelled" | "turn_interrupted"
-        );
-        let side_row_changed = matches!(
-            record.event_kind.as_str(),
-            "delegation_started"
-                | "delegation_completed"
-                | "permission_requested"
-                | "permission_responded"
-                | "question_requested"
-                | "question_responded"
-                | "feedback_requested"
-                | "feedback_submitted"
-                | "agent_binding_load_failed"
-                | "agent_connection_status_changed"
-                | "request_activity_changed"
-                | "agent_binding_ready"
-                | "agent_binding_recovered"
-                | "agent_binding_recovery_failed"
-                | "raw_diagnostic_recorded"
-                | "session_config_stale"
-                | "announcements_updated"
-                | "turn_blocked"
-                | "file_change_summary_updated"
-                | "artifact_revision_recorded"
-                | "terminal_updated"
-        );
-
-        let conversation_id = record.conversation_id;
-        let mut fold = Self::load_fold_from_snapshot(&mut *conn, conversation_id).await?;
-        fold.complete_antigravity_reads =
-            antigravity_conversation(&mut *conn, conversation_id).await?;
-        if !settled
-            && !side_row_changed
-            && record.sequence - fold.last_sequence < SNAPSHOT_REFRESH_EVENT_GAP
-        {
-            return Ok(());
-        }
-        let tail = ConversationEventRecord::events_since(
-            &mut *conn,
-            conversation_id,
-            fold.last_sequence,
-            i64::MAX,
-        )
-        .await?;
-        for record in &tail {
-            fold.apply(record)?;
-        }
-        Self::persist_snapshot(&mut *conn, conversation_id, &fold).await?;
-
-        if !settled {
-            return Ok(());
-        }
-
-        // Best-effort full-text reindex from the freshly-settled projection.
-        // A search-index failure must never block a turn from settling (P1-2).
-        let external_session_id = sqlx::query_scalar::<_, Option<String>>(
-            r#"SELECT COALESCE(
-                (SELECT external_session_id FROM sessions WHERE id = ?1),
-                (SELECT acp_session_id FROM conversation_agent_bindings
-                 WHERE conversation_id = ?1 AND acp_session_id IS NOT NULL
-                 ORDER BY created_at DESC LIMIT 1)
-            )"#,
-        )
-        .bind(conversation_id)
-        .fetch_optional(&mut *conn)
-        .await
-        .ok()
-        .flatten()
-        .flatten();
-        let manifest = crate::transcript_segments::read_on_connection(
-            conn,
-            &agents::acp_transcript::vibex_acp_transcripts_root(),
-            conversation_id,
-        )
-        .await;
-        let transcript = match manifest {
-            Ok(Some(turns)) => Some(turns),
-            Ok(None) => {
-                crate::jsonl_history::flush_and_read_existing_transcript_turns(
-                    conversation_id,
-                    external_session_id.as_deref(),
-                )
-                .await
-            }
-            Err(error) => {
-                tracing::warn!(%error, "cannot index unreadable manifest history");
-                return Ok(());
-            }
-        };
-        let timeline = match transcript {
-            Some(turns) => crate::jsonl_history::timeline_from_turns(conversation_id, &turns),
-            None => fold.into_timeline(conversation_id),
-        };
-        let body = crate::search::extract_searchable_text(&timeline);
-        if let Err(error) =
-            crate::search::reindex_conversation(&mut *conn, conversation_id, &body).await
-        {
-            tracing::warn!("conversation FTS reindex on settle failed: {error}");
-        }
-        Ok(())
-    }
-
     /// Authoritatively rebuild the derived projection tables and the snapshot from the
-    /// event log, in a single transaction. Use on a projection-version bump or to
-    /// repair a detected inconsistency (架构报告 A-3 `rebuild_projection`).
+    /// event log, in a single transaction.
     pub async fn rebuild_projection(
         pool: &SqlitePool,
         conversation_id: Uuid,
@@ -484,24 +378,38 @@ impl ConversationProjector {
             Ok(()) => {
                 if let Err(error) = sqlx::query("COMMIT").execute(&mut *conn).await {
                     let _ = sqlx::query("ROLLBACK").execute(&mut *conn).await;
+                    cache::evict_write_projector(conversation_id);
                     return Err(error);
                 }
                 Ok(())
             }
             Err(error) => {
                 let _ = sqlx::query("ROLLBACK").execute(&mut *conn).await;
+                cache::evict_write_projector(conversation_id);
                 Err(error)
             }
         }
     }
 
-    pub(super) async fn rebuild_on_connection(
+    pub(crate) async fn rebuild_on_connection(
         conn: &mut SqliteConnection,
         conversation_id: Uuid,
     ) -> Result<(), sqlx::Error> {
-        // Clear the purely event-derived projection rows. Turn rows are kept (they
-        // carry the user's input from create_pending); their status is re-derived by
-        // replaying the status events below.
+        let allocated_floor = sqlx::query_scalar::<_, Option<i64>>(
+            "SELECT last_allocated_sequence FROM conversation_projection_snapshots WHERE conversation_id = ?",
+        )
+        .bind(conversation_id)
+        .fetch_optional(&mut *conn)
+        .await?
+        .flatten()
+        .unwrap_or(0);
+        let tombstone_floor = sqlx::query_scalar::<_, i64>(
+            "SELECT COALESCE(MAX(deleted_sequence), 0) FROM conversation_timeline_rows WHERE conversation_id = ?",
+        )
+        .bind(conversation_id)
+        .fetch_one(&mut *conn)
+        .await?;
+
         for table in [
             "conversation_inputs",
             "conversation_steering",
@@ -510,13 +418,20 @@ impl ConversationProjector {
             "conversation_terminals",
             "conversation_file_changes",
             "conversation_usage_snapshots",
-            "conversation_timeline_rows",
         ] {
             sqlx::query(&format!("DELETE FROM {table} WHERE conversation_id = ?"))
                 .bind(conversation_id)
                 .execute(&mut *conn)
                 .await?;
         }
+        // Delete only active rows so soft-deleted tombstones (`deleted_sequence IS NOT NULL`)
+        // survive across `truncate_to_turn_ordinal`.
+        sqlx::query(
+            "DELETE FROM conversation_timeline_rows WHERE conversation_id = ? AND deleted_sequence IS NULL",
+        )
+        .bind(conversation_id)
+        .execute(&mut *conn)
+        .await?;
         sqlx::query("DELETE FROM conversation_relations WHERE parent_conversation_id = ?")
             .bind(conversation_id)
             .execute(&mut *conn)
@@ -533,8 +448,29 @@ impl ConversationProjector {
             ConversationStateApplier::apply_record(&mut *conn, record).await?;
             fold.apply(record)?;
         }
+        if !fold.turns.is_empty() {
+            let prompt = sqlx::query_scalar::<_, Option<String>>(
+                "SELECT initial_prompt FROM sessions WHERE id = ?",
+            )
+            .bind(conversation_id)
+            .fetch_optional(&mut *conn)
+            .await?
+            .flatten();
+            fold.seed_user_prompt_from_session(conversation_id, prompt.as_deref());
+        }
+        fold.last_sequence = fold.last_sequence.max(allocated_floor).max(tombstone_floor);
         Self::persist_snapshot(&mut *conn, conversation_id, &fold).await?;
+        if let Err(error) = crate::search::reindex_timeline_rows_on_conn(
+            &mut *conn,
+            conversation_id,
+            &fold.timeline_rows(),
+        )
+        .await
+        {
+            tracing::warn!("conversation FTS reindex during rebuild failed: {error}");
+        }
         record_rebuilt_projector_fold(conversation_id, &fold);
+        cache::sync_write_projector_on_rebuild(conversation_id, &fold);
         Ok(())
     }
 }
@@ -543,33 +479,133 @@ impl ConversationProjector {
 pub(super) struct ProjectionFold {
     turns: BTreeMap<Uuid, ProjectedTurn>,
     turn_order: Vec<Uuid>,
-    /// Side rows carry their own `row_id` + `revision` (the incremental row-op protocol,
-    /// 消灭双投影). `revision` is the sequence of the latest event that touched the row.
     pub(crate) side_rows: Vec<TimelineRow>,
+    pub(super) side_row_turns: BTreeMap<String, Uuid>,
     pub(crate) last_sequence: i64,
     auto_permission_approvals: u32,
-    /// Antigravity reports view_file failures for cascade and provider errors
-    /// that are not the read. Not part of the snapshot: set from the binding
-    /// before events are folded.
     complete_antigravity_reads: bool,
 }
 
-/// Serializable form of [`ProjectionFold`] (turns kept in order, no map keys → portable JSON).
-#[derive(Default, Serialize, Deserialize)]
-pub(super) struct ProjectionSnapshotState {
+#[derive(Default, Clone, Serialize, Deserialize)]
+pub(super) struct TurnMetricsSummary {
+    #[serde(default)]
+    pub(super) ordinal: i64,
+    #[serde(default)]
+    pub(super) usage: Option<TurnUsage>,
+    #[serde(default)]
+    pub(super) duration_ms: Option<u64>,
+}
+
+fn summarize_turn_metrics(
+    turn: &ProjectedTurn,
+    ordinal: i64,
+) -> Option<TurnMetricsSummary> {
+    let mut segments: Vec<&MessageTurn> = Vec::new();
+    if !turn.user.blocks.is_empty() {
+        segments.push(&turn.user);
+    }
+    for segment in &turn.prefix_segments {
+        if !segment.blocks.is_empty() {
+            segments.push(segment);
+        }
+    }
+    if !turn.assistant.blocks.is_empty() {
+        segments.push(&turn.assistant);
+    }
+    let mut has_usage = false;
+    let mut agg = TurnUsage::default();
+    for seg in &segments {
+        if let Some(u) = seg.usage.as_ref() {
+            has_usage = true;
+            agg.input_tokens += u.input_tokens;
+            agg.output_tokens += u.output_tokens;
+            agg.cache_creation_input_tokens += u.cache_creation_input_tokens;
+            agg.cache_read_input_tokens += u.cache_read_input_tokens;
+        }
+    }
+    if let Some(latest_max_seg) = segments.iter().rev().find(|s| {
+        s.usage
+            .as_ref()
+            .and_then(|u| u.context_window_max)
+            .is_some()
+    }) && let Some(u) = latest_max_seg.usage.as_ref()
+    {
+        agg.context_window_max = u.context_window_max;
+        agg.context_used = Some(
+            u.input_tokens
+                + u.output_tokens
+                + u.cache_creation_input_tokens
+                + u.cache_read_input_tokens,
+        );
+    }
+    let duration_sum: u64 = segments.iter().filter_map(|s| s.duration_ms).sum();
+    let has_duration = segments.iter().any(|s| s.duration_ms.is_some());
+    if !has_usage && !has_duration {
+        return None;
+    }
+    Some(TurnMetricsSummary {
+        ordinal,
+        usage: has_usage.then_some(agg),
+        duration_ms: has_duration.then_some(duration_sum),
+    })
+}
+
+fn default_full_fold() -> bool {
+    true
+}
+
+/// Serializable form of [`ProjectionFold`].
+///
+/// Cold rebuilds set `full_fold = true` and serialize `turns`. Hot incremental writes set
+/// `full_fold = false` (`turns = []`) to avoid O(N_turns) JSON serialization on every event.
+#[derive(Serialize, Deserialize)]
+struct ProjectionSnapshotState {
+    #[serde(default)]
     turns: Vec<ProjectedTurn>,
+    #[serde(default)]
     side_rows: Vec<TimelineRow>,
+    #[serde(default)]
+    side_row_turns: BTreeMap<String, Uuid>,
+    #[serde(default)]
     last_sequence: i64,
     #[serde(default)]
     auto_permission_approvals: u32,
+    #[serde(default = "default_full_fold")]
+    full_fold: bool,
+    #[serde(default)]
+    turn_metrics: BTreeMap<Uuid, TurnMetricsSummary>,
+}
+
+impl Default for ProjectionSnapshotState {
+    fn default() -> Self {
+        Self {
+            turns: Vec::new(),
+            side_rows: Vec::new(),
+            side_row_turns: BTreeMap::new(),
+            last_sequence: 0,
+            auto_permission_approvals: 0,
+            full_fold: true,
+            turn_metrics: BTreeMap::new(),
+        }
+    }
 }
 
 impl ProjectionFold {
-    pub(super) fn from_snapshot_state(state: ProjectionSnapshotState) -> Self {
+    fn side_row_turn_id(&self, row: &TimelineRow) -> Option<Uuid> {
+        match &row.row {
+            ConversationTimelineRow::SessionNotice { .. } => None,
+            ConversationTimelineRow::TurnError { error } => error.turn_id,
+            ConversationTimelineRow::FileChangeSummary { turn_id, .. } => *turn_id,
+            _ => self.side_row_turns.get(&row.row_id).copied(),
+        }
+    }
+
+    fn from_snapshot_state(state: ProjectionSnapshotState) -> Self {
         let mut fold = ProjectionFold {
             turn_order: Vec::with_capacity(state.turns.len()),
             last_sequence: state.last_sequence,
             side_rows: state.side_rows,
+            side_row_turns: state.side_row_turns,
             auto_permission_approvals: state.auto_permission_approvals,
             ..ProjectionFold::default()
         };
@@ -580,7 +616,19 @@ impl ProjectionFold {
         fold
     }
 
-    pub(super) fn to_snapshot_state(&self) -> ProjectionSnapshotState {
+    fn collect_turn_metrics(&self) -> BTreeMap<Uuid, TurnMetricsSummary> {
+        let mut map = BTreeMap::new();
+        for (idx, turn_id) in self.turn_order.iter().enumerate() {
+            if let Some(turn) = self.turns.get(turn_id)
+                && let Some(summary) = summarize_turn_metrics(turn, (idx as i64) + 1)
+            {
+                map.insert(*turn_id, summary);
+            }
+        }
+        map
+    }
+
+    fn to_snapshot_state(&self) -> ProjectionSnapshotState {
         let turns = self
             .turn_order
             .iter()
@@ -589,14 +637,29 @@ impl ProjectionFold {
         ProjectionSnapshotState {
             turns,
             side_rows: self.side_rows.clone(),
+            side_row_turns: self.side_row_turns.clone(),
             last_sequence: self.last_sequence,
             auto_permission_approvals: self.auto_permission_approvals,
+            full_fold: true,
+            turn_metrics: self.collect_turn_metrics(),
         }
     }
 
-    /// Fold one event into the projection **and** return the incremental row ops it
-    /// produced (the single-projection realtime protocol, 消灭双投影). Callers that only
-    /// want the folded state (`project`, `project_records`) discard the ops.
+    fn to_lightweight_snapshot_state(
+        &self,
+        turn_metrics: &BTreeMap<Uuid, TurnMetricsSummary>,
+    ) -> ProjectionSnapshotState {
+        ProjectionSnapshotState {
+            turns: Vec::new(),
+            side_rows: self.side_rows.clone(),
+            side_row_turns: self.side_row_turns.clone(),
+            last_sequence: self.last_sequence,
+            auto_permission_approvals: self.auto_permission_approvals,
+            full_fold: false,
+            turn_metrics: turn_metrics.clone(),
+        }
+    }
+
     pub(crate) fn apply(
         &mut self,
         record: &ConversationEventRecord,
@@ -621,26 +684,6 @@ impl ProjectionFold {
         };
         cap_timeline_preview_fields(&mut timeline);
         annotate_fork_point_rows(&mut timeline.rows, false, None);
-        timeline
-    }
-
-    fn into_open_timeline(self, conversation_id: Uuid, limit: usize) -> ConversationTimeline {
-        let (mut rows, last_sequence) = self.collect_rows();
-        let total = rows.len();
-        let truncated = limit > 0 && total > limit;
-        let start = if truncated { total - limit } else { 0 };
-        if truncated {
-            rows = rows.split_off(start);
-        }
-        let mut timeline = ConversationTimeline {
-            conversation_id,
-            projection_version: CONVERSATION_PROJECTION_VERSION,
-            last_sequence,
-            rows,
-            truncated_from_start: truncated,
-            older_cursor: truncated.then(|| start.to_string()),
-        };
-        cap_timeline_preview_fields(&mut timeline);
         timeline
     }
 
@@ -687,29 +730,22 @@ impl ProjectionFold {
     }
 
     fn changed_rows_since(&self, after_sequence: i64) -> Vec<TimelineRow> {
-        let mut rows = Vec::new();
-        for turn_id in &self.turn_order {
-            let Some(turn) = self.turns.get(turn_id) else {
-                continue;
-            };
-            if turn.revision <= after_sequence {
-                continue;
-            }
-            rows.extend(message_rows(turn));
-        }
-        rows.extend(
-            self.side_rows
-                .iter()
-                .filter(|row| row.revision > after_sequence)
-                .cloned(),
-        );
+        let mut rows: Vec<TimelineRow> = self
+            .timeline_rows()
+            .into_iter()
+            .filter(|row| row.revision > after_sequence)
+            .collect();
         for row in &mut rows {
             cap_timeline_row_preview_fields(row);
         }
         rows
     }
 
-    fn seed_user_prompt_from_session(&mut self, conversation_id: Uuid, prompt: Option<&str>) {
+    pub(super) fn seed_user_prompt_from_session(
+        &mut self,
+        conversation_id: Uuid,
+        prompt: Option<&str>,
+    ) {
         let Some(prompt) = prompt.map(str::trim).filter(|value| !value.is_empty()) else {
             return;
         };
@@ -717,6 +753,7 @@ impl ProjectionFold {
             return;
         }
         let turn_id = self.turn_order.first().copied().unwrap_or(conversation_id);
+        let rev = self.last_sequence.max(1);
         if !self.turns.contains_key(&turn_id) {
             self.turn_order.push(turn_id);
             self.turns.insert(
@@ -751,8 +788,8 @@ impl ProjectionFold {
                     prefix_segment_revisions: Vec::new(),
                     pending_steering: None,
                     phase: "settled".into(),
-                    user_revision: self.last_sequence.max(1),
-                    revision: self.last_sequence.max(1),
+                    user_revision: rev,
+                    revision: rev,
                     usage_announced: false,
                     trailing_raw_text: String::new(),
                     emitted_internal_count: 0,
@@ -764,6 +801,7 @@ impl ProjectionFold {
             turn.user.blocks = vec![ContentBlock::Text {
                 text: prompt.to_string(),
             }];
+            turn.user_revision = rev;
         }
     }
 }
@@ -791,6 +829,53 @@ async fn fork_capability(
             .unwrap_or_default();
     let agent_kind = agents::AgentKind::from_str(binding.agent_id.as_str()).ok();
     Ok((capabilities.fork_session, agent_kind))
+}
+
+pub(super) fn session_stats_from_metrics(
+    metrics: &BTreeMap<Uuid, TurnMetricsSummary>,
+) -> Option<SessionStats> {
+    let mut ordered: Vec<&TurnMetricsSummary> = metrics.values().collect();
+    ordered.sort_by_key(|m| m.ordinal);
+    let total_usage =
+        ordered
+            .iter()
+            .filter_map(|m| m.usage.as_ref())
+            .fold(TurnUsage::default(), |mut acc, usage| {
+                acc.input_tokens += usage.input_tokens;
+                acc.output_tokens += usage.output_tokens;
+                acc.cache_creation_input_tokens += usage.cache_creation_input_tokens;
+                acc.cache_read_input_tokens += usage.cache_read_input_tokens;
+                acc
+            });
+    let total_tokens = total_usage.input_tokens
+        + total_usage.output_tokens
+        + total_usage.cache_creation_input_tokens
+        + total_usage.cache_read_input_tokens;
+    let context_window = ordered.iter().rev().find_map(|m| {
+        let usage = m.usage.as_ref()?;
+        let max = usage.context_window_max?;
+        let used = usage.context_used.unwrap_or(
+            usage.input_tokens
+                + usage.output_tokens
+                + usage.cache_creation_input_tokens
+                + usage.cache_read_input_tokens,
+        );
+        Some((used, max))
+    });
+    (total_tokens > 0).then_some(SessionStats {
+        total_usage: Some(total_usage),
+        total_tokens: Some(total_tokens),
+        total_duration_ms: ordered.iter().filter_map(|m| m.duration_ms).sum(),
+        context_window_used_tokens: context_window.map(|(used, _)| used),
+        context_window_max_tokens: context_window.map(|(_, max)| max),
+        context_window_usage_percent: context_window.map(|(used, max)| {
+            if max > 0 {
+                (used as f64 / max as f64) * 100.0
+            } else {
+                0.0
+            }
+        }),
+    })
 }
 
 fn session_stats_from_turns(turns: &[&MessageTurn]) -> Option<SessionStats> {

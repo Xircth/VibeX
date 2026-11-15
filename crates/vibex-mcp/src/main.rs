@@ -103,7 +103,9 @@ impl CompanionFeatures {
             "delegate_to_agent" | "get_delegation_status" | "cancel_delegation" => self.delegation,
             "check_user_feedback" => self.feedback,
             "ask_user_question" => self.ask || self.collaboration,
-            "get_session_info" => self.session_info || self.collaboration,
+            "get_session_info" | "thread_read_history" => {
+                self.session_info || self.collaboration
+            }
             "send_session_input" => self.session_control || self.collaboration,
             "cancel_session_turn" | "wait_for_session" => self.session_control,
             "list_conversations" | "create_conversation" | "list_spaces" | "manage_bot" => {
@@ -745,6 +747,38 @@ impl Companion {
                     max_messages,
                     history: serde_json::from_value(arguments.clone())
                         .map_err(|error| error.to_string())?,
+                }))
+            }
+            "thread_read_history" => {
+                let conversation_id = arguments
+                    .get("conversation_id")
+                    .and_then(Value::as_str)
+                    .unwrap_or("")
+                    .trim()
+                    .to_string();
+                let item_ids: Vec<String> = arguments
+                    .get("item_ids")
+                    .and_then(Value::as_array)
+                    .map(|arr| {
+                        arr.iter()
+                            .filter_map(Value::as_str)
+                            .map(str::trim)
+                            .filter(|s| !s.is_empty())
+                            .map(str::to_string)
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                if item_ids.is_empty() {
+                    return Err("item_ids must contain at least one non-empty ID".to_string());
+                }
+                Ok(BrokerMessage::SessionInfo(BrokerSessionRequest {
+                    token,
+                    conversation_id,
+                    max_messages: 0,
+                    history: delegation_proto::SessionHistoryRequest {
+                        item_ids,
+                        ..Default::default()
+                    },
                 }))
             }
             "send_session_input" => {

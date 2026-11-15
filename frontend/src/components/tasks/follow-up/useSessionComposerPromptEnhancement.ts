@@ -32,8 +32,12 @@ export function useSessionComposerPromptEnhancement({
   const run = usePromptEnhancementStore((state) => state.runs[ownerKey]);
   const isEnhancingPrompt = run?.status === 'running';
   const mountedRef = useRef(true);
+  const draftPromptRef = useRef(draftPrompt);
+  const contextMessagesRef = useRef(contextMessages);
   const applyEnhancedPromptRef = useRef(applyEnhancedPrompt);
   const setFollowUpErrorRef = useRef(setFollowUpError);
+  draftPromptRef.current = draftPrompt;
+  contextMessagesRef.current = contextMessages;
   applyEnhancedPromptRef.current = applyEnhancedPrompt;
   setFollowUpErrorRef.current = setFollowUpError;
 
@@ -58,11 +62,12 @@ export function useSessionComposerPromptEnhancement({
   }, [ownerKey, run]);
 
   const handleEnhancePrompt = useCallback(async () => {
+    const currentDraftPrompt = draftPromptRef.current;
     const action = getPromptEnhancementClickAction({
       isEnhancingPrompt:
         usePromptEnhancementStore.getState().runs[ownerKey]?.status ===
         'running',
-      draftPrompt,
+      draftPrompt: currentDraftPrompt,
     });
     if (action === 'ignore') return;
 
@@ -80,15 +85,15 @@ export function useSessionComposerPromptEnhancement({
     }
 
     const generation = usePromptEnhancementStore.getState().begin(ownerKey);
-    setFollowUpError(null);
+    setFollowUpErrorRef.current(null);
 
     try {
       const result = await configApi.enhancePrompt(
         buildPromptEnhancementRequest({
-          draftPrompt,
+          draftPrompt: currentDraftPrompt,
           sessionId,
           workspaceId,
-          contextMessages,
+          contextMessages: contextMessagesRef.current,
         })
       );
       const prompt = normalizeEnhancedPrompt({
@@ -97,7 +102,7 @@ export function useSessionComposerPromptEnhancement({
       const current = usePromptEnhancementStore.getState().runs[ownerKey];
       if (!current || current.generation !== generation) return;
       if (mountedRef.current) {
-        applyEnhancedPrompt(prompt);
+        applyEnhancedPromptRef.current(prompt);
         usePromptEnhancementStore.getState().cancel(ownerKey, generation);
         return;
       }
@@ -113,21 +118,13 @@ export function useSessionComposerPromptEnhancement({
       }
       const message = getPromptEnhancementErrorMessage(error);
       if (mountedRef.current) {
-        setFollowUpError(message);
+        setFollowUpErrorRef.current(message);
         usePromptEnhancementStore.getState().cancel(ownerKey, generation);
         return;
       }
       usePromptEnhancementStore.getState().fail(ownerKey, generation, message);
     }
-  }, [
-    draftPrompt,
-    sessionId,
-    workspaceId,
-    contextMessages,
-    applyEnhancedPrompt,
-    setFollowUpError,
-    ownerKey,
-  ]);
+  }, [ownerKey, sessionId, workspaceId]);
 
   return {
     isEnhancingPrompt,

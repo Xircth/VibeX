@@ -774,116 +774,125 @@ export const MessageStream = memo(function MessageStream() {
               </Button>
             </div>
           </div>
-        ) : selected && visibleMessages.length > 0 ? (
-          <>
-            {hasHiddenEarlierMessages ? (
-              <div className="mb-3 flex justify-center">
-                <button
-                  type="button"
-                  className="rounded-full border bg-background/90 px-3 py-1.5 text-xs text-muted-foreground"
-                  onClick={() => {
-                    revealEarlierMessages();
-                  }}
-                >
-                  {t('conversation:timeline.loadEarlier', {
-                    defaultValue: '更早的消息',
-                  })}
-                </button>
-              </div>
-            ) : null}
-            {visibleMessages.map((message, localIndex) => {
-              const index = visibleStartIndex + localIndex;
-              const messageKey = isCollaborationLimitNotice(message)
-                ? `space-notice-${message.seq}`
-                : spaceMessageRefKey(message);
-              const author = messageAuthor(message.envelope);
-              const fromYou = author === COPY.you;
-              const name = fromYou
-                ? fromYouLabel
-                : author || unknownMemberLabel;
-              const authorConversationId = resolveMessageConversationId(
-                message.envelope,
-                members
-              );
-              let authorMember =
-                memberLookup.rosterByName.get(name) ??
-                (authorConversationId
-                  ? memberLookup.membersByConvId.get(authorConversationId)
-                  : undefined) ??
-                memberLookup.membersByName.get(name);
-              if (!authorMember) {
-                const fallbackKey = `${authorConversationId}:${name}`;
-                authorMember =
-                  fallbackAuthorMembersRef.current.get(fallbackKey);
-                if (!authorMember) {
-                  authorMember = {
-                    kind: 'agent' as const,
-                    nickname: name,
-                    conversation_id: authorConversationId,
-                  };
-                  fallbackAuthorMembersRef.current.set(
-                    fallbackKey,
-                    authorMember
-                  );
-                }
-              }
-              return (
-                <SpaceMessageRow
-                  key={messageKey}
-                  message={message}
-                  cluster={messageClusters[index] ?? null}
-                  selectedSpaceId={selected.space_id}
-                  isPrivateChatActive={isPrivateChatActive}
-                  fromYouLabel={fromYouLabel}
-                  unknownMemberLabel={unknownMemberLabel}
-                  fallbackRosterColor={fallbackRosterColor}
-                  externalReceipts={receiptsBySeq[message.seq]}
-                  authorConversationId={authorConversationId}
-                  authorMember={authorMember}
-                  isAuthorLead={leadConversationIds.has(authorConversationId)}
-                  getMemberAvatar={getMemberAvatar}
-                  crossChatLookup={crossChatLookup}
-                  receiptLabels={receiptLabels}
-                  threadCards={threadCards}
-                  workspacePath={workspacePath}
-                  workspaceId={workspace || undefined}
-                  messageItemRefs={messageItemRefs}
-                  openMessageBubbleMenu={openMessageBubbleMenu}
-                  openMemberAvatarMenu={openMemberAvatarMenu}
-                  selectMemberForPreview={selectMemberForPreview}
-                />
-              );
-            })}
-          </>
-        ) : null}
-        <DirectMessages />
-        {selected ? (
-          <CollaborationWorkingStatus members={workingMembers} />
-        ) : null}
-        {workingConversationIds.map((conversationId) => (
-          <CollaborationThreadPermissionDock
-            key={`permission-dock-${conversationId}`}
-            conversationId={conversationId}
-            excludePermissionIds={pendingApprovalCardIds}
-          />
-        ))}
-        {pendingApprovalCards.length > 0 ? (
+        ) : (
           <div
-            className="collaboration-thread-permission-dock"
-            data-testid="collaboration-thread-approval-dock"
+            className="collaboration-thread-content"
+            data-testid="collaboration-thread-content"
           >
-            {pendingApprovalCards.map((card) => (
-              <PermissionRequestCard
-                key={`approval-card-${card.id}`}
-                request={approvalCardToPermissionView(card)}
-                responding={respondingApprovalCardId === card.id}
-                onRespond={(_permissionId, response) => {
-                  void handleResolveApprovalCard(card.id, response);
-                }}
+            {selected && visibleMessages.length > 0 ? (
+              <>
+                {hasHiddenEarlierMessages ? (
+                  <div className="mb-3 flex justify-center">
+                    <button
+                      type="button"
+                      className="rounded-full border bg-background/90 px-3 py-1.5 text-xs text-muted-foreground"
+                      onClick={() => {
+                        revealEarlierMessages();
+                      }}
+                    >
+                      {t('conversation:timeline.loadEarlier', {
+                        defaultValue: '更早的消息',
+                      })}
+                    </button>
+                  </div>
+                ) : null}
+                {visibleMessages.map((message, localIndex) => {
+                  const index = visibleStartIndex + localIndex;
+                  const messageKey = isCollaborationLimitNotice(message)
+                    ? `space-notice-${message.seq}`
+                    : spaceMessageRefKey(message);
+                  const author = messageAuthor(message.envelope);
+                  const fromYou = author === COPY.you;
+                  const name = fromYou
+                    ? fromYouLabel
+                    : author || unknownMemberLabel;
+                  const authorConversationId = resolveMessageConversationId(
+                    message.envelope,
+                    members
+                  );
+                  let authorMember =
+                    memberLookup.rosterByName.get(name) ??
+                    (authorConversationId
+                      ? memberLookup.membersByConvId.get(authorConversationId)
+                      : undefined) ??
+                    memberLookup.membersByName.get(name);
+                  if (!authorMember) {
+                    const fallbackKey = `${authorConversationId}:${name}`;
+                    authorMember =
+                      fallbackAuthorMembersRef.current.get(fallbackKey);
+                    if (!authorMember) {
+                      authorMember = {
+                        kind: 'agent' as const,
+                        nickname: name,
+                        conversation_id: authorConversationId,
+                      };
+                      fallbackAuthorMembersRef.current.set(
+                        fallbackKey,
+                        authorMember
+                      );
+                    }
+                  }
+                  return (
+                    <SpaceMessageRow
+                      key={messageKey}
+                      message={message}
+                      cluster={messageClusters[index] ?? null}
+                      selectedSpaceId={selected.space_id}
+                      isPrivateChatActive={isPrivateChatActive}
+                      fromYouLabel={fromYouLabel}
+                      unknownMemberLabel={unknownMemberLabel}
+                      fallbackRosterColor={fallbackRosterColor}
+                      externalReceipts={receiptsBySeq[message.seq]}
+                      authorConversationId={authorConversationId}
+                      authorMember={authorMember}
+                      isAuthorLead={leadConversationIds.has(
+                        authorConversationId
+                      )}
+                      getMemberAvatar={getMemberAvatar}
+                      crossChatLookup={crossChatLookup}
+                      receiptLabels={receiptLabels}
+                      threadCards={threadCards}
+                      workspacePath={workspacePath}
+                      workspaceId={workspace || undefined}
+                      messageItemRefs={messageItemRefs}
+                      openMessageBubbleMenu={openMessageBubbleMenu}
+                      openMemberAvatarMenu={openMemberAvatarMenu}
+                      selectMemberForPreview={selectMemberForPreview}
+                    />
+                  );
+                })}
+              </>
+            ) : null}
+            <DirectMessages />
+            {selected ? (
+              <CollaborationWorkingStatus members={workingMembers} />
+            ) : null}
+            {workingConversationIds.map((conversationId) => (
+              <CollaborationThreadPermissionDock
+                key={`permission-dock-${conversationId}`}
+                conversationId={conversationId}
+                excludePermissionIds={pendingApprovalCardIds}
               />
             ))}
+            {pendingApprovalCards.length > 0 ? (
+              <div
+                className="collaboration-thread-permission-dock"
+                data-testid="collaboration-thread-approval-dock"
+              >
+                {pendingApprovalCards.map((card) => (
+                  <PermissionRequestCard
+                    key={`approval-card-${card.id}`}
+                    request={approvalCardToPermissionView(card)}
+                    responding={respondingApprovalCardId === card.id}
+                    onRespond={(_permissionId, response) => {
+                      void handleResolveApprovalCard(card.id, response);
+                    }}
+                  />
+                ))}
+              </div>
+            ) : null}
           </div>
-        ) : null}
+        )}
       </div>
 
       <ConversationSelectionToolbar

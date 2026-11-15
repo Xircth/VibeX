@@ -601,4 +601,63 @@ describe('subagent card model', () => {
     expect(model.status).toBe('completed');
     expect(model.resultText).toBe('Build succeeded');
   });
+
+  it('unwraps Codex mcpToolCall envelopes for vibex-delegation-mcp start and lifecycle tools', () => {
+    const delegateStart = use('mcpToolCall', {
+      server: 'vibex-delegation-mcp',
+      tool: 'delegate_to_agent',
+      arguments: {
+        agent: 'codex',
+        task: 'Verify native event projection',
+      },
+    });
+    const delegatePoll = use('mcpToolCall', {
+      server: 'vibex-delegation-mcp',
+      tool: 'get_delegation_status',
+      arguments: { delegation_id: 'del-99' },
+    });
+    const delegateCancel = use('mcpToolCall', {
+      server: 'vibex-delegation-mcp',
+      tool: 'cancel_delegation',
+      arguments: { delegation_id: 'del-99' },
+    });
+
+    expect(isHostDelegationTool(delegateStart)).toBe(true);
+    expect(isHostDelegationLifecycleTool(delegateStart)).toBe(false);
+    expect(isHostDelegationLifecycleTool(delegatePoll)).toBe(true);
+    expect(isHostDelegationLifecycleTool(delegateCancel)).toBe(true);
+  });
+
+  it('folds Codex collabAgentToolCall spawnAgent and wait lifecycle calls into a single subagent card', () => {
+    const spawnCall = use('collabAgentToolCall', {
+      tool: 'spawnAgent',
+      receiverThreadIds: ['thread-collab-1'],
+      prompt: 'Inspect timeline diff rendering',
+    });
+    spawnCall.tool_use_id = 'collab-spawn';
+
+    const waitCall = use('collabAgentToolCall', {
+      tool: 'wait',
+      receiverThreadIds: ['thread-collab-1'],
+    });
+    waitCall.tool_use_id = 'collab-wait';
+
+    expect(isNativeSubagentTool(spawnCall)).toBe(true);
+    expect(isNativeSubagentTool(waitCall)).toBe(false);
+
+    const folded = foldSubagentLifecycle([
+      { use: spawnCall, result: result('spawned') },
+      { use: waitCall, result: result('Diff rendering verified') },
+    ]);
+
+    expect(folded.cards).toHaveLength(1);
+    expect(folded.hiddenToolUseIds).toEqual(new Set(['collab-wait']));
+    const model = applySubagentLifecycle(
+      buildSubagentCardModel(spawnCall, result('spawned')),
+      folded.cards[0].lifecycle
+    );
+    expect(model.agentKind).toBe('codex');
+    expect(model.status).toBe('completed');
+    expect(model.resultText).toBe('Diff rendering verified');
+  });
 });

@@ -28,10 +28,32 @@ impl ConversationSessionService {
         let source =
             ConversationAgentBindingRecord::active_for_conversation(pool, input.conversation_id)
                 .await?;
-        let switching = session
+        let switching = if let Some(binding) = source.as_ref() {
+            binding.agent_id != input.agent_id
+        } else if let Some(latest) =
+            ConversationAgentBindingRecord::latest_for_conversation(pool, input.conversation_id)
+                .await?
+        {
+            latest.agent_id != input.agent_id
+        } else if session
             .agent_id
             .as_ref()
-            .is_some_and(|agent| *agent != input.agent_id);
+            .is_some_and(|agent| *agent != input.agent_id)
+        {
+            true
+        } else if input.continuation_policy == Some(ContinuationPolicy::Portable)
+            && session.external_session_id.is_none()
+        {
+            sqlx::query_scalar::<_, bool>(
+                "SELECT EXISTS(SELECT 1 FROM conversation_turns WHERE conversation_id = ? AND id != ?)",
+            )
+            .bind(input.conversation_id)
+            .bind(turn_id)
+            .fetch_one(pool)
+            .await?
+        } else {
+            false
+        };
         let fresh = input.continuation_policy == Some(ContinuationPolicy::Fresh);
 
         // Stage C: look for a resumable binding with matching continuation key.
@@ -53,7 +75,7 @@ impl ConversationSessionService {
         let cold = (switching && resume_candidate.is_none()) || fresh;
 
         if cold {
-            self.validate_continuation_owner(input.conversation_id)
+            self.validate_continuation_owner(input.conversation_id, input.agent_id.as_str())
                 .await?;
             if let Ok(controls) = self
                 .ctx
@@ -81,13 +103,16 @@ impl ConversationSessionService {
                 ));
             }
             let selection = if input.continuation_policy == Some(ContinuationPolicy::Portable) {
-                let turns = crate::jsonl_history::load_all_turns(pool, input.conversation_id)
-                    .await?
-                    .ok_or_else(|| {
-                        ConversationServiceError::Internal(
-                            "Conversation history is unavailable".into(),
-                        )
-                    })?;
+                let _ = crate::ensure_legacy_jsonl_migrated_on_pool(pool, input.conversation_id)
+                    .await?;
+                let current_id = turn_id.to_string();
+                let current_prefix = format!("{turn_id}:");
+                let turns: Vec<_> =
+                    crate::ConversationProjector::project_turns_summary(pool, input.conversation_id)
+                        .await?
+                        .into_iter()
+                        .filter(|t| t.id != current_id && !t.id.starts_with(&current_prefix))
+                        .collect();
                 let current_bytes = serde_json::to_vec(&prepared.agent_blocks)
                     .map_err(|e| ConversationServiceError::Internal(e.to_string()))?
                     .len();
@@ -176,7 +201,7 @@ impl ConversationSessionService {
             }
         } else if let Some(resume) = resume_candidate {
             // Stage C resume: restore the target agent's native session.
-            self.validate_continuation_owner(input.conversation_id)
+            self.validate_continuation_owner(input.conversation_id, input.agent_id.as_str())
                 .await?;
             if let Ok(controls) = self
                 .ctx
@@ -205,23 +230,27 @@ impl ConversationSessionService {
             }
 
             // Delta: only carry items the resumed binding doesn't already know.
-            // "Known" is the union of the binding's own transcript segments and
+            // "Known" is the union of turns executed on this binding and
             // every item a delivered handoff already gave it. Re-delivering a
             // previously delivered gap would duplicate the same history.
             let selection = if input.continuation_policy == Some(ContinuationPolicy::Portable) {
                 let known_prefixes = self.known_segment_prefixes(pool, resume.id).await?;
                 let delivered_ids = crate::handoff::delivered_item_ids(pool, resume.id).await?;
-                let all_turns = crate::jsonl_history::load_all_turns(pool, input.conversation_id)
-                    .await?
-                    .ok_or_else(|| {
-                        ConversationServiceError::Internal(
-                            "Conversation history is unavailable".into(),
-                        )
-                    })?;
+                let _ = crate::ensure_legacy_jsonl_migrated_on_pool(pool, input.conversation_id)
+                    .await?;
+                let current_id = turn_id.to_string();
+                let current_prefix = format!("{turn_id}:");
+                let all_turns =
+                    crate::ConversationProjector::project_turns_summary(pool, input.conversation_id)
+                        .await?;
                 let unknown_turns: Vec<_> = all_turns
                     .iter()
                     .filter(|t| {
-                        !known_prefixes.iter().any(|prefix| t.id.starts_with(prefix))
+                        t.id != current_id
+                            && !t.id.starts_with(&current_prefix)
+                            && !known_prefixes.iter().any(|prefix| {
+                                t.id == prefix.trim_end_matches(':') || t.id.starts_with(prefix)
+                            })
                             && !delivered_ids.contains(&t.id)
                     })
                     .cloned()
@@ -293,10 +322,17 @@ impl ConversationSessionService {
                     "Turn was cancelled during Agent startup".into(),
                 ));
             }
-            // Re-activate the resumed binding and set up its transcript target.
+            // Re-activate the resumed binding and record its live connection_id.
+            let _ = sqlx::query(
+                "UPDATE conversation_agent_bindings SET connection_id = ? WHERE id = ?",
+            )
+            .bind(resumed_session.connection_id.to_string())
+            .bind(resume.id)
+            .execute(pool)
+            .await?;
             ConversationAgentBindingRecord::activate(pool, input.conversation_id, resume.id)
                 .await?;
-            let resumed_binding = ConversationAgentBindingRecord::active_for_conversation(
+            let _resumed_binding = ConversationAgentBindingRecord::active_for_conversation(
                 pool,
                 input.conversation_id,
             )
@@ -304,13 +340,6 @@ impl ConversationSessionService {
             .ok_or_else(|| {
                 ConversationServiceError::Internal("Resumed binding disappeared".into())
             })?;
-            crate::jsonl_history::prepare_binding_transcript(
-                pool,
-                input.conversation_id,
-                &resumed_binding,
-                resumed_session.connection_id,
-            )
-            .await?;
             self.ctx
                 .agent_runtime
                 .commit_prepared_session(AgentSessionId(input.conversation_id))
@@ -342,31 +371,58 @@ impl ConversationSessionService {
         Ok(())
     }
 
-    /// Get the segment-ID prefixes for turns the binding already knows about.
+    /// Get the turn-ID and legacy segment-ID prefixes for turns the binding already owns natively.
     async fn known_segment_prefixes(
         &self,
         pool: &sqlx::SqlitePool,
         binding_id: Uuid,
     ) -> Result<Vec<String>, sqlx::Error> {
+        let turn_ids: Vec<Uuid> = sqlx::query_scalar(
+            "SELECT id FROM conversation_turns WHERE agent_binding_id = ? ORDER BY ordinal",
+        )
+        .bind(binding_id)
+        .fetch_all(pool)
+        .await?;
         let segment_ids: Vec<Uuid> = sqlx::query_scalar(
             "SELECT id FROM conversation_transcript_segments WHERE binding_id = ? ORDER BY ordinal",
         )
         .bind(binding_id)
         .fetch_all(pool)
         .await?;
-        Ok(segment_ids
-            .iter()
-            .map(|id| format!("segment:{}:", id.simple()))
-            .collect())
+        let mut prefixes = Vec::with_capacity(turn_ids.len() + segment_ids.len());
+        for id in turn_ids {
+            prefixes.push(format!("{id}:"));
+        }
+        for id in segment_ids {
+            prefixes.push(format!("segment:{}:", id.simple()));
+        }
+        Ok(prefixes)
     }
 
     async fn validate_continuation_owner(
         &self,
         conversation_id: Uuid,
+        requested_agent_id: &str,
     ) -> Result<(), ConversationServiceError> {
         let pool = &self.ctx.deployment.db().pool;
-        let owned: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM conversation_relations WHERE child_conversation_id = ? AND kind IN ('workflow_step', 'delegation')) OR EXISTS(SELECT 1 FROM collaboration_thread_members WHERE conversation_id = ?)")
-            .bind(conversation_id).bind(conversation_id.to_string()).fetch_one(pool).await?;
+        let owned: bool = sqlx::query_scalar(
+            r#"SELECT EXISTS(
+                   SELECT 1 FROM conversation_relations
+                   WHERE child_conversation_id = ?
+                     AND kind IN ('workflow_step', 'delegation')
+               )
+               OR EXISTS(
+                   SELECT 1 FROM collaboration_thread_members tm
+                   LEFT JOIN collaboration_members m ON m.id = tm.member_id
+                   WHERE tm.conversation_id = ?
+                     AND lower(replace(COALESCE(m.agent, ''), '-', '_')) != lower(replace(?, '-', '_'))
+               )"#,
+        )
+        .bind(conversation_id)
+        .bind(conversation_id.to_string())
+        .bind(requested_agent_id)
+        .fetch_one(pool)
+        .await?;
         if owned {
             return Err(ConversationServiceError::SessionUnavailable {
                 code: "continuation_not_allowed",

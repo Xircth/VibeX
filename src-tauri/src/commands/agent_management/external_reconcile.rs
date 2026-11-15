@@ -49,22 +49,24 @@ struct FrozenLockPayload {
 /// 成功采纳的组件哈希已随新 lock 更新,剩余不匹配仍由完整性刷新置
 /// `needs_repair`,保持 fail-closed。
 pub(super) async fn reconcile_external_component_changes(
-    _app: &AppHandle,
+    app: &AppHandle,
     pool: &sqlx::SqlitePool,
 ) -> anyhow::Result<()> {
-    let installs = sqlx::query_as::<_, (String, String, String, String)>(
-        r#"SELECT i.agent_id, l.id, l.distribution_kind, l.resolved_json
+    let installs = sqlx::query_as::<_, (String, String, String, String, String)>(
+        r#"SELECT i.agent_id, i.ownership, l.id, l.distribution_kind, l.resolved_json
            FROM agent_installation i
            JOIN agent_install_lock l ON l.id = i.current_lock_id
-           WHERE i.ownership = 'external'
-             AND i.current_lock_id IS NOT NULL
+           WHERE i.current_lock_id IS NOT NULL
              AND i.active_operation IS NULL"#,
     )
     .fetch_all(pool)
     .await?
     .into_iter()
+    .filter(|(agent_id, ownership, _, _, resolved_json)| {
+        ownership == "external" || is_stale_native_engine_shim_json(agent_id, resolved_json)
+    })
     .map(
-        |(agent_id, lock_id, distribution_kind, resolved_json)| ExternalInstallRow {
+        |(agent_id, _ownership, lock_id, distribution_kind, resolved_json)| ExternalInstallRow {
             agent_id,
             lock_id,
             distribution_kind,
@@ -75,7 +77,7 @@ pub(super) async fn reconcile_external_component_changes(
     let npm_fetcher = agents::NpmRegistryHttpFetcher::new();
     let mut adopted_any = false;
     for install in installs {
-        match reconcile_one_install(pool, &npm_fetcher, &install).await {
+        match reconcile_one_install(app, pool, &npm_fetcher, &install).await {
             Ok(true) => adopted_any = true,
             Ok(false) => {}
             Err(message) => mark_repair_with_diagnostic(pool, &install.agent_id, &message).await,
@@ -87,7 +89,24 @@ pub(super) async fn reconcile_external_component_changes(
     Ok(())
 }
 
+fn is_stale_native_engine_shim_json(agent_id: &str, resolved_json: &str) -> bool {
+    let Ok(parsed_agent_id) = AgentId::parse(agent_id) else {
+        return false;
+    };
+    if !is_native_engine_profile(&parsed_agent_id) {
+        return false;
+    }
+    let Ok(payload) = serde_json::from_str::<FrozenLockPayload>(resolved_json) else {
+        return false;
+    };
+    payload
+        .absolute_acp_program
+        .as_deref()
+        .is_some_and(|program| agents::launch_program_is_legacy_acp_shim(&parsed_agent_id, program))
+}
+
 async fn reconcile_one_install(
+    app: &AppHandle,
     pool: &sqlx::SqlitePool,
     npm_fetcher: &dyn agents::RegistryFetcher,
     install: &ExternalInstallRow,
@@ -115,6 +134,24 @@ async fn reconcile_one_install(
 
     let payload: FrozenLockPayload = serde_json::from_str(&install.resolved_json)
         .map_err(|error| format!("invalid lock payload: {error}"))?;
+    if let Ok(parsed_agent_id) = AgentId::parse(&install.agent_id)
+        && is_native_engine_profile(&parsed_agent_id)
+        && (payload
+            .absolute_acp_program
+            .as_deref()
+            .is_some_and(|program| {
+                agents::launch_program_is_legacy_acp_shim(&parsed_agent_id, program)
+            })
+            || components.iter().any(|component| {
+                component.component_kind == "acp_adapter"
+                    || agents::launch_program_is_legacy_acp_shim(
+                        &parsed_agent_id,
+                        &component.absolute_path,
+                    )
+            }))
+    {
+        return migrate_legacy_native_engine_lock(app, pool, &parsed_agent_id).await;
+    }
     let mut changed = false;
     let mut all_present = !components.is_empty();
     for component in &mut components {
@@ -131,7 +168,7 @@ async fn reconcile_one_install(
         }
         // 验证类型以 Profile 声明的组件分发为权威:存量 external lock 的
         // distribution_kind 可能被旧版本 external 采纳写成 binary(硬编码),
-        // 导致 npx 组件(如 codex-acp)走错验证路径。
+        // 导致 npx 组件(如 pi-acp)走错验证路径。
         let catalog = agents::BuiltInProfileCatalog::bundled();
         let profile = AgentId::parse(&install.agent_id)
             .ok()
@@ -237,7 +274,7 @@ async fn reconcile_one_install(
             env: payload.env,
             runtime_version: component_version(&components, &["agent_runtime", "combined_runtime"])
                 .unwrap_or_else(|| payload.runtime_version.unwrap_or_default()),
-            acp_version: component_version(&components, &["acp_adapter"])
+            acp_version: component_version(&components, &["acp_adapter", "combined_runtime"])
                 .or(payload.acp_version)
                 .unwrap_or_default(),
         },
@@ -246,6 +283,104 @@ async fn reconcile_one_install(
     persist_installed_lock(pool, Uuid::new_v4(), &plan, &installation, "external")
         .await
         .map_err(|error| format!("failed to persist adopted external lock: {error}"))?;
+    Ok(true)
+}
+
+async fn migrate_legacy_native_engine_lock(
+    app: &AppHandle,
+    pool: &sqlx::SqlitePool,
+    agent_id: &AgentId,
+) -> Result<bool, String> {
+    let catalog = agents::BuiltInProfileCatalog::bundled();
+    let Some(profile) = catalog.profile(agent_id) else {
+        return Err("已升级至原生驱动引擎，请安装官方 CLI 运行时".to_string());
+    };
+    let Some(candidate) = profile
+        .external_candidates
+        .iter()
+        .find(|candidate| candidate.component == ProfileComponent::CombinedRuntime)
+    else {
+        return Err("已升级至原生驱动引擎，请安装官方 CLI 运行时".to_string());
+    };
+    let resolved = match utils::shell::resolve_executable_path(candidate.executable)
+        .await
+        .filter(|path| !agents::launch_program_is_legacy_acp_shim(agent_id, path))
+    {
+        Some(path) => Some(path),
+        None => app
+            .path()
+            .home_dir()
+            .ok()
+            .and_then(|home| agents::resolve_native_engine_cli(agent_id.as_str(), &home)),
+    };
+    let Some(raw_executable) = resolved else {
+        return Err("已升级至原生驱动引擎，请安装官方 CLI 运行时".to_string());
+    };
+    let executable = tokio::fs::canonicalize(&raw_executable)
+        .await
+        .map(utils::process::prefer_direct_spawn_executable)
+        .unwrap_or(raw_executable);
+    let Ok(bytes) = tokio::fs::read(&executable).await else {
+        return Err("已升级至原生驱动引擎，请安装官方 CLI 运行时".to_string());
+    };
+    let Some(version) = probe_component_version(&executable).await else {
+        return Err("已升级至原生驱动引擎，请安装官方 CLI 运行时".to_string());
+    };
+    let sha256 = format!("{:x}", Sha256::digest(&bytes));
+    let mut env = BTreeMap::new();
+    let mut path_entries = executable
+        .parent()
+        .map(|parent| vec![parent.to_path_buf()])
+        .unwrap_or_default();
+    path_entries.extend(std::env::split_paths(
+        &std::env::var_os("PATH").unwrap_or_default(),
+    ));
+    if let Ok(joined) = std::env::join_paths(path_entries) {
+        env.insert("PATH".to_string(), joined.to_string_lossy().to_string());
+    }
+    let command = executable
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or(candidate.executable)
+        .to_string();
+    let plan = agents::ResolvedInstallPlan {
+        agent_id: agent_id.clone(),
+        source: agents::LockedInstallSource::BuiltInProfile,
+        version: version.clone(),
+        platform: agents::current_platform(),
+        components: vec![PlannedInstallComponent {
+            component_id: "combined_runtime".to_string(),
+            distribution_kind: profile_component_distribution_kind(profile, "combined_runtime"),
+            version: version.clone(),
+            resolved_source: executable.display().to_string(),
+            command,
+            args: Vec::new(),
+            env: Default::default(),
+            trust: ArtifactTrust::Tofu,
+        }],
+    };
+    let installation = InstalledPlan {
+        launch_lock: SessionLaunchLock {
+            agent_id: agent_id.clone(),
+            absolute_acp_program: executable.clone(),
+            args: Vec::new(),
+            env,
+            runtime_version: version.clone(),
+            acp_version: version.clone(),
+        },
+        components: vec![InstalledComponent {
+            kind: "combined_runtime".to_string(),
+            absolute_path: executable,
+            version,
+            sha256: Some(sha256),
+            trust_state: "tofu".to_string(),
+            ownership: "external".to_string(),
+            shared_resource_key: None,
+        }],
+    };
+    persist_installed_lock(pool, Uuid::new_v4(), &plan, &installation, "external")
+        .await
+        .map_err(|error| format!("failed to persist migrated native runtime lock: {error}"))?;
     Ok(true)
 }
 
@@ -279,7 +414,7 @@ fn component_version(components: &[ComponentRow], kinds: &[&str]) -> Option<Stri
 }
 
 /// 从 `--version` 输出中提取纯 semver 版本。外部组件的版本输出格式不统一
-/// (如 `@agentclientprotocol/codex-acp 1.1.9`、`codex-cli 0.146.0`、
+/// (如 `pi-acp 0.0.34`、`codex-cli 0.169.0`、
 /// `kimi, version 1.49.0`),整段输出不能直接当作版本号——拼进 npx spec 后
 /// `split_npm_spec` 会把最后一个 `@` 当成分隔符,产生带尾 `@` 的畸形包名,
 /// npm metadata 请求因此 404。提取失败返回 `None`,调用方保持 fail-closed。
@@ -386,13 +521,18 @@ async fn mark_repair_with_diagnostic(pool: &sqlx::SqlitePool, agent_id: &str, me
     let Ok(agent_id) = AgentId::parse(agent_id) else {
         return;
     };
+    let summary = if message.contains("已升级至原生驱动引擎") {
+        message.to_string()
+    } else {
+        "外部组件变更未能通过官方验证".to_string()
+    };
     let _ = db::models::agent_management::DiagnosticRepository::new(pool.clone())
         .append_bounded(&db::models::agent_management::DiagnosticRecord {
             id: Uuid::new_v4(),
             agent_id,
             operation_kind: "launch_gate".to_string(),
             severity: "error".to_string(),
-            message: "外部组件变更未能通过官方验证".to_string(),
+            message: summary,
             redacted_output: Some(message.to_string()),
             created_at: chrono::Utc::now().to_rfc3339(),
         })
@@ -401,19 +541,21 @@ async fn mark_repair_with_diagnostic(pool: &sqlx::SqlitePool, agent_id: &str, me
 
 #[cfg(test)]
 mod tests {
-    use super::{extract_version_from_output, is_archive_distribution};
+    use super::{
+        extract_version_from_output, is_archive_distribution, is_stale_native_engine_shim_json,
+    };
 
     #[test]
     fn extracts_a_clean_semver_from_mixed_version_outputs() {
-        // codex-acp 输出包名 + 版本两个 token;整段输出会被 split_npm_spec
+        // scoped npm CLI 输出包名 + 版本两个 token;整段输出会被 split_npm_spec
         // 误解析成带尾 `@` 的畸形包名,必须只取纯 semver。
         assert_eq!(
-            extract_version_from_output("@agentclientprotocol/codex-acp 1.1.9"),
-            Some("1.1.9".to_string())
+            extract_version_from_output("@earendil-works/pi-coding-agent 0.83.0"),
+            Some("0.83.0".to_string())
         );
         assert_eq!(
-            extract_version_from_output("codex-cli 0.146.0"),
-            Some("0.146.0".to_string())
+            extract_version_from_output("codex-cli 0.169.0"),
+            Some("0.169.0".to_string())
         );
         assert_eq!(
             extract_version_from_output("grok 0.2.115 (dd16b5eb7d50)"),
@@ -424,13 +566,33 @@ mod tests {
             Some("1.49.0".to_string())
         );
         assert_eq!(
-            extract_version_from_output("2.1.211 (Claude Code)"),
-            Some("2.1.211".to_string())
+            extract_version_from_output("2.1.325 (Claude Code)"),
+            Some("2.1.325".to_string())
         );
         assert_eq!(
             extract_version_from_output("1.18.2"),
             Some("1.18.2".to_string())
         );
+    }
+
+    #[test]
+    fn detects_stale_native_engine_shim_locks() {
+        assert!(is_stale_native_engine_shim_json(
+            "claude_code",
+            r#"{"absolute_acp_program":"/managed/claude_code/bin/claude-agent-acp"}"#
+        ));
+        assert!(is_stale_native_engine_shim_json(
+            "codex",
+            r#"{"absolute_acp_program":"C:\\Users\\me\\AppData\\Roaming\\npm\\codex-acp.cmd"}"#
+        ));
+        assert!(!is_stale_native_engine_shim_json(
+            "claude_code",
+            r#"{"absolute_acp_program":"/usr/local/bin/claude"}"#
+        ));
+        assert!(!is_stale_native_engine_shim_json(
+            "codex",
+            r#"{"absolute_acp_program":"/usr/local/bin/codex"}"#
+        ));
     }
 
     #[test]

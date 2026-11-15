@@ -101,6 +101,7 @@ impl AcpClientBridge {
                 interaction_permission_outcome_from_elicitation(elicitation, &args.options),
             ));
         }
+        let revision = self.apply.allocate_permission_revision();
         let request = AgentPermissionRequest {
             id: permission_id,
             session_id,
@@ -116,6 +117,7 @@ impl AcpClientBridge {
                     description: None,
                 })
                 .collect(),
+            revision,
         };
 
         if let Some(response) = decide_companion_mcp_permission_response(&request) {
@@ -152,7 +154,10 @@ impl AcpClientBridge {
             PendingPermission {
                 permission_id,
                 session_id,
+                title: request.title.clone(),
+                details: request.details.clone(),
                 options: request.options.clone(),
+                revision: request.revision,
                 tx,
             },
         );
@@ -908,6 +913,7 @@ mod tests {
                     description: None,
                 },
             ],
+            revision: 1,
         };
 
         assert_eq!(

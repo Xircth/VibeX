@@ -70,6 +70,7 @@ import {
   writePastedMarkdownImages,
 } from '@/utils/markdownImagePaste';
 import { FilePreviewLoading } from './FilePreviewLoading';
+import { setPreviewPanelDirty } from './previewPanelDirty';
 import { HostHtmlPreview } from '@/components/previews/HostHtmlPreview';
 import { useEditorSettingsStore } from '@/stores/useEditorSettingsStore';
 import {
@@ -463,7 +464,30 @@ function DockviewPreviewPanel(props: IDockviewPanelProps) {
     },
     [queryClient, t]
   );
+  const [artifactDirty, setArtifactDirty] = useState(false);
+  useEffect(() => {
+    setArtifactDirty(false);
+  }, [
+    filePath,
+    resolvedFilePath,
+    pluginOpener?.pluginId,
+    pluginOpener?.handler,
+  ]);
+
   const isDiffMode = mode === 'diff';
+  const effectiveIsDirty = !isDiffMode && (isDirty || artifactDirty);
+  const panelId = props.api?.id;
+  const dirtyFileLabel = resolvedDisplayPath ?? filePath;
+  useEffect(() => {
+    if (!panelId) return;
+    setPreviewPanelDirty(panelId, effectiveIsDirty, dirtyFileLabel);
+  }, [dirtyFileLabel, effectiveIsDirty, panelId]);
+  useEffect(() => {
+    if (!panelId) return;
+    return () => {
+      setPreviewPanelDirty(panelId, false);
+    };
+  }, [panelId]);
   const contentErrorMessage = useMemo(() => {
     if (!contentError) {
       return null;
@@ -523,6 +547,7 @@ function DockviewPreviewPanel(props: IDockviewPanelProps) {
         return;
       }
       setDraft(null);
+      setArtifactDirty(false);
       setRefreshGeneration((current) => current + 1);
       if (resolvedFilePath) {
         void queryClient.invalidateQueries({
@@ -536,7 +561,14 @@ function DockviewPreviewPanel(props: IDockviewPanelProps) {
         });
       }
     });
-  }, [filePath, props.api?.id, queryClient, resolvedFilePath]);
+  }, [
+    filePath,
+    pluginOpener?.handler,
+    pluginOpener?.pluginId,
+    props.api?.id,
+    queryClient,
+    resolvedFilePath,
+  ]);
 
   const canToggleView =
     previewForm !== null && effectivePreviewKind === 'text' && !isDiffMode;
@@ -930,7 +962,7 @@ function DockviewPreviewPanel(props: IDockviewPanelProps) {
               </span>
             </span>
           ))}
-          {!isDiffMode && isDirty && (
+          {effectiveIsDirty && (
             <span className="ml-1 shrink-0 text-[hsl(var(--warning))]">*</span>
           )}
         </div>
@@ -1141,6 +1173,7 @@ function DockviewPreviewPanel(props: IDockviewPanelProps) {
               key={`${pluginOpener.pluginId}:${pluginOpener.generation}:${resolvedFilePath ?? filePath}:${refreshGeneration}`}
               opener={pluginOpener}
               filePath={resolvedFilePath ?? filePath}
+              onDirtyChange={setArtifactDirty}
             />
           ) : (
             <PluginFilePreview

@@ -31,6 +31,7 @@ import { OnboardingAgents } from './OnboardingAgents';
 import { OnboardingAccount } from './OnboardingAccount';
 import { useVibeXAccount } from '@/features/model-router/useVibeXAccount';
 import { useAccountDeviceLogin } from '@/pages/settings/useAccountDeviceLogin';
+import { isNativeEngineAgent } from '@/pages/settings/agentProvisioning';
 import { OnboardingHistoryImport } from './OnboardingHistoryImport';
 import { OnboardingProjects } from './OnboardingProjects';
 import { OnboardingAppearance } from './OnboardingAppearance';
@@ -440,10 +441,18 @@ export function FirstRunExperience({
           (item) => item.agent_id === option.agentId
         );
         const operation = management.state.operations[option.agentId];
+        const nativeEngineReady = view
+          ? isNativeEngineAgent(option.agentId) &&
+            view.lifecycle !== 'needs_repair' &&
+            Boolean(view.local_runtime?.path || view.runtime_version)
+          : false;
         const acpReady = view
           ? Boolean(
               view.acp_version ||
-                ['ready', 'needs_auth', 'needs_config'].includes(view.lifecycle)
+                ['ready', 'needs_auth', 'needs_config'].includes(
+                  view.lifecycle
+                ) ||
+                nativeEngineReady
             )
           : !option.needsInstallation;
         const localDetected = view
@@ -480,7 +489,20 @@ export function FirstRunExperience({
   useEffect(() => {
     const pendingDialogIds = new Set(
       localAgentDialogOpen
-        ? detectedLocalAgents.map((agent) => agent.agentId)
+        ? detectedLocalAgents
+            .filter((detected) => {
+              const option = displayAgents.find(
+                (agent) => agent.agentId === detected.agentId
+              );
+              return (
+                !option ||
+                onboardingAgentStatus(
+                  option,
+                  health.checks[detected.agentId]
+                ) !== 'ready'
+              );
+            })
+            .map((agent) => agent.agentId)
         : []
     );
     const eligible = new Set(
@@ -580,10 +602,30 @@ export function FirstRunExperience({
           selectedSet.has(id)
       )
     );
-    applyAgentSelection(kept);
+    const pendingIds: AgentId[] = [];
+    for (const id of ids) {
+      const option = displayAgents.find((agent) => agent.agentId === id);
+      const status = option
+        ? onboardingAgentStatus(option, health.checks[id])
+        : 'uninstalled';
+      if (status === 'ready') {
+        kept.add(id);
+      } else {
+        pendingIds.push(id);
+      }
+    }
+    const ordered = userReorderedRosterRef.current
+      ? kept
+      : new Set(
+          [
+            initialDefaultAgentId,
+            ...displayAgents.map((agent) => agent.agentId),
+          ].filter((id) => kept.has(id))
+        );
+    applyAgentSelection(ordered);
     setLocalAgentDialogOpen(false);
     setLocalAgentDialogDismissed(true);
-    if (ids.length > 0) setPendingAutoEnableIds(ids);
+    if (pendingIds.length > 0) setPendingAutoEnableIds(pendingIds);
   };
 
   const handleLocalAgentSkip = () => {

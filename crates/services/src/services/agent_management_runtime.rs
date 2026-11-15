@@ -229,6 +229,17 @@ pub async fn overlay_local_runtime_evidence(
                     version: evidence.version.clone(),
                 });
         if view
+            .runtime_version
+            .as_deref()
+            .is_none_or(|version| version.is_empty())
+            && let Some(version) = local_runtimes
+                .get(&view.agent_id)
+                .and_then(|evidence| evidence.version.clone())
+                .filter(|version| !version.is_empty())
+        {
+            view.runtime_version = Some(version);
+        }
+        if view
             .acp_version
             .as_deref()
             .is_none_or(|version| version.is_empty())
@@ -335,7 +346,7 @@ mod tests {
                 claude.clone(),
                 Some(LocalRuntimeEvidence {
                     path: r"C:\Users\developer\AppData\Roaming\npm\claude.cmd".into(),
-                    version: Some("2.1.173".to_string()),
+                    version: Some("2.1.325".to_string()),
                 }),
             )
             .await;
@@ -344,8 +355,8 @@ mod tests {
             .replace_acp_adapter(
                 claude.clone(),
                 Some(LocalRuntimeEvidence {
-                    path: r"C:\Users\developer\AppData\Roaming\npm\claude-agent-acp.cmd".into(),
-                    version: Some("0.69.0".to_string()),
+                    path: r"C:\Users\developer\AppData\Roaming\npm\claude.cmd".into(),
+                    version: Some("2.1.325".to_string()),
                 }),
             )
             .await;

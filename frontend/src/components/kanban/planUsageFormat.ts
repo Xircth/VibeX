@@ -1,4 +1,8 @@
-import type { PlanUsageWindow } from 'shared/types';
+import type {
+  AgentPlanUsage,
+  PlanCredits,
+  PlanUsageWindow,
+} from 'shared/types';
 
 export function clampPercent(value: number | null | undefined): number | null {
   if (typeof value !== 'number' || Number.isNaN(value)) {
@@ -112,4 +116,40 @@ export function formatPlanType(
     pro_plus: 'Pro Plus',
   };
   return known[value.toLowerCase()] ?? value;
+}
+
+export const MAX_PLAN_QUOTA_ITEMS_PER_ROW = 2;
+
+export type PlanQuotaItem =
+  | { kind: 'window'; id: string; window: PlanUsageWindow }
+  | { kind: 'credits'; id: 'credits'; credits: PlanCredits };
+
+export function buildPlanQuotaRows(
+  usage: AgentPlanUsage | null | undefined,
+  maxPerRow = MAX_PLAN_QUOTA_ITEMS_PER_ROW
+): PlanQuotaItem[][] {
+  if (!usage) return [];
+
+  const items: PlanQuotaItem[] =
+    usage.windows.length > 0
+      ? usage.windows.map((window) => ({
+          kind: 'window',
+          id: window.id,
+          window,
+        }))
+      : usage.credits != null &&
+          (usage.credits.unlimited ||
+            (typeof usage.credits.balance === 'string' &&
+              usage.credits.balance.trim().length > 0))
+        ? [{ kind: 'credits', id: 'credits', credits: usage.credits }]
+        : [];
+
+  if (items.length === 0) return [];
+
+  const step = Math.max(1, Math.floor(maxPerRow));
+  const rows: PlanQuotaItem[][] = [];
+  for (let index = 0; index < items.length; index += step) {
+    rows.push(items.slice(index, index + step));
+  }
+  return rows;
 }

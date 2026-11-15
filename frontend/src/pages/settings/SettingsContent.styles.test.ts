@@ -199,8 +199,17 @@ describe('settings page alignment', () => {
     expect(glass.get('transform')).toBeUndefined();
   });
 
-  it('keeps section heading actions above the collapse control', () => {
+  it('keeps section heading actions above the collapse control and aligns actions with the description subrow', () => {
     const heading = declarationsFor('.settings-page .agent-section-heading');
+    const describedHeading = declarationsFor(
+      '.settings-page .agent-section-heading.has-description'
+    );
+    const subrow = declarationsFor(
+      '.settings-page .agent-section-heading-subrow'
+    );
+    const description = declarationsFor(
+      '.settings-page .agent-section-description'
+    );
     const toggle = declarationsFor(
       '.settings-page .agent-section-heading-toggle'
     );
@@ -209,6 +218,14 @@ describe('settings page alignment', () => {
     );
 
     expect(heading.get('display')).toBe('flex');
+    expect(describedHeading.get('flex-direction')).toBe('column');
+    expect(describedHeading.get('align-items')).toBe('stretch');
+    expect(subrow.get('display')).toBe('flex');
+    expect(subrow.get('align-items')).toBe('center');
+    expect(subrow.get('justify-content')).toBe('space-between');
+    expect(subrow.get('min-height')).toBe('32px');
+    expect(description.get('color')).toBe('var(--text-muted)');
+    expect(description.get('font-size')).toBe('0.75rem');
     expect(toggle.get('min-width')).toBe('0');
     expect(toggle.get('overflow')).toBe('hidden');
     expect(actions.get('position')).toBe('relative');
@@ -564,5 +581,96 @@ describe('settings page alignment', () => {
     expect(boundedList.get('padding-inline-end')).toBe('0');
     expect(boundedList.get('margin')).toBe('0');
     expect(boundedList.get('scrollbar-gutter')).toBe('auto');
+  });
+
+  it('fills Agent settings containers with white raised surface and distinct outer/inner border hierarchy', () => {
+    const legacyTokens = declarationsFor('.legacy-design');
+    const settingsPage = declarationsFor('.settings-page');
+    const agentContentScope = declarationsFor(
+      '.settings-page .agent-settings-scroll > :not(.agent-management-bar)'
+    );
+    const flatSurfaces = declarationsMatching('.agent-flat-section');
+    const authFrame = declarationsFor('.settings-page .agent-auth-mode-frame');
+    const providerList = declarationsFor(
+      '.settings-page .agent-model-provider-list'
+    );
+    const openCodePlans = declarationsFor(
+      '.settings-page .agent-opencode-plans > li'
+    );
+    const operationProgress = declarationsFor(
+      '.settings-page .agent-operation-progress'
+    );
+    const operationLog = declarationsFor('.settings-page .agent-operation-log');
+    const configBlock = declarationsFor('.settings-page .agent-config-block');
+    const configFileBody = declarationsFor(
+      '.settings-page .agent-config-file-body'
+    );
+    const dshSessionBody = declarationsFor('.settings-page .dsh-session-body');
+    const environmentBody = declarationsMatching('.agent-environment-body');
+    const preflightGrid = declarationsFor('.settings-page .agent-preflight-grid');
+    const preflightItem = declarationsFor(
+      '.settings-page .agent-preflight-grid > li'
+    );
+
+    expect(legacyTokens.get('--surface-raised-control')).toBe('#ffffff');
+    expect(settingsPage.get('--surface-raised-control')).toBeUndefined();
+    for (const surface of [
+      '--surface-content',
+      '--surface-card',
+      '--surface-card-strong',
+    ]) {
+      expect(agentContentScope.get(surface)).toBe(
+        'var(--surface-raised-control)'
+      );
+      expect(flatSurfaces.get(surface)).toBe('var(--surface-raised-control)');
+    }
+    expect(agentContentScope.get('--border-content')).toContain(
+      'var(--border-strong) 76%'
+    );
+    expect(flatSurfaces.get('--border-content')).toContain(
+      'var(--border-strong) 76%'
+    );
+    expect(agentContentScope.get('--agent-container-border')).toContain(
+      'var(--border-strong) 94%'
+    );
+    expect(agentContentScope.get('--agent-container-shadow')).toContain(
+      'hsl(var(--shadow-ink) / 0.055)'
+    );
+
+    const expectedOuterBorder =
+      '1px solid var(--agent-container-border, var(--border-strong))';
+    for (const outer of [
+      authFrame,
+      operationProgress,
+      configBlock,
+      dshSessionBody,
+      environmentBody,
+      preflightItem,
+    ]) {
+      expect(outer.get('border')).toBe(expectedOuterBorder);
+      expect(outer.get('box-shadow')).toBe(
+        'var(--agent-container-shadow, none)'
+      );
+    }
+
+    for (const inner of [
+      providerList,
+      openCodePlans,
+      operationLog,
+      configFileBody,
+    ]) {
+      expect(inner.get('border')).toBe('1px solid var(--border-content)');
+    }
+
+    expect(authFrame.get('background')).toBe('var(--surface-content)');
+    expect(openCodePlans.get('background')).toBe('var(--surface-content)');
+    expect(operationProgress.get('background')).toBe('var(--surface-content)');
+    expect(configBlock.get('background')).toBe('var(--surface-content)');
+    expect(dshSessionBody.get('background')).toBe('var(--surface-content)');
+    expect(environmentBody.get('background')).toBe('var(--surface-content)');
+    expect(preflightGrid.get('margin')).toBe('0');
+    expect(preflightItem.get('background')).toBe(
+      'var(--surface-raised-control)'
+    );
   });
 });

@@ -1,4 +1,9 @@
-import { useCallback, type Dispatch, type SetStateAction } from 'react';
+import {
+  useCallback,
+  useRef,
+  type Dispatch,
+  type SetStateAction,
+} from 'react';
 import type { ExecutorProfileId } from 'shared/types';
 import { imagesApi } from '@/lib/api';
 import { getInvokeErrorMessage } from '@/lib/errors';
@@ -28,6 +33,19 @@ export function useSessionComposerImageUpload({
   setAttachedImages: Dispatch<SetStateAction<SessionComposerImage[]>>;
   onError?: (message: string) => void;
 }) {
+  const latestRef = useRef({
+    draftMessage,
+    executorProfile,
+    saveToScratch,
+    onError,
+  });
+  latestRef.current = {
+    draftMessage,
+    executorProfile,
+    saveToScratch,
+    onError,
+  };
+
   const handleAttachImages = useCallback(
     async (files: File[]) => {
       if (!workspaceId) return;
@@ -38,8 +56,13 @@ export function useSessionComposerImageUpload({
           const previewUrl = URL.createObjectURL(file);
 
           setAttachedImages((prev) => {
+            const {
+              draftMessage: currentDraft,
+              executorProfile: currentExecutorProfile,
+              saveToScratch: persistScratch,
+            } = latestRef.current;
             const nextApplication = getUploadedImageApplication({
-              fallbackMessage: draftMessage,
+              fallbackMessage: currentDraft,
               currentAttachments: prev,
               uploadResponse: response,
               previewUrl,
@@ -48,9 +71,9 @@ export function useSessionComposerImageUpload({
               revokeComposerImagePreviewUrl(nextApplication.imageToRevoke);
             }
 
-            void saveToScratch(
+            void persistScratch(
               nextApplication.scratchMessage,
-              executorProfile,
+              currentExecutorProfile,
               nextApplication.scratchImagePaths
             );
 
@@ -58,18 +81,11 @@ export function useSessionComposerImageUpload({
           });
         } catch (error) {
           const message = getInvokeErrorMessage(error).trim();
-          onError?.(message || 'Could not attach file');
+          latestRef.current.onError?.(message || 'Could not attach file');
         }
       }
     },
-    [
-      draftMessage,
-      executorProfile,
-      onError,
-      saveToScratch,
-      setAttachedImages,
-      workspaceId,
-    ]
+    [setAttachedImages, workspaceId]
   );
 
   return { handleAttachImages };

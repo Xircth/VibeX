@@ -101,13 +101,11 @@ describe('session composer session helpers', () => {
     ).toBeUndefined();
   });
 
-  it('derives topbar visibility from status, selector, and executor signals', () => {
+  it('derives topbar visibility from status, file summary, and executor signals', () => {
     expect(
       getComposerTopbarVisibility({
         hasTokenUsageInfo: false,
         hasCodexGoalState: false,
-        showSessionSelector: false,
-        sessionCount: 0,
         hasExecutorProfile: false,
       })
     ).toBe(false);
@@ -116,8 +114,6 @@ describe('session composer session helpers', () => {
       getComposerTopbarVisibility({
         hasTokenUsageInfo: true,
         hasCodexGoalState: false,
-        showSessionSelector: false,
-        sessionCount: 0,
         hasExecutorProfile: false,
       })
     ).toBe(true);
@@ -126,8 +122,6 @@ describe('session composer session helpers', () => {
       getComposerTopbarVisibility({
         hasTokenUsageInfo: false,
         hasCodexGoalState: true,
-        showSessionSelector: false,
-        sessionCount: 0,
         hasExecutorProfile: false,
       })
     ).toBe(true);
@@ -136,8 +130,7 @@ describe('session composer session helpers', () => {
       getComposerTopbarVisibility({
         hasTokenUsageInfo: false,
         hasCodexGoalState: false,
-        showSessionSelector: true,
-        sessionCount: 2,
+        showChangedFileSummary: true,
         hasExecutorProfile: false,
       })
     ).toBe(true);
@@ -146,8 +139,6 @@ describe('session composer session helpers', () => {
       getComposerTopbarVisibility({
         hasTokenUsageInfo: false,
         hasCodexGoalState: false,
-        showSessionSelector: true,
-        sessionCount: 0,
         hasExecutorProfile: true,
       })
     ).toBe(true);
@@ -156,8 +147,6 @@ describe('session composer session helpers', () => {
       getComposerTopbarVisibility({
         hasTokenUsageInfo: false,
         hasCodexGoalState: false,
-        showSessionSelector: false,
-        sessionCount: 0,
         hasExecutorProfile: false,
         hasComposerIdentity: true,
       })

@@ -4,6 +4,7 @@ import {
   GROUP_IDS,
   PANEL_IDS,
 } from '@/stores/useLayoutStore';
+import { getDockviewGroupRole } from '@/utils/dockviewGroupRole';
 
 export const LEFT_PANEL_IDS: ReadonlySet<string> = new Set(ACTIVITY_RAIL_ITEMS);
 
@@ -27,9 +28,7 @@ export function isSessionPanelId(panelId: string): boolean {
   );
 }
 
-export const PLACEHOLDER_PANEL_IDS: ReadonlySet<string> = new Set([
-  PANEL_IDS.WELCOME,
-]);
+export const PLACEHOLDER_PANEL_IDS: ReadonlySet<string> = new Set();
 
 interface DockviewGroupLike {
   id: string;
@@ -53,24 +52,44 @@ export function isPlaceholderPanelId(panelId: string): boolean {
 export const LEFT_GROUP_PREFIX = `${GROUP_IDS.LEFT}-`;
 export const RIGHT_GROUP_PREFIX = `${GROUP_IDS.RIGHT}-`;
 
-export function isLeftGroup(group: DockviewGroupLike): boolean {
+function resolveEffectiveGroupRole(
+  group: DockviewGroupLike
+): 'left' | 'editor' | 'session' | 'bottom' {
   if (
     group.id === GROUP_IDS.LEFT ||
     group.id.startsWith(LEFT_GROUP_PREFIX) ||
     group.element?.getAttribute('data-left-dock') === 'true'
   ) {
-    return true;
+    return 'left';
   }
   if (
-    group.id.startsWith(EDITOR_GROUP_PREFIX) ||
     group.id === GROUP_IDS.RIGHT ||
     group.id.startsWith(RIGHT_GROUP_PREFIX) ||
-    group.id === GROUP_IDS.BOTTOM ||
     group.element?.getAttribute('data-session-dock') === 'true'
   ) {
-    return false;
+    return 'session';
   }
-  return group.panels.some((panel) => LEFT_PANEL_IDS.has(panel.id));
+  if (group.id === GROUP_IDS.BOTTOM) {
+    return 'bottom';
+  }
+  if (group.id.startsWith(EDITOR_GROUP_PREFIX)) {
+    return 'editor';
+  }
+  const assignedRole = getDockviewGroupRole(group);
+  if (assignedRole !== null) {
+    return assignedRole;
+  }
+  if (group.panels.some((panel) => LEFT_PANEL_IDS.has(panel.id))) {
+    return 'left';
+  }
+  if (group.panels.some((panel) => isSessionPanelId(panel.id))) {
+    return 'session';
+  }
+  return 'editor';
+}
+
+export function isLeftGroup(group: DockviewGroupLike): boolean {
+  return resolveEffectiveGroupRole(group) === 'left';
 }
 
 export function listLeftDockGroups<T extends DockviewGroupLike>(
@@ -103,30 +122,11 @@ export function listRightShellNavGroups<T extends DockviewGroupLike>(
 }
 
 export function isBottomGroup(group: DockviewGroupLike): boolean {
-  // Identity is the group id only. A terminal tab inside an editor group must
-  // stay an editor group, or every split that holds a terminal is re-locked
-  // into the retired bottom strip.
-  return group.id === GROUP_IDS.BOTTOM;
+  return resolveEffectiveGroupRole(group) === 'bottom';
 }
 
 export function isSessionGroup(group: DockviewGroupLike): boolean {
-  if (
-    group.id === GROUP_IDS.RIGHT ||
-    group.id.startsWith(RIGHT_GROUP_PREFIX) ||
-    group.element?.getAttribute('data-session-dock') === 'true'
-  ) {
-    return true;
-  }
-  if (
-    group.id.startsWith(EDITOR_GROUP_PREFIX) ||
-    group.id === GROUP_IDS.LEFT ||
-    group.id.startsWith(LEFT_GROUP_PREFIX) ||
-    group.id === GROUP_IDS.BOTTOM ||
-    group.element?.getAttribute('data-left-dock') === 'true'
-  ) {
-    return false;
-  }
-  return group.panels.some((panel) => isSessionPanelId(panel.id));
+  return resolveEffectiveGroupRole(group) === 'session';
 }
 
 export function listSessionGroups<T extends DockviewGroupLike>(
@@ -136,7 +136,7 @@ export function listSessionGroups<T extends DockviewGroupLike>(
 }
 
 export function isEditorGroup(group: DockviewGroupLike): boolean {
-  return !isLeftGroup(group) && !isBottomGroup(group) && !isSessionGroup(group);
+  return resolveEffectiveGroupRole(group) === 'editor';
 }
 
 export function isSplittableEditorPanel(panel: DockviewPanelLike): boolean {

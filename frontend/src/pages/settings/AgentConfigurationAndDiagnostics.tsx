@@ -259,6 +259,7 @@ export function AgentConfigurationAndDiagnostics({
           <AgentSectionHeading
             headingId="agent-config-heading"
             title={t('agents.configTitle')}
+            description={t('agents.configDescription')}
             expanded={configExpanded}
             onToggle={() => setConfigExpanded((current) => !current)}
             summary={t('agents.configFieldCount', {
@@ -270,7 +271,7 @@ export function AgentConfigurationAndDiagnostics({
         )}
 
         {embedded || configExpanded ? (
-          <>
+          <div id={embedded ? undefined : 'agent-config-heading-body'}>
             {conflictMessage ? (
               <div
                 className="mb-3 flex flex-wrap items-center justify-between gap-3 rounded-md bg-warning/10 px-3 py-2 text-xs text-foreground"
@@ -390,7 +391,7 @@ export function AgentConfigurationAndDiagnostics({
                 )}
               </>
             )}
-          </>
+          </div>
         ) : null}
       </section>
     </>

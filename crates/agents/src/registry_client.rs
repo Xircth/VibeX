@@ -356,6 +356,9 @@ impl RegistrySnapshotClient {
             validate_optional_url(raw_agent.repository.as_deref())?;
             validate_optional_url(raw_agent.website.as_deref())?;
             validate_distributions(&raw_agent.distribution)?;
+            if crate::suppressed_registry_ids_for_built_ins().contains(&raw_agent.id.as_str()) {
+                continue;
+            }
 
             let identity = RegistryEntryIdentity {
                 registry_id: raw_agent.id.clone(),

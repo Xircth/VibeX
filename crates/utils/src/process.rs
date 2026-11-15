@@ -405,6 +405,276 @@ pub fn assign_pid_to_guardian_job(pid: u32) -> bool {
     }
 }
 
+/// Per-connection / per-terminal OS process-tree handle.
+///
+/// On Windows, wraps a dedicated Win32 Job Object configured with
+/// `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE | JOB_OBJECT_LIMIT_BREAKAWAY_OK` nested
+/// underneath the host-wide [`GUARDIAN_JOB`]. Calling [`Self::terminate`] (or
+/// dropping the final clone) invokes `TerminateJobObject` + `CloseHandle` so the
+/// kernel reaps the entire descendant tree atomically — even if an intermediate
+/// shell (`cmd.exe`, `powershell.exe`, `bash.exe`) has already exited.
+///
+/// On Unix, tracks the isolated process group ID (`pgid`) created by
+/// `command_group` and signals the entire process group via `killpg`.
+#[derive(Clone, Debug)]
+pub struct ProcessTreeJob {
+    inner: std::sync::Arc<ProcessTreeJobInner>,
+}
+
+#[cfg(windows)]
+struct SendableJobHandle(windows_sys::Win32::Foundation::HANDLE);
+
+#[cfg(windows)]
+impl std::fmt::Debug for SendableJobHandle {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_tuple("SendableJobHandle")
+            .field(&(self.0 as usize))
+            .finish()
+    }
+}
+
+#[cfg(windows)]
+// SAFETY: Win32 Job Object HANDLEs are kernel handles safe to transfer across threads.
+unsafe impl Send for SendableJobHandle {}
+#[cfg(windows)]
+// SAFETY: Synchronized via Mutex in ProcessTreeJobInner; kernel operations are thread-safe.
+unsafe impl Sync for SendableJobHandle {}
+
+#[cfg(windows)]
+#[derive(Debug)]
+struct ProcessTreeJobInner {
+    handle: std::sync::Mutex<Option<SendableJobHandle>>,
+}
+
+#[cfg(not(windows))]
+#[derive(Debug)]
+struct ProcessTreeJobInner {
+    pgid: std::sync::Mutex<Option<i32>>,
+}
+
+impl ProcessTreeJob {
+    /// Create an empty/detached no-op handle (used for tests or fallback).
+    pub fn noop() -> Self {
+        Self {
+            inner: std::sync::Arc::new(ProcessTreeJobInner {
+                #[cfg(windows)]
+                handle: std::sync::Mutex::new(None),
+                #[cfg(not(windows))]
+                pgid: std::sync::Mutex::new(None),
+            }),
+        }
+    }
+
+    #[cfg(windows)]
+    pub fn create_and_assign(pid: u32) -> Self {
+        use windows_sys::Win32::{
+            Foundation::CloseHandle,
+            System::{
+                JobObjects::{
+                    AssignProcessToJobObject, CreateJobObjectW, JOB_OBJECT_LIMIT_BREAKAWAY_OK,
+                    JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE, JOBOBJECT_EXTENDED_LIMIT_INFORMATION,
+                    JobObjectExtendedLimitInformation, SetInformationJobObject,
+                },
+                Threading::{OpenProcess, PROCESS_SET_QUOTA, PROCESS_TERMINATE},
+            },
+        };
+
+        // SAFETY: Creating an unnamed Win32 Job Object, configuring KILL_ON_JOB_CLOSE,
+        // and assigning `pid` into the nested job.
+        unsafe {
+            let job = CreateJobObjectW(std::ptr::null(), std::ptr::null());
+            if job.is_null() {
+                tracing::warn!(pid, "Failed to create per-tree Win32 Job Object");
+                return Self::noop();
+            }
+            let mut info: JOBOBJECT_EXTENDED_LIMIT_INFORMATION = std::mem::zeroed();
+            info.BasicLimitInformation.LimitFlags =
+                JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE | JOB_OBJECT_LIMIT_BREAKAWAY_OK;
+            let ok = SetInformationJobObject(
+                job,
+                JobObjectExtendedLimitInformation,
+                (&raw const info).cast(),
+                std::mem::size_of::<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>() as u32,
+            );
+            if ok == 0 {
+                tracing::warn!(
+                    pid,
+                    "Failed to set JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE on per-tree Job Object"
+                );
+                let _ = CloseHandle(job);
+                return Self::noop();
+            }
+            let process = OpenProcess(PROCESS_SET_QUOTA | PROCESS_TERMINATE, 0, pid);
+            if process.is_null() {
+                // Process may have exited immediately after spawn.
+                let _ = CloseHandle(job);
+                return Self::noop();
+            }
+            let assigned = AssignProcessToJobObject(job, process) != 0;
+            let _ = CloseHandle(process);
+            if !assigned {
+                tracing::warn!(pid, "Failed to assign process to per-tree Win32 Job Object");
+                let _ = CloseHandle(job);
+                return Self::noop();
+            }
+            Self {
+                inner: std::sync::Arc::new(ProcessTreeJobInner {
+                    handle: std::sync::Mutex::new(Some(SendableJobHandle(job))),
+                }),
+            }
+        }
+    }
+
+    #[cfg(not(windows))]
+    pub fn create_and_assign(pid: u32) -> Self {
+        #[cfg(unix)]
+        {
+            let self_pgid = nix::unistd::getpgrp();
+            let resolved_pgid = getpgid(Some(Pid::from_raw(pid as i32)))
+                .ok()
+                .filter(|pgid| pgid.as_raw() > 1 && *pgid != self_pgid)
+                .map(|pgid| pgid.as_raw());
+            Self {
+                inner: std::sync::Arc::new(ProcessTreeJobInner {
+                    pgid: std::sync::Mutex::new(resolved_pgid),
+                }),
+            }
+        }
+        #[cfg(not(unix))]
+        {
+            let _ = pid;
+            Self::noop()
+        }
+    }
+
+    /// Whether this handle has already been closed/terminated or is a no-op.
+    pub fn is_closed(&self) -> bool {
+        #[cfg(windows)]
+        {
+            self.inner
+                .handle
+                .lock()
+                .map(|guard| guard.is_none())
+                .unwrap_or(true)
+        }
+        #[cfg(not(windows))]
+        {
+            self.inner
+                .pgid
+                .lock()
+                .map(|guard| guard.is_none())
+                .unwrap_or(true)
+        }
+    }
+
+    /// Send a graceful termination signal to the process group on Unix (`SIGTERM`),
+    /// or atomically terminate the Job Object on Windows.
+    pub fn signal_graceful(&self) {
+        #[cfg(windows)]
+        {
+            let _ = self.terminate();
+        }
+        #[cfg(unix)]
+        {
+            if let Ok(guard) = self.inner.pgid.lock()
+                && let Some(pgid) = *guard
+            {
+                let _ = killpg(Pid::from_raw(pgid), Signal::SIGTERM);
+            }
+        }
+    }
+
+    /// Atomically terminate the entire OS process tree (`TerminateJobObject` +
+    /// `CloseHandle` on Windows; `SIGKILL` to the process group on Unix).
+    /// Idempotent across multiple calls and clones.
+    pub fn terminate(&self) -> bool {
+        #[cfg(windows)]
+        {
+            use windows_sys::Win32::{Foundation::CloseHandle, System::JobObjects::TerminateJobObject};
+            let handle = self
+                .inner
+                .handle
+                .lock()
+                .ok()
+                .and_then(|mut guard| guard.take());
+            if let Some(SendableJobHandle(job)) = handle {
+                // SAFETY: `job` was uniquely taken from the mutex; TerminateJobObject + CloseHandle
+                // atomically kills all processes in the job and releases the kernel handle.
+                unsafe {
+                    let _ = TerminateJobObject(job, 1);
+                    let _ = CloseHandle(job);
+                }
+                return true;
+            }
+            false
+        }
+        #[cfg(not(windows))]
+        {
+            let pgid = self
+                .inner
+                .pgid
+                .lock()
+                .ok()
+                .and_then(|mut guard| guard.take());
+            if let Some(pgid) = pgid {
+                #[cfg(unix)]
+                {
+                    let _ = killpg(Pid::from_raw(pgid), Signal::SIGKILL);
+                }
+                #[cfg(not(unix))]
+                {
+                    let _ = pgid;
+                }
+                return true;
+            }
+            false
+        }
+    }
+
+    /// Detach the handle after a confirmed clean exit without sending `SIGKILL`
+    /// on Unix, while still closing the Windows Job Object handle (note: on
+    /// Windows, closing a `KILL_ON_JOB_CLOSE` handle also reaps any leaked
+    /// background grandchildren, which is desired for managed sessions/terminals).
+    pub fn close(&self) {
+        #[cfg(windows)]
+        {
+            let _ = self.terminate();
+        }
+        #[cfg(not(windows))]
+        {
+            if let Ok(mut guard) = self.inner.pgid.lock() {
+                let _ = guard.take();
+            }
+        }
+    }
+}
+
+impl Drop for ProcessTreeJobInner {
+    fn drop(&mut self) {
+        #[cfg(windows)]
+        {
+            use windows_sys::Win32::{Foundation::CloseHandle, System::JobObjects::TerminateJobObject};
+            if let Ok(mut guard) = self.handle.lock()
+                && let Some(SendableJobHandle(job)) = guard.take()
+            {
+                // SAFETY: Final owner dropping an unclosed job handle; terminate and close.
+                unsafe {
+                    let _ = TerminateJobObject(job, 1);
+                    let _ = CloseHandle(job);
+                }
+            }
+        }
+        #[cfg(unix)]
+        {
+            if let Ok(mut guard) = self.pgid.lock()
+                && let Some(pgid) = guard.take()
+            {
+                let _ = killpg(Pid::from_raw(pgid), Signal::SIGKILL);
+            }
+        }
+    }
+}
+
 /// Spawn a tokio Command as a process group with CREATE_NO_WINDOW on Windows.
 ///
 /// `command_group`'s `group_spawn()` overwrites any `creation_flags` previously
@@ -424,6 +694,21 @@ pub fn group_spawn_no_window(
         let _ = assign_pid_to_guardian_job(pid);
     }
     Ok(child)
+}
+
+/// Spawn a tokio Command with [`group_spawn_no_window`] AND attach a dedicated
+/// [`ProcessTreeJob`] so callers can atomically terminate the entire process tree
+/// on turn cancellation, disconnect, or terminal release without relying on
+/// user-mode PID tree walks (`kill_tree` / `taskkill /T`).
+pub fn group_spawn_no_window_with_job(
+    command: &mut tokio::process::Command,
+) -> std::io::Result<(AsyncGroupChild, ProcessTreeJob)> {
+    let child = group_spawn_no_window(command)?;
+    let job = match child.id() {
+        Some(pid) => ProcessTreeJob::create_and_assign(pid),
+        None => ProcessTreeJob::noop(),
+    };
+    Ok((child, job))
 }
 
 /// Put a `std::process::Command` in its own process group so a later
@@ -983,7 +1268,7 @@ mod tests {
             "-g",
             "--prefix",
             r"D:\Program Files\nodejs\node_global",
-            "@zed-industries/claude-code-acp@0.12.0",
+            "@anthropic-ai/claude-code@2.1.325",
         ]);
         command.stdout(Stdio::piped()).stderr(Stdio::piped());
 
@@ -997,7 +1282,7 @@ mod tests {
         );
         assert_eq!(
             super::decode_process_output(&output.stdout).trim(),
-            r"prefix=D:\Program Files\nodejs\node_global pkg=@zed-industries/claude-code-acp@0.12.0"
+            r"prefix=D:\Program Files\nodejs\node_global pkg=@anthropic-ai/claude-code@2.1.325"
         );
     }
 
@@ -1017,7 +1302,7 @@ mod tests {
             "-g",
             "--prefix",
             r"D:\Program Files\nodejs\node_global",
-            "@zed-industries/claude-code-acp@0.12.0",
+            "@anthropic-ai/claude-code@2.1.325",
         ]);
         let output = command
             .stdout(Stdio::piped())
@@ -1033,7 +1318,7 @@ mod tests {
         );
         assert_eq!(
             super::decode_process_output(&output.stdout).trim(),
-            r"prefix=D:\Program Files\nodejs\node_global pkg=@zed-industries/claude-code-acp@0.12.0"
+            r"prefix=D:\Program Files\nodejs\node_global pkg=@anthropic-ai/claude-code@2.1.325"
         );
     }
 
@@ -1048,5 +1333,74 @@ mod tests {
             .expect("kill process group");
         let status = child.wait().await.expect("wait after kill");
         assert!(!status.success());
+    }
+
+    #[cfg(windows)]
+    #[tokio::test]
+    async fn group_spawn_no_window_with_job_reaps_detached_grandchild_after_shell_exits() {
+        use windows_sys::Win32::{
+            Foundation::{CloseHandle, STILL_ACTIVE},
+            System::Threading::{
+                GetExitCodeProcess, OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION,
+            },
+        };
+
+        let dir = tempfile::tempdir().expect("tempdir");
+        let pid_file = dir.path().join("grandchild.pid");
+        let ps_cmd = format!(
+            "$p = Start-Process -FilePath 'ping.exe' -ArgumentList '-n','60','127.0.0.1' -WindowStyle Hidden -PassThru; Set-Content -Path '{}' -Value $p.Id -NoNewline",
+            pid_file.display()
+        );
+        let mut command = new_hidden_tokio_command(
+            "powershell.exe",
+            ["-NoProfile", "-NonInteractive", "-Command", &ps_cmd],
+        );
+        let (mut child, job) =
+            super::group_spawn_no_window_with_job(&mut command).expect("spawn with job");
+        assert!(
+            !job.is_closed(),
+            "nested Win32 Job Object must be created and open"
+        );
+        let shell_status = child.wait().await.expect("intermediate shell exits");
+        assert!(shell_status.success());
+
+        let grandchild_pid: u32 = fs::read_to_string(&pid_file)
+            .expect("read grandchild pid")
+            .trim()
+            .parse()
+            .expect("parse grandchild pid");
+
+        let is_alive = |pid: u32| unsafe {
+            let handle = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid);
+            if handle.is_null() {
+                return false;
+            }
+            let mut code: u32 = 0;
+            let ok = GetExitCodeProcess(handle, &mut code);
+            let _ = CloseHandle(handle);
+            ok != 0 && code == STILL_ACTIVE as u32
+        };
+
+        assert!(
+            is_alive(grandchild_pid),
+            "grandchild should still be alive while job is open"
+        );
+        assert!(
+            job.terminate(),
+            "first terminate() should close and kill job"
+        );
+        assert!(!job.terminate(), "second terminate() must be idempotent");
+        assert!(job.is_closed());
+
+        for _ in 0..40 {
+            if !is_alive(grandchild_pid) {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(25)).await;
+        }
+        assert!(
+            !is_alive(grandchild_pid),
+            "TerminateJobObject + CloseHandle must reap orphaned grandchild even after parent shell exited"
+        );
     }
 }

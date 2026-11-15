@@ -8,13 +8,22 @@
 const { spawn } = require("child_process");
 const fs = require("fs");
 const path = require("path");
+const {
+  applySidecarDevEnv,
+  rebuildHostSidecars,
+} = require("./watch-host-sidecars");
 
-const env = {
-  ...process.env,
-  DISABLE_WORKTREE_CLEANUP: "1",
-  RUST_LOG: process.env.RUST_LOG || "debug",
-  CARGO_INCREMENTAL: process.env.CARGO_INCREMENTAL || "0",
-};
+const WORKSPACE_ROOT = path.join(__dirname, "..");
+
+const env = applySidecarDevEnv(
+  {
+    ...process.env,
+    DISABLE_WORKTREE_CLEANUP: "1",
+    RUST_LOG: process.env.RUST_LOG || "debug",
+    CARGO_INCREMENTAL: process.env.CARGO_INCREMENTAL || "0",
+  },
+  { repo: WORKSPACE_ROOT }
+);
 
 if (env.CARGO_INCREMENTAL === "0") {
   const incrementalPath = path.join(process.cwd(), "target", "debug", "incremental");
@@ -22,6 +31,8 @@ if (env.CARGO_INCREMENTAL === "0") {
     fs.rmSync(incrementalPath, { recursive: true, force: true });
   }
 }
+
+rebuildHostSidecars({ repo: WORKSPACE_ROOT, env });
 
 // Don't use shell: true — pass args as an array so they aren't re-split.
 const child = spawn("cargo", ["watch", "-w", "crates", "-x", "run --bin vibex-server"], {

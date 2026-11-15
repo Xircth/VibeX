@@ -1,3 +1,11 @@
+//! Frozen passive configuration models for legacy executor profiles
+//! (`docs/specs/agent-driver-engine.md` §2.2.3).
+//!
+//! Only passive serde/schema data structures and `ScriptRequest` support remain in
+//! `crates/executors/`. All live coding-agent execution, process management, and
+//! protocol transport route exclusively through `agents::AgentRuntime` (enforced by
+//! architecture invariant gate `I5`).
+
 use command_group::AsyncGroupChild;
 use futures_io::Error as FuturesIoError;
 use schemars::JsonSchema;

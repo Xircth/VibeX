@@ -6,148 +6,178 @@ import {
   isSessionGroup,
   listLeftDockGroups,
 } from '@/utils/dockviewGroupPolicy';
+export {
+  assignDockviewGroupIdAndRole,
+  syncDockviewGroupRegistry,
+} from '@/utils/dockviewGroupRole';
+
+type DockviewGroup = DockviewApi['groups'][number];
+
+interface GroupWithHeaderModel {
+  locked?: boolean | string;
+  model?: {
+    locked?: boolean | string;
+    header?: {
+      hidden?: boolean;
+    };
+  };
+}
+
+function setOrRemoveAttr(
+  el: HTMLElement | undefined,
+  attr: string,
+  enabled: boolean
+): void {
+  if (!el || el.hasAttribute(attr) === enabled) return;
+  if (enabled) {
+    el.setAttribute(attr, 'true');
+  } else {
+    el.removeAttribute(attr);
+  }
+}
+
+function setOrRemoveClass(
+  el: HTMLElement | undefined,
+  className: string,
+  enabled: boolean
+): void {
+  if (!el || el.classList.contains(className) === enabled) return;
+  if (enabled) {
+    el.classList.add(className);
+  } else {
+    el.classList.remove(className);
+  }
+}
 
 /**
  * Apply header hiding to the left group (file tree / git / search / sessions),
  * while ensuring workspace (Zone B) and session dock (Zone C) groups remain
  * unlocked and show their multi-tab header bars.
+ *
+ * Structured in two strict phases (pure DOM reads -> minimal-diff DOM writes)
+ * so geometry measurements never interleave with style/attribute writes.
  */
 export function applyLeftGroupHeaderHiding(api: DockviewApi): void {
-  type GroupWithHeaderModel = {
-    locked?: boolean | string;
-    model?: {
-      locked?: boolean | string;
-      header?: {
-        hidden?: boolean;
-      };
-    };
-  };
-
-  const leftGroups = new Set([
+  // --- Phase 1: Pure Reads (before any DOM/model writes) ---
+  const leftGroups = new Set<DockviewGroup>([
     ...listLeftDockGroups(api.groups),
     ...ACTIVITY_RAIL_ITEMS.map(
       (panelId) => api.getPanel(panelId)?.group
-    ).filter((group): group is NonNullable<(typeof api.groups)[number]> =>
+    ).filter((group): group is DockviewGroup =>
       Boolean(group && isLeftGroup(group))
     ),
   ]);
 
+  const bottomGroups = new Set<DockviewGroup>();
+  const sessionGroups = new Set<DockviewGroup>();
+  const stageGroups: DockviewGroup[] = [];
+
+  for (const group of api.groups) {
+    if (leftGroups.has(group)) continue;
+    if (isBottomGroup(group)) {
+      bottomGroups.add(group);
+    } else if (isSessionGroup(group)) {
+      sessionGroups.add(group);
+    }
+    if (group.api.isVisible && Boolean(group.element)) {
+      stageGroups.push(group);
+    }
+  }
+
+  const visibleDockGroupsBySide: Record<'left' | 'right', DockviewGroup[]> = {
+    left: [],
+    right: [],
+  };
   for (const group of leftGroups) {
-    try {
-      const model = (group as GroupWithHeaderModel).model;
-      if (model?.header && typeof model.header.hidden !== 'undefined') {
-        model.header.hidden = true;
-      }
-    } catch {
-      // Fallback: add a CSS class to the group element
-    }
-
-    group.element?.classList.add('dv-header-hidden');
-    group.element?.setAttribute('data-left-dock', 'true');
+    if (!group.api.isVisible || !group.element) continue;
+    const groupSide =
+      group.element.getAttribute('data-shell-nav-side') === 'right'
+        ? 'right'
+        : 'left';
+    visibleDockGroupsBySide[groupSide].push(group);
   }
 
-  for (const group of api.groups) {
-    if (leftGroups.has(group) || isBottomGroup(group)) {
-      continue;
+  const groupsToMeasure = new Set<DockviewGroup>();
+  if (visibleDockGroupsBySide.left.length > 1) {
+    for (const group of visibleDockGroupsBySide.left) {
+      groupsToMeasure.add(group);
     }
-
-    try {
-      const mutable = group as GroupWithHeaderModel;
-      mutable.locked = false;
-      if (mutable.model && typeof mutable.model.locked !== 'undefined') {
-        mutable.model.locked = false;
-      }
-      if (
-        mutable.model?.header &&
-        typeof mutable.model.header.hidden !== 'undefined'
-      ) {
-        mutable.model.header.hidden = false;
-      }
-    } catch {
-      // Ignore model access errors
+  }
+  if (visibleDockGroupsBySide.right.length > 1) {
+    for (const group of visibleDockGroupsBySide.right) {
+      groupsToMeasure.add(group);
     }
-
-    group.element?.classList.remove('dv-header-hidden', 'dv-locked-groupview');
-    if (isSessionGroup(group)) {
-      group.element?.setAttribute('data-session-dock', 'true');
+  }
+  if (stageGroups.length > 1) {
+    for (const group of stageGroups) {
+      groupsToMeasure.add(group);
     }
   }
 
-  const stageGroups = api.groups.filter(
-    (group) =>
-      !leftGroups.has(group) && group.api.isVisible && Boolean(group.element)
-  );
-
-  for (const group of api.groups) {
-    group.element?.removeAttribute('data-stage-leftmost');
-    group.element?.removeAttribute('data-stage-rightmost');
-    group.element?.removeAttribute('data-stage-topmost');
-    group.element?.removeAttribute('data-stage-bottommost');
-    group.element?.removeAttribute('data-left-dock-split-left');
-    group.element?.removeAttribute('data-left-dock-split-top');
-    group.element?.removeAttribute('data-left-dock-split-bottom');
+  const measuredRects = new Map<DockviewGroup, DOMRect>();
+  for (const group of groupsToMeasure) {
+    const rect = group.element?.getBoundingClientRect();
+    if (rect) {
+      measuredRects.set(group, rect);
+    }
   }
+
+  const dockSplitLeft = new Set<DockviewGroup>();
+  const dockSplitTop = new Set<DockviewGroup>();
+  const dockSplitBottom = new Set<DockviewGroup>();
 
   for (const side of ['left', 'right'] as const) {
-    const visibleDockGroups = [...leftGroups].filter((group) => {
-      if (!group.api.isVisible || !group.element) return false;
-      const groupSide =
-        group.element.getAttribute('data-shell-nav-side') === 'right'
-          ? 'right'
-          : 'left';
-      return groupSide === side;
+    const visibleDockGroups = visibleDockGroupsBySide[side];
+    if (visibleDockGroups.length <= 1) continue;
+
+    const dockRects = visibleDockGroups.flatMap((group) => {
+      const rect = measuredRects.get(group);
+      return rect && rect.width > 0 && rect.height > 0 ? [{ group, rect }] : [];
     });
-    if (visibleDockGroups.length > 1) {
-      const dockRects = visibleDockGroups.flatMap((group) => {
-        const rect = group.element?.getBoundingClientRect();
-        return rect && rect.width > 0 && rect.height > 0
-          ? [{ group, rect }]
-          : [];
-      });
-      if (dockRects.length > 1) {
-        const minLeft = Math.min(...dockRects.map((item) => item.rect.left));
-        const minTop = Math.min(...dockRects.map((item) => item.rect.top));
-        const maxBottom = Math.max(
-          ...dockRects.map((item) => item.rect.bottom)
-        );
-        for (const { group, rect } of dockRects) {
-          if (rect.left > minLeft + 4) {
-            group.element?.setAttribute('data-left-dock-split-left', 'true');
-          }
-          if (rect.top > minTop + 4) {
-            group.element?.setAttribute('data-left-dock-split-top', 'true');
-          }
-          if (rect.bottom < maxBottom - 4) {
-            group.element?.setAttribute('data-left-dock-split-bottom', 'true');
-          }
+
+    if (dockRects.length > 1) {
+      const minLeft = Math.min(...dockRects.map((item) => item.rect.left));
+      const minTop = Math.min(...dockRects.map((item) => item.rect.top));
+      const maxBottom = Math.max(...dockRects.map((item) => item.rect.bottom));
+      for (const { group, rect } of dockRects) {
+        if (rect.left > minLeft + 4) {
+          dockSplitLeft.add(group);
         }
-      } else {
-        for (const group of visibleDockGroups.slice(1)) {
-          const parentSplit = group.element?.closest(
-            '.dv-split-view-container'
-          );
-          if (parentSplit?.classList.contains('dv-vertical')) {
-            group.element?.setAttribute('data-left-dock-split-top', 'true');
-          } else {
-            group.element?.setAttribute('data-left-dock-split-left', 'true');
-          }
+        if (rect.top > minTop + 4) {
+          dockSplitTop.add(group);
+        }
+        if (rect.bottom < maxBottom - 4) {
+          dockSplitBottom.add(group);
+        }
+      }
+    } else {
+      for (const group of visibleDockGroups.slice(1)) {
+        const parentSplit = group.element?.closest('.dv-split-view-container');
+        if (parentSplit?.classList.contains('dv-vertical')) {
+          dockSplitTop.add(group);
+        } else {
+          dockSplitLeft.add(group);
         }
       }
     }
   }
 
-  if (stageGroups.length === 1) {
-    const onlyGroup = stageGroups[0]?.element;
-    onlyGroup?.setAttribute('data-stage-leftmost', 'true');
-    onlyGroup?.setAttribute('data-stage-rightmost', 'true');
-    onlyGroup?.setAttribute('data-stage-topmost', 'true');
-    onlyGroup?.setAttribute('data-stage-bottommost', 'true');
-    return;
-  }
+  const stageLeftmost = new Set<DockviewGroup>();
+  const stageRightmost = new Set<DockviewGroup>();
+  const stageTopmost = new Set<DockviewGroup>();
+  const stageBottommost = new Set<DockviewGroup>();
 
-  if (stageGroups.length > 1) {
+  if (stageGroups.length === 1) {
+    const onlyGroup = stageGroups[0];
+    if (onlyGroup) {
+      stageLeftmost.add(onlyGroup);
+      stageRightmost.add(onlyGroup);
+      stageTopmost.add(onlyGroup);
+      stageBottommost.add(onlyGroup);
+    }
+  } else if (stageGroups.length > 1) {
     const rects = stageGroups.flatMap((group) => {
-      const rect = group.element?.getBoundingClientRect();
+      const rect = measuredRects.get(group);
       return rect && rect.width > 0 && rect.height > 0 ? [{ group, rect }] : [];
     });
 
@@ -158,100 +188,114 @@ export function applyLeftGroupHeaderHiding(api: DockviewApi): void {
       const maxBottom = Math.max(...rects.map((item) => item.rect.bottom));
       for (const { group, rect } of rects) {
         if (Math.abs(rect.left - minLeft) <= 2) {
-          group.element?.setAttribute('data-stage-leftmost', 'true');
+          stageLeftmost.add(group);
         }
         if (Math.abs(rect.right - maxRight) <= 2) {
-          group.element?.setAttribute('data-stage-rightmost', 'true');
+          stageRightmost.add(group);
         }
         if (Math.abs(rect.top - minTop) <= 2) {
-          group.element?.setAttribute('data-stage-topmost', 'true');
+          stageTopmost.add(group);
         }
         if (Math.abs(rect.bottom - maxBottom) <= 2) {
-          group.element?.setAttribute('data-stage-bottommost', 'true');
+          stageBottommost.add(group);
         }
       }
     } else {
       const bottomStageGroups = stageGroups.filter((group) =>
-        isBottomGroup(group)
+        bottomGroups.has(group)
       );
       const upperStageGroups = stageGroups.filter(
-        (group) => !isBottomGroup(group)
+        (group) => !bottomGroups.has(group)
       );
       if (upperStageGroups.length > 0) {
-        upperStageGroups[0]?.element?.setAttribute(
-          'data-stage-leftmost',
-          'true'
-        );
-        upperStageGroups[upperStageGroups.length - 1]?.element?.setAttribute(
-          'data-stage-rightmost',
-          'true'
-        );
+        const leftmostUpper = upperStageGroups[0];
+        const rightmostUpper = upperStageGroups[upperStageGroups.length - 1];
+        if (leftmostUpper) {
+          stageLeftmost.add(leftmostUpper);
+        }
+        if (rightmostUpper) {
+          stageRightmost.add(rightmostUpper);
+        }
         for (const group of upperStageGroups) {
-          group.element?.setAttribute('data-stage-topmost', 'true');
+          stageTopmost.add(group);
           if (bottomStageGroups.length === 0) {
-            group.element?.setAttribute('data-stage-bottommost', 'true');
+            stageBottommost.add(group);
           }
         }
       }
       for (const group of bottomStageGroups) {
-        group.element?.setAttribute('data-stage-leftmost', 'true');
-        group.element?.setAttribute('data-stage-rightmost', 'true');
-        group.element?.setAttribute('data-stage-bottommost', 'true');
+        stageLeftmost.add(group);
+        stageRightmost.add(group);
+        stageBottommost.add(group);
         if (upperStageGroups.length === 0) {
-          group.element?.setAttribute('data-stage-topmost', 'true');
+          stageTopmost.add(group);
         }
       }
     }
   }
-}
 
-/**
- * Re-key dockview's internal group registry after group ids were renamed.
- *
- * The layout code re-assigns group ids (e.g. the auto-created welcome group
- * becomes `group-editor-1`), but dockview keeps its `_groups` map keyed by
- * the id used at creation time. A stale key makes `getGroup()` miss and —
- * critically — makes `fromJSON()` on a populated instance throw
- * `invalid operation` while clearing, because `removeGroup()` looks the
- * group up by its (renamed) id. Syncing the map keys keeps both paths safe.
- */
-export function syncDockviewGroupRegistry(api: DockviewApi): void {
-  const component = (
-    api as unknown as {
-      component?: {
-        _groups?: Map<
-          string,
-          {
-            value?: {
-              id?: string;
-              model?: { id?: string };
-              api?: { id?: string };
-            };
-          }
-        >;
-      };
+  // --- Phase 2: Pure Writes (minimal-diff, zero geometry reads) ---
+  for (const group of leftGroups) {
+    try {
+      const model = (group as GroupWithHeaderModel).model;
+      if (
+        model?.header &&
+        typeof model.header.hidden !== 'undefined' &&
+        model.header.hidden !== true
+      ) {
+        model.header.hidden = true;
+      }
+    } catch {
+      // Fallback: CSS class below still hides the header.
     }
-  ).component;
-  const registry = component?._groups;
-  if (!registry) return;
 
-  for (const [key, entry] of [...registry.entries()]) {
-    const actualId = entry?.value?.id;
-    if (typeof actualId === 'string') {
-      if (entry.value?.model && typeof entry.value.model.id === 'string') {
-        entry.value.model.id = actualId;
+    setOrRemoveClass(group.element, 'dv-header-hidden', true);
+    setOrRemoveAttr(group.element, 'data-left-dock', true);
+  }
+
+  for (const group of api.groups) {
+    if (!leftGroups.has(group) && !bottomGroups.has(group)) {
+      try {
+        const mutable = group as GroupWithHeaderModel;
+        if (mutable.locked !== false) {
+          mutable.locked = false;
+        }
+        if (
+          mutable.model &&
+          typeof mutable.model.locked !== 'undefined' &&
+          mutable.model.locked !== false
+        ) {
+          mutable.model.locked = false;
+        }
+        if (
+          mutable.model?.header &&
+          typeof mutable.model.header.hidden !== 'undefined' &&
+          mutable.model.header.hidden !== false
+        ) {
+          mutable.model.header.hidden = false;
+        }
+      } catch {
+        // Ignore model access errors.
       }
-      if (entry.value?.api && typeof entry.value.api.id === 'string') {
-        (entry.value.api as { id: string }).id = actualId;
+
+      setOrRemoveClass(group.element, 'dv-header-hidden', false);
+      setOrRemoveClass(group.element, 'dv-locked-groupview', false);
+      if (sessionGroups.has(group)) {
+        setOrRemoveAttr(group.element, 'data-session-dock', true);
       }
     }
-    if (
-      typeof actualId === 'string' &&
-      actualId !== key &&
-      !registry.has(actualId)
-    ) {
-      registry.delete(key);
-      registry.set(actualId, entry);
-    }
+
+    const el = group.element;
+    setOrRemoveAttr(el, 'data-stage-leftmost', stageLeftmost.has(group));
+    setOrRemoveAttr(el, 'data-stage-rightmost', stageRightmost.has(group));
+    setOrRemoveAttr(el, 'data-stage-topmost', stageTopmost.has(group));
+    setOrRemoveAttr(el, 'data-stage-bottommost', stageBottommost.has(group));
+    setOrRemoveAttr(el, 'data-left-dock-split-left', dockSplitLeft.has(group));
+    setOrRemoveAttr(el, 'data-left-dock-split-top', dockSplitTop.has(group));
+    setOrRemoveAttr(
+      el,
+      'data-left-dock-split-bottom',
+      dockSplitBottom.has(group)
+    );
   }
 }

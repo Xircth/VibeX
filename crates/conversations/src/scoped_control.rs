@@ -185,6 +185,9 @@ impl ScopedConversationControl {
                 text: text.to_string(),
                 images: Vec::new(),
                 principal,
+                promoted_input_id: None,
+                promoted_input_expected_revision: None,
+                allow_interrupt_restart: false,
             })
             .await
     }

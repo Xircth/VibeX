@@ -1,15 +1,17 @@
 import { act, fireEvent, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { AgentNativeConfigFieldView } from 'shared/types';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { toast } from '@/components/ui/toast';
+import { AGENT_SETTINGS_FOCUS_KEY } from '@/features/agent-management/agentSettingsFocus';
 import { renderWithQueryClient as render } from '@/test/QueryClientHarness';
 
-import { pickAuthModeTab } from './agentSettingsTestUtils';
-import { recordAgentAcpUpdateCheck } from '@/features/agent-management/agentAcpUpdates';
-import { AGENT_SETTINGS_FOCUS_KEY } from '@/features/agent-management/agentSettingsFocus';
 import { AgentSettings } from './AgentSettings';
+import {
+  configField,
+  resetAgentSettingsHarness,
+} from './agentSettingsTestHarness';
+import { pickAuthModeTab } from './agentSettingsTestUtils';
 
 const api = vi.hoisted(() => ({
   bar: vi.fn(),
@@ -63,7 +65,7 @@ const tauriInvokeMock = vi.hoisted(() => vi.fn().mockResolvedValue(null));
 const redeemImportTicketMock = vi.hoisted(() => vi.fn());
 const userSystem = vi.hoisted(() => ({
   config: {
-    executor_profile: { executor: 'codex', variant: null },
+    executor_profile: { executor: 'codex', variant: null as string | null },
   },
   loading: false,
   updateAndSaveConfig: vi.fn().mockResolvedValue(true),
@@ -82,7 +84,8 @@ vi.mock('@/features/agent-management/api', () => ({
 }));
 
 vi.mock('@/features/model-router', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@/features/model-router')>();
+  const actual =
+    await importOriginal<typeof import('@/features/model-router')>();
   return {
     ...actual,
     accountApi: {
@@ -135,201 +138,14 @@ describe('AgentSettings', () => {
   });
 
   beforeEach(() => {
-    listeners.clear();
-    tauriListeners.clear();
-    tauriInvokeMock.mockReset();
-    tauriInvokeMock.mockResolvedValue(null);
-    redeemImportTicketMock.mockReset();
-    Object.values(api).forEach((mock) => mock.mockReset());
-    userSystem.config = {
-      executor_profile: { executor: 'codex', variant: null },
-    };
-    userSystem.updateAndSaveConfig.mockReset();
-    userSystem.updateAndSaveConfig.mockResolvedValue(true);
-    confirmShow.mockReset();
-    confirmShow.mockResolvedValue('cancelled');
-    api.bar.mockResolvedValue([
-      {
-        agent_id: 'codex',
-        display_name: 'Codex',
-        description: 'Codex ACP',
-        icon_light: null,
-        icon_dark: null,
-        icon_svg: null,
-        source: 'built_in_profile',
-        built_in: true,
-        retired: false,
-        enabled: true,
-        position: 0,
-        lifecycle: 'ready',
-        authentication: 'account',
-        runtime_version: '1.0.0',
-        acp_version: '1.0.0',
-        active_operation: null,
-        rollback_available: false,
-        settings_features: ['authentication_mode'],
-      },
-    ]);
-    api.readConfig.mockResolvedValue({
-      agent_id: 'codex',
-      available: false,
-      settings_features: ['authentication_mode'],
-      path: null,
-      paths: [],
-      fields: [],
-      files: [],
-      applies_to_next_session: true,
-    });
-    api.preflight.mockResolvedValue({
-      agent_id: 'codex',
-      checked_at: '2026-08-21T00:00:00Z',
-      items: [],
-    });
-    api.checkUpdate.mockResolvedValue({
-      agent_id: 'codex',
-      current_version: null,
-      available_version: null,
-      update_available: false,
-      snapshot_id: null,
-      fetched_at: null,
-      fresh: false,
-    });
-    api.diagnostics.mockResolvedValue([]);
-    api.markDiagnosticsRead.mockResolvedValue(undefined);
-    api.actions.mockResolvedValue({ agent_id: 'codex', actions: [] });
-    api.accountFlow.mockResolvedValue({
-      agent_id: 'codex',
-      action_id: null,
-      status: 'idle',
-      exit_code: null,
-      authentication: null,
-    });
-    api.environment.mockResolvedValue({
-      agent_id: 'codex',
-      revision: '0',
-      entries: [],
-    });
-    api.dshProviders.mockResolvedValue({
-      settings_path: '/tmp/.dsh/settings.yaml',
-      credentials_path: '/tmp/.dsh/.credentials.yaml',
-      default_provider: 'deepseek-official',
-      default_model: 'deepseek-v4-flash',
-      providers: [
-        {
-          id: 'deepseek-official',
-          display_name: 'DeepSeek',
-          kind: 'official',
-          notes: null,
-          api: null,
-          base_url: null,
-          api_key_env: 'DEEPSEEK_API_KEY',
-          credential_present: true,
-          models: [{ id: 'deepseek-v4-flash', name: 'DeepSeek-V4-Flash' }],
-        },
-      ],
-      catalog: [],
-    });
-    api.dshPlugins.mockResolvedValue({
-      profile: 'default',
-      profile_dir: '/tmp/.dsh/profiles/default',
-      plugins: [
-        {
-          name: 'dsh-hello-plugin',
-          version: '0.1.0',
-          reserved: false,
-          source: 'default',
-          kind: 'plugin',
-          path: null,
-          summary: null,
-        },
-      ],
-    });
-    api.grokPlugins.mockResolvedValue({
-      home: '/tmp/.grok',
-      plugins: [
-        {
-          name: 'ponytail',
-          version: null,
-          status: 'installed',
-          path: '/tmp/.grok/installed-plugins/ponytail',
-          source: 'https://github.com/example/ponytail',
-          marketplace: null,
-        },
-      ],
-    });
-    api.piPlugins.mockResolvedValue({
-      home: '/tmp/.pi/agent',
-      plugins: [
-        {
-          source: 'npm:pi-package-manager',
-          name: 'pi-package-manager',
-          version: null,
-          kind: 'npm',
-          path: null,
-        },
-      ],
-    });
-    api.piConfiguration.mockResolvedValue({
-      default_provider: 'anthropic',
-      default_model: 'claude-sonnet-4',
-      thinking_level: 'medium',
-      credential_present: true,
-      auth_providers: ['anthropic'],
-      custom_providers: [],
-      runtime: {
-        mode: 'default',
-        command: '',
-        config_dir: '',
-        session_dir: '',
-        trust_workspace: true,
-      },
-    });
-    api.piTrustEntries.mockResolvedValue([]);
-    api.validatePiCommand.mockResolvedValue({
-      found: true,
-      resolved_path: '/usr/bin/pi',
-      version: 'pi 0.1',
-    });
-    api.modelProviders.mockResolvedValue({
-      agent_id: 'codex',
-      providers: [],
-      bound_provider_id: null,
-    });
-    api.authMode.mockResolvedValue({
-      agent_id: 'codex',
-      mode: 'chatgpt_subscription',
-      credential_env: 'OPENAI_API_KEY',
-      credential_present: false,
-      modes: ['chatgpt_subscription', 'api_key', 'model_provider'],
-      options: [
-        {
-          value: 'api_key',
-          kind: 'official_api',
-          label_key: 'agents.authModeOpenAiKey',
-          description_key: 'agents.authDescCodexKey',
-          credential_env: 'OPENAI_API_KEY',
-          native_config_field_id: 'openai_api_key',
-          credential_required: true,
-        },
-        {
-          value: 'chatgpt_subscription',
-          kind: 'subscription',
-          label_key: 'agents.authModeChatGpt',
-          description_key: 'agents.authDescCodexSubscription',
-          credential_env: null,
-          native_config_field_id: null,
-          credential_required: false,
-        },
-        {
-          value: 'model_provider',
-          kind: 'provider',
-          label_key: 'agents.authModeProvider',
-          description_key: 'agents.authDescCodexProvider',
-          credential_env: null,
-          native_config_field_id: null,
-          credential_required: false,
-        },
-      ],
+    resetAgentSettingsHarness({
+      api,
+      confirmShow,
+      listeners,
+      tauriListeners,
+      tauriInvokeMock,
+      redeemImportTicketMock,
+      userSystem,
     });
   });
 
@@ -358,7 +174,7 @@ describe('AgentSettings', () => {
       {
         agent_id: 'claude_code',
         display_name: 'Claude Code',
-        description: 'Claude',
+        description: 'Anthropic Claude Code (official native engine)',
         icon_light: null,
         icon_dark: null,
         icon_svg: null,
@@ -369,8 +185,8 @@ describe('AgentSettings', () => {
         position: 0,
         lifecycle: 'ready',
         authentication: 'account',
-        runtime_version: '1.0.0',
-        acp_version: '1.0.0',
+        runtime_version: '2.1.325',
+        acp_version: '2.1.325',
         active_operation: null,
         rollback_available: false,
         settings_features: [],
@@ -378,7 +194,7 @@ describe('AgentSettings', () => {
       {
         agent_id: 'codex',
         display_name: 'Codex',
-        description: 'Codex ACP',
+        description: 'OpenAI Codex (official native app-server engine)',
         icon_light: null,
         icon_dark: null,
         icon_svg: null,
@@ -389,8 +205,8 @@ describe('AgentSettings', () => {
         position: 1,
         lifecycle: 'ready',
         authentication: 'account',
-        runtime_version: '1.0.0',
-        acp_version: '1.0.0',
+        runtime_version: '0.169.0',
+        acp_version: '0.169.0',
         active_operation: null,
         rollback_available: false,
         settings_features: ['authentication_mode'],
@@ -425,7 +241,7 @@ describe('AgentSettings', () => {
       {
         agent_id: 'codex',
         display_name: 'Codex',
-        description: 'Codex ACP',
+        description: 'OpenAI Codex (official native app-server engine)',
         icon_light: null,
         icon_dark: null,
         icon_svg: null,
@@ -436,8 +252,8 @@ describe('AgentSettings', () => {
         position: 0,
         lifecycle: 'ready' as const,
         authentication: 'account' as const,
-        runtime_version: '1.0.0',
-        acp_version: '1.0.0',
+        runtime_version: '0.169.0',
+        acp_version: '0.169.0',
         active_operation: null,
         rollback_available: false,
         settings_features: ['authentication_mode'],
@@ -445,7 +261,7 @@ describe('AgentSettings', () => {
       {
         agent_id: 'claude_code',
         display_name: 'Claude Code',
-        description: 'Claude',
+        description: 'Anthropic Claude Code (official native engine)',
         icon_light: null,
         icon_dark: null,
         icon_svg: null,
@@ -456,8 +272,8 @@ describe('AgentSettings', () => {
         position: 1,
         lifecycle: 'ready' as const,
         authentication: 'account' as const,
-        runtime_version: '1.0.0',
-        acp_version: '1.0.0',
+        runtime_version: '2.1.325',
+        acp_version: '2.1.325',
         active_operation: null,
         rollback_available: false,
         settings_features: ['authentication_mode'],
@@ -737,6 +553,16 @@ describe('AgentSettings', () => {
         Node.DOCUMENT_POSITION_FOLLOWING
     ).toBeTruthy();
 
+    const pluginsRegion = screen.getByRole('region', { name: '插件' });
+    for (const section of [preflight, session, environment, pluginsRegion]) {
+      expect(
+        section.querySelector('.agent-section-heading-toggle')
+      ).not.toBeInTheDocument();
+      expect(
+        section.querySelector('.agent-section-heading-actions button')
+      ).toBeInTheDocument();
+    }
+
     const plugins = screen.getByRole('button', { name: '插件' });
     expect(plugins).toHaveAttribute('aria-expanded', 'false');
     await user.click(plugins);
@@ -959,7 +785,7 @@ describe('AgentSettings', () => {
       {
         agent_id: 'claude_code',
         display_name: 'Claude Code',
-        description: 'Claude Code ACP',
+        description: 'Anthropic Claude Code (official native engine)',
         icon_light: null,
         icon_dark: null,
         icon_svg: null,
@@ -970,8 +796,8 @@ describe('AgentSettings', () => {
         position: 0,
         lifecycle: 'ready',
         authentication: 'account',
-        runtime_version: '1.0.0',
-        acp_version: '1.0.0',
+        runtime_version: '2.1.325',
+        acp_version: '2.1.325',
         active_operation: null,
         rollback_available: false,
       },
@@ -1008,7 +834,7 @@ describe('AgentSettings', () => {
     api.uninstall.mockResolvedValue({
       agent_id: 'codex',
       display_name: 'Codex',
-      description: 'Codex ACP',
+      description: 'OpenAI Codex (official native app-server engine)',
       icon_light: null,
       icon_dark: null,
       icon_svg: null,
@@ -1038,7 +864,7 @@ describe('AgentSettings', () => {
     await user.click(enableSwitch);
     expect(
       screen.getByText(
-        '关闭启用该Agent后，将无法使用该Agent创建会话，您可以选择是否卸载和清除该Agent的数据，卸载时仅卸载ACP，不会影响您本地的CLI本体'
+        '关闭启用该 Agent 后，将无法使用该 Agent 创建会话。您可以选择是否卸载或清除该 Agent 的数据；卸载时仅移除 VibeX 托管的运行时副本，不会影响您自行安装的本地 CLI 与登录态。'
       )
     ).toBeVisible();
     expect(screen.getByRole('button', { name: '仅关闭' })).toBeVisible();
@@ -1062,7 +888,7 @@ describe('AgentSettings', () => {
       {
         agent_id: 'codex',
         display_name: 'Codex',
-        description: 'Codex ACP',
+        description: 'OpenAI Codex (official native app-server engine)',
         icon_light: null,
         icon_dark: null,
         icon_svg: null,
@@ -1073,8 +899,8 @@ describe('AgentSettings', () => {
         position: 0,
         lifecycle: 'ready',
         authentication: 'account',
-        runtime_version: '1.0.0',
-        acp_version: '1.0.0',
+        runtime_version: '0.169.0',
+        acp_version: '0.169.0',
         active_operation: null,
         rollback_available: false,
       },
@@ -1088,311 +914,6 @@ describe('AgentSettings', () => {
     await waitFor(() =>
       expect(api.uninstall).toHaveBeenCalledWith('codex', { clearData: true })
     );
-  });
-
-  it('lets the user install an added Agent when preflight finds no valid installation', async () => {
-    const user = userEvent.setup();
-    api.bar.mockResolvedValue([
-      {
-        agent_id: 'kimi',
-        display_name: 'Kimi CLI',
-        description: "Moonshot AI's coding assistant",
-        icon_light: null,
-        icon_dark: null,
-        icon_svg: null,
-        source: 'official_registry',
-        built_in: false,
-        retired: false,
-        enabled: true,
-        position: 0,
-        lifecycle: 'uninstalled',
-        authentication: 'not_required',
-        runtime_version: null,
-        acp_version: null,
-        active_operation: null,
-        rollback_available: false,
-      },
-    ]);
-    api.readConfig.mockResolvedValue({
-      agent_id: 'kimi',
-      available: false,
-      settings_features: [],
-      path: null,
-      paths: [],
-      fields: [],
-      files: [],
-      applies_to_next_session: true,
-    });
-    api.preflight.mockResolvedValue({
-      agent_id: 'kimi',
-      checked_at: '2026-08-04T00:00:00Z',
-      items: [
-        {
-          id: 'membership',
-          label: '运行入口',
-          status: 'pass',
-          detail: 'Agent 已加入本地列表。',
-          version: null,
-          path: null,
-          source: null,
-          repairable: false,
-          update_available: false,
-          available_version: null,
-          update_group: null,
-        },
-        {
-          id: 'runtime',
-          label: '本地 Runtime',
-          status: 'fail',
-          detail: '未发现有效的当前安装锁。',
-          version: null,
-          path: null,
-          source: null,
-          repairable: true,
-          update_available: false,
-          available_version: null,
-          update_group: null,
-        },
-        {
-          id: 'acp',
-          label: 'ACP 适配器',
-          status: 'fail',
-          detail: '未通过 ACP 探测。',
-          version: null,
-          path: null,
-          source: null,
-          repairable: true,
-          update_available: false,
-          available_version: null,
-          update_group: null,
-        },
-      ],
-    });
-    api.addAndInstall.mockResolvedValue({
-      operation_id: 'install-kimi',
-      agent_id: 'kimi',
-      kind: 'install',
-      status: 'queued',
-    });
-
-    render(<AgentSettings />);
-    await screen.findByRole('button', { name: 'Kimi CLI' });
-    await user.click(screen.getByRole('button', { name: '立即检查' }));
-
-    await user.click(await screen.findByRole('button', { name: '安装 ACP' }));
-    await user.click(await screen.findByRole('button', { name: '安装最新版' }));
-    expect(api.addAndInstall).toHaveBeenCalledWith('kimi');
-  });
-
-  describe('enabling an Agent', () => {
-    const kimi = {
-      agent_id: 'kimi',
-      display_name: 'Kimi CLI',
-      description: "Moonshot AI's coding assistant",
-      icon_light: null,
-      icon_dark: null,
-      icon_svg: null,
-      source: 'official_registry',
-      built_in: false,
-      retired: false,
-      enabled: false,
-      position: 0,
-      lifecycle: 'ready',
-      authentication: 'not_required',
-      runtime_version: null,
-      acp_version: '1.0.0',
-      active_operation: null,
-      rollback_available: false,
-    };
-    const acpItem = (overrides: Record<string, unknown>) => ({
-      id: 'acp',
-      label: 'ACP 适配器',
-      status: 'pass',
-      detail: '',
-      version: '1.0.0',
-      path: null,
-      source: null,
-      repairable: false,
-      update_available: false,
-      available_version: null,
-      update_group: null,
-      ...overrides,
-    });
-    const arrange = (
-      agent: Record<string, unknown>,
-      acp: Record<string, unknown>,
-      update: Record<string, unknown> = {}
-    ) => {
-      api.bar.mockResolvedValue([agent]);
-      api.setEnabled.mockResolvedValue({ ...agent, enabled: true });
-      api.readConfig.mockResolvedValue({
-        agent_id: 'kimi',
-        available: false,
-        settings_features: [],
-        path: null,
-        paths: [],
-        fields: [],
-        files: [],
-        applies_to_next_session: true,
-      });
-      api.preflight.mockResolvedValue({
-        agent_id: 'kimi',
-        checked_at: '2026-10-09T00:00:00Z',
-        items: [acpItem(acp)],
-      });
-      api.checkUpdate.mockResolvedValue({
-        agent_id: 'kimi',
-        current_version: '1.0.0',
-        available_version: null,
-        update_available: false,
-        snapshot_id: null,
-        fetched_at: null,
-        fresh: true,
-        ...update,
-      });
-      const receipt = (kind: string) => ({
-        operation_id: `${kind}-kimi`,
-        agent_id: 'kimi',
-        kind,
-        status: 'queued',
-      });
-      api.addAndInstall.mockResolvedValue(receipt('install'));
-      api.repair.mockResolvedValue(receipt('repair'));
-      api.applyUpdate.mockResolvedValue(receipt('update'));
-    };
-    const enable = async () => {
-      const user = userEvent.setup();
-      await screen.findByRole('button', { name: 'Kimi CLI' });
-      await waitFor(() => expect(api.preflight).toHaveBeenCalled());
-      api.preflight.mockClear();
-      await user.click(screen.getByRole('switch', { name: '启用 Agent' }));
-    };
-
-    it('checks and installs the ACP of an uninstalled Agent', async () => {
-      arrange(
-        { ...kimi, lifecycle: 'uninstalled', acp_version: null },
-        { status: 'fail', repairable: true, version: null }
-      );
-      render(<AgentSettings />);
-      await enable();
-
-      await waitFor(() =>
-        expect(api.addAndInstall).toHaveBeenCalledWith('kimi')
-      );
-      expect(api.setEnabled).toHaveBeenCalledWith('kimi', true);
-      expect(api.preflight).toHaveBeenCalledWith('kimi');
-    });
-
-    it('immediately displays the 6-stage ACP progress bar when enabling an Agent', async () => {
-      const user = userEvent.setup();
-      arrange(
-        { ...kimi, lifecycle: 'uninstalled', acp_version: null },
-        { status: 'fail', repairable: true, version: null }
-      );
-      let resolveSetEnabled!: (value: unknown) => void;
-      api.setEnabled.mockReturnValue(
-        new Promise((resolve) => {
-          resolveSetEnabled = resolve;
-        })
-      );
-      render(<AgentSettings />);
-      await screen.findByRole('button', { name: 'Kimi CLI' });
-      await waitFor(() => expect(api.preflight).toHaveBeenCalled());
-      api.preflight.mockClear();
-
-      await user.click(screen.getByRole('switch', { name: '启用 Agent' }));
-
-      const stagesList = await screen.findByRole('list', {
-        name: '操作阶段',
-      });
-      expect(stagesList).toBeVisible();
-      expect(stagesList).toHaveTextContent('基础环境检查');
-      expect(stagesList).toHaveTextContent('ACP检查');
-      expect(stagesList).toHaveTextContent('安装准备');
-      expect(stagesList).toHaveTextContent('安装');
-      expect(stagesList).toHaveTextContent('验证');
-      expect(stagesList).toHaveTextContent('完成');
-
-      await act(async () => {
-        resolveSetEnabled({
-          ...kimi,
-          enabled: true,
-          lifecycle: 'uninstalled',
-          acp_version: null,
-        });
-      });
-
-      await waitFor(() =>
-        expect(api.addAndInstall).toHaveBeenCalledWith('kimi')
-      );
-    });
-
-    it('repairs an installation the preflight finds broken', async () => {
-      arrange(
-        { ...kimi, lifecycle: 'needs_repair' },
-        { status: 'fail', repairable: true }
-      );
-      render(<AgentSettings />);
-      await enable();
-
-      await waitFor(() => expect(api.repair).toHaveBeenCalledWith('kimi'));
-      expect(api.addAndInstall).not.toHaveBeenCalled();
-    });
-
-    it('updates the ACP when the check finds a newer version', async () => {
-      arrange(
-        kimi,
-        {},
-        {
-          available_version: '1.2.0',
-          acp_available: '1.2.0',
-          acp_current: '1.0.0',
-          update_available: true,
-        }
-      );
-      render(<AgentSettings />);
-      await enable();
-
-      await waitFor(() => expect(api.applyUpdate).toHaveBeenCalledWith('kimi'));
-      expect(api.addAndInstall).not.toHaveBeenCalled();
-      expect(api.repair).not.toHaveBeenCalled();
-    });
-
-    it('leaves a healthy up-to-date Agent alone', async () => {
-      arrange(kimi, {});
-      render(<AgentSettings />);
-      await enable();
-
-      await waitFor(() => expect(api.preflight).toHaveBeenCalledWith('kimi'));
-      await waitFor(() => expect(api.checkUpdate).toHaveBeenCalled());
-      expect(api.addAndInstall).not.toHaveBeenCalled();
-      expect(api.repair).not.toHaveBeenCalled();
-      expect(api.applyUpdate).not.toHaveBeenCalled();
-    });
-
-    it('does not install anything when the user disables an Agent', async () => {
-      const user = userEvent.setup();
-      arrange({ ...kimi, enabled: true, lifecycle: 'uninstalled' }, {});
-      api.setEnabled.mockResolvedValue({
-        ...kimi,
-        enabled: false,
-        lifecycle: 'uninstalled',
-      });
-      render(<AgentSettings />);
-      await screen.findByRole('button', { name: 'Kimi CLI' });
-      await waitFor(() => expect(api.preflight).toHaveBeenCalled());
-      api.preflight.mockClear();
-      api.addAndInstall.mockClear();
-
-      await user.click(screen.getByRole('switch', { name: '启用 Agent' }));
-      await user.click(await screen.findByRole('button', { name: '仅关闭' }));
-
-      await waitFor(() =>
-        expect(api.setEnabled).toHaveBeenCalledWith('kimi', false)
-      );
-      expect(api.preflight).not.toHaveBeenCalled();
-      expect(api.addAndInstall).not.toHaveBeenCalled();
-    });
   });
 
   it('shows complete launch evidence for a manually registered Agent', async () => {
@@ -1492,13 +1013,11 @@ describe('AgentSettings', () => {
     render(<AgentSettings />);
     await screen.findByRole('button', { name: 'Codex' });
 
-    // 已读记录不进入列表,未读记录正常显示。
     await waitFor(() =>
       expect(screen.getByText('启动前完整性验证失败')).toBeInTheDocument()
     );
     expect(screen.queryByText('已读记录不显示')).not.toBeInTheDocument();
 
-    // 一键已读 = 全部标记已读并清空列表。
     await user.click(screen.getByRole('button', { name: '全部已读' }));
     await waitFor(() =>
       expect(api.markDiagnosticsRead).toHaveBeenCalledWith('codex')
@@ -1513,7 +1032,7 @@ describe('AgentSettings', () => {
       {
         agent_id: 'codex',
         display_name: 'Codex',
-        description: 'Codex ACP',
+        description: 'OpenAI Codex (official native app-server engine)',
         icon_light: null,
         icon_dark: null,
         icon_svg: null,
@@ -1524,8 +1043,8 @@ describe('AgentSettings', () => {
         position: 0,
         lifecycle: 'ready',
         authentication: 'account',
-        runtime_version: '1.0.0',
-        acp_version: '1.0.0',
+        runtime_version: '0.169.0',
+        acp_version: '0.169.0',
         active_operation: null,
         rollback_available: false,
         settings_features: ['authentication_mode'],
@@ -1533,7 +1052,7 @@ describe('AgentSettings', () => {
       {
         agent_id: 'claude_code',
         display_name: 'Claude Code',
-        description: 'Claude Code ACP',
+        description: 'Anthropic Claude Code (official native engine)',
         icon_light: null,
         icon_dark: null,
         icon_svg: null,
@@ -1570,1252 +1089,13 @@ describe('AgentSettings', () => {
 
     render(<AgentSettings />);
 
-    expect(await screen.findByText('Claude Code ACP')).toBeVisible();
+    expect(
+      await screen.findByText('Anthropic Claude Code (official native engine)')
+    ).toBeVisible();
     await waitFor(() =>
       expect(api.diagnostics).toHaveBeenCalledWith('claude_code')
     );
     expect(screen.getByText('npm error code ECONNREFUSED')).toBeVisible();
-  });
-
-  it('runs a local preflight for the selected Agent immediately', async () => {
-    const loggedOut = {
-      agent_id: 'codex',
-      display_name: 'Codex',
-      description: 'Codex ACP',
-      icon_light: null,
-      icon_dark: null,
-      icon_svg: null,
-      source: 'built_in_profile',
-      built_in: true,
-      retired: false,
-      enabled: true,
-      position: 0,
-      lifecycle: 'needs_auth',
-      authentication: 'not_logged_in',
-      runtime_version: '1.0.0',
-      acp_version: '1.0.0',
-      active_operation: null,
-      rollback_available: false,
-      settings_features: ['authentication_mode'],
-    };
-    const loggedIn = {
-      ...loggedOut,
-      lifecycle: 'ready',
-      authentication: 'account',
-    };
-    let authenticated = false;
-    api.bar.mockImplementation(async () => [
-      authenticated ? loggedIn : loggedOut,
-    ]);
-    const item = {
-      source: null,
-      repairable: false,
-      update_available: false,
-      available_version: null,
-      update_group: null,
-    };
-    api.preflight.mockImplementation(async (agentId: string) => {
-      authenticated = true;
-      return {
-        agent_id: agentId,
-        checked_at: '2026-08-22T00:00:00Z',
-        items: [
-          {
-            ...item,
-            id: 'runtime',
-            label: '本地 Runtime',
-            status: 'pass',
-            detail: '',
-            version: '1.0.0',
-            path: '/usr/local/bin/codex',
-          },
-          {
-            ...item,
-            id: 'auth.mode',
-            label: '鉴权模式',
-            status: 'pass',
-            detail: 'ChatGPT 订阅模式已检测到有效账号会话。',
-            version: 'chatgpt_subscription',
-            path: '/tmp/.codex/auth.json',
-          },
-        ],
-      };
-    });
-
-    render(<AgentSettings />);
-
-    expect(await screen.findByText('暂未登录')).toBeVisible();
-    await waitFor(() => expect(api.preflight).toHaveBeenCalledWith('codex'));
-    expect(await screen.findByText('已通过账号登录')).toBeVisible();
-    expect(await screen.findByText('未获得有效用户信息')).toBeVisible();
-    expect(api.preflight.mock.calls[0]).toEqual(['codex']);
-  });
-
-  it('applies a background update check after local preflight without blocking the list', async () => {
-    api.preflight.mockResolvedValue({
-      agent_id: 'codex',
-      checked_at: '2026-08-22T00:00:00Z',
-      items: [
-        {
-          id: 'runtime',
-          label: '本地 Runtime',
-          status: 'pass',
-          detail: '',
-          version: '1.0.0',
-          path: '/usr/local/bin/codex',
-          source: null,
-          repairable: false,
-          update_available: false,
-          available_version: null,
-          update_group: null,
-        },
-        {
-          id: 'acp',
-          label: 'ACP 适配器',
-          status: 'pass',
-          detail: '',
-          version: '1.1.0',
-          path: '/usr/local/bin/codex-acp',
-          source: null,
-          repairable: false,
-          update_available: false,
-          available_version: null,
-          update_group: null,
-        },
-      ],
-    });
-    let finishUpdate: (value: unknown) => void = () => undefined;
-    api.checkUpdate.mockImplementation(
-      () =>
-        new Promise((resolve) => {
-          finishUpdate = resolve;
-        })
-    );
-
-    render(<AgentSettings />);
-    await waitFor(() => expect(api.preflight).toHaveBeenCalledWith('codex'));
-    const acpExpand = await screen.findByRole('button', {
-      name: '展开 ACP 适配器 的检查详情',
-    });
-    expect(screen.queryByTitle('1.1.0')).not.toBeInTheDocument();
-    await userEvent.click(acpExpand);
-    expect(screen.getByTitle('1.1.0')).toBeInTheDocument();
-    expect(screen.queryByText('本地 Runtime')).not.toBeInTheDocument();
-    expect(screen.queryByText('可更新')).not.toBeInTheDocument();
-    expect(
-      screen.queryByRole('button', { name: '立即检查' })
-    ).not.toHaveAttribute('disabled');
-    await waitFor(() => expect(api.checkUpdate).toHaveBeenCalledWith('codex'));
-
-    await act(async () => {
-      finishUpdate({
-        agent_id: 'codex',
-        current_version: '1.1.0',
-        available_version: '1.7.0',
-        update_available: true,
-        runtime_current: '1.0.0',
-        runtime_available: '0.148.0',
-        acp_current: '1.1.0',
-        acp_available: '1.7.0',
-        snapshot_id: null,
-        fetched_at: null,
-        fresh: true,
-      });
-    });
-
-    await waitFor(() => expect(screen.getAllByText('可更新')).toHaveLength(1));
-  });
-
-  it('marks ACP as updatable when npm latest is newer than the probed adapter', async () => {
-    api.preflight.mockResolvedValue({
-      agent_id: 'codex',
-      checked_at: '2026-09-09T00:00:00Z',
-      items: [
-        {
-          id: 'acp',
-          label: 'ACP 适配器',
-          status: 'pass',
-          detail: '',
-          version: '@agentclientprotocol/codex-acp 1.8.0',
-          path: '/usr/local/bin/codex-acp',
-          source: null,
-          repairable: false,
-          update_available: false,
-          available_version: null,
-          update_group: null,
-        },
-      ],
-    });
-    api.checkUpdate.mockResolvedValue({
-      agent_id: 'codex',
-      current_version: '@agentclientprotocol/codex-acp 1.8.0',
-      available_version: '1.10.0',
-      update_available: false,
-      runtime_current: null,
-      runtime_available: null,
-      acp_current: '@agentclientprotocol/codex-acp 1.8.0',
-      acp_available: '1.10.0',
-      snapshot_id: null,
-      fetched_at: null,
-      fresh: true,
-    });
-
-    render(<AgentSettings />);
-    await userEvent.click(
-      await screen.findByRole('button', {
-        name: '展开 ACP 适配器 的检查详情',
-      })
-    );
-    await waitFor(() =>
-      expect(
-        screen.getByTitle('@agentclientprotocol/codex-acp 1.8.0')
-      ).toBeInTheDocument()
-    );
-    await waitFor(() => expect(screen.getAllByText('可更新')).toHaveLength(1));
-  });
-
-  it('checks for ACP updates as part of Check Now in preflight', async () => {
-    const user = userEvent.setup();
-    api.preflight.mockResolvedValue({
-      agent_id: 'codex',
-      checked_at: '2026-09-09T00:00:00Z',
-      items: [
-        {
-          id: 'acp',
-          label: 'ACP 适配器',
-          status: 'pass',
-          detail: '',
-          version: '@agentclientprotocol/codex-acp 1.8.0',
-          path: '/usr/local/bin/codex-acp',
-          source: null,
-          repairable: false,
-          update_available: false,
-          available_version: null,
-          update_group: null,
-        },
-      ],
-    });
-    api.checkUpdate.mockResolvedValue({
-      agent_id: 'codex',
-      current_version: '@agentclientprotocol/codex-acp 1.8.0',
-      available_version: '1.10.0',
-      update_available: true,
-      runtime_current: null,
-      runtime_available: null,
-      acp_current: '@agentclientprotocol/codex-acp 1.8.0',
-      acp_available: '1.10.0',
-      snapshot_id: null,
-      fetched_at: null,
-      fresh: true,
-    });
-    const success = vi.spyOn(toast, 'success');
-    render(<AgentSettings />);
-    await waitFor(() => expect(screen.getAllByText('可更新')).toHaveLength(1));
-    await user.click(screen.getByRole('button', { name: '立即检查' }));
-    await waitFor(() => expect(success).toHaveBeenCalledWith('预检查完成'));
-    expect(api.checkUpdate).toHaveBeenCalledWith('codex', { force: true });
-  });
-
-  it('refreshes login status after a terminal account flow finishes', async () => {
-    const user = userEvent.setup();
-    const loggedOut = {
-      agent_id: 'cursor',
-      display_name: 'Cursor',
-      description: 'Cursor ACP',
-      icon_light: null,
-      icon_dark: null,
-      icon_svg: null,
-      source: 'built_in_profile',
-      built_in: true,
-      retired: false,
-      enabled: true,
-      position: 0,
-      lifecycle: 'needs_auth',
-      authentication: 'not_logged_in',
-      runtime_version: '1.0.0',
-      acp_version: '1.0.0',
-      active_operation: null,
-      rollback_available: false,
-    };
-    const loggedIn = {
-      ...loggedOut,
-      lifecycle: 'ready',
-      authentication: 'account',
-    };
-    api.bar.mockResolvedValue([loggedOut]);
-    api.readConfig.mockResolvedValue({
-      agent_id: 'cursor',
-      available: false,
-      settings_features: ['authentication_mode'],
-      path: null,
-      paths: [],
-      fields: [],
-      files: [],
-      applies_to_next_session: true,
-    });
-    api.authMode.mockResolvedValue({
-      agent_id: 'cursor',
-      mode: 'subscription',
-      credential_env: 'CURSOR_API_KEY',
-      credential_present: false,
-      modes: ['subscription', 'custom'],
-      options: [
-        {
-          value: 'subscription',
-          kind: 'subscription',
-          label_key: 'agents.authModeSubscription',
-          description_key: 'agents.authDescCursorSubscription',
-          credential_env: null,
-          native_config_field_id: null,
-          credential_required: false,
-        },
-        {
-          value: 'custom',
-          kind: 'official_api',
-          label_key: 'agents.authModeCursorKey',
-          description_key: 'agents.authDescCursorKey',
-          credential_env: 'CURSOR_API_KEY',
-          native_config_field_id: null,
-          credential_required: true,
-        },
-      ],
-    });
-    api.actions.mockResolvedValue({
-      agent_id: 'cursor',
-      actions: [
-        {
-          id: 'login',
-          label: '登录 Cursor',
-          description: '使用 Cursor 订阅账号登录',
-          label_key: 'agents.managementAction.cursor.login.label',
-          description_key: 'agents.managementAction.cursor.login.description',
-          kind: 'login',
-          available: true,
-          unavailable_reason: null,
-          url: null,
-        },
-      ],
-    });
-    api.runAction.mockImplementation(async () => {
-      api.bar.mockResolvedValue([loggedIn]);
-      api.accountFlow.mockResolvedValue({
-        agent_id: 'cursor',
-        action_id: 'login',
-        status: 'succeeded',
-        exit_code: 0,
-        authentication: 'account',
-      });
-      return {
-        agent_id: 'cursor',
-        action_id: 'login',
-        launched: true,
-      };
-    });
-
-    render(<AgentSettings />);
-    expect(await screen.findByText('暂未登录')).toBeVisible();
-    await user.click(
-      await screen.findByRole('button', { name: '登录 Cursor' })
-    );
-    await waitFor(() =>
-      expect(api.runAction).toHaveBeenCalledWith('cursor', 'login')
-    );
-    await waitFor(() => expect(api.accountFlow).toHaveBeenCalledWith('cursor'));
-    await waitFor(() =>
-      expect(screen.getByText('已通过账号登录')).toBeVisible()
-    );
-    expect(api.preflight).toHaveBeenCalledWith('cursor', 'authentication');
-    expect(api.accountFlow).toHaveBeenCalledWith('cursor');
-  });
-
-  it('shows browserLoginStarted toast when logging in to Antigravity', async () => {
-    const user = userEvent.setup();
-    const successSpy = vi.spyOn(toast, 'success');
-    const loggedOut = {
-      agent_id: 'antigravity',
-      display_name: 'Antigravity',
-      description: 'Antigravity ACP',
-      icon_light: null,
-      icon_dark: null,
-      icon_svg: null,
-      source: 'built_in_profile',
-      built_in: true,
-      retired: false,
-      enabled: true,
-      position: 0,
-      lifecycle: 'needs_auth',
-      authentication: 'not_logged_in',
-      runtime_version: '1.0.0',
-      acp_version: '1.0.0',
-      active_operation: null,
-      attention_reason: null,
-      is_default: true,
-    };
-    const loggedIn = {
-      ...loggedOut,
-      lifecycle: 'healthy',
-      authentication: 'account',
-    };
-    api.bar.mockResolvedValue([loggedOut]);
-    api.readConfig.mockResolvedValue({
-      agent_id: 'antigravity',
-      available: false,
-      settings_features: ['authentication_mode'],
-      path: null,
-      paths: [],
-      fields: [],
-      files: [],
-      applies_to_next_session: true,
-    });
-    api.authMode.mockResolvedValue({
-      agent_id: 'antigravity',
-      mode: 'oauth-personal',
-      modes: ['oauth-personal', 'oauth-business'],
-      options: [
-        {
-          value: 'oauth-personal',
-          kind: 'subscription',
-          label: 'Google 账号登录',
-          label_key: 'agents.authModeGoogleLogin',
-          description: 'OAuth 登录',
-          description_key: 'agents.authDescAntigravityOauthPersonal',
-          credential_env: null,
-          credential_required: false,
-          native_config_field_id: null,
-        },
-      ],
-      credential_env: 'GEMINI_API_KEY',
-      credential_present: false,
-      account_label: null,
-    });
-    api.actions.mockResolvedValue({
-      agent_id: 'antigravity',
-      actions: [
-        {
-          id: 'login',
-          kind: 'login',
-          label: '登录',
-          label_key: 'agents.managementAction.antigravity.login.label',
-          description: '在浏览器中完成 Antigravity 账号登录',
-          description_key:
-            'agents.managementAction.antigravity.login.description',
-          available: true,
-          unavailable_reason: null,
-          url: null,
-        },
-      ],
-    });
-    api.runAction.mockImplementation(async () => {
-      api.bar.mockResolvedValue([loggedIn]);
-      api.accountFlow.mockResolvedValue({
-        agent_id: 'antigravity',
-        action_id: 'login',
-        status: 'succeeded',
-        exit_code: 0,
-        authentication: 'account',
-      });
-      return {
-        agent_id: 'antigravity',
-        action_id: 'login',
-        launched: true,
-      };
-    });
-
-    render(<AgentSettings />);
-    expect(await screen.findByText('暂未登录')).toBeVisible();
-    await user.click(await screen.findByRole('button', { name: '登录' }));
-    await waitFor(() =>
-      expect(api.runAction).toHaveBeenCalledWith('antigravity', 'login')
-    );
-    expect(successSpy).toHaveBeenCalledWith(
-      '已启动官方登录，请在浏览器中完成。'
-    );
-  });
-
-  it('refreshes Grok official-subscription login status after the terminal flow finishes', async () => {
-    const user = userEvent.setup();
-    const loggedOut = {
-      agent_id: 'grok',
-      display_name: 'Grok',
-      description: 'Grok ACP',
-      icon_light: null,
-      icon_dark: null,
-      icon_svg: null,
-      source: 'built_in_profile',
-      built_in: true,
-      retired: false,
-      enabled: true,
-      position: 0,
-      lifecycle: 'needs_auth',
-      authentication: 'not_logged_in',
-      runtime_version: '1.0.0',
-      acp_version: '1.0.0',
-      active_operation: null,
-      rollback_available: false,
-      settings_features: ['authentication_mode'],
-    };
-    const loggedIn = {
-      ...loggedOut,
-      lifecycle: 'ready',
-      authentication: 'account',
-    };
-    api.bar.mockResolvedValue([loggedOut]);
-    api.readConfig.mockResolvedValue({
-      agent_id: 'grok',
-      available: true,
-      settings_features: ['authentication_mode'],
-      path: null,
-      paths: [],
-      fields: [],
-      files: [],
-      applies_to_next_session: true,
-    });
-    api.authMode.mockResolvedValue({
-      agent_id: 'grok',
-      mode: 'subscription',
-      credential_env: 'XAI_API_KEY',
-      credential_present: false,
-      modes: ['subscription', 'api_key', 'custom', 'model_provider'],
-      options: [
-        {
-          value: 'subscription',
-          kind: 'subscription',
-          label_key: 'agents.authModeSubscription',
-          description_key: 'agents.authDescGrokSubscription',
-          credential_env: null,
-          native_config_field_id: null,
-          credential_required: false,
-        },
-        {
-          value: 'api_key',
-          kind: 'official_api',
-          label_key: 'agents.authModeXaiKey',
-          description_key: 'agents.authDescGrokKey',
-          credential_env: 'XAI_API_KEY',
-          native_config_field_id: 'grok_api_key',
-          credential_required: true,
-        },
-        {
-          value: 'custom',
-          kind: 'provider',
-          label_key: 'agents.authModeCustomEndpoint',
-          description_key: 'agents.authDescGrokCustom',
-          credential_env: null,
-          native_config_field_id: null,
-          credential_required: false,
-        },
-        {
-          value: 'model_provider',
-          kind: 'provider',
-          label_key: 'agents.authModeProvider',
-          description_key: 'agents.authDescGrokCustom',
-          credential_env: null,
-          native_config_field_id: null,
-          credential_required: false,
-        },
-      ],
-    });
-    api.actions.mockResolvedValue({
-      agent_id: 'grok',
-      actions: [
-        {
-          id: 'login',
-          label: '登录 Grok',
-          description: '使用 SuperGrok 或 X Premium+ 账号登录。',
-          label_key: 'agents.managementAction.grok.login.label',
-          description_key: 'agents.managementAction.grok.login.description',
-          kind: 'login',
-          available: true,
-          unavailable_reason: null,
-          url: null,
-        },
-        {
-          id: 'logout',
-          label: '退出 Grok',
-          description: '移除 Grok 本地账号会话。',
-          label_key: 'agents.managementAction.grok.logout.label',
-          description_key: 'agents.managementAction.grok.logout.description',
-          kind: 'logout',
-          available: false,
-          unavailable_reason: '当前没有可退出的账号会话。',
-          url: null,
-        },
-      ],
-    });
-    api.runAction.mockImplementation(async () => {
-      api.bar.mockResolvedValue([loggedIn]);
-      api.accountFlow.mockResolvedValue({
-        agent_id: 'grok',
-        action_id: 'login',
-        status: 'succeeded',
-        exit_code: 0,
-        authentication: 'account',
-      });
-      api.actions.mockResolvedValue({
-        agent_id: 'grok',
-        actions: [
-          {
-            id: 'login',
-            label: '登录 Grok',
-            description: '使用 SuperGrok 或 X Premium+ 账号登录。',
-            label_key: 'agents.managementAction.grok.login.label',
-            description_key: 'agents.managementAction.grok.login.description',
-            kind: 'login',
-            available: false,
-            unavailable_reason: null,
-            url: null,
-          },
-          {
-            id: 'logout',
-            label: '退出 Grok',
-            description: '移除 Grok 本地账号会话。',
-            label_key: 'agents.managementAction.grok.logout.label',
-            description_key: 'agents.managementAction.grok.logout.description',
-            kind: 'logout',
-            available: true,
-            unavailable_reason: null,
-            url: null,
-          },
-        ],
-      });
-      return {
-        agent_id: 'grok',
-        action_id: 'login',
-        launched: true,
-      };
-    });
-
-    render(<AgentSettings />);
-    expect(await screen.findByText('暂未登录')).toBeVisible();
-    expect(await screen.findByText('未登录官方账号')).toBeVisible();
-    await user.click(await screen.findByRole('button', { name: '登录 Grok' }));
-    await waitFor(() =>
-      expect(api.runAction).toHaveBeenCalledWith('grok', 'login')
-    );
-    await waitFor(() => expect(api.accountFlow).toHaveBeenCalledWith('grok'));
-    await waitFor(() =>
-      expect(screen.getByText('已通过账号登录')).toBeVisible()
-    );
-    expect(screen.queryByText('未登录官方账号')).not.toBeInTheDocument();
-    expect(screen.getByRole('button', { name: '退出 Grok' })).toBeVisible();
-    expect(api.preflight).toHaveBeenCalledWith('grok', 'authentication');
-    expect(api.actions).toHaveBeenCalledWith('grok');
-  });
-
-  it('keeps refreshing Grok login status until the account session appears', async () => {
-    const user = userEvent.setup();
-    const loggedOut = {
-      agent_id: 'grok',
-      display_name: 'Grok',
-      description: 'Grok ACP',
-      icon_light: null,
-      icon_dark: null,
-      icon_svg: null,
-      source: 'built_in_profile',
-      built_in: true,
-      retired: false,
-      enabled: true,
-      position: 0,
-      lifecycle: 'needs_auth',
-      authentication: 'not_logged_in',
-      runtime_version: '1.0.0',
-      acp_version: '1.0.0',
-      active_operation: null,
-      rollback_available: false,
-      settings_features: ['authentication_mode'],
-    };
-    const loggedIn = {
-      ...loggedOut,
-      lifecycle: 'ready',
-      authentication: 'account',
-    };
-    const session = { current: loggedOut };
-    api.bar.mockImplementation(async () => [session.current]);
-    api.readConfig.mockResolvedValue({
-      agent_id: 'grok',
-      available: true,
-      settings_features: ['authentication_mode'],
-      path: null,
-      paths: [],
-      fields: [],
-      files: [],
-      applies_to_next_session: true,
-    });
-    api.authMode.mockResolvedValue({
-      agent_id: 'grok',
-      mode: 'subscription',
-      credential_env: 'XAI_API_KEY',
-      credential_present: false,
-      modes: ['subscription', 'api_key', 'custom'],
-      options: [
-        {
-          value: 'subscription',
-          kind: 'subscription',
-          label_key: 'agents.authModeSubscription',
-          description_key: 'agents.authDescGrokSubscription',
-          credential_env: null,
-          native_config_field_id: null,
-          credential_required: false,
-        },
-      ],
-    });
-    api.actions.mockResolvedValue({
-      agent_id: 'grok',
-      actions: [
-        {
-          id: 'login',
-          label: '登录 Grok',
-          description: '使用 SuperGrok 或 X Premium+ 账号登录。',
-          label_key: 'agents.managementAction.grok.login.label',
-          description_key: 'agents.managementAction.grok.login.description',
-          kind: 'login',
-          available: true,
-          unavailable_reason: null,
-          url: null,
-        },
-      ],
-    });
-    api.runAction.mockImplementation(async () => {
-      api.accountFlow.mockResolvedValue({
-        agent_id: 'grok',
-        action_id: 'login',
-        status: 'succeeded',
-        exit_code: 0,
-        authentication: 'account',
-      });
-      return {
-        agent_id: 'grok',
-        action_id: 'login',
-        launched: true,
-      };
-    });
-
-    render(<AgentSettings />);
-    expect(await screen.findByText('未登录官方账号')).toBeVisible();
-    await user.click(await screen.findByRole('button', { name: '登录 Grok' }));
-    await waitFor(() =>
-      expect(api.preflight).toHaveBeenCalledWith('grok', 'authentication')
-    );
-    expect(screen.getByText('未登录官方账号')).toBeVisible();
-    session.current = loggedIn;
-    await waitFor(
-      () => expect(screen.getByText('已通过账号登录')).toBeVisible(),
-      { timeout: 4000 }
-    );
-    expect(screen.queryByText('未登录官方账号')).not.toBeInTheDocument();
-  });
-
-  it('refreshes login status and preflight after enabling a Model Provider', async () => {
-    const user = userEvent.setup();
-    const loggedOut = {
-      agent_id: 'claude_code',
-      display_name: 'Claude Code',
-      description: 'Claude Code ACP',
-      icon_light: null,
-      icon_dark: null,
-      icon_svg: null,
-      source: 'built_in_profile',
-      built_in: true,
-      retired: false,
-      enabled: true,
-      position: 0,
-      lifecycle: 'needs_auth',
-      authentication: 'not_logged_in',
-      runtime_version: '1.0.0',
-      acp_version: '1.0.0',
-      active_operation: null,
-      rollback_available: false,
-      settings_features: ['authentication_mode', 'reusable_model_providers'],
-    };
-    const loggedIn = {
-      ...loggedOut,
-      lifecycle: 'ready',
-      authentication: 'api_key',
-    };
-    const authFail = {
-      id: 'authentication',
-      label: '鉴权',
-      status: 'fail',
-      detail: '当前鉴权模式 `official_subscription` 尚未就绪。',
-      version: 'official_subscription',
-      path: null,
-      source: null,
-      repairable: true,
-      update_available: false,
-      available_version: null,
-      update_group: null,
-    };
-    const authPass = {
-      ...authFail,
-      status: 'pass',
-      detail: '',
-      version: 'model_provider',
-    };
-    const acp = {
-      id: 'acp',
-      label: 'ACP 适配器',
-      status: 'pass',
-      detail: '',
-      version: '1.0.0',
-      path: '/usr/local/bin/claude-acp',
-      source: null,
-      repairable: true,
-      update_available: false,
-      available_version: null,
-      update_group: null,
-    };
-    api.bar.mockResolvedValue([loggedOut]);
-    api.readConfig.mockResolvedValue({
-      agent_id: 'claude_code',
-      available: true,
-      settings_features: ['authentication_mode', 'reusable_model_providers'],
-      path: null,
-      paths: [],
-      fields: [],
-      files: [],
-      applies_to_next_session: true,
-    });
-    api.authMode.mockResolvedValue({
-      agent_id: 'claude_code',
-      mode: 'official_subscription',
-      credential_env: 'ANTHROPIC_API_KEY',
-      credential_present: false,
-      modes: ['official_subscription', 'official_api', 'model_provider'],
-      options: [
-        {
-          value: 'official_subscription',
-          kind: 'subscription',
-          label_key: 'agents.authModeOfficialSubscription',
-          description_key: 'agents.authDescClaudeSubscription',
-          credential_env: null,
-          native_config_field_id: null,
-          credential_required: false,
-        },
-        {
-          value: 'official_api',
-          kind: 'official_api',
-          label_key: 'agents.authModeOfficialApi',
-          description_key: 'agents.authDescClaudeOfficialApi',
-          credential_env: 'ANTHROPIC_API_KEY',
-          native_config_field_id: 'anthropic_api_key',
-          credential_required: true,
-        },
-        {
-          value: 'model_provider',
-          kind: 'provider',
-          label_key: 'agents.authModeProvider',
-          description_key: 'agents.authDescClaudeProvider',
-          credential_env: null,
-          native_config_field_id: null,
-          credential_required: false,
-        },
-      ],
-    });
-    api.modelProviders.mockResolvedValue({
-      agent_id: 'claude_code',
-      providers: [
-        {
-          id: 'provider-1',
-          name: 'Gateway',
-          agent_id: 'claude_code',
-          api_url: 'https://gateway.example/v1',
-          model: 'gateway/sonnet',
-          credential_present: true,
-          bound: false,
-          managed: true,
-        },
-      ],
-      bound_provider_id: null,
-    });
-    api.preflight.mockImplementation(async (agentId: string) => ({
-      agent_id: agentId,
-      checked_at: '2026-09-08T00:00:00Z',
-      items: [acp, authFail],
-    }));
-    api.bindModelProvider.mockImplementation(async () => {
-      api.bar.mockResolvedValue([loggedIn]);
-      api.preflight.mockImplementation(
-        async (agentId: string, scope?: string) => ({
-          agent_id: agentId,
-          checked_at: '2026-09-08T00:01:00Z',
-          items: scope === 'authentication' ? [authPass] : [acp, authPass],
-        })
-      );
-      api.authMode.mockResolvedValue({
-        agent_id: 'claude_code',
-        mode: 'model_provider',
-        credential_env: 'ANTHROPIC_API_KEY',
-        credential_present: true,
-        modes: ['official_subscription', 'official_api', 'model_provider'],
-        options: [
-          {
-            value: 'official_subscription',
-            kind: 'subscription',
-            label_key: 'agents.authModeOfficialSubscription',
-            description_key: 'agents.authDescClaudeSubscription',
-            credential_env: null,
-            native_config_field_id: null,
-            credential_required: false,
-          },
-          {
-            value: 'official_api',
-            kind: 'official_api',
-            label_key: 'agents.authModeOfficialApi',
-            description_key: 'agents.authDescClaudeOfficialApi',
-            credential_env: 'ANTHROPIC_API_KEY',
-            native_config_field_id: 'anthropic_api_key',
-            credential_required: true,
-          },
-          {
-            value: 'model_provider',
-            kind: 'provider',
-            label_key: 'agents.authModeProvider',
-            description_key: 'agents.authDescClaudeProvider',
-            credential_env: null,
-            native_config_field_id: null,
-            credential_required: false,
-          },
-        ],
-      });
-      return {
-        agent_id: 'claude_code',
-        providers: [
-          {
-            id: 'provider-1',
-            name: 'Gateway',
-            agent_id: 'claude_code',
-            api_url: 'https://gateway.example/v1',
-            model: 'gateway/sonnet',
-            credential_present: true,
-            bound: true,
-            managed: true,
-          },
-        ],
-        bound_provider_id: 'provider-1',
-      };
-    });
-
-    render(<AgentSettings />);
-    expect(await screen.findByText('暂未登录')).toBeVisible();
-    await waitFor(() =>
-      expect(api.preflight).toHaveBeenCalledWith('claude_code')
-    );
-    expect(await screen.findByText('需处理')).toBeVisible();
-
-    await pickAuthModeTab(user, '供应商');
-    await user.click(await screen.findByRole('button', { name: '启用' }));
-    await waitFor(() =>
-      expect(api.bindModelProvider).toHaveBeenCalledWith(
-        'claude_code',
-        'provider-1'
-      )
-    );
-    await waitFor(() =>
-      expect(api.preflight).toHaveBeenCalledWith(
-        'claude_code',
-        'authentication'
-      )
-    );
-    expect(await screen.findByText('已通过 API Key 登录')).toBeVisible();
-    expect(screen.queryByText('暂未登录')).not.toBeInTheDocument();
-    expect(screen.queryByText('需处理')).not.toBeInTheDocument();
-  });
-
-  it('updates ACP preflight items and toasts when an update finishes', async () => {
-    api.preflight.mockResolvedValue({
-      agent_id: 'codex',
-      checked_at: '2026-08-21T00:00:00Z',
-      items: [
-        {
-          id: 'acp',
-          label: 'ACP 适配器',
-          status: 'pass',
-          detail: '',
-          version: '1.1.0',
-          path: '/opt/codex-acp',
-          source: null,
-          repairable: true,
-          update_available: true,
-          available_version: '1.7.0',
-          update_group: 'runtime-acp',
-        },
-      ],
-    });
-    const success = vi.spyOn(toast, 'success');
-    render(<AgentSettings />);
-    await screen.findByRole('button', { name: 'Codex' });
-    await waitFor(() =>
-      expect(listeners.has('agent-management-event')).toBe(true)
-    );
-    await userEvent.click(
-      await screen.findByRole('button', {
-        name: '展开 ACP 适配器 的检查详情',
-      })
-    );
-    expect(await screen.findByTitle('1.1.0')).toBeInTheDocument();
-    api.preflight.mockClear();
-    api.bar.mockResolvedValue([
-      {
-        agent_id: 'codex',
-        display_name: 'Codex',
-        description: 'Codex ACP',
-        icon_light: null,
-        icon_dark: null,
-        icon_svg: null,
-        source: 'built_in_profile',
-        built_in: true,
-        retired: false,
-        enabled: true,
-        position: 0,
-        lifecycle: 'ready',
-        authentication: 'account',
-        runtime_version: '0.148.0',
-        acp_version: '1.7.0',
-        active_operation: null,
-        rollback_available: true,
-        settings_features: ['authentication_mode'],
-      },
-    ]);
-
-    await act(async () => {
-      listeners.get('agent-management-event')?.({
-        sequence: 1,
-        agent_id: 'codex',
-        operation_id: 'update-1',
-        kind: 'update',
-        status: 'running',
-        progress_percent: 20,
-        message: '正在安装 ACP',
-      });
-    });
-    await act(async () => {
-      listeners.get('agent-management-event')?.({
-        sequence: 2,
-        agent_id: 'codex',
-        operation_id: 'update-1',
-        kind: 'update',
-        status: 'succeeded',
-        progress_percent: 100,
-        message: '安装与 ACP 验证完成',
-      });
-    });
-
-    await waitFor(() =>
-      expect(success).toHaveBeenCalledWith('已完成 ACP 更新')
-    );
-    expect(api.preflight).toHaveBeenCalledWith('codex');
-    await waitFor(() => expect(screen.getByTitle('1.7.0')).toBeInTheDocument());
-    expect(screen.queryByTitle('1.1.0')).not.toBeInTheDocument();
-    expect(screen.queryByText('可更新')).not.toBeInTheDocument();
-  });
-
-  it('refreshes actions and preflight after install/repair finishes so stale unavailable_reason disappears', async () => {
-    const unavailableReason = '未找到 `omp`；请重新安装或修复此 Agent。';
-    const uninstalledOmp = {
-      agent_id: 'omp',
-      display_name: 'Oh My Pi',
-      description: 'Oh My Pi ACP',
-      icon_light: '/agents/omp.svg',
-      icon_dark: '/agents/omp-dark.svg',
-      icon_svg: null,
-      source: 'built_in_profile',
-      built_in: true,
-      retired: false,
-      enabled: true,
-      position: 0,
-      lifecycle: 'needs_auth',
-      authentication: 'not_logged_in',
-      runtime_version: null,
-      acp_version: null,
-      active_operation: null,
-      rollback_available: false,
-      settings_features: ['authentication_mode', 'reusable_model_providers'],
-    };
-    const installedOmp = {
-      ...uninstalledOmp,
-      lifecycle: 'needs_auth',
-      runtime_version: '13.17.1',
-      acp_version: '13.17.1',
-    };
-    api.bar.mockResolvedValue([uninstalledOmp]);
-    api.readConfig.mockResolvedValue({
-      agent_id: 'omp',
-      available: true,
-      settings_features: ['authentication_mode', 'reusable_model_providers'],
-      path: '/tmp/.omp/agent/config.yml',
-      paths: ['/tmp/.omp/agent/config.yml'],
-      fields: [],
-      files: [],
-      applies_to_next_session: true,
-    });
-    api.authMode.mockResolvedValue({
-      agent_id: 'omp',
-      mode: 'subscription',
-      credential_env: 'ANTHROPIC_API_KEY',
-      credential_present: false,
-      modes: ['subscription', 'api_key', 'model_provider'],
-      options: [
-        {
-          value: 'subscription',
-          kind: 'subscription',
-          label_key: 'agents.authModeSubscription',
-          description_key: 'agents.authDescOmpSubscription',
-          credential_env: null,
-          native_config_field_id: null,
-          credential_required: false,
-        },
-      ],
-    });
-    api.preflight.mockResolvedValue({
-      agent_id: 'omp',
-      checked_at: '2026-11-05T00:00:00Z',
-      items: [
-        {
-          id: 'acp',
-          label: 'ACP 适配器',
-          status: 'fail',
-          detail: '未检测到 Oh My Pi',
-          version: null,
-          path: null,
-          source: null,
-          repairable: true,
-          update_available: false,
-          available_version: null,
-          update_group: null,
-        },
-      ],
-    });
-    api.actions.mockResolvedValue({
-      agent_id: 'omp',
-      actions: [
-        {
-          id: 'login',
-          label: '登录 Oh My Pi',
-          description: '在本地终端中运行 `omp /login` 完成订阅账号授权。',
-          label_key: 'agents.managementAction.omp.login.label',
-          description_key: 'agents.managementAction.omp.login.description',
-          kind: 'login',
-          available: false,
-          unavailable_reason: unavailableReason,
-          url: null,
-        },
-      ],
-    });
-
-    render(<AgentSettings />);
-    await screen.findByRole('button', { name: 'Oh My Pi' });
-    await waitFor(() =>
-      expect(listeners.has('agent-management-event')).toBe(true)
-    );
-    expect(await screen.findByText(unavailableReason)).toBeVisible();
-
-    api.preflight.mockClear();
-    api.actions.mockClear();
-    api.diagnostics.mockClear();
-    api.bar.mockResolvedValue([installedOmp]);
-    api.preflight.mockResolvedValue({
-      agent_id: 'omp',
-      checked_at: '2026-11-05T00:01:00Z',
-      items: [
-        {
-          id: 'acp',
-          label: 'ACP 适配器',
-          status: 'pass',
-          detail: '',
-          version: '13.17.1',
-          path: '/Users/example/.vibex/agents/omp/current/node_modules/.bin/omp',
-          source: 'managed',
-          repairable: false,
-          update_available: false,
-          available_version: null,
-          update_group: null,
-        },
-      ],
-    });
-    api.actions.mockResolvedValue({
-      agent_id: 'omp',
-      actions: [
-        {
-          id: 'login',
-          label: '登录 Oh My Pi',
-          description: '在本地终端中运行 `omp /login` 完成订阅账号授权。',
-          label_key: 'agents.managementAction.omp.login.label',
-          description_key: 'agents.managementAction.omp.login.description',
-          kind: 'login',
-          available: true,
-          unavailable_reason: null,
-          url: null,
-        },
-      ],
-    });
-
-    await act(async () => {
-      listeners.get('agent-management-event')?.({
-        sequence: 1,
-        agent_id: 'omp',
-        operation_id: 'install-omp-1',
-        kind: 'install',
-        status: 'running',
-        progress_percent: 45,
-        message: '正在安装 Oh My Pi ACP',
-      });
-    });
-    await act(async () => {
-      listeners.get('agent-management-event')?.({
-        sequence: 2,
-        agent_id: 'omp',
-        operation_id: 'install-omp-1',
-        kind: 'install',
-        status: 'succeeded',
-        progress_percent: 100,
-        message: '安装与 ACP 验证完成',
-      });
-    });
-
-    await waitFor(() => expect(api.actions).toHaveBeenCalledWith('omp'));
-    await waitFor(() => expect(api.preflight).toHaveBeenCalledWith('omp'));
-    expect(api.diagnostics).toHaveBeenCalledWith('omp');
-    await waitFor(() =>
-      expect(screen.queryByText(unavailableReason)).not.toBeInTheDocument()
-    );
-    expect(screen.getByRole('button', { name: '登录 OMP' })).not.toBeDisabled();
-  });
-
-  it('recovers from transient accountFlow polling errors and clears running state on persistent failure', async () => {
-    const errorSpy = vi.spyOn(toast, 'error');
-    api.actions.mockResolvedValue({
-      agent_id: 'codex',
-      actions: [
-        {
-          id: 'login',
-          label: '登录 Codex',
-          description: '登录',
-          label_key: 'agents.managementAction.codex.login.label',
-          description_key: 'agents.managementAction.codex.login.description',
-          kind: 'login',
-          available: true,
-          unavailable_reason: null,
-          url: null,
-        },
-      ],
-    });
-    api.accountFlow
-      .mockResolvedValueOnce({
-        agent_id: 'codex',
-        action_id: 'login',
-        status: 'pending',
-        exit_code: null,
-        authentication: null,
-      })
-      .mockRejectedValue(new Error('poll network error'));
-
-    render(<AgentSettings />);
-    await screen.findByRole('button', { name: 'Codex' });
-
-    await waitFor(
-      () => expect(errorSpy).toHaveBeenCalledWith('poll network error'),
-      { timeout: 5000 }
-    );
   });
 
   it('guards settings sidebar navigation when agent configuration has unsaved changes', async () => {
@@ -2883,65 +1163,13 @@ describe('AgentSettings', () => {
     expect(confirmShow).not.toHaveBeenCalled();
   });
 
-  it('reuses cached update status immediately without waiting for preflight and shows progress immediately on click', async () => {
-    const user = userEvent.setup();
-    recordAgentAcpUpdateCheck({
-      agent_id: 'codex',
-      current_version: '1.0.0',
-      available_version: '1.1.0',
-      runtime_current: '1.0.0',
-      runtime_available: '1.0.0',
-      acp_current: '1.0.0',
-      acp_available: '1.1.0',
-      update_available: true,
-      snapshot_id: 'snap-1',
-      fetched_at: '2026-11-05T00:00:00Z',
-      fresh: true,
-      compatibility_warning: undefined,
-    });
-    api.preflight.mockImplementation(() => new Promise(() => {}));
-    api.checkUpdate.mockImplementation(() => new Promise(() => {}));
-    let resolveUpdate: ((value: unknown) => void) | null = null;
-    api.applyUpdate.mockImplementation(
-      () =>
-        new Promise((resolve) => {
-          resolveUpdate = resolve;
-        })
-    );
-
-    render(<AgentSettings />);
-
-    const updateButton = await screen.findByRole('button', { name: '可更新' });
-    expect(updateButton).toBeVisible();
-
-    await user.click(updateButton);
-
-    expect(screen.getByText('基础环境检查')).toHaveAttribute(
-      'data-state',
-      'current'
-    );
-    expect(screen.queryByRole('progressbar')).not.toBeInTheDocument();
-    expect(screen.getByRole('log', { name: '安装日志' })).toHaveTextContent(
-      '$ vibex agent update codex'
-    );
-
-    await act(async () => {
-      resolveUpdate?.({
-        operation_id: 'op-update-1',
-        agent_id: 'codex',
-        kind: 'update',
-        status: 'queued',
-      });
-    });
-  });
-
   it('redeems a ModelRouter import ticket, saves the provider without binding, and binds only when the toast Enable action is clicked', async () => {
     const toastSuccessSpy = vi.spyOn(toast, 'success');
     api.bar.mockResolvedValue([
       {
         agent_id: 'codex',
         display_name: 'Codex',
-        description: 'Codex ACP',
+        description: 'OpenAI Codex (official native app-server engine)',
         icon_light: null,
         icon_dark: null,
         icon_svg: null,
@@ -2952,8 +1180,8 @@ describe('AgentSettings', () => {
         position: 0,
         lifecycle: 'ready',
         authentication: 'none',
-        runtime_version: '1.0.0',
-        acp_version: '1.0.0',
+        runtime_version: '0.169.0',
+        acp_version: '0.169.0',
         active_operation: null,
         rollback_available: false,
         settings_features: ['authentication_mode', 'reusable_model_providers'],
@@ -3070,22 +1298,3 @@ describe('AgentSettings', () => {
     );
   });
 });
-
-function configField(
-  field: Partial<AgentNativeConfigFieldView> &
-    Pick<AgentNativeConfigFieldView, 'id' | 'label'>
-): AgentNativeConfigFieldView {
-  return {
-    description: '',
-    kind: 'text',
-    options: [],
-    secret: false,
-    path: '/tmp/config',
-    present: true,
-    value: null,
-    masked_value: field.secret ? '••••••••' : null,
-    revision: `${field.id}-revision`,
-    surface: 'configuration',
-    ...field,
-  };
-}

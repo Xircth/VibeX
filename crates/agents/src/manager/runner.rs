@@ -11,6 +11,9 @@ pub(in crate::manager) mod goal;
 pub(in crate::manager) mod in_memory;
 pub(in crate::manager) mod interactions;
 pub(in crate::manager) mod jsonl;
+pub(in crate::manager) mod native;
+pub(in crate::manager) mod native_controls;
+pub(in crate::manager) mod native_events;
 pub(in crate::manager) mod probe;
 pub(in crate::manager) mod process;
 pub(in crate::manager) mod prompt;
@@ -43,8 +46,11 @@ pub(in crate::manager) struct AgentConnectionRunner {
     pub(in crate::manager) pending_permissions: Arc<Mutex<HashMap<String, PendingPermission>>>,
     pub(in crate::manager) pending_elicitations: Arc<Mutex<HashMap<String, PendingElicitation>>>,
     pub(in crate::manager) child_pid: Arc<std::sync::Mutex<Option<u32>>>,
+    pub(in crate::manager) process_job: Arc<std::sync::Mutex<Option<ProcessTreeJob>>>,
+    pub(in crate::manager) next_permission_revision: Arc<std::sync::atomic::AtomicU64>,
     pub(in crate::manager) auto_approve_mode: Arc<Mutex<AgentAutoApproveMode>>,
     pub(in crate::manager) delegation_injector: Option<Arc<dyn DelegationInjector>>,
+    pub(in crate::manager) idle_compaction: Arc<crate::idle_compaction::IdleCompaction>,
     // Per-session streaming-text accumulator shared with the ACP client bridge so
     // redundant full-message snapshots can be dropped (see `dedup_stream_text`).
     pub(in crate::manager) stream_dedup: Arc<Mutex<HashMap<String, StreamDedupState>>>,
@@ -165,7 +171,10 @@ pub(in crate::manager) struct SessionControlState {
 pub(in crate::manager) struct PendingPermission {
     pub(in crate::manager) permission_id: AgentPermissionId,
     pub(in crate::manager) session_id: AgentSessionId,
+    pub(in crate::manager) title: String,
+    pub(in crate::manager) details: Option<serde_json::Value>,
     pub(in crate::manager) options: Vec<AgentPermissionOption>,
+    pub(in crate::manager) revision: u64,
     pub(in crate::manager) tx: oneshot::Sender<AgentPermissionResponse>,
 }
 
@@ -283,8 +292,11 @@ impl AgentConnectionRunner {
             pending_permissions: Arc::new(Mutex::new(HashMap::new())),
             pending_elicitations: Arc::new(Mutex::new(HashMap::new())),
             child_pid: Arc::new(std::sync::Mutex::new(None)),
+            process_job: Arc::new(std::sync::Mutex::new(None)),
+            next_permission_revision: Arc::new(std::sync::atomic::AtomicU64::new(1)),
             auto_approve_mode,
             delegation_injector,
+            idle_compaction: Arc::new(crate::idle_compaction::IdleCompaction::default()),
             stream_dedup: Arc::new(Mutex::new(HashMap::new())),
             active_prompt: Arc::new(Mutex::new(None)),
             last_activity: Arc::new(Mutex::new(Instant::now())),
@@ -310,6 +322,19 @@ impl AgentConnectionRunner {
             connection_wants_prompt_suggestions: Arc::new(AtomicBool::new(false)),
             session_wants_prompt_suggestions: Arc::new(RwLock::new(HashMap::new())),
         }
+    }
+
+    pub(in crate::manager) fn allocate_permission_revision(&self) -> u64 {
+        self.next_permission_revision
+            .fetch_add(1, Ordering::Relaxed)
+    }
+
+    pub(in crate::manager) fn with_idle_compaction(
+        mut self,
+        idle_compaction: Arc<crate::idle_compaction::IdleCompaction>,
+    ) -> Self {
+        self.idle_compaction = idle_compaction;
+        self
     }
 
     pub(in crate::manager) async fn record_wants_prompt_suggestions(
@@ -457,14 +482,47 @@ impl AgentConnectionRunner {
 
     pub(in crate::manager) async fn run(
         self,
-        cmd_rx: mpsc::Receiver<AgentConnectionCommand>,
+        mut cmd_rx: mpsc::Receiver<AgentConnectionCommand>,
         ready_tx: oneshot::Sender<AgentResult<()>>,
     ) {
-        // Shared so run_acp signals Ok at handshake AND a pre-handshake failure
+        // Shared so run_native/run_acp signals Ok at handshake AND a pre-handshake failure
         // forwards the REAL error to `connect` (instead of a dropped-sender
         // generic). `take()` makes exactly one of the two fire.
         let ready = Arc::new(Mutex::new(Some(ready_tx)));
-        if let Err(error) = self.run_acp(cmd_rx, Arc::clone(&ready)).await {
+        let mode_env = self
+            .snapshot
+            .env
+            .get("VIBEX_ENGINE_MODE")
+            .cloned()
+            .or_else(|| std::env::var("VIBEX_ENGINE_MODE").ok());
+        let force_native = mode_env
+            .as_deref()
+            .is_some_and(|v| v.trim().eq_ignore_ascii_case("native"));
+
+        let outcome = if let Some(driver) = self.resolve_native_engine_driver(mode_env.as_deref()) {
+            let engine_id = driver.engine_id().to_string();
+            match self.run_native(&mut cmd_rx, Arc::clone(&ready), driver).await {
+                Ok(()) => Ok(()),
+                Err(error)
+                    if !force_native
+                        && ready.lock().await.is_some()
+                        && self.can_fallback_to_acp_adapter(mode_env.as_deref()) =>
+                {
+                    tracing::warn!(
+                        agent_id = %self.snapshot.agent_id,
+                        engine = %engine_id,
+                        %error,
+                        "native engine pre-handshake startup failed; falling back to ACP adapter"
+                    );
+                    self.run_acp(cmd_rx, Arc::clone(&ready)).await
+                }
+                Err(error) => Err(error),
+            }
+        } else {
+            self.run_acp(cmd_rx, Arc::clone(&ready)).await
+        };
+
+        if let Err(error) = outcome {
             let turn_error = turn_error_event_from_connection_failure(&error);
             let status_message = turn_error.message.clone();
             if let Some(tx) = ready.lock().await.take() {

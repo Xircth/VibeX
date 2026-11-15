@@ -11,29 +11,35 @@ describe('nextOlderTimelinePage', () => {
   it('returns null when there is no earlier window', () => {
     expect(nextOlderTimelinePage(null)).toBeNull();
     expect(nextOlderTimelinePage(undefined)).toBeNull();
-    expect(nextOlderTimelinePage('0')).toBeNull();
-    expect(nextOlderTimelinePage('nope')).toBeNull();
+    expect(nextOlderTimelinePage('')).toBeNull();
+    expect(nextOlderTimelinePage('   ')).toBeNull();
   });
 
-  it('pages backward in small chunks instead of the whole remaining history', () => {
+  it('forwards opaque keyset cursors verbatim with TIMELINE_OLDER_PAGE_SIZE', () => {
     expect(TIMELINE_OLDER_PAGE_SIZE).toBe(120);
-    expect(nextOlderTimelinePage('200')).toEqual({ start: 80, limit: 120 });
-    expect(nextOlderTimelinePage('120')).toEqual({ start: 0, limit: 120 });
-    expect(nextOlderTimelinePage('10')).toEqual({ start: 0, limit: 10 });
+    expect(nextOlderTimelinePage('eyJzb3J0X2luZGV4IjoxMjB9')).toEqual({
+      cursor: 'eyJzb3J0X2luZGV4IjoxMjB9',
+      limit: 120,
+    });
+    expect(nextOlderTimelinePage('200')).toEqual({ cursor: '200', limit: 120 });
   });
 });
 
 describe('preferLoadedOlderCursor', () => {
   it('uses the open-window cursor on first hydrate', () => {
-    expect(preferLoadedOlderCursor(null, '80', false)).toBe('80');
+    expect(preferLoadedOlderCursor(null, 'cursor-open-tail', false)).toBe(
+      'cursor-open-tail'
+    );
   });
 
   it('keeps a completed loaded window across a tail reload', () => {
-    expect(preferLoadedOlderCursor(null, '80', true)).toBeNull();
+    expect(preferLoadedOlderCursor(null, 'cursor-open-tail', true)).toBeNull();
   });
 
-  it('keeps the more-complete cursor when the tail reload is behind', () => {
-    expect(preferLoadedOlderCursor('16', '80', true)).toBe('16');
+  it('keeps the loaded opaque cursor when the tail reload is behind', () => {
+    expect(
+      preferLoadedOlderCursor('cursor-page-2', 'cursor-open-tail', true)
+    ).toBe('cursor-page-2');
   });
 });
 
@@ -66,6 +72,19 @@ describe('mergeOpenTimelineRows', () => {
   it('keeps the higher revision when the same row is reloaded', () => {
     const merged = mergeOpenTimelineRows([row('t9', 9n)], [row('t9', 12n)]);
     expect(merged[0]?.revision).toBe(12n);
+  });
+
+  it('enforces monotonic revision strictly without special-casing acp-* row_ids', () => {
+    const existingRow: TimelineRow = {
+      ...row('t1', 10n),
+      row_id: 'acp-1',
+    };
+    const staleIncomingRow: TimelineRow = {
+      ...row('t1', 5n),
+      row_id: 'acp-1',
+    };
+    const merged = mergeOpenTimelineRows([existingRow], [staleIncomingRow]);
+    expect(merged[0]?.revision).toBe(10n);
   });
 
   it('appends incoming rows that are newer than the loaded window', () => {

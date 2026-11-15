@@ -7,7 +7,19 @@ import type {
 import { agentsApi } from './api';
 
 function normalizeAgentType(agentType: string | null | undefined): string {
-  return typeof agentType === 'string' ? agentType.trim().toLowerCase() : '';
+  if (typeof agentType !== 'string') return '';
+  const normalized = agentType.trim().toLowerCase();
+  if (
+    normalized === 'claude-code' ||
+    normalized === 'claude-native' ||
+    normalized === 'claude_native'
+  ) {
+    return 'claude_code';
+  }
+  if (normalized === 'codex-native' || normalized === 'codex_native') {
+    return 'codex';
+  }
+  return normalized;
 }
 
 export function sessionControlsQueryKey(

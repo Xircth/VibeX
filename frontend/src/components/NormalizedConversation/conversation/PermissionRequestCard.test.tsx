@@ -89,6 +89,24 @@ describe('PermissionRequestCard', () => {
     });
   });
 
+  it('echoes authoritative backend revision as expected_revision when present', () => {
+    const onRespond = vi.fn();
+    render(
+      <PermissionRequestCard
+        request={fileEditRequest({ revision: 7 })}
+        onRespond={onRespond}
+      />
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: '允许' }));
+
+    expect(onRespond).toHaveBeenCalledWith('perm-1', {
+      kind: 'selected',
+      option_id: 'allow',
+      expected_revision: 7,
+    });
+  });
+
   it('keeps broader approval scopes behind the allow split menu', async () => {
     const user = userEvent.setup();
     const onRespond = vi.fn();
@@ -326,5 +344,67 @@ describe('PermissionRequestCard', () => {
       screen.getByRole('heading', { name: '权限申请' })
     ).toBeInTheDocument();
     expect(screen.getByText('Update Cargo.toml')).toBeInTheDocument();
+  });
+
+  it('renders command and unified diff previews from native details.input and bare input objects', () => {
+    const { rerender } = render(
+      <PermissionRequestCard
+        request={fileEditRequest({
+          title: 'commandExecution',
+          details: {
+            toolName: 'commandExecution',
+            input: { command: 'cargo test -p conversations --lib' },
+          },
+        })}
+        onRespond={vi.fn()}
+      />
+    );
+
+    expect(screen.getByText('终端')).toBeInTheDocument();
+    expect(
+      screen.getByText('cargo test -p conversations --lib')
+    ).toBeInTheDocument();
+
+    rerender(
+      <PermissionRequestCard
+        request={fileEditRequest({
+          title: 'fileChange',
+          details: {
+            changes: [
+              {
+                path: 'src/native.ts',
+                kind: 'update',
+                diff: '@@ -1 +1 @@\n-const legacy = true;\n+const legacy = false;',
+              },
+            ],
+          },
+        })}
+        onRespond={vi.fn()}
+      />
+    );
+
+    expect(screen.getByText('文件')).toBeInTheDocument();
+    expect(screen.getByText('src/native.ts')).toBeInTheDocument();
+    expect(screen.getByText(/const legacy = false;/)).toBeInTheDocument();
+
+    rerender(
+      <PermissionRequestCard
+        request={fileEditRequest({
+          title: 'Edit',
+          details: {
+            toolName: 'Edit',
+            input: {
+              file_path: 'src/claude.ts',
+              old_string: 'before()',
+              new_string: 'after()',
+            },
+          },
+        })}
+        onRespond={vi.fn()}
+      />
+    );
+
+    expect(screen.getByText('src/claude.ts')).toBeInTheDocument();
+    expect(screen.getByText(/after\(\)/)).toBeInTheDocument();
   });
 });

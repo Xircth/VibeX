@@ -218,4 +218,181 @@ describe('conversationApi', () => {
       },
     });
   });
+
+  it('normalizes rowsSince upserts and tombstones and falls back to conversation_events_since when unimplemented', async () => {
+    call.mockResolvedValueOnce({
+      conversation_id: 'conversation-1',
+      after_sequence: 4n,
+      last_sequence: 7n,
+      reset: false,
+      rows: [
+        {
+          row_id: 't1:assistant',
+          revision: 6n,
+          row: {
+            kind: 'message_turn',
+            phase: 'settled',
+            turn: {
+              id: 't1:assistant',
+              role: 'assistant',
+              blocks: [{ type: 'text', text: 'ok' }],
+              timestamp: '2026-07-03T00:00:00.000Z',
+            },
+          },
+        },
+      ],
+      deleted_rows: [{ row_id: 'perm:p1', revision: 7n }],
+    });
+
+    const primary = await conversationApi.rowsSince({
+      conversationId: 'conversation-1',
+      afterSequence: 4n,
+    });
+    expect(call).toHaveBeenCalledWith('conversation_rows_since', {
+      request: {
+        conversationId: 'conversation-1',
+        afterSequence: 4,
+      },
+    });
+    expect(primary.lastSequence).toBe(7n);
+    expect(primary.reset).toBe(false);
+    expect(primary.ops).toEqual([
+      expect.objectContaining({ op: 'upsert' }),
+      { op: 'delete', row_id: 'perm:p1', revision: 7n },
+    ]);
+
+    call.mockRejectedValueOnce(
+      new Error('404: unknown command conversation_rows_since')
+    );
+    call.mockResolvedValueOnce({
+      conversation_id: 'conversation-1',
+      after_sequence: 7n,
+      last_sequence: 9n,
+      rows: [],
+      deleted_row_ids: ['q:1'],
+    });
+    const fallback = await conversationApi.rowsSince({
+      conversationId: 'conversation-1',
+      afterSequence: 7n,
+    });
+    expect(call).toHaveBeenLastCalledWith('conversation_events_since', {
+      request: {
+        conversationId: 'conversation-1',
+        afterSequence: 7,
+      },
+    });
+    expect(fallback.ops).toEqual([
+      { op: 'delete', row_id: 'q:1', revision: 9n },
+    ]);
+  });
+
+  it('forwards opaque keyset cursors verbatim in timelinePage', async () => {
+    call.mockResolvedValueOnce({
+      conversation_id: 'conversation-1',
+      projection_version: 2,
+      cursor: 'eyJzb3J0X2luZGV4IjoxMjB9',
+      next_cursor: 'eyJzb3J0X2luZGV4Ijo2MH0',
+      rows: [],
+    });
+
+    await conversationApi.timelinePage({
+      conversationId: 'conversation-1',
+      cursor: 'eyJzb3J0X2luZGV4IjoxMjB9',
+      limit: 120,
+    });
+
+    expect(call).toHaveBeenLastCalledWith('conversation_timeline_page', {
+      request: {
+        conversationId: 'conversation-1',
+        cursor: 'eyJzb3J0X2luZGV4IjoxMjB9',
+        limit: 120,
+      },
+    });
+  });
+
+  it('normalizes rollback safety reports and falls back gracefully when unimplemented', async () => {
+    call.mockResolvedValueOnce({
+      Degraded: { reason: 'ACP session does not support revert' },
+    });
+    await expect(
+      conversationApi.checkRollbackSafety({
+        conversationId: 'conversation-1',
+        ordinal: 2,
+      })
+    ).resolves.toEqual({
+      status: 'degraded',
+      reason: 'ACP session does not support revert',
+    });
+
+    call.mockResolvedValueOnce({
+      status: 'Unsafe',
+      reason: 'Another active thread is using this workspace',
+    });
+    await expect(
+      conversationApi.checkRollbackSafety({
+        conversationId: 'conversation-1',
+        ordinal: 2,
+      })
+    ).resolves.toEqual({
+      status: 'unsafe',
+      reason: 'Another active thread is using this workspace',
+    });
+
+    call.mockRejectedValueOnce(
+      new Error('404: unknown command conversation_check_rollback_safety')
+    );
+    await expect(
+      conversationApi.checkRollbackSafety({
+        conversationId: 'conversation-1',
+        ordinal: 2,
+      })
+    ).resolves.toEqual({
+      status: 'safe',
+      engineSupportsRevert: true,
+    });
+  });
+
+  it('dispatches rate-limit recovery and engine handoff commands', async () => {
+    call.mockResolvedValue(undefined);
+
+    await conversationApi.updateRateLimitAutoResume({
+      conversationId: 'conversation-1',
+      autoResume: false,
+      continuationPrompt: 'Resume tests.',
+    });
+    expect(call).toHaveBeenLastCalledWith(
+      'conversation_rate_limit_update_auto_resume',
+      {
+        request: {
+          conversationId: 'conversation-1',
+          autoResume: false,
+          continuationPrompt: 'Resume tests.',
+        },
+      }
+    );
+
+    await conversationApi.cancelRateLimitWait({
+      conversationId: 'conversation-1',
+    });
+    expect(call).toHaveBeenLastCalledWith(
+      'conversation_rate_limit_cancel_wait',
+      {
+        request: { conversationId: 'conversation-1' },
+      }
+    );
+
+    await conversationApi.confirmEngineHandoff({
+      conversationId: 'conversation-1',
+      targetEngine: 'codex',
+    });
+    expect(call).toHaveBeenLastCalledWith(
+      'conversation_confirm_engine_handoff',
+      {
+        request: {
+          conversationId: 'conversation-1',
+          targetEngine: 'codex',
+        },
+      }
+    );
+  });
 });

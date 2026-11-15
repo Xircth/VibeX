@@ -4,7 +4,9 @@ version = "0.4.4"
 edition = "2024"
 
 [dependencies]
+api-types = { path = "../api-types" }
 chrono = { workspace = true }
+regex = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 sha2 = "0.10"

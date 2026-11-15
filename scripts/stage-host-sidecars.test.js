@@ -125,3 +125,21 @@ test('copySidecar refuses to stage an empty placeholder', () => {
     /empty sidecar/
   );
 });
+
+test('copySidecar replaces existing staged binary and sweeps retired leftovers', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'vibex-sidecars-atomic-'));
+  const src = path.join(root, 'vibex-mcp-src');
+  const outDir = path.join(root, 'out');
+  const ext = process.platform === 'win32' ? '.exe' : '';
+  const triple = 'x86_64-pc-windows-msvc';
+  const baseName = `vibex-mcp-${triple}${ext}`;
+  fs.mkdirSync(outDir, { recursive: true });
+  fs.writeFileSync(path.join(outDir, baseName), 'v1');
+  fs.writeFileSync(path.join(outDir, `${baseName}.old-100-1`), 'retired');
+  fs.writeFileSync(src, 'v2-fresh');
+
+  copySidecar('vibex-mcp', src, outDir, triple);
+
+  assert.equal(fs.readFileSync(path.join(outDir, baseName), 'utf8'), 'v2-fresh');
+  assert.equal(fs.existsSync(path.join(outDir, `${baseName}.old-100-1`)), false);
+});

@@ -107,6 +107,23 @@ function packageHostFamily(options) {
   if (catalog) {
     copyFile(catalog, path.join(output, "vibex-plugin.json"));
   }
+  const claudeNativeScripts = [
+    "claude-native-driver.mjs",
+    "claude-native-events.mjs",
+    "claude-native-cli.mjs",
+  ];
+  const scriptRoots = [
+    path.join(repoRoot, "scripts"),
+    path.join(path.dirname(options.plugins), "scripts"),
+  ];
+  for (const scriptName of claudeNativeScripts) {
+    const scriptSource = scriptRoots
+      .map((scriptRoot) => path.join(scriptRoot, scriptName))
+      .find((candidate) => fs.existsSync(candidate));
+    if (scriptSource) {
+      copyFile(scriptSource, path.join(output, "scripts", scriptName));
+    }
+  }
 
   const checksums = [
     serverName,

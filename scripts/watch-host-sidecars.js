@@ -53,25 +53,79 @@ function isHostSidecarSourcePath(filePath, repo) {
   );
 }
 
+function sweepRetiredSidecarArtifacts(dir) {
+  if (!fs.existsSync(dir)) {
+    return;
+  }
+  let entries;
+  try {
+    entries = fs.readdirSync(dir);
+  } catch {
+    return;
+  }
+  for (const entry of entries) {
+    if (entry.includes('.old-') || entry.includes('.running')) {
+      try {
+        fs.unlinkSync(path.join(dir, entry));
+      } catch {
+        // Still mapped by a running process; leave for a later sweep.
+      }
+    }
+  }
+}
+
+function vacateSidecarOutput(file) {
+  if (!fs.existsSync(file)) {
+    return;
+  }
+  try {
+    fs.unlinkSync(file);
+  } catch {
+    try {
+      fs.renameSync(file, `${file}.old-${process.pid}-${Date.now()}`);
+    } catch {
+      // If neither unlink nor rename succeeded, Cargo will surface the OS error.
+    }
+  }
+}
+
 function freeLockedSidecarOutputs({
   repo,
   env = {},
   platform = process.platform,
 } = {}) {
-  for (const name of HOST_SIDECAR_PACKAGES) {
-    const file = sidecarDebugBinary(name, { repo, env, platform });
-    if (!fs.existsSync(file)) {
-      continue;
-    }
+  const targetDir = env.CARGO_TARGET_DIR || path.join(repo, 'target');
+  const debugDir = path.join(targetDir, 'debug');
+  const depsDir = path.join(debugDir, 'deps');
+  const ext = platform === 'win32' ? '.exe' : '';
+  const escapedExt = ext.replace('.', '\\.');
+
+  sweepRetiredSidecarArtifacts(debugDir);
+  sweepRetiredSidecarArtifacts(depsDir);
+
+  let depEntries = [];
+  if (fs.existsSync(depsDir)) {
     try {
-      fs.unlinkSync(file);
+      depEntries = fs.readdirSync(depsDir);
     } catch {
-      try {
-        fs.renameSync(file, `${file}.old-${Date.now()}`);
-      } catch {
-        // The previous sidecar image can stay mapped; cargo then writes beside it.
+      depEntries = [];
+    }
+  }
+
+  for (const name of HOST_SIDECAR_PACKAGES) {
+    const stem = name.replace(/-/g, '_');
+    // Vacate `deps/<stem>.exe` (and hashed `deps/<stem>-<hash>.exe`) BEFORE the
+    // outer hardlink `debug/<name>.exe`. On Windows NTFS, unlinking only the
+    // outer hardlink drops link-count 2 -> 1 without freeing `deps/<stem>.exe`,
+    // causing `link.exe` to fail with LNK1104 while leaving the outer binary gone.
+    vacateSidecarOutput(path.join(depsDir, `${stem}${ext}`));
+    const hashedPattern = new RegExp(`^${stem}-[0-9a-f]+${escapedExt}$`, 'i');
+    for (const entry of depEntries) {
+      if (hashedPattern.test(entry)) {
+        vacateSidecarOutput(path.join(depsDir, entry));
       }
     }
+    vacateSidecarOutput(sidecarDebugBinary(name, { repo, env, platform }));
   }
 }
 

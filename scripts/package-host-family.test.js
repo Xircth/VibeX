@@ -44,6 +44,24 @@ test("packages server, companion, web UI, and official catalog without plugin pa
     JSON.stringify({ id: "vibex.host-chrome" }),
   );
 
+  fs.mkdirSync(path.join(root, "scripts"), { recursive: true });
+  fs.writeFileSync(
+    path.join(root, "scripts", "claude-native-driver.mjs"),
+    "export const driver = true;\n",
+  );
+  fs.writeFileSync(
+    path.join(root, "scripts", "claude-native-events.mjs"),
+    "export const events = true;\n",
+  );
+  fs.writeFileSync(
+    path.join(root, "scripts", "claude-native-cli.mjs"),
+    "export const cli = true;\n",
+  );
+  fs.writeFileSync(
+    path.join(root, "scripts", "claude-native-driver.test.mjs"),
+    "// test should not be bundled\n",
+  );
+
   const output = packageHostFamily({
     server,
     mcp,
@@ -63,6 +81,22 @@ test("packages server, companion, web UI, and official catalog without plugin pa
     fs.readFileSync(path.join(output, "web", "index.html"), "utf8"),
     "<html></html>",
   );
+  assert.equal(
+    fs.readFileSync(path.join(output, "scripts", "claude-native-driver.mjs"), "utf8"),
+    "export const driver = true;\n",
+  );
+  assert.equal(
+    fs.readFileSync(path.join(output, "scripts", "claude-native-events.mjs"), "utf8"),
+    "export const events = true;\n",
+  );
+  assert.equal(
+    fs.readFileSync(path.join(output, "scripts", "claude-native-cli.mjs"), "utf8"),
+    "export const cli = true;\n",
+  );
+  assert.equal(
+    fs.existsSync(path.join(output, "scripts", "claude-native-driver.test.mjs")),
+    false,
+  );
   assert.ok(fs.existsSync(path.join(output, "vibex-plugin.json")));
   assert.equal(fs.existsSync(path.join(output, "plugins", "bundled")), false);
   assert.equal(
@@ -78,6 +112,10 @@ test("packages server, companion, web UI, and official catalog without plugin pa
   assert.match(checksums, /  vibex-server\n/);
   assert.match(checksums, /  vibex-mcp\n/);
   assert.match(checksums, /  vibex-workflow-mcp\n/);
-  assert.match(checksums, /  web\/index.html\n/);
+  assert.match(checksums, /  web\/index\.html\n/);
+  assert.match(checksums, /  scripts\/claude-native-driver\.mjs\n/);
+  assert.match(checksums, /  scripts\/claude-native-events\.mjs\n/);
+  assert.match(checksums, /  scripts\/claude-native-cli\.mjs\n/);
+  assert.doesNotMatch(checksums, /claude-native-driver\.test\.mjs/);
   assert.doesNotMatch(checksums, /scratch/);
 });

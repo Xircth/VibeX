@@ -98,12 +98,21 @@ test('only official product MCP crates trigger a sidecar rebuild', () => {
   );
 });
 
-test('rebuildHostSidecars frees locked debug binaries then cargo-builds both sidecars', () => {
+test('rebuildHostSidecars frees locked debug and deps binaries then cargo-builds both sidecars', () => {
   const repo = fs.mkdtempSync(path.join(os.tmpdir(), 'vibex-sidecar-rebuild-'));
   const debugDir = path.join(repo, 'target', 'debug');
-  fs.mkdirSync(debugDir, { recursive: true });
-  const locked = path.join(debugDir, `vibex-mcp${exe}`);
-  fs.writeFileSync(locked, 'old');
+  const depsDir = path.join(debugDir, 'deps');
+  fs.mkdirSync(depsDir, { recursive: true });
+  const lockedOuter = path.join(debugDir, `vibex-mcp${exe}`);
+  const lockedDeps = path.join(depsDir, `vibex_mcp${exe}`);
+  const lockedHashed = path.join(depsDir, `vibex_mcp-a1b2c3d4e5f6${exe}`);
+  const staleRunning = path.join(debugDir, `vibex-mcp.running${exe}`);
+  const staleOld = path.join(depsDir, `vibex_mcp${exe}.old-99-1`);
+  fs.writeFileSync(lockedOuter, 'old');
+  fs.writeFileSync(lockedDeps, 'old-deps');
+  fs.writeFileSync(lockedHashed, 'old-hashed');
+  fs.writeFileSync(staleRunning, 'stale-running');
+  fs.writeFileSync(staleOld, 'stale-old');
 
   const cargoCalls = [];
   const staged = [];
@@ -119,7 +128,11 @@ test('rebuildHostSidecars frees locked debug binaries then cargo-builds both sid
     },
   });
 
-  assert.equal(fs.existsSync(locked), false);
+  assert.equal(fs.existsSync(lockedOuter), false);
+  assert.equal(fs.existsSync(lockedDeps), false);
+  assert.equal(fs.existsSync(lockedHashed), false);
+  assert.equal(fs.existsSync(staleRunning), false);
+  assert.equal(fs.existsSync(staleOld), false);
   assert.equal(cargoCalls.length, 1);
   assert.equal(cargoCalls[0].command, 'cargo');
   assert.deepEqual(cargoCalls[0].args, [

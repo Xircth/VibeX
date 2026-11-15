@@ -7,6 +7,7 @@
 
 use std::{
     collections::HashMap,
+    path::Path,
     sync::{
         Arc, Mutex, RwLock,
         atomic::{AtomicBool, AtomicU64, Ordering},
@@ -18,7 +19,7 @@ use async_trait::async_trait;
 use command_group::AsyncGroupChild;
 use serde_json::{Value, json};
 use tokio::{
-    io::{AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader},
+    io::{AsyncBufReadExt, AsyncRead, AsyncWrite, BufReader},
     sync::{Mutex as AsyncMutex, broadcast, oneshot},
     time::timeout,
 };
@@ -31,17 +32,20 @@ pub use super::claude_events::{
     default_claude_models, resolve_claude_driver_script, resolve_node_executable,
 };
 use super::claude_events::{
-    default_claude_permission_options, normalize_sidecar_event, parse_sidecar_models,
-    serialize_sidecar_blocks, str_opt, str_or,
+    classify_claude_tool_call, claude_accepts_model_id, claude_capabilities, claude_normalize_mode,
+    default_claude_permission_options, encode_claude_question_answers, normalize_sidecar_event,
+    parse_sidecar_models, prepare_claude_launch_env, resolve_claude_auth,
+    resolve_claude_default_model, serialize_sidecar_blocks, str_opt, str_or,
 };
 use crate::{
     engine::{
-        EngineAuth, EngineCacheStatus, EngineCheckpoint, EngineError, EngineEvent,
-        EngineEventStream, EngineForkReceipt, EngineForkRequest, EngineHandle, EngineModelInfo,
-        EnginePermissionDecision, EnginePromptRequest, EngineRateLimits, EngineStartSpec,
-        EngineSteerReceipt, EngineSteerRequest, NativeEngineDriver, NativeEngineKind, PromptMode,
-        TurnEventRouter, TurnRouteFilter, format_bounded_diagnostic,
-        is_placeholder_engine_session_id, prepare_instance_isolation_env,
+        EngineAuth, EngineCacheStatus, EngineCapabilities, EngineCheckpoint, EngineError,
+        EngineEvent, EngineEventStream, EngineForkReceipt, EngineForkRequest, EngineHandle,
+        EngineModelInfo, EnginePermissionDecision, EnginePromptRequest, EngineRateLimits,
+        EngineStartSpec, EngineSteerReceipt, EngineSteerRequest, EngineToolClassification,
+        NativeEngineDriver, NativeEngineKind, PromptMode, TurnEventRouter, TurnRouteFilter,
+        descriptor::normalize_agent_token, format_bounded_diagnostic,
+        is_placeholder_engine_session_id, prepare_instance_isolation_env_for_keys,
         stream_router::spawn_stderr_tail_reader,
     },
     stderr_tail::StderrTail,
@@ -58,18 +62,6 @@ struct PendingSidecarServerRequest {
     raw_rpc_id: Value,
     prompt_id: Option<String>,
     session_id: Option<String>,
-}
-
-async fn write_jsonrpc_frame(
-    writer: &AsyncMutex<Box<dyn AsyncWrite + Unpin + Send>>,
-    message: &Value,
-) -> Result<(), EngineError> {
-    let mut encoded = serde_json::to_vec(message)?;
-    encoded.push(b'\n');
-    let mut guard = writer.lock().await;
-    guard.write_all(&encoded).await?;
-    guard.flush().await?;
-    Ok(())
 }
 
 /// Live JSON-RPC 2.0 connection to a `claude-native-driver.mjs` Node sidecar process.
@@ -117,7 +109,10 @@ impl ClaudeSidecarClient {
     pub async fn spawn(spec: &EngineStartSpec) -> Result<Arc<Self>, EngineError> {
         let node_binary = resolve_node_executable(spec).await?;
         let script_path = resolve_claude_driver_script(spec)?;
-        let isolation_env = prepare_instance_isolation_env(spec, NativeEngineKind::ClaudeNative)?;
+        let isolation_env = prepare_instance_isolation_env_for_keys(
+            spec,
+            Some(("CLAUDE_CONFIG_DIR", "claude-config")),
+        )?;
 
         let mut cmd = new_hidden_tokio_command(&node_binary, [&script_path]);
         cmd.current_dir(&spec.working_dir)
@@ -380,7 +375,7 @@ impl ClaudeSidecarClient {
         }
 
         let payload = json!({ "jsonrpc": "2.0", "id": id, "method": method, "params": params });
-        if let Err(err) = write_jsonrpc_frame(&self.writer, &payload).await {
+        if let Err(err) = super::write_jsonrpc_frame(&self.writer, &payload).await {
             if let Ok(mut map) = self.pending.lock() {
                 map.remove(&id);
             }
@@ -434,7 +429,7 @@ impl ClaudeSidecarClient {
                     "interrupt": decision.interrupt,
                 }
             });
-            write_jsonrpc_frame(&self.writer, &response).await?;
+            super::write_jsonrpc_frame(&self.writer, &response).await?;
             let resolved = EngineEvent::PermissionResolved {
                 permission_id: decision.permission_id.clone(),
                 prompt_id: pending.prompt_id,
@@ -592,7 +587,7 @@ async fn run_sidecar_reader_loop<R>(
                         "message": format!("Unsupported server request method `{method_name}`"),
                     }
                 });
-                let _ = write_jsonrpc_frame(&writer, &unsupported).await;
+                let _ = super::write_jsonrpc_frame(&writer, &unsupported).await;
             }
             continue;
         }
@@ -736,8 +731,76 @@ impl NativeEngineDriver for ClaudeNativeDriver {
         NativeEngineKind::ClaudeNative.engine_id()
     }
 
-    fn kind(&self) -> NativeEngineKind {
-        NativeEngineKind::ClaudeNative
+    fn kind(&self) -> Option<NativeEngineKind> {
+        Some(NativeEngineKind::ClaudeNative)
+    }
+
+    fn supports_agent(&self, agent_kind_or_id: &str) -> bool {
+        matches!(
+            normalize_agent_token(agent_kind_or_id).as_str(),
+            "claude_code" | "claudecode" | "claude" | "claude_native"
+        )
+    }
+
+    fn capabilities(&self) -> EngineCapabilities {
+        claude_capabilities(self.engine_id())
+    }
+
+    fn normalize_mode(&self, raw: &str) -> Option<String> {
+        claude_normalize_mode(raw)
+    }
+
+    fn resolve_auth(&self, env: &HashMap<String, String>) -> EngineAuth {
+        resolve_claude_auth(env)
+    }
+
+    fn prepare_launch_env(
+        &self,
+        locked_program: &Path,
+        _snapshot_env: &HashMap<String, String>,
+        launch_env: &mut HashMap<String, String>,
+        _scrubbed_keys: &mut Vec<String>,
+    ) {
+        prepare_claude_launch_env(locked_program, launch_env);
+    }
+
+    fn profile_isolation_dir(&self) -> Option<(&'static str, &'static str)> {
+        Some(("CLAUDE_CONFIG_DIR", "claude-config"))
+    }
+
+    fn uses_custom_base_url(&self, spec: &EngineStartSpec) -> bool {
+        !spec
+            .auth
+            .is_official_anthropic_session(&spec.env, &spec.config_overrides)
+    }
+
+    fn resolve_default_model(&self, env: &HashMap<String, String>) -> Option<String> {
+        resolve_claude_default_model(env)
+    }
+
+    fn model_aliases(&self, env: &HashMap<String, String>) -> HashMap<String, String> {
+        crate::end_turn_usage::collect_claude_model_aliases(env)
+    }
+
+    fn accepts_model_id(&self, model_id: &str, env: &HashMap<String, String>) -> bool {
+        claude_accepts_model_id(model_id, env)
+    }
+
+    fn classify_tool_call(
+        &self,
+        raw_name: &str,
+        input: &Value,
+        parent_tool_use_id: Option<&str>,
+    ) -> EngineToolClassification {
+        classify_claude_tool_call(raw_name, input, parent_tool_use_id)
+    }
+
+    fn encode_question_answers(
+        &self,
+        entries: &[(String, Vec<String>)],
+        question_keys: &[(String, String)],
+    ) -> Value {
+        encode_claude_question_answers(entries, question_keys)
     }
 
     async fn start(&self, spec: EngineStartSpec) -> Result<EngineHandle, EngineError> {
@@ -1182,5 +1245,23 @@ mod tests {
         );
         assert!(dropped.is_none());
         assert!(latest_cache.read().unwrap().is_none());
+    }
+
+    #[test]
+    fn claude_driver_accepts_model_id_filters_foreign_models_unless_custom_base_url() {
+        let driver = ClaudeNativeDriver::new();
+        let official = HashMap::new();
+        assert!(driver.accepts_model_id("claude-opus-4-7", &official));
+        assert!(driver.accepts_model_id("sonnet", &official));
+        assert!(!driver.accepts_model_id("gpt-5.4", &official));
+        assert!(!driver.accepts_model_id("codex-mini", &official));
+        assert!(!driver.accepts_model_id("gemini-2.5-pro", &official));
+
+        let mut custom = HashMap::new();
+        custom.insert(
+            "ANTHROPIC_BASE_URL".to_string(),
+            "https://proxy.example.com/v1".to_string(),
+        );
+        assert!(driver.accepts_model_id("gpt-5.4", &custom));
     }
 }

@@ -9,6 +9,8 @@
 //! cached slices, `TurnUsage` / `AgentUsage` is Anthropic-disjoint (uncached
 //! input + cache buckets re-sum to the vendor total).
 
+use std::{collections::HashMap, path::PathBuf};
+
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -344,6 +346,101 @@ fn short_alias_matches_family(alias: &str, concrete: &str) -> bool {
     }
 }
 
+fn resolve_claude_config_dir(env: &HashMap<&str, &str>) -> Option<PathBuf> {
+    if let Some(explicit) = env
+        .get("CLAUDE_CONFIG_DIR")
+        .copied()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    {
+        return Some(PathBuf::from(explicit));
+    }
+    if let Some(home) = ["USERPROFILE", "HOME"].into_iter().find_map(|key| {
+        env.get(key)
+            .copied()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(PathBuf::from)
+    }) {
+        return Some(home.join(".claude"));
+    }
+    if let Some(explicit) = std::env::var_os("CLAUDE_CONFIG_DIR")
+        .filter(|v| !v.is_empty())
+        .map(PathBuf::from)
+    {
+        return Some(explicit);
+    }
+    ["USERPROFILE", "HOME"]
+        .into_iter()
+        .find_map(|key| {
+            std::env::var_os(key)
+                .filter(|v| !v.is_empty())
+                .map(PathBuf::from)
+        })
+        .or_else(dirs::home_dir)
+        .map(|home| home.join(".claude"))
+}
+
+/// Reads the `env` map from `<CLAUDE_CONFIG_DIR || ~/.claude>/settings.json` and
+/// overlays explicit launch `env` variables on top so callers see the effective
+/// Claude configuration environment.
+pub fn read_claude_settings_env<'a, I>(env: I) -> HashMap<String, String>
+where
+    I: IntoIterator<Item = (&'a String, &'a String)>,
+{
+    let env_lookup: HashMap<&str, &str> = env
+        .into_iter()
+        .map(|(k, v)| (k.as_str(), v.as_str()))
+        .collect();
+    let mut merged = HashMap::new();
+    if let Some(config_dir) = resolve_claude_config_dir(&env_lookup)
+        && let Ok(bytes) = std::fs::read(config_dir.join("settings.json"))
+        && let Ok(Value::Object(root)) = serde_json::from_slice::<Value>(&bytes)
+        && let Some(Value::Object(settings_env)) = root.get("env")
+    {
+        for (key, value) in settings_env {
+            if let Some(text) = value.as_str().map(str::trim).filter(|s| !s.is_empty()) {
+                merged.insert(key.clone(), text.to_string());
+            }
+        }
+    }
+    for (key, value) in env_lookup {
+        let trimmed = value.trim();
+        if !trimmed.is_empty() {
+            merged.insert(key.to_string(), trimmed.to_string());
+        }
+    }
+    merged
+}
+
+/// Extracts configured Claude model alias mappings (`ANTHROPIC_MODEL`,
+/// `ANTHROPIC_DEFAULT_{OPUS,SONNET,HAIKU,FABLE}_MODEL`) from launch env and
+/// `~/.claude/settings.json`.
+pub fn collect_claude_model_aliases<'a, I>(env: I) -> HashMap<String, String>
+where
+    I: IntoIterator<Item = (&'a String, &'a String)>,
+{
+    let effective = read_claude_settings_env(env);
+    let mut aliases = HashMap::new();
+    for (env_key, alias_name) in [
+        ("ANTHROPIC_MODEL", "default"),
+        ("ANTHROPIC_DEFAULT_OPUS_MODEL", "opus"),
+        ("ANTHROPIC_DEFAULT_SONNET_MODEL", "sonnet"),
+        ("ANTHROPIC_DEFAULT_HAIKU_MODEL", "haiku"),
+        ("ANTHROPIC_DEFAULT_FABLE_MODEL", "fable"),
+    ] {
+        if let Some(target) = effective
+            .get(env_key)
+            .map(String::as_str)
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+        {
+            aliases.insert(alias_name.to_string(), target.to_string());
+        }
+    }
+    aliases
+}
+
 /// Compares the launch-requested model against the model actually reported by the
 /// turn transcript/result (`served_model`), resolving short aliases (`opus`,
 /// `sonnet`, `haiku`, `fable`), wildcards (`default`, `auto`), provider prefixes,
@@ -353,10 +450,46 @@ pub fn check_launch_vs_served_model(
     served_model: Option<&str>,
     custom_base_url: bool,
 ) -> Option<ModelConsistencyMismatch> {
+    check_launch_vs_served_model_with_aliases(
+        requested_model,
+        served_model,
+        custom_base_url,
+        &HashMap::new(),
+    )
+}
+
+/// Context-aware variant of [`check_launch_vs_served_model`] that honors configured
+/// alias overrides (such as `ANTHROPIC_DEFAULT_SONNET_MODEL = "claude-opus-5-5"`).
+pub fn check_launch_vs_served_model_with_aliases(
+    requested_model: Option<&str>,
+    served_model: Option<&str>,
+    custom_base_url: bool,
+    alias_targets: &HashMap<String, String>,
+) -> Option<ModelConsistencyMismatch> {
     let requested = requested_model.map(str::trim).filter(|s| !s.is_empty())?;
     let served = served_model.map(str::trim).filter(|s| !s.is_empty())?;
 
-    let req_norm = canonicalize_model_token(requested);
+    let mut effective_requested = requested.to_string();
+    let mut hops = 0;
+    while hops < 3 {
+        let token = canonicalize_model_token(&effective_requested);
+        if let Some(mapped) = alias_targets
+            .get(&token)
+            .map(String::as_str)
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+        {
+            if canonicalize_model_token(mapped) == token {
+                break;
+            }
+            effective_requested = mapped.to_string();
+            hops += 1;
+        } else {
+            break;
+        }
+    }
+
+    let req_norm = canonicalize_model_token(&effective_requested);
     let served_norm = canonicalize_model_token(served);
 
     if matches!(
@@ -600,5 +733,54 @@ mod tests {
         assert_eq!(mismatch.requested_model, "claude-opus-4-6");
         assert_eq!(mismatch.served_model, "claude-sonnet-4-5-20250929");
         assert!(mismatch.custom_base_url);
+    }
+
+    #[test]
+    fn launch_vs_served_model_honors_claude_settings_alias_overrides() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let settings_path = dir.path().join("settings.json");
+        std::fs::write(
+            &settings_path,
+            r#"{
+                "env": {
+                    "ANTHROPIC_MODEL": "claude-fable-5-2",
+                    "ANTHROPIC_DEFAULT_SONNET_MODEL": "claude-opus-5-5"
+                }
+            }"#,
+        )
+        .expect("write settings.json");
+
+        let env = HashMap::from([(
+            "CLAUDE_CONFIG_DIR".to_string(),
+            dir.path().to_string_lossy().to_string(),
+        )]);
+        let aliases = collect_claude_model_aliases(&env);
+        assert_eq!(
+            check_launch_vs_served_model_with_aliases(
+                Some("sonnet"),
+                Some("claude-opus-5-5"),
+                true,
+                &aliases,
+            ),
+            None
+        );
+        assert_eq!(
+            check_launch_vs_served_model_with_aliases(
+                Some("default"),
+                Some("claude-fable-5-2"),
+                true,
+                &aliases,
+            ),
+            None
+        );
+        let real_mismatch = check_launch_vs_served_model_with_aliases(
+            Some("sonnet"),
+            Some("claude-haiku-4-5"),
+            true,
+            &aliases,
+        )
+        .expect("unexpected model should still trigger mismatch");
+        assert_eq!(real_mismatch.requested_model, "sonnet");
+        assert_eq!(real_mismatch.served_model, "claude-haiku-4-5");
     }
 }

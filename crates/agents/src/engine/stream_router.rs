@@ -128,7 +128,7 @@ fn create_private_dir_all(path: &Path) -> std::io::Result<()> {
     Ok(())
 }
 
-fn sanitize_instance_dir_segment(raw: &str) -> String {
+pub(crate) fn sanitize_instance_dir_segment(raw: &str) -> String {
     let mut prefix: String = raw
         .chars()
         .take(48)
@@ -151,12 +151,12 @@ fn sanitize_instance_dir_segment(raw: &str) -> String {
     format!("{prefix}-{short_hash}")
 }
 
-/// Allocates isolated per-`provider_instance_id` home/config and temp directories
-/// (`0o700` on Unix) when `spec.provider_instance_id` is set and the caller has not
-/// explicitly overridden `CODEX_HOME` / `CLAUDE_CONFIG_DIR` / `TMP` in `spec.env`.
-pub fn prepare_instance_isolation_env(
+/// Allocates isolated per-`provider_instance_id` temp directories (`0o700` on Unix)
+/// and, when `spec.isolate_profile` is `true` and `profile_dir_keys` is `Some((env_key, dir_name))`,
+/// an isolated profile configuration directory unless already overridden in `spec.env`.
+pub fn prepare_instance_isolation_env_for_keys(
     spec: &EngineStartSpec,
-    kind: NativeEngineKind,
+    profile_dir_keys: Option<(&str, &str)>,
 ) -> std::io::Result<HashMap<String, String>> {
     let Some(instance_id) = spec
         .provider_instance_id
@@ -180,27 +180,16 @@ pub fn prepare_instance_isolation_env(
     create_private_dir_all(&tmp_dir)?;
 
     let mut isolated = HashMap::new();
-    match kind {
-        NativeEngineKind::CodexNative => {
-            if !spec.env.contains_key("CODEX_HOME") {
-                let codex_home = instance_root.join("codex-home");
-                create_private_dir_all(&codex_home)?;
-                isolated.insert(
-                    "CODEX_HOME".to_string(),
-                    codex_home.to_string_lossy().into_owned(),
-                );
-            }
-        }
-        NativeEngineKind::ClaudeNative => {
-            if !spec.env.contains_key("CLAUDE_CONFIG_DIR") {
-                let claude_dir = instance_root.join("claude-config");
-                create_private_dir_all(&claude_dir)?;
-                isolated.insert(
-                    "CLAUDE_CONFIG_DIR".to_string(),
-                    claude_dir.to_string_lossy().into_owned(),
-                );
-            }
-        }
+    if spec.isolate_profile
+        && let Some((env_key, dir_name)) = profile_dir_keys
+        && !spec.env.contains_key(env_key)
+    {
+        let profile_dir = instance_root.join(dir_name);
+        create_private_dir_all(&profile_dir)?;
+        isolated.insert(
+            env_key.to_string(),
+            profile_dir.to_string_lossy().into_owned(),
+        );
     }
 
     let tmp_str = tmp_dir.to_string_lossy().into_owned();
@@ -211,6 +200,20 @@ pub fn prepare_instance_isolation_env(
     }
 
     Ok(isolated)
+}
+
+/// Allocates isolated per-`provider_instance_id` temp directories (`0o700` on Unix)
+/// and, when `spec.isolate_profile` is `true`, isolated `CODEX_HOME` / `CLAUDE_CONFIG_DIR`
+/// directories if the caller has not explicitly overridden them in `spec.env`.
+pub fn prepare_instance_isolation_env(
+    spec: &EngineStartSpec,
+    kind: NativeEngineKind,
+) -> std::io::Result<HashMap<String, String>> {
+    let keys = match kind {
+        NativeEngineKind::CodexNative => Some(("CODEX_HOME", "codex-home")),
+        NativeEngineKind::ClaudeNative => Some(("CLAUDE_CONFIG_DIR", "claude-config")),
+    };
+    prepare_instance_isolation_env_for_keys(spec, keys)
 }
 
 #[derive(Clone)]
@@ -225,7 +228,9 @@ pub enum TurnRouteFilter {
 }
 
 impl TurnRouteFilter {
-    fn matches_and_observe(&self, event: &EngineEvent) -> bool {
+    /// Pure predicate — no side effects. Returns `true` when `event` should be
+    /// delivered to this subscriber.
+    fn matches(&self, event: &EngineEvent) -> bool {
         match self {
             TurnRouteFilter::CodexThread { thread_id } => match event {
                 EngineEvent::SessionInitialized { session_id, .. }
@@ -253,51 +258,55 @@ impl TurnRouteFilter {
                 }
                 _ => true,
             },
-            TurnRouteFilter::ClaudePrompt { prompt_id, handle } => {
-                match event {
-                    EngineEvent::SessionInitialized {
-                        session_id: Some(sid),
-                        ..
-                    }
-                    | EngineEvent::TurnStarted {
-                        session_id: Some(sid),
-                        ..
-                    }
-                    | EngineEvent::TurnCompleted {
-                        session_id: Some(sid),
-                        ..
-                    } if !crate::engine::is_placeholder_engine_session_id(sid) => {
-                        handle.set_external_session_id(Some(sid.clone()));
-                    }
-                    _ => {}
+            TurnRouteFilter::ClaudePrompt { prompt_id, .. } => match event {
+                EngineEvent::RateLimitsUpdated { .. }
+                | EngineEvent::CacheStatusUpdated { .. } => true,
+                EngineEvent::TurnStarted { prompt_id: pid, .. }
+                | EngineEvent::AssistantTextDelta { prompt_id: pid, .. }
+                | EngineEvent::ThinkingDelta { prompt_id: pid, .. }
+                | EngineEvent::AssistantMessage { prompt_id: pid, .. }
+                | EngineEvent::ToolCall { prompt_id: pid, .. }
+                | EngineEvent::ToolResult { prompt_id: pid, .. }
+                | EngineEvent::PermissionRequested { prompt_id: pid, .. }
+                | EngineEvent::PermissionResolved { prompt_id: pid, .. }
+                | EngineEvent::QuestionRequested { prompt_id: pid, .. }
+                | EngineEvent::PlanUpdated { prompt_id: pid, .. }
+                | EngineEvent::UsageUpdated { prompt_id: pid, .. }
+                | EngineEvent::SubagentSpawned { prompt_id: pid, .. }
+                | EngineEvent::SubagentUpdated { prompt_id: pid, .. }
+                | EngineEvent::SubagentCompleted { prompt_id: pid, .. }
+                | EngineEvent::HookEvent { prompt_id: pid, .. }
+                | EngineEvent::PromptSteered { prompt_id: pid, .. }
+                | EngineEvent::TurnCompleted { prompt_id: pid, .. }
+                | EngineEvent::TurnInterrupted { prompt_id: pid, .. }
+                | EngineEvent::TurnError { prompt_id: pid, .. } => {
+                    pid.as_deref().is_none_or(|p| p == prompt_id)
                 }
+                _ => true,
+            },
+        }
+    }
 
-                match event {
-                    EngineEvent::RateLimitsUpdated { .. }
-                    | EngineEvent::CacheStatusUpdated { .. } => true,
-                    EngineEvent::TurnStarted { prompt_id: pid, .. }
-                    | EngineEvent::AssistantTextDelta { prompt_id: pid, .. }
-                    | EngineEvent::ThinkingDelta { prompt_id: pid, .. }
-                    | EngineEvent::AssistantMessage { prompt_id: pid, .. }
-                    | EngineEvent::ToolCall { prompt_id: pid, .. }
-                    | EngineEvent::ToolResult { prompt_id: pid, .. }
-                    | EngineEvent::PermissionRequested { prompt_id: pid, .. }
-                    | EngineEvent::PermissionResolved { prompt_id: pid, .. }
-                    | EngineEvent::QuestionRequested { prompt_id: pid, .. }
-                    | EngineEvent::PlanUpdated { prompt_id: pid, .. }
-                    | EngineEvent::UsageUpdated { prompt_id: pid, .. }
-                    | EngineEvent::SubagentSpawned { prompt_id: pid, .. }
-                    | EngineEvent::SubagentUpdated { prompt_id: pid, .. }
-                    | EngineEvent::SubagentCompleted { prompt_id: pid, .. }
-                    | EngineEvent::HookEvent { prompt_id: pid, .. }
-                    | EngineEvent::PromptSteered { prompt_id: pid, .. }
-                    | EngineEvent::TurnCompleted { prompt_id: pid, .. }
-                    | EngineEvent::TurnInterrupted { prompt_id: pid, .. }
-                    | EngineEvent::TurnError { prompt_id: pid, .. } => {
-                        pid.as_deref().is_none_or(|p| p == prompt_id)
-                    }
-                    _ => true,
+    /// Side-effecting observation — called **outside** the subscribers lock to
+    /// avoid nested lock acquisition (subscribers Mutex → session_id RwLock).
+    fn observe(&self, event: &EngineEvent) {
+        if let TurnRouteFilter::ClaudePrompt { handle, .. } = self {
+            match event {
+                EngineEvent::SessionInitialized {
+                    session_id: Some(sid),
+                    ..
                 }
+                | EngineEvent::TurnStarted {
+                    session_id: Some(sid),
+                    ..
+                }
+                | EngineEvent::TurnCompleted {
+                    session_id: Some(sid),
+                    ..
+                } if !crate::engine::is_placeholder_engine_session_id(sid) => {
+                    handle.set_external_session_id(Some(sid.clone()));
+                }
+                _ => {}
             }
         }
     }
@@ -365,15 +374,26 @@ impl TurnEventRouter {
     }
 
     pub fn publish(&self, event: &EngineEvent) {
-        let Ok(mut subs) = self.subscribers.lock() else {
-            return;
+        let matched_filters = {
+            let Ok(mut subs) = self.subscribers.lock() else {
+                return;
+            };
+            let mut matched = Vec::new();
+            subs.retain(|sub| {
+                if !sub.filter.matches(event) {
+                    return true;
+                }
+                matched.push(sub.filter.clone());
+                sub.tx.send(event.clone()).is_ok()
+            });
+            matched
         };
-        subs.retain(|sub| {
-            if !sub.filter.matches_and_observe(event) {
-                return true;
-            }
-            sub.tx.send(event.clone()).is_ok()
-        });
+        // Side-effecting observation runs **after** the subscribers lock is
+        // released, preventing nested lock acquisition (subscribers Mutex →
+        // external_session_id RwLock) that could deadlock.
+        for filter in matched_filters {
+            filter.observe(event);
+        }
     }
 
     pub fn fail_active_turns(&self, reason: &str, stderr_tail: &StderrTail) {

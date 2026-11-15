@@ -14,8 +14,10 @@ use serde_json::{Value, json};
 use crate::{
     conversation::ContentBlock,
     engine::{
-        CodexAutoCompactionThreadState, EngineEvent, EngineModelInfo, EnginePermissionDecision,
-        EnginePlanEntry, EngineRateLimits, PromptMode,
+        CodexAutoCompactionThreadState, EngineAuth, EngineCapabilities, EngineCommandSpec,
+        EngineEffortSpec, EngineEvent, EngineModeSpec, EngineModelInfo, EnginePermissionDecision,
+        EnginePlanEntry, EngineRateLimits, EngineSelectChoice, PromptMode,
+        resolve_home_dir_from_env,
     },
     permissions::{AgentPermissionOption, AgentPermissionOptionKind},
 };
@@ -91,21 +93,25 @@ pub fn default_codex_models() -> Vec<EngineModelInfo> {
             id: "gpt-5.4".to_string(),
             label: "GPT-5.4".to_string(),
             description: Some("Flagship coding and reasoning model".to_string()),
+            is_default: false,
         },
         EngineModelInfo {
             id: "gpt-5.3-codex".to_string(),
             label: "GPT-5.3 Codex".to_string(),
             description: Some("Specialized agentic software engineering".to_string()),
+            is_default: false,
         },
         EngineModelInfo {
             id: "gpt-5.4-mini".to_string(),
             label: "GPT-5.4 Mini".to_string(),
             description: Some("Fast low-latency coding model".to_string()),
+            is_default: false,
         },
         EngineModelInfo {
             id: "o3".to_string(),
             label: "o3".to_string(),
             description: Some("Deep analytical reasoning".to_string()),
+            is_default: false,
         },
     ]
 }
@@ -120,6 +126,18 @@ pub(crate) fn parse_codex_models_response(result: &Value) -> Vec<EngineModelInfo
     };
     let mut out = Vec::new();
     for item in items {
+        let is_default = item
+            .get("isDefault")
+            .or_else(|| item.get("is_default"))
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+        let hidden = item
+            .get("hidden")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+        if hidden && !is_default {
+            continue;
+        }
         let Some(id) = str_any(item, &["model", "id", "slug"]) else {
             continue;
         };
@@ -132,6 +150,7 @@ pub(crate) fn parse_codex_models_response(result: &Value) -> Vec<EngineModelInfo
             id,
             label,
             description,
+            is_default,
         });
     }
     out
@@ -778,4 +797,197 @@ pub(crate) fn serialize_codex_input_items(blocks: &[ContentBlock], mode: PromptM
         items.push(json!({ "type": "text", "text": "" }));
     }
     items
+}
+
+pub(super) fn codex_capabilities(engine_id: &str) -> EngineCapabilities {
+    EngineCapabilities {
+        engine_id: engine_id.to_string(),
+        supports_native_steer: true,
+        supports_native_revert: true,
+        supports_native_fork: true,
+        supports_rate_limit_push: true,
+        supports_prompt_cache_ttl: false,
+        records_idle_compaction_activity: false,
+        modes: EngineModeSpec {
+            modes: vec![
+                EngineSelectChoice {
+                    id: "default".to_string(),
+                    label: "Default".to_string(),
+                    description: Some("Workspace-write sandbox with on-request approvals".to_string()),
+                },
+                EngineSelectChoice {
+                    id: "plan".to_string(),
+                    label: "Plan".to_string(),
+                    description: Some("Read-only sandbox for planning and code inspection".to_string()),
+                },
+                EngineSelectChoice {
+                    id: "full-access".to_string(),
+                    label: "Full Access".to_string(),
+                    description: Some("Unrestricted execution without approval prompts".to_string()),
+                },
+            ],
+            default_mode_id: "default".to_string(),
+            yolo_mode_id: "full-access".to_string(),
+        },
+        effort: Some(EngineEffortSpec {
+            choices: vec![
+                EngineSelectChoice {
+                    id: "low".to_string(),
+                    label: "Low".to_string(),
+                    description: None,
+                },
+                EngineSelectChoice {
+                    id: "medium".to_string(),
+                    label: "Medium".to_string(),
+                    description: None,
+                },
+                EngineSelectChoice {
+                    id: "high".to_string(),
+                    label: "High".to_string(),
+                    description: None,
+                },
+                EngineSelectChoice {
+                    id: "xhigh".to_string(),
+                    label: "Extra High".to_string(),
+                    description: None,
+                },
+            ],
+            default_value: "high".to_string(),
+        }),
+        default_commands: vec![
+            EngineCommandSpec {
+                name: "compact".to_string(),
+                description: "Compact conversation context".to_string(),
+            },
+            EngineCommandSpec {
+                name: "review".to_string(),
+                description: "Review current workspace changes".to_string(),
+            },
+            EngineCommandSpec {
+                name: "init".to_string(),
+                description: "Initialize project instructions".to_string(),
+            },
+        ],
+    }
+}
+
+pub(super) fn codex_normalize_mode(raw: &str) -> Option<String> {
+    match raw.trim() {
+        "yolo" | "bypassPermissions" | "full-access" | "auto" => Some("full-access".to_string()),
+        "default" | "acceptEdits" => Some("default".to_string()),
+        "plan" => Some("plan".to_string()),
+        _ => None,
+    }
+}
+
+pub(super) fn resolve_codex_auth(env: &HashMap<String, String>) -> EngineAuth {
+    if let Some(api_key) = env
+        .get("OPENAI_API_KEY")
+        .or_else(|| env.get("CODEX_API_KEY"))
+        .filter(|v| !v.trim().is_empty())
+    {
+        return EngineAuth::ApiKey {
+            api_key: api_key.clone(),
+            base_url: env
+                .get("OPENAI_BASE_URL")
+                .filter(|u| !u.trim().is_empty())
+                .cloned(),
+        };
+    }
+    EngineAuth::Ambient
+}
+
+pub(super) fn prepare_codex_launch_env(
+    locked_program: &Path,
+    snapshot_env: &HashMap<String, String>,
+    launch_env: &mut HashMap<String, String>,
+    scrubbed_keys: &mut Vec<String>,
+) {
+    if locked_program.is_absolute()
+        && locked_program.is_file()
+        && locked_program
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .is_some_and(|stem| stem.eq_ignore_ascii_case("codex"))
+        && !launch_env.contains_key("VIBEX_CODEX_PATH")
+        && !launch_env.contains_key("CODEX_PATH")
+    {
+        launch_env.insert(
+            "CODEX_PATH".to_string(),
+            locked_program.to_string_lossy().into_owned(),
+        );
+    }
+
+    let codex_subscription = crate::codex_uses_chatgpt_subscription(snapshot_env);
+    for key in ["OPENAI_API_KEY", "OPENAI_BASE_URL"] {
+        let inherited_blank = std::env::var(key)
+            .map(|value| value.trim().is_empty())
+            .unwrap_or(false);
+        if (codex_subscription || inherited_blank) && !snapshot_env.contains_key(key) {
+            launch_env.remove(key);
+            scrubbed_keys.push(key.to_string());
+        }
+    }
+}
+
+fn resolve_codex_home_dir(env: &HashMap<String, String>) -> Option<PathBuf> {
+    if let Some(explicit) = env
+        .get("CODEX_HOME")
+        .map(String::as_str)
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    {
+        return Some(PathBuf::from(explicit));
+    }
+    if let Some(explicit) = std::env::var_os("CODEX_HOME")
+        .filter(|v| !v.is_empty())
+        .map(PathBuf::from)
+    {
+        return Some(explicit);
+    }
+    resolve_home_dir_from_env(env).map(|home| home.join(".codex"))
+}
+
+pub(super) fn resolve_codex_default_model(env: &HashMap<String, String>) -> Option<String> {
+    let codex_home = resolve_codex_home_dir(env)?;
+    let raw = std::fs::read_to_string(codex_home.join("config.toml")).ok()?;
+    let table = raw.parse::<toml::Table>().ok()?;
+    table
+        .get("model")
+        .and_then(toml::Value::as_str)
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
+}
+
+pub(super) fn is_official_openai_base_url(raw_url: &str) -> bool {
+    let trimmed = raw_url.trim();
+    if trimmed.is_empty() {
+        return true;
+    }
+    let Ok(parsed) = url::Url::parse(trimmed) else {
+        return false;
+    };
+    let Some(host) = parsed.host_str() else {
+        return false;
+    };
+    let lower = host.to_ascii_lowercase();
+    lower == "api.openai.com"
+        || lower.ends_with(".openai.com")
+        || lower == "chatgpt.com"
+        || lower.ends_with(".chatgpt.com")
+}
+
+pub(super) fn codex_accepts_model_id(model_id: &str, env: &HashMap<String, String>) -> bool {
+    let custom_base_url = env
+        .get("OPENAI_BASE_URL")
+        .is_some_and(|raw| !is_official_openai_base_url(raw));
+    if custom_base_url {
+        return true;
+    }
+    let lower = model_id.trim().to_ascii_lowercase();
+    !lower.is_empty()
+        && !lower.starts_with("claude-")
+        && !lower.starts_with("gemini-")
+        && !matches!(lower.as_str(), "opus" | "sonnet" | "haiku" | "fable")
 }

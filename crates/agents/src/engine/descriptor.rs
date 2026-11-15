@@ -105,14 +105,12 @@ pub fn resolve_native_engine_kind(
     resolve_native_engine_kind_with_env(agent_kind_or_id, preference, env_mode.as_deref())
 }
 
-/// Pure resolution helper accepting an explicit `VIBEX_ENGINE_MODE` value so unit
-/// tests can verify grayscale routing deterministically without mutating process env.
-pub fn resolve_native_engine_kind_with_env(
-    agent_kind_or_id: &str,
+/// Resolves the effective runtime preference after applying `VIBEX_ENGINE_MODE`.
+pub(crate) fn effective_runtime_preference(
     preference: EngineRuntimePreference,
     env_mode: Option<&str>,
-) -> Option<NativeEngineKind> {
-    let effective_preference = match env_mode
+) -> EngineRuntimePreference {
+    match env_mode
         .map(|raw| raw.trim().to_ascii_lowercase())
         .as_deref()
     {
@@ -123,9 +121,17 @@ pub fn resolve_native_engine_kind_with_env(
             EngineRuntimePreference::NativeFirst
         }
         _ => preference,
-    };
+    }
+}
 
-    if effective_preference == EngineRuntimePreference::AcpOnly {
+/// Pure resolution helper accepting an explicit `VIBEX_ENGINE_MODE` value so unit
+/// tests can verify grayscale routing deterministically without mutating process env.
+pub fn resolve_native_engine_kind_with_env(
+    agent_kind_or_id: &str,
+    preference: EngineRuntimePreference,
+    env_mode: Option<&str>,
+) -> Option<NativeEngineKind> {
+    if effective_runtime_preference(preference, env_mode) == EngineRuntimePreference::AcpOnly {
         return None;
     }
 
@@ -141,7 +147,7 @@ pub fn resolve_native_engine_kind_with_env(
     }
 }
 
-fn normalize_agent_token(raw: &str) -> String {
+pub(crate) fn normalize_agent_token(raw: &str) -> String {
     let trimmed = raw.trim();
     let unprefixed = trimmed
         .strip_prefix("builtin:")

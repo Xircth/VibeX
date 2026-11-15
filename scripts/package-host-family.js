@@ -111,6 +111,7 @@ function packageHostFamily(options) {
     "claude-native-driver.mjs",
     "claude-native-events.mjs",
     "claude-native-cli.mjs",
+    "claude-native-models.mjs",
   ];
   const scriptRoots = [
     path.join(repoRoot, "scripts"),

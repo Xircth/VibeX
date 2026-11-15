@@ -499,8 +499,9 @@ impl AgentConnectionRunner {
             .as_deref()
             .is_some_and(|v| v.trim().eq_ignore_ascii_case("native"));
 
-        let outcome = if let Some(kind) = self.should_attempt_native_engine(mode_env.as_deref()) {
-            match self.run_native(&mut cmd_rx, Arc::clone(&ready), kind).await {
+        let outcome = if let Some(driver) = self.resolve_native_engine_driver(mode_env.as_deref()) {
+            let engine_id = driver.engine_id().to_string();
+            match self.run_native(&mut cmd_rx, Arc::clone(&ready), driver).await {
                 Ok(()) => Ok(()),
                 Err(error)
                     if !force_native
@@ -509,7 +510,7 @@ impl AgentConnectionRunner {
                 {
                     tracing::warn!(
                         agent_id = %self.snapshot.agent_id,
-                        engine = kind.engine_id(),
+                        engine = %engine_id,
                         %error,
                         "native engine pre-handshake startup failed; falling back to ACP adapter"
                     );

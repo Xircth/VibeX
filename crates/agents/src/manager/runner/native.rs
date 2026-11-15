@@ -1,7 +1,7 @@
-//! Native engine session runner (`ClaudeNativeDriver` / `CodexNativeDriver`) for
-//! `AgentConnectionRunner`, enabling direct rate-limit telemetry, prompt cache TTL
-//! synthesis, native mid-turn steering, session forking, atomic session rewind,
-//! full session controls, MCP server injection, and interactive question elicitation.
+//! Native engine session runner for `AgentConnectionRunner`, enabling direct
+//! rate-limit telemetry, prompt cache TTL synthesis, native mid-turn steering,
+//! session forking, atomic session rewind, full session controls, MCP server
+//! injection, and interactive question elicitation via pluggable [`NativeEngineDriver`]s.
 
 use futures::StreamExt;
 use serde_json::json;
@@ -10,58 +10,11 @@ use super::{native_events::NativeTurnState, *};
 use crate::{
     conversation::ContentBlock as TranscriptContentBlock,
     engine::{
-        ClaudeNativeDriver, CodexNativeDriver, EngineAuth, EngineCheckpoint, EngineForkRequest,
-        EngineHandle, EnginePromptRequest, EngineRuntimePreference, EngineStartSpec,
-        EngineSteerReceipt, EngineSteerRequest, NativeEngineDriver, NativeEngineKind, PromptMode,
-        is_placeholder_engine_session_id, resolve_native_engine_kind_with_env,
+        EngineCheckpoint, EngineForkRequest, EngineHandle, EnginePromptRequest, EngineRegistry,
+        EngineRuntimePreference, EngineStartSpec, EngineSteerReceipt, EngineSteerRequest,
+        NativeEngineDriver, PromptMode, is_placeholder_engine_session_id,
     },
 };
-
-fn resolve_engine_auth(env: &HashMap<String, String>, kind: NativeEngineKind) -> EngineAuth {
-    match kind {
-        NativeEngineKind::ClaudeNative => {
-            if let Some(api_key) = env
-                .get("ANTHROPIC_API_KEY")
-                .or_else(|| env.get("ANTHROPIC_AUTH_TOKEN"))
-                .filter(|v| !v.trim().is_empty())
-            {
-                return EngineAuth::ApiKey {
-                    api_key: api_key.clone(),
-                    base_url: env
-                        .get("ANTHROPIC_BASE_URL")
-                        .filter(|u| !u.trim().is_empty())
-                        .cloned(),
-                };
-            }
-            if let Some(oauth_token) = env
-                .get("CLAUDE_CODE_OAUTH_TOKEN")
-                .filter(|v| !v.trim().is_empty())
-            {
-                return EngineAuth::OAuth {
-                    oauth_token: Some(oauth_token.clone()),
-                    account_email: None,
-                };
-            }
-            EngineAuth::Ambient
-        }
-        NativeEngineKind::CodexNative => {
-            if let Some(api_key) = env
-                .get("OPENAI_API_KEY")
-                .or_else(|| env.get("CODEX_API_KEY"))
-                .filter(|v| !v.trim().is_empty())
-            {
-                return EngineAuth::ApiKey {
-                    api_key: api_key.clone(),
-                    base_url: env
-                        .get("OPENAI_BASE_URL")
-                        .filter(|u| !u.trim().is_empty())
-                        .cloned(),
-                };
-            }
-            EngineAuth::Ambient
-        }
-    }
-}
 
 fn agent_block_to_transcript_block(block: AgentContentBlock) -> TranscriptContentBlock {
     match block {
@@ -106,13 +59,13 @@ fn agent_block_to_acp_content_block(block: &AgentContentBlock) -> Option<Content
 }
 
 impl AgentConnectionRunner {
-    /// Determines whether this connection should launch through a flagship native engine
-    /// driver (`ClaudeNative` / `CodexNative`) rather than an ACP adapter subprocess (`[F1]`).
-    pub(in crate::manager) fn should_attempt_native_engine(
+    /// Resolves a registered [`NativeEngineDriver`] when this connection should
+    /// launch through a native engine rather than an ACP adapter subprocess (`[F1]`).
+    pub(in crate::manager) fn resolve_native_engine_driver(
         &self,
         mode_env: Option<&str>,
-    ) -> Option<NativeEngineKind> {
-        resolve_native_engine_kind_with_env(
+    ) -> Option<Arc<dyn NativeEngineDriver>> {
+        EngineRegistry::bundled().resolve_driver_for_agent(
             self.snapshot.agent_id.as_str(),
             EngineRuntimePreference::NativeFirst,
             mode_env,
@@ -123,7 +76,7 @@ impl AgentConnectionRunner {
         &self,
         cmd_rx: &mut mpsc::Receiver<AgentConnectionCommand>,
         ready_tx: Arc<Mutex<Option<oneshot::Sender<AgentResult<()>>>>>,
-        kind: NativeEngineKind,
+        driver: Arc<dyn NativeEngineDriver>,
     ) -> AgentResult<()> {
         let launch_lock = &self.snapshot.launch_lock;
         if launch_lock.agent_id != self.snapshot.agent_id {
@@ -143,24 +96,23 @@ impl AgentConnectionRunner {
             )));
         }
 
-        let driver: Arc<dyn NativeEngineDriver> = match kind {
-            NativeEngineKind::ClaudeNative => Arc::new(ClaudeNativeDriver::new()),
-            NativeEngineKind::CodexNative => Arc::new(CodexNativeDriver::new()),
-        };
-
-        self.populate_native_capabilities(kind).await;
-        let (launch_env, scrubbed_env_keys) = self.build_native_engine_launch_env(kind)?;
-        let auth = resolve_engine_auth(&launch_env, kind);
+        self.populate_native_capabilities(&*driver).await;
+        let (launch_env, scrubbed_env_keys) = self.build_native_engine_launch_env(&*driver)?;
+        let auth = driver.resolve_auth(&launch_env);
         let provider_instance_id = launch_env
             .get("VIBEX_PROVIDER_INSTANCE_ID")
             .map(|value| value.trim().to_string())
             .filter(|value| !value.is_empty());
+        let isolate_profile = launch_env
+            .get("VIBEX_ISOLATE_PROVIDER_PROFILE")
+            .is_some_and(|value| value.trim() == "1");
         let initial_mcp = self.build_native_session_mcp_json(None).await;
 
         let spec = EngineStartSpec {
             workspace_id: self.snapshot.workspace_id,
             working_dir: self.snapshot.working_dir.clone(),
             provider_instance_id,
+            isolate_profile,
             auth,
             model: launch_env.get("VIBEX_DEFAULT_MODEL").cloned(),
             config_overrides: json!({}),
@@ -169,7 +121,7 @@ impl AgentConnectionRunner {
             additional_directories: self.snapshot.additional_directories.clone(),
             mcp_servers: initial_mcp,
         };
-        let custom_base_url = spec.uses_custom_base_url(kind);
+        let custom_base_url = driver.uses_custom_base_url(&spec);
 
         self.emit_connection_status(AgentConnectionStatus::Connecting, None, None);
         let handle = driver
@@ -213,7 +165,7 @@ impl AgentConnectionRunner {
                         });
 
                     let controls = self
-                        .seed_native_session_controls(&driver, &handle, kind, session_id)
+                        .seed_native_session_controls(&*driver, &handle, session_id)
                         .await;
 
                     let ext_id = match existing_real {
@@ -279,7 +231,7 @@ impl AgentConnectionRunner {
                     .await;
                     self.store_preferred_controls(session_id, preferences).await;
                     let controls = self
-                        .seed_native_session_controls(&driver, &handle, kind, session_id)
+                        .seed_native_session_controls(&*driver, &handle, session_id)
                         .await;
 
                     let ext_id = if is_placeholder_engine_session_id(&external_session_id) {
@@ -358,7 +310,6 @@ impl AgentConnectionRunner {
                         .drive_native_prompt(
                             Arc::clone(&driver),
                             &handle,
-                            kind,
                             custom_base_url,
                             session_id,
                             prompt_id,
@@ -403,7 +354,7 @@ impl AgentConnectionRunner {
                     result_tx,
                 } => {
                     let snapshot = self
-                        .apply_native_mode_change(kind, session_id, mode_id)
+                        .apply_native_mode_change(&*driver, session_id, mode_id)
                         .await;
                     let _ = result_tx.send(Ok(snapshot));
                 }
@@ -414,7 +365,7 @@ impl AgentConnectionRunner {
                     result_tx,
                 } => {
                     let snapshot = self
-                        .apply_native_config_change(kind, session_id, key, value)
+                        .apply_native_config_change(&*driver, session_id, key, value)
                         .await;
                     let _ = result_tx.send(Ok(snapshot));
                 }
@@ -521,7 +472,6 @@ impl AgentConnectionRunner {
         &self,
         driver: Arc<dyn NativeEngineDriver>,
         handle: &EngineHandle,
-        kind: NativeEngineKind,
         custom_base_url: bool,
         session_id: AgentSessionId,
         prompt_id: AgentPromptId,
@@ -532,7 +482,7 @@ impl AgentConnectionRunner {
         cmd_rx: &mut mpsc::Receiver<AgentConnectionCommand>,
     ) -> bool {
         let (requested_model, requested_effort, requested_permission_mode) = self
-            .resolve_native_turn_controls(kind, session_id, mode_override, config_overrides)
+            .resolve_native_turn_controls(&*driver, session_id, mode_override, config_overrides)
             .await;
 
         let is_compact = blocks.len() == 1
@@ -632,7 +582,6 @@ impl AgentConnectionRunner {
                         .handle_native_stream_event(
                             &driver,
                             handle,
-                            kind,
                             custom_base_url,
                             requested_model.as_deref(),
                             session_id,
@@ -730,7 +679,7 @@ impl AgentConnectionRunner {
                             result_tx,
                         } => {
                             let snapshot = self
-                                .apply_native_mode_change(kind, target_sid, mode_id)
+                                .apply_native_mode_change(&*driver, target_sid, mode_id)
                                 .await;
                             let _ = result_tx.send(Ok(snapshot));
                         }
@@ -741,7 +690,7 @@ impl AgentConnectionRunner {
                             result_tx,
                         } => {
                             let snapshot = self
-                                .apply_native_config_change(kind, target_sid, key, value)
+                                .apply_native_config_change(&*driver, target_sid, key, value)
                                 .await;
                             let _ = result_tx.send(Ok(snapshot));
                         }

@@ -277,6 +277,7 @@ async fn handshake_capability_negotiation_engine_mode_and_multi_instance_isolati
     let mut spec_a = sample_spec("gpt-5-codex");
     spec_a.workspace_id = ws;
     spec_a.provider_instance_id = Some(format!("acct-alpha-{}", Uuid::new_v4()));
+    spec_a.isolate_profile = true;
     spec_a.auth = EngineAuth::ApiKey {
         api_key: "sk-proj-alpha-secret-token".to_string(),
         base_url: Some("https://api.openai.com/v1".to_string()),
@@ -284,6 +285,7 @@ async fn handshake_capability_negotiation_engine_mode_and_multi_instance_isolati
 
     let mut spec_b = spec_a.clone();
     spec_b.provider_instance_id = Some(format!("acct-beta-{}", Uuid::new_v4()));
+    spec_b.isolate_profile = true;
     spec_b.auth = EngineAuth::ApiKey {
         api_key: "sk-proj-beta-secret-token".to_string(),
         base_url: Some("https://proxy.example.com/v1".to_string()),
@@ -306,6 +308,22 @@ async fn handshake_capability_negotiation_engine_mode_and_multi_instance_isolati
     let codex_home = PathBuf::from(codex_iso.get("CODEX_HOME").expect("CODEX_HOME set"));
     assert!(codex_home.is_dir());
     let _ = std::fs::remove_dir_all(codex_home.parent().unwrap_or(&codex_home));
+
+    let mut non_isolated = sample_spec("gpt-5.4");
+    non_isolated.provider_instance_id = Some(format!("default-{}", Uuid::new_v4()));
+    non_isolated.isolate_profile = false;
+    let non_iso_codex =
+        prepare_instance_isolation_env(&non_isolated, NativeEngineKind::CodexNative)
+            .expect("non-isolated codex env");
+    assert!(!non_iso_codex.contains_key("CODEX_HOME"));
+    let non_iso_claude =
+        prepare_instance_isolation_env(&non_isolated, NativeEngineKind::ClaudeNative)
+            .expect("non-isolated claude env");
+    assert!(!non_iso_claude.contains_key("CLAUDE_CONFIG_DIR"));
+    if let Some(tmp) = non_iso_codex.get("TMP") {
+        let tmp_path = PathBuf::from(tmp);
+        let _ = std::fs::remove_dir_all(tmp_path.parent().unwrap_or(&tmp_path));
+    }
 
     // 3. Codex & Claude duplex handshake negotiation.
     let (c_client, c_server) = tokio::io::duplex(64 * 1024);
@@ -335,8 +353,13 @@ async fn handshake_capability_negotiation_engine_mode_and_multi_instance_isolati
             .await
             .expect("Codex connect_duplex succeeds");
     assert!(codex_handle.official_session);
-    assert!(codex_driver.descriptor().supports_native_steer);
-    assert!(!codex_driver.descriptor().supports_prompt_cache_ttl);
+    assert!(codex_driver.capabilities().supports_native_steer);
+    assert!(!codex_driver.capabilities().supports_prompt_cache_ttl);
+    let codex_descriptor = codex_driver
+        .descriptor()
+        .expect("Codex driver exposes descriptor");
+    assert!(codex_descriptor.supports_native_steer);
+    assert!(!codex_descriptor.supports_prompt_cache_ttl);
     codex_peer.await.unwrap();
 
     // Claude duplex handshake with third-party proxy (`official_session == false`).

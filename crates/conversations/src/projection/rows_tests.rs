@@ -1405,6 +1405,49 @@
     }
 
     #[tokio::test]
+    async fn model_consistency_mismatch_raw_diagnostic_does_not_leak_session_notice() {
+        let payload = serde_json::json!({
+            "kind": "model_consistency_mismatch",
+            "requestedModel": "sonnet",
+            "servedModel": "claude-opus-5-5"
+        });
+        assert!(super::diagnostic_session_notice("model_consistency_mismatch", Some(&payload)).is_none());
+
+        let pool = setup_pool().await;
+        let (conversation_id, turn_id) = seed_turn(&pool).await;
+        ConversationEventAppender::append(
+            &pool,
+            AppendConversationEvent {
+                id: Uuid::new_v4(),
+                conversation_id,
+                turn_id: Some(turn_id),
+                binding_id: None,
+                connection_id: Some("connection-1"),
+                prompt_id: Some("prompt-1"),
+                source: "acp",
+                event_kind: "raw_acp_diagnostic",
+                normalized_json: r#"{"kind":"raw_acp_diagnostic","label":"model_consistency_mismatch","payload":{"kind":"model_consistency_mismatch","requestedModel":"sonnet","servedModel":"claude-opus-5-5"}}"#,
+                raw_json: None,
+                idempotency_key: None,
+            },
+        )
+        .await
+        .expect("append diagnostic");
+
+        let timeline = ConversationProjector::project(&pool, conversation_id)
+            .await
+            .expect("project timeline");
+        assert!(
+            !timeline.rows.iter().any(|row| matches!(
+                &row.row,
+                ConversationTimelineRow::SessionNotice { notice }
+                    if notice.title.contains("未识别的会话更新") || notice.title.contains("model_consistency_mismatch")
+            )),
+            "legacy model_consistency_mismatch diagnostic must not surface raw notice"
+        );
+    }
+
+    #[tokio::test]
     async fn user_turn_projects_streaming_while_in_flight_and_settles_on_turn_completed() {
         let pool = setup_pool().await;
         let (conversation_id, turn_id) = seed_turn(&pool).await;
@@ -1606,4 +1649,3 @@ mod interactions;
 
 #[path = "rows_tests_rebuild.rs"]
 mod rebuild;
-

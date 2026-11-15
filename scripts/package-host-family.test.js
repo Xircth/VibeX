@@ -58,6 +58,10 @@ test("packages server, companion, web UI, and official catalog without plugin pa
     "export const cli = true;\n",
   );
   fs.writeFileSync(
+    path.join(root, "scripts", "claude-native-models.mjs"),
+    "export const models = true;\n",
+  );
+  fs.writeFileSync(
     path.join(root, "scripts", "claude-native-driver.test.mjs"),
     "// test should not be bundled\n",
   );
@@ -94,6 +98,10 @@ test("packages server, companion, web UI, and official catalog without plugin pa
     "export const cli = true;\n",
   );
   assert.equal(
+    fs.readFileSync(path.join(output, "scripts", "claude-native-models.mjs"), "utf8"),
+    "export const models = true;\n",
+  );
+  assert.equal(
     fs.existsSync(path.join(output, "scripts", "claude-native-driver.test.mjs")),
     false,
   );
@@ -116,6 +124,7 @@ test("packages server, companion, web UI, and official catalog without plugin pa
   assert.match(checksums, /  scripts\/claude-native-driver\.mjs\n/);
   assert.match(checksums, /  scripts\/claude-native-events\.mjs\n/);
   assert.match(checksums, /  scripts\/claude-native-cli\.mjs\n/);
+  assert.match(checksums, /  scripts\/claude-native-models\.mjs\n/);
   assert.doesNotMatch(checksums, /claude-native-driver\.test\.mjs/);
   assert.doesNotMatch(checksums, /scratch/);
 });

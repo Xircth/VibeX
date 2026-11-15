@@ -1,16 +1,13 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import type {
-  AgentAuthenticationStatus,
   AgentDiagnosticView,
   AgentId,
   AgentManagementActionsView,
-  AgentManagementView,
-  AgentNativeConfigPatchRequest,
   AgentNativeConfigFileWriteRequest,
+  AgentNativeConfigPatchRequest,
   AgentNativeConfigView,
   AgentOperationKind,
-  AgentPreflightItemView,
   AgentPreflightView,
   AgentRegistryView,
   AgentRegistryViewRow,
@@ -20,8 +17,8 @@ import type {
 } from 'shared/types';
 
 import { useUserSystem } from '@/components/ConfigProvider';
-import { toast } from '@/components/ui/toast';
 import { ConfirmDialog } from '@/components/dialogs/shared/ConfirmDialog';
+import { toast } from '@/components/ui/toast';
 import {
   agentManagementApi,
   agentManagementErrorMessage as errorMessage,
@@ -35,49 +32,9 @@ import {
 } from '@/features/agent-management/agentAcpUpdates';
 import { consumeAgentSettingsFocus } from '@/features/agent-management/agentSettingsFocus';
 import { agentHasAcpUpdate } from '@/features/agent-management/agentVersion';
-import {
-  ROUTER_OPENCODE_PROVIDER_ID,
-  ROUTER_PROVIDER_NAME,
-  accountApi,
-  dshProviderSaveRequest,
-  openCodeConnectRequest,
-  providerSaveRequest,
-  type RouterProvision,
-} from '@/features/model-router';
-import { tauriInvoke, tauriListen } from '@/lib/tauriApi';
 
 import { AgentBar } from './AgentBar';
-import { rememberAgentAuthKindTab } from './agentAuthKindTab';
 import { defaultAgentIdFromOrder, sortAgentsForBar } from './agentBarOrder';
-import {
-  clearAgentSettingsDraft,
-  retainAgentSettingsDraft,
-} from './agentSettingsDraftRetention';
-import { AgentSettingsLoading } from './AgentSettingsLoading';
-import {
-  AgentConfigPathMeta,
-  AgentConfigurationAndDiagnostics,
-  configFilePathsForSurface,
-  configForAuthMode,
-} from './AgentConfigurationAndDiagnostics';
-import { AgentDetail } from './AgentDetail';
-import { AgentAuthModeControl } from './AgentAuthModeControl';
-import { AgentEnvironmentEditor } from './AgentEnvironmentEditor';
-import { AgentEnvironmentDiagnosticsDialog } from './AgentEnvironmentDiagnosticsDialog';
-import { AgentModelProviderManager } from './AgentModelProviderManager';
-import { AgentRegistryViewPanel } from './AgentRegistryView';
-import { OpenCodeProviderConnections } from './OpenCodeProviderConnections';
-import { OpenCodeSubscriptionPanel } from './OpenCodeSubscriptionPanel';
-import { OpenCodePluginHealth } from './OpenCodePluginHealth';
-import { DshAuthPanel } from './DshAuthPanel';
-import { DshPluginManager } from './DshPluginManager';
-import { GrokPluginManager } from './GrokPluginManager';
-import { PiPluginManager } from './PiPluginManager';
-import { DshSessionDefaults } from './DshSessionDefaults';
-import { PluginsSettings, type PluginEcosystem } from './PluginsSettings';
-import { SettingsSection as CollapsibleSettingsSection } from './SettingsSection';
-import { AgentLockedSurface } from './SettingsUi';
-import { UserAgentDefinitionPanel } from './UserAgentDefinitionPanel';
 import {
   isAuthPreflightItem,
   mergePreflightItems,
@@ -86,15 +43,30 @@ import {
   readPreflightSnapshot,
   writePreflightSnapshot,
 } from './agentPreflightSnapshot';
-import { agentProvisioningAction } from './agentProvisioning';
+import {
+  agentProvisioningAction,
+  isNativeEngineAgent,
+  isPrimaryRuntimePreflightItem,
+} from './agentProvisioning';
+import { AgentRegistryViewPanel } from './AgentRegistryView';
+import { AgentSettingsDetailSections } from './AgentSettingsDetailSections';
+import { AgentSettingsLoading } from './AgentSettingsLoading';
+import {
+  applyCachedUpdateToPreflight,
+  applyInstallationToPreflight,
+  applyUpdateCheckToPreflight,
+  isConfigConflict,
+} from './agentSettingsPreflightHelpers';
+import type { PluginEcosystem } from './PluginsSettings';
+import { useAgentAccountFlowWatcher } from './useAgentAccountFlowWatcher';
+import {
+  MODEL_ROUTER_IMPORT_EVENT,
+  type PendingModelRouterImport,
+  useAgentModelRouterImport,
+} from './useAgentModelRouterImport';
+import { useUnsavedAgentSettingsGuard } from './useUnsavedAgentSettingsGuard';
 
-export const MODEL_ROUTER_IMPORT_EVENT = 'vibex://modelrouter-import';
-
-export type PendingModelRouterImport = {
-  id?: number;
-  ticket: string;
-  agentId?: string | null;
-};
+export { MODEL_ROUTER_IMPORT_EVENT, type PendingModelRouterImport };
 
 export function AgentSettings() {
   const { t } = useTranslation(['settings', 'common']);
@@ -110,7 +82,6 @@ export function AgentSettings() {
   const [actions, setActions] = useState<AgentManagementActionsView | null>(
     null
   );
-  const [actionRunning, setActionRunning] = useState<string | null>(null);
   const [checking, setChecking] = useState(false);
   const [config, setConfig] = useState<AgentNativeConfigView | null>(null);
   const [diagnostics, setDiagnostics] = useState<AgentDiagnosticView[]>([]);
@@ -140,55 +111,13 @@ export function AgentSettings() {
   const [userDefinition, setUserDefinition] =
     useState<UserAgentDefinitionView | null>(null);
   const [savingUserDefinition, setSavingUserDefinition] = useState(false);
-  const [dirtySources, setDirtySources] = useState<Record<string, boolean>>({});
-  const dirtySourcesRef = useRef(dirtySources);
-  const configDirtyRef = useRef(false);
   const [nativePluginsExpanded, setNativePluginsExpanded] = useState(false);
   const [pluginCount, setPluginCount] = useState(0);
-  const configDirty = Object.values(dirtySources).some(Boolean);
-  const setDirtySource = useCallback((source: string, dirty: boolean) => {
-    const current = dirtySourcesRef.current;
-    const next =
-      current[source] === dirty ? current : { ...current, [source]: dirty };
-    dirtySourcesRef.current = next;
-    configDirtyRef.current = Object.values(next).some(Boolean);
-    if (next !== current) setDirtySources(next);
-  }, []);
-  const setConfigurationDirty = useCallback(
-    (dirty: boolean) => setDirtySource('configuration', dirty),
-    [setDirtySource]
-  );
-  const setAuthConfigurationDirty = useCallback(
-    (dirty: boolean) => setDirtySource('auth-configuration', dirty),
-    [setDirtySource]
-  );
-  const setAuthModeDirty = useCallback(
-    (dirty: boolean) => setDirtySource('auth-mode', dirty),
-    [setDirtySource]
-  );
-  const setUserDefinitionDirty = useCallback(
-    (dirty: boolean) => setDirtySource('user-definition', dirty),
-    [setDirtySource]
-  );
-  const setModelProviderDirty = useCallback(
-    (dirty: boolean) => setDirtySource('model-provider', dirty),
-    [setDirtySource]
-  );
-  const setOpenCodeProviderDirty = useCallback(
-    (dirty: boolean) => setDirtySource('opencode-provider', dirty),
-    [setDirtySource]
-  );
-  const setDshProviderDirty = useCallback(
-    (dirty: boolean) => setDirtySource('dsh-provider', dirty),
-    [setDirtySource]
-  );
-  const setEnvironmentDirty = useCallback(
-    (dirty: boolean) => setDirtySource('environment', dirty),
-    [setDirtySource]
-  );
 
   const selectedAgent = management.selectedAgent;
   const selectedAgentId = selectedAgent?.agent_id ?? null;
+  const { setDirtySource, confirmDiscardConfig } =
+    useUnsavedAgentSettingsGuard(selectedAgentId, t);
   const selectAgent = management.select;
   useEffect(() => {
     const applyFocus = () => {
@@ -205,9 +134,6 @@ export function AgentSettings() {
   useEffect(() => {
     setPluginCount(0);
     setNativePluginsExpanded(false);
-    dirtySourcesRef.current = {};
-    configDirtyRef.current = false;
-    setDirtySources({});
   }, [selectedAgentId]);
   const liveConfig = config?.agent_id === selectedAgentId ? config : null;
   const hasAuthenticationMode = Boolean(
@@ -227,7 +153,6 @@ export function AgentSettings() {
         ? 'claude_code'
         : null;
   const refreshManagement = management.refresh;
-  const authWatchGeneration = useRef(0);
   const authRefreshGeneration = useRef(0);
   const inspectGeneration = useRef(0);
   const inspectCacheRef = useRef({
@@ -236,80 +161,6 @@ export function AgentSettings() {
     diagnostics: new Map<AgentId, AgentDiagnosticView[]>(),
     updateCheck: new Map<AgentId, AgentUpdateCheckView>(),
   });
-
-  const confirmDiscardConfig = useCallback(async () => {
-    if (!configDirtyRef.current) return true;
-    const result = await ConfirmDialog.show({
-      title: t('settings:agents.unsavedConfigTitle'),
-      message: t('settings:agents.unsavedConfigMessage'),
-      confirmText: t('settings:agents.discardConfig'),
-      cancelText: t('common:cancel'),
-      variant: 'destructive',
-    });
-    if (result !== 'confirmed') return false;
-    dirtySourcesRef.current = {};
-    configDirtyRef.current = false;
-    setDirtySources({});
-    return true;
-  }, [t]);
-
-  useEffect(() => {
-    if (!configDirty) return;
-    const currentHref = window.location.href;
-    const warn = (event: BeforeUnloadEvent) => event.preventDefault();
-    const handleSidebarClick = (event: MouseEvent) => {
-      if (!configDirtyRef.current) return;
-      const target = event.target;
-      if (!(target instanceof Element)) return;
-      const navTarget = target.closest<HTMLElement>(
-        '.settings-sidebar a[href], .settings-sidebar .settings-nav-button, .settings-sidebar .settings-search-result'
-      );
-      if (!navTarget) return;
-      if (
-        navTarget.getAttribute('aria-current') === 'page' ||
-        navTarget.classList.contains('is-active')
-      ) {
-        return;
-      }
-      event.preventDefault();
-      event.stopPropagation();
-      void (async () => {
-        if (!(await confirmDiscardConfig())) return;
-        const fallbackAnchorNav = (e: MouseEvent) => {
-          if (navTarget instanceof HTMLAnchorElement && !e.defaultPrevented) {
-            e.preventDefault();
-            const href = navTarget.getAttribute('href');
-            if (href) window.history.pushState(null, '', href);
-          }
-        };
-        window.addEventListener('click', fallbackAnchorNav, { once: true });
-        navTarget.click();
-        window.removeEventListener('click', fallbackAnchorNav);
-      })();
-    };
-    const handlePopState = () => {
-      if (!configDirtyRef.current) return;
-      const nextHref = window.location.href;
-      window.history.pushState(null, '', currentHref);
-      void (async () => {
-        if (await confirmDiscardConfig()) {
-          window.history.replaceState(null, '', nextHref);
-        }
-      })();
-    };
-    window.addEventListener('beforeunload', warn);
-    document.addEventListener('click', handleSidebarClick, true);
-    window.addEventListener('popstate', handlePopState);
-    return () => {
-      window.removeEventListener('beforeunload', warn);
-      document.removeEventListener('click', handleSidebarClick, true);
-      window.removeEventListener('popstate', handlePopState);
-    };
-  }, [configDirty, confirmDiscardConfig]);
-
-  useEffect(() => {
-    setNativePluginsExpanded(false);
-  }, [selectedAgentId]);
 
   const loadRegistry = useCallback(
     async (forceRefresh = false) => {
@@ -736,14 +587,21 @@ export function AgentSettings() {
     ) {
       return;
     }
+    const finishedNativeEngine = isNativeEngineAgent(
+      selectedAgent ?? selectedAgentId
+    );
     if (finishedKind !== 'uninstall') {
       toast.success(
         t(
           finishedKind === 'install'
-            ? 'settings:agents.runtimeAcpInstallComplete'
+            ? finishedNativeEngine
+              ? 'settings:agents.nativeRuntimeInstallComplete'
+              : 'settings:agents.runtimeAcpInstallComplete'
             : finishedKind === 'repair'
               ? 'settings:agents.repairComplete'
-              : 'settings:agents.runtimeAcpUpdateComplete'
+              : finishedNativeEngine
+                ? 'settings:agents.nativeRuntimeUpdateComplete'
+                : 'settings:agents.runtimeAcpUpdateComplete'
         )
       );
     }
@@ -817,7 +675,7 @@ export function AgentSettings() {
     refreshManagement,
     operationActive,
     registryOpen,
-    selectedAgent?.lifecycle,
+    selectedAgent,
     selectedAgentId,
     selectedAgentOperation,
     t,
@@ -862,328 +720,22 @@ export function AgentSettings() {
     void refreshAuthentication();
   }, [refreshAuthentication]);
 
-  const processedImportTicketsRef = useRef<Set<string>>(new Set());
-  const agentsListRef = useRef<AgentManagementView[]>(management.state.agents);
-  agentsListRef.current = management.state.agents;
+  useAgentModelRouterImport({
+    agents: management.state.agents,
+    selectedAgentId,
+    selectAgent,
+    setFocusDiagnostics,
+    setRegistryOpen,
+    setProviderRefreshKey,
+    refreshAuthentication,
+  });
 
-  const enableImportedModelRouterProvider = useCallback(
-    async (
-      targetAgentId: AgentId,
-      provision: RouterProvision,
-      savedProviderId: string | null
-    ) => {
-      try {
-        if (targetAgentId === 'opencode' || targetAgentId === 'mimo_code') {
-          await agentManagementApi.connectOpenCodeProvider(
-            openCodeConnectRequest(provision, true),
-            targetAgentId
-          );
-        } else if (targetAgentId === 'deepseek_harness') {
-          await agentManagementApi.saveDshProvider(
-            dshProviderSaveRequest(provision, true)
-          );
-          await agentManagementApi.setAuthMode(
-            'deepseek_harness',
-            'custom',
-            null
-          );
-          clearAgentSettingsDraft('dsh-auth');
-        } else {
-          const agent = agentsListRef.current.find(
-            (item) => item.agent_id === targetAgentId
-          );
-          const signedIn =
-            agent?.authentication === 'account' ||
-            agent?.authentication === 'multiple_unknown';
-          if (signedIn) {
-            const confirmed = await ConfirmDialog.show({
-              title: t('settings:agents.authSwitchToProviderTitle'),
-              message: t('settings:agents.authSwitchToProviderMessage'),
-              confirmText: t('settings:agents.authSwitchToProviderConfirm'),
-              cancelText: t('common:cancel'),
-              variant: 'destructive',
-            });
-            if (confirmed !== 'confirmed') {
-              return;
-            }
-          }
-          let providerId = savedProviderId;
-          if (!providerId) {
-            const list = await agentManagementApi.modelProviders(targetAgentId);
-            providerId =
-              list.providers.find((item) => item.name === ROUTER_PROVIDER_NAME)
-                ?.id ?? null;
-          }
-          if (!providerId) {
-            throw new Error(t('settings:agents.modelRouterImportFailed'));
-          }
-          await agentManagementApi.bindModelProvider(targetAgentId, providerId);
-        }
-        clearAgentSettingsDraft(`auth-mode:${targetAgentId}`);
-        rememberAgentAuthKindTab(targetAgentId, 'provider');
-        setProviderRefreshKey((current) => current + 1);
-        await refreshAuthentication();
-        toast.success(
-          t('settings:agents.modelRouterApplied', {
-            model: provision.model.name,
-          })
-        );
-      } catch (error) {
-        toast.error(
-          errorMessage(error, t('settings:agents.modelRouterImportFailed'))
-        );
-      }
-    },
-    [refreshAuthentication, t]
-  );
-
-  const handleModelRouterImport = useCallback(
-    async (payload: PendingModelRouterImport | null | undefined) => {
-      const ticket = payload?.ticket?.trim();
-      if (!ticket || processedImportTicketsRef.current.has(ticket)) {
-        return;
-      }
-      processedImportTicketsRef.current.add(ticket);
-      try {
-        const provision = await accountApi.redeemImportTicket(ticket);
-        const targetAgentId = (provision.agentId?.trim() ||
-          payload?.agentId?.trim() ||
-          selectedAgentIdRef.current ||
-          'claude_code') as AgentId;
-
-        selectAgent(targetAgentId);
-        setFocusDiagnostics(false);
-        setRegistryOpen(false);
-        rememberAgentAuthKindTab(targetAgentId, 'provider');
-        if (targetAgentId === 'deepseek_harness') {
-          clearAgentSettingsDraft('dsh-auth');
-        } else {
-          retainAgentSettingsDraft(`auth-mode:${targetAgentId}`, {
-            mode: 'model_provider',
-            apiKey: '',
-          });
-        }
-
-        let savedProviderId: string | null = null;
-        if (targetAgentId === 'opencode' || targetAgentId === 'mimo_code') {
-          await agentManagementApi.connectOpenCodeProvider(
-            openCodeConnectRequest(provision, false),
-            targetAgentId
-          );
-        } else if (targetAgentId === 'deepseek_harness') {
-          await agentManagementApi.saveDshProvider(
-            dshProviderSaveRequest(provision, false)
-          );
-          savedProviderId = ROUTER_OPENCODE_PROVIDER_ID;
-        } else {
-          const existing =
-            await agentManagementApi.modelProviders(targetAgentId);
-          const preset = existing.providers.find(
-            (provider) => provider.name === ROUTER_PROVIDER_NAME
-          );
-          const saved = await agentManagementApi.saveModelProvider(
-            providerSaveRequest(provision, preset?.id ?? null)
-          );
-          savedProviderId =
-            saved.providers.find(
-              (provider) => provider.name === ROUTER_PROVIDER_NAME
-            )?.id ??
-            preset?.id ??
-            null;
-        }
-
-        setProviderRefreshKey((current) => current + 1);
-        toast.success(
-          t(
-            'settings:agents.modelRouterImportConfirmEnable',
-            '模型导入成功，是否立即启用？'
-          ),
-          {
-            description: `${ROUTER_PROVIDER_NAME} · ${provision.model.name}`,
-            duration: 15000,
-            cancel: {
-              label: t('common:cancel', '取消'),
-              onClick: () => {},
-            },
-            action: {
-              label: t('settings:agents.enableNow', '启用'),
-              onClick: () => {
-                void enableImportedModelRouterProvider(
-                  targetAgentId,
-                  provision,
-                  savedProviderId
-                );
-              },
-            },
-          }
-        );
-      } catch (error) {
-        processedImportTicketsRef.current.delete(ticket);
-        toast.error(
-          errorMessage(error, t('settings:agents.modelRouterImportFailed'))
-        );
-      }
-    },
-    [enableImportedModelRouterProvider, selectAgent, t]
-  );
-
-  useEffect(() => {
-    let active = true;
-    let unlisten: (() => void) | undefined;
-
-    void tauriListen<PendingModelRouterImport>(
-      MODEL_ROUTER_IMPORT_EVENT,
-      (payload) => {
-        if (!active) return;
-        void handleModelRouterImport(payload);
-      }
-    )
-      .then((fn) => {
-        if (!active) {
-          fn();
-          return;
-        }
-        unlisten = fn;
-      })
-      .catch(() => undefined);
-
-    void tauriInvoke<PendingModelRouterImport | null>(
-      'take_pending_model_router_import'
-    )
-      .then((pending) => {
-        if (!active || !pending) return;
-        void handleModelRouterImport(pending);
-      })
-      .catch(() => undefined);
-
-    return () => {
-      active = false;
-      unlisten?.();
-    };
-  }, [handleModelRouterImport]);
-
-  const watchAccountFlow = useCallback(
-    async (
-      agentId: string,
-      expectPending: boolean,
-      expectedAction?: string
-    ) => {
-      const watchId = ++authWatchGeneration.current;
-      const deadline = Date.now() + 15 * 60 * 1000;
-      let sawPending = false;
-      let completedAction: string | null = null;
-      let consecutiveErrors = 0;
-      try {
-        while (Date.now() < deadline) {
-          if (authWatchGeneration.current !== watchId) return;
-          if (!completedAction) {
-            let flow;
-            try {
-              flow = await agentManagementApi.accountFlow(agentId);
-              consecutiveErrors = 0;
-            } catch (error) {
-              consecutiveErrors += 1;
-              if ((!expectPending && !sawPending) || consecutiveErrors >= 3) {
-                if (expectPending || sawPending) {
-                  toast.error(
-                    errorMessage(
-                      error,
-                      t('settings:agents.accountFlowCommandFailed')
-                    )
-                  );
-                }
-                return;
-              }
-              await new Promise((resolve) => {
-                window.setTimeout(resolve, 1000);
-              });
-              continue;
-            }
-            if (authWatchGeneration.current !== watchId) return;
-            if (flow.status === 'pending') {
-              sawPending = true;
-              if (flow.action_id) {
-                setActionRunning(flow.action_id);
-              }
-            } else if (flow.status === 'succeeded') {
-              completedAction = flow.action_id ?? expectedAction ?? 'login';
-            } else if (flow.status === 'failed') {
-              toast.error(t('settings:agents.accountFlowCommandFailed'));
-              return;
-            } else if (!expectPending && !sawPending) {
-              return;
-            } else if (expectPending && flow.status === 'idle') {
-              completedAction = expectedAction ?? 'login';
-            }
-          }
-          if (completedAction) {
-            const authentication = await refreshAuthentication();
-            if (authWatchGeneration.current !== watchId) return;
-            if (accountSessionMatchesAction(completedAction, authentication)) {
-              return;
-            }
-          }
-          await new Promise((resolve) => {
-            window.setTimeout(resolve, 1000);
-          });
-        }
-      } finally {
-        if (authWatchGeneration.current === watchId) {
-          setActionRunning(null);
-        }
-      }
-    },
-    [refreshAuthentication, t]
-  );
-
-  useEffect(() => {
-    authWatchGeneration.current += 1;
-    setActionRunning(null);
-    return () => {
-      authWatchGeneration.current += 1;
-    };
-  }, [selectedAgentId]);
-
-  useEffect(() => {
-    if (!selectedAgentId || registryOpen) return;
-    void watchAccountFlow(selectedAgentId, false);
-  }, [registryOpen, selectedAgentId, watchAccountFlow]);
-
-  const runManagementAction = useCallback(
-    async (actionId: string) => {
-      if (!selectedAgentId) return;
-      const watchIdAtStart = authWatchGeneration.current;
-      setActionRunning(actionId);
-      try {
-        await agentManagementApi.runAction(selectedAgentId, actionId);
-        if (selectedAgentId === 'kimi_code' && actionId === 'login') {
-          setConfig(await agentManagementApi.readConfig(selectedAgentId));
-        }
-        toast.success(
-          actionId === 'subscription'
-            ? t('settings:agents.subscriptionOpened')
-            : selectedAgentId === 'antigravity' && actionId === 'login'
-              ? t('settings:agents.browserLoginStarted')
-              : t('settings:agents.terminalFlowStarted')
-        );
-        if (actionId === 'login' || actionId === 'logout') {
-          await watchAccountFlow(selectedAgentId, true, actionId);
-        }
-      } catch (error) {
-        toast.error(
-          errorMessage(error, t('settings:agents.accountFlowFailed'))
-        );
-      } finally {
-        if (
-          authWatchGeneration.current === watchIdAtStart ||
-          (actionId !== 'login' && actionId !== 'logout')
-        ) {
-          setActionRunning(null);
-        }
-      }
-    },
-    [selectedAgentId, t, watchAccountFlow]
-  );
+  const { actionRunning, runManagementAction } = useAgentAccountFlowWatcher({
+    selectedAgentId,
+    registryOpen,
+    refreshAuthentication,
+    setConfig,
+  });
 
   const reorder = useCallback(
     async (order: string[]) => {
@@ -1207,15 +759,11 @@ export function AgentSettings() {
             const action = report
               ? agentProvisioningAction(
                   enabledAgent,
-                  presentPreflightItems(report.items).filter(
+                  presentPreflightItems(report.items, enabledAgent).filter(
                     (item) => !isAuthPreflightItem(item)
                   )
                 )
-              : enabledAgent.lifecycle === 'uninstalled'
-                ? 'install'
-                : enabledAgent.lifecycle === 'needs_repair'
-                  ? 'repair'
-                  : null;
+              : agentProvisioningAction(enabledAgent, []);
             if (action === 'install') {
               const receipt =
                 await agentManagementApi.addAndInstall(nextDefault);
@@ -1325,7 +873,13 @@ export function AgentSettings() {
     try {
       const receipt = await agentManagementApi.addAndInstall(selectedAgentId);
       management.beginOperation(receipt);
-      toast.success(t('settings:agents.installStarted'));
+      toast.success(
+        t(
+          isNativeEngineAgent(selectedAgent ?? selectedAgentId)
+            ? 'settings:agents.nativeInstallStarted'
+            : 'settings:agents.installStarted'
+        )
+      );
     } catch (error) {
       if (selectedAgentId === 'kiro') {
         showKiroWebInstallFallbackToast(error);
@@ -1338,7 +892,13 @@ export function AgentSettings() {
       );
       startingOperationAgentsRef.current.delete(selectedAgentId);
     }
-  }, [management, selectedAgentId, showKiroWebInstallFallbackToast, t]);
+  }, [
+    management,
+    selectedAgent,
+    selectedAgentId,
+    showKiroWebInstallFallbackToast,
+    t,
+  ]);
 
   const queueVersionInstall = useCallback(
     async (input: {
@@ -1415,10 +975,12 @@ export function AgentSettings() {
         toast.error(t('settings:agents.updateCheckFailed'));
         return;
       }
-      const acpItem = preflight?.items.find((item) => item.id === 'acp');
+      const primaryItem = preflight?.items.find((item) =>
+        isPrimaryRuntimePreflightItem(item, selectedAgent ?? selectedAgentId)
+      );
       const hasUpdate =
         comparison.update_available ||
-        agentHasAcpUpdate(comparison, acpItem?.version);
+        agentHasAcpUpdate(comparison, primaryItem?.version);
       const learnedLatest = Boolean(
         comparison.acp_available ||
           comparison.runtime_available ||
@@ -1438,7 +1000,7 @@ export function AgentSettings() {
     } finally {
       setCheckingUpdate(false);
     }
-  }, [applyBackgroundUpdateCheck, preflight, selectedAgentId, t]);
+  }, [applyBackgroundUpdateCheck, preflight, selectedAgent, selectedAgentId, t]);
 
   const applyUpdate = useCallback(async () => {
     if (
@@ -1528,15 +1090,11 @@ export function AgentSettings() {
         const action = report
           ? agentProvisioningAction(
               agent,
-              presentPreflightItems(report.items).filter(
+              presentPreflightItems(report.items, agent).filter(
                 (item) => !isAuthPreflightItem(item)
               )
             )
-          : agent.lifecycle === 'uninstalled'
-            ? 'install'
-            : agent.lifecycle === 'needs_repair'
-              ? 'repair'
-              : null;
+          : agentProvisioningAction(agent, []);
         if (action === 'install') {
           await queueInstall();
           return;
@@ -1546,10 +1104,12 @@ export function AgentSettings() {
           return;
         }
         const comparison = await applyBackgroundUpdateCheck(selectedAgentId);
-        const acpItem = report?.items.find((item) => item.id === 'acp');
+        const primaryItem = report?.items.find((item) =>
+          isPrimaryRuntimePreflightItem(item, agent)
+        );
         if (
           comparison?.update_available ||
-          (comparison && agentHasAcpUpdate(comparison, acpItem?.version))
+          (comparison && agentHasAcpUpdate(comparison, primaryItem?.version))
         ) {
           await applyUpdate();
         }
@@ -1577,7 +1137,10 @@ export function AgentSettings() {
       const item = preflight?.items.find((entry) => entry.id === itemId);
       const hasKnownUpdate =
         Boolean(item?.update_available) ||
-        (itemId === 'acp' &&
+        (isPrimaryRuntimePreflightItem(
+          { id: itemId },
+          selectedAgent ?? selectedAgentId
+        ) &&
           Boolean(
             updateCheck?.update_available ||
               readCachedAgentAcpUpdate(selectedAgentId)?.available
@@ -1585,7 +1148,7 @@ export function AgentSettings() {
       if (!hasKnownUpdate) return;
       await applyUpdate();
     },
-    [applyUpdate, preflight, selectedAgentId, updateCheck]
+    [applyUpdate, preflight, selectedAgent, selectedAgentId, updateCheck]
   );
 
   const uninstall = useCallback(
@@ -1616,16 +1179,6 @@ export function AgentSettings() {
     },
     [inspectAgent, management, selectedAgentId, t]
   );
-
-  const rollback = useCallback(async () => {
-    if (!selectedAgentId) return;
-    try {
-      management.mergeAgent(await agentManagementApi.rollback(selectedAgentId));
-      toast.success(t('settings:agents.rollbackComplete'));
-    } catch (error) {
-      toast.error(errorMessage(error, t('settings:agents.rollbackFailed')));
-    }
-  }, [management, selectedAgentId, t]);
 
   const cancelOperation = useCallback(async () => {
     if (!selectedAgentId) return;
@@ -1812,139 +1365,26 @@ export function AgentSettings() {
 
   const markAllDiagnosticsRead = useCallback(() => {
     if (!selectedAgentId) return;
-    // 一键已读 = 全部标记已读并清空列表;已读记录不再显示,新诊断照常出现。
     setDiagnostics([]);
     void agentManagementApi
       .markDiagnosticsRead(selectedAgentId)
       .catch(() => undefined);
   }, [selectedAgentId]);
 
+  const defaultExecutor = userConfig?.executor_profile.executor ?? null;
+  const barAgents = useMemo(
+    () => sortAgentsForBar(management.state.agents, defaultExecutor),
+    [management.state.agents, defaultExecutor]
+  );
+
   if (management.loading && management.state.agents.length === 0) {
     return <AgentSettingsLoading />;
   }
 
-  const authenticationPanel =
-    selectedAgent?.agent_id === 'deepseek_harness' ? (
-      <AgentLockedSurface locked={agentLocked}>
-        <DshAuthPanel
-          key={`deepseek_harness:${providerRefreshKey}`}
-          locked={agentLocked}
-          onDirtyChange={setDshProviderDirty}
-          onChanged={notifyAuthenticationChanged}
-        />
-      </AgentLockedSurface>
-    ) : selectedAgent && hasAuthenticationMode ? (
-      <AgentLockedSurface locked={agentLocked}>
-        <AgentAuthModeControl
-          key={`${selectedAgent.agent_id}:${providerRefreshKey}`}
-          actions={actions}
-          actionRunning={actionRunning}
-          authentication={selectedAgent.authentication}
-          agentId={selectedAgent.agent_id}
-          busy={Boolean(
-            agentLocked ||
-              selectedAgent.retired ||
-              selectedAgent.active_operation ||
-              management.state.operations[selectedAgent.agent_id]
-          )}
-          headingExtra={
-            liveConfig ? (
-              <AgentConfigPathMeta
-                paths={configFilePathsForSurface(liveConfig, 'authentication')}
-                saving={savingConfig}
-              />
-            ) : null
-          }
-          configuration={
-            liveConfig?.fields.some(
-              (field) => (field.surface ?? 'configuration') === 'authentication'
-            )
-              ? (mode) => (
-                  <AgentConfigurationAndDiagnostics
-                    config={configForAuthMode(
-                      selectedAgent.agent_id,
-                      mode,
-                      liveConfig
-                    )}
-                    fieldSurface="authentication"
-                    locked={agentLocked}
-                    saving={savingConfig}
-                    conflictMessage={configConflict?.message}
-                    embedded
-                    onSave={(request) =>
-                      saveConfig(request, { refreshAuth: true })
-                    }
-                    onReloadConflict={() => void reloadConflict()}
-                    onAdoptExternal={() => setConfigConflict(null)}
-                    onOverwriteConflict={() => void overwriteConflict()}
-                    onDirtyChange={setAuthConfigurationDirty}
-                  />
-                )
-              : undefined
-          }
-          configurationOnAccount={(mode) =>
-            selectedAgent.agent_id === 'antigravity' &&
-            mode === 'oauth-business'
-          }
-          modelProvider={
-            selectedAgent.agent_id === 'opencode' ||
-            selectedAgent.agent_id === 'mimo_code' ? (
-              <OpenCodeProviderConnections
-                agentId={selectedAgent.agent_id}
-                surface="provider"
-                onDirtyChange={setOpenCodeProviderDirty}
-                onChanged={notifyAuthenticationChanged}
-              />
-            ) : liveConfig?.settings_features.includes(
-                'reusable_model_providers'
-              ) ||
-              selectedAgent.settings_features?.includes(
-                'reusable_model_providers'
-              ) ? (
-              <AgentModelProviderManager
-                agentId={selectedAgent.agent_id}
-                disabled={savingConfig || agentLocked}
-                embedded
-                signedIn={
-                  selectedAgent.authentication === 'account' ||
-                  selectedAgent.authentication === 'multiple_unknown'
-                }
-                onDirtyChange={setModelProviderDirty}
-                onChanged={notifyAuthenticationChanged}
-              />
-            ) : undefined
-          }
-          onChanged={notifyAuthenticationChanged}
-          onDirtyChange={setAuthModeDirty}
-          onAuthenticated={notifyAuthenticationChanged}
-          onRunAction={(actionId) => void runManagementAction(actionId)}
-          accountExtra={
-            selectedAgent.agent_id === 'opencode' ? (
-              <OpenCodeSubscriptionPanel
-                onDirtyChange={setOpenCodeProviderDirty}
-                onChanged={notifyAuthenticationChanged}
-              />
-            ) : undefined
-          }
-          nativeCredentialPresent={(fieldId) =>
-            Boolean(
-              liveConfig?.fields.some(
-                (field) => field.id === fieldId && field.present
-              )
-            )
-          }
-          locked={agentLocked}
-        />
-      </AgentLockedSurface>
-    ) : null;
-
   return (
     <div className="agent-settings-scroll flex h-full min-h-0 flex-col gap-4 overflow-y-auto pb-24">
       <AgentBar
-        agents={sortAgentsForBar(
-          management.state.agents,
-          userConfig?.executor_profile.executor ?? null
-        )}
+        agents={barAgents}
         selectedAgentId={management.state.selectedAgentId}
         registryOpen={registryOpen}
         refreshing={management.loading}
@@ -1974,303 +1414,66 @@ export function AgentSettings() {
           onAddUserDefinition={(request) => void addUserAgent(request)}
         />
       ) : selectedAgent ? (
-        <div className="space-y-4">
-          <div className="space-y-4">
-            <AgentDetail
-              agent={selectedAgent}
-              operation={
-                management.state.operations[selectedAgent.agent_id] ??
-                (enablingOperation?.agentId === selectedAgent.agent_id
-                  ? enablingOperation
-                  : null)
-              }
-              preflight={preflight}
-              authentication={authenticationPanel}
-              diagnostics={diagnostics}
-              focusDiagnostics={focusDiagnostics}
-              onMarkAllDiagnosticsRead={markAllDiagnosticsRead}
-              checking={checking}
-              checkingUpdate={checkingUpdate}
-              updateCheck={updateCheck}
-              onSetEnabled={(enabled) => void setEnabled(enabled)}
-              onPreflight={() => void runPreflight()}
-              onInstall={() => void queueInstall()}
-              onInstallVersion={(input) => void queueVersionInstall(input)}
-              onPreviewVersions={previewVersions}
-              onRepair={() => void queueRepair()}
-              onCheckUpdate={() => void checkUpdate()}
-              onUpdatePreflightItem={(itemId) =>
-                void applyPreflightItemUpdate(itemId)
-              }
-              onRollback={() => void rollback()}
-              onCancelOperation={() => void cancelOperation()}
-              onUninstall={(options) => void uninstall(options)}
-              onRemove={() => void remove()}
-              onExportDiagnostics={exportDiagnostics}
-              onEnvironmentDiagnostics={
-                selectedAgent.built_in ||
-                selectedAgent.settings_features?.includes('authentication_mode')
-                  ? () =>
-                      setEnvironmentDiagnosticsAgentId(selectedAgent.agent_id)
-                  : undefined
-              }
-            />
-            {environmentDiagnosticsAgentId ? (
-              <AgentEnvironmentDiagnosticsDialog
-                agentId={environmentDiagnosticsAgentId}
-                open
-                onOpenChange={(open) => {
-                  if (!open) setEnvironmentDiagnosticsAgentId(null);
-                }}
-              />
-            ) : null}
-            {selectedAgent.source === 'user_definition' ? (
-              <UserAgentDefinitionPanel
-                definition={userDefinition}
-                loading={savingUserDefinition}
-                operationActive={Boolean(
-                  selectedAgent.active_operation ||
-                    management.state.operations[selectedAgent.agent_id]
-                )}
-                onSave={saveUserDefinition}
-                onReinstall={() => void reinstallUserDefinition()}
-                onDirtyChange={setUserDefinitionDirty}
-              />
-            ) : null}
-
-            {selectedAgent.agent_id === 'deepseek_harness' ? (
-              <AgentLockedSurface locked={agentLocked}>
-                <DshSessionDefaults
-                  onDirtyChange={setConfigurationDirty}
-                  onChanged={async () => {
-                    await management.refresh();
-                  }}
-                />
-              </AgentLockedSurface>
-            ) : (
-              <AgentLockedSurface locked={agentLocked}>
-                <AgentConfigurationAndDiagnostics
-                  config={config}
-                  locked={agentLocked}
-                  fieldSurface={
-                    config?.settings_features.includes('authentication_mode')
-                      ? 'configuration'
-                      : undefined
-                  }
-                  saving={savingConfig}
-                  conflictMessage={configConflict?.message}
-                  onSave={(request) => saveConfig(request)}
-                  onSaveFile={(request) => void saveConfigFile(request)}
-                  onReloadConflict={() => void reloadConflict()}
-                  onAdoptExternal={() => setConfigConflict(null)}
-                  onOverwriteConflict={() => void overwriteConflict()}
-                  onDirtyChange={setConfigurationDirty}
-                />
-              </AgentLockedSurface>
-            )}
-            <AgentLockedSurface locked={agentLocked}>
-              <AgentEnvironmentEditor
-                key={`environment:${selectedAgent.agent_id}`}
-                agentId={selectedAgent.agent_id}
-                disabled={Boolean(
-                  agentLocked ||
-                    selectedAgent.retired ||
-                    selectedAgent.active_operation ||
-                    management.state.operations[selectedAgent.agent_id]
-                )}
-                onChanged={async () => {
-                  await management.refresh();
-                }}
-                onDirtyChange={setEnvironmentDirty}
-              />
-            </AgentLockedSurface>
-          </div>
-          {selectedAgent.agent_id === 'deepseek_harness' ? (
-            <CollapsibleSettingsSection
-              id={`${selectedAgent.agent_id}-native-plugins`}
-              title={t('settings:agents.pluginsTab')}
-              expanded={nativePluginsExpanded}
-              onToggle={() => setNativePluginsExpanded((current) => !current)}
-              summary={t('settings:agents.pluginCount', { count: pluginCount })}
-            >
-              <DshPluginManager
-                onChanged={runPreflight}
-                onCount={setPluginCount}
-              />
-            </CollapsibleSettingsSection>
-          ) : selectedAgent.agent_id === 'opencode' ||
-            selectedAgent.agent_id === 'mimo_code' ? (
-            <CollapsibleSettingsSection
-              id={`${selectedAgent.agent_id}-native-plugins`}
-              title={t('settings:agents.pluginsTab')}
-              expanded={nativePluginsExpanded}
-              onToggle={() => setNativePluginsExpanded((current) => !current)}
-              summary={t('settings:agents.pluginCount', { count: pluginCount })}
-            >
-              <OpenCodePluginHealth
-                agentId={selectedAgent.agent_id}
-                onChanged={runPreflight}
-                onCount={setPluginCount}
-              />
-            </CollapsibleSettingsSection>
-          ) : selectedAgent.agent_id === 'grok' ? (
-            <CollapsibleSettingsSection
-              id={`${selectedAgent.agent_id}-native-plugins`}
-              title={t('settings:agents.pluginsTab')}
-              expanded={nativePluginsExpanded}
-              onToggle={() => setNativePluginsExpanded((current) => !current)}
-              summary={t('settings:agents.pluginCount', { count: pluginCount })}
-            >
-              <GrokPluginManager
-                onChanged={runPreflight}
-                onCount={setPluginCount}
-              />
-            </CollapsibleSettingsSection>
-          ) : selectedAgent.agent_id === 'pi' ? (
-            <CollapsibleSettingsSection
-              id={`${selectedAgent.agent_id}-native-plugins`}
-              title={t('settings:agents.pluginsTab')}
-              expanded={nativePluginsExpanded}
-              onToggle={() => setNativePluginsExpanded((current) => !current)}
-              summary={t('settings:agents.pluginCount', { count: pluginCount })}
-            >
-              <PiPluginManager
-                onChanged={runPreflight}
-                onCount={setPluginCount}
-              />
-            </CollapsibleSettingsSection>
-          ) : nativePluginEcosystem ? (
-            <CollapsibleSettingsSection
-              id={`${selectedAgent.agent_id}-native-plugins`}
-              title={t('settings:agents.pluginsTab')}
-              expanded={nativePluginsExpanded}
-              onToggle={() => setNativePluginsExpanded((current) => !current)}
-              summary={t('settings:agents.pluginCount', { count: pluginCount })}
-            >
-              <PluginsSettings ecosystem={nativePluginEcosystem} embedded />
-            </CollapsibleSettingsSection>
-          ) : null}
-        </div>
+        <AgentSettingsDetailSections
+          selectedAgent={selectedAgent}
+          liveConfig={liveConfig}
+          config={config}
+          hasAuthenticationMode={hasAuthenticationMode}
+          agentLocked={agentLocked}
+          providerRefreshKey={providerRefreshKey}
+          actions={actions}
+          actionRunning={actionRunning}
+          operations={management.state.operations}
+          enablingOperation={enablingOperation}
+          preflight={preflight}
+          diagnostics={diagnostics}
+          focusDiagnostics={focusDiagnostics}
+          checking={checking}
+          checkingUpdate={checkingUpdate}
+          updateCheck={updateCheck}
+          savingConfig={savingConfig}
+          configConflictMessage={configConflict?.message}
+          environmentDiagnosticsAgentId={environmentDiagnosticsAgentId}
+          setEnvironmentDiagnosticsAgentId={setEnvironmentDiagnosticsAgentId}
+          userDefinition={userDefinition}
+          savingUserDefinition={savingUserDefinition}
+          nativePluginEcosystem={nativePluginEcosystem}
+          nativePluginsExpanded={nativePluginsExpanded}
+          setNativePluginsExpanded={setNativePluginsExpanded}
+          pluginCount={pluginCount}
+          setPluginCount={setPluginCount}
+          onDirtySource={setDirtySource}
+          onNotifyAuthenticationChanged={notifyAuthenticationChanged}
+          onRunManagementAction={(actionId) => void runManagementAction(actionId)}
+          onSaveConfig={saveConfig}
+          onSaveConfigFile={(request) => void saveConfigFile(request)}
+          onReloadConflict={() => void reloadConflict()}
+          onAdoptExternalConflict={() => setConfigConflict(null)}
+          onOverwriteConflict={() => void overwriteConflict()}
+          onMarkAllDiagnosticsRead={markAllDiagnosticsRead}
+          onSetEnabled={(enabled) => void setEnabled(enabled)}
+          onPreflight={() => void runPreflight()}
+          onInstall={() => void queueInstall()}
+          onInstallVersion={(input) => void queueVersionInstall(input)}
+          onPreviewVersions={previewVersions}
+          onRepair={() => void queueRepair()}
+          onCheckUpdate={() => void checkUpdate()}
+          onUpdatePreflightItem={(itemId) =>
+            void applyPreflightItemUpdate(itemId)
+          }
+          onCancelOperation={() => void cancelOperation()}
+          onUninstall={(options) => void uninstall(options)}
+          onRemove={() => void remove()}
+          onExportDiagnostics={exportDiagnostics}
+          onSaveUserDefinition={saveUserDefinition}
+          onReinstallUserDefinition={() => void reinstallUserDefinition()}
+          onRefreshManagement={management.refresh}
+        />
       ) : (
         <section className="settings-surface flex min-h-44 items-center justify-center px-6 text-center text-sm text-muted-foreground">
           {t('settings:agents.emptyList')}
         </section>
       )}
     </div>
-  );
-}
-
-function accountSessionMatchesAction(
-  actionId: string,
-  authentication: AgentAuthenticationStatus | null | undefined
-): boolean {
-  const signedIn =
-    authentication === 'account' || authentication === 'multiple_unknown';
-  if (actionId === 'logout') return !signedIn;
-  if (actionId === 'login') return signedIn;
-  return true;
-}
-
-function applyCachedUpdateToPreflight(
-  current: AgentPreflightView,
-  cachedUpdate: ReturnType<typeof readCachedAgentAcpUpdate>,
-  comparison: AgentUpdateCheckView | null
-): AgentPreflightView {
-  if (comparison) {
-    return applyUpdateCheckToPreflight(current, comparison);
-  }
-  if (!cachedUpdate?.available) {
-    return current;
-  }
-  return {
-    ...current,
-    items: current.items.map((item) => {
-      if (item.id === 'acp' && item.status !== 'fail') {
-        if (
-          cachedUpdate.currentVersion &&
-          item.version &&
-          cachedUpdate.currentVersion !== item.version
-        ) {
-          return item;
-        }
-        return {
-          ...item,
-          update_available: true,
-          available_version:
-            item.available_version ?? cachedUpdate.availableVersion ?? null,
-          update_group: null,
-        };
-      }
-      return item;
-    }),
-  };
-}
-
-function applyUpdateCheckToPreflight(
-  current: AgentPreflightView,
-  check: AgentUpdateCheckView
-): AgentPreflightView {
-  return {
-    ...current,
-    items: current.items.map((item) => {
-      if (item.id === 'acp') {
-        const acpUpdate = agentHasAcpUpdate(check, item.version);
-        return {
-          ...item,
-          update_available: acpUpdate,
-          available_version: acpUpdate ? (check.acp_available ?? null) : null,
-          update_group: null,
-        };
-      }
-      return item;
-    }),
-  };
-}
-
-function applyInstallationToPreflight(
-  current: AgentPreflightView | null,
-  agent: AgentManagementView
-): AgentPreflightView {
-  const items = [...(current?.items ?? [])].filter(
-    (item) => item.id !== 'runtime'
-  );
-  const patch = (version: string | null) => {
-    const index = items.findIndex((item) => item.id === 'acp');
-    const previous = index >= 0 ? items[index] : null;
-    const resolvedVersion = version ?? previous?.version ?? null;
-    const available = Boolean(resolvedVersion) || previous?.status === 'pass';
-    const next: AgentPreflightItemView = {
-      id: 'acp',
-      label: previous?.label ?? 'ACP 适配器',
-      status: available ? 'pass' : (previous?.status ?? 'fail'),
-      detail: available ? '' : (previous?.detail ?? ''),
-      version: resolvedVersion,
-      path: previous?.path ?? null,
-      source: previous?.source ?? null,
-      repairable: !available,
-      update_available: false,
-      available_version: null,
-      update_group: previous?.update_group ?? null,
-    };
-    if (index >= 0) {
-      items[index] = { ...previous, ...next };
-    } else {
-      items.push(next);
-    }
-  };
-  patch(agent.acp_version);
-  return {
-    agent_id: agent.agent_id,
-    checked_at: new Date().toISOString(),
-    items,
-  };
-}
-
-function isConfigConflict(error: unknown): boolean {
-  return (
-    typeof error === 'object' &&
-    error !== null &&
-    'code' in error &&
-    error.code === 'config_conflict'
   );
 }

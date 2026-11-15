@@ -8592,7 +8592,7 @@ html.dark {
 
 .settings-page .agent-model-provider-manager {
   margin: -8px 16px 16px;
-  border: 1px solid var(--border-subtle);
+  border: 1px solid var(--border-content);
   border-radius: var(--radius);
   background: var(--surface-content);
 }
@@ -8669,7 +8669,7 @@ html.dark {
   display: grid;
   gap: 12px;
   padding: 12px;
-  border-top: 1px solid var(--border-subtle);
+  border-top: 1px solid var(--agent-container-divider, var(--border-subtle));
 }
 
 .settings-page .agent-model-provider-toolbar {
@@ -8691,7 +8691,7 @@ html.dark {
   left: auto;
   min-width: 11rem;
   padding: 4px;
-  border: 1px solid var(--border-subtle);
+  border: 1px solid var(--border-content);
   border-radius: var(--radius);
   background: var(--surface-content);
   box-shadow: 0 8px 24px hsl(var(--foreground) / 0.08);
@@ -8721,7 +8721,7 @@ html.dark {
   align-items: center;
   justify-content: center;
   gap: 10px;
-  border: 1px dashed var(--border-subtle);
+  border: 1px dashed var(--border-content);
   border-radius: var(--radius);
 }
 
@@ -8757,7 +8757,7 @@ html.dark {
   display: grid;
   gap: 8px;
   padding: 8px 10px;
-  border: 1px solid var(--border-subtle);
+  border: 1px solid var(--border-content);
   border-radius: var(--radius);
 }
 
@@ -8884,7 +8884,7 @@ html.dark {
   overflow: hidden;
   margin: 0;
   padding: 0;
-  border: 1px solid var(--border-subtle);
+  border: 1px solid var(--border-content);
   border-radius: var(--radius);
 }
 
@@ -8898,7 +8898,7 @@ html.dark {
 }
 
 .settings-page .agent-model-provider-list > li + li {
-  border-top: 1px solid var(--border-subtle);
+  border-top: 1px solid var(--agent-container-divider, var(--border-subtle));
 }
 
 .settings-page .agent-model-provider-list > li[data-bound='true'] {
@@ -8976,7 +8976,7 @@ html.dark {
   flex-direction: column;
   gap: 9px;
   padding-top: 10px;
-  border-top: 1px solid var(--border-subtle);
+  border-top: 1px solid var(--agent-container-divider, var(--border-subtle));
 }
 
 .settings-page .agent-model-provider-form-heading {
@@ -9030,7 +9030,7 @@ html.dark {
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 8px;
   padding: 9px;
-  border: 1px solid var(--border-subtle);
+  border: 1px solid var(--border-content);
   border-radius: var(--radius);
 }
 
@@ -9074,7 +9074,7 @@ html.dark {
 
 .settings-page .agent-model-provider-codex > p {
   padding: 8px;
-  border: 1px dashed var(--border-subtle);
+  border: 1px dashed var(--border-content);
   border-radius: var(--radius);
   color: var(--text-muted);
   font-size: 0.75rem;
@@ -9082,7 +9082,7 @@ html.dark {
 
 .settings-page .agent-model-provider-codex .codex-model-editor-body {
   padding: 9px;
-  border: 1px solid var(--border-subtle);
+  border: 1px solid var(--border-content);
   border-radius: var(--radius);
 }
 
@@ -9307,9 +9307,10 @@ html.dark {
 
 .settings-page .pi-configuration-panel {
   margin: 0 0 12px;
-  border: 1px solid var(--border-subtle);
+  border: 1px solid var(--agent-container-border, var(--border-strong));
   border-radius: var(--radius);
   background: var(--surface-content);
+  box-shadow: var(--agent-container-shadow, none);
 }
 
 .settings-page .pi-configuration-heading span,
@@ -9405,7 +9406,7 @@ html.dark {
 
 .settings-page .pi-custom-provider-fields {
   padding: 9px;
-  border: 1px dashed var(--border-subtle);
+  border: 1px dashed var(--border-content);
   border-radius: var(--radius);
 }
 
@@ -10496,7 +10497,44 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
   padding: 14px 16px;
 }
 
+.settings-page .agent-section-heading.has-description {
+  flex-direction: column;
+  flex-wrap: nowrap;
+  align-items: stretch;
+  justify-content: flex-start;
+  gap: 0;
+}
+
+.settings-page .agent-section-heading-title-row {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.settings-page .agent-section-heading-subrow {
+  display: flex;
+  min-width: 0;
+  min-height: 32px;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 16px;
+}
+
+.settings-page .agent-section-description {
+  min-width: 0;
+  flex: 1 1 14rem;
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 0.75rem;
+  font-weight: 400;
+  line-height: 1.5;
+}
+
 .settings-page .agent-section-heading h3 {
+  margin: 0;
   color: var(--text-strong);
   font-size: 0.875rem;
   font-weight: 600;
@@ -10530,6 +10568,12 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
   gap: 8px;
 }
 
+.settings-page
+  .agent-section-heading-subrow
+  > .agent-section-heading-actions {
+  margin-left: auto;
+}
+
 .settings-page .agent-section-heading-toggle:focus-visible {
   outline: 2px solid hsl(var(--primary) / 0.55);
   outline-offset: 2px;
@@ -10554,15 +10598,16 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
 .settings-page .agent-auth-mode-frame {
   margin: 0;
   padding: 12px;
-  border: 1px solid var(--border-subtle);
+  border: 1px solid var(--agent-container-border, var(--border-strong));
   border-radius: var(--radius);
   background: var(--surface-content);
+  box-shadow: var(--agent-container-shadow, none);
 }
 
 .settings-page .agent-preflight-grid {
   display: grid;
   gap: 8px;
-  margin: 0 16px 14px;
+  margin: 0;
   padding: 0;
   container-name: agent-preflight;
   container-type: inline-size;
@@ -10572,15 +10617,19 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
 .settings-page .agent-preflight-grid > li {
   min-width: 0;
   overflow: hidden;
-  border: 1px solid var(--border-subtle);
+  border: 1px solid var(--agent-container-border, var(--border-strong));
   border-radius: var(--radius);
-  background: var(--surface-content);
-  transition: background-color 160ms ease;
+  background: var(--surface-raised-control);
+  box-shadow: var(--agent-container-shadow, none);
+  transition:
+    background-color 160ms ease,
+    border-color 160ms ease;
 }
 
 .settings-page .agent-preflight-grid > li:hover,
 .settings-page .agent-preflight-grid > li[data-expanded='true'] {
-  background: var(--surface-content);
+  border-color: color-mix(in srgb, var(--border-strong) 76%, var(--text-strong));
+  background: var(--surface-raised-control);
 }
 
 .settings-page .agent-preflight-layout {
@@ -10730,199 +10779,33 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
   line-height: 1.25;
 }
 
-/* ── Preflight badges: match onboarding-agent-status ── */
-.settings-page .agent-preflight-badge {
-  gap: 4px;
-  padding: 2px 6px;
-  border-color: var(--border-subtle);
-  color: var(--text-muted);
-  font-size: var(--type-caption, 0.6875rem);
-  font-weight: 500;
-  line-height: 1.4;
-  white-space: nowrap;
-}
-
-.settings-page .agent-preflight-badge[data-status='pass'] {
-  border-color: hsl(var(--success) / 0.32);
-  background: hsl(var(--success) / 0.1);
-  color: hsl(var(--success-foreground));
-}
-
-.settings-page .agent-preflight-badge[data-status='warning'] {
-  border-color: hsl(var(--warning) / 0.34);
-  background: hsl(var(--warning) / 0.12);
-  color: var(--status-warning-text);
-}
-
-.settings-page .agent-preflight-badge[data-status='fail'] {
-  border-color: hsl(var(--destructive) / 0.34);
-  background: hsl(var(--destructive) / 0.1);
-  color: hsl(var(--destructive));
-}
-
-.settings-page .agent-preflight-update-button,
-.settings-page .agent-preflight-update-badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 2px 6px;
-  border: 0;
-  border-radius: var(--radius-inner, var(--radius));
-  background: transparent;
-  color: hsl(var(--primary));
-  font-size: 0.6875rem;
-  font-weight: 500;
-  line-height: 1.4;
-  white-space: nowrap;
-}
-
-.settings-page button.agent-preflight-update-button {
-  cursor: pointer;
-  transition: background-color 160ms ease;
-}
-
-.settings-page button.agent-preflight-update-button:hover:not(:disabled) {
-  background: hsl(var(--primary) / 0.06);
-}
-
-.settings-page button.agent-preflight-update-button:disabled {
-  cursor: default;
-  opacity: 0.55;
-}
-
-/* ── Preflight chips: single-line horizontal bar, expandable per item ── */
-.settings-page .agent-preflight-chips {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 6px 12px;
-  min-height: 44px;
-  margin: 0;
-  padding: 6px 8px;
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius);
-  background: var(--surface-content);
-  list-style: none;
-}
-
-.settings-page .agent-preflight-chip-row {
-  display: contents;
-}
-
-.settings-page .agent-preflight-chip-head {
-  order: 0;
-  display: inline-flex;
-  min-width: 0;
-  align-items: center;
-  gap: 4px;
-}
-
-.settings-page .agent-preflight-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  min-height: 30px;
-  padding: 3px 8px;
-  border: 1px solid transparent;
-  border-radius: calc(var(--radius) - 2px);
-  background: transparent;
-  color: var(--text-strong);
-  font: inherit;
-  font-size: 0.8125rem;
-  font-weight: 500;
-  line-height: 1.4;
-  cursor: pointer;
-  transition:
-    background-color 160ms ease,
-    border-color 160ms ease;
-}
-
-.settings-page .agent-preflight-chip:hover {
-  background: var(--surface-control);
-}
-
-.settings-page .agent-preflight-chip:focus-visible {
-  outline: 2px solid hsl(var(--primary) / 0.55);
-  outline-offset: 1px;
-}
-
-.settings-page .agent-preflight-chip[aria-expanded='true'] {
-  background: var(--surface-control);
-  border-color: var(--border-subtle);
-}
-
-.settings-page .agent-preflight-chip-label {
-  color: var(--text-strong);
-  white-space: nowrap;
-}
-
-.settings-page .agent-preflight-chip-chevron {
-  width: 13px;
-  height: 13px;
-  flex: 0 0 13px;
-  color: var(--text-muted);
-  transition: transform 180ms ease;
-}
-
-.settings-page .agent-preflight-chip[aria-expanded='true']
-  .agent-preflight-chip-chevron {
-  transform: rotate(180deg);
-}
-
-.settings-page .agent-preflight-chip-update {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 2px 6px;
-  border: 0;
-  border-radius: var(--radius-inner, var(--radius));
-  background: transparent;
-  color: hsl(var(--primary));
-  font: inherit;
-  font-size: 0.6875rem;
-  font-weight: 500;
-  line-height: 1.4;
-  white-space: nowrap;
-  cursor: pointer;
-}
-
-.settings-page span.agent-preflight-chip-update {
-  cursor: default;
-}
-
-.settings-page button.agent-preflight-chip-update:hover:not(:disabled) {
-  background: hsl(var(--primary) / 0.06);
-}
-
-.settings-page button.agent-preflight-chip-update:disabled {
-  cursor: default;
-  opacity: 0.55;
-}
-
-.settings-page .agent-preflight-detail-panel {
-  order: 1;
-  display: grid;
-  flex: 0 0 100%;
-  width: 100%;
-  min-width: 0;
-  gap: 8px;
-  margin-top: 2px;
-  padding: 10px 8px 4px;
-  border-top: 1px solid var(--border-subtle);
-  animation: agent-preflight-reveal 180ms ease-out;
-}
-
-.settings-page .agent-preflight-detail-panel[data-label]::before {
-  content: attr(data-label);
-  color: var(--text-muted);
-  font-size: 0.6875rem;
-  font-weight: 600;
-  line-height: 1.3;
-}
-
 /* ── Flat section headings & full-width inner cards (no gray outer box) ── */
 .settings-page .agent-section-heading-flat {
   padding-inline: 0;
+}
+
+.settings-page .agent-settings-scroll > :not(.agent-management-bar) {
+  --surface-content: var(--surface-raised-control);
+  --surface-card: var(--surface-raised-control);
+  --surface-card-strong: var(--surface-raised-control);
+  --border-content: color-mix(
+    in srgb,
+    var(--border-strong) 76%,
+    var(--surface-raised-control)
+  );
+  --agent-container-border: color-mix(
+    in srgb,
+    var(--border-strong) 94%,
+    var(--text-strong)
+  );
+  --agent-container-divider: color-mix(
+    in srgb,
+    var(--border-strong) 58%,
+    var(--surface-raised-control)
+  );
+  --agent-container-shadow:
+    0 1px 3px hsl(var(--shadow-ink) / 0.055),
+    0 1px 2px hsl(var(--shadow-ink) / 0.035);
 }
 
 .settings-page .agent-auth-mode-surface,
@@ -10930,10 +10813,49 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
 .settings-page .agent-config-surface,
 .settings-page .agent-environment-surface,
 .settings-page .agent-diagnostics-surface,
-.settings-page .agent-flat-section {
+.settings-page .agent-flat-section,
+.settings-page .agent-plugin-surface {
+  --surface-content: var(--surface-raised-control);
+  --surface-card: var(--surface-raised-control);
+  --surface-card-strong: var(--surface-raised-control);
+  --border-content: color-mix(
+    in srgb,
+    var(--border-strong) 76%,
+    var(--surface-raised-control)
+  );
+  --agent-container-border: color-mix(
+    in srgb,
+    var(--border-strong) 94%,
+    var(--text-strong)
+  );
+  --agent-container-divider: color-mix(
+    in srgb,
+    var(--border-strong) 58%,
+    var(--surface-raised-control)
+  );
+  --agent-container-shadow:
+    0 1px 3px hsl(var(--shadow-ink) / 0.055),
+    0 1px 2px hsl(var(--shadow-ink) / 0.035);
   border: 0;
   background: transparent;
   box-shadow: none;
+}
+
+.settings-page
+  .agent-settings-scroll
+  > :not(.agent-management-bar)
+  :is(input, select, textarea, [role='combobox']).raised-control {
+  border-color: var(--border-content) !important;
+}
+
+.settings-page
+  .agent-settings-scroll
+  > :not(.agent-management-bar)
+  .settings-surface,
+.settings-page .agent-user-definition-card {
+  border: 1px solid var(--agent-container-border, var(--border-strong));
+  border-radius: var(--radius);
+  box-shadow: var(--agent-container-shadow, none);
 }
 
 .settings-page
@@ -10953,9 +10875,10 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
 .settings-page .agent-diagnostics-list {
   margin: 0;
   padding: 12px;
-  border: 1px solid var(--border-subtle);
+  border: 1px solid var(--agent-container-border, var(--border-strong));
   border-radius: var(--radius);
   background: var(--surface-content);
+  box-shadow: var(--agent-container-shadow, none);
 }
 
 .settings-page button.agent-preflight-status {
@@ -11443,7 +11366,7 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
 .settings-page .agent-provider-catalog {
   margin: 0 0 16px;
   padding-top: 14px;
-  border-top: 1px solid var(--border-subtle);
+  border-top: 1px solid var(--agent-container-divider, var(--border-subtle));
 }
 
 .settings-page .agent-provider-catalog-heading {
@@ -11517,7 +11440,7 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
   max-height: 296px;
   margin-top: 8px;
   overflow-y: auto;
-  border: 1px solid var(--border-subtle);
+  border: 1px solid var(--border-content);
   border-radius: var(--radius);
   background: var(--surface-content);
 }
@@ -11526,7 +11449,7 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
   display: flex;
   min-width: 0;
   align-items: center;
-  border-bottom: 1px solid var(--border-subtle);
+  border-bottom: 1px solid var(--agent-container-divider, var(--border-subtle));
 }
 
 .settings-page .agent-provider-catalog-list > li:last-child {
@@ -11612,7 +11535,7 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
 
 .settings-page .agent-provider-list {
   overflow: hidden;
-  border: 1px solid var(--border-subtle);
+  border: 1px solid var(--border-content);
   border-radius: var(--radius);
   background: var(--surface-content);
   margin: 0 0 16px;
@@ -11620,7 +11543,7 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
 }
 
 .settings-page .agent-provider-list > li + li {
-  border-top: 1px solid var(--border-subtle);
+  border-top: 1px solid var(--agent-container-divider, var(--border-subtle));
 }
 
 .settings-page .agent-provider-list > li {
@@ -11713,7 +11636,7 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
 .settings-page .agent-provider-form {
   margin: 0 0 16px;
   padding-top: 14px;
-  border-top: 1px solid var(--border-subtle);
+  border-top: 1px solid var(--agent-container-divider, var(--border-subtle));
 }
 
 .settings-page .agent-model-provider-form .agent-provider-catalog,
@@ -11949,7 +11872,7 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
   gap: 10px;
   min-width: 0;
   padding: 12px;
-  border: 1px solid var(--border-subtle);
+  border: 1px solid var(--border-content);
   border-radius: var(--radius);
   background: hsl(var(--background) / 0.32);
 }
@@ -11998,9 +11921,10 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
 .settings-page .agent-plugin-list {
   margin: 0;
   overflow: hidden;
-  border: 1px solid var(--border-subtle);
+  border: 1px solid var(--agent-container-border, var(--border-strong));
   border-radius: var(--radius);
   background: var(--surface-content);
+  box-shadow: var(--agent-container-shadow, none);
 }
 
 .settings-page .agent-plugin-list > li {
@@ -12010,7 +11934,7 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
   gap: 10px;
   min-height: 48px;
   padding: 8px 10px;
-  border-bottom: 1px solid var(--border-subtle);
+  border-bottom: 1px solid var(--agent-container-divider, var(--border-subtle));
 }
 
 .settings-page .agent-plugin-list > li:last-child {
@@ -12023,9 +11947,10 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
   min-height: 0;
   max-height: 280px;
   overflow: hidden;
-  border: 1px solid var(--border-subtle);
+  border: 1px solid var(--agent-container-border, var(--border-strong));
   border-radius: var(--radius);
   background: var(--surface-content);
+  box-shadow: var(--agent-container-shadow, none);
 }
 
 .settings-page .agent-native-plugin-split > ul {
@@ -12034,7 +11959,7 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
   padding: 6px;
   overflow-y: auto;
   background: var(--surface-page-solid);
-  border-right: 1px solid var(--border-subtle);
+  border-right: 1px solid var(--agent-container-divider, var(--border-subtle));
 }
 
 .settings-page .agent-native-plugin-split > article {
@@ -12111,9 +12036,10 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
 }
 
 .settings-page .agent-section-body > .agent-plugin-empty {
-  border: 1px solid var(--border-subtle);
+  border: 1px solid var(--agent-container-border, var(--border-strong));
   border-radius: var(--radius);
   background: var(--surface-content);
+  box-shadow: var(--agent-container-shadow, none);
 }
 
 .settings-page .dsh-auth-fields {
@@ -12126,9 +12052,10 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
   display: grid;
   gap: 14px;
   padding: 12px;
-  border: 1px solid var(--border-subtle);
+  border: 1px solid var(--agent-container-border, var(--border-strong));
   border-radius: var(--radius);
   background: var(--surface-content);
+  box-shadow: var(--agent-container-shadow, none);
 }
 
 .settings-page .dsh-auth-fields .agent-model-provider-secret {
@@ -12170,7 +12097,7 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
   height: auto;
   padding: 10px 12px;
   overflow: hidden;
-  border: 1px solid var(--border-subtle);
+  border: 1px solid var(--border-content);
   border-radius: var(--radius);
   background: var(--surface-content);
   color: inherit;
@@ -12244,9 +12171,10 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
   gap: 8px;
   min-width: 0;
   padding: 8px 10px;
-  border: 1px solid var(--border-subtle);
+  border: 1px solid var(--agent-container-border, var(--border-strong));
   border-radius: var(--radius);
   background: var(--surface-content);
+  box-shadow: var(--agent-container-shadow, none);
 }
 
 .settings-page .agent-plugin-path-icon {
@@ -12349,17 +12277,19 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
   overflow: hidden;
   margin: 0 0 12px;
   padding: 14px 14px 12px;
-  border: 1px solid hsl(var(--primary) / 0.2);
+  border: 1px solid var(--agent-container-border, var(--border-strong));
   border-radius: var(--radius);
   background: var(--surface-content);
+  box-shadow: var(--agent-container-shadow, none);
 }
 
 .settings-page .agent-custom-version {
   margin: 0 0 12px;
   padding: 10px 12px;
-  border: 1px solid var(--border-subtle);
+  border: 1px solid var(--agent-container-border, var(--border-strong));
   border-radius: var(--radius);
   background: var(--surface-content);
+  box-shadow: var(--agent-container-shadow, none);
 }
 
 .settings-page .agent-custom-version > summary {
@@ -12504,7 +12434,7 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
   overflow: auto;
   margin-top: 12px;
   padding: 10px 12px;
-  border: 1px solid var(--border-subtle);
+  border: 1px solid var(--border-content);
   border-radius: var(--radius);
   background: var(--surface-shell);
   color: var(--text-primary);
@@ -12750,7 +12680,7 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
 }
 
 .settings-page .agent-registry-row + .agent-registry-row {
-  border-top: 1px solid var(--border-subtle);
+  border-top: 1px solid var(--agent-container-divider, var(--border-subtle));
 }
 
 .settings-page .agent-registry-row-icon {
@@ -12799,9 +12729,10 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
   gap: 8px 16px;
   margin: 0 0 12px;
   padding: 12px;
-  border: 1px solid var(--border-subtle);
+  border: 1px solid var(--agent-container-border, var(--border-strong));
   border-radius: var(--radius);
   background: var(--surface-content);
+  box-shadow: var(--agent-container-shadow, none);
 }
 
 .settings-page .agent-model-catalog-copy {
@@ -12896,9 +12827,10 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
 
 .settings-page .agent-config-block {
   margin: 0 0 12px;
-  border: 1px solid var(--border-subtle);
+  border: 1px solid var(--agent-container-border, var(--border-strong));
   border-radius: var(--radius);
   background: var(--surface-content);
+  box-shadow: var(--agent-container-shadow, none);
 }
 
 .settings-page .agent-config-block:last-child {
@@ -12965,9 +12897,9 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
   justify-content: space-between;
   gap: 12px;
   padding: 10px 12px;
-  border: 1px solid var(--border-subtle);
+  border: 1px solid var(--border-content);
   border-radius: var(--radius);
-  background: var(--surface-control);
+  background: var(--surface-content);
 }
 
 .settings-page .agent-opencode-plans strong {
@@ -13112,7 +13044,7 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
   justify-content: space-between;
   gap: 12px;
   padding: 0 12px;
-  border: 1px solid var(--border-subtle);
+  border: 1px solid var(--border-content);
   border-radius: var(--radius);
   background: var(--surface-control);
 }
@@ -13144,7 +13076,7 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
 
 .settings-page .codex-model-editor {
   margin: 0 16px 12px;
-  border: 1px solid var(--border-subtle);
+  border: 1px solid var(--border-content);
   border-radius: var(--radius);
   background: var(--surface-content);
 }
@@ -13198,7 +13130,7 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
   display: grid;
   gap: 16px;
   padding: 12px;
-  border-top: 1px solid var(--border-subtle);
+  border-top: 1px solid var(--agent-container-divider, var(--border-subtle));
 }
 
 .settings-page .codex-model-editor-body fieldset {
@@ -13270,7 +13202,7 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
   align-items: center;
   gap: 8px;
   padding: 8px;
-  border: 1px solid var(--border-subtle);
+  border: 1px solid var(--border-content);
   border-radius: var(--radius);
   background: var(--surface-control);
   color: var(--text-strong);
@@ -13404,7 +13336,7 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
 .settings-page .codex-custom-advanced {
   grid-column: 1 / -1;
   align-self: stretch;
-  border: 1px solid var(--border-subtle);
+  border: 1px solid var(--border-content);
   border-radius: var(--radius);
 }
 
@@ -13425,7 +13357,7 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 8px;
   padding: 0 9px 9px;
-  border-top: 1px solid var(--border-subtle);
+  border-top: 1px solid var(--agent-container-divider, var(--border-subtle));
   padding-top: 9px;
 }
 
@@ -13456,7 +13388,7 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
   justify-content: space-between;
   gap: 12px;
   padding-top: 10px;
-  border-top: 1px solid var(--border-subtle);
+  border-top: 1px solid var(--agent-container-divider, var(--border-subtle));
 }
 
 .settings-page .codex-model-editor-footer p,
@@ -13563,6 +13495,7 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
   flex: 0 0 auto;
 }
 
+.settings-page .agent-section-heading-actions .agent-config-path-meta,
 .settings-page .agent-auth-mode-heading-tools .agent-config-path-meta {
   flex: 0 1 auto;
   justify-content: flex-start;
@@ -13708,7 +13641,7 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
 .settings-page .agent-config-file-body {
   margin: 0 16px 16px;
   overflow: auto;
-  border: 1px solid var(--border-subtle);
+  border: 1px solid var(--border-content);
   border-radius: var(--radius);
   background: var(--surface-control);
 }

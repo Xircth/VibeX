@@ -27,17 +27,37 @@ export function versionIsNewer(
   return false;
 }
 
+const NATIVE_ENGINE_AGENT_IDS = new Set(['claude_code', 'codex']);
+
 export function agentHasAcpUpdate(
   check: Pick<
     AgentUpdateCheckView,
     'update_available' | 'acp_available' | 'acp_current'
-  >,
+  > & {
+    agent_id?: string | null;
+    runtime_available?: string | null;
+    runtime_current?: string | null;
+    available_version?: string | null;
+  },
   probedVersion?: string | null
 ): boolean {
-  if (!check.acp_available) return false;
+  const nativeEngine = Boolean(
+    check.agent_id && NATIVE_ENGINE_AGENT_IDS.has(check.agent_id)
+  );
+  const candidateAvailable =
+    check.acp_available ??
+    (nativeEngine
+      ? (check.runtime_available ??
+        (check.acp_current == null ? check.available_version : null) ??
+        null)
+      : null);
+  const candidateCurrent =
+    check.acp_current ??
+    (nativeEngine ? (check.runtime_current ?? null) : null);
+  if (!candidateAvailable) return false;
   return (
-    versionIsNewer(check.acp_available, probedVersion) ||
-    versionIsNewer(check.acp_available, check.acp_current) ||
+    versionIsNewer(candidateAvailable, probedVersion) ||
+    versionIsNewer(candidateAvailable, candidateCurrent) ||
     check.update_available
   );
 }

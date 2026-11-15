@@ -39,6 +39,7 @@ import {
 } from './agentSettingsDraftRetention';
 import { ProviderCatalogPicker } from './ProviderCatalogPicker';
 import type { ProviderCatalogTemplateView } from './providerCatalogTypes';
+import { AgentSectionHeading } from './SettingsSection';
 import { useProviderCatalogList } from './useProviderCatalogList';
 
 const DRAFT_KEY = 'dsh-auth';
@@ -750,8 +751,11 @@ export function DshAuthPanel({
         aria-labelledby="dsh-auth-heading"
         className="agent-auth-mode-surface"
       >
-        <div className="agent-section-heading">
-          <h3 id="dsh-auth-heading">{t('settings:agents.authTitle')}</h3>
+        <AgentSectionHeading
+          headingId="dsh-auth-heading"
+          title={t('settings:agents.authTitle')}
+          description={t('settings:agents.authDescription')}
+        >
           {view ? (
             <div className="agent-auth-mode-heading-tools">
               <div
@@ -813,7 +817,7 @@ export function DshAuthPanel({
               </div>
             </div>
           ) : null}
-        </div>
+        </AgentSectionHeading>
         <div className="agent-auth-mode-frame">
           {loading && !view ? (
             <p className="agent-plugin-empty">

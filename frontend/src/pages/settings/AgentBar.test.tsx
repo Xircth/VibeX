@@ -1,12 +1,15 @@
-import { fireEvent, render, screen, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { parse } from 'postcss';
+import { useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { AgentManagementView } from 'shared/types';
 
 import { AgentBar } from './AgentBar';
+import { useUnsavedAgentSettingsGuard } from './useUnsavedAgentSettingsGuard';
 
 function agent(
   agentId: string,
@@ -448,6 +451,241 @@ describe('AgentBar', () => {
           'border-radius' in rule.decls
       );
       expect(item?.decls['border-radius']).toBe('9999px');
+    });
+  });
+
+  describe('render stability and drag reflow', () => {
+    it('does not re-run label layout measurement when parent re-renders with cloned agents arrays', () => {
+      let scrollWidthReads = 0;
+      const scrollWidthSpy = vi
+        .spyOn(HTMLElement.prototype, 'scrollWidth', 'get')
+        .mockImplementation(function (this: HTMLElement) {
+          if (this.classList.contains('agent-management-bar-label')) {
+            scrollWidthReads += 1;
+            return (this.textContent?.length ?? 0) * 8;
+          }
+          return 0;
+        });
+
+      try {
+        const base = [
+          agent('claude_code', 'Claude Code', 0),
+          agent('codex', 'Codex', 1),
+        ];
+        const { rerender } = render(
+          <AgentBar
+            agents={base.map((item) => ({ ...item }))}
+            selectedAgentId="claude_code"
+            registryOpen={false}
+            onSelect={vi.fn()}
+            onReorder={vi.fn()}
+          />
+        );
+
+        const selectedLabel = () =>
+          screen
+            .getByRole('button', { name: 'Claude Code' })
+            .querySelector<HTMLElement>('.agent-management-bar-label');
+        expect(
+          selectedLabel()?.style.getPropertyValue('--agent-label-width')
+        ).toBe('89px');
+
+        const readsAfterMount = scrollWidthReads;
+        for (let i = 0; i < 10; i += 1) {
+          rerender(
+            <AgentBar
+              agents={base.map((item) => ({ ...item }))}
+              selectedAgentId="claude_code"
+              registryOpen={false}
+              onSelect={vi.fn()}
+              onReorder={vi.fn()}
+            />
+          );
+        }
+        expect(scrollWidthReads).toBe(readsAfterMount);
+
+        rerender(
+          <AgentBar
+            agents={[
+              agent('claude_code', 'Claude Code Pro', 0),
+              agent('codex', 'Codex', 1),
+            ]}
+            selectedAgentId="claude_code"
+            registryOpen={false}
+            onSelect={vi.fn()}
+            onReorder={vi.fn()}
+          />
+        );
+        expect(
+          screen
+            .getByRole('button', { name: 'Claude Code Pro' })
+            .querySelector<HTMLElement>('.agent-management-bar-label')
+            ?.style.getPropertyValue('--agent-label-width')
+        ).toBe('121px');
+      } finally {
+        scrollWidthSpy.mockRestore();
+      }
+    });
+
+    it('does not enter an infinite update loop when a dirty child panel reports dirty across parent re-renders', () => {
+      function DirtyChild({
+        dirty,
+        onDirtyChange,
+      }: {
+        dirty: boolean;
+        onDirtyChange: (dirty: boolean) => void;
+      }) {
+        useEffect(() => {
+          onDirtyChange(dirty);
+          return () => onDirtyChange(false);
+        }, [dirty, onDirtyChange]);
+        return null;
+      }
+
+      let renderCount = 0;
+      function Harness() {
+        renderCount += 1;
+        const { t } = useTranslation(['settings', 'common']);
+        const { setDirtySource } = useUnsavedAgentSettingsGuard(
+          'deepseek_harness',
+          t
+        );
+        const [dirty, setDirty] = useState(true);
+        const freshAgents = [
+          agent('deepseek_harness', 'DeepSeek Harness', 0),
+          agent('codex', 'Codex', 1),
+        ];
+
+        return (
+          <div>
+            <AgentBar
+              agents={freshAgents}
+              selectedAgentId="deepseek_harness"
+              registryOpen={false}
+              onSelect={vi.fn()}
+              onReorder={vi.fn()}
+            />
+            <DirtyChild
+              dirty={dirty}
+              onDirtyChange={(next) => setDirtySource('dsh-provider', next)}
+            />
+            <button type="button" onClick={() => setDirty((prev) => !prev)}>
+              toggle-dirty
+            </button>
+          </div>
+        );
+      }
+
+      render(<Harness />);
+      expect(renderCount).toBeLessThan(10);
+
+      fireEvent.click(screen.getByRole('button', { name: 'toggle-dirty' }));
+      fireEvent.click(screen.getByRole('button', { name: 'toggle-dirty' }));
+      expect(renderCount).toBeLessThan(20);
+    });
+
+    it('reorders unequal-width items during pointer drag without oscillating at a fixed delta', async () => {
+      mockViewportWidth(500);
+      const rectSpy = vi
+        .spyOn(HTMLElement.prototype, 'getBoundingClientRect')
+        .mockImplementation(function (this: HTMLElement) {
+          if (
+            this.classList.contains('agent-management-bar') ||
+            this.classList.contains('agent-management-bar-viewport')
+          ) {
+            return new DOMRect(0, 0, 500, 40);
+          }
+          if (
+            this.classList.contains('agent-management-bar-drag-overlay') ||
+            this.querySelector('.agent-management-bar-drag-overlay')
+          ) {
+            return new DOMRect(0, 4, 160, 32);
+          }
+          if (this.dataset.agentId) {
+            const page = this.closest('.agent-management-bar-page');
+            const siblings = Array.from(
+              page?.querySelectorAll<HTMLElement>('[data-agent-id]') ?? []
+            );
+            let left = 0;
+            for (const item of siblings) {
+              const width = item.classList.contains('is-selected') ? 160 : 32;
+              if (item === this) {
+                return new DOMRect(left, 4, width, 32);
+              }
+              left += width + 8;
+            }
+          }
+          return new DOMRect(0, 0, 0, 0);
+        });
+
+      try {
+        const onReorder = vi.fn();
+        renderBar(
+          [
+            agent('claude_code', 'Claude Code', 0),
+            agent('codex', 'Codex', 1),
+            agent('pi', 'Pi', 2),
+          ],
+          'claude_code',
+          { spacing: 'compact', onReorder }
+        );
+
+        const activeButton = screen.getByRole('button', {
+          name: 'Claude Code',
+        });
+        await act(async () => {
+          fireEvent.pointerDown(activeButton, {
+            button: 0,
+            buttons: 1,
+            pointerId: 1,
+            clientX: 80,
+            clientY: 20,
+            isPrimary: true,
+          });
+        });
+        await act(async () => {
+          fireEvent.pointerMove(document, {
+            buttons: 1,
+            pointerId: 1,
+            clientX: 90,
+            clientY: 20,
+            isPrimary: true,
+          });
+        });
+        // Delta +118 from initial pointerDown (80 -> 198) places active center at
+        // x = 198: crosses Codex's initial center (184), shifting Claude Code
+        // (160px) to [40..200] where Pi's center (224) becomes closer than
+        // Claude Code (120) at the exact same pointer position.
+        await act(async () => {
+          fireEvent.pointerMove(document, {
+            buttons: 1,
+            pointerId: 1,
+            clientX: 198,
+            clientY: 20,
+            isPrimary: true,
+          });
+        });
+
+        expect(
+          screen
+            .getAllByRole('button')
+            .map((control) => control.getAttribute('aria-label'))
+        ).toEqual(['Codex', 'Claude Code', 'Pi']);
+
+        // Releasing at the exact same pointer position keeps the visual order.
+        await act(async () => {
+          fireEvent.pointerUp(document, {
+            pointerId: 1,
+            clientX: 198,
+            clientY: 20,
+            isPrimary: true,
+          });
+        });
+        expect(onReorder).toHaveBeenCalledTimes(1);
+        expect(onReorder).toHaveBeenCalledWith(['codex', 'claude_code', 'pi']);
+      } finally {
+        rectSpy.mockRestore();
+      }
     });
   });
 });

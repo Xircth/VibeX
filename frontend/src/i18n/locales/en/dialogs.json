@@ -399,7 +399,7 @@
     "builtIn": "Built in",
     "recommended": "Recommended",
     "enableAgentAria": "Enable {{agent}}",
-    "loginNotice": "Installation only prepares the ACP launch command. Sign in to each Agent or configure its API separately afterward. Session model, permission, and reasoning controls are read when you create a session and are not configured here.",
+    "loginNotice": "Installation prepares the Agent runtime or launch command. Sign in to each Agent or configure its API separately afterward. Session model, permission, and reasoning controls are read when you create a session and are not configured here.",
     "editorTitle": "Choose an external editor",
     "viewerTitle": "Choose an external viewer",
     "viewerLabel": "External viewer",
@@ -415,7 +415,7 @@
       },
       "agents": {
         "title": "Agents and local execution",
-        "body": "ACP Agents you enable, including built-in Agents, run on this computer with the same privileges as {{appName}}. They can read, modify, or delete files, run terminal commands, install software, use the network, read environment variables and credentials, and launch other programs. {{appName}} does not provide an OS-level sandbox for Agents and cannot guarantee that harmful, mistaken, or unauthorized actions will be blocked. Workspace-less conversations use a dedicated temporary directory; that is not a security boundary. Permission prompts, session permission modes, and “always allow” are your controls, not a sandbox. You must supervise Agent behavior. An Agent may already have caused irreversible side effects before a crash, cancel, or interrupt. Interrupted turns are not retried automatically, and file, network, or command changes that already happened are not rolled back."
+        "body": "Agents you enable — including native CLI engines and ACP Agents — run on this computer with the same privileges as {{appName}}. They can read, modify, or delete files, run terminal commands, install software, use the network, read environment variables and credentials, and launch other programs. {{appName}} does not provide an OS-level sandbox for Agents and cannot guarantee that harmful, mistaken, or unauthorized actions will be blocked. Workspace-less conversations use a dedicated temporary directory; that is not a security boundary. Permission prompts, session permission modes, and “always allow” are your controls, not a sandbox. You must supervise Agent behavior. An Agent may already have caused irreversible side effects before a crash, cancel, or interrupt. Interrupted turns are not retried automatically, and file, network, or command changes that already happened are not rolled back."
       },
       "thirdPartyAgents": {
         "title": "Third-party Agents, installs, and credentials",

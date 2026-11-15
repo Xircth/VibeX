@@ -24,9 +24,7 @@ function check(
 
 describe('versionIsNewer', () => {
   it('compares dotted versions even when wrapped in a package spec', () => {
-    expect(
-      versionIsNewer('1.10.0', '@agentclientprotocol/codex-acp 1.8.0')
-    ).toBe(true);
+    expect(versionIsNewer('0.170.0', '@openai/codex 0.169.0')).toBe(true);
     expect(versionIsNewer('1.8.0', '1.10.0')).toBe(false);
     expect(versionIsNewer('1.8.0', '1.8.0')).toBe(false);
     expect(versionIsNewer(null, '1.8.0')).toBe(false);
@@ -34,10 +32,11 @@ describe('versionIsNewer', () => {
 });
 
 describe('agentHasAcpUpdate', () => {
-  it('requires an available ACP version', () => {
+  it('requires an available ACP version for adapter-backed Agents', () => {
     expect(
       agentHasAcpUpdate(
         check({
+          agent_id: 'pi',
           update_available: true,
           acp_available: undefined,
           acp_current: '1.1.0',
@@ -50,8 +49,23 @@ describe('agentHasAcpUpdate', () => {
     expect(
       agentHasAcpUpdate(
         check({
-          acp_current: '@agentclientprotocol/codex-acp 1.8.0',
+          agent_id: 'pi',
+          acp_current: 'pi-acp 1.8.0',
           acp_available: '1.10.0',
+        })
+      )
+    ).toBe(true);
+  });
+
+  it('treats a newer native CLI runtime version as an update for NativeEngine Agents', () => {
+    expect(
+      agentHasAcpUpdate(
+        check({
+          agent_id: 'codex',
+          runtime_current: '0.168.0',
+          runtime_available: '0.169.0',
+          acp_current: undefined,
+          acp_available: undefined,
         })
       )
     ).toBe(true);
@@ -61,6 +75,7 @@ describe('agentHasAcpUpdate', () => {
     expect(
       agentHasAcpUpdate(
         check({
+          agent_id: 'pi',
           update_available: false,
           acp_current: '1.8.0',
           acp_available: '1.8.0',
@@ -74,6 +89,7 @@ describe('agentHasAcpUpdate', () => {
     expect(
       agentHasAcpUpdate(
         check({
+          agent_id: 'pi',
           update_available: true,
           acp_current: '1.7.0',
           acp_available: '1.7.0',

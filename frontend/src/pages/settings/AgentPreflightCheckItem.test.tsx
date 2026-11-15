@@ -5,7 +5,10 @@ import type { AgentPreflightItemView } from 'shared/types';
 
 import '@/i18n';
 
-import { AgentPreflightCheckItem } from './AgentPreflightCheckItem';
+import {
+  AgentPreflightCard,
+  AgentPreflightCheckItem,
+} from './AgentPreflightCheckItem';
 
 const item: AgentPreflightItemView = {
   id: 'acp',
@@ -13,7 +16,7 @@ const item: AgentPreflightItemView = {
   status: 'pass',
   detail: '',
   version: '0.64.1',
-  path: '/usr/local/bin/claude-agent-acp',
+  path: '/usr/local/bin/pi-acp',
   source: null,
   repairable: true,
   update_available: true,
@@ -38,5 +41,20 @@ describe('AgentPreflightCheckItem', () => {
     ).not.toBeInTheDocument();
     await userEvent.click(screen.getByRole('button', { name: '可更新' }));
     expect(onUpdate).toHaveBeenCalledOnce();
+  });
+
+  it('renders unified runtime entry label for both ACP and nativeEngine items', () => {
+    const { rerender } = render(<AgentPreflightCard item={item} />);
+    expect(screen.getByText('运行入口')).toBeInTheDocument();
+    expect(screen.queryByText('ACP 适配器')).not.toBeInTheDocument();
+
+    rerender(
+      <AgentPreflightCard
+        item={{ ...item, id: 'native_runtime', label: '原生引擎运行时' }}
+        nativeEngine
+      />
+    );
+    expect(screen.getByText('运行入口')).toBeInTheDocument();
+    expect(screen.queryByText('原生引擎运行时')).not.toBeInTheDocument();
   });
 });

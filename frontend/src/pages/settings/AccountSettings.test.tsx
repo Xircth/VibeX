@@ -406,5 +406,6 @@ describe('AccountSettings', () => {
       expect(setEnabledSpy).toHaveBeenCalledWith('CODEX', true);
     });
     expect(window.localStorage.getItem('vibex:ui-zoom')).toBe('1.15');
+    expect(screen.getByTestId('provider-instance-manager')).toBeInTheDocument();
   });
 });

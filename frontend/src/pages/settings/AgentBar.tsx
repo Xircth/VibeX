@@ -87,6 +87,11 @@ const DRAG_PAGE_DELAY_MS = 450;
 const PAGING_BAR_MAX = 440;
 /** Border (1px each side) plus the bar's 3px horizontal padding. */
 const PAGING_BAR_CHROME = 8;
+const POINTER_SENSOR_OPTIONS = { activationConstraint: { distance: 6 } };
+
+function arraysEqual(a: readonly string[], b: readonly string[]): boolean {
+  return a.length === b.length && a.every((item, index) => item === b[index]);
+}
 
 /**
  * Reordering is applied live from `onDragOver`, so the sortable strategy has
@@ -212,20 +217,23 @@ function AgentBarPaged({
   const pageStyle = { '--agent-bar-page': page } as CSSProperties;
   const alignedAgentIdRef = useRef<string | null>(null);
 
+  const measuredWidthsRef = useRef(measuredWidths);
+  measuredWidthsRef.current = measuredWidths;
+
   useLayoutEffect(() => {
     const viewport = viewportRef.current;
     if (!viewport) return;
     const measure = () => {
       const width = viewport.clientWidth;
-      setViewportWidth(width);
+      setViewportWidth((prev) => (prev === width ? prev : width));
       const rail = viewport.parentElement?.parentElement;
       const nextRail = rail?.clientWidth ?? 0;
       setRailWidth((prev) => (prev === nextRail ? prev : nextRail));
       if (!estimateFits || width <= 0) return;
-      const page = viewport.querySelector<HTMLElement>(
+      const pageEl = viewport.querySelector<HTMLElement>(
         '.agent-management-bar-page'
       );
-      if (page && page.scrollWidth > width + 1) setClipped(true);
+      if (pageEl && pageEl.scrollWidth > width + 1) setClipped(true);
     };
     measure();
     if (typeof ResizeObserver === 'undefined') return;
@@ -235,6 +243,10 @@ function AgentBarPaged({
     if (rail) observer.observe(rail);
     return () => observer.disconnect();
   }, [orderKey, hug, estimateFits]);
+
+  const labelsKey = agents
+    .map((agent) => `${agent.agent_id}\u0000${agent.display_name}`)
+    .join('\u0001');
 
   useLayoutEffect(() => {
     const viewport = viewportRef.current;
@@ -252,13 +264,14 @@ function AgentBarPaged({
         AGENT_BAR_LAYOUT.labelMaxWidth
       );
     });
-    setMeasuredWidths((prev) => {
-      const keys = Object.keys(next);
-      if (keys.length === 0) return prev;
-      if (keys.every((key) => prev[key] === next[key])) return prev;
-      return { ...prev, ...next };
-    });
-  }, [orderKey, page, expandedId]);
+    const keys = Object.keys(next);
+    if (keys.length === 0) return;
+    const current = measuredWidthsRef.current;
+    if (keys.every((key) => current[key] === next[key])) return;
+    const merged = { ...current, ...next };
+    measuredWidthsRef.current = merged;
+    setMeasuredWidths(merged);
+  }, [labelsKey, orderKey, page, expandedId]);
 
   useEffect(() => {
     if (!expandedId || order.length === 0) {
@@ -269,12 +282,15 @@ function AgentBarPaged({
     if (alignedAgentIdRef.current === expandedId) return;
     alignedAgentIdRef.current = expandedId;
     const selectedPage = agentBarPageOf(pages, expandedId);
-    if (selectedPage !== null) setRequestedPage(selectedPage);
+    if (selectedPage !== null) {
+      setRequestedPage((prev) => (prev === selectedPage ? prev : selectedPage));
+    }
   }, [expandedId, order.length, viewportWidth, pages]);
 
   useEffect(() => {
     if (pages.length > 0 && requestedPage >= pages.length) {
-      setRequestedPage(pages.length - 1);
+      const lastPage = pages.length - 1;
+      setRequestedPage((prev) => (prev === lastPage ? prev : lastPage));
     }
   }, [pages.length, requestedPage]);
 
@@ -379,14 +395,15 @@ function AgentBarHorizontal({
   showLabels = false,
 }: AgentBarProps) {
   const { t } = useTranslation('settings');
-  const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 6 } })
-  );
+  const sensors = useSensors(useSensor(PointerSensor, POINTER_SENSOR_OPTIONS));
   const agentById = useMemo(
     () => new Map(agents.map((agent) => [agent.agent_id, agent])),
     [agents]
   );
   const incomingOrderKey = agents.map((agent) => agent.agent_id).join('|');
+  const labelsKey = agents
+    .map((agent) => `${agent.agent_id}\u0000${agent.display_name}`)
+    .join('\u0001');
   const [order, setOrder] = useState(() =>
     agents.map((agent) => agent.agent_id)
   );
@@ -396,39 +413,8 @@ function AgentBarHorizontal({
   const [measuredWidths, setMeasuredWidths] = useState<Record<string, number>>(
     {}
   );
-
-  useLayoutEffect(() => {
-    const viewport = viewportRef.current;
-    if (!viewport) return;
-    const elements = viewport.querySelectorAll<HTMLElement>('[data-agent-id]');
-    const next: Record<string, number> = {};
-    elements.forEach((el) => {
-      const id = el.dataset.agentId;
-      if (!id) return;
-      const label = el.querySelector<HTMLElement>(
-        '.agent-management-bar-label'
-      );
-      const measured = label?.scrollWidth ?? 0;
-      if (measured > 0) {
-        next[id] = Math.min(
-          Math.ceil(measured) + 1,
-          AGENT_BAR_LAYOUT.labelMaxWidth
-        );
-      }
-    });
-    setMeasuredWidths((prev) => {
-      const keys = Object.keys(next);
-      if (keys.length === 0) return prev;
-      let diff = false;
-      for (const k of keys) {
-        if (prev[k] !== next[k]) {
-          diff = true;
-          break;
-        }
-      }
-      return diff ? { ...prev, ...next } : prev;
-    });
-  }, [agents, incomingOrderKey]);
+  const measuredWidthsRef = useRef(measuredWidths);
+  measuredWidthsRef.current = measuredWidths;
 
   const getLabelWidth = useCallback(
     (agentId: string) => {
@@ -442,6 +428,8 @@ function AgentBarHorizontal({
   const orderRef = useRef(order);
   const originRef = useRef<string[] | null>(null);
   const activeIdRef = useRef<string | null>(null);
+  const lastSwapPositionRef = useRef<{ x: number; y: number } | null>(null);
+  const pointerCoordinatesRef = useRef<{ x: number; y: number } | null>(null);
   const focusAfterNudgeRef = useRef<string | null>(null);
   orderRef.current = order;
 
@@ -467,7 +455,40 @@ function AgentBarHorizontal({
       index === 0 ? baseGap : agentBarPageGap(pageAgentIds, paging, baseGap)
     );
   }, [pages, paging, spacing]);
-  const page = Math.min(requestedPage, pages.length - 1);
+  const page = Math.max(
+    0,
+    Math.min(requestedPage, Math.max(pages.length - 1, 0))
+  );
+  const orderKey = order.join('|');
+
+  useLayoutEffect(() => {
+    const viewport = viewportRef.current;
+    if (!viewport) return;
+    const elements = viewport.querySelectorAll<HTMLElement>('[data-agent-id]');
+    const next: Record<string, number> = {};
+    elements.forEach((el) => {
+      const id = el.dataset.agentId;
+      if (!id) return;
+      const label = el.querySelector<HTMLElement>(
+        '.agent-management-bar-label'
+      );
+      const measured = label?.scrollWidth ?? 0;
+      if (measured > 0) {
+        next[id] = Math.min(
+          Math.ceil(measured) + 1,
+          AGENT_BAR_LAYOUT.labelMaxWidth
+        );
+      }
+    });
+    const keys = Object.keys(next);
+    if (keys.length === 0) return;
+    const current = measuredWidthsRef.current;
+    if (keys.every((key) => current[key] === next[key])) return;
+    const merged = { ...current, ...next };
+    measuredWidthsRef.current = merged;
+    setMeasuredWidths(merged);
+  }, [labelsKey, orderKey, page, expandedId, showLabels]);
+
   const pagingRef = useRef(paging);
   const pagesRef = useRef(pages);
   const pageRef = useRef(page);
@@ -481,13 +502,17 @@ function AgentBarHorizontal({
 
   useEffect(() => {
     if (originRef.current) return;
-    setOrder(incomingOrderKey ? incomingOrderKey.split('|') : []);
+    const next = incomingOrderKey ? incomingOrderKey.split('|') : [];
+    setOrder((prev) => (arraysEqual(prev, next) ? prev : next));
   }, [incomingOrderKey]);
 
   useLayoutEffect(() => {
     const viewport = viewportRef.current;
     if (!viewport) return;
-    const measure = () => setViewportWidth(viewport.clientWidth);
+    const measure = () => {
+      const nextWidth = viewport.clientWidth;
+      setViewportWidth((prev) => (prev === nextWidth ? prev : nextWidth));
+    };
     measure();
     if (typeof ResizeObserver === 'undefined') return;
     const observer = new ResizeObserver(measure);
@@ -509,14 +534,17 @@ function AgentBarHorizontal({
       alignedAgentIdRef.current = expandedId;
       const selectedPage = agentBarPageOf(pages, expandedId);
       if (selectedPage !== null) {
-        setRequestedPage(selectedPage);
+        setRequestedPage((prev) =>
+          prev === selectedPage ? prev : selectedPage
+        );
       }
     }
   }, [expandedId, hasAgents, viewportWidth, pages]);
 
   useEffect(() => {
     if (pages.length > 0 && requestedPage >= pages.length) {
-      setRequestedPage(pages.length - 1);
+      const lastPage = pages.length - 1;
+      setRequestedPage((prev) => (prev === lastPage ? prev : lastPage));
     }
   }, [pages.length, requestedPage]);
 
@@ -534,6 +562,9 @@ function AgentBarHorizontal({
 
   const collisionDetection = useCallback<CollisionDetection>(
     (args) => {
+      pointerCoordinatesRef.current = args.pointerCoordinates
+        ? { x: args.pointerCoordinates.x, y: args.pointerCoordinates.y }
+        : null;
       if (onRemove && args.pointerCoordinates && viewportRef.current) {
         const rect = (
           viewportRef.current.closest('.agent-management-bar') ??
@@ -564,6 +595,7 @@ function AgentBarHorizontal({
   const persistOrder = useCallback(
     (next: string[] | null) => {
       if (!next) return;
+      orderRef.current = next;
       setOrder(next);
       onReorder(next);
     },
@@ -573,34 +605,55 @@ function AgentBarHorizontal({
   const handleDragStart = useCallback(({ active }: DragStartEvent) => {
     originRef.current = orderRef.current;
     activeIdRef.current = String(active.id);
+    lastSwapPositionRef.current = null;
+    pointerCoordinatesRef.current = null;
     setActiveId(String(active.id));
   }, []);
 
-  const handleDragOver = useCallback(({ active, over }: DragOverEvent) => {
-    if (!over) return;
-    setOrder(
-      (current) =>
-        moveAgentInOrder(current, String(active.id), String(over.id)) ?? current
-    );
-  }, []);
+  const handleDragOver = useCallback(
+    ({ active, over, delta }: DragOverEvent) => {
+      if (!over) return;
+      const activeKey = String(active.id);
+      const overKey = String(over.id);
+      if (activeKey === overKey) return;
+      const position = pointerCoordinatesRef.current ?? delta;
+      const lastPosition = lastSwapPositionRef.current;
+      if (
+        lastPosition &&
+        lastPosition.x === position.x &&
+        lastPosition.y === position.y
+      ) {
+        return;
+      }
+      const next = moveAgentInOrder(orderRef.current, activeKey, overKey);
+      if (!next) return;
+      lastSwapPositionRef.current = { x: position.x, y: position.y };
+      orderRef.current = next;
+      setOrder(next);
+    },
+    []
+  );
 
   const flipPageWhileDragging = useCallback((direction: -1 | 1) => {
     const dragged = activeIdRef.current;
     const target = pageRef.current + direction;
     if (!dragged || target < 0 || target >= pageCountRef.current) return;
-    setOrder(
-      (current) =>
-        moveAgentToPageEdge(
-          current,
-          dragged,
-          agentBarPages(
-            current.filter((id) => id !== dragged),
-            pagingRef.current
-          )[target],
-          direction === 1 ? 'start' : 'end'
-        ) ?? current
-    );
-    setRequestedPage(target);
+    lastSwapPositionRef.current = null;
+    setOrder((current) => {
+      const next = moveAgentToPageEdge(
+        current,
+        dragged,
+        agentBarPages(
+          current.filter((id) => id !== dragged),
+          pagingRef.current
+        )[target],
+        direction === 1 ? 'start' : 'end'
+      );
+      if (!next) return current;
+      orderRef.current = next;
+      return next;
+    });
+    setRequestedPage((prev) => (prev === target ? prev : target));
   }, []);
 
   const finishDrag = useCallback(
@@ -608,13 +661,19 @@ function AgentBarHorizontal({
       const origin = originRef.current;
       originRef.current = null;
       activeIdRef.current = null;
+      lastSwapPositionRef.current = null;
+      pointerCoordinatesRef.current = null;
       setActiveId(null);
       if (!next) {
-        if (origin) setOrder(origin);
+        if (origin) {
+          orderRef.current = origin;
+          setOrder((prev) => (arraysEqual(prev, origin) ? prev : origin));
+        }
         return;
       }
-      setOrder(next);
-      if (origin && next.join('|') !== origin.join('|')) {
+      orderRef.current = next;
+      setOrder((prev) => (arraysEqual(prev, next) ? prev : next));
+      if (origin && !arraysEqual(next, origin)) {
         onReorder(next);
       }
     },
@@ -622,18 +681,27 @@ function AgentBarHorizontal({
   );
 
   const handleDragEnd = useCallback(
-    ({ active, over }: DragEndEvent) => {
+    ({ active, over, delta }: DragEndEvent) => {
       if (!over) {
         finishDrag(null);
         onRemove?.(String(active.id));
         return;
       }
+      const position = pointerCoordinatesRef.current ?? delta;
+      const lastPosition = lastSwapPositionRef.current;
+      const alreadySwappedAtPosition = Boolean(
+        lastPosition &&
+          lastPosition.x === position.x &&
+          lastPosition.y === position.y
+      );
       finishDrag(
-        moveAgentInOrder(
-          orderRef.current,
-          String(active.id),
-          String(over.id)
-        ) ?? orderRef.current
+        alreadySwappedAtPosition
+          ? orderRef.current
+          : (moveAgentInOrder(
+              orderRef.current,
+              String(active.id),
+              String(over.id)
+            ) ?? orderRef.current)
       );
     },
     [finishDrag, onRemove]

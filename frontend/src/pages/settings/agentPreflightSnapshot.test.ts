@@ -35,8 +35,21 @@ describe('agentPreflightSnapshot', () => {
     expect(readPreflightSnapshot('claude_code')).toBeNull();
   });
 
-  it('hides vendor runtime and treats Node/npm as installer bootstrap', () => {
+  it('hides legacy membership and vendor runtime rows and treats Node/npm as installer bootstrap', () => {
     const items = presentPreflightItems([
+      {
+        id: 'membership',
+        label: '运行入口',
+        status: 'pass',
+        detail: '运行入口可用。',
+        version: '1.0.0',
+        path: '/usr/local/bin/codex',
+        source: null,
+        repairable: false,
+        update_available: false,
+        available_version: null,
+        update_group: null,
+      },
       snapshot.items[0],
       {
         id: 'acp',
@@ -66,7 +79,47 @@ describe('agentPreflightSnapshot', () => {
       },
     ]);
     expect(items.map((item) => item.id)).toEqual(['acp', 'dependency.node']);
+    expect(items[0]?.label).toBe('运行入口');
     expect(items[1]?.status).toBe('warning');
+  });
+
+  it('normalizes legacy ACP and native engine labels to unified runtime entry', () => {
+    const acpItems = presentPreflightItems([
+      {
+        id: 'acp',
+        label: 'ACP 适配器',
+        status: 'pass',
+        detail: '',
+        version: '0.64.1',
+        path: '/usr/local/bin/pi-acp',
+        source: 'system',
+        repairable: false,
+        update_available: false,
+        available_version: null,
+        update_group: null,
+      },
+    ]);
+    expect(acpItems[0]?.label).toBe('运行入口');
+
+    const nativeItems = presentPreflightItems(
+      [
+        {
+          id: 'native_runtime',
+          label: '原生引擎运行时',
+          status: 'pass',
+          detail: '',
+          version: '2.1.325',
+          path: '/usr/local/bin/claude',
+          source: 'system',
+          repairable: false,
+          update_available: false,
+          available_version: null,
+          update_group: null,
+        },
+      ],
+      'claude_code'
+    );
+    expect(nativeItems[0]?.label).toBe('运行入口');
   });
 
   it('keeps a later auth refresh when a full preflight finishes', () => {
@@ -75,12 +128,12 @@ describe('agentPreflightSnapshot', () => {
       checked_at: '2026-09-08T00:00:00Z',
       items: [
         {
-          id: 'acp',
-          label: 'ACP 适配器',
+          id: 'native_runtime',
+          label: '运行入口',
           status: 'pass',
           detail: '',
-          version: '1.0.0',
-          path: '/usr/local/bin/claude-acp',
+          version: '2.1.325',
+          path: '/usr/local/bin/claude',
           source: null,
           repairable: true,
           update_available: false,
@@ -115,7 +168,9 @@ describe('agentPreflightSnapshot', () => {
       ],
     };
     const next = overlayAuthPreflightItems(full, refreshed);
-    expect(next.items.find((item) => item.id === 'acp')?.status).toBe('pass');
+    expect(next.items.find((item) => item.id === 'native_runtime')?.status).toBe(
+      'pass'
+    );
     expect(
       next.items.find((item) => item.id === 'authentication')
     ).toMatchObject({

@@ -13,6 +13,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { defineModal, type ConfirmResult } from '@/lib/modals';
+import { humanizePreflightId } from '@/pages/settings/AgentPreflightCheckItem';
 
 type Props = {
   items: AgentPreflightItemView[];
@@ -51,7 +52,7 @@ const AgentUpdateConfirmDialogImpl = NiceModal.create<Props>((props) => {
           {props.items.map((item) => (
             <li key={item.id}>
               <strong>
-                {english ? item.id.replaceAll('_', ' ') : item.label}
+                {english ? humanizePreflightId(item.id) : item.label}
               </strong>
               <div className="agent-update-dialog-versions">
                 <code>{item.version || t('agents.versionUnknown')}</code>

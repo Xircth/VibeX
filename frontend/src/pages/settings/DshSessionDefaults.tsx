@@ -133,17 +133,18 @@ export function DshSessionDefaults({ onChanged, onDirtyChange }: Props) {
         <AgentSectionHeading
           headingId="dsh-session-heading"
           title={t('settings:agents.configTitle')}
+          description={t('settings:agents.configDescription')}
           expanded={expanded}
           onToggle={() => setExpanded((current) => !current)}
           summary={t('agents.configFieldCount', { count: 3 })}
         />
         {expanded ? (
           loading ? (
-            <p className="agent-plugin-empty">
+            <p className="agent-plugin-empty" id="dsh-session-heading-body">
               {t('settings:agents.dshSessionLoading')}
             </p>
           ) : (
-            <div className="dsh-session-body">
+            <div className="dsh-session-body" id="dsh-session-heading-body">
               <div className="dsh-preset-grid" role="radiogroup">
                 {PRESETS.map((id) => {
                   const selected = draft.preset === id;

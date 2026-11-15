@@ -46,7 +46,11 @@ import {
   AgentPreflightCard,
   humanizePreflightId,
 } from './AgentPreflightCheckItem';
-import { agentProvisioningAction } from './agentProvisioning';
+import {
+  agentProvisioningAction,
+  isNativeEngineAgent,
+  isPrimaryRuntimePreflightItem,
+} from './agentProvisioning';
 import { presentPreflightItems } from './agentPreflightSnapshot';
 import { AgentSectionHeading } from './SettingsSection';
 
@@ -75,7 +79,6 @@ type AgentDetailProps = {
   }) => Promise<string | null>;
   onRepair: () => void;
   onCheckUpdate?: () => void;
-  onRollback: () => void;
   onCancelOperation: () => void;
   onUninstall: (options?: { clearData?: boolean }) => void;
   onRemove: () => void;
@@ -100,7 +103,6 @@ export function AgentDetail({
   onInstallVersion,
   onPreviewVersions,
   onRepair,
-  onRollback,
   onCancelOperation,
   onUninstall,
   onRemove,
@@ -110,6 +112,7 @@ export function AgentDetail({
   focusDiagnostics = false,
 }: AgentDetailProps) {
   const { t, i18n } = useTranslation('settings');
+  const nativeEngine = isNativeEngineAgent(agent);
   const [disableDialogOpen, setDisableDialogOpen] = useState(false);
   const [operationDiagnosticsEnabled, setOperationDiagnosticsEnabled] =
     useState(
@@ -133,14 +136,17 @@ export function AgentDetail({
       preflight?.items ?? fallbackPreflight(t, agent, updateCheck),
       agent,
       updateCheck
-    )
+    ),
+    agent
   );
   const provisioningAction = agentProvisioningAction(agent, items);
   const needsInstall = provisioningAction === 'install';
   const needsRepair = provisioningAction === 'repair';
-  const acpPreflightItem = items.find((item) => item.id === 'acp');
+  const primaryPreflightItem = items.find((item) =>
+    isPrimaryRuntimePreflightItem(item, agent)
+  );
   const externalInstallUrl =
-    agent.agent_id === 'kiro' && acpPreflightItem?.status === 'fail'
+    agent.agent_id === 'kiro' && primaryPreflightItem?.status === 'fail'
       ? 'https://kiro.dev/docs/getting-started/installation/'
       : null;
   const [customVersion, setCustomVersion] = useState('');
@@ -294,7 +300,11 @@ export function AgentDetail({
             {t('agents.disableDialogTitle', { agent: agent.display_name })}
           </DialogTitle>
           <DialogDescription>
-            {t('agents.disableDialogDescription')}
+            {t(
+              nativeEngine
+                ? 'agents.disableDialogDescriptionNative'
+                : 'agents.disableDialogDescription'
+            )}
           </DialogDescription>
         </DialogHeader>
         <DialogFooter className="flex-wrap">
@@ -348,6 +358,11 @@ export function AgentDetail({
         <AgentSectionHeading
           headingId="agent-preflight-heading"
           title={t('agents.preflightTitle')}
+          description={t(
+            nativeEngine
+              ? 'agents.preflightDescriptionNative'
+              : 'agents.preflightDescription'
+          )}
           expanded={preflightExpanded}
           onToggle={() => setPreflightExpanded((current) => !current)}
           summary={preflightSummary(
@@ -394,7 +409,11 @@ export function AgentDetail({
                   }
                 >
                   <Download aria-hidden="true" className="mr-1.5 h-3.5 w-3.5" />
-                  {t('agents.installRuntimeAcp')}
+                  {t(
+                    nativeEngine
+                      ? 'agents.installNativeRuntime'
+                      : 'agents.installRuntimeAcp'
+                  )}
                 </Button>
                 {installPopoverStep === 'menu' ? (
                   <div
@@ -455,7 +474,11 @@ export function AgentDetail({
                         disabled={busy || agent.retired}
                         placeholder={
                           updateCheck?.acp_available ??
+                          (nativeEngine
+                            ? updateCheck?.runtime_available
+                            : null) ??
                           updateCheck?.available_version ??
+                          agent.runtime_version ??
                           agent.acp_version ??
                           t('agents.customVersionPlaceholder')
                         }
@@ -552,6 +575,7 @@ export function AgentDetail({
 
         {operation ? (
           <AgentOperationProgress
+            nativeEngine={nativeEngine}
             operation={operation}
             onCancel={onCancelOperation}
           />
@@ -559,13 +583,13 @@ export function AgentDetail({
 
         {preflightExpanded ? (
           <div id="agent-preflight-heading-body">
-            <ul className="agent-preflight-chips">
+            <ul className="agent-preflight-grid">
               {items.map((item) => (
                 <AgentPreflightCard
                   key={item.id}
                   item={item}
                   busy={busy}
-                  layout="chip"
+                  nativeEngine={nativeEngine}
                   onUpdate={
                     onUpdatePreflightItem
                       ? () => onUpdatePreflightItem(item.id)
@@ -574,20 +598,6 @@ export function AgentDetail({
                 />
               ))}
             </ul>
-
-            {agent.rollback_available ? (
-              <div className="agent-install-actions">
-                <Button
-                  size="sm"
-                  variant="outline"
-                  className="h-8"
-                  disabled={busy}
-                  onClick={onRollback}
-                >
-                  {t('agents.rollbackPrevious')}
-                </Button>
-              </div>
-            ) : null}
           </div>
         ) : null}
       </section>
@@ -598,40 +608,47 @@ export function AgentDetail({
           open={diagnosticsOpen}
           onToggle={(event) => setDiagnosticsOpen(event.currentTarget.open)}
         >
-          <summary className="agent-section-heading cursor-pointer list-none [&::-webkit-details-marker]:hidden">
-            <span className="flex items-center gap-2 text-sm font-semibold text-foreground">
-              {t('agents.diagnosticsTitle')} · {diagnostics.length}
-              {unreadDiagnostics > 0 ? (
-                <span className="rounded-full bg-destructive/10 px-2 py-0.5 text-xs font-medium text-destructive">
-                  {t('agents.diagnosticsUnread', {
-                    count: unreadDiagnostics,
-                  })}
-                </span>
-              ) : null}
+          <summary className="agent-section-heading has-description cursor-pointer list-none [&::-webkit-details-marker]:hidden">
+            <span className="agent-section-heading-title-row">
+              <span className="flex items-center gap-2 text-sm font-semibold text-foreground">
+                {t('agents.diagnosticsTitle')} · {diagnostics.length}
+                {unreadDiagnostics > 0 ? (
+                  <span className="rounded-full bg-destructive/10 px-2 py-0.5 text-xs font-medium text-destructive">
+                    {t('agents.diagnosticsUnread', {
+                      count: unreadDiagnostics,
+                    })}
+                  </span>
+                ) : null}
+              </span>
             </span>
-            <span
-              className="flex items-center gap-3"
-              onClick={(event) => event.stopPropagation()}
-            >
-              <label className="flex cursor-pointer items-center gap-2 text-xs text-muted-foreground">
-                {t('agents.operationDiagnosticsEnabled')}
-                <Switch
-                  checked={operationDiagnosticsEnabled}
-                  onCheckedChange={toggleOperationDiagnostics}
-                  aria-label={t('agents.operationDiagnosticsEnabled')}
-                />
-              </label>
-              {operationDiagnosticsEnabled && onMarkAllDiagnosticsRead ? (
-                <Button
-                  size="sm"
-                  variant="outline"
-                  className="h-7 text-xs"
-                  disabled={unreadDiagnostics === 0}
-                  onClick={onMarkAllDiagnosticsRead}
-                >
-                  {t('agents.markAllDiagnosticsRead')}
-                </Button>
-              ) : null}
+            <span className="agent-section-heading-subrow">
+              <span className="agent-section-description">
+                {t('agents.diagnosticsDescription')}
+              </span>
+              <span
+                className="agent-section-heading-actions"
+                onClick={(event) => event.stopPropagation()}
+              >
+                <label className="flex cursor-pointer items-center gap-2 text-xs text-muted-foreground">
+                  {t('agents.operationDiagnosticsEnabled')}
+                  <Switch
+                    checked={operationDiagnosticsEnabled}
+                    onCheckedChange={toggleOperationDiagnostics}
+                    aria-label={t('agents.operationDiagnosticsEnabled')}
+                  />
+                </label>
+                {operationDiagnosticsEnabled && onMarkAllDiagnosticsRead ? (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-7 text-xs"
+                    disabled={unreadDiagnostics === 0}
+                    onClick={onMarkAllDiagnosticsRead}
+                  >
+                    {t('agents.markAllDiagnosticsRead')}
+                  </Button>
+                ) : null}
+              </span>
             </span>
           </summary>
           {operationDiagnosticsEnabled ? (
@@ -758,10 +775,14 @@ function enrichPreflightItemsWithKnownUpdate(
   agent: AgentManagementView,
   updateCheck: AgentUpdateCheckView | null
 ): AgentPreflightItemView[] {
-  const cachedUpdate = readCachedAgentAcpUpdate(
-    agent.agent_id,
-    agent.acp_version
-  );
+  const nativeEngine = isNativeEngineAgent(agent);
+  const currentVersion = nativeEngine
+    ? (agent.runtime_version ??
+      agent.acp_version ??
+      agent.local_runtime?.version ??
+      null)
+    : agent.acp_version;
+  const cachedUpdate = readCachedAgentAcpUpdate(agent.agent_id, currentVersion);
   const hasKnownUpdate =
     updateCheck != null
       ? updateCheck.update_available
@@ -769,11 +790,16 @@ function enrichPreflightItemsWithKnownUpdate(
   if (!hasKnownUpdate) return items;
   const knownAvailableVersion =
     updateCheck?.acp_available ??
+    (nativeEngine ? updateCheck?.runtime_available : null) ??
     updateCheck?.available_version ??
     cachedUpdate?.availableVersion ??
     null;
   return items.map((item) => {
-    if (item.id !== 'acp' || item.status === 'fail' || item.update_available) {
+    if (
+      !isPrimaryRuntimePreflightItem(item, agent) ||
+      item.status === 'fail' ||
+      item.update_available
+    ) {
       return item;
     }
     return {
@@ -789,9 +815,20 @@ function fallbackPreflight(
   agent: AgentManagementView,
   updateCheck?: AgentUpdateCheckView | null
 ): AgentPreflightItemView[] {
+  const nativeEngine = isNativeEngineAgent(agent);
+  const effectiveVersion = nativeEngine
+    ? (agent.runtime_version ??
+      agent.acp_version ??
+      agent.local_runtime?.version ??
+      null)
+    : agent.acp_version;
+  const effectivePath = nativeEngine
+    ? (agent.local_runtime?.path ?? null)
+    : null;
+  const runtimeReady = Boolean(effectiveVersion || effectivePath);
   const cachedUpdate = readCachedAgentAcpUpdate(
     agent.agent_id,
-    agent.acp_version
+    effectiveVersion
   );
   const updateAvailable =
     updateCheck != null
@@ -799,39 +836,34 @@ function fallbackPreflight(
       : Boolean(cachedUpdate?.available);
   const availableVersion = updateAvailable
     ? (updateCheck?.acp_available ??
+      (nativeEngine ? updateCheck?.runtime_available : null) ??
       updateCheck?.available_version ??
       cachedUpdate?.availableVersion ??
       null)
     : null;
   return [
     {
-      id: 'membership',
+      id: 'acp',
       label: t('agents.runtimeEntry'),
-      status: agent.retired ? 'fail' : 'pass',
+      status: !agent.retired && runtimeReady ? 'pass' : 'fail',
       detail: agent.retired
         ? t('agents.retiredHistoryOnly')
-        : agent.acp_version
-          ? t('agents.runtimeEntryAvailable')
-          : t('agents.runtimeVersionUnconfirmed'),
-      version: agent.acp_version,
-      path: null,
-      source: null,
-      repairable: false,
-      update_available: false,
-      available_version: null,
-      update_group: null,
-    },
-    {
-      id: 'acp',
-      label: t('agents.runtimeAcp'),
-      status: agent.acp_version ? 'pass' : 'fail',
-      detail: agent.acp_version ? '' : t('agents.acpProbePending'),
-      version: agent.acp_version,
-      path: null,
-      source: null,
-      repairable: true,
-      update_available: Boolean(agent.acp_version && updateAvailable),
-      available_version: agent.acp_version ? availableVersion : null,
+        : runtimeReady
+          ? ''
+          : t(
+              nativeEngine
+                ? 'agents.nativeRuntimeProbePending'
+                : 'agents.acpProbePending'
+            ),
+      version: effectiveVersion,
+      path: effectivePath,
+      source: effectivePath ? 'system' : null,
+      repairable: !agent.retired,
+      update_available: Boolean(
+        !agent.retired && effectiveVersion && updateAvailable
+      ),
+      available_version:
+        !agent.retired && effectiveVersion ? availableVersion : null,
       update_group: null,
     },
   ];

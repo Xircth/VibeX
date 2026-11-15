@@ -24,6 +24,7 @@ import { cn } from '@/lib/utils';
 
 import { AccountHostConfigSection } from './AccountHostConfigSection';
 import { AccountSubscriptionSection } from './AccountSubscriptionSection';
+import { ProviderInstanceManager } from './ProviderInstanceManager';
 import { useAccountDeviceLogin } from './useAccountDeviceLogin';
 
 export function AccountSettings() {
@@ -266,6 +267,9 @@ export function AccountSettings() {
 
         {/* Account Host List (hidden when signed out) */}
         <AccountHostConfigSection />
+
+        {/* Multi-Account & Provider Instances */}
+        <ProviderInstanceManager />
 
         {/* Security & Devices Card */}
         <section className="settings-card flex items-center justify-between gap-4 rounded-xl border border-border bg-card px-5 py-4">

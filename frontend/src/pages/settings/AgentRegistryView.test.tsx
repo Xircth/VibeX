@@ -13,11 +13,11 @@ const view: AgentRegistryView = {
   refresh_error: null,
   installed: [
     {
-      agent_id: 'codex',
-      registry_id: 'codex-acp',
-      display_name: 'Codex',
-      description: 'Codex ACP',
-      authors: ['OpenAI'],
+      agent_id: 'pi',
+      registry_id: 'pi-acp',
+      display_name: 'Pi',
+      description: 'Pi ACP',
+      authors: ['Mario Zechner'],
       version: '1.0.0',
       icon_light: null,
       icon_dark: null,
@@ -119,8 +119,8 @@ describe('AgentRegistryViewPanel', () => {
     expect(screen.getByText('Alpha')).toBeInTheDocument();
 
     await userEvent.clear(search);
-    await userEvent.type(search, 'OpenAI');
-    expect(screen.getByText('Codex', { selector: 'span' })).toBeInTheDocument();
+    await userEvent.type(search, 'Mario');
+    expect(screen.getByText('Pi', { selector: 'span' })).toBeInTheDocument();
     expect(screen.queryByText('Alpha')).not.toBeInTheDocument();
   });
 
@@ -159,7 +159,7 @@ describe('AgentRegistryViewPanel', () => {
     expect(
       screen.getAllByRole('listitem').map((row) => row.textContent)
     ).toEqual([
-      expect.stringContaining('Codex'),
+      expect.stringContaining('Pi'),
       expect.stringContaining('Alpha'),
     ]);
 

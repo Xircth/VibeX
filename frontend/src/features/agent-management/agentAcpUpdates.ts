@@ -126,8 +126,13 @@ export function recordAgentAcpUpdateCheck(
   cache[check.agent_id] = {
     at: Date.now(),
     available,
-    currentVersion: currentVersion ?? check.acp_current ?? null,
-    availableVersion: check.acp_available ?? check.available_version ?? null,
+    currentVersion:
+      currentVersion ?? check.acp_current ?? check.runtime_current ?? null,
+    availableVersion:
+      check.acp_available ??
+      check.runtime_available ??
+      check.available_version ??
+      null,
   };
   writeStore(cache);
 }
@@ -149,7 +154,7 @@ export function resetAgentAcpUpdatesForTests(): void {
 async function checkOne(
   agent: AgentManagementView
 ): Promise<{ agentId: string; available: boolean }> {
-  const currentVersion = agent.acp_version;
+  const currentVersion = agent.acp_version ?? agent.runtime_version;
   const cached = readStore()[agent.agent_id];
   if (isFresh(cached, currentVersion)) {
     return { agentId: agent.agent_id, available: cached.available };

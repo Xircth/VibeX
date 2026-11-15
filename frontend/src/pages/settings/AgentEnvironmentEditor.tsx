@@ -40,7 +40,7 @@ export function AgentEnvironmentEditor({
   onChanged,
   onDirtyChange,
   onPendingChange,
-  togglePosition = 'leading',
+  togglePosition = 'trailing',
 }: Props) {
   const { t } = useTranslation('settings');
   const nextKey = useRef(1);
@@ -201,6 +201,7 @@ export function AgentEnvironmentEditor({
       <AgentSectionHeading
         headingId={`${agentId}-environment-heading`}
         title={t('agents.environmentTitle')}
+        description={t('agents.environmentDescription')}
         expanded={expanded}
         onToggle={() => setExpanded((current) => !current)}
         summary={t('agents.environmentCount', { count: rows.length })}

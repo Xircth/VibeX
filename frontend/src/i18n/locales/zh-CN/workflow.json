@@ -161,6 +161,46 @@
     "debugStarted": "已开始测试 {{step}}",
     "debugRestarted": "已重启 {{step}}",
     "sourceSaved": "已保存 Workflow 源产物",
-    "close": "关闭"
+    "close": "关闭",
+    "selectWorkflow": "选择工作流",
+    "draftBadge": "草稿",
+    "unsavedDraftOption": "{{name}}（草稿）",
+    "newWorkflow": "新建工作流",
+    "refreshCatalog": "刷新工作流与捕获事件",
+    "offlineSampleEventsHint": "离线模式 · 使用内置示例事件",
+    "builtInSamplesCount": "{{count}} 个示例事件",
+    "capturedEventsCount": "{{count}} 个捕获事件",
+    "syncTriggerOnSave": "同步触发器规则",
+    "saveTriggerRule": "保存触发器规则",
+    "loadingWorkspace": "正在加载工作流…",
+    "unsavedChanges": "有未保存更改",
+    "retryLoad": "重试",
+    "validationIssueCount": "{{count}} 项校验问题",
+    "fixValidationIssuesTooltip": "保存或发布前请先修复 {{count}} 项校验问题",
+    "validationBlockedSave": "保存前请先修复 {{count}} 项校验问题（{{first}}）",
+    "savedWithTriggers": "已发布 v{{version}} · 已同步 {{count}} 条触发器规则",
+    "savedVersionLabel": "已发布工作流 v{{version}}",
+    "triggerRulesSaved": "已保存 {{count}} 条 Pulse 触发器规则"
+  },
+  "inspector": {
+    "waitingApprovalBadge": "等待审批",
+    "approvalNoteLabel": "审批备注（可选）",
+    "approvalNotePlaceholder": "补充批准或拒绝说明",
+    "approve": "批准",
+    "reject": "拒绝",
+    "customJsonDecision": "自定义 JSON 决定",
+    "stepKinds": {
+      "session": "临时会话",
+      "bot": "持久机器人",
+      "group_stage": "群组协作",
+      "user_gate": "人工门控",
+      "condition_branch": "条件分支",
+      "bounded_loop": "有界循环",
+      "wait_for_event": "等待事件",
+      "outbox_action": "外发动作",
+      "agent": "Agent 节点",
+      "approval": "确认节点",
+      "notify": "通知节点"
+    }
   }
 }

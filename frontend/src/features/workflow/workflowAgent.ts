@@ -26,14 +26,17 @@ export function resolveWorkflowAgentId(
   return runnable[0]?.value ?? preferredId ?? options[0]?.value ?? 'codex';
 }
 
-export function withDefaultWorkflowAgent(
-  definition: WorkflowDefinition,
-  agentId: string
-): WorkflowDefinition {
+import type { StudioWorkflowDefinition } from './workflow-studio/types';
+
+export function withDefaultWorkflowAgent<
+  T extends WorkflowDefinition | StudioWorkflowDefinition,
+>(definition: T, agentId: string): T {
   return {
     ...definition,
     steps: definition.steps.map((step) =>
-      step.kind === 'agent' ? { ...step, agentId } : step
+      step.kind === 'agent' || step.kind === 'session'
+        ? { ...step, agentId }
+        : step
     ),
-  };
+  } as T;
 }

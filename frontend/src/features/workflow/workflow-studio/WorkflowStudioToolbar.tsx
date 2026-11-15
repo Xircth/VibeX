@@ -78,12 +78,20 @@ export function WorkflowStudioToolbar({
     onSave,
     saving,
     unsavedStepIds,
+    validationIssues,
     onPublish,
     publishing,
     run,
     onPauseRun,
     onResumeRun,
   } = studio;
+  const hasValidationIssues = validationIssues.length > 0;
+  const validationTooltip = hasValidationIssues
+    ? t('studio.fixValidationIssuesTooltip', {
+        count: validationIssues.length,
+        defaultValue: `Fix ${validationIssues.length} validation issue(s) before saving or publishing`,
+      })
+    : undefined;
 
   return (
     <div className="pointer-events-none absolute inset-x-3 top-3 z-40 flex items-start gap-2 overflow-x-auto pb-2">
@@ -325,21 +333,48 @@ export function WorkflowStudioToolbar({
                 {t('studio.reset')}
               </Button>
             ) : null}
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={onSave}
-              disabled={!dirty || saving || unsavedStepIds.size > 0}
-            >
-              {saving ? t('studio.saving') : t('studio.save')}
-            </Button>
-            <Button
-              size="sm"
-              onClick={onPublish}
-              disabled={publishing || unsavedStepIds.size > 0}
-            >
-              {publishing ? t('studio.publishing') : t('studio.publish')}
-            </Button>
+            {hasValidationIssues ? (
+              <span
+                data-testid="workflow-toolbar-validation-badge"
+                title={validationTooltip}
+                className="inline-flex h-7 items-center rounded-md border border-destructive/35 bg-destructive/10 px-2 text-2xs font-semibold text-destructive tabular-nums"
+              >
+                {t('studio.validationIssueCount', {
+                  count: validationIssues.length,
+                  defaultValue: `${validationIssues.length} issue(s)`,
+                })}
+              </span>
+            ) : null}
+            <span title={validationTooltip} className="inline-flex">
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={onSave}
+                title={validationTooltip}
+                disabled={
+                  !dirty ||
+                  saving ||
+                  unsavedStepIds.size > 0 ||
+                  hasValidationIssues
+                }
+              >
+                {saving ? t('studio.saving') : t('studio.save')}
+              </Button>
+            </span>
+            <span title={validationTooltip} className="inline-flex">
+              <Button
+                size="sm"
+                onClick={onPublish}
+                title={validationTooltip}
+                disabled={
+                  publishing ||
+                  unsavedStepIds.size > 0 ||
+                  hasValidationIssues
+                }
+              >
+                {publishing ? t('studio.publishing') : t('studio.publish')}
+              </Button>
+            </span>
           </>
         ) : (
           <>

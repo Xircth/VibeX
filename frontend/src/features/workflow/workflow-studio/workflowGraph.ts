@@ -11,11 +11,60 @@ import { cn } from '@/lib/utils';
 import type { WorkflowStudioAgentOption } from '../workflowAgent';
 import {
   CONFIRMATION_OFFSET,
+  EMPTY_EVENTS,
   type StudioMode,
   type StudioNode,
   type StudioWorkflowDefinition,
   type StudioWorkflowStep,
 } from './types';
+
+function extractEventStepId(payloadJson: string): string | null {
+  if (!payloadJson) return null;
+  try {
+    const parsed = JSON.parse(payloadJson) as Record<string, unknown> | null;
+    if (parsed && typeof parsed === 'object') {
+      const candidate =
+        parsed.step_id ?? parsed.stepId ?? parsed.loop_step_id ?? null;
+      if (typeof candidate === 'string' && candidate.length > 0) {
+        return candidate;
+      }
+    }
+  } catch {
+    const match = /"(?:step_id|stepId)"\s*:\s*"([^"]+)"/.exec(payloadJson);
+    if (match?.[1]) {
+      return match[1];
+    }
+  }
+  return null;
+}
+
+export function indexWorkflowEventsByStepId(
+  events: readonly WorkflowEventRecord[]
+): Map<string, WorkflowEventRecord[]> {
+  const byStep = new Map<string, WorkflowEventRecord[]>();
+  for (const event of events) {
+    const stepId = extractEventStepId(event.payloadJson);
+    if (!stepId) continue;
+    const bucket = byStep.get(stepId);
+    if (bucket) {
+      bucket.push(event);
+    } else {
+      byStep.set(stepId, [event]);
+    }
+  }
+  for (const bucket of byStep.values()) {
+    if (bucket.length > 1) {
+      bucket.sort((left, right) =>
+        left.sequence < right.sequence
+          ? -1
+          : left.sequence > right.sequence
+            ? 1
+            : 0
+      );
+    }
+  }
+  return byStep;
+}
 
 export function withoutStepOutputBindings(
   bindings: Record<string, WorkflowBinding | undefined>,
@@ -70,13 +119,19 @@ export function layoutNodes(
   selectedStepId: string | null,
   mode: StudioMode,
   onSelect: (stepId: string) => void,
-  events: WorkflowEventRecord[],
+  eventsInput:
+    | WorkflowEventRecord[]
+    | ReadonlyMap<string, WorkflowEventRecord[]>,
   agentOptions: WorkflowStudioAgentOption[],
   logStepId: string | null,
   onToggleLog: (stepId: string) => void,
   replayEnvelope?: EventEnvelope | null,
   onTriggerEvalModeChange?: (stepId: string, evalMode: PulseEvalMode) => void
 ): StudioNode[] {
+  const eventsByStepId =
+    'size' in eventsInput
+      ? eventsInput
+      : indexWorkflowEventsByStepId(eventsInput);
   const depths = new Map<string, number>();
   const depthOf = (
     step: StudioWorkflowStep,
@@ -138,7 +193,7 @@ export function layoutNodes(
           const run = latest.get(id);
           return run ? [run] : [];
         }),
-        events,
+        events: eventsByStepId.get(step.id) ?? EMPTY_EVENTS,
         agentOptions,
         selected: selectedStepId === step.id,
         logExpanded: logStepId === step.id,
@@ -207,7 +262,7 @@ export function layoutNodes(
           confirmationFor: step.id,
           stepRun: latest.get(step.id),
           predecessorRuns: [],
-          events,
+          events: EMPTY_EVENTS,
           agentOptions,
           selected: selectedStepId === step.id,
           logExpanded: false,

@@ -21,8 +21,12 @@ import { useBackendTransport } from '@/lib/transport';
 import {
   WorkflowStudio,
   toBackendWorkflowDefinition,
+  toStudioWorkflowDefinition,
+  validateStudioWorkflowExhaustively,
   type StudioWorkflowDefinition,
+  type WorkflowStudioDefinitionInput,
 } from './WorkflowStudio';
+import { useGuardedWorkflowRunPolling } from './useGuardedWorkflowRunPolling';
 import { rememberTestWorkspace } from './workflowTestWorkspaceStore';
 import { createWorkflowApi } from './workflowApi';
 import {
@@ -34,7 +38,9 @@ import {
   resolveWorkflowSourceRevision,
 } from './workflowSourceApi';
 
-function serializeDefinition(definition: StudioWorkflowDefinition) {
+function serializeDefinition(
+  definition: StudioWorkflowDefinition | ReturnType<typeof toBackendWorkflowDefinition>
+) {
   return JSON.stringify(
     definition,
     (_key, value) => (typeof value === 'bigint' ? Number(value) : value),
@@ -115,7 +121,12 @@ export function WorkflowArtifactStudio({ filePath }: { filePath: string }) {
     void sourceApi
       .read(filePath)
       .then((source) => {
-        const parsed = JSON.parse(source.content) as StudioWorkflowDefinition;
+        const raw = JSON.parse(source.content) as WorkflowStudioDefinitionInput;
+        const hydrated = toStudioWorkflowDefinition(raw);
+        const parsed: StudioWorkflowDefinition = {
+          ...hydrated,
+          orchestratorPreset: hydrated.orchestratorPreset ?? null,
+        };
         if (!active) return;
         setDefinition(parsed);
         setSavedDefinition(parsed);
@@ -154,9 +165,19 @@ export function WorkflowArtifactStudio({ filePath }: { filePath: string }) {
 
   const save = useCallback(async () => {
     if (!definition) return;
+    const issues = validateStudioWorkflowExhaustively(definition);
+    if (issues.length > 0) {
+      throw new Error(
+        t('studio.validationBlockedSave', {
+          count: issues.length,
+          defaultValue: `Fix ${issues.length} validation issue(s) before saving.`,
+        })
+      );
+    }
     setSaving(true);
     try {
-      await workflowApi.validate(toBackendWorkflowDefinition(definition));
+      const backendDefinition = toBackendWorkflowDefinition(definition);
+      await workflowApi.validate(backendDefinition);
       const expectedRevision = await resolveWorkflowSourceRevision(
         sourceApi,
         filePath,
@@ -164,7 +185,7 @@ export function WorkflowArtifactStudio({ filePath }: { filePath: string }) {
       );
       const result = await sourceApi.write(
         filePath,
-        serializeDefinition(definition),
+        serializeDefinition(backendDefinition),
         expectedRevision ?? undefined
       );
       setSourceRevision(result.revision);
@@ -177,6 +198,15 @@ export function WorkflowArtifactStudio({ filePath }: { filePath: string }) {
 
   const publish = useCallback(async () => {
     if (!definition) throw new Error(t('studio.sourceNotLoaded'));
+    const issues = validateStudioWorkflowExhaustively(definition);
+    if (issues.length > 0) {
+      throw new Error(
+        t('studio.validationBlockedSave', {
+          count: issues.length,
+          defaultValue: `Fix ${issues.length} validation issue(s) before saving.`,
+        })
+      );
+    }
     if (
       !sourceRevision ||
       !savedDefinition ||
@@ -234,19 +264,14 @@ export function WorkflowArtifactStudio({ filePath }: { filePath: string }) {
     [workflowApi]
   );
 
-  useEffect(() => {
-    if (
-      !run?.id ||
-      ['completed', 'failed', 'cancelled', 'interrupted'].includes(run.status)
-    )
-      return;
-    const timer = window.setInterval(() => {
-      void refreshRun(run.id).catch((error) =>
-        toast.error(error instanceof Error ? error.message : String(error))
-      );
-    }, 1000);
-    return () => window.clearInterval(timer);
-  }, [refreshRun, run?.id, run?.status]);
+  useGuardedWorkflowRunPolling({
+    runId: run?.id,
+    status: run?.status,
+    refresh: refreshRun,
+    intervalMs: 1500,
+    onError: (error) =>
+      toast.error(error instanceof Error ? error.message : String(error)),
+  });
 
   const startNode = useCallback(
     async (stepId: string) => {
@@ -319,6 +344,7 @@ export function WorkflowArtifactStudio({ filePath }: { filePath: string }) {
 
   return (
     <WorkflowStudio
+      studioMode
       className="h-full"
       definition={definition}
       onDefinitionChange={applyDefinition}

@@ -22,6 +22,7 @@ import {
 import { isWorkflowConnectionValid } from './workflowConnection';
 import {
   buildEdges,
+  indexWorkflowEventsByStepId,
   layoutNodes,
   withoutStepOutputBindings,
 } from './workflowGraph';
@@ -54,6 +55,10 @@ export function useWorkflowStudioGraph({
       ),
     [steps]
   );
+  const eventsByStepId = useMemo(
+    () => indexWorkflowEventsByStepId(events),
+    [events]
+  );
   const toggleLog = useCallback((stepId: string) => {
     setLogStepId((current) => (current === stepId ? null : stepId));
   }, []);
@@ -65,7 +70,7 @@ export function useWorkflowStudioGraph({
         selectedStepId,
         mode,
         setSelectedStepId,
-        events,
+        eventsByStepId,
         agentOptions,
         logStepId,
         toggleLog,
@@ -75,7 +80,7 @@ export function useWorkflowStudioGraph({
     [
       agentOptions,
       definition,
-      events,
+      eventsByStepId,
       latest,
       logStepId,
       mode,

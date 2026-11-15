@@ -161,6 +161,46 @@
     "debugStarted": "Started {{step}}",
     "debugRestarted": "Restarted {{step}}",
     "sourceSaved": "Workflow source saved",
-    "close": "Close"
+    "close": "Close",
+    "selectWorkflow": "Select workflow",
+    "draftBadge": "Draft",
+    "unsavedDraftOption": "{{name}} (Draft)",
+    "newWorkflow": "New Workflow",
+    "refreshCatalog": "Refresh workflows and captured events",
+    "offlineSampleEventsHint": "Offline · using built-in sample events",
+    "builtInSamplesCount": "{{count}} sample events",
+    "capturedEventsCount": "{{count}} captured events",
+    "syncTriggerOnSave": "Sync Trigger Rule",
+    "saveTriggerRule": "Save Trigger Rule",
+    "loadingWorkspace": "Loading workflows…",
+    "unsavedChanges": "Unsaved changes",
+    "retryLoad": "Retry",
+    "validationIssueCount": "{{count}} validation issue(s)",
+    "fixValidationIssuesTooltip": "Fix {{count}} validation issue(s) before saving or publishing",
+    "validationBlockedSave": "Fix {{count}} validation issue(s) before saving ({{first}})",
+    "savedWithTriggers": "Published v{{version}} · synced {{count}} trigger rule(s)",
+    "savedVersionLabel": "Published Workflow v{{version}}",
+    "triggerRulesSaved": "Saved {{count}} Pulse trigger rule(s)"
+  },
+  "inspector": {
+    "waitingApprovalBadge": "Awaiting approval",
+    "approvalNoteLabel": "Approval note (optional)",
+    "approvalNotePlaceholder": "Add context for this approval or rejection",
+    "approve": "Approve",
+    "reject": "Reject",
+    "customJsonDecision": "Custom JSON decision",
+    "stepKinds": {
+      "session": "Fresh Session",
+      "bot": "Persistent Bot",
+      "group_stage": "Group Stage",
+      "user_gate": "User Gate",
+      "condition_branch": "Condition Branch",
+      "bounded_loop": "Bounded Loop",
+      "wait_for_event": "Wait for Event",
+      "outbox_action": "Outbox Action",
+      "agent": "Agent Step",
+      "approval": "Approval",
+      "notify": "Notification"
+    }
   }
 }

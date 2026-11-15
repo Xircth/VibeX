@@ -22,16 +22,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
-import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
 import { toast } from '@/components/ui/toast';
 import { useUserSystem } from '@/components/ConfigProvider';
@@ -41,7 +32,31 @@ import {
   loadAgentSessionControlsCatalog,
   sessionControlsQueryKey,
 } from '@/features/agents/sessionControlsQuery';
-import { WorkflowStudio } from '@/features/workflow/WorkflowStudio';
+import {
+  AutomationWorkspaceConfigPanel,
+  type AutomationProjectOption,
+  type AutomationWorkspaceMode,
+} from '@/features/workflow/AutomationWorkspaceConfigPanel';
+import {
+  RESEARCH_WORKFLOW,
+  SIMPLE_WORKFLOW,
+  cronToTimer,
+  nextReleaseVersion,
+  releaseVersionFromInternal,
+  serializeDefinition,
+  timerToCron,
+  workflowSourceFilePath,
+  type ScheduleTimer,
+} from '@/features/workflow/automationEditorPresets';
+import { useGuardedWorkflowRunPolling } from '@/features/workflow/useGuardedWorkflowRunPolling';
+import {
+  WorkflowStudio,
+  toBackendWorkflowDefinition,
+  toStudioWorkflowDefinition,
+  validateStudioWorkflowExhaustively,
+  type StudioWorkflowDefinition,
+  type WorkflowStudioDefinitionInput,
+} from '@/features/workflow/WorkflowStudio';
 import {
   resolveWorkflowAgentId,
   withDefaultWorkflowAgent,
@@ -68,10 +83,8 @@ import {
   type AutomationView,
 } from '@/lib/api/automations';
 import { useBackendTransport } from '@/lib/transport';
-import { getUiLanguage } from '@/lib/uiLanguage';
 import { AutomationsSettings } from './AutomationsSettings';
 
-type Project = { id: string; name: string };
 type Repo = {
   id: string;
   name: string;
@@ -80,207 +93,14 @@ type Repo = {
   default_target_branch?: string | null;
 };
 
-type WorkspaceMode = 'existing' | 'new';
-
-const BASE_AGENT_STEP: Extract<
-  WorkflowDefinition['steps'][number],
-  { kind: 'agent' }
-> = {
-  id: 'start',
-  dependsOn: [],
-  phase: null,
-  inputBindings: {},
-  kind: 'agent',
-  agentId: 'codex',
-  prompt: '',
-  executorProfileId: null,
-  modeOverride: null,
-  configOverrides: {},
-  outputLanguage: getUiLanguage(),
-  outputDescription: null,
-  outputSchema: {
-    type: 'object',
-    required: ['summary'],
-    properties: { summary: { type: 'string' } },
-  },
-  workspaceAccess: 'native',
-  sideEffectClass: 'mutating_unknown',
-  allowOneRepair: false,
-  allowSkipOnReview: false,
-  completionPolicy: 'manual',
-};
-
-const SIMPLE_WORKFLOW: WorkflowDefinition = {
-  formatVersion: 1,
-  name: 'New Workflow',
-  description: null,
-  inputSchema: { type: 'object' },
-  steps: [BASE_AGENT_STEP],
-  policy: {
-    maxConcurrentAgentSteps: 2,
-    maxAgentCalls: 20,
-    deadlineSeconds: 3600,
-    maxOutputBytes: 1048576,
-  },
-};
-
-const RESEARCH_WORKFLOW: WorkflowDefinition = {
-  ...SIMPLE_WORKFLOW,
-  name: 'Research brief',
-  description:
-    'Research in parallel, synthesize the evidence, review, and publish.',
-  steps: [
-    {
-      ...BASE_AGENT_STEP,
-      id: 'research-primary',
-      prompt:
-        'Research primary sources for the requested topic. Return findings with source URLs.',
-      outputSchema: {
-        type: 'object',
-        required: ['findings'],
-        properties: { findings: { type: 'array' } },
-      },
-      completionPolicy: 'automatic',
-    },
-    {
-      ...BASE_AGENT_STEP,
-      id: 'research-risks',
-      prompt:
-        'Challenge the request and identify risks, unknowns, and contradictory evidence.',
-      outputSchema: {
-        type: 'object',
-        required: ['risks'],
-        properties: { risks: { type: 'array' } },
-      },
-      completionPolicy: 'automatic',
-    },
-    {
-      ...BASE_AGENT_STEP,
-      id: 'synthesize',
-      dependsOn: ['research-primary', 'research-risks'],
-      prompt:
-        'Synthesize the accepted upstream results into a decision-ready brief.',
-      completionPolicy: 'manual',
-    },
-    {
-      id: 'approve',
-      dependsOn: ['synthesize'],
-      phase: null,
-      inputBindings: {},
-      kind: 'approval',
-      title: 'Approve publication',
-      decisionSchema: {
-        type: 'object',
-        required: ['approved'],
-        properties: { approved: { type: 'boolean' } },
-      },
-      approverScope: 'workflow.approve',
-      skippable: false,
-    },
-  ],
-};
-
-function serializeDefinition(definition: WorkflowDefinition) {
-  return JSON.stringify(
-    definition,
-    (_key, value) => (typeof value === 'bigint' ? Number(value) : value),
-    2
-  );
-}
-
-function joinPath(root: string, relative: string) {
-  return `${root.replace(/\/$/, '')}/${relative.replace(/^\//, '')}`;
-}
-
-function workflowSourceFilePath(root: string, sourcePath: string) {
-  return sourcePath.startsWith('~/') || sourcePath.startsWith('/')
-    ? sourcePath
-    : joinPath(root, sourcePath);
-}
-
-function releaseVersionFromInternal(version: bigint | null | undefined) {
-  return (Number(version ?? 0n) / 10).toFixed(1);
-}
-
-function nextReleaseVersion(version: bigint | null | undefined) {
-  return (Number(version ?? 0n) / 10 + 0.1).toFixed(1);
-}
-
-type ScheduleTimer = {
-  mode: 'once' | 'repeat';
-  repeatKind: 'daily' | 'monthly';
-  // once schedule date
-  onceYear: number;
-  onceMonth: number;
-  onceDay: number;
-  // monthly repeat day of month
-  repeatDay: number;
-  // HH:MM
-  time: string;
-};
-
-function defaultTimer(): ScheduleTimer {
-  const now = new Date();
+function hydrateStudioDefinition(
+  input: WorkflowStudioDefinitionInput
+): StudioWorkflowDefinition {
+  const hydrated = toStudioWorkflowDefinition(input);
   return {
-    mode: 'repeat',
-    repeatKind: 'daily',
-    onceYear: now.getFullYear(),
-    onceMonth: now.getMonth() + 1,
-    onceDay: now.getDate(),
-    repeatDay: 1,
-    time: '09:00',
+    ...hydrated,
+    orchestratorPreset: hydrated.orchestratorPreset ?? null,
   };
-}
-
-function timerToCron(timer: ScheduleTimer): string {
-  const [hour = '0', minute = '0'] = timer.time.split(':');
-  const h = Number(hour);
-  const m = Number(minute);
-  if (timer.mode === 'once') {
-    return `${m} ${h} ${timer.onceDay} ${timer.onceMonth} * ${timer.onceYear}`;
-  }
-  if (timer.repeatKind === 'monthly') {
-    return `${m} ${h} ${timer.repeatDay} * *`;
-  }
-  return `${m} ${h} * * *`;
-}
-
-function cronToTimer(cron: string): ScheduleTimer {
-  const fields = cron.trim().split(/\s+/);
-  const minute = Number(fields[0] ?? 0);
-  const hour = Number(fields[1] ?? 9);
-  const time = `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
-  const now = new Date();
-  const base = {
-    ...defaultTimer(),
-    time,
-  };
-  if (fields.length === 6) {
-    return {
-      ...base,
-      mode: 'once',
-      onceYear: Number(fields[5] ?? now.getFullYear()),
-      onceMonth: Number(fields[3] ?? 1),
-      onceDay: Number(fields[2] ?? 1),
-    };
-  }
-  if (fields.length === 5 && fields[2] !== '*' && fields[4] === '*') {
-    return {
-      ...base,
-      mode: 'repeat',
-      repeatKind: 'monthly',
-      repeatDay: Number(fields[2] ?? 1),
-    };
-  }
-  return {
-    ...base,
-    mode: 'repeat',
-    repeatKind: 'daily',
-  };
-}
-
-function daysInMonth(year: number, month: number) {
-  return new Date(year, month, 0).getDate();
 }
 
 export function TurnAutomationEditorRoute() {
@@ -455,7 +275,7 @@ function WorkflowAutomationEditor({
   template?: string | null;
 }) {
   const navigate = useNavigate();
-  const { t } = useTranslation(['settings', 'common']);
+  const { t } = useTranslation(['settings', 'common', 'workflow']);
   const transport = useBackendTransport();
   const queryClient = useQueryClient();
   const automationApi = useMemo(
@@ -481,7 +301,7 @@ function WorkflowAutomationEditor({
     [queryClient]
   );
   const [automation, setAutomation] = useState(initialAutomation);
-  const [definition, setDefinition] = useState<WorkflowDefinition>(() => {
+  const [definition, setDefinition] = useState<StudioWorkflowDefinition>(() => {
     const next = structuredClone(
       template === 'research-brief' ? RESEARCH_WORKFLOW : SIMPLE_WORKFLOW
     );
@@ -493,7 +313,8 @@ function WorkflowAutomationEditor({
     }
     return next;
   });
-  const [savedDefinition, setSavedDefinition] = useState(definition);
+  const [savedDefinition, setSavedDefinition] =
+    useState<StudioWorkflowDefinition>(definition);
 
   useEffect(() => {
     if (defaultAgentApplied.current || agentOptions.length === 0) return;
@@ -505,8 +326,9 @@ function WorkflowAutomationEditor({
     setDefinition((current) => withDefaultWorkflowAgent(current, agentId));
     setSavedDefinition((current) => withDefaultWorkflowAgent(current, agentId));
   }, [agentOptions, config?.executor_profile?.executor]);
+
   const [version, setVersion] = useState<WorkflowVersionView | null>(null);
-  const [projects, setProjects] = useState<Project[]>([]);
+  const [projects, setProjects] = useState<AutomationProjectOption[]>([]);
   const [repos, setRepos] = useState<Repo[]>([]);
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
   const [projectId, setProjectId] = useState(
@@ -515,7 +337,7 @@ function WorkflowAutomationEditor({
       : ''
   );
   const [repo, setRepo] = useState<Repo | null>(null);
-  const [workspaceMode, setWorkspaceMode] = useState<WorkspaceMode>(
+  const [workspaceMode, setWorkspaceMode] = useState<AutomationWorkspaceMode>(
     initialAutomation?.target.kind === 'workflow' &&
       initialAutomation.target.spec.workspace.isolation === 'shared_in_root'
       ? 'existing'
@@ -549,7 +371,7 @@ function WorkflowAutomationEditor({
   const [publishVersion, setPublishVersion] = useState(() =>
     nextReleaseVersion(null)
   );
-  const [undoStack, setUndoStack] = useState<WorkflowDefinition[]>([]);
+  const [undoStack, setUndoStack] = useState<StudioWorkflowDefinition[]>([]);
   const [debugRun, setDebugRun] = useState<WorkflowRunView | null>(null);
   const [debugWorkspace, setDebugWorkspace] = useState<Workspace | null>(null);
   const [testWorkspaceMode, setTestWorkspaceMode] =
@@ -566,6 +388,7 @@ function WorkflowAutomationEditor({
   const [debugEvents, setDebugEvents] = useState<WorkflowEventRecord[]>([]);
   const debugEventRunIdRef = useRef<string | null>(null);
   const debugEventHistoryRef = useRef<WorkflowEventRecord[]>([]);
+
   const dirty =
     serializeDefinition(definition) !== serializeDefinition(savedDefinition);
   const selectedWorkspace =
@@ -583,19 +406,19 @@ function WorkflowAutomationEditor({
   const persistTestWorkspace = useCallback(
     (
       mode: WorkflowTestWorkspaceMode | null,
-      workspaceId: string | null,
+      nextWorkspaceId: string | null,
       workspaceIds: string[]
     ) => {
       saveWorkflowTestWorkspace(testWorkspaceScope, {
         mode,
-        workspaceId,
+        workspaceId: nextWorkspaceId,
         workspaceIds,
       });
     },
     [testWorkspaceScope]
   );
 
-  const applyDefinition = useCallback((next: WorkflowDefinition) => {
+  const applyDefinition = useCallback((next: StudioWorkflowDefinition) => {
     setDefinition((current) => {
       if (serializeDefinition(current) === serializeDefinition(next))
         return current;
@@ -616,7 +439,9 @@ function WorkflowAutomationEditor({
 
   useEffect(() => {
     void transport.call('get_projects').then((value) => {
-      const loaded = Array.isArray(value) ? (value as Project[]) : [];
+      const loaded = Array.isArray(value)
+        ? (value as AutomationProjectOption[])
+        : [];
       setProjects(loaded);
       setProjectId((current) => current || loaded[0]?.id || '');
     });
@@ -702,9 +527,9 @@ function WorkflowAutomationEditor({
       .then(async (loadedVersion) => {
         if (!active) return;
         setVersion(loadedVersion);
-        const published = JSON.parse(
-          loadedVersion.normalizedJson
-        ) as WorkflowDefinition;
+        const published = hydrateStudioDefinition(
+          JSON.parse(loadedVersion.normalizedJson) as WorkflowDefinition
+        );
         const authoredPath =
           loadedVersion.sourcePath ??
           '~/.vibex/workflows/workflow.vibex-workflow.json';
@@ -715,7 +540,9 @@ function WorkflowAutomationEditor({
             workflowSourceFilePath(root, authoredPath)
           );
           if (!active) return;
-          const authored = JSON.parse(source.content) as WorkflowDefinition;
+          const authored = hydrateStudioDefinition(
+            JSON.parse(source.content) as WorkflowStudioDefinitionInput
+          );
           setDefinition(authored);
           setSavedDefinition(authored);
           setUndoStack([]);
@@ -736,11 +563,27 @@ function WorkflowAutomationEditor({
     };
   }, [initialAutomation, sourceApi, workflowApi]);
 
+  const assertGraphValid = useCallback(
+    (target: StudioWorkflowDefinition) => {
+      const issues = validateStudioWorkflowExhaustively(target);
+      if (issues.length > 0) {
+        const summary = t('workflow:studio.validationBlockedSave', {
+          count: issues.length,
+          defaultValue: `Fix ${issues.length} validation issue(s) before saving.`,
+        });
+        throw new Error(`${summary} (${issues[0].message})`);
+      }
+    },
+    [t]
+  );
+
   const saveSource = useCallback(async () => {
+    assertGraphValid(definition);
     if (!repo) throw new Error(t('automations.selectRepository'));
     setSaving(true);
     try {
-      await workflowApi.validate(definition);
+      const backendDefinition = toBackendWorkflowDefinition(definition);
+      await workflowApi.validate(backendDefinition);
       const filePath = workflowSourceFilePath(repo.path, sourcePath);
       const expectedRevision = await resolveWorkflowSourceRevision(
         sourceApi,
@@ -749,7 +592,7 @@ function WorkflowAutomationEditor({
       );
       const result = await sourceApi.write(
         filePath,
-        serializeDefinition(definition),
+        serializeDefinition(backendDefinition),
         expectedRevision ?? undefined
       );
       setSourceRevision(result.revision);
@@ -758,17 +601,28 @@ function WorkflowAutomationEditor({
     } finally {
       setSaving(false);
     }
-  }, [definition, repo, sourceApi, sourcePath, sourceRevision, t, workflowApi]);
+  }, [
+    assertGraphValid,
+    definition,
+    repo,
+    sourceApi,
+    sourcePath,
+    sourceRevision,
+    t,
+    workflowApi,
+  ]);
 
   const publishAndApply = useCallback(async () => {
+    assertGraphValid(definition);
     if (!repo || !projectId)
       throw new Error(t('automations.selectProjectRepository'));
     if (dirty || !sourceRevision) await saveSource();
     const input: unknown = {};
     setPublishing(true);
     try {
+      const backendDefinition = toBackendWorkflowDefinition(definition);
       const published = await workflowApi.publish(
-        definition,
+        backendDefinition,
         version?.definitionId,
         undefined,
         sourcePath
@@ -811,6 +665,7 @@ function WorkflowAutomationEditor({
       setPublishing(false);
     }
   }, [
+    assertGraphValid,
     automation,
     automationApi,
     definition,
@@ -857,22 +712,14 @@ function WorkflowAutomationEditor({
     [workflowApi]
   );
 
-  useEffect(() => {
-    if (!debugRun?.id) return;
-    if (
-      ['completed', 'failed', 'cancelled', 'interrupted'].includes(
-        debugRun.status
-      )
-    ) {
-      return;
-    }
-    const timer = window.setInterval(() => {
-      void refreshDebugRun(debugRun.id).catch((error) =>
-        toast.error(error instanceof Error ? error.message : String(error))
-      );
-    }, 1000);
-    return () => window.clearInterval(timer);
-  }, [debugRun?.id, debugRun?.status, refreshDebugRun]);
+  useGuardedWorkflowRunPolling({
+    runId: debugRun?.id,
+    status: debugRun?.status,
+    refresh: refreshDebugRun,
+    intervalMs: 1500,
+    onError: (error) =>
+      toast.error(error instanceof Error ? error.message : String(error)),
+  });
 
   const recordTestWorkspace = useCallback(
     (workspace: Workspace, mode: WorkflowTestWorkspaceMode = 'existing') => {
@@ -947,7 +794,8 @@ function WorkflowAutomationEditor({
         targetWorkspaceId = debugWorkspace?.id;
       }
 
-      const nextRun = await workflowApi.debug(definition, stepId, {
+      const backendDefinition = toBackendWorkflowDefinition(definition);
+      const nextRun = await workflowApi.debug(backendDefinition, stepId, {
         definitionId: version?.definitionId,
         sourcePath,
         workspaceId: targetWorkspaceId,
@@ -990,362 +838,40 @@ function WorkflowAutomationEditor({
   );
 
   const workspaceConfig = (
-    <div className="space-y-3">
-      <div className="space-y-1.5">
-        <Label>{t('automations.project')}</Label>
-        <Select value={projectId} onValueChange={setProjectId}>
-          <SelectTrigger>
-            <SelectValue placeholder={t('automations.selectProject')} />
-          </SelectTrigger>
-          <SelectContent>
-            {projects.map((project) => (
-              <SelectItem key={project.id} value={project.id}>
-                {project.name}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </div>
-
-      <div className="space-y-1.5">
-        <Label>{t('automations.runtimeWorkspace')}</Label>
-        <Select
-          value={workspaceMode}
-          onValueChange={(value: WorkspaceMode) => setWorkspaceMode(value)}
-        >
-          <SelectTrigger>
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="existing">
-              {t('automations.existingWorkspace')}
-            </SelectItem>
-            <SelectItem value="new">{t('automations.newWorkspace')}</SelectItem>
-          </SelectContent>
-        </Select>
-      </div>
-
-      {workspaceMode === 'existing' ? (
-        <div className="space-y-1.5">
-          <Label>{t('automations.workspaceLocation')}</Label>
-          <Select value={workspaceId} onValueChange={setWorkspaceId}>
-            <SelectTrigger>
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="project-root">
-                {t('automations.projectDirectory')}
-              </SelectItem>
-              {workspaces
-                .filter((workspace) => workspace.use_worktree)
-                .map((workspace) => (
-                  <SelectItem key={workspace.id} value={workspace.id}>
-                    {workspace.name || workspace.branch}
-                  </SelectItem>
-                ))}
-            </SelectContent>
-          </Select>
-        </div>
-      ) : (
-        <div className="space-y-1.5">
-          <Label>{t('automations.workspaceLocation')}</Label>
-          <div className="flex h-8 items-center rounded-lg bg-[var(--surface-control)] px-2.5 text-xs text-muted-foreground">
-            {t('automations.worktreePerRun')}
-          </div>
-        </div>
-      )}
-
-      <div className="space-y-1.5">
-        <Label>{t('automations.testWorkspace')}</Label>
-        <Select
-          value={testWorkspaceMode ?? undefined}
-          onValueChange={(value: WorkflowTestWorkspaceMode) => {
-            setTestWorkspaceMode(value);
-            persistTestWorkspace(
-              value,
-              testWorkspaceId,
-              testWorktrees.map((item) => item.id)
-            );
-          }}
-        >
-          <SelectTrigger>
-            <SelectValue placeholder={t('automations.chooseTestWorkspace')} />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="existing">
-              {t('automations.existingWorkspace')}
-            </SelectItem>
-            <SelectItem value="new">{t('automations.newWorkspace')}</SelectItem>
-          </SelectContent>
-        </Select>
-      </div>
-
-      {testWorkspaceMode === 'existing' ? (
-        <div className="space-y-1.5">
-          <Label>{t('automations.workspaceLocation')}</Label>
-          <Select
-            value={testWorkspaceId ?? undefined}
-            onValueChange={(value) => {
-              setTestWorkspaceId(value);
-              const known =
-                testWorktrees.find((item) => item.id === value) ??
-                workspaces.find((item) => item.id === value);
-              if (known) recordTestWorkspace(known);
-              else
-                persistTestWorkspace(
-                  'existing',
-                  value,
-                  testWorktrees.map((item) => item.id)
-                );
-            }}
-          >
-            <SelectTrigger>
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {testWorktrees.map((workspace) => (
-                <SelectItem key={workspace.id} value={workspace.id}>
-                  {workspace.name?.trim() || workspace.branch}
-                </SelectItem>
-              ))}
-              {workspaces
-                .filter(
-                  (workspace) =>
-                    workspace.use_worktree &&
-                    !testWorktrees.some((item) => item.id === workspace.id)
-                )
-                .map((workspace) => (
-                  <SelectItem key={workspace.id} value={workspace.id}>
-                    {workspace.name || workspace.branch}
-                  </SelectItem>
-                ))}
-            </SelectContent>
-          </Select>
-        </div>
-      ) : null}
-
-      <div className="space-y-1.5">
-        <Label>{t('automations.sourceArtifact')}</Label>
-        <TextInput
-          label={t('automations.sourceArtifact')}
-          isLabelHidden
-          value={sourcePath}
-          onChange={setSourcePath}
-          width="100%"
-          className="[&_input]:font-mono [&_input]:text-xs"
-        />
-      </div>
-
-      <div className="space-y-1.5">
-        <Label>{t('automations.trigger')}</Label>
-        <Select
-          value={triggerKind}
-          onValueChange={(value: 'manual' | 'schedule') =>
-            setTriggerKind(value)
-          }
-        >
-          <SelectTrigger>
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="manual">
-              {t('automations.triggerManual')}
-            </SelectItem>
-            <SelectItem value="schedule">
-              {t('automations.schedule')}
-            </SelectItem>
-          </SelectContent>
-        </Select>
-      </div>
-
-      {triggerKind === 'schedule' ? (
-        <>
-          <div className="space-y-1.5">
-            <Label>{t('automations.scheduleMode')}</Label>
-            <Select
-              value={timer.mode}
-              onValueChange={(value: ScheduleTimer['mode']) =>
-                setTimer((current) => ({ ...current, mode: value }))
-              }
-            >
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="once">
-                  {t('automations.scheduleOnce')}
-                </SelectItem>
-                <SelectItem value="repeat">
-                  {t('automations.scheduleRepeat')}
-                </SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-
-          {timer.mode === 'once' ? (
-            <div className="space-y-1.5">
-              <Label>{t('automations.scheduleDate')}</Label>
-              <div className="grid grid-cols-3 gap-1.5">
-                <Select
-                  value={String(timer.onceYear)}
-                  onValueChange={(value) =>
-                    setTimer((current) => ({
-                      ...current,
-                      onceYear: Number(value),
-                    }))
-                  }
-                >
-                  <SelectTrigger aria-label={t('automations.year')}>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {Array.from(
-                      { length: 8 },
-                      (_, index) => new Date().getFullYear() + index
-                    ).map((year) => (
-                      <SelectItem key={year} value={String(year)}>
-                        {year}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <Select
-                  value={String(timer.onceMonth)}
-                  onValueChange={(value) =>
-                    setTimer((current) => ({
-                      ...current,
-                      onceMonth: Number(value),
-                    }))
-                  }
-                >
-                  <SelectTrigger aria-label={t('automations.month')}>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {Array.from({ length: 12 }, (_, index) => index + 1).map(
-                      (month) => (
-                        <SelectItem key={month} value={String(month)}>
-                          {month}
-                        </SelectItem>
-                      )
-                    )}
-                  </SelectContent>
-                </Select>
-                <Select
-                  value={String(timer.onceDay)}
-                  onValueChange={(value) =>
-                    setTimer((current) => ({
-                      ...current,
-                      onceDay: Number(value),
-                    }))
-                  }
-                >
-                  <SelectTrigger aria-label={t('automations.day')}>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {Array.from(
-                      { length: daysInMonth(timer.onceYear, timer.onceMonth) },
-                      (_, index) => index + 1
-                    ).map((day) => (
-                      <SelectItem key={day} value={String(day)}>
-                        {day}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-          ) : (
-            <div className="space-y-1.5">
-              <Label>{t('automations.repeatKind')}</Label>
-              <Select
-                value={timer.repeatKind}
-                onValueChange={(value: ScheduleTimer['repeatKind']) =>
-                  setTimer((current) => ({ ...current, repeatKind: value }))
-                }
-              >
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="daily">
-                    {t('automations.repeatDaily')}
-                  </SelectItem>
-                  <SelectItem value="monthly">
-                    {t('automations.repeatMonthly')}
-                  </SelectItem>
-                </SelectContent>
-              </Select>
-              {timer.repeatKind === 'monthly' ? (
-                <Select
-                  value={String(timer.repeatDay)}
-                  onValueChange={(value) =>
-                    setTimer((current) => ({
-                      ...current,
-                      repeatDay: Number(value),
-                    }))
-                  }
-                >
-                  <SelectTrigger aria-label={t('automations.day')}>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {Array.from({ length: 31 }, (_, index) => index + 1).map(
-                      (day) => (
-                        <SelectItem key={day} value={String(day)}>
-                          {day}
-                        </SelectItem>
-                      )
-                    )}
-                  </SelectContent>
-                </Select>
-              ) : null}
-            </div>
-          )}
-
-          <div className="space-y-1.5">
-            <Label htmlFor="automation-schedule-time">
-              {t('automations.runTime')}
-            </Label>
-            <Input
-              id="automation-schedule-time"
-              type="time"
-              value={timer.time}
-              onChange={(event) =>
-                setTimer((current) => ({
-                  ...current,
-                  time: event.target.value,
-                }))
-              }
-            />
-          </div>
-
-          <div className="space-y-1.5">
-            <Label>{t('automations.timezone')}</Label>
-            <TextInput
-              label={t('automations.timezone')}
-              isLabelHidden
-              value={timezone}
-              onChange={setTimezone}
-              width="100%"
-              className="[&_input]:text-sm"
-            />
-          </div>
-        </>
-      ) : null}
-
-      <label className="flex items-center gap-2 py-1 text-xs">
-        <Switch checked={enabled} onCheckedChange={setEnabled} />
-        {t('automations.enabled')}
-      </label>
-    </div>
+    <AutomationWorkspaceConfigPanel
+      projectId={projectId}
+      setProjectId={setProjectId}
+      projects={projects}
+      workspaceMode={workspaceMode}
+      setWorkspaceMode={setWorkspaceMode}
+      workspaceId={workspaceId}
+      setWorkspaceId={setWorkspaceId}
+      workspaces={workspaces}
+      testWorkspaceMode={testWorkspaceMode}
+      setTestWorkspaceMode={setTestWorkspaceMode}
+      testWorkspaceId={testWorkspaceId}
+      setTestWorkspaceId={setTestWorkspaceId}
+      testWorktrees={testWorktrees}
+      persistTestWorkspace={persistTestWorkspace}
+      recordTestWorkspace={recordTestWorkspace}
+      sourcePath={sourcePath}
+      setSourcePath={setSourcePath}
+      triggerKind={triggerKind}
+      setTriggerKind={setTriggerKind}
+      timer={timer}
+      setTimer={setTimer}
+      timezone={timezone}
+      setTimezone={setTimezone}
+      enabled={enabled}
+      setEnabled={setEnabled}
+    />
   );
 
   return (
     <>
       <div className="flex h-[calc(100dvh-32px)] min-h-[560px] flex-col overflow-hidden rounded-lg border bg-card">
         <WorkflowStudio
+          studioMode
           definition={definition}
           onDefinitionChange={applyDefinition}
           run={debugRun}
@@ -1499,8 +1025,15 @@ function WorkflowAutomationEditor({
             )
           }
           onPublish={() => {
-            setPublishVersion(nextReleaseVersion(version?.version));
-            setPublishOpen(true);
+            try {
+              assertGraphValid(definition);
+              setPublishVersion(nextReleaseVersion(version?.version));
+              setPublishOpen(true);
+            } catch (error) {
+              toast.error(
+                error instanceof Error ? error.message : String(error)
+              );
+            }
           }}
         />
       </div>

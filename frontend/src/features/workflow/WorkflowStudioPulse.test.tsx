@@ -1,17 +1,47 @@
 import { useState } from 'react';
-import { fireEvent, render, screen, within } from '@testing-library/react';
+import {
+  act,
+  fireEvent,
+  render,
+  renderHook,
+  screen,
+  waitFor,
+  within,
+} from '@testing-library/react';
 import type { IDockviewHeaderActionsProps } from 'dockview-react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import type {
+  WorkflowDefinition,
+  WorkflowEventRecord,
+  WorkflowRunView,
+  WorkflowStepView,
+} from 'shared/types';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { panelComponents } from '@/components/layout/panels/PanelRegistry';
 import { WorkspaceTabAddMenu } from '@/components/layout/panels/WorkspaceTabAddMenu';
 import { BUILT_IN_SAMPLE_EVENTS } from '@/features/pulse';
+import {
+  BackendTransportProvider,
+  type BackendTransport,
+} from '@/lib/transport';
+import { WorkflowInspectorView } from '@/pages/workflows/WorkflowInspector';
+import { PANEL_IDS } from '@/stores/useLayoutStore';
 
+import { useGuardedWorkflowRunPolling } from './useGuardedWorkflowRunPolling';
 import {
   WORKFLOW_PRESET_TEMPLATES,
   WorkflowStudio,
+  toBackendWorkflowDefinition,
+  toStudioWorkflowDefinition,
   validateStudioWorkflowExhaustively,
   type StudioWorkflowDefinition,
 } from './WorkflowStudio';
+import { WorkflowStudioDockPanel } from './WorkflowStudioDockPanel';
+import {
+  indexWorkflowEventsByStepId,
+  layoutNodes,
+} from './workflow-studio/workflowGraph';
+import { WorkflowStepNode } from './workflow-studio/WorkflowStepNode';
 
 const {
   openPluginPanel,
@@ -424,8 +454,923 @@ describe('WorkspaceTabAddMenu Workflow Studio quick entry', () => {
     fireEvent.click(item);
 
     expect(openOrFocusPanel).toHaveBeenCalledWith(
-      'workflow-studio',
-      expect.any(String)
+      PANEL_IDS.WORKFLOW_STUDIO,
+      '工作流编排室'
     );
+  });
+});
+
+describe('Track R3: Built-in Dockview Panel & WorkflowStudioDockPanel', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    HTMLElement.prototype.hasPointerCapture = vi.fn(() => false);
+    HTMLElement.prototype.setPointerCapture = vi.fn();
+    HTMLElement.prototype.releasePointerCapture = vi.fn();
+    HTMLElement.prototype.scrollIntoView = vi.fn();
+  });
+
+  it('registers PANEL_IDS.WORKFLOW_STUDIO in PanelRegistry and loads/saves workflows + Pulse trigger rules with offline event fallback', async () => {
+    expect(PANEL_IDS.WORKFLOW_STUDIO).toBe('workflow-studio');
+    expect(panelComponents[PANEL_IDS.WORKFLOW_STUDIO]).toBeDefined();
+
+    const storedBackendDef = toBackendWorkflowDefinition(sevenCategoryWorkflow);
+    const callSpy = vi.fn(
+      async (command: string, args?: Record<string, unknown>) => {
+        switch (command) {
+          case 'workflow_list':
+            return [
+              {
+                id: 'wf-hybrid-1',
+                name: 'Seven Category Hybrid Graph',
+                latestVersionId: 'wf-ver-10',
+                latestVersion: 10n,
+                createdAt: '2026-11-15T10:00:00Z',
+                updatedAt: '2026-11-15T10:00:00Z',
+              },
+            ];
+          case 'workflow_version':
+            return {
+              id: 'wf-ver-10',
+              definitionId: 'wf-hybrid-1',
+              version: 10n,
+              normalizedJson: JSON.stringify(storedBackendDef),
+              digest: 'sha256:abc123',
+              createdAt: '2026-11-15T10:00:00Z',
+            };
+          case 'pulse_captured_events':
+            throw new Error('Pulse daemon offline');
+          case 'workflow_validate':
+            return { valid: true, issues: [] };
+          case 'workflow_publish': {
+            const req = (args?.request ?? {}) as {
+              definitionId?: string;
+              definition: WorkflowDefinition;
+            };
+            return {
+              id: 'wf-ver-20',
+              definitionId: req.definitionId ?? 'wf-new-1',
+              version: 20n,
+              normalizedJson: JSON.stringify(req.definition),
+              digest: 'sha256:def456',
+              createdAt: '2026-11-15T10:05:00Z',
+            };
+          }
+          case 'pulse_rule_save':
+            return {
+              id: 'pulse-rule-1',
+              projectId: null,
+              enabled: true,
+              draftOnly: false,
+              mandateOrigin: 'explicit_human',
+              matchedCount: 0,
+              observedCount: 0,
+              spec: (args?.input as { spec: unknown })?.spec,
+              createdAt: '2026-11-15T10:05:00Z',
+              updatedAt: '2026-11-15T10:05:00Z',
+            };
+          default:
+            return null;
+        }
+      }
+    );
+
+    const mockTransport: BackendTransport = {
+      environment: 'desktop',
+      call: callSpy,
+    };
+
+    render(
+      <BackendTransportProvider transport={mockTransport}>
+        <WorkflowStudioDockPanel />
+      </BackendTransportProvider>
+    );
+
+    // Hydrates saved workflow via workflow_list + workflow_version and falls back gracefully to BUILT_IN_SAMPLE_EVENTS
+    await waitFor(() => {
+      expect(
+        screen.getByTestId('workflow-node-gh-trigger')
+      ).toBeInTheDocument();
+    });
+    expect(callSpy).toHaveBeenCalledWith('workflow_list', { limit: 100 });
+    expect(callSpy).toHaveBeenCalledWith('pulse_captured_events', {
+      limit: 25,
+    });
+    expect(
+      screen.getByTitle(/离线模式|Offline/i)
+    ).toHaveTextContent(String(BUILT_IN_SAMPLE_EVENTS.length));
+
+    // Clicking "Save Trigger Rule" syncs the Trigger step to pulseApi.saveRule
+    fireEvent.click(
+      screen.getByRole('button', { name: /保存触发器规则|Save Trigger Rule/i })
+    );
+    await waitFor(() => {
+      expect(callSpy).toHaveBeenCalledWith(
+        'pulse_rule_save',
+        expect.objectContaining({
+          input: expect.objectContaining({
+            enabled: true,
+            spec: expect.objectContaining({
+              name: 'GitHub CI Trigger',
+              targets: [
+                expect.objectContaining({
+                  kind: 'workflow',
+                  workflowId: 'wf-hybrid-1',
+                  pinnedVersion: 10,
+                }),
+              ],
+            }),
+          }),
+        })
+      );
+    });
+
+    // Clicking "New Workflow" resets to a clean draft, and Sync Trigger Rule + Save publishes both workflow and trigger rule
+    fireEvent.click(
+      screen.getByRole('button', { name: /新建工作流|New Workflow/i })
+    );
+    const workflowSelector = screen.getByRole('combobox', {
+      name: /选择工作流|Select workflow/i,
+    }) as HTMLSelectElement;
+    expect(workflowSelector.value).toBe('__draft__');
+
+    // Make an edit and check "Sync Trigger Rule", then Save
+    const syncCheckbox = screen.getByRole('checkbox', {
+      name: /同步触发器规则|Sync Trigger Rule/i,
+    });
+    fireEvent.click(syncCheckbox);
+
+    fireEvent.click(screen.getByRole('button', { name: '发布' }));
+    await waitFor(() => {
+      expect(callSpy).toHaveBeenCalledWith(
+        'workflow_validate',
+        expect.objectContaining({
+          request: expect.objectContaining({
+            definition: expect.objectContaining({ name: 'New Workflow' }),
+          }),
+        })
+      );
+      expect(callSpy).toHaveBeenCalledWith(
+        'workflow_publish',
+        expect.objectContaining({
+          request: expect.objectContaining({
+            definition: expect.objectContaining({ name: 'New Workflow' }),
+          }),
+        })
+      );
+    });
+  });
+});
+
+describe('Track R3: Lossless Persistence & Non-Lossy Studio Editing', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    HTMLElement.prototype.hasPointerCapture = vi.fn(() => false);
+    HTMLElement.prototype.setPointerCapture = vi.fn();
+    HTMLElement.prototype.releasePointerCapture = vi.fn();
+    HTMLElement.prototype.scrollIntoView = vi.fn();
+  });
+
+  it('preserves all 7 node categories, Condition.expression, Outbox.actionKind, titles, and scratch workspaceIsolation across round-trips', () => {
+    const fullShowcaseWorkflow: StudioWorkflowDefinition = {
+      ...sevenCategoryWorkflow,
+      steps: [
+        sevenCategoryWorkflow.steps[0], // trigger
+        sevenCategoryWorkflow.steps[1], // bot
+        {
+          ...(sevenCategoryWorkflow.steps[2] as Extract<
+            StudioWorkflowDefinition['steps'][number],
+            { kind: 'session' }
+          >),
+          workspaceIsolation: 'scratch',
+        },
+        sevenCategoryWorkflow.steps[3], // group_stage
+        {
+          id: 'severity-branch',
+          dependsOn: ['council-stage'],
+          phase: 'routing',
+          inputBindings: {},
+          kind: 'control',
+          controlKind: 'condition',
+          title: 'Check P0 Severity',
+          expression: 'event.payload.priority == "P0" && !actor.isBot',
+          filter: {
+            sourceKinds: ['github'],
+            sourceInstanceIds: [],
+            eventTypes: ['github.ci.failed'],
+            allowedActors: [],
+            conditions: [{ op: 'eq', pointer: '/priority', value: 'P0' }],
+          },
+        },
+        {
+          ...(sevenCategoryWorkflow.steps[4] as Extract<
+            StudioWorkflowDefinition['steps'][number],
+            { kind: 'control' }
+          >),
+          dependsOn: ['severity-branch'],
+        },
+        sevenCategoryWorkflow.steps[5], // user_gate
+        {
+          id: 'feishu-outbox',
+          dependsOn: ['owner-gate'],
+          phase: null,
+          inputBindings: {},
+          kind: 'outbox_action',
+          actionKind: 'feishu_reply',
+          title: 'Reply in Feishu Thread',
+          destination: '{{threadKey}}',
+          payloadTemplate: 'Feishu summary for {{failedJob}}',
+        },
+        {
+          id: 'jira-outbox',
+          dependsOn: ['owner-gate'],
+          phase: null,
+          inputBindings: {},
+          kind: 'outbox_action',
+          actionKind: 'jira_comment',
+          title: 'Post Jira Ticket Update',
+          destination: '{{issue.key}}',
+          payloadTemplate: 'Jira update for {{failedJob}}',
+        },
+        sevenCategoryWorkflow.steps[6], // github_comment outbox
+      ],
+    };
+
+    const backend = toBackendWorkflowDefinition(fullShowcaseWorkflow);
+    const roundTripped = toStudioWorkflowDefinition(backend);
+
+    expect(roundTripped.name).toBe(fullShowcaseWorkflow.name);
+    expect(roundTripped.orchestratorPreset).toBe('hybrid_pipeline');
+    expect(roundTripped.steps.map((s) => s.kind)).toEqual([
+      'trigger',
+      'bot',
+      'session',
+      'group_stage',
+      'control',
+      'control',
+      'user_gate',
+      'outbox_action',
+      'outbox_action',
+      'outbox_action',
+    ]);
+
+    const trigger = roundTripped.steps[0];
+    expect(trigger.kind).toBe('trigger');
+    if (trigger.kind === 'trigger') {
+      expect(trigger.title).toBe('GitHub CI Trigger');
+      expect(trigger.sourceKind).toBe('github');
+      expect(trigger.eventType).toBe('github.ci.failed');
+      expect(trigger.evalMode).toBe('observe');
+    }
+
+    const session = roundTripped.steps[2];
+    expect(session.kind).toBe('session');
+    if (session.kind === 'session') {
+      expect(session.workspaceIsolation).toBe('scratch');
+    }
+
+    const condition = roundTripped.steps[4];
+    expect(condition.kind).toBe('control');
+    if (condition.kind === 'control') {
+      expect(condition.phase).toBe('routing');
+      expect(condition.controlKind).toBe('condition');
+      expect(condition.title).toBe('Check P0 Severity');
+      expect(condition.expression).toBe(
+        'event.payload.priority == "P0" && !actor.isBot'
+      );
+    }
+
+    const feishuOutbox = roundTripped.steps[7];
+    const jiraOutbox = roundTripped.steps[8];
+    const ghOutbox = roundTripped.steps[9];
+    if (
+      feishuOutbox.kind === 'outbox_action' &&
+      jiraOutbox.kind === 'outbox_action' &&
+      ghOutbox.kind === 'outbox_action'
+    ) {
+      expect(feishuOutbox.actionKind).toBe('feishu_reply');
+      expect(feishuOutbox.title).toBe('Reply in Feishu Thread');
+      expect(feishuOutbox.payloadTemplate).toBe(
+        'Feishu summary for {{failedJob}}'
+      );
+      expect(jiraOutbox.actionKind).toBe('jira_comment');
+      expect(jiraOutbox.title).toBe('Post Jira Ticket Update');
+      expect(ghOutbox.actionKind).toBe('github_comment');
+      expect(ghOutbox.title).toBe('Comment on PR');
+    }
+  });
+
+  it('keeps Trigger, Condition.expression, feishu_reply, titles, and scratch isolation intact on every keystroke in studioMode', () => {
+    const hydratedFromBackend = toStudioWorkflowDefinition(
+      toBackendWorkflowDefinition({
+        ...sevenCategoryWorkflow,
+        steps: [
+          sevenCategoryWorkflow.steps[0],
+          {
+            ...(sevenCategoryWorkflow.steps[2] as Extract<
+              StudioWorkflowDefinition['steps'][number],
+              { kind: 'session' }
+            >),
+            dependsOn: ['gh-trigger'],
+            workspaceIsolation: 'scratch',
+          },
+          {
+            id: 'cond-step',
+            dependsOn: ['coder-session'],
+            phase: null,
+            inputBindings: {},
+            kind: 'control',
+            controlKind: 'condition',
+            title: 'Gate Condition',
+            expression: 'initial.ok == true',
+          },
+          {
+            id: 'feishu-step',
+            dependsOn: ['cond-step'],
+            phase: null,
+            inputBindings: {},
+            kind: 'outbox_action',
+            actionKind: 'feishu_reply',
+            title: 'Feishu Alert',
+            destination: '{{threadKey}}',
+            payloadTemplate: 'Alert body',
+          },
+        ],
+      })
+    );
+
+    let latestState = hydratedFromBackend;
+    function EditorSimulationHarness() {
+      const [state, setState] = useState(hydratedFromBackend);
+      latestState = state;
+      return (
+        <WorkflowStudio
+          studioMode
+          definition={state}
+          onDefinitionChange={setState}
+          dirty
+          onSave={vi.fn()}
+          onPublish={vi.fn()}
+        />
+      );
+    }
+
+    render(<EditorSimulationHarness />);
+
+    // Select Condition step and type into Branch Expression + Title
+    fireEvent.click(
+      within(screen.getByTestId('workflow-node-cond-step')).getByRole(
+        'button',
+        { name: /cond-step/i }
+      )
+    );
+    const exprInput = document.getElementById(
+      'workflow-condition-expr'
+    ) as HTMLInputElement;
+    fireEvent.change(exprInput, {
+      target: { value: 'output.score >= 95 && !actor.isBot' },
+    });
+    const controlTitleInput = document.getElementById(
+      'workflow-control-title'
+    ) as HTMLInputElement;
+    fireEvent.change(controlTitleInput, {
+      target: { value: 'High Confidence Gate' },
+    });
+
+    // Verify Trigger did NOT turn into Notify, scratch did NOT reset, feishu_reply did NOT snap to github_comment, and Condition.expression stayed intact!
+    expect(latestState.steps[0].kind).toBe('trigger');
+    const sessionStep = latestState.steps[1];
+    expect(
+      sessionStep.kind === 'session' ? sessionStep.workspaceIsolation : null
+    ).toBe('scratch');
+    const condStep = latestState.steps[2];
+    expect(condStep.kind === 'control' ? condStep.expression : null).toBe(
+      'output.score >= 95 && !actor.isBot'
+    );
+    expect(condStep.kind === 'control' ? condStep.title : null).toBe(
+      'High Confidence Gate'
+    );
+    const outboxStep = latestState.steps[3];
+    expect(
+      outboxStep.kind === 'outbox_action' ? outboxStep.actionKind : null
+    ).toBe('feishu_reply');
+    expect(outboxStep.kind === 'outbox_action' ? outboxStep.title : null).toBe(
+      'Feishu Alert'
+    );
+    expect(validateStudioWorkflowExhaustively(latestState)).toEqual([]);
+  });
+});
+
+describe('Track R3: Validation Gate, WorkflowInspector Dual-Primitive Upgrade & Keyboard Accessibility', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    HTMLElement.prototype.hasPointerCapture = vi.fn(() => false);
+    HTMLElement.prototype.setPointerCapture = vi.fn();
+    HTMLElement.prototype.releasePointerCapture = vi.fn();
+    HTMLElement.prototype.scrollIntoView = vi.fn();
+  });
+
+  it('disables Save and Publish with tabular-nums issue badge and accessible tooltip when validationIssues.length > 0', () => {
+    const onSave = vi.fn();
+    const onPublish = vi.fn();
+    const invalidWorkflow: StudioWorkflowDefinition = {
+      ...sevenCategoryWorkflow,
+      steps: sevenCategoryWorkflow.steps.map((step) =>
+        step.id === 'review-loop' && step.kind === 'control'
+          ? { ...step, maxIterations: 99 }
+          : step
+      ),
+    };
+
+    const { rerender } = render(
+      <WorkflowStudio
+        studioMode
+        definition={invalidWorkflow}
+        onDefinitionChange={vi.fn()}
+        dirty
+        onSave={onSave}
+        onPublish={onPublish}
+      />
+    );
+
+    const badge = screen.getByTestId('workflow-toolbar-validation-badge');
+    expect(badge).toHaveClass('tabular-nums');
+    expect(badge.getAttribute('title')).toMatch(
+      /保存或发布前请先修复|Fix .* validation issue/i
+    );
+
+    const saveBtn = screen.getByRole('button', { name: '保存' });
+    const publishBtn = screen.getByRole('button', { name: '发布' });
+    expect(saveBtn).toBeDisabled();
+    expect(publishBtn).toBeDisabled();
+    expect(saveBtn.getAttribute('title')).toMatch(
+      /保存或发布前请先修复|Fix .* validation issue/i
+    );
+
+    // Rerender with valid workflow: Save & Publish re-enable
+    rerender(
+      <WorkflowStudio
+        studioMode
+        definition={sevenCategoryWorkflow}
+        onDefinitionChange={vi.fn()}
+        dirty
+        onSave={onSave}
+        onPublish={onPublish}
+      />
+    );
+    expect(
+      screen.queryByTestId('workflow-toolbar-validation-badge')
+    ).toBeNull();
+    expect(screen.getByRole('button', { name: '保存' })).not.toBeDisabled();
+    expect(screen.getByRole('button', { name: '发布' })).not.toBeDisabled();
+  });
+
+  it('renders Dual-Primitive step badges and quick Approve/Reject + note + custom JSON decision in WorkflowInspectorView', async () => {
+    const onDecideApproval = vi.fn().mockResolvedValue(undefined);
+    const dualPrimitiveDef: WorkflowDefinition = {
+      formatVersion: 1,
+      name: 'Inspector Showcase',
+      description: null,
+      inputSchema: { type: 'object' },
+      policy: {
+        maxConcurrentAgentSteps: 2,
+        maxAgentCalls: 8,
+        deadlineSeconds: 600,
+        maxOutputBytes: 32768,
+      },
+      steps: [
+        {
+          id: 's-session',
+          dependsOn: [],
+          phase: null,
+          inputBindings: {},
+          kind: 'session',
+          agentId: 'codex',
+          promptTemplate: 'Run patch',
+          workspaceAccess: 'write_isolated',
+          modelOverride: null,
+          subscribeThread: false,
+          completion: 'automatic',
+          outputSchema: null,
+        },
+        {
+          id: 's-bot',
+          dependsOn: ['s-session'],
+          phase: null,
+          inputBindings: {},
+          kind: 'bot',
+          memberId: 'sre-bot',
+          conversationScope: 'fixed_primary',
+          mailboxPolicy: 'fifo_serial',
+          promptTemplate: 'Log triage',
+          completion: 'automatic',
+          outputSchema: null,
+        },
+        {
+          id: 's-group',
+          dependsOn: ['s-bot'],
+          phase: null,
+          inputBindings: {},
+          kind: 'group_stage',
+          spaceId: 'council',
+          dispatchMode: { type: 'broadcast_log_only' },
+          messageTemplate: 'Broadcast',
+          quorumCount: null,
+        },
+        {
+          id: 's-cond',
+          dependsOn: ['s-group'],
+          phase: null,
+          inputBindings: {},
+          kind: 'condition_branch',
+          filter: {
+            sourceKinds: [],
+            sourceInstanceIds: [],
+            eventTypes: [],
+            allowedActors: [],
+            conditions: [],
+          },
+          thenStepIds: ['s-loop'],
+          elseStepIds: [],
+        },
+        {
+          id: 's-loop',
+          dependsOn: ['s-cond'],
+          phase: null,
+          inputBindings: {},
+          kind: 'bounded_loop',
+          targetStepIds: ['s-session'],
+          maxIterations: 3,
+          untilCondition: null,
+        },
+        {
+          id: 's-wait',
+          dependsOn: ['s-loop'],
+          phase: null,
+          inputBindings: {},
+          kind: 'wait_for_event',
+          eventTypes: ['github.ci.completed'],
+          threadKeyPointer: '/threadKey',
+          filter: null,
+          timeoutSeconds: 300,
+        },
+        {
+          id: 's-gate',
+          dependsOn: ['s-wait'],
+          phase: null,
+          inputBindings: {},
+          kind: 'user_gate',
+          interactionKind: 'approval',
+          titleTemplate: 'Approve Prod Deploy',
+          bodyTemplate: 'Ship to prod?',
+          approvalOptions: [],
+          formSchema: null,
+          slaTimeoutSeconds: 600,
+        },
+        {
+          id: 's-outbox',
+          dependsOn: ['s-gate'],
+          phase: null,
+          inputBindings: {},
+          kind: 'outbox_action',
+          actionKind: 'reply_channel',
+          targetTemplate: '{{threadKey}}',
+          payloadTemplate: 'Shipped',
+        },
+      ],
+    };
+
+    const run: WorkflowRunView = {
+      id: 'run-dual-01',
+      definitionVersionId: 'ver-01',
+      workspaceId: 'ws-01',
+      status: 'waiting_approval',
+      controlState: 'active',
+      pauseReason: null,
+      pausedAt: null,
+      parentRunId: null,
+      forkStepId: null,
+      runMode: 'normal',
+      inputJson: '{}',
+      policyJson: '{}',
+      deadlineAt: '2026-11-15T12:00:00Z',
+      agentCallsStarted: 1n,
+      lastSequence: 2n,
+      createdAt: '2026-11-15T10:00:00Z',
+      updatedAt: '2026-11-15T10:01:00Z',
+    };
+
+    const steps: WorkflowStepView[] = [
+      {
+        id: 'step-view-gate',
+        runId: 'run-dual-01',
+        stepId: 's-gate',
+        attempt: 1n,
+        status: 'waiting_approval',
+        conversationId: null,
+        turnId: null,
+        outputJson: null,
+        outputSchemaDigest: null,
+        candidateOutputJson: null,
+        candidateSchemaDigest: null,
+        awaitingAcceptance: false,
+        awaitingInput: false,
+        executionMode: 'normal',
+        resolvedInputJson: null,
+        resolvedInputDigest: null,
+        executionEvidenceJson: null,
+        workspaceId: 'ws-01',
+        waitingInteraction: true,
+        repairCount: 0n,
+        claimToken: null,
+        claimDeadline: null,
+        startedAt: '2026-11-15T10:00:30Z',
+        completedAt: null,
+        updatedAt: '2026-11-15T10:01:00Z',
+      },
+    ];
+
+    render(
+      <WorkflowInspectorView
+        run={run}
+        version={{
+          id: 'ver-01',
+          definitionId: 'def-01',
+          version: 10n,
+          digest: 'sha256:01',
+          normalizedJson: JSON.stringify(dualPrimitiveDef),
+          sourcePath: null,
+          createdAt: '2026-11-15T10:00:00Z',
+        }}
+        definition={dualPrimitiveDef}
+        steps={steps}
+        events={[]}
+        onPauseRun={vi.fn()}
+        onResumeRun={vi.fn()}
+        onTestNode={vi.fn()}
+        onRerunFromNode={vi.fn()}
+        onAcceptCandidate={vi.fn()}
+        onPauseStep={vi.fn()}
+        onSubmitStepInput={vi.fn()}
+        onDecideApproval={onDecideApproval}
+        onReview={vi.fn()}
+      />
+    );
+
+    const badgeBar = screen.getByTestId('workflow-inspector-step-badges');
+    for (const kind of [
+      'session',
+      'bot',
+      'group_stage',
+      'condition_branch',
+      'bounded_loop',
+      'wait_for_event',
+      'user_gate',
+      'outbox_action',
+    ]) {
+      expect(
+        badgeBar.querySelector(`[data-step-kind="${kind}"]`)
+      ).toBeInTheDocument();
+    }
+
+    const banner = screen.getByTestId('waiting-approval-banner-s-gate');
+    const noteInput = within(banner).getByRole('textbox', {
+      name: /审批备注|Approval note/i,
+    });
+    fireEvent.change(noteInput, { target: { value: 'LGTM ship it' } });
+    fireEvent.click(
+      within(banner).getByRole('button', { name: /批准|Approve/i })
+    );
+
+    await waitFor(() => {
+      expect(onDecideApproval).toHaveBeenCalledWith('s-gate', {
+        approved: true,
+        optionId: 'approve',
+        note: 'LGTM ship it',
+      });
+    });
+
+    fireEvent.change(noteInput, { target: { value: 'Needs rollback plan' } });
+    fireEvent.click(
+      within(banner).getByRole('button', { name: /拒绝|Reject/i })
+    );
+    await waitFor(() => {
+      expect(onDecideApproval).toHaveBeenCalledWith('s-gate', {
+        approved: false,
+        optionId: 'reject',
+        note: 'Needs rollback plan',
+      });
+    });
+
+    // Custom JSON decision mode
+    fireEvent.click(
+      within(banner).getByRole('button', { name: /自定义 JSON|Custom JSON/i })
+    );
+    const jsonArea = within(banner).getByRole('textbox', {
+      name: /决定 JSON|Decision JSON/i,
+    });
+    fireEvent.change(jsonArea, {
+      target: { value: '{"approved":true,"ticket":"REL-42"}' },
+    });
+    fireEvent.click(
+      within(banner).getByRole('button', { name: /提交决定|Submit decision/i })
+    );
+    await waitFor(() => {
+      expect(onDecideApproval).toHaveBeenCalledWith('s-gate', {
+        approved: true,
+        ticket: 'REL-42',
+      });
+    });
+  });
+
+  it('supports ArrowLeft/ArrowRight keyboard navigation in Inspector tablist (without !h-7) and Execution Primitive radiogroup', () => {
+    render(<StatefulStudioHarness />);
+
+    fireEvent.click(
+      within(screen.getByTestId('workflow-node-coder-session')).getByRole(
+        'button',
+        { name: /coder-session/i }
+      )
+    );
+
+    const visualTab = screen.getByTestId('inspector-tier-visual');
+    expect(visualTab.className).not.toContain('!h-7');
+    expect(visualTab).toHaveClass('h-7');
+
+    // ArrowRight on Execution Primitive radiogroup switches Fresh Session -> Persistent Bot
+    const sessionRadio = screen.getByTestId('inspector-primitive-session');
+    fireEvent.keyDown(sessionRadio, { key: 'ArrowRight' });
+    expect(screen.getByTestId('inspector-primitive-bot')).toHaveAttribute(
+      'aria-checked',
+      'true'
+    );
+
+    // ArrowLeft switches Persistent Bot -> Fresh Session
+    fireEvent.keyDown(screen.getByTestId('inspector-primitive-bot'), {
+      key: 'ArrowLeft',
+    });
+    expect(screen.getByTestId('inspector-primitive-session')).toHaveAttribute(
+      'aria-checked',
+      'true'
+    );
+
+    // ArrowRight on Inspector tier tablist cycles Visual -> Advanced -> JSON -> Visual
+    fireEvent.keyDown(visualTab, { key: 'ArrowRight' });
+    const advancedTab = screen.getByTestId('inspector-tier-advanced');
+    expect(advancedTab).toHaveAttribute('aria-selected', 'true');
+    expect(document.activeElement).toBe(advancedTab);
+
+    fireEvent.keyDown(advancedTab, { key: 'ArrowRight' });
+    const jsonTab = screen.getByTestId('inspector-tier-json');
+    expect(jsonTab).toHaveAttribute('aria-selected', 'true');
+    expect(document.activeElement).toBe(jsonTab);
+
+    fireEvent.keyDown(jsonTab, { key: 'ArrowRight' });
+    expect(screen.getByTestId('inspector-tier-visual')).toHaveAttribute(
+      'aria-selected',
+      'true'
+    );
+  });
+});
+
+describe('Track R3: Guarded Run Polling & ReactFlow O(N) Event Indexing + React.memo', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+    Object.defineProperty(document, 'visibilityState', {
+      configurable: true,
+      value: 'visible',
+    });
+  });
+
+  it('guards 1500ms run polling against overlapping inFlight requests and pauses while hidden', async () => {
+    vi.useFakeTimers();
+    let resolveFirst!: () => void;
+    const refresh = vi
+      .fn<(runId: string) => Promise<void>>()
+      .mockImplementationOnce(
+        () =>
+          new Promise<void>((resolve) => {
+            resolveFirst = resolve;
+          })
+      )
+      .mockResolvedValue(undefined);
+
+    renderHook(() =>
+      useGuardedWorkflowRunPolling({
+        runId: 'run-live-1',
+        status: 'running',
+        refresh,
+      })
+    );
+
+    // First tick at 1500ms starts request #1
+    await act(async () => {
+      vi.advanceTimersByTime(1500);
+    });
+    expect(refresh).toHaveBeenCalledTimes(1);
+
+    // Next ticks at 3000ms and 4500ms are skipped while request #1 is still in flight
+    await act(async () => {
+      vi.advanceTimersByTime(3000);
+    });
+    expect(refresh).toHaveBeenCalledTimes(1);
+
+    // Resolve request #1 -> next 1500ms tick triggers request #2
+    await act(async () => {
+      resolveFirst();
+      await Promise.resolve();
+    });
+    await act(async () => {
+      vi.advanceTimersByTime(1500);
+    });
+    expect(refresh).toHaveBeenCalledTimes(2);
+
+    // Hide document -> polling pauses
+    Object.defineProperty(document, 'visibilityState', {
+      configurable: true,
+      value: 'hidden',
+    });
+    await act(async () => {
+      vi.advanceTimersByTime(4500);
+    });
+    expect(refresh).toHaveBeenCalledTimes(2);
+
+    // Return document to visible -> refreshes immediately without waiting 1500ms
+    Object.defineProperty(document, 'visibilityState', {
+      configurable: true,
+      value: 'visible',
+    });
+    await act(async () => {
+      document.dispatchEvent(new Event('visibilitychange'));
+    });
+    expect(refresh).toHaveBeenCalledTimes(3);
+  });
+
+  it('wraps WorkflowStepNode in React.memo and pre-indexes events by stepId once per graph layout', () => {
+    expect(
+      (WorkflowStepNode as unknown as { $$typeof?: symbol }).$$typeof
+    ).toBe(Symbol.for('react.memo'));
+
+    const events: WorkflowEventRecord[] = [
+      {
+        id: 'ev-2',
+        runId: 'run-1',
+        sequence: 5n,
+        eventVersion: 1n,
+        eventKind: 'step_completed',
+        payloadJson: JSON.stringify({ step_id: 'triage-bot' }),
+        operationId: null,
+        createdAt: '2026-11-15T10:00:05Z',
+      },
+      {
+        id: 'ev-1',
+        runId: 'run-1',
+        sequence: 2n,
+        eventVersion: 1n,
+        eventKind: 'step_started',
+        payloadJson: JSON.stringify({ step_id: 'triage-bot' }),
+        operationId: null,
+        createdAt: '2026-11-15T10:00:01Z',
+      },
+      {
+        id: 'ev-3',
+        runId: 'run-1',
+        sequence: 8n,
+        eventVersion: 1n,
+        eventKind: 'step_started',
+        payloadJson: JSON.stringify({ step_id: 'coder-session' }),
+        operationId: null,
+        createdAt: '2026-11-15T10:00:08Z',
+      },
+    ];
+
+    const indexed = indexWorkflowEventsByStepId(events);
+    expect(indexed.get('triage-bot')?.map((e) => e.id)).toEqual([
+      'ev-1',
+      'ev-2',
+    ]);
+    expect(indexed.get('coder-session')?.map((e) => e.id)).toEqual(['ev-3']);
+
+    const nodes = layoutNodes(
+      sevenCategoryWorkflow,
+      new Map(),
+      null,
+      'edit',
+      vi.fn(),
+      indexed,
+      [],
+      null,
+      vi.fn()
+    );
+
+    const botNode = nodes.find((n) => n.id === 'triage-bot');
+    const sessionNode = nodes.find((n) => n.id === 'coder-session');
+    const triggerNode = nodes.find((n) => n.id === 'gh-trigger');
+    const gateNode = nodes.find((n) => n.id === 'owner-gate');
+
+    expect(botNode?.data.events.map((e) => e.id)).toEqual(['ev-1', 'ev-2']);
+    expect(sessionNode?.data.events.map((e) => e.id)).toEqual(['ev-3']);
+    expect(triggerNode?.data.events).toHaveLength(0);
+    // Steps without events share the exact same stable EMPTY_EVENTS array reference
+    expect(triggerNode?.data.events).toBe(gateNode?.data.events);
   });
 });

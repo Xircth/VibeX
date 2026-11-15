@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { memo, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Handle, Position, type NodeProps } from '@xyflow/react';
 import {
@@ -29,9 +29,16 @@ import {
   statusDotClass,
 } from './workflowStepPresentation';
 
-export function WorkflowStepNode({ data }: NodeProps<StudioNode>) {
+export const WorkflowStepNode = memo(function WorkflowStepNode({
+  data,
+}: NodeProps<StudioNode>) {
   const { t } = useTranslation('workflow');
   const [logView, setLogView] = useState<'log' | 'preview'>('log');
+  const logEvents = data.events;
+  const logSpans = useMemo(
+    () => (data.logExpanded ? flameSpans(logEvents) : []),
+    [data.logExpanded, logEvents]
+  );
 
   if (data.confirmationFor) {
     const waiting = data.stepRun?.awaitingAcceptance === true;
@@ -123,13 +130,6 @@ export function WorkflowStepNode({ data }: NodeProps<StudioNode>) {
     );
     return report.matched;
   }, [data.replayEnvelope, data.step]);
-
-  const logEvents = data.events.filter(
-    (event) =>
-      event.payloadJson.includes(`"step_id":"${data.step.id}"`) ||
-      event.payloadJson.includes(`"stepId":"${data.step.id}"`)
-  );
-  const logSpans = flameSpans(logEvents);
 
   const renderLeadingIcon = () => {
     if (sessionOrAgentStep) {
@@ -420,6 +420,6 @@ export function WorkflowStepNode({ data }: NodeProps<StudioNode>) {
       />
     </article>
   );
-}
+});
 
 export const nodeTypes = { workflowStep: WorkflowStepNode };

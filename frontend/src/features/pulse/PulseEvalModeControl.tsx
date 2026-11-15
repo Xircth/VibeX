@@ -44,6 +44,9 @@ export function PulseEvalModeControl({
   ariaLabel = 'Evaluation mode',
   className,
 }: PulseEvalModeControlProps) {
+  const isItemDisabled = (mode: PulseEvalMode) =>
+    disabled || (mode === 'auto' && lockAuto) || !onChange;
+
   return (
     <div
       role="group"
@@ -53,15 +56,16 @@ export function PulseEvalModeControl({
         className
       )}
     >
-      {EVAL_MODES.map((item) => {
+      {EVAL_MODES.map((item, index) => {
         const active = value === item.mode;
         const isLockedAuto = item.mode === 'auto' && lockAuto;
-        const itemDisabled = disabled || isLockedAuto || !onChange;
+        const itemDisabled = isItemDisabled(item.mode);
 
         return (
           <button
             key={item.mode}
             type="button"
+            tabIndex={active ? 0 : -1}
             aria-pressed={active}
             disabled={itemDisabled}
             title={
@@ -73,6 +77,32 @@ export function PulseEvalModeControl({
               event.stopPropagation();
               if (itemDisabled) return;
               onChange?.(item.mode);
+            }}
+            onKeyDown={(event) => {
+              if (
+                disabled ||
+                !onChange ||
+                (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight')
+              ) {
+                return;
+              }
+              event.preventDefault();
+              event.stopPropagation();
+              const delta = event.key === 'ArrowRight' ? 1 : -1;
+              for (let step = 1; step <= EVAL_MODES.length; step += 1) {
+                const candidateIndex =
+                  (index + delta * step + EVAL_MODES.length * 2) %
+                  EVAL_MODES.length;
+                const candidate = EVAL_MODES[candidateIndex];
+                if (!isItemDisabled(candidate.mode)) {
+                  onChange(candidate.mode);
+                  const group = event.currentTarget.parentElement;
+                  const buttons =
+                    group?.querySelectorAll<HTMLButtonElement>('button');
+                  buttons?.[candidateIndex]?.focus();
+                  break;
+                }
+              }
             }}
             className={cn(
               'inline-flex items-center gap-1.5 rounded-full font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50',

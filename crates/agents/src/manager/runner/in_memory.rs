@@ -5,6 +5,16 @@ impl AgentConnectionRunner {
         self,
         mut cmd_rx: mpsc::Receiver<AgentConnectionCommand>,
     ) {
+        let in_memory_steering = matches!(
+            self.snapshot
+                .env
+                .get("VIBEX_IN_MEMORY_STEERING")
+                .map(String::as_str),
+            Some("1" | "rpc_unsupported")
+        );
+        if in_memory_steering {
+            self.capabilities.write().await.steering = true;
+        }
         while let Some(command) = cmd_rx.recv().await {
             match command {
                 AgentConnectionCommand::PrepareSession {
@@ -29,10 +39,12 @@ impl AgentConnectionRunner {
                             .await;
                         acp_session_id
                     };
-                    let _ = result_tx.send(Ok((
-                        acp_session_id,
-                        AgentSessionControlsSnapshot::default(),
-                    )));
+                    let controls = if in_memory_steering {
+                        self.session_controls_snapshot(session_id).await
+                    } else {
+                        AgentSessionControlsSnapshot::default()
+                    };
+                    let _ = result_tx.send(Ok((acp_session_id, controls)));
                 }
                 AgentConnectionCommand::DiscardSession {
                     session_id,
@@ -62,7 +74,11 @@ impl AgentConnectionRunner {
                         .insert(session_id, acp_session_id.clone());
                     self.emit_session_linked(session_id, acp_session_id.clone())
                         .await;
-                    let controls = AgentSessionControlsSnapshot::default();
+                    let controls = if in_memory_steering {
+                        self.session_controls_snapshot(session_id).await
+                    } else {
+                        AgentSessionControlsSnapshot::default()
+                    };
                     let _ = result_tx.send(Ok((acp_session_id, controls, None)));
                 }
                 AgentConnectionCommand::ForkSession {
@@ -171,8 +187,44 @@ impl AgentConnectionRunner {
                     );
                     let _ = result_tx.send(true);
                 }
-                AgentConnectionCommand::Steer { result_tx, .. } => {
-                    let _ = result_tx.send(Err(AgentError::SteeringUnsupported));
+                AgentConnectionCommand::Steer {
+                    session_id,
+                    expected_prompt_id,
+                    blocks,
+                    result_tx,
+                    ..
+                } => {
+                    if self
+                        .snapshot
+                        .env
+                        .get("VIBEX_IN_MEMORY_STEERING")
+                        .map(String::as_str)
+                        == Some("1")
+                    {
+                        let text = blocks
+                            .into_iter()
+                            .filter_map(|block| match block {
+                                AgentContentBlock::Text { text } => Some(text),
+                                _ => None,
+                            })
+                            .collect::<Vec<_>>()
+                            .join("\n");
+                        self.emit(
+                            Some(session_id),
+                            Some(expected_prompt_id),
+                            AgentEvent::MessageChunk {
+                                content: AgentContentBlock::Text {
+                                    text: format!("[steered:{text}]"),
+                                },
+                            },
+                        );
+                        let _ = result_tx.send(Ok(crate::AgentSteerReceipt {
+                            outcome: crate::AgentSteerOutcome::Injected,
+                            reason: None,
+                        }));
+                    } else {
+                        let _ = result_tx.send(Err(AgentError::SteeringUnsupported));
+                    }
                 }
                 AgentConnectionCommand::RespondPermission {
                     permission_id,
@@ -259,6 +311,9 @@ impl AgentConnectionRunner {
                 }
                 AgentConnectionCommand::StopAsyncTask { result_tx, .. } => {
                     let _ = result_tx.send(Ok(false));
+                }
+                AgentConnectionCommand::RollbackTurns { result_tx, .. } => {
+                    let _ = result_tx.send(Ok(()));
                 }
                 AgentConnectionCommand::Disconnect => break,
             }

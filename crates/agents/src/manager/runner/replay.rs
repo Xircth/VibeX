@@ -85,7 +85,11 @@ impl AgentConnectionRunner {
         Ok(())
     }
 
-    pub(in crate::manager) async fn begin_load_replay(&self, external_session_id: &str) {
+    pub(in crate::manager) async fn begin_load_replay(
+        &self,
+        session_id: AgentSessionId,
+        external_session_id: &str,
+    ) {
         if !records_acp_jsonl(self.snapshot.agent_id.as_str()) {
             return;
         }
@@ -99,7 +103,13 @@ impl AgentConnectionRunner {
             &self.snapshot.working_dir.to_string_lossy(),
             crate::acp_transcript::now_epoch_ms(),
         );
-        if !crate::acp_transcript::claim_replay_transcript(&agent_dir, external_session_id, &header)
+        if !crate::acp_transcript::claim_replay_for_session(
+            Some(session_id.0),
+            &agent_dir,
+            external_session_id,
+            &header,
+        )
+        .await
         {
             return;
         }
@@ -108,13 +118,19 @@ impl AgentConnectionRunner {
 
     pub(in crate::manager) async fn end_load_replay(
         &self,
+        session_id: AgentSessionId,
         external_session_id: &str,
         load_succeeded: bool,
     ) {
         *self.replay_hydrate.lock().await = None;
         if !load_succeeded && records_acp_jsonl(self.snapshot.agent_id.as_str()) {
             let agent_dir = jsonl_agent_dir(self.snapshot.agent_id.as_str());
-            crate::acp_transcript::release_unrecorded_replay_claim(&agent_dir, external_session_id);
+            crate::acp_transcript::release_unrecorded_replay_for_session(
+                Some(session_id.0),
+                &agent_dir,
+                external_session_id,
+            )
+            .await;
         }
     }
 
@@ -124,7 +140,9 @@ impl AgentConnectionRunner {
         new_session_id: &str,
         previous_session_id: &str,
     ) {
-        if !records_acp_jsonl(self.snapshot.agent_id.as_str()) {
+        if !crate::acp_transcript::legacy_jsonl_shadow_write_enabled()
+            || !records_acp_jsonl(self.snapshot.agent_id.as_str())
+        {
             return;
         }
         let agent_dir = jsonl_agent_dir(self.snapshot.agent_id.as_str());
@@ -165,7 +183,9 @@ impl AgentConnectionRunner {
         session_id: AgentSessionId,
         acp_session_id: &str,
     ) {
-        if !records_acp_jsonl(self.snapshot.agent_id.as_str()) {
+        if !crate::acp_transcript::legacy_jsonl_shadow_write_enabled()
+            || !records_acp_jsonl(self.snapshot.agent_id.as_str())
+        {
             return;
         }
         let agent_dir = jsonl_agent_dir(self.snapshot.agent_id.as_str());

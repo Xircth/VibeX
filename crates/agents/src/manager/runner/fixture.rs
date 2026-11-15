@@ -122,6 +122,7 @@ impl AgentConnectionRunner {
         );
 
         let permission_id = AgentPermissionId::new();
+        let revision = self.allocate_permission_revision();
         let request = AgentPermissionRequest {
             id: permission_id,
             session_id,
@@ -144,6 +145,7 @@ impl AgentConnectionRunner {
                     description: None,
                 },
             ],
+            revision,
         };
         let configured = *self.auto_approve_mode.lock().await;
         let auto_approve_mode =
@@ -163,23 +165,23 @@ impl AgentConnectionRunner {
             return;
         }
 
-        self.emit(
-            Some(session_id),
-            None,
-            AgentEvent::PermissionRequested {
-                request: request.clone(),
-            },
-        );
-
         let (tx, rx) = oneshot::channel();
         self.pending_permissions.lock().await.insert(
             permission_id.to_string(),
             PendingPermission {
                 permission_id,
                 session_id,
+                title: request.title.clone(),
+                details: request.details.clone(),
                 options: request.options.clone(),
+                revision: request.revision,
                 tx,
             },
+        );
+        self.emit(
+            Some(session_id),
+            None,
+            AgentEvent::PermissionRequested { request },
         );
         let runner = self.clone();
         let acp_session_id = acp_session_id.to_string();

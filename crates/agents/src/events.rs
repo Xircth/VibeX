@@ -758,6 +758,7 @@ mod tests {
                     title: "Run".to_string(),
                     details: None,
                     options: Vec::new(),
+                    revision: 1,
                 },
             },
             AgentEvent::PermissionResponded {

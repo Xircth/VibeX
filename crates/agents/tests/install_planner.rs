@@ -36,7 +36,11 @@ fn built_in_linux_agents_resolve_supported_runtime_and_acp_plans() {
     let planner = InstallPlanner::bundled();
 
     for platform in ["linux-x86_64", "linux-aarch64"] {
-        for agent in ["claude_code", "codex", "pi"] {
+        for (agent, expected_component) in [
+            ("claude_code", "combined_runtime"),
+            ("codex", "combined_runtime"),
+            ("pi", "acp_adapter"),
+        ] {
             let agent_id = AgentId::parse(agent).unwrap();
             let plan = planner
                 .plan(InstallPlanningInput {
@@ -52,7 +56,7 @@ fn built_in_linux_agents_resolve_supported_runtime_and_acp_plans() {
 
             assert_eq!(plan.platform, platform);
             assert_eq!(plan.components.len(), 1, "{agent}");
-            assert_eq!(plan.components[0].component_id, "acp_adapter");
+            assert_eq!(plan.components[0].component_id, expected_component);
             assert!(plan.components.iter().all(|component| {
                 component.distribution_kind == PlannedDistributionKind::Npx
                     && component.resolved_source.contains('@')
@@ -172,10 +176,10 @@ fn npx_acp_plans_without_a_system_node_on_supported_hosts() {
             platform: "darwin-aarch64".to_string(),
             environment: InstallEnvironment::default(),
         })
-        .expect("ACP install must plan npx without a preinstalled Node");
+        .expect("Built-in npx install must plan without a preinstalled Node");
 
     assert_eq!(plan.components.len(), 1);
-    assert_eq!(plan.components[0].component_id, "acp_adapter");
+    assert_eq!(plan.components[0].component_id, "combined_runtime");
     assert_eq!(
         plan.components[0].distribution_kind,
         PlannedDistributionKind::Npx
@@ -576,8 +580,6 @@ fn planner_locks_distribution_version_platform_and_trust() {
 
 #[test]
 fn built_in_update_target_pins_profile_locked_versions() {
-    // ADR-0038 Phase 0 表征:内置 Agent 的更新目标始终是 Profile 编译期锁定的
-    // 版本组合,与 Registry 最新版本无关(ADR-0016、ADR-0027)。
     let planner = InstallPlanner::bundled();
     let plan = planner
         .plan(InstallPlanningInput {
@@ -591,22 +593,16 @@ fn built_in_update_target_pins_profile_locked_versions() {
         })
         .unwrap();
 
-    assert_eq!(plan.version, "2.2.2");
-    assert!(
-        plan.components
-            .iter()
-            .all(|component| component.component_id != "agent_runtime")
-    );
-    let adapter = plan
+    assert_eq!(plan.version, "0.169.0");
+    assert_eq!(plan.components.len(), 1);
+    let runtime = plan
         .components
         .iter()
-        .find(|component| component.component_id == "acp_adapter")
-        .expect("codex declares an acp_adapter component");
-    assert_eq!(
-        adapter.resolved_source,
-        "@agentclientprotocol/codex-acp@2.2.2"
-    );
-    assert_eq!(adapter.version, "2.2.2");
+        .find(|component| component.component_id == "combined_runtime")
+        .expect("codex declares a combined_runtime component");
+    assert_eq!(runtime.resolved_source, "@openai/codex@0.169.0");
+    assert_eq!(runtime.version, "0.169.0");
+    assert_eq!(runtime.command, "codex");
 }
 
 #[test]
@@ -792,9 +788,7 @@ fn built_in_update_with_registry_replaces_the_combined_runtime() {
 }
 
 #[test]
-fn registry_target_for_built_in_update_resolves_the_binding() {
-    // ADR-0038 方向 A:registry_target_for_built_in_update 按 profile 的
-    // registry binding 在 snapshot 中定位条目;缺失时返回 None(回退锁版本)。
+fn registry_target_for_built_in_update_resolves_bound_profiles_and_skips_native_engines() {
     let catalog = BuiltInProfileCatalog::bundled();
     let snapshot = RegistrySnapshot {
         id: Uuid::new_v4(),
@@ -805,11 +799,11 @@ fn registry_target_for_built_in_update_resolves_the_binding() {
         document_sha256: "digest".to_string(),
         etag: None,
         entries: vec![RegistryAgentEntry {
-            agent_id: AgentId::parse("codex").unwrap(),
-            registry_id: "codex-acp".to_string(),
-            name: "Codex".to_string(),
-            version: "1.2.0".to_string(),
-            description: "ACP adapter for OpenAI's coding assistant".to_string(),
+            agent_id: AgentId::parse("pi").unwrap(),
+            registry_id: "pi-acp".to_string(),
+            name: "Pi".to_string(),
+            version: "0.1.0".to_string(),
+            description: "ACP adapter for Pi".to_string(),
             repository: None,
             website: None,
             authors: Vec::new(),
@@ -817,7 +811,7 @@ fn registry_target_for_built_in_update_resolves_the_binding() {
             distributions: RegistryDistributions {
                 binary: None,
                 npx: Some(RegistryPackageDistribution {
-                    package: "@agentclientprotocol/codex-acp@1.2.0".to_string(),
+                    package: "pi-acp@0.1.0".to_string(),
                     args: Vec::new(),
                     env: BTreeMap::new(),
                     integrity: None,
@@ -828,16 +822,18 @@ fn registry_target_for_built_in_update_resolves_the_binding() {
             icon_svg: None,
         }],
     };
-    let codex = AgentId::parse("codex").unwrap();
-    let target = registry_target_for_built_in_update(&catalog, &snapshot, &codex).unwrap();
-    assert_eq!(target.agent_id.as_str(), "codex");
-    assert_eq!(target.version, "1.2.0");
+    let pi = AgentId::parse("pi").unwrap();
+    let target = registry_target_for_built_in_update(&catalog, &snapshot, &pi).unwrap();
+    assert_eq!(target.agent_id.as_str(), "pi");
+    assert_eq!(target.version, "0.1.0");
 
-    let unbound = AgentId::parse("claude_code").unwrap();
-    assert!(
-        registry_target_for_built_in_update(&catalog, &snapshot, &unbound).is_none(),
-        "snapshot 中没有 claude-acp 条目时应回退 Profile 锁版本"
-    );
+    for native_id in ["claude_code", "codex"] {
+        let agent_id = AgentId::parse(native_id).unwrap();
+        assert!(
+            registry_target_for_built_in_update(&catalog, &snapshot, &agent_id).is_none(),
+            "{native_id} uses official NativeEngine runtime and must never resolve an ACP Registry target"
+        );
+    }
 }
 
 #[test]
@@ -866,7 +862,7 @@ fn built_in_update_with_registry_rejects_a_mismatched_target() {
     };
     let error = planner
         .plan(InstallPlanningInput {
-            agent_id: AgentId::parse("codex").unwrap(),
+            agent_id: AgentId::parse("pi").unwrap(),
             source: InstallCandidateSource::BuiltInProfileWithRegistry(Box::new(target)),
             platform: "darwin-aarch64".to_string(),
             environment: InstallEnvironment {
@@ -929,7 +925,7 @@ fn adapter_backed_identity_version_is_not_the_registry_lock_version() {
         uv_verified: true,
         python_verified: true,
     };
-    for agent_id in ["claude_code", "codex", "pi"] {
+    for agent_id in ["pi"] {
         let plan = planner
             .plan(InstallPlanningInput {
                 agent_id: AgentId::parse(agent_id).unwrap(),
@@ -949,6 +945,23 @@ fn adapter_backed_identity_version_is_not_the_registry_lock_version() {
             plan.registry_bound_version(),
             "{agent_id} identity is the ACP adapter"
         );
+    }
+
+    for (agent_id, expected_source) in [
+        ("claude_code", "@anthropic-ai/claude-code@2.1.325"),
+        ("codex", "@openai/codex@0.169.0"),
+    ] {
+        let plan = planner
+            .plan(InstallPlanningInput {
+                agent_id: AgentId::parse(agent_id).unwrap(),
+                source: InstallCandidateSource::BuiltInProfile,
+                platform: "darwin-aarch64".to_string(),
+                environment: environment.clone(),
+            })
+            .unwrap();
+        assert_eq!(plan.components.len(), 1);
+        assert_eq!(plan.components[0].component_id, "combined_runtime");
+        assert_eq!(plan.components[0].resolved_source, expected_source);
     }
 }
 
@@ -1013,7 +1026,7 @@ fn bundled_registry_updates_follow_each_profile_topology() {
                 assert_eq!(item_ids, ["acp"], "{}", profile.agent_id);
                 assert_eq!(updates[0].available_version, newer, "{}", profile.agent_id);
             }
-            ProfileTopology::NativeAcp => {
+            ProfileTopology::NativeAcp | ProfileTopology::NativeEngine(_) => {
                 assert_eq!(plan.version, newer, "{}", profile.agent_id);
                 assert_eq!(plan.registry_bound_version(), newer, "{}", profile.agent_id);
                 assert_eq!(item_ids, ["acp"], "{}", profile.agent_id);

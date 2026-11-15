@@ -12,6 +12,7 @@ agent-client-protocol = { version = "1.2.0", features = [
     "unstable_session_fork",
 ] }
 chrono = { workspace = true }
+command-group = { workspace = true }
 futures = { workspace = true }
 regex = { workspace = true }
 rusqlite = { version = "0.32", features = ["bundled"] }
@@ -31,7 +32,6 @@ url = { workspace = true }
 workspace_utils = { path = "../utils", package = "utils" }
 which = "8.0.0"
 dirs = { workspace = true }
-kill_tree = { version = "0.2", features = ["tokio"] }
 prost = "0.13"
 toml = "0.8"
 tar = "0.4"
@@ -48,6 +48,7 @@ libc = "0.2"
 winreg = "0.55"
 windows-sys = { version = "0.61", features = [
     "Win32_Foundation",
+    "Win32_Security_Cryptography",
     "Win32_Storage_FileSystem",
     "Win32_UI_WindowsAndMessaging",
 ] }

@@ -292,6 +292,10 @@ impl SessionGate {
                 &input.snapshot.agent_id,
                 &lock.absolute_acp_program,
             )
+            || crate::launch_program_is_legacy_acp_shim(
+                &input.snapshot.agent_id,
+                &lock.absolute_acp_program,
+            )
         {
             return Err(SessionGateError::InvalidLaunchPath);
         }

@@ -1570,6 +1570,38 @@ impl AgentRuntime {
             .await
     }
 
+    /// Atomically rewind `num_turns` (or to `checkpoint_point`) on a live native
+    /// engine session (`thread/rollback` on Codex or `session/revert` on Claude).
+    pub async fn rollback_turns(
+        &self,
+        session_id: AgentSessionId,
+        num_turns: u32,
+        checkpoint_point: Option<String>,
+        git_ref: Option<String>,
+        commit_oid: Option<String>,
+    ) -> AgentResult<()> {
+        let connection_id = {
+            let state = self.state.read().await;
+            state
+                .sessions
+                .get(&session_id)
+                .map(|session| session.snapshot.connection_id)
+        };
+        let Some(connection_id) = connection_id else {
+            return Err(AgentError::SessionNotFound(session_id.to_string()));
+        };
+        self.connection_manager
+            .rollback_turns(
+                connection_id,
+                session_id,
+                num_turns,
+                checkpoint_point,
+                git_ref,
+                commit_oid,
+            )
+            .await
+    }
+
     pub async fn list_agent_sessions(
         &self,
         connection_id: AgentConnectionId,
@@ -1925,7 +1957,19 @@ impl AgentRuntime {
     }
 
     pub async fn has_bound_acp_session(&self, session_id: AgentSessionId) -> bool {
-        self.bound_acp_session_id(session_id).await.is_some()
+        let Some(connection_id) = ({
+            let state = self.state.read().await;
+            state
+                .sessions
+                .get(&session_id)
+                .map(|session| session.snapshot.connection_id)
+        }) else {
+            return false;
+        };
+        self.connection_manager
+            .bound_acp_session_id(connection_id, session_id)
+            .await
+            .is_some_and(|id| is_live_bound_session_id(&id))
     }
 
     pub async fn bound_acp_session_id(&self, session_id: AgentSessionId) -> Option<String> {
@@ -2382,6 +2426,42 @@ impl AgentRuntime {
                 state.prompt_display_blocks.remove(&finished.prompt_id);
                 state.prompt_options.remove(&finished.prompt_id);
             }
+            AgentEvent::SessionLinked {
+                acp_session_id,
+                capabilities,
+                ..
+            } => {
+                if let Some(session_id) = manager_event.session_id
+                    && let Some(session) = state.sessions.get_mut(&session_id)
+                {
+                    if is_restorable_acp_session_id(acp_session_id) {
+                        session.snapshot.acp_session_id = acp_session_id.clone();
+                    }
+                    session.controls.capabilities = Some(capabilities.clone());
+                }
+            }
+            AgentEvent::SessionModes { modes, current } => {
+                if let Some(session_id) = manager_event.session_id
+                    && let Some(session) = state.sessions.get_mut(&session_id)
+                {
+                    session.controls.modes = modes.clone();
+                    session.controls.current_mode = current.clone();
+                }
+            }
+            AgentEvent::ModeChanged { mode_id } => {
+                if let Some(session_id) = manager_event.session_id
+                    && let Some(session) = state.sessions.get_mut(&session_id)
+                {
+                    session.controls.current_mode = Some(mode_id.clone());
+                }
+            }
+            AgentEvent::SessionConfigOptions { options } => {
+                if let Some(session_id) = manager_event.session_id
+                    && let Some(session) = state.sessions.get_mut(&session_id)
+                {
+                    session.controls.config_options = options.clone();
+                }
+            }
             AgentEvent::AvailableCommands { commands } => {
                 if let Some(session_id) = manager_event.session_id
                     && let Some(session) = state.sessions.get_mut(&session_id)
@@ -2608,12 +2688,20 @@ pub fn is_placeholder_acp_session_id(acp_session_id: &str) -> bool {
         || id.starts_with("vibex-new-session-")
         || id.starts_with("prepared-")
         || id.starts_with("pending-")
+        || id.starts_with("claude-native-")
+        || id.starts_with("codex-native-")
 }
 
 /// True when `acp_session_id` is an agent-assigned thread id that can be
 /// resumed or loaded. Empty and host placeholders are not restorable.
 pub fn is_restorable_acp_session_id(acp_session_id: &str) -> bool {
     !is_placeholder_acp_session_id(acp_session_id)
+}
+
+/// True when `acp_session_id` represents an active live binding on a connected
+/// runner, including a `prepared-*` native session awaiting its Turn 1 upstream ID.
+pub(crate) fn is_live_bound_session_id(acp_session_id: &str) -> bool {
+    is_restorable_acp_session_id(acp_session_id) || acp_session_id.trim().starts_with("prepared-")
 }
 
 /// Events the workbench hydrate actually folds into UI state.
@@ -3382,6 +3470,7 @@ mod tests {
                 kind: AgentPermissionOptionKind::AllowOnce,
                 description: None,
             }],
+            revision: 1,
         };
 
         let mut state = runtime.state.write().await;

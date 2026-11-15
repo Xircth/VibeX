@@ -527,18 +527,18 @@ mod tests {
     #[test]
     fn windows_npm_shims_prefer_exe_then_cmd() {
         let bin = PathBuf::from(r"C:\Users\developer\AppData\Roaming\npm");
-        let candidates = npm_shim_candidates(&bin, "claude-agent-acp");
+        let candidates = npm_shim_candidates(&bin, "claude");
         if cfg!(windows) {
             assert_eq!(
                 candidates,
                 vec![
-                    bin.join("claude-agent-acp.exe"),
-                    bin.join("claude-agent-acp.cmd"),
-                    bin.join("claude-agent-acp"),
+                    bin.join("claude.exe"),
+                    bin.join("claude.cmd"),
+                    bin.join("claude"),
                 ]
             );
         } else {
-            assert_eq!(candidates, vec![bin.join("claude-agent-acp")]);
+            assert_eq!(candidates, vec![bin.join("claude")]);
         }
     }
 
@@ -691,17 +691,14 @@ mod tests {
     }
 
     #[test]
-    fn claude_profile_adopts_any_path_adapter() {
+    fn claude_profile_adopts_any_path_runtime() {
         let profile = crate::BuiltInProfileCatalog::bundled()
             .profile(&crate::AgentId::parse("claude_code").unwrap())
             .cloned()
             .unwrap();
         assert!(observed_satisfies_profile(
             &profile,
-            &[
-                observed("agent_runtime", Some("1.0.0")),
-                observed("acp_adapter", Some("0.1.0")),
-            ]
+            &[observed("combined_runtime", Some("2.1.0"))]
         ));
         assert!(!observed_satisfies_profile(
             &profile,
@@ -766,34 +763,34 @@ mod tests {
 
     #[test]
     fn explicit_plan_does_not_adopt_an_older_npm_adapter() {
-        let required = vec![planned("acp_adapter", "1.10.0")];
+        let required = vec![planned("combined_runtime", "1.10.0")];
         assert_eq!(
             decide_user_environment_adopt(
                 &required,
                 &[observed(
-                    "acp_adapter",
-                    Some("@agentclientprotocol/codex-acp 1.8.0"),
+                    "combined_runtime",
+                    Some("@openai/codex 1.8.0"),
                 )]
             ),
             UserEnvironmentAdoptDecision::Install {
                 missing: Vec::new(),
-                outdated: vec!["acp_adapter".to_string()],
+                outdated: vec!["combined_runtime".to_string()],
             }
         );
     }
 
     #[test]
     fn planned_updates_read_npm_spec_output_and_compare_numerically() {
-        let planned = vec![planned("acp_adapter", "1.10.0")];
+        let planned = vec![planned("combined_runtime", "1.10.0")];
         let current = vec![observed(
-            "acp_adapter",
-            Some("@agentclientprotocol/codex-acp 1.8.0"),
+            "combined_runtime",
+            Some("@openai/codex 1.8.0"),
         )];
         assert_eq!(
             planned_preflight_updates(&planned, &current),
             vec![PlannedPreflightUpdate {
                 item_id: "acp",
-                current_version: "@agentclientprotocol/codex-acp 1.8.0".into(),
+                current_version: "@openai/codex 1.8.0".into(),
                 available_version: "1.10.0".into(),
             }]
         );
@@ -803,9 +800,9 @@ mod tests {
         ResolvedInstallPlan {
             agent_id: crate::AgentId::parse("codex").unwrap(),
             source,
-            version: "0.146.0".into(),
+            version: version.into(),
             platform: "test".into(),
-            components: vec![planned("acp_adapter", version)],
+            components: vec![planned("combined_runtime", version)],
         }
     }
 
@@ -815,11 +812,11 @@ mod tests {
         let view = compose_agent_update_check(AgentUpdateCheckInput {
             agent_id: plan.agent_id.clone(),
             current: &[observed(
-                "acp_adapter",
-                Some("@agentclientprotocol/codex-acp 1.8.0"),
+                "combined_runtime",
+                Some("@openai/codex 1.8.0"),
             )],
             plan: Some(&plan),
-            overlay_fetched: &["acp_adapter".into()],
+            overlay_fetched: &["combined_runtime".into()],
             snapshot_id: None,
             fetched_at: None,
             fresh: true,
@@ -829,7 +826,7 @@ mod tests {
         assert_eq!(view.acp_available.as_deref(), Some("1.10.0"));
         assert_eq!(
             view.acp_current.as_deref(),
-            Some("@agentclientprotocol/codex-acp 1.8.0")
+            Some("@openai/codex 1.8.0")
         );
     }
 
@@ -839,8 +836,8 @@ mod tests {
         let view = compose_agent_update_check(AgentUpdateCheckInput {
             agent_id: plan.agent_id.clone(),
             current: &[observed(
-                "acp_adapter",
-                Some("@agentclientprotocol/codex-acp 1.8.0"),
+                "combined_runtime",
+                Some("@openai/codex 1.8.0"),
             )],
             plan: Some(&plan),
             overlay_fetched: &[],
@@ -916,12 +913,45 @@ mod tests {
                 .iter()
                 .map(|profile| profile.agent_id.as_str())
                 .collect::<Vec<_>>(),
-            ["claude_code", "codex", "pi"]
+            ["pi"]
         );
         for profile in profiles {
             let current = current_from_profile(profile);
             let planned_components =
                 planned_from_profile(profile, Some(("acp_adapter", "99999.0.0")));
+            let updates = planned_preflight_updates(&planned_components, &current);
+            assert_eq!(
+                updates
+                    .iter()
+                    .map(|update| update.item_id)
+                    .collect::<Vec<_>>(),
+                ["acp"],
+                "{}",
+                profile.agent_id
+            );
+            assert_eq!(updates[0].available_version, "99999.0.0");
+        }
+    }
+
+    #[test]
+    fn bundled_native_engine_profiles_flag_combined_runtime_updates() {
+        let catalog = BuiltInProfileCatalog::bundled();
+        let profiles = catalog
+            .profiles()
+            .iter()
+            .filter(|profile| matches!(profile.topology, ProfileTopology::NativeEngine(_)))
+            .collect::<Vec<_>>();
+        assert_eq!(
+            profiles
+                .iter()
+                .map(|profile| profile.agent_id.as_str())
+                .collect::<Vec<_>>(),
+            ["claude_code", "codex"]
+        );
+        for profile in profiles {
+            let current = current_from_profile(profile);
+            let planned_components =
+                planned_from_profile(profile, Some(("combined_runtime", "99999.0.0")));
             let updates = planned_preflight_updates(&planned_components, &current);
             assert_eq!(
                 updates

@@ -147,9 +147,11 @@ use api_types::pulse::{
     ApprovalOptionSpec, BotConversationScope, BotMailboxPolicy, EventActor, EventEnvelope,
     EventSourceKind, EventSourceMeta, EventTrace, EventTrustLevel, GateFilterAst,
     GateFilterCondition, GroupDispatchMode, GroupMentionOrder, MandateOrigin,
-    PresetOrchestratorKind, PulseDeckSnapshot, PulseDryRunReport, PulseDryRunViolation,
-    PulseEvalMode, PulseEventSchemaView, PulseObservedCandidateView, PulseRuleSpec, PulseRuleView,
-    PulseSourceView, PulseSubscriptionView, PulseTargetSpec, PulseTemporalSpec,
+    PresetOrchestratorKind, PulseCallbackKind, PulseCallbackSpec, PulseDeckSnapshot,
+    PulseDryRunReport, PulseDryRunViolation, PulseEvalMode, PulseEventSchemaView,
+    PulseObservedCandidateView, PulseOutboxEntryView, PulseRuleSpec, PulseRuleView,
+    PulseSourceTestResult, PulseSourceView, PulseSubscriptionView, PulseTargetSpec,
+    PulseTaskKind, PulseTaskLifecycleState, PulseTaskMeta, PulseTemporalSpec,
     PulseUserInteractionView, PulseWorkspaceIsolation, ReplyChannelAddress,
     SessionDeliveryStrategy, SessionTargetMode, UserInteractionKind, UserInteractionSeverity,
 };
@@ -976,11 +978,18 @@ fn replacement_declarations() -> BTreeMap<String, String> {
     insert_declaration::<PulseTargetSpec>(&mut decls);
     insert_declaration::<PulseTemporalSpec>(&mut decls);
     insert_declaration::<PresetOrchestratorKind>(&mut decls);
+    insert_declaration::<PulseCallbackKind>(&mut decls);
+    insert_declaration::<PulseCallbackSpec>(&mut decls);
+    insert_declaration::<PulseTaskLifecycleState>(&mut decls);
+    insert_declaration::<PulseTaskKind>(&mut decls);
+    insert_declaration::<PulseTaskMeta>(&mut decls);
     insert_declaration::<PulseRuleSpec>(&mut decls);
     insert_declaration::<PulseRuleView>(&mut decls);
     insert_declaration::<PulseDryRunViolation>(&mut decls);
     insert_declaration::<PulseDryRunReport>(&mut decls);
     insert_declaration::<PulseSourceView>(&mut decls);
+    insert_declaration::<PulseOutboxEntryView>(&mut decls);
+    insert_declaration::<PulseSourceTestResult>(&mut decls);
     insert_declaration::<PulseObservedCandidateView>(&mut decls);
     insert_declaration::<PulseUserInteractionView>(&mut decls);
     insert_declaration::<PulseSubscriptionView>(&mut decls);

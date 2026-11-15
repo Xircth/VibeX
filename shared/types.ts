@@ -2456,7 +2456,7 @@ export type PresetOrchestratorKind = "direct_reflex" | "superagent_router" | "hy
 
 export type PresetOrchestratorSpec = { "preset": "direct_reflex" } & DirectReflexPresetConfig | { "preset": "superagent_router" } & SuperagentRouterPresetConfig | { "preset": "hybrid_pipeline" } & HybridPipelinePresetConfig | { "preset": "event_saga" } & EventSagaPresetConfig | { "preset": "window_aggregator" } & WindowAggregatorPresetConfig;
 
-export type PulseDeckSnapshot = { engineActive: boolean, activeTicketCount: number, pendingUserInteractionCount: number, sources: Array<PulseSourceView>, rules: Array<PulseRuleView>, observedCandidates: Array<PulseObservedCandidateView>, subscriptions: Array<PulseSubscriptionView>, pendingInteractions: Array<PulseUserInteractionView>, };
+export type PulseDeckSnapshot = { engineActive: boolean, activeTicketCount: number, pendingUserInteractionCount: number, sources: Array<PulseSourceView>, rules: Array<PulseRuleView>, observedCandidates: Array<PulseObservedCandidateView>, subscriptions: Array<PulseSubscriptionView>, pendingInteractions: Array<PulseUserInteractionView>, busyRuleIds: Array<string>, recentOutbox: Array<PulseOutboxEntryView>, };
 
 export type PulseDryRunReport = { valid: boolean, matched: boolean, violations: Array<PulseDryRunViolation>, unmatchedConditions: Array<number>, renderedPreviews: Array<string>, };
 
@@ -2468,11 +2468,11 @@ export type PulseEventSchemaView = { eventType: string, summary: string, jsonSch
 
 export type PulseObservedCandidateView = { id: string, ruleId: string, ruleName: string, eventId: string, eventType: string, sourceKind: EventSourceKind, threadKey: string | null, summary: string, occurredAt: string, promoted: boolean, };
 
-export type PulseRuleSpec = { name: string, description: string | null, projectId: string | null, workspaceId: string | null, evalMode: PulseEvalMode, orchestrator: PresetOrchestratorKind, filter: GateFilterAst, temporal: PulseTemporalSpec | null, debounceMs: number, claimExclusive: boolean, targets: Array<PulseTargetSpec>, };
+export type PulseRuleSpec = { name: string, description: string | null, projectId: string | null, workspaceId: string | null, evalMode: PulseEvalMode, orchestrator: PresetOrchestratorKind, filter: GateFilterAst, temporal: PulseTemporalSpec | null, debounceMs: number, claimExclusive: boolean, targets: Array<PulseTargetSpec>, callback: PulseCallbackSpec | null, taskMeta: PulseTaskMeta | null, };
 
 export type PulseRuleView = { id: string, revision: number, enabled: boolean, draftOnly: boolean, mandateOrigin: MandateOrigin, spec: PulseRuleSpec, webhookRouteId: string | null, nextFireAt: string | null, matchedCount: bigint, observedCount: bigint, createdAt: string, updatedAt: string, };
 
-export type PulseSourceView = { id: string, kind: EventSourceKind, title: string, enabled: boolean, healthy: boolean, statusMessage: string | null, cursorWatermark: string | null, publicWebhookPath: string | null, receivedCount24h: bigint, rejectedCount24h: bigint, updatedAt: string, };
+export type PulseSourceView = { id: string, kind: EventSourceKind, title: string, enabled: boolean, healthy: boolean, statusMessage: string | null, cursorWatermark: string | null, publicWebhookPath: string | null, receivedCount24h: bigint, rejectedCount24h: bigint, updatedAt: string, configJson: JsonValue, hasSigningSecret: boolean, };
 
 export type PulseSubscriptionView = { id: string, threadKey: string, subscriberKind: string, subscriberId: string, active: boolean, createdAt: string, };
 
@@ -2511,3 +2511,17 @@ export type WindowAggregatorPresetConfig = { name: string, description: string |
 export type WorkflowGraphPatch = { ops: Array<WorkflowGraphPatchOp>, };
 
 export type WorkflowGraphPatchOp = { "op": "add_step", step: WorkflowStep, } | { "op": "update_step", step: WorkflowStep, } | { "op": "remove_step", stepId: string, } | { "op": "connect_steps", fromStepId: string, toStepId: string, } | { "op": "disconnect_steps", fromStepId: string, toStepId: string, } | { "op": "set_policy", policy: WorkflowPolicy, };
+
+export type PulseCallbackKind = "feishu_webhook" | "github_comment" | "webhook_post" | "reply_channel";
+
+export type PulseCallbackSpec = { kind: PulseCallbackKind, destination: string, payloadTemplate: string, headers: { [key in string]?: string }, enabled: boolean, };
+
+export type PulseOutboxEntryView = { id: string, ruleId: string | null, targetKind: string, destination: string | null, status: string, attempts: number, lastError: string | null, createdAt: string, updatedAt: string, };
+
+export type PulseSourceTestResult = { ok: boolean, sourceId: string, mode: string, message: string, webhookPath: string | null, sampleEnvelope: EventEnvelope | null, };
+
+export type PulseTaskKind = "fast_task" | "reusable_rule" | "workflow_trigger";
+
+export type PulseTaskLifecycleState = "editing" | "pending_test" | "publishing" | "published";
+
+export type PulseTaskMeta = { taskKind: PulseTaskKind | null, lifecycleState: PulseTaskLifecycleState | null, boundRuleTemplateId: string | null, lastTestedAt: string | null, lastTestPassed: boolean | null, lastRunAt: string | null, lastRunStatus: string | null, lastRunSummary: string | null, };

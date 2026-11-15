@@ -53,6 +53,49 @@ pub async fn call_http(
         .map_err(|error| std::io::Error::other(error.to_string()))
 }
 
+/// Optional Host HTTP `/api/v1/call/<command>` bridge for Pulse tools when
+/// connected to a live Host server.
+pub async fn call_host_v1_command(
+    server_url: &str,
+    server_token: Option<&str>,
+    conversation_id: Option<&str>,
+    command: &str,
+    operation_id: &str,
+    args: &serde_json::Value,
+) -> std::io::Result<serde_json::Value> {
+    let url = format!(
+        "{}/api/v1/call/{}",
+        server_url.trim_end_matches('/'),
+        command
+    );
+    let mut request = http_client()?.post(url).json(&serde_json::json!({
+        "operation_id": operation_id,
+        "args": args,
+    }));
+    if let Some(token) = server_token {
+        request = request.bearer_auth(token);
+    }
+    if let Some(conversation_id) = conversation_id {
+        request = request.header("x-vibex-conversation-id", conversation_id);
+    }
+    request = request.header("x-vibex-protocol-version", "1.0");
+    let response = request
+        .send()
+        .await
+        .map_err(|error| std::io::Error::other(error.to_string()))?;
+    if !response.status().is_success() {
+        return Err(std::io::Error::other(format!(
+            "pulse host http {}",
+            response.status()
+        )));
+    }
+    let body: serde_json::Value = response
+        .json()
+        .await
+        .map_err(|error| std::io::Error::other(error.to_string()))?;
+    Ok(body.get("data").cloned().unwrap_or(body))
+}
+
 /// Connect to the broker socket, send `message`, and return its response.
 pub async fn call_broker(
     socket_path: &str,

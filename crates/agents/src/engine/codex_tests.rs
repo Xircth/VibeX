@@ -234,3 +234,75 @@ fn serialize_codex_input_items_encodes_base64_image_url_and_local_image_path() {
             .ends_with("C:/tmp/screen.jpg")
     );
 }
+
+#[test]
+fn parse_codex_models_response_preserves_is_default_and_skips_hidden_non_default() {
+    let payload = json!({
+        "data": [
+            {
+                "id": "gpt-5.4",
+                "displayName": "GPT-5.4",
+                "description": "Default model",
+                "isDefault": true,
+                "hidden": false
+            },
+            {
+                "id": "gpt-hidden-beta",
+                "displayName": "Hidden Beta",
+                "isDefault": false,
+                "hidden": true
+            },
+            {
+                "id": "gpt-hidden-default",
+                "displayName": "Hidden Default",
+                "isDefault": true,
+                "hidden": true
+            }
+        ]
+    });
+    let models = crate::engine::codex_protocol::parse_codex_models_response(&payload);
+    assert_eq!(models.len(), 2);
+    assert_eq!(models[0].id, "gpt-5.4");
+    assert!(models[0].is_default);
+    assert_eq!(models[1].id, "gpt-hidden-default");
+    assert!(models[1].is_default);
+}
+
+#[tokio::test]
+async fn codex_server_cache_key_tracks_codex_home_config_and_invalidate_clears_cache() {
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let codex_home = tmp.path().join(".codex");
+    std::fs::create_dir_all(&codex_home).expect("mkdir");
+    std::fs::write(codex_home.join("config.toml"), "model = \"gpt-5.3\"\n").expect("write config");
+    std::fs::write(codex_home.join("auth.json"), "{\"OPENAI_API_KEY\":\"sk-1\"}").expect("write auth");
+
+    let mut spec = test_start_spec();
+    spec.env.insert(
+        "CODEX_HOME".to_string(),
+        codex_home.to_string_lossy().to_string(),
+    );
+
+    let key1 = CodexServerCacheKey::from_spec(&spec);
+    std::fs::write(codex_home.join("config.toml"), "model = \"gpt-5.4\"\n").expect("update config");
+    let key2 = CodexServerCacheKey::from_spec(&spec);
+    assert_ne!(
+        key1, key2,
+        "editing CODEX_HOME/config.toml must change CodexServerCacheKey"
+    );
+
+    std::fs::write(codex_home.join("auth.json"), "{\"OPENAI_API_KEY\":\"sk-2\"}").expect("update auth");
+    let key3 = CodexServerCacheKey::from_spec(&spec);
+    assert_ne!(
+        key2, key3,
+        "editing CODEX_HOME/auth.json must change CodexServerCacheKey"
+    );
+
+    std::fs::write(codex_home.join("vibex-model-catalog.json"), "{\"models\":[]}").expect("write catalog");
+    let key4 = CodexServerCacheKey::from_spec(&spec);
+    assert_ne!(
+        key3, key4,
+        "editing vibex-model-catalog.json must change CodexServerCacheKey"
+    );
+
+    invalidate_codex_servers().await;
+}

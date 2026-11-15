@@ -738,6 +738,7 @@ async fn apply_provider_instance_launch_env(
             ))
         })?;
         env.insert(config_env_var.to_string(), isolated_dir.to_string_lossy().into_owned());
+        env.insert("VIBEX_ISOLATE_PROVIDER_PROFILE".to_string(), "1".to_string());
     }
     Ok(())
 }

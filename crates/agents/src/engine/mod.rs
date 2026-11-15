@@ -37,10 +37,27 @@ pub use stream_router::{
     MAX_DIAGNOSTIC_PAYLOAD_BYTES, TurnEventRouter, TurnEventStream, TurnRouteFilter,
     format_bounded_diagnostic, prepare_instance_isolation_env, truncate_utf8_bytes,
 };
+use tokio::io::{AsyncWrite, AsyncWriteExt};
+use tokio::sync::Mutex as AsyncMutex;
 use uuid::Uuid;
 
 use crate::conversation::ContentBlock;
 pub use crate::end_turn_usage::{ModelConsistencyMismatch, check_launch_vs_served_model};
+
+/// Serializes `message` as a single newline-delimited JSON-RPC 2.0 frame and
+/// writes it to `writer`, flushing afterwards. Shared by both the Claude
+/// sidecar client and the Codex app-server client.
+pub(crate) async fn write_jsonrpc_frame(
+    writer: &AsyncMutex<Box<dyn AsyncWrite + Unpin + Send>>,
+    message: &serde_json::Value,
+) -> Result<(), EngineError> {
+    let mut encoded = serde_json::to_vec(message)?;
+    encoded.push(b'\n');
+    let mut guard = writer.lock().await;
+    guard.write_all(&encoded).await?;
+    guard.flush().await?;
+    Ok(())
+}
 
 /// Stream of normalized events emitted during a native engine turn or session.
 pub type EngineEventStream = Pin<Box<dyn Stream<Item = EngineEvent> + Send>>;
@@ -167,6 +184,8 @@ pub struct EngineModelInfo {
     pub label: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub is_default: bool,
 }
 
 /// Structured plan/todo entry normalized from Claude `TodoWrite` or Codex `turn/plan/updated`.
@@ -185,6 +204,7 @@ pub struct EngineStartSpec {
     pub workspace_id: Uuid,
     pub working_dir: PathBuf,
     pub provider_instance_id: Option<String>,
+    pub isolate_profile: bool,
     pub auth: EngineAuth,
     pub model: Option<String>,
     pub config_overrides: serde_json::Value,
@@ -332,6 +352,158 @@ impl EngineStartSpec {
             }
         }
     }
+
+    fn resolve_home_dir(&self) -> Option<PathBuf> {
+        ["USERPROFILE", "HOME"]
+            .into_iter()
+            .find_map(|key| {
+                self.env
+                    .get(key)
+                    .map(String::as_str)
+                    .map(str::trim)
+                    .filter(|s| !s.is_empty())
+                    .map(PathBuf::from)
+            })
+            .or_else(|| {
+                ["USERPROFILE", "HOME"].into_iter().find_map(|key| {
+                    std::env::var_os(key)
+                        .filter(|v| !v.is_empty())
+                        .map(PathBuf::from)
+                })
+            })
+            .or_else(dirs::home_dir)
+    }
+
+    /// Resolves the effective `CODEX_HOME` directory visible to a `CodexNativeDriver` session.
+    pub fn effective_codex_home(&self) -> Option<PathBuf> {
+        if let Some(explicit) = self
+            .env
+            .get("CODEX_HOME")
+            .map(String::as_str)
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+        {
+            return Some(PathBuf::from(explicit));
+        }
+        if self.isolate_profile
+            && let Some(instance_id) = self
+                .provider_instance_id
+                .as_deref()
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+        {
+            let root_base = self
+                .env
+                .get("VIBEX_PROVIDER_INSTANCES_ROOT")
+                .map(PathBuf::from)
+                .unwrap_or_else(|| std::env::temp_dir().join("vibex-provider-instances"));
+            return Some(
+                root_base
+                    .join(stream_router::sanitize_instance_dir_segment(instance_id))
+                    .join("codex-home"),
+            );
+        }
+        self.resolve_home_dir().map(|home| home.join(".codex"))
+    }
+
+    /// Resolves the effective `~/.claude` (or `CLAUDE_CONFIG_DIR`) directory visible to
+    /// a `ClaudeNativeDriver` session.
+    pub fn effective_claude_config_dir(&self) -> Option<PathBuf> {
+        if let Some(explicit) = self
+            .env
+            .get("CLAUDE_CONFIG_DIR")
+            .map(String::as_str)
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+        {
+            return Some(PathBuf::from(explicit));
+        }
+        if self.isolate_profile
+            && let Some(instance_id) = self
+                .provider_instance_id
+                .as_deref()
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+        {
+            let root_base = self
+                .env
+                .get("VIBEX_PROVIDER_INSTANCES_ROOT")
+                .map(PathBuf::from)
+                .unwrap_or_else(|| std::env::temp_dir().join("vibex-provider-instances"));
+            return Some(
+                root_base
+                    .join(stream_router::sanitize_instance_dir_segment(instance_id))
+                    .join("claude-config"),
+            );
+        }
+        self.resolve_home_dir().map(|home| home.join(".claude"))
+    }
+
+    /// Deterministic SHA-256 hex digest over native Codex configuration/catalog/auth files
+    /// (`config.toml`, `auth.json`, `vibex-model-catalog.json`, or `model_catalog_json` target)
+    /// so `CodexAppServer` pooling invalidates automatically when native files change.
+    pub fn native_codex_config_fingerprint(&self) -> String {
+        let mut hasher = Sha256::new();
+        hasher.update(b"vibex-codex-native-config-v1\0");
+        if let Some(codex_home) = self.effective_codex_home() {
+            feed_length_prefixed(&mut hasher, "codex_home", &codex_home.to_string_lossy());
+            let config_path = codex_home.join("config.toml");
+            let config_bytes = std::fs::read(&config_path).ok();
+            hash_optional_file_bytes(&mut hasher, "config.toml", config_bytes.as_deref());
+            let auth_bytes = std::fs::read(codex_home.join("auth.json")).ok();
+            hash_optional_file_bytes(&mut hasher, "auth.json", auth_bytes.as_deref());
+            let vibex_catalog = std::fs::read(codex_home.join("vibex-model-catalog.json")).ok();
+            hash_optional_file_bytes(
+                &mut hasher,
+                "vibex-model-catalog.json",
+                vibex_catalog.as_deref(),
+            );
+            if let Some(catalog_rel) = config_bytes
+                .as_deref()
+                .and_then(|raw| std::str::from_utf8(raw).ok())
+                .and_then(|text| text.parse::<toml::Table>().ok())
+                .and_then(|table| {
+                    table
+                        .get("model_catalog_json")
+                        .and_then(toml::Value::as_str)
+                        .map(str::trim)
+                        .filter(|s| !s.is_empty() && *s != "vibex-model-catalog.json")
+                        .map(str::to_string)
+                })
+            {
+                let catalog_path = PathBuf::from(&catalog_rel);
+                let resolved = if catalog_path.is_absolute() {
+                    catalog_path
+                } else {
+                    codex_home.join(catalog_path)
+                };
+                let extra_bytes = std::fs::read(&resolved).ok();
+                hash_optional_file_bytes(&mut hasher, "custom_catalog", extra_bytes.as_deref());
+            }
+        }
+        let digest = hasher.finalize();
+        let mut hex = String::with_capacity(64);
+        for byte in digest {
+            use std::fmt::Write as _;
+            let _ = write!(&mut hex, "{byte:02x}");
+        }
+        hex
+    }
+}
+
+fn hash_optional_file_bytes(hasher: &mut Sha256, tag: &str, bytes: Option<&[u8]>) {
+    hasher.update(tag.as_bytes());
+    match bytes {
+        Some(content) => {
+            hasher.update(b":present:");
+            hasher.update((content.len() as u64).to_le_bytes());
+            hasher.update(content);
+        }
+        None => {
+            hasher.update(b":absent");
+        }
+    }
+    hasher.update([0xff]);
 }
 
 /// Handle to a live native engine session managed by a [`NativeEngineDriver`].

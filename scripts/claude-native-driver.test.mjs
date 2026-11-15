@@ -19,7 +19,7 @@ import {
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DRIVER_SCRIPT = path.join(__dirname, 'claude-native-driver.mjs');
 
-function createHarness({ env = {}, sdkLoader, now } = {}) {
+function createHarness({ env = {}, sdkLoader, now, fetchImpl } = {}) {
   const stdin = new PassThrough();
   const stdout = new PassThrough();
   const frames = [];
@@ -53,6 +53,7 @@ function createHarness({ env = {}, sdkLoader, now } = {}) {
     env,
     sdkLoader,
     now,
+    fetchImpl,
   });
 
   function send(frame) {
@@ -873,6 +874,7 @@ rl.on('line', async (line) => {
   const harness = createHarness({
     env: {
       ...process.env,
+      CLAUDE_CONFIG_DIR: tmpDir,
       VIBEX_FORCE_CLAUDE_CLI_FALLBACK: '1',
       CLAUDE_CODE_EXECUTABLE: mockCliEntry,
     },
@@ -1212,5 +1214,145 @@ test('agent-sdk mode retries with unwrapped standalone claude binary when option
   }
 });
 
+test('discoverClaudeModels merges gateway /v1/models, query().supportedModels(), and settings.json env, prioritizes concrete models, and marks isDefault', async () => {
+  const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'vibex-claude-models-'));
+  await fs.writeFile(
+    path.join(tmpDir, 'settings.json'),
+    JSON.stringify({
+      env: {
+        ANTHROPIC_BASE_URL: 'https://gateway.example/anthropic',
+        ANTHROPIC_AUTH_TOKEN: 'tok-test-only',
+        ANTHROPIC_MODEL: 'claude-opus-5-5',
+        ANTHROPIC_DEFAULT_SONNET_MODEL: 'claude-sonnet-5-5',
+        ANTHROPIC_DEFAULT_FABLE_MODEL: 'claude-fable-5-2',
+      },
+    }),
+    'utf8'
+  );
 
+  let seenUrl = null;
+  let seenAuth = null;
+  let probeClosed = false;
+  let probeAborted = false;
 
+  const mockSdk = {
+    __supportsQueryModelProbe: true,
+    query({ prompt, options }) {
+      const isWarmProbe = prompt && typeof prompt[Symbol.asyncIterator] === 'function' && !options?.permissionPromptToolName && !options?.canUseTool && options?.settingSources;
+      if (isWarmProbe) {
+        options.abortController?.signal?.addEventListener('abort', () => {
+          probeAborted = true;
+        });
+        return {
+          async supportedModels() {
+            return [
+              { value: 'sonnet', displayName: 'Sonnet (Latest Alias)' },
+              { value: 'claude-fable-5-2', displayName: 'claude-fable-5-2' },
+              { value: 'opus', displayName: 'Opus (Latest Alias)' },
+            ];
+          },
+          close() {
+            probeClosed = true;
+          },
+        };
+      }
+      throw new Error('Unexpected query invocation');
+    },
+  };
+
+  const harness = createHarness({
+    env: { CLAUDE_CONFIG_DIR: tmpDir },
+    sdkLoader: async () => mockSdk,
+    fetchImpl: async (url, init) => {
+      seenUrl = url;
+      seenAuth = init?.headers?.Authorization ?? null;
+      return {
+        ok: true,
+        async json() {
+          return {
+            data: [{ id: 'claude-opus-5-5' }, { id: 'claude-haiku-5-5' }],
+          };
+        },
+      };
+    },
+  });
+
+  try {
+    const initRes = await harness.request(1, 'initialize', { workingDir: tmpDir });
+    assert.equal(initRes.error, undefined);
+    assert.equal(seenUrl, 'https://gateway.example/anthropic/v1/models');
+    assert.equal(seenAuth, 'Bearer tok-test-only');
+    assert.equal(initRes.result.officialAnthropicSession, false);
+    assert.equal(probeAborted, true);
+    assert.equal(probeClosed, true);
+
+    const models = initRes.result.models;
+    const ids = models.map((m) => m.value);
+    assert.deepEqual(ids, [
+      'claude-opus-5-5',
+      'claude-haiku-5-5',
+      'claude-fable-5-2',
+      'claude-sonnet-5-5',
+      'sonnet',
+      'opus',
+    ]);
+    assert.equal(models.find((m) => m.value === 'claude-opus-5-5')?.displayName, 'Claude Opus 5.5');
+    assert.equal(models.find((m) => m.value === 'claude-opus-5-5')?.isDefault, true);
+    assert.equal(models.find((m) => m.value === 'claude-fable-5-2')?.displayName, 'Claude Fable 5.2');
+    assert.equal(models.find((m) => m.value === 'claude-sonnet-5-5')?.displayName, 'Claude Sonnet 5.5');
+    assert.equal(models.find((m) => m.value === 'sonnet')?.isDefault, undefined);
+  } finally {
+    await harness.close();
+    await fs.rm(tmpDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+  }
+});
+
+test('effectiveEnv does not inject ANTHROPIC_API_KEY when ANTHROPIC_AUTH_TOKEN is already set', async () => {
+  const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'vibex-claude-auth-guard-'));
+  let capturedEnv = null;
+  const mockSdk = {
+    query({ options }) {
+      capturedEnv = options.env;
+      return (async function* () {
+        yield {
+          type: 'result',
+          subtype: 'success',
+          session_id: 'sess-auth-guard',
+          stop_reason: 'end_turn',
+          result: 'ok',
+        };
+      })();
+    },
+  };
+
+  const harness = createHarness({
+    env: {
+      CLAUDE_CONFIG_DIR: tmpDir,
+      ANTHROPIC_AUTH_TOKEN: 'tok-existing',
+      ANTHROPIC_BASE_URL: 'https://gateway.example/v1',
+    },
+    sdkLoader: async () => mockSdk,
+    fetchImpl: async () => {
+      throw new Error('offline');
+    },
+  });
+
+  try {
+    const initRes = await harness.request(1, 'initialize', {
+      workingDir: tmpDir,
+      auth: { apiKey: 'sk-should-not-override-token' },
+    });
+    assert.equal(initRes.error, undefined);
+    const sendRes = await harness.request(2, 'prompt/send', {
+      promptId: 'prompt-auth-guard',
+      text: 'hi',
+      waitForCompletion: true,
+    });
+    assert.equal(sendRes.error, undefined);
+    assert.equal(capturedEnv.ANTHROPIC_AUTH_TOKEN, 'tok-existing');
+    assert.equal(capturedEnv.ANTHROPIC_API_KEY, undefined);
+  } finally {
+    await harness.close();
+    await fs.rm(tmpDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+  }
+});

@@ -18,7 +18,7 @@ use async_trait::async_trait;
 use command_group::AsyncGroupChild;
 use serde_json::{Value, json};
 use tokio::{
-    io::{AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader},
+    io::{AsyncBufReadExt, AsyncRead, AsyncWrite, BufReader},
     sync::{Mutex as AsyncMutex, broadcast, oneshot},
     time::timeout,
 };
@@ -58,18 +58,6 @@ struct PendingSidecarServerRequest {
     raw_rpc_id: Value,
     prompt_id: Option<String>,
     session_id: Option<String>,
-}
-
-async fn write_jsonrpc_frame(
-    writer: &AsyncMutex<Box<dyn AsyncWrite + Unpin + Send>>,
-    message: &Value,
-) -> Result<(), EngineError> {
-    let mut encoded = serde_json::to_vec(message)?;
-    encoded.push(b'\n');
-    let mut guard = writer.lock().await;
-    guard.write_all(&encoded).await?;
-    guard.flush().await?;
-    Ok(())
 }
 
 /// Live JSON-RPC 2.0 connection to a `claude-native-driver.mjs` Node sidecar process.
@@ -380,7 +368,7 @@ impl ClaudeSidecarClient {
         }
 
         let payload = json!({ "jsonrpc": "2.0", "id": id, "method": method, "params": params });
-        if let Err(err) = write_jsonrpc_frame(&self.writer, &payload).await {
+        if let Err(err) = super::write_jsonrpc_frame(&self.writer, &payload).await {
             if let Ok(mut map) = self.pending.lock() {
                 map.remove(&id);
             }
@@ -434,7 +422,7 @@ impl ClaudeSidecarClient {
                     "interrupt": decision.interrupt,
                 }
             });
-            write_jsonrpc_frame(&self.writer, &response).await?;
+            super::write_jsonrpc_frame(&self.writer, &response).await?;
             let resolved = EngineEvent::PermissionResolved {
                 permission_id: decision.permission_id.clone(),
                 prompt_id: pending.prompt_id,
@@ -592,7 +580,7 @@ async fn run_sidecar_reader_loop<R>(
                         "message": format!("Unsupported server request method `{method_name}`"),
                     }
                 });
-                let _ = write_jsonrpc_frame(&writer, &unsupported).await;
+                let _ = super::write_jsonrpc_frame(&writer, &unsupported).await;
             }
             continue;
         }

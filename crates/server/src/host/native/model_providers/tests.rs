@@ -2736,3 +2736,87 @@ fn the_gate_credential_is_recognized_with_or_without_its_marker() {
         &serde_json::json!({"access_token": "sk-live"})
     ));
 }
+
+#[tokio::test]
+async fn switching_codex_from_structured_catalog_to_plain_model_cleans_vibex_catalog_files() {
+    let temp = tempfile::tempdir().unwrap();
+    let home = temp.path().join("home");
+    let codex_home = home.join(".codex");
+    let store_path = temp.path().join("data/providers.json");
+    let agent_id = AgentId::parse("codex").unwrap();
+    let environment = HashMap::new();
+
+    let structured = save(
+        &store_path,
+        &home,
+        &environment,
+        AgentModelProviderSaveRequest {
+            id: None,
+            name: "Structured".to_string(),
+            agent_id: agent_id.clone(),
+            api_url: "https://structured.example/v1".to_string(),
+            api_key: Some("sk-structured".to_string()),
+            model: r#"{"customs":[{"slug":"gateway-a","base":"official-a"}],"excluded_officials":[],"default_model":"gateway-a"}"#.to_string(),
+        },
+    )
+    .await
+    .unwrap();
+    let structured_id = structured
+        .providers
+        .iter()
+        .find(|p| p.name == "Structured")
+        .unwrap()
+        .id
+        .clone();
+    bind(&store_path, &home, &environment, agent_id.clone(), Some(structured_id))
+        .await
+        .unwrap();
+
+    assert!(codex_home.join(CODEX_CATALOG_FILE).exists());
+    assert!(codex_home.join(CODEX_SOURCE_FILE).exists());
+    let config_before = read_toml_table(&codex_home.join("config.toml")).await.unwrap();
+    assert_eq!(
+        config_before
+            .get("model_catalog_json")
+            .and_then(toml::Value::as_str),
+        Some(CODEX_CATALOG_FILE)
+    );
+
+    let plain = save(
+        &store_path,
+        &home,
+        &environment,
+        AgentModelProviderSaveRequest {
+            id: None,
+            name: "Plain".to_string(),
+            agent_id: agent_id.clone(),
+            api_url: "https://plain.example/v1".to_string(),
+            api_key: Some("sk-plain".to_string()),
+            model: "gpt-custom".to_string(),
+        },
+    )
+    .await
+    .unwrap();
+    let plain_id = plain
+        .providers
+        .iter()
+        .find(|p| p.name == "Plain")
+        .unwrap()
+        .id
+        .clone();
+    bind(&store_path, &home, &environment, agent_id, Some(plain_id))
+        .await
+        .unwrap();
+
+    let config_after = read_toml_table(&codex_home.join("config.toml")).await.unwrap();
+    assert!(
+        config_after.get("model_catalog_json").is_none(),
+        "stale model_catalog_json must be removed when switching to plain model"
+    );
+    assert!(!codex_home.join(CODEX_CATALOG_FILE).exists());
+    assert!(!codex_home.join(CODEX_SOURCE_FILE).exists());
+    assert_eq!(
+        config_after.get("model").and_then(toml::Value::as_str),
+        Some("gpt-custom")
+    );
+}

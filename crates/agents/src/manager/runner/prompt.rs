@@ -289,11 +289,19 @@ impl AgentConnectionRunner {
                                             && !u.contains("api.anthropic.com")
                                             && !u.contains("api.openai.com")
                                     });
+                                let alias_targets = if self.snapshot.agent_id.as_str() == "claude_code" {
+                                    let mut merged_env = self.snapshot.launch_lock.env.clone();
+                                    merged_env.extend(self.snapshot.env.clone());
+                                    crate::end_turn_usage::collect_claude_model_aliases(&merged_env)
+                                } else {
+                                    std::collections::HashMap::new()
+                                };
                                 if let Some(mismatch) =
-                                    crate::end_turn_usage::check_launch_vs_served_model(
+                                    crate::end_turn_usage::check_launch_vs_served_model_with_aliases(
                                         requested_model.as_deref(),
                                         served_model.as_deref(),
                                         custom_base_url,
+                                        &alias_targets,
                                     )
                                 {
                                     self.emit(
@@ -302,18 +310,6 @@ impl AgentConnectionRunner {
                                         AgentEvent::SessionInfoUpdated {
                                             patch: serde_json::json!({
                                                 "modelConsistencyWarning": mismatch,
-                                            }),
-                                        },
-                                    );
-                                    self.emit(
-                                        Some(session_id),
-                                        Some(prompt_id),
-                                        AgentEvent::RawAcpDiagnostic {
-                                            raw: serde_json::json!({
-                                                "kind": "model_consistency_mismatch",
-                                                "requestedModel": mismatch.requested_model,
-                                                "servedModel": mismatch.served_model,
-                                                "customBaseUrl": mismatch.custom_base_url,
                                             }),
                                         },
                                     );

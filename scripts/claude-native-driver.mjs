@@ -29,6 +29,7 @@ import {
   readFiniteNumber,
   readString,
 } from './claude-native-events.mjs';
+import { discoverClaudeModels, readClaudeSettingsEnv } from './claude-native-models.mjs';
 
 export {
   CACHE_TTL_1H_MS,
@@ -265,11 +266,18 @@ function extractMessageModel(message) {
 }
 
 export class ClaudeNativeSidecarServer {
-  constructor({ sendMessage, env = process.env, sdkLoader = resolveClaudeAgentSdk, now = Date.now }) {
+  constructor({
+    sendMessage,
+    env = process.env,
+    sdkLoader = resolveClaudeAgentSdk,
+    now = Date.now,
+    fetchImpl = globalThis.fetch,
+  }) {
     this.sendMessage = sendMessage;
     this.baseEnv = { ...env };
     this.sdkLoader = sdkLoader;
     this.now = now;
+    this.fetchImpl = fetchImpl;
     this.sdkPromise = null;
     this.config = {
       workspaceId: null,
@@ -339,7 +347,13 @@ export class ClaudeNativeSidecarServer {
     };
     const apiKey = readString(this.config.auth?.apiKey);
     const oauthToken = readString(this.config.auth?.oauthToken);
-    if (apiKey) merged.ANTHROPIC_API_KEY = apiKey;
+    if (
+      apiKey &&
+      !readString(merged.ANTHROPIC_API_KEY) &&
+      !readString(merged.ANTHROPIC_AUTH_TOKEN)
+    ) {
+      merged.ANTHROPIC_API_KEY = apiKey;
+    }
     if (oauthToken) merged.CLAUDE_CODE_OAUTH_TOKEN = oauthToken;
     return merged;
   }
@@ -597,8 +611,12 @@ export class ClaudeNativeSidecarServer {
       cacheTtl: params.cacheTtl === '1h' ? '1h' : '5m',
     };
 
+    const effective = this.effectiveEnv();
+    const settingsEnv = await readClaudeSettingsEnv(effective);
+    const mergedEnv = { ...settingsEnv, ...effective };
+
     this.officialSession = isOfficialAnthropicSession({
-      env: { ...this.baseEnv, ...this.config.env },
+      env: mergedEnv,
       auth: this.config.auth,
       configOverrides: this.config.configOverrides,
     });
@@ -610,15 +628,16 @@ export class ClaudeNativeSidecarServer {
       throw new Error('Resolved Claude runtime does not export query()');
     }
 
-    let models = [];
-    if (typeof sdk.supportedModels === 'function') {
-      try {
-        const supported = await sdk.supportedModels();
-        if (Array.isArray(supported)) models = supported;
-      } catch {
-        // Optional probe on SDK; fallback catalog used on host if unavailable.
-      }
-    }
+    const models = await discoverClaudeModels({
+      sdk,
+      env: effective,
+      workingDir: this.config.workingDir,
+      configuredModel: this.config.model,
+      auth: this.config.auth,
+      configOverrides: this.config.configOverrides,
+      fetchImpl: this.fetchImpl,
+      applyExecutableToOptions: applyClaudeExecutableToSdkOptions,
+    });
 
     return {
       protocolVersion: '1.0',
@@ -1154,11 +1173,13 @@ export function startClaudeNativeDriverStdioServer({
   env = process.env,
   sdkLoader = resolveClaudeAgentSdk,
   now = Date.now,
+  fetchImpl = globalThis.fetch,
 } = {}) {
   const server = new ClaudeNativeSidecarServer({
     env,
     sdkLoader,
     now,
+    fetchImpl,
     sendMessage: (frame) => stdout.write(`${JSON.stringify(frame)}\n`),
   });
 

@@ -155,12 +155,16 @@ impl AgentConnectionRunner {
             .get("VIBEX_PROVIDER_INSTANCE_ID")
             .map(|value| value.trim().to_string())
             .filter(|value| !value.is_empty());
+        let isolate_profile = launch_env
+            .get("VIBEX_ISOLATE_PROVIDER_PROFILE")
+            .is_some_and(|value| value.trim() == "1");
         let initial_mcp = self.build_native_session_mcp_json(None).await;
 
         let spec = EngineStartSpec {
             workspace_id: self.snapshot.workspace_id,
             working_dir: self.snapshot.working_dir.clone(),
             provider_instance_id,
+            isolate_profile,
             auth,
             model: launch_env.get("VIBEX_DEFAULT_MODEL").cloned(),
             config_overrides: json!({}),

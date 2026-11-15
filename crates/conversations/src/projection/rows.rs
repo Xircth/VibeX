@@ -901,7 +901,8 @@ fn diagnostic_session_notice(
         | "user_message_acknowledged"
         | "companion_capability"
         | "ext_notification"
-        | "prompt_cancel_requested" => None,
+        | "prompt_cancel_requested"
+        | "model_consistency_mismatch" => None,
         _ => Some(ConversationSessionNotice {
             title: "未识别的会话更新".into(),
             message: Some(label.to_string()),

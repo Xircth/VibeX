@@ -91,21 +91,25 @@ pub fn default_codex_models() -> Vec<EngineModelInfo> {
             id: "gpt-5.4".to_string(),
             label: "GPT-5.4".to_string(),
             description: Some("Flagship coding and reasoning model".to_string()),
+            is_default: false,
         },
         EngineModelInfo {
             id: "gpt-5.3-codex".to_string(),
             label: "GPT-5.3 Codex".to_string(),
             description: Some("Specialized agentic software engineering".to_string()),
+            is_default: false,
         },
         EngineModelInfo {
             id: "gpt-5.4-mini".to_string(),
             label: "GPT-5.4 Mini".to_string(),
             description: Some("Fast low-latency coding model".to_string()),
+            is_default: false,
         },
         EngineModelInfo {
             id: "o3".to_string(),
             label: "o3".to_string(),
             description: Some("Deep analytical reasoning".to_string()),
+            is_default: false,
         },
     ]
 }
@@ -120,6 +124,18 @@ pub(crate) fn parse_codex_models_response(result: &Value) -> Vec<EngineModelInfo
     };
     let mut out = Vec::new();
     for item in items {
+        let is_default = item
+            .get("isDefault")
+            .or_else(|| item.get("is_default"))
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+        let hidden = item
+            .get("hidden")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+        if hidden && !is_default {
+            continue;
+        }
         let Some(id) = str_any(item, &["model", "id", "slug"]) else {
             continue;
         };
@@ -132,6 +148,7 @@ pub(crate) fn parse_codex_models_response(result: &Value) -> Vec<EngineModelInfo
             id,
             label,
             description,
+            is_default,
         });
     }
     out

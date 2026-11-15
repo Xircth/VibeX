@@ -74,6 +74,69 @@ fn default_effort_option(kind: NativeEngineKind) -> AcpSessionConfigOption {
     .category(SessionConfigOptionCategory::ThoughtLevel)
 }
 
+fn resolve_codex_home_dir(env: &HashMap<String, String>) -> Option<std::path::PathBuf> {
+    if let Some(explicit) = env
+        .get("CODEX_HOME")
+        .map(String::as_str)
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    {
+        return Some(std::path::PathBuf::from(explicit));
+    }
+    if let Some(home) = ["USERPROFILE", "HOME"].into_iter().find_map(|key| {
+        env.get(key)
+            .map(String::as_str)
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(std::path::PathBuf::from)
+    }) {
+        return Some(home.join(".codex"));
+    }
+    if let Some(explicit) = std::env::var_os("CODEX_HOME")
+        .filter(|v| !v.is_empty())
+        .map(std::path::PathBuf::from)
+    {
+        return Some(explicit);
+    }
+    ["USERPROFILE", "HOME"]
+        .into_iter()
+        .find_map(|key| {
+            std::env::var_os(key)
+                .filter(|v| !v.is_empty())
+                .map(std::path::PathBuf::from)
+        })
+        .or_else(dirs::home_dir)
+        .map(|home| home.join(".codex"))
+}
+
+fn resolve_native_default_model(
+    kind: NativeEngineKind,
+    env: &HashMap<String, String>,
+) -> Option<String> {
+    match kind {
+        NativeEngineKind::ClaudeNative => {
+            let effective = crate::end_turn_usage::read_claude_settings_env(env);
+            effective
+                .get("ANTHROPIC_MODEL")
+                .map(String::as_str)
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .map(str::to_string)
+        }
+        NativeEngineKind::CodexNative => {
+            let codex_home = resolve_codex_home_dir(env)?;
+            let raw = std::fs::read_to_string(codex_home.join("config.toml")).ok()?;
+            let table = raw.parse::<toml::Table>().ok()?;
+            table
+                .get("model")
+                .and_then(toml::Value::as_str)
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .map(str::to_string)
+        }
+    }
+}
+
 fn build_model_option(
     models: &[EngineModelInfo],
     preferred_default: Option<&str>,
@@ -98,6 +161,7 @@ fn build_model_option(
         .map(str::trim)
         .filter(|s| !s.is_empty())
         .map(str::to_string)
+        .or_else(|| models.iter().find(|m| m.is_default).map(|m| m.id.clone()))
         .unwrap_or_else(|| choices[0].value.0.to_string());
 
     Some(
@@ -364,13 +428,23 @@ impl AgentConnectionRunner {
         let yolo = *self.auto_approve_mode.lock().await == AgentAutoApproveMode::Yolo;
         let mut modes = default_native_modes(kind, yolo);
 
-        let default_model_env = self
+        let mut merged_env: HashMap<String, String> = self
             .snapshot
+            .launch_lock
             .env
+            .iter()
+            .map(|(k, v)| (k.clone(), v.clone()))
+            .collect();
+        for (k, v) in &self.snapshot.env {
+            merged_env.insert(k.clone(), v.clone());
+        }
+        let default_model_env = merged_env
             .get("VIBEX_DEFAULT_MODEL")
-            .map(String::as_str);
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .or_else(|| resolve_native_default_model(kind, &merged_env));
         let mut raw_options = Vec::new();
-        if let Some(model_opt) = build_model_option(&models, default_model_env) {
+        if let Some(model_opt) = build_model_option(&models, default_model_env.as_deref()) {
             raw_options.push(model_opt);
         }
         raw_options.push(default_effort_option(kind));

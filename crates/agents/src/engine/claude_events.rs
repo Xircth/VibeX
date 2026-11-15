@@ -76,31 +76,37 @@ pub fn default_claude_models() -> Vec<EngineModelInfo> {
             id: "claude-sonnet-4-6".to_string(),
             label: "Claude Sonnet 4.6".to_string(),
             description: Some("Balanced coding and reasoning".to_string()),
+            is_default: false,
         },
         EngineModelInfo {
             id: "claude-opus-4-7".to_string(),
             label: "Claude Opus 4.7".to_string(),
             description: Some("Deepest architecture and analysis".to_string()),
+            is_default: false,
         },
         EngineModelInfo {
             id: "claude-haiku-4-5".to_string(),
             label: "Claude Haiku 4.5".to_string(),
             description: Some("Fast lightweight execution".to_string()),
+            is_default: false,
         },
         EngineModelInfo {
             id: "sonnet".to_string(),
             label: "Sonnet (Latest Alias)".to_string(),
             description: None,
+            is_default: false,
         },
         EngineModelInfo {
             id: "opus".to_string(),
             label: "Opus (Latest Alias)".to_string(),
             description: None,
+            is_default: false,
         },
         EngineModelInfo {
             id: "haiku".to_string(),
             label: "Haiku (Latest Alias)".to_string(),
             description: None,
+            is_default: false,
         },
     ]
 }
@@ -137,10 +143,16 @@ pub(super) fn parse_sidecar_models(raw: Option<&Value>) -> Vec<EngineModelInfo> 
             .map(str::trim)
             .filter(|s| !s.is_empty())
             .map(str::to_string);
+        let is_default = item
+            .get("isDefault")
+            .or_else(|| item.get("is_default"))
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
         out.push(EngineModelInfo {
             id: id.to_string(),
             label,
             description,
+            is_default,
         });
     }
     out

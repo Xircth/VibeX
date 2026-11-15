@@ -610,6 +610,7 @@ impl AgentConnectionRunner {
 
                 let auto_mode = *self.auto_approve_mode.lock().await;
                 if let Some(auto_resp) = decide_auto_permission_response(auto_mode, &request) {
+                    let is_cancelled = matches!(auto_resp, AgentPermissionResponse::Cancelled);
                     let selected_id = match &auto_resp {
                         AgentPermissionResponse::Selected { option_id, .. } => {
                             Some(option_id.clone())
@@ -637,11 +638,11 @@ impl AgentConnectionRunner {
                             handle,
                             EnginePermissionDecision {
                                 permission_id,
-                                approved: true,
+                                approved: !is_cancelled,
                                 option_id: selected_id,
                                 updated_input: None,
                                 message: None,
-                                interrupt: false,
+                                interrupt: is_cancelled,
                             },
                         )
                         .await;
@@ -992,28 +993,26 @@ impl AgentConnectionRunner {
                         handle.official_session,
                     );
                 }
-                if let Some(mismatch) = crate::end_turn_usage::check_launch_vs_served_model(
-                    requested_model,
-                    served_model.as_deref(),
-                    custom_base_url,
-                ) {
+                let alias_targets = if kind == NativeEngineKind::ClaudeNative {
+                    let mut merged_env = self.snapshot.launch_lock.env.clone();
+                    merged_env.extend(self.snapshot.env.clone());
+                    crate::end_turn_usage::collect_claude_model_aliases(&merged_env)
+                } else {
+                    HashMap::new()
+                };
+                if let Some(mismatch) =
+                    crate::end_turn_usage::check_launch_vs_served_model_with_aliases(
+                        requested_model,
+                        served_model.as_deref(),
+                        custom_base_url,
+                        &alias_targets,
+                    )
+                {
                     self.emit(
                         Some(session_id),
                         Some(prompt_id),
                         AgentEvent::SessionInfoUpdated {
                             patch: json!({ "modelConsistencyWarning": mismatch }),
-                        },
-                    );
-                    self.emit(
-                        Some(session_id),
-                        Some(prompt_id),
-                        AgentEvent::RawAcpDiagnostic {
-                            raw: json!({
-                                "kind": "model_consistency_mismatch",
-                                "requestedModel": mismatch.requested_model,
-                                "servedModel": mismatch.served_model,
-                                "customBaseUrl": mismatch.custom_base_url,
-                            }),
                         },
                     );
                 }

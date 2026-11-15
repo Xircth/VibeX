@@ -16,7 +16,7 @@ use command_group::AsyncGroupChild;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use tokio::{
-    io::{AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader},
+    io::{AsyncBufReadExt, AsyncRead, AsyncWrite, BufReader},
     sync::{Mutex as AsyncMutex, RwLock as AsyncRwLock, broadcast, oneshot},
     time::timeout,
 };
@@ -52,12 +52,14 @@ const CODEX_RPC_TIMEOUT_MS: u64 = 30_000;
 const EVENT_CHANNEL_CAPACITY: usize = 512;
 
 /// Multi-instance cache key isolating `CodexAppServer` instances across workspace,
-/// `ProviderInstanceConfig`, and credential/base_url fingerprint (§5.1).
+/// `ProviderInstanceConfig`, credential/base_url fingerprint, and native `CODEX_HOME`
+/// configuration/catalog files (§5.1).
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct CodexServerCacheKey {
     pub workspace_id: Uuid,
     pub provider_instance_id: Option<String>,
     pub auth_fingerprint: String,
+    pub native_config_fingerprint: String,
 }
 
 impl CodexServerCacheKey {
@@ -71,8 +73,26 @@ impl CodexServerCacheKey {
                 .filter(|s| !s.is_empty())
                 .map(str::to_string),
             auth_fingerprint: spec.auth_fingerprint(),
+            native_config_fingerprint: spec.native_codex_config_fingerprint(),
         }
     }
+}
+
+/// Evicts all pooled `CodexAppServer` instances from the global cache so subsequent
+/// session starts/reloads pick up modified `config.toml`, `auth.json`, or model catalogs,
+/// shutting down any idle instances that no active driver handle references.
+pub async fn invalidate_codex_servers() -> usize {
+    let drained: Vec<Arc<CodexAppServer>> = {
+        let mut guard = global_codex_servers().write().await;
+        guard.drain().map(|(_, server)| server).collect()
+    };
+    let count = drained.len();
+    for server in drained {
+        if Arc::strong_count(&server) <= 1 {
+            let _ = server.shutdown().await;
+        }
+    }
+    count
 }
 
 /// Tracks auto-compaction progress per Codex thread so turn dispatchers and UI
@@ -150,18 +170,6 @@ fn global_codex_servers() -> &'static AsyncRwLock<HashMap<CodexServerCacheKey, A
     static SERVERS: OnceLock<AsyncRwLock<HashMap<CodexServerCacheKey, Arc<CodexAppServer>>>> =
         OnceLock::new();
     SERVERS.get_or_init(|| AsyncRwLock::new(HashMap::new()))
-}
-
-async fn write_jsonrpc_frame(
-    writer: &AsyncMutex<Box<dyn AsyncWrite + Unpin + Send>>,
-    message: &Value,
-) -> Result<(), EngineError> {
-    let mut encoded = serde_json::to_vec(message)?;
-    encoded.push(b'\n');
-    let mut guard = writer.lock().await;
-    guard.write_all(&encoded).await?;
-    guard.flush().await?;
-    Ok(())
 }
 
 impl CodexAppServer {
@@ -480,7 +488,7 @@ impl CodexAppServer {
     }
 
     async fn write_line(&self, message: &Value) -> Result<(), EngineError> {
-        write_jsonrpc_frame(&self.writer, message).await
+        super::write_jsonrpc_frame(&self.writer, message).await
     }
 
     pub async fn ensure_thread(
@@ -863,7 +871,7 @@ async fn run_reader_loop<R>(
                         "message": format!("Unsupported server request method `{method_name}`"),
                     }
                 });
-                let _ = write_jsonrpc_frame(&writer, &unsupported).await;
+                let _ = super::write_jsonrpc_frame(&writer, &unsupported).await;
             }
             continue;
         }
@@ -1080,11 +1088,16 @@ impl CodexNativeDriver {
         }
 
         let reconnected = get_or_spawn_workspace_server(&ctx.spec).await?;
+        // Preserve in-flight turn identity across reconnection so that steer /
+        // interrupt issued immediately after auto-reconnect can still find the
+        // active prompt/turn IDs and reach the new server.
+        let preserved_prompt_id = ctx.active_prompt_id.read().ok().and_then(|g| *g);
+        let preserved_turn_id = ctx.active_turn_id.read().ok().and_then(|g| g.clone());
         let updated_ctx = Arc::new(CodexHandleContext {
             spec: ctx.spec.clone(),
             server: Arc::clone(&reconnected),
-            active_prompt_id: RwLock::new(None),
-            active_turn_id: RwLock::new(None),
+            active_prompt_id: RwLock::new(preserved_prompt_id),
+            active_turn_id: RwLock::new(preserved_turn_id),
         });
         if let Ok(mut map) = self.handles.write() {
             map.insert(handle.connection_id, Arc::clone(&updated_ctx));
@@ -1126,6 +1139,11 @@ async fn get_or_spawn_workspace_server(
         && existing.is_alive()
     {
         return Ok(Arc::clone(existing));
+    }
+    // Remove any dead entry before spawning so that repeated spawn failures do
+    // not let the map grow monotonically with stale `Arc<CodexAppServer>`s.
+    if write_guard.get(&key).is_some_and(|e| !e.is_alive()) {
+        write_guard.remove(&key);
     }
     let spawned = CodexAppServer::spawn_for_workspace(spec).await?;
     write_guard.insert(key, Arc::clone(&spawned));
@@ -1373,14 +1391,21 @@ impl NativeEngineDriver for CodexNativeDriver {
             .ok()
             .and_then(|mut map| map.remove(&handle.connection_id));
         if let Some(ctx) = removed {
-            let key = CodexServerCacheKey::from_spec(&ctx.spec);
-            let mut guard = global_codex_servers().write().await;
-            if let Some(cached) = guard.get(&key)
-                && Arc::ptr_eq(cached, &ctx.server)
-                && Arc::strong_count(&ctx.server) <= 2
-            {
-                guard.remove(&key);
-                drop(guard);
+            let should_shutdown = {
+                let mut guard = global_codex_servers().write().await;
+                let matching_key = guard.iter().find_map(|(k, cached)| {
+                    (Arc::ptr_eq(cached, &ctx.server) && Arc::strong_count(&ctx.server) <= 2)
+                        .then(|| k.clone())
+                });
+                if let Some(key) = matching_key {
+                    guard.remove(&key);
+                    true
+                } else {
+                    !guard.values().any(|cached| Arc::ptr_eq(cached, &ctx.server))
+                        && Arc::strong_count(&ctx.server) <= 1
+                }
+            };
+            if should_shutdown {
                 let _ = ctx.server.shutdown().await;
             }
         }

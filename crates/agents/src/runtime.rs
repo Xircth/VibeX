@@ -708,6 +708,9 @@ impl AgentRuntime {
         agent_id: &AgentId,
         reason: impl Into<String>,
     ) -> usize {
+        if agent_id.as_str() == "codex" {
+            let _ = crate::engine::codex::invalidate_codex_servers().await;
+        }
         let reason = reason.into();
         let mut state = self.state.write().await;
         let sessions = state

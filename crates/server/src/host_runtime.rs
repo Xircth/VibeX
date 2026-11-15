@@ -4,6 +4,7 @@ use application::{
     AdapterCapabilities, ApplicationCore, CommandRegistry, SqliteConversationRepository,
 };
 use conversations::ConversationContext;
+use deployment::Deployment;
 use plugins::PluginControlPlane;
 use services::services::agent_management_runtime::AgentManagementRuntimeState;
 use sqlx::SqlitePool;
@@ -88,6 +89,20 @@ impl HostRuntime {
         let agent_management_runtime = parts
             .agent_management_runtime
             .unwrap_or_else(|| Arc::new(AgentManagementRuntimeState::default()));
+        {
+            let db_service = parts.deployment.db();
+            conversations::register_acp_replay_history_probe(db_service.reader().clone());
+            if tokio::runtime::Handle::try_current().is_ok() {
+                let _ = conversations::spawn_legacy_jsonl_backfill_worker(
+                    db_service.reader().clone(),
+                    db_service.writer().clone(),
+                );
+                let _ = conversations::spawn_periodic_event_folding_worker(
+                    db_service.writer().clone(),
+                    Arc::new(tokio::sync::Notify::new()),
+                );
+            }
+        }
         let core = host_application_core(
             parts.pool,
             parts.conversations,

@@ -84,6 +84,12 @@ pub struct HeadlessServer {
 
 impl HeadlessServer {
     pub async fn bootstrap(
+        config: ServerBootstrapConfig,
+    ) -> Result<Self, ServerBootstrapError> {
+        Box::pin(Self::bootstrap_inner(config)).await
+    }
+
+    async fn bootstrap_inner(
         mut config: ServerBootstrapConfig,
     ) -> Result<Self, ServerBootstrapError> {
         let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();

@@ -423,6 +423,9 @@ impl PluginConversationHost for HostPluginConversationHost {
                     expected_turn_id,
                     text: request.text,
                     images: request.images,
+                    promoted_input_id: None,
+                    expected_revision: None,
+                    allow_interrupt_restart: true,
                 },
             )
             .await

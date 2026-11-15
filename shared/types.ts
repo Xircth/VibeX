@@ -1289,14 +1289,18 @@ export type AgentPermissionId = string;
 
 export type AgentPermissionOption = { id: string, label: string, kind: AgentPermissionOptionKind, description?: string | null, };
 
-export type AgentPermissionRequest = { id: AgentPermissionId, session_id: AgentSessionId, title: string, details?: JsonValue | null, options: Array<AgentPermissionOption>, };
+export type AgentPermissionRequest = { id: AgentPermissionId, session_id: AgentSessionId, title: string, details?: JsonValue | null, options: Array<AgentPermissionOption>, revision: number, };
 
 export type AgentPermissionResponse = { "kind": "selected", option_id: string,
 /**
  * Host-side: auto-approve remaining permission requests on this connection.
  * Not part of the ACP option itself; stripped before the agent sees the outcome.
  */
-persist?: boolean, } | { "kind": "cancelled" };
+persist?: boolean,
+/**
+ * Optional optimistic concurrency token matching `AgentPermissionRequest::revision`.
+ */
+expected_revision?: number, } | { "kind": "cancelled" };
 
 export type AgentPlan = { entries: Array<AgentPlanEntry>, };
 
@@ -1587,7 +1591,12 @@ details?: JsonValue | null,
  * The selectable permission options (Allow / Allow-always / Reject …) the
  * user picks from to answer the request.
  */
-options?: Array<AgentPermissionOption>, };
+options?: Array<AgentPermissionOption>,
+/**
+ * Authoritative backend approval revision echoed back as `expected_revision`
+ * when the user submits a decision (docs/specs/agent-driver-engine.md §3.2).
+ */
+revision?: number, };
 
 export type ConversationPlanEntry = { id: string, content: string, status: string, priority?: string | null, };
 
@@ -1629,8 +1638,7 @@ export type ConversationTimeline = { conversation_id: string, projection_version
  */
 truncated_from_start: boolean,
 /**
- * Index of the first loaded row in the full projection. Present when
- * older history can still be paged in.
+ * Opaque Base64URL keyset cursor pointing to the oldest row in `rows`.
  */
 older_cursor?: string | null, };
 
@@ -1705,7 +1713,12 @@ export type ConversationRowOpBatch = { conversation_id: string, last_sequence: b
  * when known by the incremental projector. Allows the frontend to distinguish
  * skipped no-op sequences or coalesced intra-batch revisions from dropped batches.
  */
-previous_sequence?: bigint, ops: Array<ConversationRowOp>,
+previous_sequence?: bigint,
+/**
+ * Barrier flag emitted after turn truncation/rollback so connected clients drop
+ * stale rows and reload the authoritative snapshot window.
+ */
+reset?: boolean, ops: Array<ConversationRowOp>,
 /**
  * Latest agent-advertised session modes carried in this batch, if any. Session
  * control state isn't a timeline row, so it rides alongside the row ops rather
@@ -1751,7 +1764,7 @@ export type ConversationSearchHit = { conversation_id: string, workspace_id: str
 /**
  * A short highlighted excerpt around the match (`[` … `]` mark the terms).
  */
-snippet: string, };
+snippet: string, matchSource?: string, matchedRowId?: string, matchedTurnOrdinal?: bigint, };
 
 export type ChatChannelMessageLog = { id: string, channel_id: string,
 /**
@@ -2177,9 +2190,9 @@ export type ConversationInputView = { id: string, conversationId: string, operat
 
 export type ConversationInputSubmission = { input: ConversationInputView, turn: ConversationTurnSnapshot | null, };
 
-export type ConversationSteeringEvent = { "kind": "requested", steering_id: string, operation_id: string, expected_turn_id: string, payload_digest: string, blocks: Array<ConversationInputBlock>, principal: JsonValue, } | { "kind": "accepted", steering_id: string, expected_turn_id: string, } | { "kind": "rejected", steering_id: string, expected_turn_id: string, code: string, message: string, } | { "kind": "unknown", steering_id: string, expected_turn_id: string, message: string, };
+export type ConversationSteeringEvent = { "kind": "requested", steering_id: string, operation_id: string, expected_turn_id: string, payload_digest: string, blocks: Array<ConversationInputBlock>, principal: JsonValue, } | { "kind": "accepted", steering_id: string, expected_turn_id: string, delivery_mode?: ConversationSteeringDeliveryMode, restarted_turn_id?: string, } | { "kind": "rejected", steering_id: string, expected_turn_id: string, code: string, message: string, } | { "kind": "unknown", steering_id: string, expected_turn_id: string, message: string, };
 
-export type ConversationSteeringReceipt = { steeringId: string, conversationId: string, operationId: string, expectedTurnId: string, status: ConversationSteeringStatus, code: string | null, message: string | null, };
+export type ConversationSteeringReceipt = { steeringId: string, conversationId: string, operationId: string, expectedTurnId: string, status: ConversationSteeringStatus, code: string | null, message: string | null, deliveryMode: ConversationSteeringDeliveryMode | null, restartedTurnId: string | null, };
 
 export type ConversationSteeringStatus = "requested" | "accepted" | "rejected" | "unknown";
 
@@ -2386,3 +2399,7 @@ export type RequestActivity = { phase: RequestPhase, retry: RequestRetry | null,
 export type RequestPhase = "submitting" | "waiting_agent" | "waiting_model" | "thinking" | "responding" | "executing_tool" | "waiting_user" | "retrying" | "cancelling" | "completed" | "failed" | "cancelled" | "interrupted";
 
 export type RequestRetry = { attempt: number | null, max_attempts: number | null, delay_ms: bigint | null, reason: string | null, code: string | null, };
+
+export type ConversationRowsSincePage = { conversation_id: string, after_sequence: bigint, last_sequence: bigint, reset: boolean, ops: Array<ConversationRowOp>, };
+
+export type ConversationSteeringDeliveryMode = "native" | "interrupt_restart";

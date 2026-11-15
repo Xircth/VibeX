@@ -1,71 +1,64 @@
-#[cfg(not(windows))]
-use std::collections::HashSet;
+mod auth_projection;
+mod diagnostics_and_env;
+mod native_preflight;
+
 use std::{
     collections::{BTreeMap, HashMap},
     path::{Path, PathBuf},
     sync::Arc,
-    time::Duration,
 };
 
 use agents::{
-    AgentId, AgentUpdateCheckInput, BuiltInProfile, BuiltInProfileCatalog, NativeConfigProvider,
-    NativeConfigSnapshot, NativeFileMutation, NativeFileSystem, NpmRegistryHttpFetcher,
-    ObservedUserComponent, ProfileComponent, ProfileManagementActionKind, RegistryCacheFreshness,
-    TokioNativeFileSystem, apply_built_in_auth_mode_policy, apply_codex_auth_mode,
-    apply_component_versions, auth_mode_credential_env, auth_mode_kind,
+    AgentId, AgentUpdateCheckInput, BuiltInProfileCatalog, NativeConfigProvider, NativeFileSystem,
+    NpmRegistryHttpFetcher, ObservedUserComponent, ProfileComponent, ProfileManagementActionKind,
+    RegistryCacheFreshness, TokioNativeFileSystem, apply_built_in_auth_mode_policy,
+    apply_codex_auth_mode, apply_component_versions, auth_mode_kind,
     authentication_from_account_command, built_in_auth_mode_policy, compose_agent_update_check,
-    headless_account_env, native_uses_custom_endpoint, official_account_present, official_api_url,
-    plan_runtime_acp_compatibility_warning, project_codex_auth_mode, resolve_account_label,
-    resolve_built_in_auth_mode, resolve_observed_authentication, version_at_least,
+    headless_account_env, official_account_present, plan_runtime_acp_compatibility_warning,
+    resolve_observed_authentication,
 };
 use api_types::{
-    AgentAccountFlowStatus, AgentAccountFlowView, AgentAuthModeKind, AgentAuthModeOptionView,
-    AgentAuthModeView, AgentAuthenticationStatus, AgentDiagnosticView, AgentDiscoveryProgressView,
-    AgentEnvironmentDiagnosticCheckView, AgentEnvironmentDiagnosticLevel,
-    AgentEnvironmentDiagnosticSectionView, AgentEnvironmentDiagnosticsView,
-    AgentEnvironmentEntryView, AgentEnvironmentPatchRequest, AgentEnvironmentView,
-    AgentLifecycleState, AgentManagementActionKind, AgentManagementActionReceipt,
-    AgentManagementActionView, AgentManagementActionsView, AgentPreflightItemView,
-    AgentPreflightView, AgentUpdateCheckView,
+    AgentAccountFlowStatus, AgentAccountFlowView, AgentAuthModeKind, AgentAuthModeView,
+    AgentAuthenticationStatus, AgentDiagnosticView, AgentDiscoveryProgressView,
+    AgentEnvironmentDiagnosticsView, AgentEnvironmentPatchRequest, AgentLifecycleState,
+    AgentManagementActionReceipt, AgentManagementActionView, AgentManagementActionsView,
+    AgentPreflightItemView, AgentPreflightView, AgentUpdateCheckView,
 };
 use application::ApplicationError;
 use chrono::Utc;
 use db::models::agent_management::RegistrySnapshotRepository;
 use serde::Deserialize;
-use serde_json::{Value, json};
+use serde_json::Value;
 use services::services::{
     agent_management::AgentManagementApplicationService, agent_registry::AgentRegistrySnapshotStore,
 };
 use sha2::{Digest, Sha256};
 use sqlx::SqlitePool;
 
-use super::{
-    account_flow,
-    native::{
-        apply_native_file_mutations, dsh_configuration, model_providers, opencode_document_paths,
-        opencode_providers, provider_store_path,
+use self::{
+    auth_projection::{
+        bound_provider_has_credentials, preflight_auth_item, project_auth_mode_view_at,
+        read_json_object_or_empty, release_provider_projection, resolve_agent_home,
+        with_account_label,
+    },
+    diagnostics_and_env::{
+        InstalledComponent, apply_environment_patch, build_environment_diagnostics,
+        execute_non_antigravity_action, management_action_kind, management_program_names,
+        parse_agent_env, probe_first_output_line, probe_profile_dependencies,
+        project_agent_environment, resolve_management_program_from_components,
+        spawn_antigravity_login_flow,
+    },
+    native_preflight::{
+        LEGACY_SHIM_REPAIR_DETAIL, PrimaryRuntimePreflightInput,
+        build_primary_runtime_preflight_item, is_native_engine_profile,
     },
 };
+pub(crate) use self::diagnostics_and_env::discover_profile_acp;
+use super::{
+    account_flow,
+    native::{model_providers, provider_store_path},
+};
 use crate::domains::{internal_error, parse, serialize};
-
-const DIAGNOSTIC_COMMAND_TIMEOUT: Duration = Duration::from_secs(5);
-const MAX_AGENT_ENVIRONMENT_ENTRIES: usize = 256;
-const MAX_AGENT_ENVIRONMENT_NAME_BYTES: usize = 128;
-const MAX_AGENT_ENVIRONMENT_VALUE_BYTES: usize = 64 * 1024;
-const MAX_AGENT_ENVIRONMENT_BYTES: usize = 256 * 1024;
-const SAFE_ENVIRONMENT_KEYS: &[&str] = &[
-    "SHELL",
-    "LANG",
-    "NVM_DIR",
-    "FNM_DIR",
-    "FNM_MULTISHELL_PATH",
-    "VOLTA_HOME",
-    "ASDF_DATA_DIR",
-    "MISE_DATA_DIR",
-    "N_PREFIX",
-    "HOMEBREW_PREFIX",
-    "npm_config_prefix",
-];
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -102,15 +95,6 @@ pub(crate) struct CheckUpdateArgs {
     pub(crate) runtime_version: Option<String>,
     pub(crate) acp_version: Option<String>,
     pub(crate) force: Option<bool>,
-}
-
-#[derive(Debug)]
-struct InstalledComponent {
-    kind: String,
-    path: PathBuf,
-    version: String,
-    ownership: String,
-    exists: bool,
 }
 
 pub async fn dispatch_preflight(pool: &SqlitePool, args: Value) -> Result<Value, ApplicationError> {
@@ -195,6 +179,7 @@ pub async fn check_update(
     let components = installed_components(pool, &agent_id).await?;
     let current = components
         .iter()
+        .filter(|component| !agents::launch_program_is_legacy_acp_shim(&agent_id, &component.path))
         .map(|component| ObservedUserComponent {
             component_id: component.kind.clone(),
             version: Some(component.version.clone()),
@@ -297,7 +282,7 @@ pub async fn preflight(
         matches!(
             component.kind.as_str(),
             "agent_runtime" | "combined_runtime"
-        )
+        ) && !agents::launch_program_is_legacy_acp_shim(&agent_id, &component.path)
     });
     let catalog = BuiltInProfileCatalog::management();
     let has_managed_installer = catalog.profile(&agent_id).is_none_or(|_| {
@@ -314,43 +299,65 @@ pub async fn preflight(
             })
             .is_ok()
     });
+    let native_engine = is_native_engine_profile(&agent_id);
+    let legacy_shim_locked = native_engine
+        && acp.is_some_and(|component| {
+            agents::launch_program_is_legacy_acp_shim(&agent_id, &component.path)
+        });
     let mut acp_ok = view.lifecycle != AgentLifecycleState::Uninstalled
-        && acp.is_some_and(|component| component.exists);
+        && acp.is_some_and(|component| component.exists)
+        && !legacy_shim_locked;
     let mut acp_error = None;
     let mut discovered_acp_path = None;
     if !acp_ok {
-        if (view.lifecycle != AgentLifecycleState::Uninstalled
+        if (native_engine
+            || view.lifecycle != AgentLifecycleState::Uninstalled
             || !has_managed_installer
             || agent_id.as_str() == "kiro")
             && let Some(path) = discover_profile_acp(&agent_id).await
         {
             acp_ok = true;
             discovered_acp_path = Some(path);
+        } else if legacy_shim_locked {
+            acp_error = Some(LEGACY_SHIM_REPAIR_DETAIL.to_string());
         } else if acp.is_some() {
-            acp_error = Some("ACP executable is missing on disk".to_string());
+            acp_error = Some(if native_engine {
+                "已记录安装路径，但找不到原生引擎 CLI 可执行文件。".to_string()
+            } else {
+                "ACP executable is missing on disk".to_string()
+            });
         }
     }
-    let discovered_acp_version = match (acp, discovered_acp_path.as_ref()) {
-        (None, Some(path)) => {
-            let version_args = catalog
-                .profile(&agent_id)
-                .and_then(|profile| {
-                    profile
-                        .external_candidates
-                        .iter()
-                        .find(|candidate| {
-                            matches!(
-                                candidate.component,
-                                ProfileComponent::AcpAdapter | ProfileComponent::CombinedRuntime
-                            )
-                        })
-                        .map(|candidate| candidate.version_args)
+    let version_args = catalog
+        .profile(&agent_id)
+        .and_then(|profile| {
+            profile
+                .external_candidates
+                .iter()
+                .find(|candidate| {
+                    matches!(
+                        candidate.component,
+                        ProfileComponent::AcpAdapter | ProfileComponent::CombinedRuntime
+                    )
                 })
-                .unwrap_or(&["--version"]);
+                .map(|candidate| candidate.version_args)
+        })
+        .unwrap_or(&["--version"]);
+    let discovered_acp_version = match discovered_acp_path.as_ref() {
+        Some(path) if acp.is_none() || legacy_shim_locked => {
             probe_first_output_line(path, version_args).await
         }
         _ => None,
     };
+    if legacy_shim_locked {
+        reconcile_legacy_shim_lock(
+            pool,
+            &agent_id,
+            discovered_acp_path.as_deref(),
+            discovered_acp_version.as_deref(),
+        )
+        .await;
+    }
     let runtime_ok =
         runtime.is_some_and(|component| component.exists) || view.local_runtime.is_some() || acp_ok;
 
@@ -400,18 +407,24 @@ pub async fn preflight(
         .await
         .map_err(internal_error)?;
 
-    let status = |pass: bool| if pass { "pass" } else { "fail" }.to_string();
-    let acp_version = acp
+    let valid_acp = acp.filter(|_| !legacy_shim_locked);
+    let primary_item_version = valid_acp
         .map(|component| component.version.clone())
-        .or_else(|| discovered_acp_version.clone())
-        .or_else(|| view.acp_version.clone());
-    let acp_path = acp
-        .map(|component| component.path.display().to_string())
+        .or(discovered_acp_version)
         .or_else(|| {
-            discovered_acp_path
-                .as_ref()
-                .map(|path| path.display().to_string())
+            (!legacy_shim_locked)
+                .then(|| {
+                    if native_engine {
+                        view.runtime_version.clone().or_else(|| view.acp_version.clone())
+                    } else {
+                        view.acp_version.clone()
+                    }
+                })
+                .flatten()
         });
+    let primary_item_path = valid_acp
+        .map(|component| component.path.display().to_string())
+        .or_else(|| discovered_acp_path.map(|path| path.display().to_string()));
     let external_installer_url = (!has_managed_installer && agent_id.as_str() == "kiro")
         .then_some("https://kiro.dev/docs/getting-started/installation/");
     let adapter_relation = agents::acp_adapter_relation(agent_id.as_str());
@@ -421,37 +434,22 @@ pub async fn preflight(
         }
         None => None,
     };
-    let mut items = vec![
-        launch_entry_preflight_item(view.retired, acp_version, acp_path),
-        AgentPreflightItemView {
-            id: "acp".to_string(),
-            label: "ACP 适配器".to_string(),
-            status: status(acp_ok),
-            detail: if acp_ok {
-                String::new()
-            } else if let Some(error) = acp_error.as_ref() {
-                error.clone()
-            } else if external_installer_url.is_some() {
-                "Kiro CLI 在当前系统通过官方安装器分发，请先安装 kiro-cli 后点击立即检查。"
-                    .to_string()
-            } else if acp.is_none() {
-                acp_missing_preflight_detail(adapter_relation, vendor_cli_path.as_deref())
-            } else {
-                "已记录安装路径，但找不到 ACP 可执行文件。".to_string()
-            },
-            version: acp
-                .map(|component| component.version.clone())
-                .or(discovered_acp_version),
-            path: acp
-                .map(|component| component.path.display().to_string())
-                .or_else(|| discovered_acp_path.map(|path| path.display().to_string())),
-            source: None,
+    let mut items = vec![build_primary_runtime_preflight_item(
+        PrimaryRuntimePreflightInput {
+            retired: view.retired,
+            native_engine,
+            acp_ok,
+            legacy_shim_locked,
+            has_recorded_component: acp.is_some(),
+            acp_error: acp_error.as_deref(),
+            external_installer_url,
+            adapter_relation,
+            vendor_cli_path: vendor_cli_path.as_deref(),
+            version: primary_item_version,
+            path: primary_item_path,
             repairable: has_managed_installer,
-            update_available: false,
-            available_version: None,
-            update_group: None,
         },
-    ];
+    )];
     items.extend(dependency_items);
     items.extend(auth_mode_item);
     Ok(AgentPreflightView {
@@ -461,95 +459,22 @@ pub async fn preflight(
     })
 }
 
-fn nonempty_preflight_text(value: Option<String>) -> Option<String> {
-    value.and_then(|value| {
-        let trimmed = value.trim();
-        (!trimmed.is_empty()).then(|| trimmed.to_string())
-    })
-}
-
-fn acp_missing_preflight_detail(
-    relation: Option<agents::AcpAdapterRelation>,
-    vendor_cli_path: Option<&Path>,
-) -> String {
-    match (relation, vendor_cli_path) {
-        (Some(relation), Some(path)) => format!(
-            "已检测到 {} ({})，但未发现 ACP 适配器；适配器与 CLI 共用 {} 登录态。",
-            relation.native_label,
-            path.display(),
-            relation.shared_config_dir
-        ),
-        (Some(relation), None) => format!(
-            "未发现 ACP 安装组件（适配器与 {} 共用 {} 登录态）。",
-            relation.native_label, relation.shared_config_dir
-        ),
-        (None, _) => "未发现 ACP 安装组件。".to_string(),
-    }
-}
-
-fn vendor_cli_diagnostic_check(
-    relation: agents::AcpAdapterRelation,
-    acp_present: bool,
-    vendor_cli_path: Option<&Path>,
-) -> AgentEnvironmentDiagnosticCheckView {
-    let value = match vendor_cli_path {
-        Some(path) if !acp_present => format!(
-            "{} ({}) · 共享 {} 登录态（仍需安装 ACP 适配器）",
-            relation.native_label,
-            path.display(),
-            relation.shared_config_dir
-        ),
-        Some(path) => format!(
-            "{} ({}) · 共享 {}",
-            relation.native_label,
-            path.display(),
-            relation.shared_config_dir
-        ),
-        None => format!(
-            "NOT RESOLVED ({}) · 共享 {}",
-            relation.native_cmd, relation.shared_config_dir
-        ),
+async fn reconcile_legacy_shim_lock(
+    pool: &SqlitePool,
+    agent_id: &AgentId,
+    native_path: Option<&Path>,
+    probed_version: Option<&str>,
+) {
+    let sha256 = match native_path {
+        Some(path) => tokio::fs::read(path)
+            .await
+            .ok()
+            .map(|bytes| format!("{:x}", Sha256::digest(bytes))),
+        None => None,
     };
-    let level = match (acp_present, vendor_cli_path.is_some()) {
-        (false, true) => AgentEnvironmentDiagnosticLevel::Warning,
-        (true, true) => AgentEnvironmentDiagnosticLevel::Ok,
-        (_, false) => AgentEnvironmentDiagnosticLevel::Info,
-    };
-    check(
-        "vendor_cli",
-        "agents.environmentDiagnosticVendorCli",
-        value,
-        level,
-        None,
-    )
-}
-
-fn launch_entry_preflight_item(
-    retired: bool,
-    version: Option<String>,
-    path: Option<String>,
-) -> AgentPreflightItemView {
-    let version = nonempty_preflight_text(version);
-    let path = nonempty_preflight_text(path);
-    AgentPreflightItemView {
-        id: "membership".to_string(),
-        label: "运行入口".to_string(),
-        status: if retired { "fail" } else { "pass" }.to_string(),
-        detail: if retired {
-            "此 Agent 仅保留历史记录。".to_string()
-        } else if version.is_some() {
-            "运行入口可用。".to_string()
-        } else {
-            "运行入口可用，但未能确认版本。".to_string()
-        },
-        version,
-        path,
-        source: None,
-        repairable: false,
-        update_available: false,
-        available_version: None,
-        update_group: None,
-    }
+    let _ = AgentManagementApplicationService::new(pool.clone())
+        .reconcile_legacy_shim_lock(agent_id, native_path, probed_version, sha256.as_deref())
+        .await;
 }
 
 pub async fn diagnostics(
@@ -632,262 +557,8 @@ pub async fn environment_diagnostics(
         .profile(&agent_id)
         .ok_or_else(|| ApplicationError::bad_request("环境诊断当前只适用于内置 Agent"))?;
     require_membership(pool, &agent_id).await?;
-
-    let app_path = std::env::var_os("PATH").unwrap_or_default();
-    let app_path_entries = std::env::split_paths(&app_path)
-        .filter(|path| !path.as_os_str().is_empty())
-        .collect::<Vec<_>>();
-    let target_command = profile
-        .external_candidates
-        .iter()
-        .find(|candidate| {
-            matches!(
-                candidate.component,
-                ProfileComponent::AcpAdapter | ProfileComponent::CombinedRuntime
-            )
-        })
-        .or_else(|| profile.external_candidates.first())
-        .map(|candidate| candidate.executable)
-        .unwrap_or(profile.agent_id.as_str());
-    let target_on_app_path = resolve_on_path(target_command).await;
-    let terminal = terminal_path_probe(target_command, &app_path_entries).await;
     let installed = installed_components(pool, &agent_id).await?;
-
-    let mut runtime_checks = vec![
-        check(
-            "os_arch",
-            "agents.environmentDiagnosticOsArch",
-            format!("{} / {}", std::env::consts::OS, std::env::consts::ARCH),
-            AgentEnvironmentDiagnosticLevel::Info,
-            None,
-        ),
-        check(
-            "app_version",
-            "agents.environmentDiagnosticAppVersion",
-            env!("CARGO_PKG_VERSION").to_string(),
-            AgentEnvironmentDiagnosticLevel::Info,
-            None,
-        ),
-        check(
-            "shell",
-            "agents.environmentDiagnosticShell",
-            std::env::var("SHELL").unwrap_or_else(|_| "N/A".to_string()),
-            AgentEnvironmentDiagnosticLevel::Info,
-            None,
-        ),
-        check(
-            "app_path",
-            "agents.environmentDiagnosticAppPath",
-            app_path_entries.len().to_string(),
-            AgentEnvironmentDiagnosticLevel::Info,
-            Some("agents.environmentDiagnosticAppPathHint"),
-        ),
-    ];
-    runtime_checks.extend(SAFE_ENVIRONMENT_KEYS.iter().filter_map(|key| {
-        std::env::var(key).ok().map(|value| {
-            check(
-                &format!("environment.{key}"),
-                "agents.environmentDiagnosticSafeEnvironment",
-                format!("{key}={value}"),
-                AgentEnvironmentDiagnosticLevel::Info,
-                None,
-            )
-        })
-    }));
-
-    let mut dependency_checks = Vec::with_capacity(profile.dependencies.len());
-    let mut missing_required_dependency = false;
-    for dependency in profile.dependencies {
-        let path = resolve_on_path(dependency.executable).await;
-        let version = match path.as_ref() {
-            Some(path) => probe_first_output_line(path, dependency.version_args).await,
-            None => None,
-        };
-        let version_ok = version
-            .as_deref()
-            .map(|version| dependency_version_ok(dependency.requirement, version))
-            .unwrap_or(path.is_some());
-        let healthy = path.is_some() && version_ok;
-        if dependency.required && !healthy {
-            missing_required_dependency = true;
-        }
-        let level = if healthy {
-            AgentEnvironmentDiagnosticLevel::Ok
-        } else if dependency.required {
-            AgentEnvironmentDiagnosticLevel::Error
-        } else {
-            AgentEnvironmentDiagnosticLevel::Warning
-        };
-        let value = match (version, path) {
-            (Some(version), Some(path)) => format!("{version} ({})", path.display()),
-            (None, Some(path)) => path.display().to_string(),
-            _ => format!("NOT FOUND · {}", dependency.requirement),
-        };
-        dependency_checks.push(check(
-            &format!("dependency.{}", dependency.id),
-            &format!("agents.environmentDiagnosticDependency.{}", dependency.id),
-            value,
-            level,
-            (!healthy).then_some(if dependency.required {
-                "agents.environmentDiagnosticDependencyRequired"
-            } else {
-                "agents.environmentDiagnosticDependencyOptional"
-            }),
-        ));
-    }
-    if dependency_checks.is_empty() {
-        dependency_checks.push(check(
-            "dependency.none",
-            "agents.environmentDiagnosticNoDependencies",
-            "N/A".to_string(),
-            AgentEnvironmentDiagnosticLevel::Info,
-            None,
-        ));
-    }
-
-    let managed_launchable = installed.iter().any(|component| {
-        component.exists && matches!(component.kind.as_str(), "acp_adapter" | "combined_runtime")
-    });
-    let launchable = managed_launchable || target_on_app_path.is_some();
-    let mut installation_checks = installed
-        .iter()
-        .map(|component| {
-            check(
-                &format!("component.{}", component.kind),
-                &format!("agents.environmentDiagnosticComponent.{}", component.kind),
-                format!(
-                    "{} · {} · {}",
-                    component.version,
-                    component.ownership,
-                    component.path.display()
-                ),
-                if component.exists {
-                    AgentEnvironmentDiagnosticLevel::Ok
-                } else {
-                    AgentEnvironmentDiagnosticLevel::Error
-                },
-                (!component.exists).then_some("agents.environmentDiagnosticComponentMissing"),
-            )
-        })
-        .collect::<Vec<_>>();
-    installation_checks.push(check(
-        "target_command",
-        "agents.environmentDiagnosticTargetCommand",
-        target_on_app_path
-            .as_ref()
-            .map(|path| path.display().to_string())
-            .unwrap_or_else(|| {
-                if managed_launchable {
-                    "user environment".to_string()
-                } else {
-                    "NOT RESOLVED".to_string()
-                }
-            }),
-        if launchable {
-            AgentEnvironmentDiagnosticLevel::Ok
-        } else {
-            AgentEnvironmentDiagnosticLevel::Error
-        },
-        managed_launchable.then_some("agents.environmentDiagnosticManagedLaunch"),
-    ));
-    if let Some(relation) = agents::acp_adapter_relation(agent_id.as_str()) {
-        let vendor_cli = agents::resolve_vendor_cli(relation.native_cmd, relation.extra_dirs).await;
-        installation_checks.push(vendor_cli_diagnostic_check(
-            relation,
-            launchable,
-            vendor_cli.as_deref(),
-        ));
-    }
-
-    let terminal_has_gap = target_on_app_path.is_none() && terminal.command_path.is_some();
-    let mut terminal_checks = vec![check(
-        "terminal_command",
-        "agents.environmentDiagnosticTerminalCommand",
-        terminal
-            .command_path
-            .clone()
-            .or(terminal.note.clone())
-            .unwrap_or_else(|| "NOT RESOLVED".to_string()),
-        if terminal_has_gap {
-            AgentEnvironmentDiagnosticLevel::Warning
-        } else {
-            AgentEnvironmentDiagnosticLevel::Info
-        },
-        terminal_has_gap.then_some("agents.environmentDiagnosticTerminalGap"),
-    )];
-    terminal_checks.push(check(
-        "terminal_extra_paths",
-        "agents.environmentDiagnosticTerminalExtraPaths",
-        if terminal.extra_directories.is_empty() {
-            "none".to_string()
-        } else {
-            terminal.extra_directories.join("\n")
-        },
-        if terminal.extra_directories.is_empty() {
-            AgentEnvironmentDiagnosticLevel::Ok
-        } else {
-            AgentEnvironmentDiagnosticLevel::Warning
-        },
-        (!terminal.extra_directories.is_empty())
-            .then_some("agents.environmentDiagnosticTerminalExtraPathsHint"),
-    ));
-
-    let (verdict_code, verdict_level) = if missing_required_dependency {
-        ("dependency_missing", AgentEnvironmentDiagnosticLevel::Error)
-    } else if !launchable && terminal_has_gap {
-        (
-            "terminal_path_gap",
-            AgentEnvironmentDiagnosticLevel::Warning,
-        )
-    } else if !launchable {
-        ("agent_not_resolved", AgentEnvironmentDiagnosticLevel::Error)
-    } else if installed.iter().any(|component| !component.exists) {
-        (
-            "installation_invalid",
-            AgentEnvironmentDiagnosticLevel::Error,
-        )
-    } else {
-        ("ok", AgentEnvironmentDiagnosticLevel::Ok)
-    };
-
-    let sections = vec![
-        section(
-            "runtime",
-            "agents.environmentDiagnosticRuntime",
-            runtime_checks,
-        ),
-        section(
-            "dependencies",
-            "agents.environmentDiagnosticDependencies",
-            dependency_checks,
-        ),
-        section(
-            "installation",
-            "agents.environmentDiagnosticInstallation",
-            installation_checks,
-        ),
-        section(
-            "terminal",
-            "agents.environmentDiagnosticTerminal",
-            terminal_checks,
-        ),
-    ];
-    let generated_at = Utc::now().to_rfc3339();
-    let plain_text = render_plain_text(
-        &agent_id,
-        verdict_code,
-        &sections,
-        &generated_at,
-        &app_path_entries,
-    );
-    Ok(AgentEnvironmentDiagnosticsView {
-        agent_id,
-        verdict_code: verdict_code.to_string(),
-        verdict_level,
-        sections,
-        generated_at,
-        plain_text,
-    })
+    Ok(build_environment_diagnostics(agent_id, profile, &installed).await)
 }
 
 pub async fn actions(
@@ -952,49 +623,15 @@ pub async fn run_action(
         return start_antigravity_login(pool, agent_id, action).await;
     }
 
-    if let Some(url) = action.url {
-        utils::browser::open_browser(url)
-            .await
-            .map_err(internal_error)?;
+    let (environment, resolved_program) = if action.url.is_some() {
+        (HashMap::new(), None)
     } else {
         let environment = read_agent_environment(pool, &agent_id).await?;
-        let program = resolve_management_action_program(pool, &agent_id, action, &environment)
-            .await
-            .ok_or_else(|| {
-                ApplicationError::bad_request(format!(
-                    "未找到 {}；请重新安装或修复此 Agent。",
-                    management_program_names(action)
-                ))
-            })?;
-        let command = std::iter::once(program.path.display().to_string())
-            .chain(program.args)
-            .map(|part| shell_quote_management_part(&part))
-            .collect::<Vec<_>>()
-            .join(" ");
-        let watches_account = matches!(
-            action.kind,
-            ProfileManagementActionKind::Login | ProfileManagementActionKind::Logout
-        );
-        let result_path =
-            watches_account.then(|| account_flow::account_flow_result_path(&agent_id));
-        if let Some(result_path) = &result_path {
-            let _ = tokio::fs::remove_file(result_path).await;
-            account_flow::register_account_flow(
-                &agent_id,
-                action.id,
-                action.kind,
-                result_path.clone(),
-            );
-        }
-        launch_watched_management_action(
-            &agent_id,
-            action.id,
-            &environment,
-            &command,
-            result_path.as_deref(),
-        )
-        .await?;
-    }
+        let program =
+            resolve_management_action_program(pool, &agent_id, action, &environment).await;
+        (environment, program)
+    };
+    execute_non_antigravity_action(&agent_id, action, &environment, resolved_program).await?;
 
     Ok(AgentManagementActionReceipt {
         agent_id,
@@ -1003,9 +640,6 @@ pub async fn run_action(
     })
 }
 
-/// Signs in to Antigravity by running its ACP server until the browser OAuth
-/// it starts completes. The result reaches the UI through the same account-flow
-/// exit file a terminal action writes, so the frontend watches both alike.
 async fn start_antigravity_login(
     pool: &SqlitePool,
     agent_id: AgentId,
@@ -1027,7 +661,7 @@ async fn start_antigravity_login(
             ));
         }
     }
-    let mut environment = read_agent_environment(pool, &agent_id).await?;
+    let environment = read_agent_environment(pool, &agent_id).await?;
     let program = resolve_management_action_program(pool, &agent_id, action, &environment)
         .await
         .ok_or_else(|| {
@@ -1036,38 +670,7 @@ async fn start_antigravity_login(
                 management_program_names(action)
             ))
         })?;
-    let report = agents::apply_antigravity_launch_env(&mut environment);
-    if let (agents::AntigravitySyncStatus::Skipped, Some(reason)) = (report.status, report.reason) {
-        return Err(ApplicationError::bad_request(format!(
-            "无法写入 Antigravity 登录设置：{reason}"
-        )));
-    }
-    let cwd =
-        dirs::home_dir().ok_or_else(|| ApplicationError::internal("home directory missing"))?;
-    let result_path = account_flow::account_flow_result_path(&agent_id);
-    let _ = tokio::fs::remove_file(&result_path).await;
-    account_flow::register_account_flow(&agent_id, action.id, action.kind, result_path.clone());
-    let receipt = AgentManagementActionReceipt {
-        agent_id,
-        action_id: action.id.to_string(),
-        launched: true,
-    };
-    tokio::spawn(async move {
-        let outcome = agents::run_antigravity_login(
-            &program.path,
-            &program.args,
-            &environment,
-            &cwd,
-            agents::ANTIGRAVITY_LOGIN_TIMEOUT,
-        )
-        .await;
-        if let Err(reason) = &outcome {
-            tracing::warn!(%reason, "Antigravity sign-in failed");
-        }
-        let exit_code = i32::from(outcome.is_err());
-        let _ = tokio::fs::write(&result_path, format!("{exit_code}\n")).await;
-    });
-    Ok(receipt)
+    spawn_antigravity_login_flow(agent_id, action, environment, program).await
 }
 
 pub async fn account_flow_status(
@@ -1171,11 +774,6 @@ pub async fn auth_mode_set(
             )));
         }
     }
-    // Leaving Provider routing has to take the Provider's projection back out of
-    // the Agent's own config. The mode alone changes nothing the CLI reads: as
-    // long as the projection is in place, the Agent keeps routing to the
-    // Provider and the chosen mode never takes effect. The Provider itself stays
-    // saved and can be bound again.
     if mode != "model_provider" {
         let home =
             dirs::home_dir().ok_or_else(|| ApplicationError::internal("home directory missing"))?;
@@ -1195,36 +793,6 @@ pub async fn auth_mode_set(
     }
     let _ = persist_observed_authentication(pool, &agent_id).await;
     with_account_label(project_auth_mode_view(pool, agent_id, &env).await?).await
-}
-
-/// Restores the Agent's own configuration from the projection backup taken when
-/// the Provider was bound, then drops the binding.
-///
-/// Unbinding is what removes the projection — `forget_binding` would drop the
-/// binding but leave the Agent still pointed at the Provider.
-async fn release_provider_projection(
-    home: &Path,
-    store_path: &Path,
-    agent_id: &AgentId,
-    env: &HashMap<String, String>,
-) -> Result<(), ApplicationError> {
-    let native_home = model_providers::provider_native_home(home, env, agent_id);
-    let providers =
-        match model_providers::list_with_native(store_path, agent_id.clone(), Some(&native_home))
-            .await
-        {
-            Ok(view) => view,
-            // An Agent without reusable Providers never had a projection to undo.
-            Err(error) if error.contains("不支持可复用 Model Provider") => return Ok(()),
-            Err(error) => return Err(ApplicationError::internal(error.to_string())),
-        };
-    if providers.bound_provider_id.is_none() {
-        return Ok(());
-    }
-    model_providers::bind(store_path, home, env, agent_id.clone(), None)
-        .await
-        .map_err(|error| ApplicationError::internal(error.to_string()))?;
-    Ok(())
 }
 
 pub async fn discovery_progress(
@@ -1247,266 +815,6 @@ async fn project_auth_mode_view(
     project_auth_mode_view_at(&home, &provider_store_path(), agent_id, env).await
 }
 
-async fn project_auth_mode_view_at(
-    home: &Path,
-    store_path: &Path,
-    agent_id: AgentId,
-    env: &HashMap<String, String>,
-) -> Result<AgentAuthModeView, ApplicationError> {
-    let native_home = model_providers::provider_native_home(home, env, &agent_id);
-    let providers =
-        match model_providers::list_with_native(store_path, agent_id.clone(), Some(&native_home))
-            .await
-        {
-            Ok(view) => view,
-            Err(error) if error.contains("不支持可复用 Model Provider") => {
-                api_types::AgentModelProvidersView {
-                    agent_id: agent_id.clone(),
-                    providers: Vec::new(),
-                    bound_provider_id: None,
-                }
-            }
-            Err(error) => return Err(ApplicationError::internal(error.to_string())),
-        };
-    let bound = providers.bound_provider_id.is_some();
-    if agent_id.as_str() == "codex" {
-        return read_codex_auth_mode(home, env, bound, &providers).await;
-    }
-    if agent_id.as_str() == "deepseek_harness" {
-        return read_dsh_auth_mode(home, env).await;
-    }
-    if agent_id.as_str() == "opencode" {
-        return read_opencode_auth_mode(home, env, bound, &providers).await;
-    }
-    let policy = built_in_auth_mode_policy(&agent_id)
-        .ok_or_else(|| ApplicationError::bad_request("此 Agent 没有独立鉴权模式"))?;
-    let snapshot = read_native_auth_snapshot(home, env, &agent_id).await;
-    let native_custom = snapshot
-        .as_ref()
-        .is_some_and(|snapshot| native_uses_custom_endpoint(&agent_id, snapshot));
-    let mode = resolve_built_in_auth_mode(
-        &agent_id,
-        policy,
-        env,
-        bound,
-        native_custom,
-        snapshot.as_ref(),
-    );
-    let credential_env =
-        auth_mode_credential_env(&agent_id, &mode).unwrap_or(policy.credential_env);
-    let credential_present = credential_present_for_mode(
-        &agent_id,
-        &mode,
-        env,
-        credential_env,
-        &providers,
-        snapshot.as_ref(),
-    );
-    let headless_account_env = headless_account_env(&agent_id).map(str::to_string);
-    Ok(AgentAuthModeView {
-        options: project_auth_mode_options(&agent_id, policy.modes),
-        agent_id,
-        mode,
-        modes: policy
-            .modes
-            .iter()
-            .map(|mode| (*mode).to_string())
-            .collect(),
-        credential_env: credential_env.to_string(),
-        credential_present,
-        account_label: None,
-        headless_account_env,
-    })
-}
-
-fn credential_present_for_mode(
-    agent_id: &AgentId,
-    mode: &str,
-    env: &HashMap<String, String>,
-    credential_env: &str,
-    providers: &api_types::AgentModelProvidersView,
-    snapshot: Option<&NativeConfigSnapshot>,
-) -> bool {
-    match (agent_id.as_str(), mode) {
-        (_, "model_provider") => model_provider_credential_present(providers, snapshot),
-        ("claude_code", "official_api" | "custom") => {
-            snapshot.is_some_and(|snapshot| snapshot.field_present("anthropic_api_key"))
-        }
-        ("grok", "api_key" | "custom") => {
-            snapshot.is_some_and(|snapshot| snapshot.field_present("grok_api_key"))
-        }
-        ("antigravity" | "gemini", "gemini-api-key") => {
-            snapshot.is_some_and(|snapshot| snapshot.field_present("antigravity_api_key"))
-        }
-        ("antigravity" | "gemini", "agent-platform") => snapshot.is_some_and(|snapshot| {
-            snapshot.field_present("antigravity_google_api_key")
-                || (snapshot.field_text("antigravity_cloud_project").is_some()
-                    && snapshot.field_text("antigravity_cloud_location").is_some())
-        }),
-        (_, "official_subscription" | "subscription") => {
-            headless_account_env(agent_id)
-                .and_then(|key| env.get(key))
-                .is_some_and(|value| !value.trim().is_empty())
-                || env
-                    .get(credential_env)
-                    .is_some_and(|value| !value.trim().is_empty())
-                || native_secret_present(snapshot)
-        }
-        _ => {
-            env.get(credential_env)
-                .is_some_and(|value| !value.trim().is_empty())
-                || native_secret_present(snapshot)
-        }
-    }
-}
-
-fn model_provider_credential_present(
-    providers: &api_types::AgentModelProvidersView,
-    snapshot: Option<&NativeConfigSnapshot>,
-) -> bool {
-    providers
-        .providers
-        .iter()
-        .any(|provider| provider.credential_present)
-        || native_secret_present(snapshot)
-}
-
-fn native_secret_present(snapshot: Option<&NativeConfigSnapshot>) -> bool {
-    snapshot.is_some_and(|snapshot| {
-        matches!(
-            snapshot.authentication,
-            AgentAuthenticationStatus::ApiKey | AgentAuthenticationStatus::Account
-        ) || snapshot
-            .fields
-            .iter()
-            .any(|field| field.secret && field.present)
-    })
-}
-
-async fn read_native_auth_snapshot(
-    home: &Path,
-    env: &HashMap<String, String>,
-    agent_id: &AgentId,
-) -> Option<NativeConfigSnapshot> {
-    NativeConfigProvider::with_environment(
-        Arc::new(TokioNativeFileSystem),
-        home.to_path_buf(),
-        env.clone().into_iter().collect(),
-    )
-    .read(agent_id, false)
-    .await
-    .ok()
-}
-
-async fn read_codex_auth_mode(
-    home: &Path,
-    env: &HashMap<String, String>,
-    bound: bool,
-    providers: &api_types::AgentModelProvidersView,
-) -> Result<AgentAuthModeView, ApplicationError> {
-    let agent_id = AgentId::parse("codex").map_err(internal_error)?;
-    let codex_home = resolve_agent_home(home, env, "CODEX_HOME", ".codex");
-    let auth = read_json_object_or_empty(&codex_home.join("auth.json")).await?;
-    let projection = project_codex_auth_mode(&auth, bound);
-    let mut credential_present = projection.credential_present;
-    credential_present = credential_present
-        || providers
-            .providers
-            .iter()
-            .any(|provider| provider.credential_present);
-    Ok(AgentAuthModeView {
-        options: project_auth_mode_options(&agent_id, agents::CODEX_AUTH_MODES),
-        agent_id,
-        mode: projection.mode.to_string(),
-        modes: agents::CODEX_AUTH_MODES
-            .iter()
-            .map(|mode| (*mode).to_string())
-            .collect(),
-        credential_env: "OPENAI_API_KEY".to_string(),
-        credential_present,
-        account_label: None,
-        headless_account_env: None,
-    })
-}
-
-async fn read_dsh_auth_mode(
-    home: &Path,
-    env: &HashMap<String, String>,
-) -> Result<AgentAuthModeView, ApplicationError> {
-    let agent_id = AgentId::parse("deepseek_harness").map_err(internal_error)?;
-    let policy = built_in_auth_mode_policy(&agent_id)
-        .ok_or_else(|| ApplicationError::bad_request("此 Agent 没有独立鉴权模式"))?;
-    let paths = dsh_configuration::resolve_paths(home, env);
-    let snapshot = read_native_auth_snapshot(home, env, &agent_id).await;
-    let mode =
-        dsh_configuration::inferred_auth_mode(&paths, env.get(policy.mode_env).map(String::as_str))
-            .to_string();
-    let credential_present = dsh_configuration::any_credential_present(&paths)
-        || env
-            .get(policy.credential_env)
-            .is_some_and(|value| !value.trim().is_empty())
-        || native_secret_present(snapshot.as_ref());
-    Ok(AgentAuthModeView {
-        options: project_auth_mode_options(&agent_id, policy.modes),
-        agent_id,
-        mode,
-        modes: policy
-            .modes
-            .iter()
-            .map(|mode| (*mode).to_string())
-            .collect(),
-        credential_env: policy.credential_env.to_string(),
-        credential_present,
-        account_label: None,
-        headless_account_env: None,
-    })
-}
-
-async fn read_opencode_auth_mode(
-    home: &Path,
-    env: &HashMap<String, String>,
-    bound: bool,
-    providers: &api_types::AgentModelProvidersView,
-) -> Result<AgentAuthModeView, ApplicationError> {
-    let agent_id = AgentId::parse("opencode").map_err(internal_error)?;
-    let policy = built_in_auth_mode_policy(&agent_id)
-        .ok_or_else(|| ApplicationError::bad_request("此 Agent 没有独立鉴权模式"))?;
-    let (auth_path, config_path) = opencode_document_paths(home, env);
-    let auth = read_json_object_or_empty(&auth_path)
-        .await
-        .unwrap_or_else(|_| serde_json::json!({}));
-    let config = read_json_object_or_empty(&config_path)
-        .await
-        .unwrap_or_else(|_| serde_json::json!({}));
-    let provider_ready = opencode_providers::opencode_enabled_api_provider_ready(&auth, &config);
-    let snapshot = read_native_auth_snapshot(home, env, &agent_id).await;
-    let mode = resolve_built_in_auth_mode(
-        &agent_id,
-        policy,
-        env,
-        bound || provider_ready,
-        false,
-        snapshot.as_ref(),
-    );
-    let credential_present = provider_ready
-        || model_provider_credential_present(providers, snapshot.as_ref())
-        || native_secret_present(snapshot.as_ref());
-    Ok(AgentAuthModeView {
-        options: project_auth_mode_options(&agent_id, policy.modes),
-        agent_id,
-        mode,
-        modes: policy
-            .modes
-            .iter()
-            .map(|mode| (*mode).to_string())
-            .collect(),
-        credential_env: policy.credential_env.to_string(),
-        credential_present,
-        account_label: None,
-        headless_account_env: None,
-    })
-}
-
 async fn set_codex_auth_mode(
     pool: &SqlitePool,
     agent_id: AgentId,
@@ -1527,8 +835,6 @@ async fn set_codex_auth_mode(
     if mode != "model_provider" {
         let home =
             dirs::home_dir().ok_or_else(|| ApplicationError::internal("home directory missing"))?;
-        // Same as the generic path: Codex reads its config file, not this mode,
-        // so leaving Provider routing means undoing the Provider's projection.
         release_provider_projection(&home, &provider_store_path(), &agent_id, &env).await?;
         let codex_home = resolve_agent_home(&home, &env, "CODEX_HOME", ".codex");
         let auth_path = codex_home.join("auth.json");
@@ -1543,254 +849,6 @@ async fn set_codex_auth_mode(
     }
     let _ = persist_observed_authentication(pool, &agent_id).await;
     with_account_label(project_auth_mode_view(pool, agent_id, &env).await?).await
-}
-
-async fn with_account_label(
-    view: AgentAuthModeView,
-) -> Result<AgentAuthModeView, ApplicationError> {
-    Ok(AgentAuthModeView {
-        account_label: resolve_account_label(&view.agent_id).await,
-        ..view
-    })
-}
-
-fn project_auth_mode_options(agent_id: &AgentId, modes: &[&str]) -> Vec<AgentAuthModeOptionView> {
-    modes
-        .iter()
-        .filter(|mode| !(**mode == "custom" && matches!(agent_id.as_str(), "claude_code" | "grok")))
-        .map(|mode| {
-            let (label_key, description_key) = auth_mode_translation_keys(agent_id, mode);
-            let credential_env = auth_mode_credential_env(agent_id, mode)
-                .map(str::to_string)
-                .or_else(|| {
-                    (agent_id.as_str() == "codex" && *mode == "api_key")
-                        .then(|| "OPENAI_API_KEY".to_string())
-                });
-            AgentAuthModeOptionView {
-                value: (*mode).to_string(),
-                kind: auth_mode_kind(agent_id, mode),
-                label_key: label_key.to_string(),
-                description_key: description_key.to_string(),
-                credential_required: credential_env.is_some(),
-                credential_env,
-                native_config_field_id: native_auth_config_field_id(agent_id, mode)
-                    .map(str::to_string),
-                official_api_url: official_api_url(agent_id, mode).map(str::to_string),
-            }
-        })
-        .collect()
-}
-
-fn native_auth_config_field_id(agent_id: &AgentId, mode: &str) -> Option<&'static str> {
-    match (agent_id.as_str(), mode) {
-        ("claude_code", "official_api" | "custom") => Some("anthropic_api_key"),
-        ("codex", "api_key") => Some("openai_api_key"),
-        ("grok", "api_key") => Some("grok_api_key"),
-        ("antigravity" | "gemini", "gemini-api-key") => Some("antigravity_api_key"),
-        ("antigravity" | "gemini", "agent-platform") => Some("antigravity_google_api_key"),
-        ("deepseek_harness", "deepseek" | "custom") => Some("deepseek_harness_api_key"),
-        ("mimo_code", "official_api") => Some("mimo_api_key"),
-        _ => None,
-    }
-}
-
-fn auth_mode_translation_keys(agent_id: &AgentId, mode: &str) -> (&'static str, &'static str) {
-    match (agent_id.as_str(), mode) {
-        ("claude_code", "official_subscription") => (
-            "agents.authModeOfficialSubscription",
-            "agents.authDescClaudeSubscription",
-        ),
-        ("claude_code", "official_api" | "custom") => (
-            "agents.authModeOfficialApi",
-            "agents.authDescClaudeOfficialApi",
-        ),
-        ("claude_code", "model_provider") => {
-            ("agents.authModeProvider", "agents.authDescClaudeProvider")
-        }
-        ("antigravity" | "gemini", "oauth-personal") => (
-            "agents.authModeGoogleLogin",
-            "agents.authDescAntigravityOauthPersonal",
-        ),
-        ("antigravity" | "gemini", "oauth-business") => (
-            "agents.authModeAntigravityEnterprise",
-            "agents.authDescAntigravityOauthBusiness",
-        ),
-        ("antigravity" | "gemini", "gemini-api-key") => (
-            "agents.authModeGeminiKey",
-            "agents.authDescAntigravityApiKey",
-        ),
-        ("antigravity" | "gemini", "agent-platform") => (
-            "agents.authModeAntigravityPlatform",
-            "agents.authDescAntigravityPlatform",
-        ),
-        ("antigravity" | "gemini", "model_provider") => {
-            ("agents.authModeProvider", "agents.authDescGeminiProvider")
-        }
-        ("codex", "chatgpt_subscription") => {
-            ("agents.authModeChatGpt", "agents.authDescCodexSubscription")
-        }
-        ("codex", "api_key") => (
-            "agents.authModeOfficialApi",
-            "agents.authDescCodexOfficialApi",
-        ),
-        ("codex", "model_provider") => ("agents.authModeProvider", "agents.authDescCodexProvider"),
-        ("grok", "subscription") => (
-            "agents.authModeSubscription",
-            "agents.authDescGrokSubscription",
-        ),
-        ("grok", "api_key") => (
-            "agents.authModeOfficialApi",
-            "agents.authDescGrokOfficialApi",
-        ),
-        ("grok", "custom" | "model_provider") => {
-            ("agents.authModeProvider", "agents.authDescGrokProvider")
-        }
-        ("cursor", "subscription") => (
-            "agents.authModeSubscription",
-            "agents.authDescCursorSubscription",
-        ),
-        ("cursor", "custom") => (
-            "agents.authModeOfficialApi",
-            "agents.authDescCursorOfficialApi",
-        ),
-        ("deepseek_harness", "deepseek") => {
-            ("agents.authModeOfficialApi", "agents.authDescDeepseekApi")
-        }
-        ("deepseek_harness", "custom") => {
-            ("agents.authModeProvider", "agents.authDescDeepseekCustom")
-        }
-        ("opencode", "official_subscription") => (
-            "agents.authModeOfficialSubscription",
-            "agents.authDescOpencodeGo",
-        ),
-        ("opencode", "official_api") => {
-            ("agents.authModeOfficialApi", "agents.authDescOpencodeZen")
-        }
-        ("opencode", "model_provider") => {
-            ("agents.authModeProvider", "agents.authDescOpencodeProvider")
-        }
-        ("hermes", "official_subscription") => (
-            "agents.authModeOfficialSubscription",
-            "agents.authDescHermesSubscription",
-        ),
-        ("hermes", "official_api") => (
-            "agents.authModeOfficialApi",
-            "agents.authDescHermesOfficialApi",
-        ),
-        ("hermes", "model_provider") => {
-            ("agents.authModeProvider", "agents.authDescHermesProvider")
-        }
-        ("kimi_code", "official_subscription") => (
-            "agents.authModeOfficialSubscription",
-            "agents.authDescKimiSubscription",
-        ),
-        ("kimi_code", "official_api") => (
-            "agents.authModeOfficialApi",
-            "agents.authDescKimiOfficialApi",
-        ),
-        ("kimi_code", "model_provider") => {
-            ("agents.authModeProvider", "agents.authDescKimiProvider")
-        }
-        ("cline", "official_subscription") => (
-            "agents.authModeOfficialSubscription",
-            "agents.authDescClineSubscription",
-        ),
-        ("cline", "official_api") => (
-            "agents.authModeOfficialApi",
-            "agents.authDescClineOfficialApi",
-        ),
-        ("cline", "model_provider") => ("agents.authModeProvider", "agents.authDescClineProvider"),
-        ("codebuddy", "official_subscription") => (
-            "agents.authModeOfficialSubscription",
-            "agents.authDescCodebuddySubscription",
-        ),
-        ("codebuddy", "official_api") => (
-            "agents.authModeOfficialApi",
-            "agents.authDescCodebuddyOfficialApi",
-        ),
-        ("codebuddy", "model_provider") => (
-            "agents.authModeProvider",
-            "agents.authDescCodebuddyProvider",
-        ),
-        ("qoder", "official_subscription") => (
-            "agents.authModeOfficialSubscription",
-            "agents.authDescQoderSubscription",
-        ),
-        ("qoder", "official_api") => (
-            "agents.authModeOfficialApi",
-            "agents.authDescQoderOfficialApi",
-        ),
-        ("qoder", "model_provider") => ("agents.authModeProvider", "agents.authDescQoderProvider"),
-        ("kiro", "official_subscription") => (
-            "agents.authModeOfficialSubscription",
-            "agents.authDescKiroSubscription",
-        ),
-        ("kiro", "official_api") => (
-            "agents.authModeOfficialApi",
-            "agents.authDescKiroOfficialApi",
-        ),
-        ("auggie", "official_subscription") => (
-            "agents.authModeOfficialSubscription",
-            "agents.authDescAuggieSubscription",
-        ),
-        ("auggie", "official_api") => (
-            "agents.authModeOfficialApi",
-            "agents.authDescAuggieOfficialApi",
-        ),
-        ("auggie", "model_provider") => {
-            ("agents.authModeProvider", "agents.authDescAuggieProvider")
-        }
-        ("trae", "official_subscription") => (
-            "agents.authModeOfficialSubscription",
-            "agents.authDescTraeSubscription",
-        ),
-        ("trae", "official_api") => (
-            "agents.authModeOfficialApi",
-            "agents.authDescTraeOfficialApi",
-        ),
-        ("trae", "model_provider") => ("agents.authModeProvider", "agents.authDescTraeProvider"),
-        ("command_code", "official_subscription") => (
-            "agents.authModeOfficialSubscription",
-            "agents.authDescCommandCodeSubscription",
-        ),
-        ("command_code", "official_api") => (
-            "agents.authModeOfficialApi",
-            "agents.authDescCommandCodeOfficialApi",
-        ),
-        ("command_code", "model_provider") => (
-            "agents.authModeProvider",
-            "agents.authDescCommandCodeProvider",
-        ),
-        ("zcode", "official_subscription") => (
-            "agents.authModeOfficialSubscription",
-            "agents.authDescZcodeSubscription",
-        ),
-        ("zcode", "official_api") => (
-            "agents.authModeOfficialApi",
-            "agents.authDescZcodeOfficialApi",
-        ),
-        ("zcode", "model_provider") => ("agents.authModeProvider", "agents.authDescZcodeProvider"),
-        ("mimo_code", "official_subscription") => (
-            "agents.authModeOfficialSubscription",
-            "agents.authDescMimoSubscription",
-        ),
-        ("mimo_code", "official_api") => (
-            "agents.authModeOfficialApi",
-            "agents.authDescMimoOfficialApi",
-        ),
-        ("mimo_code", "model_provider") => {
-            ("agents.authModeProvider", "agents.authDescMimoProvider")
-        }
-        ("pi" | "openclaw", "model_provider") => {
-            ("agents.authModeProvider", "agents.authDescGenericProvider")
-        }
-        ("omp", "official_subscription") => (
-            "agents.authModeOfficialSubscription",
-            "agents.authDescOmpSubscription",
-        ),
-        ("omp", "model_provider") => ("agents.authModeProvider", "agents.authDescOmpProvider"),
-        _ => ("agents.authModeUnknown", "agents.authDescUnknown"),
-    }
 }
 
 async fn auth_mode_preflight_item(
@@ -1842,22 +900,6 @@ async fn auth_mode_preflight_item(
         },
         &view.mode,
     )))
-}
-
-fn preflight_auth_item(ready: bool, detail: String, version: &str) -> AgentPreflightItemView {
-    AgentPreflightItemView {
-        id: "authentication".to_string(),
-        label: "鉴权".to_string(),
-        status: if ready { "pass" } else { "fail" }.to_string(),
-        detail,
-        version: Some(version.to_string()),
-        path: None,
-        source: None,
-        repairable: true,
-        update_available: false,
-        available_version: None,
-        update_group: None,
-    }
 }
 
 pub(crate) async fn persist_observed_authentication(
@@ -1955,40 +997,6 @@ async fn observed_authentication(
     )
 }
 
-async fn bound_provider_has_credentials(agent_id: &AgentId, env: &HashMap<String, String>) -> bool {
-    let Some(home) = dirs::home_dir() else {
-        return false;
-    };
-    if agent_id.as_str() == "opencode" && opencode_native_api_provider_ready(&home, env).await {
-        return true;
-    }
-    let native_home = model_providers::provider_native_home(&home, env, agent_id);
-    let Ok(view) = model_providers::list_with_native(
-        &provider_store_path(),
-        agent_id.clone(),
-        Some(&native_home),
-    )
-    .await
-    else {
-        return false;
-    };
-    view.providers
-        .iter()
-        .find(|provider| Some(&provider.id) == view.bound_provider_id.as_ref())
-        .is_some_and(|provider| provider.credential_present)
-}
-
-async fn opencode_native_api_provider_ready(home: &Path, env: &HashMap<String, String>) -> bool {
-    let (auth_path, config_path) = opencode_document_paths(home, env);
-    let auth = read_json_object_or_empty(&auth_path)
-        .await
-        .unwrap_or_else(|_| json!({}));
-    let config = read_json_object_or_empty(&config_path)
-        .await
-        .unwrap_or_else(|_| json!({}));
-    opencode_providers::opencode_enabled_api_provider_ready(&auth, &config)
-}
-
 async fn recorded_authentication(
     pool: &SqlitePool,
     agent_id: &AgentId,
@@ -2008,108 +1016,6 @@ async fn recorded_authentication(
         Some("not_required") => AgentAuthenticationStatus::NotRequired,
         _ => AgentAuthenticationStatus::NotLoggedIn,
     }
-}
-
-async fn probe_profile_dependencies(profile: &BuiltInProfile) -> Vec<AgentPreflightItemView> {
-    let mut items = Vec::with_capacity(profile.dependencies.len());
-    for dependency in profile.dependencies {
-        if matches!(dependency.executable, "node" | "npm" | "uv") {
-            continue;
-        }
-        let path = resolve_on_path(dependency.executable).await;
-        let version = match path.as_ref() {
-            Some(path) => probe_first_output_line(path, dependency.version_args).await,
-            None => None,
-        };
-        let version_ok = version
-            .as_deref()
-            .map(|version| dependency_version_ok(dependency.requirement, version))
-            .unwrap_or(path.is_some());
-        let healthy = path.is_some() && version_ok;
-        items.push(AgentPreflightItemView {
-            id: format!("dependency.{}", dependency.id),
-            label: dependency.label.to_string(),
-            status: if healthy {
-                "pass".to_string()
-            } else if dependency.required {
-                "fail".to_string()
-            } else {
-                "warning".to_string()
-            },
-            detail: if healthy {
-                String::new()
-            } else {
-                format!(
-                    "未满足依赖 `{}` ({})",
-                    dependency.executable, dependency.requirement
-                )
-            },
-            version,
-            path: path.map(|path| path.display().to_string()),
-            source: None,
-            repairable: dependency.repairable,
-            update_available: false,
-            available_version: None,
-            update_group: None,
-        });
-    }
-    items
-}
-
-pub(crate) async fn discover_profile_acp(agent_id: &AgentId) -> Option<PathBuf> {
-    let catalog = BuiltInProfileCatalog::management();
-    let profile = catalog.profile(agent_id)?;
-    for candidate in profile.external_candidates {
-        if !matches!(
-            candidate.component,
-            ProfileComponent::AcpAdapter | ProfileComponent::CombinedRuntime
-        ) {
-            continue;
-        }
-        if let Some(path) = resolve_on_path(candidate.executable).await {
-            return Some(path);
-        }
-        if let Some(path) = discover_executable_in_common_locations(candidate.executable) {
-            return Some(path);
-        }
-    }
-    None
-}
-
-fn discover_executable_in_common_locations(executable: &str) -> Option<PathBuf> {
-    let mut dirs = Vec::new();
-    if let Some(home) = dirs::home_dir() {
-        dirs.push(home.join(".local/bin"));
-        dirs.push(home.join(".cargo/bin"));
-    }
-    #[cfg(windows)]
-    {
-        if let Some(local_app_data) = std::env::var_os("LOCALAPPDATA").map(PathBuf::from) {
-            dirs.push(local_app_data.join("Programs").join("Kiro CLI").join("bin"));
-            dirs.push(local_app_data.join("Programs").join("Kiro CLI"));
-            dirs.push(local_app_data.join("Programs").join("Kiro").join("bin"));
-            dirs.push(local_app_data.join("Programs").join("TraeCLI").join("bin"));
-        }
-        for env_key in ["ProgramFiles", "ProgramW6432", "ProgramFiles(x86)"] {
-            if let Some(program_files) = std::env::var_os(env_key).map(PathBuf::from) {
-                dirs.push(program_files.join("Kiro-Cli"));
-                dirs.push(program_files.join("Kiro CLI"));
-                dirs.push(program_files.join("Kiro CLI").join("bin"));
-            }
-        }
-    }
-    for dir in dirs {
-        for candidate in [
-            dir.join(executable),
-            dir.join(format!("{executable}.exe")),
-            dir.join(format!("{executable}.cmd")),
-        ] {
-            if candidate.is_file() {
-                return Some(candidate);
-            }
-        }
-    }
-    None
 }
 
 async fn installed_components(
@@ -2144,20 +1050,11 @@ async fn installed_components(
         .collect())
 }
 
-/// A Profile management entry point resolved to a real executable on this
-/// machine: the arguments that belong to it and the path to launch.
 pub(crate) struct ResolvedManagementProgram {
     pub args: Vec<String>,
     pub path: PathBuf,
 }
 
-/// Resolves the first declared entry point of `action` that exists on this
-/// machine.
-///
-/// One action can be driven by several distributions of the same capability —
-/// a standalone vendor CLI and the ACP Adapter that carries it — and each
-/// distribution takes its own arguments, so the entry point that resolves also
-/// decides the argument list.
 pub(crate) async fn resolve_management_action_program(
     pool: &SqlitePool,
     agent_id: &AgentId,
@@ -2182,38 +1079,12 @@ pub(crate) async fn resolve_management_action_program(
     None
 }
 
-/// Names every declared entry point of an action, for a message that says what
-/// was searched instead of blaming the Agent's installation.
-fn management_program_names(action: &agents::ProfileManagementAction) -> String {
-    action
-        .programs
-        .iter()
-        .map(|entry| format!("`{}`", entry.program))
-        .collect::<Vec<_>>()
-        .join(" / ")
-}
-
 pub(crate) async fn resolve_management_program(
     pool: &SqlitePool,
     agent_id: &AgentId,
     program: &str,
     environment: &HashMap<String, String>,
 ) -> Option<PathBuf> {
-    if agent_id.as_str() == "pi"
-        && program == "pi"
-        && let Some(command) = environment.get("PI_ACP_PI_COMMAND")
-    {
-        let exact = PathBuf::from(command.trim());
-        if exact.is_file() {
-            return Some(exact);
-        }
-        if let Some(first) = command.split_whitespace().next() {
-            let candidate = PathBuf::from(first);
-            if candidate.is_file() {
-                return Some(candidate);
-            }
-        }
-    }
     let components = sqlx::query_scalar::<_, String>(
         r#"SELECT component.absolute_path
            FROM agent_installation installation
@@ -2225,245 +1096,7 @@ pub(crate) async fn resolve_management_program(
     .fetch_all(pool)
     .await
     .ok()?;
-    for component in components {
-        let path = PathBuf::from(component);
-        if executable_matches(&path, program) {
-            return Some(path);
-        }
-        if let Some(parent) = path.parent() {
-            for candidate in [
-                parent.join(program),
-                parent.join(format!("{program}.cmd")),
-                parent.join(format!("{program}.exe")),
-            ] {
-                if candidate.is_file() {
-                    return Some(candidate);
-                }
-            }
-        }
-    }
-    if let Some(relation) = agents::acp_adapter_relation(agent_id.as_str())
-        && relation.native_cmd.eq_ignore_ascii_case(program)
-        && let Some(path) = agents::resolve_vendor_cli(program, relation.extra_dirs).await
-    {
-        return Some(path);
-    }
-    if let Some(path) = utils::shell::resolve_executable_path(program).await {
-        return Some(path);
-    }
-    discover_executable_in_common_locations(program)
-}
-
-/// Environment statements that put an agent's account-relevant variables in
-/// scope for a management action, in this platform's assignment syntax.
-fn management_environment_assignments(environment: &HashMap<String, String>) -> Vec<String> {
-    let mut variables = environment
-        .iter()
-        .filter(|(key, value)| {
-            !value.trim().is_empty()
-                && !["KEY", "TOKEN", "SECRET", "PASSWORD", "CREDENTIAL"]
-                    .iter()
-                    .any(|marker| key.contains(marker))
-                && (key.ends_with("_HOME")
-                    || key.ends_with("_DIR")
-                    || key.ends_with("_BASE_URL")
-                    || key.starts_with("XDG_"))
-        })
-        .collect::<Vec<_>>();
-    variables.sort_by_key(|(key, _)| *key);
-    #[cfg(not(windows))]
-    {
-        variables
-            .into_iter()
-            .map(|(key, value)| format!("{key}={}", shell_quote_management_part(value)))
-            .collect()
-    }
-    #[cfg(windows)]
-    {
-        variables
-            .into_iter()
-            .map(|(key, value)| {
-                let escaped = value
-                    .replace('^', "^^")
-                    .replace('%', "%%")
-                    .replace('&', "^&")
-                    .replace('|', "^|")
-                    .replace('<', "^<")
-                    .replace('>', "^>");
-                format!("set \"{key}={escaped}\"")
-            })
-            .collect()
-    }
-}
-
-fn executable_matches(path: &Path, program: &str) -> bool {
-    path.file_stem()
-        .and_then(|name| name.to_str())
-        .is_some_and(|name| name.eq_ignore_ascii_case(program))
-        || path
-            .file_name()
-            .and_then(|name| name.to_str())
-            .is_some_and(|name| name.eq_ignore_ascii_case(program))
-}
-
-fn shell_quote_management_part(value: &str) -> String {
-    if value
-        .bytes()
-        .all(|byte| byte.is_ascii_alphanumeric() || b"-._/:\\".contains(&byte))
-    {
-        return value.to_string();
-    }
-    #[cfg(windows)]
-    return format!("\"{}\"", value.replace('"', "\\\""));
-    #[cfg(not(windows))]
-    return format!("'{}'", value.replace('\'', "'\\''"));
-}
-
-/// Prepare and spawn the terminal for one action, and drop the account flow
-/// registration again when the launch fails.
-///
-/// The registration happens before the launch so a fast action cannot finish
-/// unobserved, which means every failure between the two — a launcher script
-/// that cannot be written, a cleanup that cannot be prepared, a terminal that
-/// cannot be started — would otherwise leave authentication management polling
-/// an exit code that never arrives.
-async fn launch_watched_management_action(
-    agent_id: &AgentId,
-    action_id: &str,
-    environment: &HashMap<String, String>,
-    command: &str,
-    result_path: Option<&Path>,
-) -> Result<(), ApplicationError> {
-    let launched = async {
-        let command = account_flow::prepare_management_launch(
-            agent_id,
-            action_id,
-            command,
-            &management_environment_assignments(environment),
-            result_path,
-        )
-        .await
-        .map_err(internal_error)?;
-        launch_management_terminal(agent_id, action_id, environment, &command).await
-    }
-    .await;
-    if launched.is_err() && result_path.is_some() {
-        account_flow::cancel_account_flow(agent_id);
-    }
-    launched
-}
-
-/// Launch one management action, holding the Kimi provider cleanup across the
-/// launch.
-///
-/// Kimi's official login has to reach the vendor's own endpoint, but VibeX
-/// points the CLI at a local gate while a stored provider is applied, so the
-/// synthetic provider and its credential are stripped for the duration of the
-/// launch — and put back if the terminal never starts.
-async fn launch_management_terminal(
-    agent_id: &AgentId,
-    action_id: &str,
-    environment: &HashMap<String, String>,
-    command: &str,
-) -> Result<(), ApplicationError> {
-    if !model_providers::has_synthetic_gate(agent_id) || action_id != "login" {
-        return spawn_agent_management_terminal(command)
-            .await
-            .map_err(internal_error);
-    }
-    let home =
-        dirs::home_dir().ok_or_else(|| ApplicationError::internal("home directory missing"))?;
-    let mutations = model_providers::prepare_kimi_vibex_configuration_cleanup(&home, environment)
-        .await
-        .map_err(internal_error)?;
-    apply_config_transition_then(mutations, || spawn_agent_management_terminal(command)).await
-}
-
-/// Apply the mutations, run the launch, and restore the previous bytes when the
-/// launch fails: an account action that never opened must not leave the agent
-/// sitting on a configuration it no longer has.
-async fn apply_config_transition_then<F, Fut>(
-    mutations: Vec<NativeFileMutation>,
-    operation: F,
-) -> Result<(), ApplicationError>
-where
-    F: FnOnce() -> Fut,
-    Fut: std::future::Future<Output = std::io::Result<()>>,
-{
-    if !mutations.is_empty() {
-        apply_native_file_mutations(&mutations)
-            .await
-            .map_err(internal_error)?;
-    }
-    if let Err(operation_error) = operation().await {
-        let rollback = mutations
-            .iter()
-            .map(|mutation| NativeFileMutation {
-                path: mutation.path.clone(),
-                expected: mutation.replacement.clone(),
-                replacement: mutation.expected.clone(),
-                sensitive: mutation.sensitive,
-            })
-            .collect::<Vec<_>>();
-        return match apply_native_file_mutations(&rollback).await {
-            Ok(()) => Err(internal_error(operation_error)),
-            Err(rollback_error) => Err(internal_error(format!(
-                "{operation_error}；恢复原配置失败：{rollback_error}"
-            ))),
-        };
-    }
-    Ok(())
-}
-
-async fn spawn_agent_management_terminal(command: &str) -> std::io::Result<()> {
-    #[cfg(target_os = "windows")]
-    {
-        std::process::Command::new("cmd")
-            .args(["/C", "start", "", "cmd", "/K", command])
-            .spawn()
-            .map(|_| ())
-    }
-    #[cfg(target_os = "macos")]
-    {
-        let script = format!(
-            "tell application \"Terminal\"\nactivate\ndo script \"{}\"\nend tell",
-            command.replace('\\', "\\\\").replace('"', "\\\"")
-        );
-        std::process::Command::new("osascript")
-            .args(["-e", &script])
-            .spawn()
-            .map(|_| ())
-    }
-    #[cfg(all(unix, not(target_os = "macos")))]
-    {
-        let run = format!("{command}; exec $SHELL");
-        for terminal in ["x-terminal-emulator", "gnome-terminal", "konsole", "xterm"] {
-            if utils::shell::resolve_executable_path(terminal)
-                .await
-                .is_some()
-                && std::process::Command::new(terminal)
-                    .args(["-e", "sh", "-lc", &run])
-                    .spawn()
-                    .map(|_| ())
-                    .is_ok()
-            {
-                return Ok(());
-            }
-        }
-        Err(std::io::Error::new(
-            std::io::ErrorKind::NotFound,
-            "no supported terminal emulator found",
-        ))
-    }
-}
-
-fn management_action_kind(kind: ProfileManagementActionKind) -> AgentManagementActionKind {
-    match kind {
-        ProfileManagementActionKind::Login => AgentManagementActionKind::Login,
-        ProfileManagementActionKind::Logout => AgentManagementActionKind::Logout,
-        ProfileManagementActionKind::Setup => AgentManagementActionKind::Setup,
-        ProfileManagementActionKind::Subscription => AgentManagementActionKind::Subscription,
-    }
+    resolve_management_program_from_components(agent_id, program, environment, &components).await
 }
 
 async fn require_membership(pool: &SqlitePool, agent_id: &AgentId) -> Result<(), ApplicationError> {
@@ -2494,14 +1127,6 @@ pub(crate) async fn read_agent_environment(
     .map_err(internal_error)?
     .flatten();
     parse_agent_env(env_json.as_deref()).map_err(internal_error)
-}
-
-fn parse_agent_env(value: Option<&str>) -> Result<HashMap<String, String>, serde_json::Error> {
-    value
-        .filter(|value| !value.trim().is_empty())
-        .map(serde_json::from_str)
-        .transpose()
-        .map(Option::unwrap_or_default)
 }
 
 pub(crate) async fn persist_agent_environment(
@@ -2549,113 +1174,12 @@ pub(crate) async fn dispatch_environment_write(
             request: parse(args)?,
         }
     };
-    if request.values.len() > MAX_AGENT_ENVIRONMENT_ENTRIES {
-        return Err(ApplicationError::bad_request("单次环境变量更新项过多"));
-    }
-    let mut environment = read_agent_environment(pool, &request.agent_id).await?;
-    if environment_revision(&environment) != request.base_revision {
-        return Err(ApplicationError::conflict(
-            "Agent 环境变量已被其它操作修改，请重新读取后再保存",
-        ));
-    }
-    for (name, value) in request.values {
-        validate_agent_environment_name(&name).map_err(ApplicationError::bad_request)?;
-        match value {
-            Some(value) => {
-                if value.len() > MAX_AGENT_ENVIRONMENT_VALUE_BYTES {
-                    return Err(ApplicationError::bad_request(format!(
-                        "环境变量 `{name}` 的值超过 64 KiB"
-                    )));
-                }
-                environment.insert(name, value);
-            }
-            None => {
-                environment.remove(&name);
-            }
-        }
-    }
-    if environment.len() > MAX_AGENT_ENVIRONMENT_ENTRIES {
-        return Err(ApplicationError::bad_request(
-            "Agent 环境变量不能超过 256 项",
-        ));
-    }
-    let serialized = serde_json::to_string(&environment).map_err(internal_error)?;
-    if serialized.len() > MAX_AGENT_ENVIRONMENT_BYTES {
-        return Err(ApplicationError::bad_request(
-            "Agent 环境变量总大小超过 256 KiB",
-        ));
-    }
-    persist_agent_environment(pool, &request.agent_id, &environment).await?;
-    let view = serialize(project_agent_environment(
-        request.agent_id.clone(),
-        &environment,
-    ))?;
-    Ok((request.agent_id, view))
-}
-
-fn project_agent_environment(
-    agent_id: AgentId,
-    environment: &HashMap<String, String>,
-) -> AgentEnvironmentView {
-    let ordered: BTreeMap<_, _> = environment
-        .iter()
-        .map(|(name, value)| (name.clone(), value.clone()))
-        .collect();
-    AgentEnvironmentView {
-        agent_id,
-        entries: ordered
-            .iter()
-            .map(|(name, value)| {
-                let secret = is_secret_environment_name(name);
-                AgentEnvironmentEntryView {
-                    name: name.clone(),
-                    value: (!secret).then(|| value.clone()),
-                    secret,
-                    present: true,
-                    masked_value: secret.then(|| "••••••••".to_string()),
-                }
-            })
-            .collect(),
-        revision: environment_revision(environment),
-    }
-}
-
-fn environment_revision(environment: &HashMap<String, String>) -> String {
-    let ordered: BTreeMap<_, _> = environment
-        .iter()
-        .map(|(name, value)| (name.clone(), value.clone()))
-        .collect();
-    let bytes = serde_json::to_vec(&ordered).expect("environment map is serializable");
-    format!("{:x}", Sha256::digest(bytes))
-}
-
-fn validate_agent_environment_name(name: &str) -> Result<(), String> {
-    if name.is_empty() || name.len() > MAX_AGENT_ENVIRONMENT_NAME_BYTES {
-        return Err("环境变量名称长度必须为 1 到 128 字节".to_string());
-    }
-    let mut bytes = name.bytes();
-    let first = bytes.next().expect("non-empty environment name");
-    if !(first == b'_' || first.is_ascii_alphabetic())
-        || !bytes.all(|byte| byte == b'_' || byte.is_ascii_alphanumeric())
-    {
-        return Err(format!("环境变量名称 `{name}` 不合法"));
-    }
-    Ok(())
-}
-
-fn is_secret_environment_name(name: &str) -> bool {
-    let upper = name.to_ascii_uppercase();
-    [
-        "API_KEY",
-        "TOKEN",
-        "SECRET",
-        "PASSWORD",
-        "CREDENTIAL",
-        "PRIVATE_KEY",
-        "ACCESS_KEY",
-    ]
-    .iter()
-    .any(|marker| upper.contains(marker))
+    let agent_id = request.agent_id.clone();
+    let mut environment = read_agent_environment(pool, &agent_id).await?;
+    let projected = apply_environment_patch(&mut environment, request)?;
+    persist_agent_environment(pool, &agent_id, &environment).await?;
+    let view = serialize(projected)?;
+    Ok((agent_id, view))
 }
 
 async fn bound_provider_id(
@@ -2674,217 +1198,6 @@ async fn bound_provider_id(
     .await
     .map_err(|error| ApplicationError::internal(error.to_string()))?;
     Ok(view.bound_provider_id)
-}
-
-fn resolve_agent_home(
-    home: &Path,
-    env: &HashMap<String, String>,
-    override_env: &str,
-    relative: &str,
-) -> PathBuf {
-    super::native::resolve_agent_home(home, env, override_env, relative)
-}
-
-async fn read_json_object_or_empty(path: &Path) -> Result<Value, ApplicationError> {
-    match tokio::fs::read(path).await {
-        Ok(bytes) => serde_json::from_slice(&bytes).map_err(internal_error),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(json!({})),
-        Err(error) => Err(internal_error(error)),
-    }
-}
-
-async fn resolve_on_path(executable: &str) -> Option<PathBuf> {
-    if executable.trim().is_empty() {
-        return None;
-    }
-    utils::shell::resolve_executable_path(executable).await
-}
-
-async fn probe_first_output_line(path: &Path, args: &[&str]) -> Option<String> {
-    if args.is_empty() {
-        return None;
-    }
-    let mut command = utils::process::new_hidden_tokio_command(path, args.iter().copied());
-    command.kill_on_drop(true);
-    let output = tokio::time::timeout(DIAGNOSTIC_COMMAND_TIMEOUT, command.output())
-        .await
-        .ok()?
-        .ok()?;
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    stdout
-        .lines()
-        .chain(stderr.lines())
-        .map(str::trim)
-        .find(|line| !line.is_empty())
-        .map(redact_operation_output)
-}
-
-fn redact_operation_output(value: &str) -> String {
-    let mut redacted = value.to_string();
-    for marker in ["sk-", "key-", "token=", "Bearer "] {
-        if let Some(index) = redacted.find(marker) {
-            redacted.replace_range(index + marker.len().., "***");
-            break;
-        }
-    }
-    redacted
-}
-
-fn dependency_version_ok(requirement: &str, output: &str) -> bool {
-    let requirement = requirement.trim();
-    if let Some(min) = requirement.strip_prefix(">=") {
-        return version_at_least(output, min.trim());
-    }
-    if let Some(min) = requirement.strip_prefix('>') {
-        return version_at_least(output, min.trim()) && !output.contains(min.trim());
-    }
-    true
-}
-
-#[derive(Debug, Default)]
-struct TerminalPathProbe {
-    command_path: Option<String>,
-    extra_directories: Vec<String>,
-    note: Option<String>,
-}
-
-#[cfg(not(windows))]
-async fn terminal_path_probe(command: &str, app_path: &[PathBuf]) -> TerminalPathProbe {
-    if !command
-        .bytes()
-        .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.'))
-    {
-        return TerminalPathProbe {
-            note: Some("unsafe command name rejected".to_string()),
-            ..TerminalPathProbe::default()
-        };
-    }
-    let Some(shell) = std::env::var_os("SHELL").map(PathBuf::from) else {
-        return TerminalPathProbe {
-            note: Some("SHELL is not set".to_string()),
-            ..TerminalPathProbe::default()
-        };
-    };
-    if !shell.is_absolute() || !shell.is_file() {
-        return TerminalPathProbe {
-            note: Some("configured shell is unavailable".to_string()),
-            ..TerminalPathProbe::default()
-        };
-    }
-    let script =
-        format!("printf 'VIBEX_PATH=%s\\n' \"$PATH\"; command -v {command} 2>/dev/null || true");
-    let mut process =
-        utils::process::new_hidden_tokio_command(&shell, ["-lic", script.as_str()].into_iter());
-    process.kill_on_drop(true);
-    let output = match tokio::time::timeout(DIAGNOSTIC_COMMAND_TIMEOUT, process.output()).await {
-        Ok(Ok(output)) if output.status.success() => output,
-        _ => {
-            return TerminalPathProbe {
-                note: Some("login shell probe failed or timed out".to_string()),
-                ..TerminalPathProbe::default()
-            };
-        }
-    };
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let mut shell_path = Vec::new();
-    let mut command_path = None;
-    for line in stdout
-        .lines()
-        .map(str::trim)
-        .filter(|line| !line.is_empty())
-    {
-        if let Some(path) = line.strip_prefix("VIBEX_PATH=") {
-            shell_path = std::env::split_paths(path).collect();
-        } else if command_path.is_none() && Path::new(line).is_absolute() {
-            command_path = Some(line.to_string());
-        }
-    }
-    let app_paths = app_path.iter().collect::<HashSet<_>>();
-    TerminalPathProbe {
-        command_path,
-        extra_directories: shell_path
-            .iter()
-            .filter(|path| !app_paths.contains(path))
-            .map(|path| path.display().to_string())
-            .collect(),
-        note: None,
-    }
-}
-
-#[cfg(windows)]
-async fn terminal_path_probe(_command: &str, _app_path: &[PathBuf]) -> TerminalPathProbe {
-    TerminalPathProbe {
-        note: Some("login shell comparison is unavailable on Windows".to_string()),
-        ..TerminalPathProbe::default()
-    }
-}
-
-fn check(
-    id: &str,
-    label_key: &str,
-    value: String,
-    level: AgentEnvironmentDiagnosticLevel,
-    detail_key: Option<&str>,
-) -> AgentEnvironmentDiagnosticCheckView {
-    AgentEnvironmentDiagnosticCheckView {
-        id: id.to_string(),
-        label_key: label_key.to_string(),
-        value,
-        level,
-        detail_key: detail_key.map(ToOwned::to_owned),
-    }
-}
-
-fn section(
-    id: &str,
-    title_key: &str,
-    checks: Vec<AgentEnvironmentDiagnosticCheckView>,
-) -> AgentEnvironmentDiagnosticSectionView {
-    AgentEnvironmentDiagnosticSectionView {
-        id: id.to_string(),
-        title_key: title_key.to_string(),
-        checks,
-    }
-}
-
-fn render_plain_text(
-    agent_id: &AgentId,
-    verdict: &str,
-    sections: &[AgentEnvironmentDiagnosticSectionView],
-    generated_at: &str,
-    app_path: &[PathBuf],
-) -> String {
-    let mut lines = vec![
-        "===== VibeX Agent environment diagnostics =====".to_string(),
-        format!("agent: {agent_id}"),
-        format!("verdict: {verdict}"),
-        format!("generated_at: {generated_at}"),
-    ];
-    for section in sections {
-        lines.push(String::new());
-        lines.push(format!("[{}]", section.id));
-        lines.extend(
-            section
-                .checks
-                .iter()
-                .map(|check| format!("{} [{:?}]: {}", check.id, check.level, check.value)),
-        );
-    }
-    lines.push(String::new());
-    lines.push("[app PATH]".to_string());
-    lines.extend(app_path.iter().map(|path| path.display().to_string()));
-    let mut report = lines.join("\n");
-    const MAX_REPORT_BYTES: usize = 128 * 1024;
-    if report.len() > MAX_REPORT_BYTES {
-        let mut boundary = MAX_REPORT_BYTES;
-        while boundary > 0 && !report.is_char_boundary(boundary) {
-            boundary -= 1;
-        }
-        report.truncate(boundary);
-        report.push_str("\n[report truncated]");
-    }
-    report
 }
 
 #[cfg(test)]
@@ -3022,534 +1335,6 @@ mod tests {
         assert_eq!(api_item.status, "fail");
     }
 
-    #[test]
-    fn launch_entry_preflight_shows_acp_version_when_available() {
-        let item = launch_entry_preflight_item(
-            false,
-            Some("1.7.0".to_string()),
-            Some("/usr/local/bin/codex-acp".to_string()),
-        );
-        assert_eq!(item.id, "membership");
-        assert_eq!(item.label, "运行入口");
-        assert_eq!(item.status, "pass");
-        assert_eq!(item.version.as_deref(), Some("1.7.0"));
-        assert_eq!(item.path.as_deref(), Some("/usr/local/bin/codex-acp"));
-        assert_eq!(item.detail, "运行入口可用。");
-    }
-
-    #[test]
-    fn launch_entry_preflight_does_not_treat_blank_version_as_known() {
-        let item = launch_entry_preflight_item(false, Some("  ".to_string()), None);
-        assert_eq!(item.status, "pass");
-        assert_eq!(item.version, None);
-        assert_eq!(item.detail, "运行入口可用，但未能确认版本。");
-    }
-
-    #[test]
-    fn auth_mode_options_cover_policy_modes() {
-        let agent_id = AgentId::parse("claude_code").unwrap();
-        let policy = built_in_auth_mode_policy(&agent_id).unwrap();
-        let options = project_auth_mode_options(&agent_id, policy.modes);
-        assert!(
-            options
-                .iter()
-                .any(|option| option.value == "official_subscription")
-        );
-        assert!(
-            options
-                .iter()
-                .any(|option| option.value == "model_provider")
-        );
-        assert!(!options.iter().any(|option| option.value == "custom"));
-    }
-
-    #[test]
-    fn qoder_auth_options_cover_subscription_api_and_provider() {
-        let agent_id = AgentId::parse("qoder").unwrap();
-        let policy = built_in_auth_mode_policy(&agent_id).unwrap();
-        let options = project_auth_mode_options(&agent_id, policy.modes);
-        assert_eq!(options.len(), 3);
-        assert_eq!(options[0].value, "official_subscription");
-        assert_eq!(options[0].kind, AgentAuthModeKind::Subscription);
-        assert!(!options[0].credential_required);
-        assert_eq!(options[1].value, "official_api");
-        assert_eq!(options[1].kind, AgentAuthModeKind::OfficialApi);
-        assert!(options[1].credential_required);
-        assert_eq!(options[2].value, "model_provider");
-        assert_eq!(options[2].kind, AgentAuthModeKind::Provider);
-    }
-
-    #[test]
-    fn omp_auth_options_name_subscription_and_provider() {
-        let agent_id = AgentId::parse("omp").unwrap();
-        let policy = built_in_auth_mode_policy(&agent_id).unwrap();
-        let options = project_auth_mode_options(&agent_id, policy.modes);
-        assert_eq!(
-            options
-                .iter()
-                .map(|option| option.description_key.as_str())
-                .collect::<Vec<_>>(),
-            [
-                "agents.authDescOmpSubscription",
-                "agents.authDescOmpProvider",
-            ]
-        );
-    }
-
-    #[test]
-    fn copied_diagnostics_include_only_declared_checks_and_path() {
-        let agent_id = AgentId::parse("codex").unwrap();
-        let sections = vec![section(
-            "runtime",
-            "agents.environmentDiagnosticRuntime",
-            vec![check(
-                "shell",
-                "agents.environmentDiagnosticShell",
-                "/bin/zsh".to_string(),
-                AgentEnvironmentDiagnosticLevel::Info,
-                None,
-            )],
-        )];
-        let report = render_plain_text(
-            &agent_id,
-            "ok",
-            &sections,
-            "2026-08-05T00:00:00Z",
-            &[PathBuf::from("/usr/bin")],
-        );
-        assert!(report.contains("agent: codex"));
-        assert!(report.contains("shell [Info]: /bin/zsh"));
-        assert!(report.contains("/usr/bin"));
-        assert!(!report.contains("API_KEY"));
-    }
-
-    #[test]
-    fn dependency_requirement_uses_minimum_version() {
-        assert!(dependency_version_ok(">=18.0.0", "v20.11.0"));
-        assert!(!dependency_version_ok(">=20.0.0", "v18.0.0"));
-    }
-
-    #[test]
-    fn empty_environment_projects_entries_array_not_raw_object() {
-        let view = project_agent_environment(AgentId::parse("codex").unwrap(), &HashMap::new());
-        let value = serde_json::to_value(&view).expect("serialize");
-        assert!(value.get("entries").and_then(Value::as_array).is_some());
-        assert_eq!(view.entries.len(), 0);
-        assert!(!view.revision.is_empty());
-    }
-
-    #[test]
-    fn secret_environment_values_are_masked() {
-        let mut environment = HashMap::new();
-        environment.insert("MODEL".to_string(), "gpt-5".to_string());
-        environment.insert("OPENAI_API_KEY".to_string(), "sk-secret".to_string());
-        let view = project_agent_environment(AgentId::parse("codex").unwrap(), &environment);
-        let model = view
-            .entries
-            .iter()
-            .find(|entry| entry.name == "MODEL")
-            .expect("model");
-        let secret = view
-            .entries
-            .iter()
-            .find(|entry| entry.name == "OPENAI_API_KEY")
-            .expect("secret");
-        assert_eq!(model.value.as_deref(), Some("gpt-5"));
-        assert!(!model.secret);
-        assert_eq!(secret.value, None);
-        assert!(secret.secret);
-        assert_eq!(secret.masked_value.as_deref(), Some("••••••••"));
-    }
-
-    #[tokio::test]
-    async fn native_codex_provider_selects_the_provider_auth_tab() {
-        let temp = tempfile::tempdir().unwrap();
-        let home = temp.path().join("home");
-        let codex_home = home.join(".codex");
-        let store_path = temp.path().join("data/agent-model-providers.json");
-        tokio::fs::create_dir_all(&codex_home).await.unwrap();
-        tokio::fs::write(
-            codex_home.join("auth.json"),
-            br#"{"OPENAI_API_KEY":"sk-native"}"#,
-        )
-        .await
-        .unwrap();
-        tokio::fs::write(
-            codex_home.join("config.toml"),
-            "model_provider = \"custom\"\n\n[model_providers.custom]\nname = \"Custom\"\nbase_url = \"https://api.custom.example/v1\"\n",
-        )
-        .await
-        .unwrap();
-
-        let view = project_auth_mode_view_at(
-            &home,
-            &store_path,
-            AgentId::parse("codex").unwrap(),
-            &HashMap::new(),
-        )
-        .await
-        .unwrap();
-        assert_eq!(view.mode, "model_provider");
-        assert!(view.credential_present);
-        assert_eq!(
-            view.options
-                .iter()
-                .find(|option| option.value == "model_provider")
-                .map(|option| option.kind),
-            Some(AgentAuthModeKind::Provider)
-        );
-    }
-
-    #[tokio::test]
-    async fn claude_custom_endpoint_selects_the_provider_auth_tab() {
-        let temp = tempfile::tempdir().unwrap();
-        let home = temp.path().join("home");
-        let claude_home = home.join(".claude");
-        let store_path = temp.path().join("data/agent-model-providers.json");
-        tokio::fs::create_dir_all(&claude_home).await.unwrap();
-        tokio::fs::write(
-            claude_home.join("settings.json"),
-            br#"{"env":{"ANTHROPIC_BASE_URL":"https://api.deepseek.com","ANTHROPIC_AUTH_TOKEN":"sk-gateway","ANTHROPIC_MODEL":"deepseek-chat"}}"#,
-        )
-        .await
-        .unwrap();
-
-        let view = project_auth_mode_view_at(
-            &home,
-            &store_path,
-            AgentId::parse("claude_code").unwrap(),
-            &HashMap::new(),
-        )
-        .await
-        .unwrap();
-        assert_eq!(view.mode, "model_provider");
-        assert!(view.credential_present);
-    }
-
-    /// A stale VibeX overlay cannot hide the Provider already written into the
-    /// Agent's own config. Switching modes writes those files first.
-    #[tokio::test]
-    async fn claude_custom_endpoint_outranks_a_stale_vibex_mode() {
-        let temp = tempfile::tempdir().unwrap();
-        let home = temp.path().join("home");
-        let claude_home = home.join(".claude");
-        let store_path = temp.path().join("data/agent-model-providers.json");
-        tokio::fs::create_dir_all(&claude_home).await.unwrap();
-        tokio::fs::write(
-            claude_home.join("settings.json"),
-            br#"{"env":{"ANTHROPIC_BASE_URL":"https://api.deepseek.com","ANTHROPIC_AUTH_TOKEN":"sk-gateway","ANTHROPIC_MODEL":"deepseek-chat"}}"#,
-        )
-        .await
-        .unwrap();
-
-        let view = project_auth_mode_view_at(
-            &home,
-            &store_path,
-            AgentId::parse("claude_code").unwrap(),
-            &HashMap::from([("CLAUDE_AUTH_MODE".to_string(), "official_api".to_string())]),
-        )
-        .await
-        .unwrap();
-        assert_eq!(view.mode, "model_provider");
-    }
-
-    /// Choosing a mode is not enough on its own: the CLI reads the Provider
-    /// projection VibeX wrote into the Agent's own config, so leaving Provider
-    /// routing has to take that projection back out.
-    #[tokio::test]
-    async fn leaving_provider_routing_restores_the_agents_own_config() {
-        let temp = tempfile::tempdir().unwrap();
-        let home = temp.path().join("home");
-        let grok_home = home.join(".grok");
-        let store_path = temp.path().join("data/agent-model-providers.json");
-        tokio::fs::create_dir_all(&grok_home).await.unwrap();
-        let native_config = "[models]\ndefault = \"grok-4.6\"\n";
-        tokio::fs::write(grok_home.join("config.toml"), native_config)
-            .await
-            .unwrap();
-
-        let agent_id = AgentId::parse("grok").unwrap();
-        let environment = HashMap::new();
-        let saved = model_providers::save(
-            &store_path,
-            &home,
-            &environment,
-            api_types::AgentModelProviderSaveRequest {
-                id: None,
-                name: "Gateway".to_string(),
-                agent_id: agent_id.clone(),
-                api_url: "https://gateway.example/v1".to_string(),
-                api_key: Some("gateway-secret".to_string()),
-                model: "grok-4.6".to_string(),
-            },
-        )
-        .await
-        .unwrap();
-        model_providers::bind(
-            &store_path,
-            &home,
-            &environment,
-            agent_id.clone(),
-            Some(saved.providers[0].id.clone()),
-        )
-        .await
-        .unwrap();
-        let projected = tokio::fs::read_to_string(grok_home.join("config.toml"))
-            .await
-            .unwrap();
-        assert!(projected.contains("[model.vibex]"));
-
-        release_provider_projection(&home, &store_path, &agent_id, &environment)
-            .await
-            .unwrap();
-
-        let restored = tokio::fs::read_to_string(grok_home.join("config.toml"))
-            .await
-            .unwrap();
-        let restored: toml::Value = toml::from_str(&restored).unwrap();
-        assert_eq!(restored["models"]["default"].as_str(), Some("grok-4.6"));
-        assert!(
-            restored
-                .get("model")
-                .and_then(|model| model.get("vibex"))
-                .is_none()
-        );
-        let providers = model_providers::list_with_native(&store_path, agent_id, Some(&grok_home))
-            .await
-            .unwrap();
-        assert!(providers.bound_provider_id.is_none());
-        // Leaving Provider routing keeps the Provider saved, ready to bind again.
-        assert_eq!(providers.providers.len(), 1);
-    }
-
-    #[tokio::test]
-    async fn saved_provider_credentials_ready_the_provider_tab_without_binding() {
-        let temp = tempfile::tempdir().unwrap();
-        let home = temp.path().join("home");
-        let claude_home = home.join(".claude");
-        let store_path = temp.path().join("data/agent-model-providers.json");
-        tokio::fs::create_dir_all(&claude_home).await.unwrap();
-        tokio::fs::create_dir_all(store_path.parent().unwrap())
-            .await
-            .unwrap();
-        tokio::fs::write(
-            claude_home.join("settings.json"),
-            br#"{"env":{"ANTHROPIC_BASE_URL":"https://api.deepseek.com"}}"#,
-        )
-        .await
-        .unwrap();
-        tokio::fs::write(
-            &store_path,
-            br#"{
-              "providers": [{
-                "id": "user-relay",
-                "name": "Relay",
-                "agent_id": "claude_code",
-                "api_url": "https://api.relay.example/v1",
-                "api_key": "sk-user",
-                "model": "deepseek-chat"
-              }],
-              "bindings": {}
-            }"#,
-        )
-        .await
-        .unwrap();
-
-        let view = project_auth_mode_view_at(
-            &home,
-            &store_path,
-            AgentId::parse("claude_code").unwrap(),
-            &HashMap::new(),
-        )
-        .await
-        .unwrap();
-        assert_eq!(view.mode, "model_provider");
-        assert!(
-            view.credential_present,
-            "saved Model Provider credentials must satisfy preflight without a separate bind"
-        );
-    }
-
-    #[tokio::test]
-    async fn official_claude_api_key_stays_on_the_official_api_tab() {
-        let temp = tempfile::tempdir().unwrap();
-        let home = temp.path().join("home");
-        let claude_home = home.join(".claude");
-        let store_path = temp.path().join("data/agent-model-providers.json");
-        tokio::fs::create_dir_all(&claude_home).await.unwrap();
-        tokio::fs::write(
-            claude_home.join("settings.json"),
-            br#"{"env":{"ANTHROPIC_BASE_URL":"https://api.anthropic.com","ANTHROPIC_API_KEY":"sk-ant"}}"#,
-        )
-        .await
-        .unwrap();
-
-        let view = project_auth_mode_view_at(
-            &home,
-            &store_path,
-            AgentId::parse("claude_code").unwrap(),
-            &HashMap::new(),
-        )
-        .await
-        .unwrap();
-        assert_eq!(view.mode, "official_api");
-    }
-
-    #[tokio::test]
-    async fn pi_custom_native_key_readies_the_default_provider_mode() {
-        let temp = tempfile::tempdir().unwrap();
-        let home = temp.path().join("home");
-        let pi_home = home.join(".pi/agent");
-        let store_path = temp.path().join("data/agent-model-providers.json");
-        tokio::fs::create_dir_all(&pi_home).await.unwrap();
-        tokio::fs::write(
-            pi_home.join("auth.json"),
-            br#"{"cc-switch-open-code-go":{"type":"api_key","key":"sk-go"}}"#,
-        )
-        .await
-        .unwrap();
-
-        let view = project_auth_mode_view_at(
-            &home,
-            &store_path,
-            AgentId::parse("pi").unwrap(),
-            &HashMap::new(),
-        )
-        .await
-        .unwrap();
-        assert_eq!(view.mode, "model_provider");
-        assert!(view.credential_present);
-    }
-
-    #[tokio::test]
-    async fn opencode_connected_provider_selects_the_provider_auth_tab() {
-        let temp = tempfile::tempdir().unwrap();
-        let home = temp.path().join("home");
-        let auth_dir = home.join(".local/share/opencode");
-        let store_path = temp.path().join("data/agent-model-providers.json");
-        tokio::fs::create_dir_all(&auth_dir).await.unwrap();
-        tokio::fs::write(
-            auth_dir.join("auth.json"),
-            br#"{"deepseek":{"type":"api","key":"sk-ds"}}"#,
-        )
-        .await
-        .unwrap();
-
-        let view = project_auth_mode_view_at(
-            &home,
-            &store_path,
-            AgentId::parse("opencode").unwrap(),
-            &HashMap::new(),
-        )
-        .await
-        .unwrap();
-        assert_eq!(view.mode, "model_provider");
-        assert!(view.credential_present);
-    }
-
-    #[tokio::test]
-    async fn opencode_inline_api_key_selects_the_provider_auth_tab() {
-        let temp = tempfile::tempdir().unwrap();
-        let home = temp.path().join("home");
-        let auth_dir = home.join(".local/share/opencode");
-        let config_dir = home.join(".config/opencode");
-        let store_path = temp.path().join("data/agent-model-providers.json");
-        tokio::fs::create_dir_all(&auth_dir).await.unwrap();
-        tokio::fs::create_dir_all(&config_dir).await.unwrap();
-        tokio::fs::write(auth_dir.join("auth.json"), b"{}")
-            .await
-            .unwrap();
-        tokio::fs::write(
-            config_dir.join("opencode.json"),
-            br#"{
-              "provider": {
-                "opencodego": {
-                  "name": "OpenCode Go",
-                  "options": {
-                    "baseURL": "https://opencode.ai/zen/go/v1",
-                    "apiKey": "sk-go"
-                  }
-                }
-              }
-            }"#,
-        )
-        .await
-        .unwrap();
-
-        let view = project_auth_mode_view_at(
-            &home,
-            &store_path,
-            AgentId::parse("opencode").unwrap(),
-            &HashMap::new(),
-        )
-        .await
-        .unwrap();
-        assert_eq!(view.mode, "model_provider");
-        assert!(view.credential_present);
-    }
-
-    #[tokio::test]
-    async fn dsh_custom_yaml_credential_readies_provider_mode() {
-        let temp = tempfile::tempdir().unwrap();
-        let home = temp.path().join("home");
-        let dsh_home = home.join(".dsh");
-        let store_path = temp.path().join("data/agent-model-providers.json");
-        tokio::fs::create_dir_all(&dsh_home).await.unwrap();
-        tokio::fs::write(
-            dsh_home.join(".credentials.yaml"),
-            "MY_GATEWAY_API_KEY: sk-test\n",
-        )
-        .await
-        .unwrap();
-        tokio::fs::write(
-            dsh_home.join("settings.yaml"),
-            "llm-pi-ai:\n  providers:\n    my-gateway:\n      api: openai-completions\n      baseURL: https://gateway.example/v1\n      apiKeyEnv: MY_GATEWAY_API_KEY\n",
-        )
-        .await
-        .unwrap();
-
-        let view = project_auth_mode_view_at(
-            &home,
-            &store_path,
-            AgentId::parse("deepseek_harness").unwrap(),
-            &HashMap::new(),
-        )
-        .await
-        .unwrap();
-        assert_eq!(view.mode, "custom");
-        assert!(view.credential_present);
-    }
-
-    #[tokio::test]
-    async fn kimi_native_api_key_readies_official_api_without_env() {
-        let temp = tempfile::tempdir().unwrap();
-        let home = temp.path().join("home");
-        let kimi_home = home.join(".kimi-code");
-        let store_path = temp.path().join("data/agent-model-providers.json");
-        tokio::fs::create_dir_all(&kimi_home).await.unwrap();
-        tokio::fs::write(
-            kimi_home.join("config.toml"),
-            "[providers.vibex]\ntype = \"openai\"\nbase_url = \"https://api.moonshot.ai/v1\"\napi_key = \"sk-kimi\"\n",
-        )
-        .await
-        .unwrap();
-
-        let view = project_auth_mode_view_at(
-            &home,
-            &store_path,
-            AgentId::parse("kimi_code").unwrap(),
-            &HashMap::new(),
-        )
-        .await
-        .unwrap();
-        assert!(view.credential_present);
-        assert!(
-            view.mode == "official_api" || view.mode == "official_subscription",
-            "unexpected kimi mode {}",
-            view.mode
-        );
-    }
-
     async fn lock_pool(agent_id: &str, components: &[(&str, &Path)]) -> sqlx::SqlitePool {
         use sqlx::{SqlitePool, query};
         let pool = SqlitePool::connect(":memory:").await.unwrap();
@@ -3583,8 +1368,6 @@ mod tests {
         pool
     }
 
-    /// Synthetic names keep PATH out of the picture: the only way either entry
-    /// point can resolve is through the installation lock.
     fn two_entry_action() -> agents::ProfileManagementAction {
         agents::ProfileManagementAction {
             id: "login",
@@ -3605,9 +1388,6 @@ mod tests {
         }
     }
 
-    /// An Adapter-backed Agent installs the adapter, not the vendor CLI, so an
-    /// action whose standalone entry point is absent must fall through to the
-    /// adapter — and must use the adapter's own arguments.
     #[tokio::test]
     async fn management_action_falls_back_to_the_adapter_entry_point() {
         let temp = tempfile::tempdir().unwrap();
@@ -3629,8 +1409,6 @@ mod tests {
         assert_eq!(resolved.args, vec!["--cli", "adapter-login"]);
     }
 
-    /// The standalone CLI is the installation its user manages directly, so it
-    /// wins over the adapter when both are present.
     #[tokio::test]
     async fn management_action_prefers_the_standalone_cli_entry_point() {
         let temp = tempfile::tempdir().unwrap();
@@ -3650,177 +1428,5 @@ mod tests {
 
         assert_eq!(resolved.path, cli);
         assert_eq!(resolved.args, vec!["cli-login"]);
-    }
-
-    fn replacement_mutation(
-        path: &Path,
-        expected: &[u8],
-        replacement: &[u8],
-    ) -> NativeFileMutation {
-        NativeFileMutation {
-            path: path.to_path_buf(),
-            expected: Some(expected.to_vec()),
-            replacement: Some(replacement.to_vec()),
-            sensitive: false,
-        }
-    }
-
-    #[tokio::test]
-    async fn a_failed_launch_takes_the_configuration_transition_back() {
-        let temp = tempfile::tempdir().unwrap();
-        let path = temp.path().join("config.toml");
-        let original = b"default_model = \"vibex\"\n".to_vec();
-        tokio::fs::write(&path, &original).await.unwrap();
-
-        let error = apply_config_transition_then(
-            vec![replacement_mutation(
-                &path,
-                &original,
-                b"default_model = \"kimi\"\n",
-            )],
-            || async {
-                Err(std::io::Error::new(
-                    std::io::ErrorKind::NotFound,
-                    "no terminal emulator",
-                ))
-            },
-        )
-        .await
-        .unwrap_err();
-
-        assert!(error.envelope().message.contains("no terminal emulator"));
-        assert_eq!(tokio::fs::read(&path).await.unwrap(), original);
-    }
-
-    #[tokio::test]
-    async fn a_failed_launch_recreates_a_credential_the_transition_removed() {
-        let temp = tempfile::tempdir().unwrap();
-        let path = temp.path().join("kimi-code.json");
-        let original = br#"{"access_token":"vibex-local-gate"}"#.to_vec();
-        tokio::fs::write(&path, &original).await.unwrap();
-
-        apply_config_transition_then(
-            vec![NativeFileMutation {
-                path: path.clone(),
-                expected: Some(original.clone()),
-                replacement: None,
-                sensitive: true,
-            }],
-            || async { Err(std::io::Error::other("no terminal emulator")) },
-        )
-        .await
-        .unwrap_err();
-
-        assert_eq!(tokio::fs::read(&path).await.unwrap(), original);
-    }
-
-    /// The registration lands before the launch, so a launch that fails has to
-    /// take it back — otherwise authentication management polls one agent
-    /// forever for an exit code no terminal will ever write.
-    #[tokio::test]
-    async fn a_failed_launch_cancels_the_registered_account_flow() {
-        let temp = tempfile::tempdir().unwrap();
-        let kimi_home = temp.path().join("kimi");
-        tokio::fs::create_dir_all(&kimi_home).await.unwrap();
-        // Unparsable TOML fails the login cleanup before any terminal starts,
-        // which is the failure this test needs without opening a window.
-        tokio::fs::write(kimi_home.join("config.toml"), "= not toml =")
-            .await
-            .unwrap();
-        let agent_id = AgentId::parse("kimi_code").unwrap();
-        let environment = HashMap::from([(
-            "KIMI_CODE_HOME".to_string(),
-            kimi_home.display().to_string(),
-        )]);
-        let result_path = temp.path().join("flow.exit");
-        account_flow::register_account_flow(
-            &agent_id,
-            "login",
-            ProfileManagementActionKind::Login,
-            result_path.clone(),
-        );
-
-        launch_watched_management_action(
-            &agent_id,
-            "login",
-            &environment,
-            "kimi acp --login",
-            Some(&result_path),
-        )
-        .await
-        .unwrap_err();
-
-        assert!(account_flow::peek_account_flow(&agent_id).is_none());
-    }
-
-    #[tokio::test]
-    async fn a_transition_that_launches_stays_applied() {
-        let temp = tempfile::tempdir().unwrap();
-        let path = temp.path().join("config.toml");
-        let original = b"default_model = \"vibex\"\n".to_vec();
-        tokio::fs::write(&path, &original).await.unwrap();
-
-        apply_config_transition_then(
-            vec![replacement_mutation(&path, &original, b"")],
-            || async { Ok(()) },
-        )
-        .await
-        .unwrap();
-
-        assert!(tokio::fs::read(&path).await.unwrap().is_empty());
-    }
-
-    #[test]
-    fn management_terminal_receives_saved_home_but_never_saved_secrets() {
-        let environment = HashMap::from([
-            ("CODEX_HOME".to_string(), "/tmp/codex home".to_string()),
-            (
-                "OPENAI_BASE_URL".to_string(),
-                "https://example.test".to_string(),
-            ),
-            ("OPENAI_API_KEY".to_string(), "sk-secret".to_string()),
-        ]);
-
-        let assignments = management_environment_assignments(&environment).join(" ");
-
-        assert!(assignments.contains("CODEX_HOME"));
-        assert!(assignments.contains("OPENAI_BASE_URL"));
-        assert!(!assignments.contains("OPENAI_API_KEY"));
-        assert!(!assignments.contains("sk-secret"));
-    }
-
-    #[test]
-    fn vendor_cli_diagnostics_distinguish_adapter_missing_with_cli_vs_both_missing() {
-        let relation = agents::acp_adapter_relation("claude_code").expect("claude relation");
-        let cli_path = Path::new("/Users/alice/.claude/local/claude");
-
-        let detail_with_cli = acp_missing_preflight_detail(Some(relation), Some(cli_path));
-        assert!(detail_with_cli.contains("Claude Code CLI"));
-        assert!(detail_with_cli.contains("~/.claude"));
-        assert!(detail_with_cli.contains("未发现 ACP 适配器"));
-
-        let detail_without_cli = acp_missing_preflight_detail(Some(relation), None);
-        assert!(detail_without_cli.contains("未发现 ACP 安装组件"));
-        assert!(detail_without_cli.contains("~/.claude"));
-
-        let check_missing_adapter_with_cli =
-            vendor_cli_diagnostic_check(relation, false, Some(cli_path));
-        assert_eq!(
-            check_missing_adapter_with_cli.level,
-            AgentEnvironmentDiagnosticLevel::Warning
-        );
-        assert!(check_missing_adapter_with_cli.value.contains("~/.claude"));
-        assert!(
-            check_missing_adapter_with_cli
-                .value
-                .contains("仍需安装 ACP 适配器")
-        );
-
-        let check_both_missing = vendor_cli_diagnostic_check(relation, false, None);
-        assert_eq!(
-            check_both_missing.level,
-            AgentEnvironmentDiagnosticLevel::Info
-        );
-        assert!(check_both_missing.value.contains("NOT RESOLVED (claude)"));
     }
 }

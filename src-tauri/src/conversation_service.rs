@@ -57,8 +57,22 @@ impl conversations::ConversationEventPublisher for AppConversationEventPublisher
         self.pipeline.publish(record).await;
     }
 
+    async fn publish_batch(&self, records: &[ConversationEventRecord]) {
+        self.pipeline.publish_batch(records).await;
+    }
+
     async fn publish_unpersisted(&self, record: &ConversationEventRecord) {
         self.pipeline.publish_unpersisted(record).await;
+    }
+
+    async fn publish_reset(&self, conversation_id: uuid::Uuid, last_sequence: i64) {
+        self.pipeline
+            .publish_reset(conversation_id, last_sequence)
+            .await;
+    }
+
+    async fn flush_conversation(&self, conversation_id: uuid::Uuid) {
+        self.pipeline.flush_conversation(conversation_id);
     }
 }
 

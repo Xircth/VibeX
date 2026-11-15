@@ -376,11 +376,11 @@ mod tests {
         let pool = setup_pool().await;
         let identity = super::PersistedAgentRuntimeIdentity {
             cli_path: "/usr/local/bin/codex".to_string(),
-            cli_version: "0.130.0".to_string(),
+            cli_version: "0.169.0".to_string(),
             cli_revision: "cli-revision".to_string(),
-            acp_path: "/usr/local/bin/codex-acp".to_string(),
-            acp_version: "1.1.2".to_string(),
-            acp_revision: "acp-revision".to_string(),
+            acp_path: "/usr/local/bin/codex".to_string(),
+            acp_version: "0.169.0".to_string(),
+            acp_revision: "cli-revision".to_string(),
         };
 
         AgentSetting::update_runtime_identity(&pool, "codex", Some(&identity))
@@ -442,11 +442,11 @@ mod tests {
 
         let identity = super::PersistedAgentRuntimeIdentity {
             cli_path: "/usr/local/bin/codex".to_string(),
-            cli_version: "0.130.0".to_string(),
+            cli_version: "0.169.0".to_string(),
             cli_revision: "cli-revision".to_string(),
-            acp_path: "/usr/local/bin/codex-acp".to_string(),
-            acp_version: "1.1.2".to_string(),
-            acp_revision: "acp-revision".to_string(),
+            acp_path: "/usr/local/bin/codex".to_string(),
+            acp_version: "0.169.0".to_string(),
+            acp_revision: "cli-revision".to_string(),
         };
         AgentSetting::update_runtime_identity(&pool, "codex", Some(&identity))
             .await

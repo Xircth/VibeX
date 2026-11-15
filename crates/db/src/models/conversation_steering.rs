@@ -17,12 +17,17 @@ pub struct ConversationSteeringRecord {
     pub principal_json: String,
     pub code: Option<String>,
     pub message: Option<String>,
+    #[sqlx(default)]
+    pub delivery_mode: Option<String>,
+    #[sqlx(default)]
+    pub restarted_turn_id: Option<Uuid>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
 
 const COLUMNS: &str = r#"id, conversation_id, operation_id, expected_turn_id, payload_digest,
-    status, blocks_json, principal_json, code, message, created_at, updated_at"#;
+    status, blocks_json, principal_json, code, message, delivery_mode, restarted_turn_id,
+    created_at, updated_at"#;
 
 pub struct CreateConversationSteering<'a> {
     pub id: Uuid,
@@ -57,6 +62,7 @@ impl ConversationSteeringRecord {
         .await
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub async fn settle_on_connection(
         conn: &mut SqliteConnection,
         conversation_id: Uuid,
@@ -65,10 +71,13 @@ impl ConversationSteeringRecord {
         status: &str,
         code: Option<&str>,
         message: Option<&str>,
+        delivery_mode: Option<&str>,
+        restarted_turn_id: Option<Uuid>,
     ) -> Result<(), sqlx::Error> {
         let result = sqlx::query(
             r#"UPDATE conversation_steering
                SET status = ?, code = ?, message = ?,
+                   delivery_mode = ?, restarted_turn_id = ?,
                    updated_at = datetime('now', 'subsec')
                WHERE id = ? AND conversation_id = ? AND expected_turn_id = ?
                  AND status = 'requested'"#,
@@ -76,6 +85,8 @@ impl ConversationSteeringRecord {
         .bind(status)
         .bind(code)
         .bind(message)
+        .bind(delivery_mode)
+        .bind(restarted_turn_id)
         .bind(id)
         .bind(conversation_id)
         .bind(expected_turn_id)
@@ -86,6 +97,26 @@ impl ConversationSteeringRecord {
                 "steering receipt is missing or already terminal".to_string(),
             ));
         }
+        Ok(())
+    }
+
+    pub async fn update_restarted_turn_on_connection(
+        conn: &mut SqliteConnection,
+        conversation_id: Uuid,
+        id: Uuid,
+        restarted_turn_id: Uuid,
+    ) -> Result<(), sqlx::Error> {
+        sqlx::query(
+            r#"UPDATE conversation_steering
+               SET restarted_turn_id = ?,
+                   updated_at = datetime('now', 'subsec')
+               WHERE id = ? AND conversation_id = ?"#,
+        )
+        .bind(restarted_turn_id)
+        .bind(id)
+        .bind(conversation_id)
+        .execute(&mut *conn)
+        .await?;
         Ok(())
     }
 

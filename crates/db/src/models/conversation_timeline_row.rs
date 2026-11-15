@@ -376,6 +376,90 @@ impl ConversationTimelineRowRecord {
         .await
     }
 
+    pub async fn list_before_keyset<'e, E>(
+        executor: E,
+        conversation_id: Uuid,
+        before_sort_index: i64,
+        before_row_id: &str,
+        limit: i64,
+    ) -> Result<Vec<Self>, sqlx::Error>
+    where
+        E: Executor<'e, Database = Sqlite>,
+    {
+        let mut rows = sqlx::query_as::<_, Self>(
+            r#"SELECT conversation_id, sort_index, row_id, revision, row_json, deleted_sequence
+               FROM conversation_timeline_rows
+               WHERE conversation_id = ?1
+                 AND deleted_sequence IS NULL
+                 AND (sort_index < ?2 OR (sort_index = ?2 AND row_id < ?3))
+               ORDER BY sort_index DESC, row_id DESC
+               LIMIT ?4"#,
+        )
+        .bind(conversation_id)
+        .bind(before_sort_index)
+        .bind(before_row_id)
+        .bind(limit.max(0))
+        .fetch_all(executor)
+        .await?;
+        rows.reverse();
+        Ok(rows)
+    }
+
+    pub async fn has_older_before_keyset<'e, E>(
+        executor: E,
+        conversation_id: Uuid,
+        before_sort_index: i64,
+        before_row_id: &str,
+    ) -> Result<bool, sqlx::Error>
+    where
+        E: Executor<'e, Database = Sqlite>,
+    {
+        let exists = sqlx::query_scalar::<_, i64>(
+            r#"SELECT EXISTS(
+                   SELECT 1
+                     FROM conversation_timeline_rows
+                    WHERE conversation_id = ?1
+                      AND deleted_sequence IS NULL
+                      AND (sort_index < ?2 OR (sort_index = ?2 AND row_id < ?3))
+               )"#,
+        )
+        .bind(conversation_id)
+        .bind(before_sort_index)
+        .bind(before_row_id)
+        .fetch_one(executor)
+        .await?;
+        Ok(exists != 0)
+    }
+
+    pub async fn list_all_active<'e, E>(
+        executor: E,
+        conversation_id: Uuid,
+    ) -> Result<Vec<Self>, sqlx::Error>
+    where
+        E: Executor<'e, Database = Sqlite>,
+    {
+        sqlx::query_as::<_, Self>(
+            r#"SELECT conversation_id, sort_index, row_id, revision, row_json, deleted_sequence
+               FROM conversation_timeline_rows
+               WHERE conversation_id = ?
+                 AND deleted_sequence IS NULL
+               ORDER BY sort_index ASC, row_id ASC"#,
+        )
+        .bind(conversation_id)
+        .fetch_all(executor)
+        .await
+    }
+
+    pub async fn fetch_all_active<'e, E>(
+        executor: E,
+        conversation_id: Uuid,
+    ) -> Result<Vec<Self>, sqlx::Error>
+    where
+        E: Executor<'e, Database = Sqlite>,
+    {
+        Self::list_all_active(executor, conversation_id).await
+    }
+
     pub async fn count<'e, E>(executor: E, conversation_id: Uuid) -> Result<i64, sqlx::Error>
     where
         E: Executor<'e, Database = Sqlite>,
@@ -500,5 +584,46 @@ mod tests {
         assert_eq!(catch_up.tombstones.len(), 1);
         assert_eq!(catch_up.tombstones[0].row_id, "perm:req-1");
         assert_eq!(catch_up.tombstones[0].deleted_sequence, 6);
+
+        // Keyset pagination before turn-1:assistant returns [status:agent-connection, turn-1:user]
+        // and excludes soft-deleted perm:req-1.
+        let before_asst = ConversationTimelineRowRecord::list_before_keyset(
+            db.reader().as_pool(),
+            cid,
+            t1_asst_sort,
+            "turn-1:assistant",
+            10,
+        )
+        .await
+        .expect("list_before_keyset");
+        assert_eq!(before_asst.len(), 2);
+        assert_eq!(before_asst[0].row_id, "status:agent-connection");
+        assert_eq!(before_asst[1].row_id, "turn-1:user");
+
+        assert!(
+            ConversationTimelineRowRecord::has_older_before_keyset(
+                db.reader().as_pool(),
+                cid,
+                t1_user_sort,
+                "turn-1:user",
+            )
+            .await
+            .expect("has_older_before_keyset")
+        );
+        assert!(
+            !ConversationTimelineRowRecord::has_older_before_keyset(
+                db.reader().as_pool(),
+                cid,
+                global_sort,
+                "status:agent-connection",
+            )
+            .await
+            .expect("has_older_before_keyset oldest")
+        );
+
+        let all_active = ConversationTimelineRowRecord::list_all_active(db.reader().as_pool(), cid)
+            .await
+            .expect("list_all_active");
+        assert_eq!(all_active.len(), 3);
     }
 }

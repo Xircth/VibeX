@@ -23,12 +23,12 @@
       "reason": "会话标题/归档/行操作等辅助查询直连池，待 J4 收核"
     },
     "crates/server/src/host/local_history.rs": {
-      "sqlx": 14,
+      "sqlx": 17,
       "pool": 0,
-      "reason": "本地历史导入的批量写入 SQL，属于 J6 历史迁移范围"
+      "reason": "本地历史导入的批量写入 SQL（含 master 合并新增索引列），属于 J6 历史迁移范围"
     },
     "crates/server/src/host/management.rs": {
-      "sqlx": 23,
+      "sqlx": 20,
       "pool": 0,
       "reason": "Agent/进程管理等目录 SQL，待 J3 目录端口化"
     },
@@ -63,13 +63,13 @@
       "reason": "插件会话投影读写；reaches_core=true 且已带 application:: 引用，待投影下沉 db"
     },
     "crates/server/src/host/plugin_projections.rs": {
-      "sqlx": 10,
-      "pool": 7,
-      "reason": "插件投影查询直连池，待投影仓储下沉 db"
+      "sqlx": 19,
+      "pool": 10,
+      "reason": "插件投影查询直连池（含 master 合并新增投影查询），待投影仓储下沉 db"
     },
     "crates/server/src/host/product.rs": {
       "sqlx": 1,
-      "pool": 42,
+      "pool": 39,
       "reason": "产品目录/安装状态查询直连池，待 J3 端口化"
     },
     "crates/server/src/host/provider_bind.rs": {
@@ -79,8 +79,8 @@
     },
     "crates/server/src/host/row_ops.rs": {
       "sqlx": 6,
-      "pool": 6,
-      "reason": "会话行操作（事件溯源写入）直连池，待 J4 收核"
+      "pool": 0,
+      "reason": "会话行操作（事件溯源写入）直连池已清零，保留 sqlx 查询待 J4 收核"
     },
     "crates/server/src/host/streams.rs": {
       "sqlx": 0,
@@ -89,8 +89,8 @@
     },
     "crates/server/src/host/surface.rs": {
       "sqlx": 26,
-      "pool": 86,
-      "reason": "artifact / app.surface 界面表面读写直连池，待 J4 后收紧"
+      "pool": 87,
+      "reason": "artifact / app.surface 界面表面读写直连池（含 master 合并新增 1 处），待 J4 后收紧"
     },
     "crates/server/src/host/workspace_parity.rs": {
       "sqlx": 1,

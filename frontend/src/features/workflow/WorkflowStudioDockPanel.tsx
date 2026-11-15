@@ -450,7 +450,7 @@ export function WorkflowStudioDockPanel(_props?: Partial<IDockviewPanelProps>) {
                 void loadWorkflowSelection(match);
               }
             }}
-            className="h-7 max-w-[220px] truncate rounded-md border border-border bg-[var(--surface-control)] px-2 text-xs font-medium text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+            className="raised-control h-7 max-w-[220px] truncate rounded-md border border-border bg-[var(--surface-control)] px-2 text-xs font-medium text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
           >
             <option value="__draft__">
               {selectedDefinitionId == null

@@ -1,11 +1,13 @@
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   AlertTriangle,
   ArrowDown,
   ArrowUp,
+  Check,
   ChevronDown,
   GitBranch,
+  Shield,
 } from 'lucide-react';
 import { useQueryClient } from '@tanstack/react-query';
 import { HostGlass } from '@/components/ui/host-glass';
@@ -16,6 +18,11 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from '@/components/ui/popover';
 import {
   Tooltip,
   TooltipContent,
@@ -29,6 +36,12 @@ import { useTaskAttempt } from '@/hooks/useTaskAttempt';
 import { useTask } from '@/hooks/useTask';
 import { attemptsApi } from '@/lib/api';
 import type { RebaseResult } from '@/lib/api';
+import {
+  pulseApi,
+  type PulseRuleSpec,
+  type PulseRuleView,
+  type PulseSubscriptionView,
+} from '@/lib/api/pulse';
 import type { RepoBranchStatus, TaskWithAttemptStatus } from 'shared/types';
 import { useRepoBranches } from '@/hooks/useRepoBranches';
 import { useChangeTargetBranch } from '@/hooks/useChangeTargetBranch';
@@ -37,6 +50,7 @@ import { GitConflictResolutionDialog } from '@/components/dialogs/tasks/GitConfl
 import { GitActionsDialog } from '@/components/dialogs/tasks/GitActionsDialog';
 import { RebaseDialog } from '@/components/dialogs/tasks/RebaseDialog';
 import { useMediaQuery } from '@/hooks/useMediaQuery';
+import { cn } from '@/lib/utils';
 import i18n from '@/i18n';
 
 const STATIC_GLASS_POINTER = { x: 0, y: 0 };
@@ -193,6 +207,11 @@ export function BranchInfoHeader({
                 )}
               </div>
               <div className="branch-info-actions">
+                <PulseGuardMenu
+                  repoName={repo.repo_name}
+                  branchName={workspace?.branch ?? 'HEAD'}
+                  worktreeId={effectiveWorktreeId}
+                />
                 <GitActionsButton
                   worktreeId={effectiveWorktreeId}
                   task={gitActionsTask}
@@ -203,6 +222,309 @@ export function BranchInfoHeader({
         </HostGlass>
       </div>
     </div>
+  );
+}
+
+function buildCiGuardSpec(
+  repoName: string,
+  branchName: string,
+  worktreeId: string
+): PulseRuleSpec {
+  return {
+    name: `CI Guard: ${repoName}@${branchName}`,
+    description: `Auto-diagnose CI failures on ${branchName}`,
+    workspaceId: worktreeId,
+    evalMode: 'auto',
+    orchestrator: 'direct_reflex',
+    filter: {
+      sourceKinds: ['github'],
+      sourceInstanceIds: [],
+      eventTypes: ['github.workflow_run.failed', 'github.check_suite.failed'],
+      allowedActors: [],
+      conditions: [
+        { op: 'not_bot_actor' },
+        { op: 'eq', pointer: '/branch', value: branchName },
+      ],
+    },
+    temporal: null,
+    targets: [
+      {
+        kind: 'session',
+        mode: 'ephemeral_fresh',
+        agentId: 'CLAUDE_CODE',
+        workspaceIsolation: 'isolated_worktree',
+        subscribeThread: true,
+        promptTemplate: `Diagnose CI failure on ${repoName}@${branchName}: {{payload.summary}}`,
+      },
+    ],
+  };
+}
+
+function buildPrReviewGuardSpec(
+  repoName: string,
+  branchName: string,
+  worktreeId: string
+): PulseRuleSpec {
+  return {
+    name: `PR Review Guard: ${repoName}@${branchName}`,
+    description: `Route PR review comments on ${branchName} to Bot`,
+    workspaceId: worktreeId,
+    evalMode: 'auto',
+    orchestrator: 'direct_reflex',
+    filter: {
+      sourceKinds: ['github'],
+      sourceInstanceIds: [],
+      eventTypes: [
+        'github.pull_request_review_comment.created',
+        'github.issue_comment.created',
+      ],
+      allowedActors: [],
+      conditions: [
+        { op: 'not_bot_actor' },
+        { op: 'eq', pointer: '/branch', value: branchName },
+      ],
+    },
+    temporal: null,
+    targets: [
+      {
+        kind: 'bot',
+        memberId: 'pr-review-bot',
+        conversationScope: 'per_thread_topic',
+        mailboxPolicy: 'fifo_serial',
+        subscribeThread: true,
+        promptTemplate: `Review PR comment on ${repoName}@${branchName}: {{payload.comment.body}}`,
+      },
+    ],
+  };
+}
+
+export function PulseGuardMenu({
+  repoName,
+  branchName,
+  worktreeId,
+}: {
+  repoName: string;
+  branchName: string;
+  worktreeId: string;
+}) {
+  const queryClient = useQueryClient();
+  const [open, setOpen] = useState(false);
+  const [rules, setRules] = useState<PulseRuleView[]>([]);
+  const [subscriptions, setSubscriptions] = useState<PulseSubscriptionView[]>(
+    []
+  );
+  const [busyKey, setBusyKey] = useState<string | null>(null);
+  const [statusError, setStatusError] = useState<string | null>(null);
+
+  const ciRuleName = `CI Guard: ${repoName}@${branchName}`;
+  const prRuleName = `PR Review Guard: ${repoName}@${branchName}`;
+  const prThreadKey = `github:${repoName}#${branchName}`;
+
+  const ciRule = rules.find((rule) => rule.spec.name === ciRuleName) ?? null;
+  const prRule = rules.find((rule) => rule.spec.name === prRuleName) ?? null;
+  const prSub =
+    subscriptions.find(
+      (sub) => sub.threadKey === prThreadKey && sub.active
+    ) ?? null;
+
+  const activeGuardCount =
+    (ciRule?.enabled ? 1 : 0) +
+    (prRule?.enabled ? 1 : 0) +
+    (prSub ? 1 : 0);
+
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    pulseApi
+      .deckSnapshot()
+      .then((snapshot) => {
+        if (cancelled || !snapshot) return;
+        setRules(Array.isArray(snapshot.rules) ? snapshot.rules : []);
+        setSubscriptions(
+          Array.isArray(snapshot.subscriptions) ? snapshot.subscriptions : []
+        );
+      })
+      .catch(() => {
+        // Best-effort snapshot load when menu opens.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [open]);
+
+  const handleToggleRule = async (
+    key: 'ci' | 'pr',
+    existing: PulseRuleView | null,
+    spec: PulseRuleSpec
+  ) => {
+    setBusyKey(key);
+    setStatusError(null);
+    try {
+      const updated = existing
+        ? await pulseApi.setRuleEnabled(existing.id, !existing.enabled)
+        : await pulseApi.saveRule({ enabled: true, spec });
+      setRules((current) => {
+        const idx = current.findIndex((item) => item.id === updated.id);
+        if (idx < 0) return [...current, updated];
+        return current.map((item) => (item.id === updated.id ? updated : item));
+      });
+      void queryClient.invalidateQueries({
+        queryKey: ['pulse-deck-snapshot'],
+      });
+    } catch (err) {
+      setStatusError(
+        err instanceof Error ? err.message : 'Failed to update branch guard.'
+      );
+    } finally {
+      setBusyKey(null);
+    }
+  };
+
+  const handleToggleThreadSubscription = async () => {
+    setBusyKey('thread');
+    setStatusError(null);
+    try {
+      if (prSub) {
+        await pulseApi.unsubscribeThread(prSub.id);
+        setSubscriptions((current) =>
+          current.filter((item) => item.id !== prSub.id)
+        );
+      } else {
+        const created = await pulseApi.subscribeThread(
+          prThreadKey,
+          'session',
+          worktreeId
+        );
+        setSubscriptions((current) => [...current, created]);
+      }
+      void queryClient.invalidateQueries({
+        queryKey: ['pulse-deck-snapshot'],
+      });
+    } catch (err) {
+      setStatusError(
+        err instanceof Error ? err.message : 'Failed to update PR subscription.'
+      );
+    } finally {
+      setBusyKey(null);
+    }
+  };
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          aria-label="PR Pulse Guard"
+          data-testid="branch-pulse-guard-trigger"
+          className={cn(
+            'branch-info-action gap-1 px-2',
+            activeGuardCount > 0 && 'text-primary'
+          )}
+        >
+          <Shield className="h-3.5 w-3.5" aria-hidden="true" />
+          {activeGuardCount > 0 ? (
+            <span className="text-[11px] font-medium tabular-nums">
+              {activeGuardCount}
+            </span>
+          ) : null}
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent
+        align="end"
+        side="bottom"
+        className="w-80 space-y-2 border border-border bg-popover p-2.5 text-foreground shadow-md"
+        data-testid="branch-pulse-guard-popover"
+      >
+        <div className="flex items-center justify-between border-b border-border pb-1.5">
+          <span className="text-xs font-semibold">PR Automation Guard</span>
+          <span className="max-w-36 truncate font-mono text-[11px] text-muted-foreground">
+            {branchName}
+          </span>
+        </div>
+
+        <div className="space-y-1">
+          <button
+            type="button"
+            disabled={busyKey !== null}
+            data-testid="pulse-guard-ci-failure"
+            onClick={() =>
+              void handleToggleRule(
+                'ci',
+                ciRule,
+                buildCiGuardSpec(repoName, branchName, worktreeId)
+              )
+            }
+            className="flex w-full items-center justify-between gap-2 rounded-md border border-border bg-background px-2.5 py-1.5 text-left text-xs transition-colors hover:bg-muted"
+          >
+            <span>Auto-diagnose CI failure (Fresh Session)</span>
+            <span
+              className={cn(
+                'inline-flex h-4 w-4 shrink-0 items-center justify-center rounded border',
+                ciRule?.enabled
+                  ? 'border-primary bg-primary text-primary-foreground'
+                  : 'border-border bg-muted/40'
+              )}
+            >
+              {ciRule?.enabled ? <Check className="h-3 w-3" /> : null}
+            </span>
+          </button>
+
+          <button
+            type="button"
+            disabled={busyKey !== null}
+            data-testid="pulse-guard-pr-comments"
+            onClick={() =>
+              void handleToggleRule(
+                'pr',
+                prRule,
+                buildPrReviewGuardSpec(repoName, branchName, worktreeId)
+              )
+            }
+            className="flex w-full items-center justify-between gap-2 rounded-md border border-border bg-background px-2.5 py-1.5 text-left text-xs transition-colors hover:bg-muted"
+          >
+            <span>Route PR review comments to Bot</span>
+            <span
+              className={cn(
+                'inline-flex h-4 w-4 shrink-0 items-center justify-center rounded border',
+                prRule?.enabled
+                  ? 'border-primary bg-primary text-primary-foreground'
+                  : 'border-border bg-muted/40'
+              )}
+            >
+              {prRule?.enabled ? <Check className="h-3 w-3" /> : null}
+            </span>
+          </button>
+
+          <button
+            type="button"
+            disabled={busyKey !== null}
+            data-testid="pulse-guard-subscribe-pr"
+            onClick={() => void handleToggleThreadSubscription()}
+            className="flex w-full items-center justify-between gap-2 rounded-md border border-border bg-background px-2.5 py-1.5 text-left text-xs transition-colors hover:bg-muted"
+          >
+            <span>Subscribe current branch PR thread</span>
+            <span
+              className={cn(
+                'inline-flex h-4 w-4 shrink-0 items-center justify-center rounded border',
+                prSub
+                  ? 'border-primary bg-primary text-primary-foreground'
+                  : 'border-border bg-muted/40'
+              )}
+            >
+              {prSub ? <Check className="h-3 w-3" /> : null}
+            </span>
+          </button>
+        </div>
+
+        {statusError ? (
+          <div role="alert" className="text-[11px] text-destructive">
+            {statusError}
+          </div>
+        ) : null}
+      </PopoverContent>
+    </Popover>
   );
 }
 

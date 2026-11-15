@@ -592,3 +592,98 @@ export function getSessionMarker(
     hue: sessionSlotHue(index),
   };
 }
+
+const MAINLINE_BRANCH_NAMES = new Set(['main', 'master']);
+
+export function isMainlineBranch(branch: string | null | undefined) {
+  const normalized = (branch ?? '').trim().toLowerCase();
+  return (
+    MAINLINE_BRANCH_NAMES.has(normalized) ||
+    normalized.endsWith('/main') ||
+    normalized.endsWith('/master')
+  );
+}
+
+export function matchesBranch(
+  branch: string | null | undefined,
+  expectedBranch: string
+) {
+  const normalized = (branch ?? '').trim().toLowerCase();
+  return (
+    normalized === expectedBranch || normalized.endsWith(`/${expectedBranch}`)
+  );
+}
+
+export function resolveRestoredSessionName(
+  session: KanbanProjectSessionRecord,
+  activeSessions: KanbanProjectSessionRecord[]
+) {
+  const baseName =
+    (session.fullName ?? '').trim() || (session.name ?? '').trim() || 'session';
+  const activeNames = new Set(
+    activeSessions
+      .map((candidate) => (candidate.fullName ?? '').trim())
+      .filter((name) => name.length > 0)
+  );
+
+  if (!activeNames.has(baseName)) {
+    return null;
+  }
+
+  let suffix = 1;
+  let candidateName = `${baseName}_${suffix}`;
+  while (activeNames.has(candidateName)) {
+    suffix += 1;
+    candidateName = `${baseName}_${suffix}`;
+  }
+
+  return candidateName;
+}
+
+export function readInitialSessionListWidth(): number {
+  if (typeof window === 'undefined') {
+    return DEFAULT_SESSION_LIST_WIDTH;
+  }
+  const stored = Number.parseInt(
+    window.localStorage.getItem(SESSION_LIST_WIDTH_STORAGE_KEY) ?? '',
+    10
+  );
+  if (Number.isNaN(stored)) {
+    return DEFAULT_SESSION_LIST_WIDTH;
+  }
+  return Math.min(
+    MAX_SESSION_LIST_WIDTH,
+    Math.max(MIN_SESSION_LIST_WIDTH, stored)
+  );
+}
+
+export function applyOptimisticSessionPatches(
+  sessions: KanbanProjectSessionRecord[],
+  optimisticStatusBySessionId: Record<string, SessionStatus>,
+  optimisticPinnedAtBySessionId: Record<string, string | null>
+): KanbanProjectSessionRecord[] {
+  return sessions.map((session) => {
+    const optimisticStatus = optimisticStatusBySessionId[session.id];
+    const hasOptimisticPin = Object.prototype.hasOwnProperty.call(
+      optimisticPinnedAtBySessionId,
+      session.id
+    );
+    const optimisticPinnedAt = optimisticPinnedAtBySessionId[session.id];
+    const statusChanged =
+      Boolean(optimisticStatus) && optimisticStatus !== session.status;
+    const pinChanged =
+      hasOptimisticPin && optimisticPinnedAt !== session.pinnedAt;
+
+    if (!statusChanged && !pinChanged) {
+      return session;
+    }
+
+    const nextStatus = optimisticStatus ?? session.status;
+    return {
+      ...session,
+      status: nextStatus,
+      isCompleted: nextStatus === 'done',
+      pinnedAt: hasOptimisticPin ? optimisticPinnedAt : session.pinnedAt,
+    };
+  });
+}

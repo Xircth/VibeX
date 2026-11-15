@@ -29,7 +29,14 @@ describe('member avatar menu', () => {
       onOpenPrivateChat: vi.fn(),
       onOpenSession: vi.fn(),
     });
-    expect(labels(items)).toEqual(['小A', '---', '进入私聊', '打开会话']);
+    expect(labels(items)).toEqual([
+      '小A',
+      '---',
+      '进入私聊',
+      '打开会话',
+      '---',
+      'Bind Event Trigger to Seat…',
+    ]);
     const mention = items[0];
     expect(
       mention.type !== 'separator' &&
@@ -57,5 +64,29 @@ describe('member avatar menu', () => {
       mention.onSelect?.();
     }
     expect(onMention).toHaveBeenCalledOnce();
+  });
+
+  it('triggers bind-member-pulse-trigger handler for a group seat', () => {
+    const onBindPulseTrigger = vi.fn();
+    const items = buildMemberAvatarMenuItems({
+      nickname: 'Reviewer',
+      color: 'var(--primary)',
+      memberId: 'seat-reviewer',
+      spaceId: 'space-1',
+      spaceName: 'Core Team',
+      onMention: vi.fn(),
+      onOpenPrivateChat: vi.fn(),
+      onOpenSession: vi.fn(),
+      onBindPulseTrigger,
+    });
+    const bindItem = items.find(
+      (item) =>
+        item.type !== 'separator' && item.id === 'bind-member-pulse-trigger'
+    );
+    expect(bindItem).toBeDefined();
+    if (bindItem && 'onSelect' in bindItem) {
+      bindItem.onSelect?.();
+    }
+    expect(onBindPulseTrigger).toHaveBeenCalledTimes(1);
   });
 });

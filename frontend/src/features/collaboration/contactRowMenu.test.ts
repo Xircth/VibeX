@@ -74,6 +74,9 @@ describe('contact row menu', () => {
       '---',
       '复制对话 ID',
       '---',
+      'Create Event Trigger…',
+      'Schedule Pulse…',
+      '---',
       '从侧边栏隐藏',
       '删除',
     ]);
@@ -127,6 +130,38 @@ describe('contact row menu', () => {
     expect(CONTACT_ROW_MENU_COPY.stepDownSupervisor).toBe('卸任主管');
   });
 
+  it('invokes create-pulse-trigger and schedule-pulse actions on Bot DM rows', () => {
+    const onCreatePulseTrigger = vi.fn();
+    const onSchedulePulse = vi.fn();
+    const items = buildContactRowMenuItems({
+      entry: dm,
+      pinned: false,
+      hidden: false,
+      unread: false,
+      moveTargets: [],
+      ...handlers(),
+      onCreatePulseTrigger,
+      onSchedulePulse,
+    });
+
+    const createTrigger = items.find(
+      (item) => item.type !== 'separator' && item.id === 'create-pulse-trigger'
+    );
+    const schedulePulse = items.find(
+      (item) => item.type !== 'separator' && item.id === 'schedule-pulse'
+    );
+    expect(createTrigger).toBeDefined();
+    expect(schedulePulse).toBeDefined();
+    if (createTrigger && 'onSelect' in createTrigger) {
+      createTrigger.onSelect?.();
+    }
+    if (schedulePulse && 'onSelect' in schedulePulse) {
+      schedulePulse.onSelect?.();
+    }
+    expect(onCreatePulseTrigger).toHaveBeenCalledTimes(1);
+    expect(onSchedulePulse).toHaveBeenCalledTimes(1);
+  });
+
   it('omits delete/pin/move/hide and shows 卸任主管 for the Supervisor bot', () => {
     const onStepDownSupervisor = vi.fn();
     const items = buildContactRowMenuItems({
@@ -145,6 +180,9 @@ describe('contact row menu', () => {
       '重命名助手',
       '---',
       '复制对话 ID',
+      '---',
+      'Create Event Trigger…',
+      'Schedule Pulse…',
       '---',
       '卸任主管',
     ]);

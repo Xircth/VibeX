@@ -183,6 +183,153 @@ function createKanbanVelocityTimelineComponent(kanbanService) {
   };
 }
 
+function createKanbanPulseDeckComponent(ctx) {
+  return function KanbanPulseDeckPluginView(props) {
+    const [snapshot, setSnapshot] = useState(null);
+    const [modeFilter, setModeFilter] = useState('all');
+
+    useEffect(() => {
+      let cancelled = false;
+      async function loadSnapshot() {
+        try {
+          if (typeof ctx?.host?.call === 'function') {
+            const res = await ctx.host.call('pulse', 'deckSnapshot', {
+              projectId: props?.projectId ?? null,
+            });
+            if (!cancelled && res && typeof res === 'object') {
+              setSnapshot(res);
+              return;
+            }
+          }
+          const cached = await ctx?.storage?.kv?.get?.('pulseDeckSnapshot');
+          if (!cancelled && cached && typeof cached === 'object') {
+            setSnapshot(cached);
+          }
+        } catch {
+          // Best-effort plugin snapshot lookup.
+        }
+      }
+      void loadSnapshot();
+      return () => {
+        cancelled = true;
+      };
+    }, [props?.projectId]);
+
+    const sources = Array.isArray(snapshot?.sources) ? snapshot.sources : [];
+    const rules = Array.isArray(snapshot?.rules) ? snapshot.rules : [];
+    const candidates = Array.isArray(snapshot?.observedCandidates)
+      ? snapshot.observedCandidates
+      : [];
+    const subscriptions = Array.isArray(snapshot?.subscriptions)
+      ? snapshot.subscriptions
+      : [];
+    const visibleRules =
+      modeFilter === 'all'
+        ? rules
+        : rules.filter((rule) => rule?.spec?.evalMode === modeFilter);
+
+    return createElement(
+      'div',
+      {
+        className:
+          'vibex-kanban-pulse-deck bg-background text-foreground p-4 flex flex-col gap-4 h-full overflow-y-auto',
+        'data-testid': 'kanban-pulse-deck-plugin-view',
+      },
+      createElement(
+        'div',
+        {
+          className:
+            'flex items-center justify-between gap-3 border-b border-border pb-3',
+        },
+        createElement(
+          'div',
+          { className: 'flex flex-col gap-0.5' },
+          createElement(
+            'strong',
+            { className: 'text-sm font-semibold' },
+            'Event Pulse Deck'
+          ),
+          createElement(
+            'span',
+            { className: 'text-xs text-muted-foreground tabular-nums' },
+            `Sources: ${sources.length} · Observe Candidates: ${candidates.length} · Subscriptions: ${subscriptions.length}`
+          )
+        ),
+        createElement(
+          'div',
+          { className: 'flex items-center gap-1' },
+          ['all', 'observe', 'auto', 'off'].map((mode) =>
+            createElement(
+              'button',
+              {
+                key: mode,
+                type: 'button',
+                className:
+                  modeFilter === mode
+                    ? 'rounded-md border border-border bg-muted px-2 py-1 text-xs font-medium text-foreground'
+                    : 'rounded-md px-2 py-1 text-xs text-muted-foreground',
+                onClick: () => setModeFilter(mode),
+              },
+              mode.toUpperCase()
+            )
+          )
+        )
+      ),
+      createElement(
+        'div',
+        {
+          className: 'grid grid-cols-3 gap-3 text-xs',
+          'data-testid': 'kanban-pulse-deck-summary',
+        },
+        createElement(
+          'div',
+          { className: 'rounded-lg border border-border p-3' },
+          createElement(
+            'div',
+            { className: 'font-medium text-foreground' },
+            'Source Health & Watermarks'
+          ),
+          createElement(
+            'div',
+            { className: 'mt-1 text-muted-foreground tabular-nums' },
+            sources.length > 0
+              ? `${sources.filter((s) => s.healthy).length}/${sources.length} healthy`
+              : 'Feishu · Jira · GitHub · Webhook · Temporal ready'
+          )
+        ),
+        createElement(
+          'div',
+          { className: 'rounded-lg border border-border p-3' },
+          createElement(
+            'div',
+            { className: 'font-medium text-foreground' },
+            'Observe Candidate Stream'
+          ),
+          createElement(
+            'div',
+            { className: 'mt-1 text-muted-foreground tabular-nums' },
+            `${candidates.filter((c) => !c.promoted).length} pending promotion`
+          )
+        ),
+        createElement(
+          'div',
+          { className: 'rounded-lg border border-border p-3' },
+          createElement(
+            'div',
+            { className: 'font-medium text-foreground' },
+            'Rules & Thread Subscriptions'
+          ),
+          createElement(
+            'div',
+            { className: 'mt-1 text-muted-foreground tabular-nums' },
+            `${visibleRules.length} rules · ${subscriptions.filter((s) => s.active).length} active threads`
+          )
+        )
+      )
+    );
+  };
+}
+
 export default {
   apiVersion: '2.0',
   id: 'vibex.kanban-views',
@@ -278,6 +425,7 @@ export default {
     const kanbanService = {
       defaultViews: ['board', 'list', 'timeline'],
       registeredViews: ['triage-board', 'velocity-timeline'],
+      pulseDeckViewId: 'pulse-deck',
       groupingPresets: [...GROUPING_PRESETS],
       triageTasks: runTriage,
       computeVelocityMetrics,
@@ -313,6 +461,7 @@ export default {
       createKanbanTriageMatrixComponent(kanbanService);
     const VelocityTimelineComponent =
       createKanbanVelocityTimelineComponent(kanbanService);
+    const PulseDeckComponent = createKanbanPulseDeckComponent(ctx);
 
     ctx.ui.registerKanbanView({
       id: 'triage-board',
@@ -322,6 +471,16 @@ export default {
       hidesBottomDock: true,
       order: 50,
       component: TriageMatrixComponent,
+    });
+
+    ctx.ui.registerKanbanView({
+      id: 'pulse-deck',
+      title: 'Event Pulse Deck',
+      titleKey: 'kanbanViews.pulseDeck',
+      icon: 'activity',
+      hidesBottomDock: true,
+      order: 55,
+      component: PulseDeckComponent,
     });
 
     ctx.ui.registerKanbanView({

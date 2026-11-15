@@ -1,10 +1,11 @@
-import { memo, type CSSProperties } from 'react';
+import { memo, useEffect, useState, type CSSProperties } from 'react';
 import { createPortal } from 'react-dom';
 import { DockviewReact } from 'dockview-react';
 import { ChevronDown } from 'lucide-react';
 
 import { useCanvasPanelHeaderSlot } from '@/components/kanban/canvas/CanvasPanelHeaderSlotContext';
 import { WorkspaceTabAddMenu } from '@/components/layout/panels/WorkspaceTabAddMenu';
+import type { PulseRuleSpec } from '@/lib/api/pulse';
 import { cn } from '@/lib/utils';
 import i18n from '@/i18n';
 
@@ -29,6 +30,13 @@ import { CollaborationCreateOverlay } from './CollaborationCreateOverlay';
 import { MemberPanel } from './space/MemberPanel';
 import { MessageStream } from './space/MessageStream';
 import { ComposerDock } from './space/ComposerDock';
+import {
+  COLLABORATION_PULSE_PROPOSAL_EVENT,
+  buildBotPulseProposalSpec,
+  buildGroupPulseProposalSpec,
+  type CollaborationPulseProposalDetail,
+} from './collaborationPulseEvents';
+import { PulseRuleProposalCard } from './PulseRuleProposalCard';
 
 if (
   typeof globalThis !== 'undefined' &&
@@ -476,6 +484,9 @@ export function CollaborationSpaceLayout({
           </div>
         </aside>
       ) : null}
+      {!hasThread ? (
+        <CollaborationNoThreadPulseOverlay workspaceId={workspace} />
+      ) : null}
       <CollaborationDragGhost />
       <CollaborationGlobalSearchOverlay />
     </div>
@@ -499,3 +510,92 @@ export function CollaborationSpaceLayout({
     </CollaborationMemberMentionContext.Provider>
   );
 }
+
+const CollaborationNoThreadPulseOverlay = memo(
+  function CollaborationNoThreadPulseOverlay({
+    workspaceId,
+  }: {
+    workspaceId: string;
+  }) {
+    const [proposal, setProposal] = useState<{
+      key: number;
+      spec: PulseRuleSpec;
+      contextLabel: string;
+    } | null>(null);
+
+    useEffect(() => {
+      const handleRequest = (event: Event) => {
+        const detail = (event as CustomEvent<CollaborationPulseProposalDetail>)
+          .detail;
+        if (!detail) return;
+        if (detail.kind === 'spec') {
+          setProposal({
+            key: Date.now(),
+            spec: detail.spec,
+            contextLabel: detail.contextLabel ?? 'Pulse',
+          });
+          return;
+        }
+        if (detail.kind === 'bot') {
+          setProposal({
+            key: Date.now(),
+            spec: buildBotPulseProposalSpec({
+              memberId: detail.memberId,
+              botName: detail.botName,
+              sourceKind:
+                detail.mode === 'schedule' ? 'time_cron' : 'webhook_standard',
+              workspaceId: detail.workspaceId ?? workspaceId,
+              projectId: detail.projectId ?? null,
+            }),
+            contextLabel: detail.botName,
+          });
+          return;
+        }
+        if (detail.kind === 'group-seat' && detail.spaceId) {
+          setProposal({
+            key: Date.now(),
+            spec: buildGroupPulseProposalSpec({
+              spaceId: detail.spaceId,
+              spaceName: detail.spaceName || 'Group',
+              dispatchMode: {
+                type: 'specific_seat',
+                memberId: detail.memberId || detail.nickname,
+              },
+              workspaceId: detail.workspaceId ?? workspaceId,
+              projectId: detail.projectId ?? null,
+            }),
+            contextLabel: `${detail.spaceName || 'Group'} → @${detail.nickname}`,
+          });
+        }
+      };
+
+      window.addEventListener(
+        COLLABORATION_PULSE_PROPOSAL_EVENT,
+        handleRequest
+      );
+      return () => {
+        window.removeEventListener(
+          COLLABORATION_PULSE_PROPOSAL_EVENT,
+          handleRequest
+        );
+      };
+    }, [workspaceId]);
+
+    if (!proposal) return null;
+
+    return (
+      <div
+        className="fixed inset-x-4 bottom-6 z-50 mx-auto max-w-xl"
+        data-testid="collaboration-floating-pulse-drawer"
+      >
+        <PulseRuleProposalCard
+          key={proposal.key}
+          initialSpec={proposal.spec}
+          contextLabel={proposal.contextLabel}
+          onSaved={() => setProposal(null)}
+          onCancel={() => setProposal(null)}
+        />
+      </div>
+    );
+  }
+);

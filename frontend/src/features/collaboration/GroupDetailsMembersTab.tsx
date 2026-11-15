@@ -6,7 +6,9 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from '@/components/ui/popover';
+import { cn } from '@/lib/utils';
 import { collaborationCall } from './collaborationApi';
+import { GroupPulsePanel } from './GroupPulsePanel';
 import { MemberBotAvatar, type MemberBotAvatarConfig } from './MemberBotAvatar';
 import {
   COPY,
@@ -228,117 +230,186 @@ export function GroupDetailsMembersTab({
     }
   };
 
+  const [activeSubtab, setActiveSubtab] = useState<'members' | 'pulse'>(
+    'members'
+  );
+  const pulseRoster = useMemo(
+    () =>
+      listedMembers.map((member) => {
+        const nickname = displayName(member);
+        const memberId =
+          String(member.member_id ?? '').trim() ||
+          String(member.conversation_id ?? '').trim() ||
+          nickname;
+        return { memberId, nickname };
+      }),
+    [listedMembers]
+  );
+
   return (
     <div
       className="collaboration-group-members"
       data-testid="collaboration-group-members-tab"
     >
-      {listedMembers.map((member) => {
-        const nick = displayName(member);
-        const convId = member.conversation_id ?? '';
-        const memberId = String(member.member_id ?? '').trim();
-        const isLead = Boolean(memberId && memberId === leadMemberId);
-        return (
-          <div
-            key={member.member_id ?? convId ?? nick}
-            className="collaboration-group-member-row"
-            data-testid={`collaboration-group-member-${nick}`}
-          >
-            <MemberBotAvatar
-              config={getAvatar(convId, nick, member.identity_member_id)}
-              className="h-7 w-7 shrink-0"
-              lead={isLead}
-            />
-            <span className="collaboration-group-member-name">{nick}</span>
-            {isLead || !memberId ? null : (
-              <Button
-                type="button"
-                variant="secondary"
-                size="xs"
-                className="collaboration-group-member-action"
-                data-testid={`collaboration-group-member-set-lead-${nick}`}
-                aria-label={`${COPY.spaceLeadSet} ${nick}`}
-                onClick={() => {
-                  void setLead(member);
-                }}
-              >
-                {COPY.spaceLeadSet}
-              </Button>
-            )}
-            <Button
-              type="button"
-              variant="destructive"
-              size="xs"
-              className="collaboration-group-member-action collaboration-group-member-remove border-transparent bg-destructive/10 hover:bg-destructive/15"
-              aria-label={`${COPY.removeSpaceMember} ${nick}`}
-              onClick={() => {
-                void removeMember(member);
-              }}
-            >
-              {COPY.removeSpaceMember}
-            </Button>
-          </div>
-        );
-      })}
-      <Popover
-        open={pickerOpen}
-        onOpenChange={(open) => {
-          setPickerOpen(open);
-          if (open) void loadCandidates();
-        }}
+      <div
+        className="mb-2 inline-flex rounded-md border border-border bg-muted/50 p-0.5 text-xs"
+        role="tablist"
+        aria-label="Group details sections"
       >
-        <div className="collaboration-group-add-member-wrap">
-          <PopoverTrigger asChild>
-            <Button
-              type="button"
-              variant="secondary"
-              size="sm"
-              className="collaboration-group-add-member"
-              data-testid="collaboration-group-add-member"
-              icon={<Plus className="h-4 w-4" aria-hidden="true" />}
-            >
-              {COPY.addSpaceMember}
-            </Button>
-          </PopoverTrigger>
-        </div>
-        <PopoverContent align="center" className="w-56 p-1">
-          <div className="collaboration-group-candidate-list">
-            {candidates.map((candidate) => (
-              <button
-                key={candidate.conversationId}
-                type="button"
+        <button
+          type="button"
+          role="tab"
+          aria-selected={activeSubtab === 'members'}
+          data-testid="group-details-subtab-members"
+          onClick={() => setActiveSubtab('members')}
+          className={cn(
+            'rounded px-2.5 py-1 text-xs font-medium transition-colors',
+            activeSubtab === 'members'
+              ? 'bg-background text-foreground shadow-sm'
+              : 'text-muted-foreground hover:text-foreground'
+          )}
+        >
+          Members
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={activeSubtab === 'pulse'}
+          data-testid="group-details-subtab-pulse"
+          onClick={() => setActiveSubtab('pulse')}
+          className={cn(
+            'rounded px-2.5 py-1 text-xs font-medium transition-colors',
+            activeSubtab === 'pulse'
+              ? 'bg-background text-foreground shadow-sm'
+              : 'text-muted-foreground hover:text-foreground'
+          )}
+        >
+          Group Pulse
+        </button>
+      </div>
+
+      {activeSubtab === 'pulse' ? (
+        <GroupPulsePanel
+          spaceId={spaceId}
+          workspaceId={workspaceId ?? null}
+          leadMemberId={leadMemberId || null}
+          roster={pulseRoster}
+        />
+      ) : (
+        <>
+          {listedMembers.map((member) => {
+            const nick = displayName(member);
+            const convId = member.conversation_id ?? '';
+            const memberId = String(member.member_id ?? '').trim();
+            const isLead = Boolean(memberId && memberId === leadMemberId);
+            return (
+              <div
+                key={member.member_id ?? convId ?? nick}
                 className="collaboration-group-member-row"
-                data-testid={`collaboration-group-add-candidate-${candidate.name}`}
-                onClick={() => {
-                  void addMember(candidate.conversationId, candidate.name);
-                }}
+                data-testid={`collaboration-group-member-${nick}`}
               >
                 <MemberBotAvatar
-                  config={getAvatar(candidate.conversationId, candidate.name)}
-                  className="h-5 w-5 shrink-0"
+                  config={getAvatar(convId, nick, member.identity_member_id)}
+                  className="h-7 w-7 shrink-0"
+                  lead={isLead}
                 />
-                <span className="collaboration-group-member-name">
-                  {candidate.name}
-                </span>
-              </button>
-            ))}
-            <button
-              type="button"
-              className="collaboration-group-create-assistant"
-              data-testid="collaboration-group-create-assistant"
-              onClick={() => {
-                setPickerOpen(false);
-                requestCreateAssistantForSpace(spaceId);
-              }}
-            >
-              {COPY.createAssistantButton}
-            </button>
-          </div>
-        </PopoverContent>
-      </Popover>
-      {actionError ? (
-        <p className="collaboration-error px-1 pt-2 text-xs">{actionError}</p>
-      ) : null}
+                <span className="collaboration-group-member-name">{nick}</span>
+                {isLead || !memberId ? null : (
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    size="xs"
+                    className="collaboration-group-member-action"
+                    data-testid={`collaboration-group-member-set-lead-${nick}`}
+                    aria-label={`${COPY.spaceLeadSet} ${nick}`}
+                    onClick={() => {
+                      void setLead(member);
+                    }}
+                  >
+                    {COPY.spaceLeadSet}
+                  </Button>
+                )}
+                <Button
+                  type="button"
+                  variant="destructive"
+                  size="xs"
+                  className="collaboration-group-member-action collaboration-group-member-remove border-transparent bg-destructive/10 hover:bg-destructive/15"
+                  aria-label={`${COPY.removeSpaceMember} ${nick}`}
+                  onClick={() => {
+                    void removeMember(member);
+                  }}
+                >
+                  {COPY.removeSpaceMember}
+                </Button>
+              </div>
+            );
+          })}
+          <Popover
+            open={pickerOpen}
+            onOpenChange={(open) => {
+              setPickerOpen(open);
+              if (open) void loadCandidates();
+            }}
+          >
+            <div className="collaboration-group-add-member-wrap">
+              <PopoverTrigger asChild>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="sm"
+                  className="collaboration-group-add-member"
+                  data-testid="collaboration-group-add-member"
+                  icon={<Plus className="h-4 w-4" aria-hidden="true" />}
+                >
+                  {COPY.addSpaceMember}
+                </Button>
+              </PopoverTrigger>
+            </div>
+            <PopoverContent align="center" className="w-56 p-1">
+              <div className="collaboration-group-candidate-list">
+                {candidates.map((candidate) => (
+                  <button
+                    key={candidate.conversationId}
+                    type="button"
+                    className="collaboration-group-member-row"
+                    data-testid={`collaboration-group-add-candidate-${candidate.name}`}
+                    onClick={() => {
+                      void addMember(candidate.conversationId, candidate.name);
+                    }}
+                  >
+                    <MemberBotAvatar
+                      config={getAvatar(
+                        candidate.conversationId,
+                        candidate.name
+                      )}
+                      className="h-5 w-5 shrink-0"
+                    />
+                    <span className="collaboration-group-member-name">
+                      {candidate.name}
+                    </span>
+                  </button>
+                ))}
+                <button
+                  type="button"
+                  className="collaboration-group-create-assistant"
+                  data-testid="collaboration-group-create-assistant"
+                  onClick={() => {
+                    setPickerOpen(false);
+                    requestCreateAssistantForSpace(spaceId);
+                  }}
+                >
+                  {COPY.createAssistantButton}
+                </button>
+              </div>
+            </PopoverContent>
+          </Popover>
+          {actionError ? (
+            <p className="collaboration-error px-1 pt-2 text-xs">
+              {actionError}
+            </p>
+          ) : null}
+        </>
+      )}
     </div>
   );
 }

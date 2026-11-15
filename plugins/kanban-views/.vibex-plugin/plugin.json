@@ -41,6 +41,11 @@
       "label": "Sprint Velocity"
     },
     {
+      "id": "pulse-deck",
+      "kind": "app.kanban.view",
+      "label": "Event Pulse Deck"
+    },
+    {
       "id": "kanban-filter-command",
       "kind": "app.command",
       "label": "Filter Kanban Tasks"

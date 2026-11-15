@@ -160,6 +160,7 @@ interface SessionHubSidebarProps {
     client: { x: number; y: number },
     cardWidth?: number | null
   ) => void;
+  pulseDispatchSlot?: ReactNode;
 }
 
 const STATUS_DROP_ID_PREFIX = 'session-status-drop:';
@@ -550,6 +551,7 @@ export function SessionHubSidebar({
   onExpandedChange,
   onPinSession,
   onDropSessionOnCanvas,
+  pulseDispatchSlot,
 }: SessionHubSidebarProps) {
   const { t } = useTranslation(['tasks', 'common']);
   const { openSurfaceMenu } = useAppContextMenu();
@@ -881,6 +883,8 @@ export function SessionHubSidebar({
                       {t('hubSidebar.newSession')}
                     </TooltipContent>
                   </Tooltip>
+
+                  {isSearchExpanded ? null : pulseDispatchSlot}
 
                   {isWorkspaceListView ? null : (
                     <DropdownMenu>

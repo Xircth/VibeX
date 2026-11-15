@@ -726,7 +726,7 @@
   }
 
   .legacy-design .session-composer-attachment-drawer {
-    --radius-chat: var(--radius);
+    --radius-chat: var(--radius-container, var(--radius));
     position: relative;
     z-index: 1;
     border: 1px solid var(--border-strong);
@@ -744,7 +744,7 @@
   }
 
   .legacy-design .session-composer-body {
-    border-radius: var(--radius);
+    border-radius: var(--radius-container, var(--radius));
   }
 
   .legacy-design .session-composer-file-drop-zone {
@@ -754,13 +754,13 @@
   .legacy-design .composer-at-reference-menu.composer-status-surface {
     position: absolute;
     right: 0;
-    bottom: calc(100% - var(--radius));
+    bottom: calc(100% - var(--radius-container, var(--radius)));
     left: 0;
     z-index: 3;
     overflow: hidden;
-    padding-bottom: var(--radius);
+    padding-bottom: var(--radius-container, var(--radius));
     /* Square join sits under the composer top radius so sides stay flush. */
-    border-radius: var(--radius) var(--radius) 0 0;
+    border-radius: var(--radius-container, var(--radius)) var(--radius-container, var(--radius)) 0 0;
   }
 
   .legacy-design .composer-at-reference-tabs {
@@ -833,6 +833,13 @@
 
   .legacy-design .session-composer-editor {
     min-height: 3.25rem;
+  }
+
+  .legacy-design .session-composer-editor > [aria-hidden='true'] {
+    inset-inline: 0.125rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   .legacy-design .session-composer-editor > [contenteditable='true'] {
@@ -7072,6 +7079,7 @@ html.dark {
 
   .composer-shell {
     border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-container, var(--radius));
     background:
       linear-gradient(180deg, var(--surface-composer), var(--surface-card)),
       var(--surface-card);
@@ -7093,7 +7101,7 @@ html.dark {
     flex-direction: column;
     overflow: hidden;
     border: 1px solid var(--border-strong);
-    border-radius: var(--radius);
+    border-radius: var(--radius-container, var(--radius));
     background: var(--surface-dialog);
     color: var(--text-primary);
     box-shadow: var(--shadow-control);
@@ -7526,7 +7534,7 @@ html.dark {
     )::after {
     position: absolute;
     border: 1px solid var(--border-subtle);
-    border-radius: var(--radius);
+    border-radius: var(--radius-container, var(--radius));
     background: var(--surface-card-strong);
     box-shadow: var(--shadow-control);
     content: '';

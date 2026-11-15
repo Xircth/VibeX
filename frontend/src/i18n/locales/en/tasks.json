@@ -1,6 +1,7 @@
 {
   "composer": {
     "inputLabel": "Message",
+    "placeholder": "Ask anything. @ files, $ skills, / commands",
     "attachments": "Attachments",
     "attachFiles": "Attach files",
     "dropFiles": "Drop files here",

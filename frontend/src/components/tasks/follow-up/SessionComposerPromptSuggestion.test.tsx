@@ -75,4 +75,59 @@ describe('SessionComposerInput promptSuggestion', () => {
 
     expect(onAcceptPromptSuggestion).not.toHaveBeenCalled();
   });
+
+  it('shows localized default placeholder hint without submitting it as input', async () => {
+    const { act } = await import('@testing-library/react');
+    const { default: i18n } = await import('@/i18n');
+    const previousLanguage = i18n.language;
+    const onSubmit = vi.fn();
+
+    try {
+      await act(async () => {
+        await i18n.changeLanguage('zh-CN');
+      });
+      const { unmount } = renderComposer({ value: '', onSubmit });
+
+      const zhSurface = screen.getByTestId('session-composer-editor');
+      expect(zhSurface.querySelector('[aria-hidden="true"]')).toHaveTextContent(
+        '输入任意内容。@ 文件，$ 技能，/ 命令'
+      );
+
+      const zhEditor = zhSurface.querySelector(
+        '[contenteditable="true"]'
+      ) as HTMLDivElement;
+      fireEvent.keyDown(zhEditor, { key: 'Enter' });
+      expect(onSubmit).not.toHaveBeenCalled();
+
+      fireEvent.compositionStart(zhEditor);
+      expect(zhSurface.querySelector('[aria-hidden="true"]')).toHaveTextContent(
+        ''
+      );
+      fireEvent.compositionEnd(zhEditor);
+      expect(zhSurface.querySelector('[aria-hidden="true"]')).toHaveTextContent(
+        '输入任意内容。@ 文件，$ 技能，/ 命令'
+      );
+      unmount();
+
+      await act(async () => {
+        await i18n.changeLanguage('en');
+      });
+      const { unmount: unmountEn } = renderComposer({ value: '' });
+      const enSurface = screen.getByTestId('session-composer-editor');
+      expect(enSurface.querySelector('[aria-hidden="true"]')).toHaveTextContent(
+        'Ask anything. @ files, $ skills, / commands'
+      );
+      unmountEn();
+
+      renderComposer({ value: '', placeholder: '' });
+      const emptySurface = screen.getByTestId('session-composer-editor');
+      expect(
+        emptySurface.querySelector('[aria-hidden="true"]')
+      ).toHaveTextContent('');
+    } finally {
+      await act(async () => {
+        await i18n.changeLanguage(previousLanguage);
+      });
+    }
+  });
 });

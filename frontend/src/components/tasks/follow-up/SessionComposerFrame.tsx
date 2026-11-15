@@ -1,9 +1,11 @@
 import type { FocusEventHandler, ReactNode } from 'react';
+import { cn } from '@/lib/utils';
 
 export function SessionComposerFrame({
   status,
   drawer,
   overlay,
+  widthClassName = 'max-w-3xl',
   onFocus,
   onBlur,
   children,
@@ -11,32 +13,38 @@ export function SessionComposerFrame({
   status?: ReactNode;
   drawer?: ReactNode;
   overlay?: ReactNode;
+  widthClassName?: string;
   onFocus?: FocusEventHandler<HTMLDivElement>;
   onBlur?: FocusEventHandler<HTMLDivElement>;
   children: ReactNode;
 }) {
   return (
-    <div
-      className="agent-question-composer-stack relative z-10 mx-3 mb-3 mt-2 shrink-0"
-      data-testid="session-composer-stack"
-      data-basic-guide="session-composer"
-      data-has-overlay={overlay ? 'true' : undefined}
-    >
-      {status}
-      {overlay}
-      {drawer}
+    <div className="shrink-0 px-3 pb-3 pt-2">
       <div
-        className="session-composer-anchor relative"
-        data-testid="session-composer-anchor"
+        className={cn(
+          'agent-question-composer-stack relative z-10 mx-auto w-full',
+          widthClassName
+        )}
+        data-testid="session-composer-stack"
+        data-basic-guide="session-composer"
+        data-has-overlay={overlay ? 'true' : undefined}
       >
+        {status}
+        {overlay}
+        {drawer}
         <div
-          className="composer-shell session-composer-body relative z-10 flex flex-col gap-1 overflow-visible p-2"
-          data-testid="session-composer-body"
-          data-typeahead-surface="composer"
-          onFocus={onFocus}
-          onBlur={onBlur}
+          className="session-composer-anchor relative"
+          data-testid="session-composer-anchor"
         >
-          {children}
+          <div
+            className="composer-shell session-composer-body relative z-10 flex flex-col gap-1 overflow-visible rounded-lg p-2"
+            data-testid="session-composer-body"
+            data-typeahead-surface="composer"
+            onFocus={onFocus}
+            onBlur={onBlur}
+          >
+            {children}
+          </div>
         </div>
       </div>
     </div>

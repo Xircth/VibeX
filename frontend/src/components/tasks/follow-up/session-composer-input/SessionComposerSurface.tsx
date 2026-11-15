@@ -1,11 +1,13 @@
-import type {
-  ClipboardEvent,
-  DragEvent,
-  FocusEvent,
-  KeyboardEvent,
-  MutableRefObject,
-  PointerEvent,
-  RefObject,
+import {
+  useState,
+  type ClipboardEvent,
+  type DragEvent,
+  type FocusEvent,
+  type KeyboardEvent,
+  type MouseEvent,
+  type MutableRefObject,
+  type PointerEvent,
+  type RefObject,
 } from 'react';
 import { useTranslation } from 'react-i18next';
 import { FolderOpen } from 'lucide-react';
@@ -14,6 +16,7 @@ import {
   type ChatComposerInputHandle,
   type ChatComposerTrigger,
 } from '@astryxdesign/core/Chat';
+import { requestConversationScrollToQuote } from '@/lib/conversationScroll';
 import { cn } from '@/lib/utils';
 import { prepareImageFileForUpload } from '@/utils/clipboard';
 import { isAttachableFile } from '@/utils/mediaAttachments';
@@ -25,7 +28,14 @@ import {
 } from '../sessionComposerSubmitHotkey';
 import { ComposerAtReferencePanel } from '../ComposerAtReferenceMenu';
 import type { SendMessageShortcut } from 'shared/types';
-import type { SessionComposerStructuredToken } from '../sessionComposerStructuredTokens';
+import {
+  hasQuoteSourceAnchor,
+  type SessionComposerStructuredToken,
+} from '../sessionComposerStructuredTokens';
+import {
+  getHoverableTokenFromEventTarget,
+  getStructuredHoverToken,
+} from './composerSearch';
 import { getSessionComposerEditable } from './sessionComposerDom';
 import { PreviewElementTokenTooltip } from './PreviewElementTokenTooltip';
 import type { useComposerAtReferencePanel } from '../useComposerAtReferencePanel';
@@ -44,9 +54,11 @@ export function SessionComposerSurface({
   handleTokenBlur,
   composerRootRef,
   value,
+  sessionId,
   promptSuggestion,
   onDismissPromptSuggestion,
   onChange,
+  onUpdateQuoteAnnotation,
   atReference,
   className,
   effectivePlaceholder,
@@ -64,6 +76,7 @@ export function SessionComposerSurface({
   quoteTokenTooltipId,
   cancelHoverHide,
   hideTokenHover,
+  setQuoteEditing,
 }: {
   dropZoneRef: RefObject<HTMLDivElement | null>;
   handleDragOver: (event: DragEvent<HTMLDivElement>) => void;
@@ -80,9 +93,15 @@ export function SessionComposerSurface({
   handleTokenBlur: (event: FocusEvent<HTMLDivElement>) => void;
   composerRootRef: RefObject<HTMLDivElement | null>;
   value: string;
+  sessionId?: string | null;
   promptSuggestion: string | null | undefined;
   onDismissPromptSuggestion?: () => void;
   onChange: (value: string) => void;
+  onUpdateQuoteAnnotation?: (
+    anchor: HTMLElement,
+    targetRaw: string,
+    annotation: string
+  ) => void;
   atReference: ReturnType<typeof useComposerAtReferencePanel>;
   className?: string;
   effectivePlaceholder: string;
@@ -106,8 +125,30 @@ export function SessionComposerSurface({
   quoteTokenTooltipId: string;
   cancelHoverHide: () => void;
   hideTokenHover: (anchor: HTMLElement, delayMs?: number) => void;
+  setQuoteEditing?: (editing: boolean) => void;
 }) {
   const { t } = useTranslation('tasks');
+  const [isComposing, setIsComposing] = useState(false);
+
+  const jumpToQuoteToken = (token: SessionComposerStructuredToken) => {
+    if (token.kind !== 'quote' || !hasQuoteSourceAnchor(token.quote)) return;
+    requestConversationScrollToQuote({
+      ...token.quote,
+      conversationId:
+        token.quote?.conversationId ?? (sessionId || undefined),
+      snippet: token.value,
+    });
+  };
+
+  const handleSurfaceClick = (event: MouseEvent<HTMLDivElement>) => {
+    const anchor = getHoverableTokenFromEventTarget(event.target);
+    if (!anchor) return;
+    const token = getStructuredHoverToken(anchor);
+    if (token?.kind === 'quote' && hasQuoteSourceAnchor(token.quote)) {
+      jumpToQuoteToken(token);
+    }
+  };
+
   return (
     <div
       ref={dropZoneRef}
@@ -130,17 +171,23 @@ export function SessionComposerSurface({
       ) : null}
       <div
         className={cn(
-          'min-h-[40px] rounded-lg bg-background/35 px-1.5 pb-1 pt-0 transition-colors focus-within:bg-background/50',
+          'min-h-[40px] rounded-md bg-background/35 px-1.5 pb-1 pt-0 transition-colors focus-within:bg-background/50',
           disabled && 'opacity-60'
         )}
         data-testid="session-composer-input-surface"
         onKeyDown={(event) => {
           tryAcceptPromptSuggestionOnTab(event);
         }}
+        onClick={handleSurfaceClick}
         onPointerOver={handleTokenPointerOver}
         onPointerOut={handleTokenPointerOut}
         onFocusCapture={handleTokenFocus}
-        onBlurCapture={handleTokenBlur}
+        onBlurCapture={(event) => {
+          setIsComposing(false);
+          handleTokenBlur(event);
+        }}
+        onCompositionStartCapture={() => setIsComposing(true)}
+        onCompositionEndCapture={() => setIsComposing(false)}
       >
         <ChatComposerInput
           ref={composerRootRef}
@@ -158,7 +205,7 @@ export function SessionComposerSurface({
             className
           )}
           maxRows={7}
-          placeholder={effectivePlaceholder}
+          placeholder={isComposing ? '' : effectivePlaceholder}
           label={t('composer.inputLabel')}
           hasHistory={false}
           pasteAsToken={false}
@@ -263,6 +310,23 @@ export function SessionComposerSurface({
             anchor={activeHoverToken.anchor}
             id={quoteTokenTooltipId}
             text={activeHoverToken.token.value}
+            quoteMeta={activeHoverToken.token.quote}
+            onJumpToSource={
+              hasQuoteSourceAnchor(activeHoverToken.token.quote)
+                ? () => jumpToQuoteToken(activeHoverToken.token)
+                : undefined
+            }
+            onUpdateAnnotation={
+              !disabled && onUpdateQuoteAnnotation
+                ? (nextNote) =>
+                    onUpdateQuoteAnnotation(
+                      activeHoverToken.anchor,
+                      activeHoverToken.token.raw,
+                      nextNote
+                    )
+                : undefined
+            }
+            onEditingChange={setQuoteEditing}
             onPointerEnter={cancelHoverHide}
             onPointerLeave={() => hideTokenHover(activeHoverToken.anchor, 120)}
           />

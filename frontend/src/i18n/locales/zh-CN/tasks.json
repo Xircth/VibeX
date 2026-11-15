@@ -1,6 +1,7 @@
 {
   "composer": {
     "inputLabel": "消息",
+    "placeholder": "输入任意内容。@ 文件，$ 技能，/ 命令",
     "attachments": "附件",
     "attachFiles": "附加文件",
     "dropFiles": "松开以放入文件",

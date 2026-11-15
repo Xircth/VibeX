@@ -16,6 +16,7 @@ describe('SessionComposerFrame', () => {
 
     expect(status.parentElement).toBe(anchor.parentElement);
     expect(body.parentElement).toBe(anchor);
+    expect(body).toHaveClass('rounded-lg');
     expect(status.nextElementSibling).toBe(anchor);
     expect(body).not.toContainElement(status);
   });
@@ -61,5 +62,29 @@ describe('SessionComposerFrame', () => {
     expect(drawer.nextElementSibling).toBe(anchor);
     expect(body.parentElement).toBe(anchor);
     expect(body).not.toContainElement(drawer);
+  });
+
+  it('constrains the composer stack to the message stream reading width by default and supports widthClassName overrides', () => {
+    const { rerender } = render(
+      <SessionComposerFrame>
+        <div data-testid="composer-content" />
+      </SessionComposerFrame>
+    );
+
+    const stack = screen.getByTestId('session-composer-stack');
+    expect(stack).toHaveClass('mx-auto', 'w-full', 'max-w-3xl');
+    expect(stack.parentElement).toHaveClass('px-3');
+
+    rerender(
+      <SessionComposerFrame widthClassName="max-w-none">
+        <div data-testid="composer-content" />
+      </SessionComposerFrame>
+    );
+
+    expect(screen.getByTestId('session-composer-stack')).toHaveClass(
+      'mx-auto',
+      'w-full',
+      'max-w-none'
+    );
   });
 });

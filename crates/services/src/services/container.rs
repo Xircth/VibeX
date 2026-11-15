@@ -734,18 +734,25 @@ pub trait ContainerService: Send + Sync {
         workspace.container_ref = Some(container_ref.clone());
         let workspace_dir = std::path::PathBuf::from(container_ref);
 
+        let checkpoint_ref = agents::checkpoint_ref::CheckpointRef::new();
         for repo in &repos {
             let worktree_path = workspace
                 .repo_path(repo)
                 .unwrap_or_else(|| workspace_dir.clone());
             if let Ok(head) = self.git().get_head_info(&worktree_path) {
-                SessionCheckpoint::insert(
+                let captured = checkpoint_ref
+                    .capture(&worktree_path, session_id, ordinal as i32)
+                    .await
+                    .ok();
+                SessionCheckpoint::insert_with_ref(
                     pool,
                     Uuid::new_v4(),
                     session_id,
                     ordinal,
                     repo.id,
                     &head.oid,
+                    captured.as_ref().map(|h| h.ref_name.as_str()),
+                    captured.as_ref().map(|h| h.commit_oid.as_str()),
                 )
                 .await?;
             }
@@ -787,6 +794,7 @@ pub trait ContainerService: Send + Sync {
             .map(|is_clean| !is_clean)
             .unwrap_or(false);
 
+        let checkpoint_ref = agents::checkpoint_ref::CheckpointRef::new();
         for repo in &repos {
             let Some(checkpoint) = checkpoints.iter().find(|state| state.repo_id == repo.id) else {
                 continue;
@@ -794,11 +802,39 @@ pub trait ContainerService: Send + Sync {
             let worktree_path = workspace
                 .repo_path(repo)
                 .unwrap_or_else(|| workspace_dir.clone());
-            self.git().reconcile_worktree_to_commit(
-                &worktree_path,
-                &checkpoint.before_head_commit,
-                container_workflow::reset_options(perform_git_reset, force_when_dirty, is_dirty),
-            );
+            let mut restored_via_hidden_ref = false;
+            if perform_git_reset
+                && (force_when_dirty || !is_dirty)
+                && let Some(ref_name) = checkpoint
+                    .git_ref_name
+                    .as_deref()
+                    .filter(|s| !s.trim().is_empty())
+            {
+                let handle = agents::checkpoint_ref::CheckpointRefHandle {
+                    conversation_id: session_id,
+                    turn_ordinal: ordinal as i32,
+                    ref_name: ref_name.to_string(),
+                    commit_oid: checkpoint.commit_oid.clone().unwrap_or_default(),
+                    head_commit_oid: Some(checkpoint.before_head_commit.clone()),
+                };
+                if checkpoint_ref.restore(&worktree_path, &handle).await.is_ok() {
+                    restored_via_hidden_ref = true;
+                }
+            }
+            if !restored_via_hidden_ref {
+                self.git().reconcile_worktree_to_commit(
+                    &worktree_path,
+                    &checkpoint.before_head_commit,
+                    container_workflow::reset_options(
+                        perform_git_reset,
+                        force_when_dirty,
+                        is_dirty,
+                    ),
+                );
+            }
+            let _ = checkpoint_ref
+                .delete_refs_from_ordinal(&worktree_path, session_id, (ordinal + 1) as i32)
+                .await;
         }
         Ok(())
     }

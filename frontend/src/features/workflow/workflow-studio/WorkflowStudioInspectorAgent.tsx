@@ -8,20 +8,24 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import type { PulseWorkspaceIsolation } from '@/lib/api/pulse';
 import { cn } from '@/lib/utils';
-import type { WorkflowStep } from 'shared/types';
 
 import { StudioAgentIcon } from './StudioAgentIcon';
-import { DEFAULT_OUTPUT_SCHEMA } from './types';
+import { DEFAULT_OUTPUT_SCHEMA, type StudioWorkflowStep } from './types';
 import type { WorkflowStudioView } from './useWorkflowStudio';
+import { resolveSessionIsolation } from './workflowStepPresentation';
 
-type AgentStep = Extract<WorkflowStep, { kind: 'agent' }>;
+type SessionLikeStep = Extract<
+  StudioWorkflowStep,
+  { kind: 'agent' | 'session' }
+>;
 
 export function WorkflowStudioInspectorAgent({
   selectedStep,
   studio,
 }: {
-  selectedStep: AgentStep;
+  selectedStep: SessionLikeStep;
   studio: WorkflowStudioView;
 }) {
   const {
@@ -37,6 +41,8 @@ export function WorkflowStudioInspectorAgent({
     updateJson,
   } = studio;
 
+  const isolation = resolveSessionIsolation(selectedStep);
+
   return (
     <>
       <div className="space-y-1.5">
@@ -46,7 +52,7 @@ export function WorkflowStudioInspectorAgent({
           disabled={!onDefinitionChange}
           onValueChange={(agentId) =>
             updateStep(selectedStep.id, (step) =>
-              step.kind === 'agent'
+              step.kind === 'agent' || step.kind === 'session'
                 ? {
                     ...step,
                     agentId,
@@ -104,6 +110,45 @@ export function WorkflowStudioInspectorAgent({
           </SelectContent>
         </Select>
       </div>
+
+      <div className="space-y-1.5">
+        <Label>Workspace Isolation</Label>
+        <Select
+          value={isolation}
+          disabled={!onDefinitionChange}
+          onValueChange={(nextIsolation: PulseWorkspaceIsolation) =>
+            updateStep(selectedStep.id, (step) => {
+              if (step.kind === 'session') {
+                return { ...step, workspaceIsolation: nextIsolation };
+              }
+              if (step.kind === 'agent') {
+                return {
+                  ...step,
+                  workspaceIsolation: nextIsolation,
+                  workspaceAccess:
+                    nextIsolation === 'isolated_worktree'
+                      ? 'write_isolated'
+                      : 'native',
+                };
+              }
+              return step;
+            })
+          }
+        >
+          <SelectTrigger data-testid="inspector-session-isolation">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="isolated_worktree">
+              isolated_worktree (Clean Worktree)
+            </SelectItem>
+            <SelectItem value="project_root">
+              project_root (Shared Workspace)
+            </SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+
       <div className="space-y-1.5">
         {agentControls ? (
           <SessionSettingsSummary
@@ -114,7 +159,9 @@ export function WorkflowStudioInspectorAgent({
             selectedMode={selectedStep.modeOverride}
             onSelectMode={(modeOverride) =>
               updateStep(selectedStep.id, (step) =>
-                step.kind === 'agent' ? { ...step, modeOverride } : step
+                step.kind === 'agent' || step.kind === 'session'
+                  ? { ...step, modeOverride }
+                  : step
               )
             }
             options={agentControls.config_options}
@@ -126,7 +173,7 @@ export function WorkflowStudioInspectorAgent({
             )}
             onSelectConfigOption={(key, value) =>
               updateStep(selectedStep.id, (step) =>
-                step.kind === 'agent'
+                step.kind === 'agent' || step.kind === 'session'
                   ? {
                       ...step,
                       configOverrides: {
@@ -164,10 +211,14 @@ export function WorkflowStudioInspectorAgent({
           value={selectedStep.prompt}
           disabled={!onDefinitionChange}
           onChange={(event) =>
-            updateStep(selectedStep.id, (step) => ({
-              ...step,
-              prompt: event.target.value,
-            }))
+            updateStep(selectedStep.id, (step) =>
+              step.kind === 'agent' || step.kind === 'session'
+                ? {
+                    ...step,
+                    prompt: event.target.value,
+                  }
+                : step
+            )
           }
         />
       </div>
@@ -177,10 +228,14 @@ export function WorkflowStudioInspectorAgent({
           value={selectedStep.completionPolicy}
           disabled={!onDefinitionChange}
           onValueChange={(completionPolicy: 'automatic' | 'manual') =>
-            updateStep(selectedStep.id, (step) => ({
-              ...step,
-              completionPolicy,
-            }))
+            updateStep(selectedStep.id, (step) =>
+              step.kind === 'agent' || step.kind === 'session'
+                ? {
+                    ...step,
+                    completionPolicy,
+                  }
+                : step
+            )
           }
         >
           <SelectTrigger>
@@ -221,20 +276,25 @@ export function WorkflowStudioInspectorAgent({
                 setOutputTab(tab);
                 if (!onDefinitionChange) return;
                 if (tab === 'brief') {
-                  updateStep(selectedStep.id, (step) => ({
-                    ...step,
-                    outputSchema: null,
-                  }));
+                  updateStep(selectedStep.id, (step) =>
+                    step.kind === 'agent' || step.kind === 'session'
+                      ? {
+                          ...step,
+                          outputSchema: null,
+                        }
+                      : step
+                  );
                   return;
                 }
-                updateStep(selectedStep.id, (step) => ({
-                  ...step,
-                  outputDescription: null,
-                  outputSchema:
-                    step.kind === 'agent' && step.outputSchema
-                      ? step.outputSchema
-                      : DEFAULT_OUTPUT_SCHEMA,
-                }));
+                updateStep(selectedStep.id, (step) =>
+                  step.kind === 'agent' || step.kind === 'session'
+                    ? {
+                        ...step,
+                        outputDescription: null,
+                        outputSchema: step.outputSchema ?? DEFAULT_OUTPUT_SCHEMA,
+                      }
+                    : step
+                );
               }}
             >
               {tab === 'brief'
@@ -250,13 +310,17 @@ export function WorkflowStudioInspectorAgent({
             defaultValue={selectedStep.outputDescription ?? ''}
             disabled={!onDefinitionChange}
             onBlur={(event) =>
-              updateStep(selectedStep.id, (step) => ({
-                ...step,
-                outputDescription: event.target.value.trim()
-                  ? event.target.value.trim()
-                  : null,
-                outputSchema: null,
-              }))
+              updateStep(selectedStep.id, (step) =>
+                step.kind === 'agent' || step.kind === 'session'
+                  ? {
+                      ...step,
+                      outputDescription: event.target.value.trim()
+                        ? event.target.value.trim()
+                        : null,
+                      outputSchema: null,
+                    }
+                  : step
+              )
             }
             className="min-h-28 w-full resize-y rounded-md border bg-background px-3 py-2 text-sm leading-5 outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-70"
           />
@@ -272,11 +336,15 @@ export function WorkflowStudioInspectorAgent({
             disabled={!onDefinitionChange}
             onBlur={(event) =>
               updateJson(event.target.value, (outputSchema) =>
-                updateStep(selectedStep.id, (step) => ({
-                  ...step,
-                  outputDescription: null,
-                  outputSchema,
-                }))
+                updateStep(selectedStep.id, (step) =>
+                  step.kind === 'agent' || step.kind === 'session'
+                    ? {
+                        ...step,
+                        outputDescription: null,
+                        outputSchema,
+                      }
+                    : step
+                )
               )
             }
             className="min-h-28 w-full resize-y rounded-md border bg-background px-3 py-2 font-mono text-[13px] leading-5 outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-70"

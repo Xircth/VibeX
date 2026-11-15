@@ -1,16 +1,21 @@
 import { Position, type Edge } from '@xyflow/react';
 import type {
   WorkflowBinding,
-  WorkflowDefinition,
   WorkflowEventRecord,
-  WorkflowStep,
   WorkflowStepView,
 } from 'shared/types';
 
+import type { EventEnvelope, PulseEvalMode } from '@/lib/api/pulse';
 import { cn } from '@/lib/utils';
 
 import type { WorkflowStudioAgentOption } from '../workflowAgent';
-import { CONFIRMATION_OFFSET, type StudioMode, type StudioNode } from './types';
+import {
+  CONFIRMATION_OFFSET,
+  type StudioMode,
+  type StudioNode,
+  type StudioWorkflowDefinition,
+  type StudioWorkflowStep,
+} from './types';
 
 export function withoutStepOutputBindings(
   bindings: Record<string, WorkflowBinding | undefined>,
@@ -52,8 +57,15 @@ export function renameStepOutputBindings(
   ) as Record<string, WorkflowBinding | undefined>;
 }
 
+function hasManualConfirmation(step: StudioWorkflowStep): boolean {
+  return (
+    (step.kind === 'agent' || step.kind === 'session') &&
+    step.completionPolicy === 'manual'
+  );
+}
+
 export function layoutNodes(
-  definition: WorkflowDefinition,
+  definition: StudioWorkflowDefinition,
   latest: Map<string, WorkflowStepView>,
   selectedStepId: string | null,
   mode: StudioMode,
@@ -61,10 +73,15 @@ export function layoutNodes(
   events: WorkflowEventRecord[],
   agentOptions: WorkflowStudioAgentOption[],
   logStepId: string | null,
-  onToggleLog: (stepId: string) => void
+  onToggleLog: (stepId: string) => void,
+  replayEnvelope?: EventEnvelope | null,
+  onTriggerEvalModeChange?: (stepId: string, evalMode: PulseEvalMode) => void
 ): StudioNode[] {
   const depths = new Map<string, number>();
-  const depthOf = (step: WorkflowStep, seen = new Set<string>()): number => {
+  const depthOf = (
+    step: StudioWorkflowStep,
+    seen = new Set<string>()
+  ): number => {
     const cached = depths.get(step.id);
     if (cached !== undefined) return cached;
     if (seen.has(step.id)) return 0;
@@ -86,12 +103,9 @@ export function layoutNodes(
     return {
       id: step.id,
       type: 'workflowStep',
-      position: { x: depth * 430 + 44, y: row * 160 + 76 },
-      // The card has a fixed layout. Supplying its initial dimensions keeps
-      // nodes visible in embedded WebViews where ResizeObserver may report a
-      // frame late (React Flow hides unmeasured nodes by design).
-      initialWidth: 248,
-      initialHeight: 94,
+      position: { x: depth * 430 + 44, y: row * 176 + 76 },
+      initialWidth: 260,
+      initialHeight: 112,
       sourcePosition: Position.Right,
       targetPosition: Position.Left,
       zIndex:
@@ -102,7 +116,7 @@ export function layoutNodes(
           type: 'target',
           position: Position.Left,
           x: 0,
-          y: 43,
+          y: 48,
           width: 8,
           height: 8,
         },
@@ -110,13 +124,13 @@ export function layoutNodes(
           id: 'source',
           type: 'source',
           position: Position.Right,
-          x: 240,
-          y: 43,
+          x: 252,
+          y: 48,
           width: 8,
           height: 8,
         },
       ],
-      style: { width: 248, height: 94 },
+      style: { width: 260 },
       data: {
         step,
         stepRun: latest.get(step.id),
@@ -129,13 +143,15 @@ export function layoutNodes(
         selected: selectedStepId === step.id,
         logExpanded: logStepId === step.id,
         mode,
+        replayEnvelope,
         onSelect,
         onToggleLog,
+        onTriggerEvalModeChange,
       },
     };
   });
   const confirmationNodes = definition.steps.flatMap((step) => {
-    if (step.kind !== 'agent' || step.completionPolicy !== 'manual') return [];
+    if (!hasManualConfirmation(step)) return [];
     const owner = stepNodes.find((node) => node.id === step.id);
     if (!owner) return [];
     return [
@@ -196,8 +212,10 @@ export function layoutNodes(
           selected: selectedStepId === step.id,
           logExpanded: false,
           mode,
+          replayEnvelope,
           onSelect,
           onToggleLog,
+          onTriggerEvalModeChange,
         },
       } satisfies StudioNode,
     ];
@@ -206,7 +224,7 @@ export function layoutNodes(
 }
 
 export function buildEdges(
-  definition: WorkflowDefinition,
+  definition: StudioWorkflowDefinition,
   latest: Map<string, WorkflowStepView>
 ) {
   const dependencyEdges = definition.steps.flatMap((step) =>
@@ -215,7 +233,7 @@ export function buildEdges(
         (candidate) => candidate.id === sourceStepId
       );
       const source =
-        sourceStep?.kind === 'agent' && sourceStep.completionPolicy === 'manual'
+        sourceStep && hasManualConfirmation(sourceStep)
           ? `confirmation:${sourceStepId}`
           : sourceStepId;
       const sourceStatus = latest.get(sourceStepId)?.status;
@@ -239,7 +257,7 @@ export function buildEdges(
     })
   );
   const confirmationEdges = definition.steps.flatMap((step) =>
-    step.kind === 'agent' && step.completionPolicy === 'manual'
+    hasManualConfirmation(step)
       ? [
           {
             id: `${step.id}->confirmation:${step.id}`,

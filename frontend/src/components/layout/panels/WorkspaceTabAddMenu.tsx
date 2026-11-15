@@ -4,6 +4,7 @@ import {
   Activity,
   Bot,
   FileDiff,
+  GitFork,
   Info,
   Plus,
   Puzzle,
@@ -98,8 +99,51 @@ export function WorkspaceTabAddMenu({
     system?.environment?.os_type
   );
 
+  const workflowStudioLabel = t('tabCreation.workflowStudio', {
+    defaultValue: 'Workflow Studio',
+  });
+
+  const openWorkflowStudio = () => {
+    const matchedPluginPanel = pluginPanels.find(
+      (item) =>
+        item.pluginId === 'vibex.workflow-creator' ||
+        item.id === 'workflow-studio'
+    );
+    if (matchedPluginPanel) {
+      const metadata = contributionMetadata(matchedPluginPanel);
+      const icon = typeof metadata.icon === 'string' ? metadata.icon : null;
+      openPluginPanel({
+        title: matchedPluginPanel.label,
+        pluginId: matchedPluginPanel.pluginId,
+        contributionId: matchedPluginPanel.id,
+        icon,
+        multiInstance: metadata.multiInstance === true,
+        instance: metadata.multiInstance === true ? 'new' : 'focus',
+      });
+      return;
+    }
+
+    if (typeof openPluginPanel === 'function') {
+      openPluginPanel({
+        title: workflowStudioLabel,
+        pluginId: 'vibex.workflow-creator',
+        contributionId: 'workflow-studio',
+        icon: 'git-branch',
+        multiInstance: false,
+        instance: 'focus',
+      });
+      return;
+    }
+
+    openOrFocusPanel(
+      (PANEL_IDS as Record<string, string>).WORKFLOW_STUDIO ??
+        'vibex.workflow-creator:workflow-studio',
+      workflowStudioLabel
+    );
+  };
+
   const combinedPluginItems = useMemo(() => {
-    const seen = new Set<string>();
+    const seen = new Set<string>(['vibex.workflow-creator:workflow-studio']);
     const items: Array<{
       key: string;
       label: string;
@@ -272,6 +316,13 @@ export function WorkspaceTabAddMenu({
         <DropdownMenuItem onSelect={() => runInThisGroup(openDiffPreview)}>
           <FileDiff />
           {t('tabCreation.review')}
+        </DropdownMenuItem>
+        <DropdownMenuItem
+          data-testid="workspace-tab-add-workflow-studio"
+          onSelect={() => runInThisGroup(openWorkflowStudio)}
+        >
+          <GitFork />
+          {workflowStudioLabel}
         </DropdownMenuItem>
 
         <DropdownMenuSeparator />

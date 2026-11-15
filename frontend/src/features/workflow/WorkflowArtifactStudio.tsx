@@ -3,7 +3,6 @@ import { useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { useParams } from 'react-router-dom';
 import type {
-  WorkflowDefinition,
   WorkflowEventRecord,
   WorkflowRunView,
   WorkflowStepView,
@@ -19,7 +18,11 @@ import {
 } from '@/features/agents/sessionControlsQuery';
 import { useBackendTransport } from '@/lib/transport';
 
-import { WorkflowStudio } from './WorkflowStudio';
+import {
+  WorkflowStudio,
+  toBackendWorkflowDefinition,
+  type StudioWorkflowDefinition,
+} from './WorkflowStudio';
 import { rememberTestWorkspace } from './workflowTestWorkspaceStore';
 import { createWorkflowApi } from './workflowApi';
 import {
@@ -31,7 +34,7 @@ import {
   resolveWorkflowSourceRevision,
 } from './workflowSourceApi';
 
-function serializeDefinition(definition: WorkflowDefinition) {
+function serializeDefinition(definition: StudioWorkflowDefinition) {
   return JSON.stringify(
     definition,
     (_key, value) => (typeof value === 'bigint' ? Number(value) : value),
@@ -71,12 +74,14 @@ export function WorkflowArtifactStudio({ filePath }: { filePath: string }) {
       }),
     [queryClient, workspaceId]
   );
-  const [definition, setDefinition] = useState<WorkflowDefinition | null>(null);
+  const [definition, setDefinition] = useState<StudioWorkflowDefinition | null>(
+    null
+  );
   const [savedDefinition, setSavedDefinition] =
-    useState<WorkflowDefinition | null>(null);
+    useState<StudioWorkflowDefinition | null>(null);
   const [sourceRevision, setSourceRevision] = useState<string | null>(null);
   const [version, setVersion] = useState<WorkflowVersionView | null>(null);
-  const [undoStack, setUndoStack] = useState<WorkflowDefinition[]>([]);
+  const [undoStack, setUndoStack] = useState<StudioWorkflowDefinition[]>([]);
   const [saving, setSaving] = useState(false);
   const [publishing, setPublishing] = useState(false);
   const [run, setRun] = useState<WorkflowRunView | null>(null);
@@ -110,7 +115,7 @@ export function WorkflowArtifactStudio({ filePath }: { filePath: string }) {
     void sourceApi
       .read(filePath)
       .then((source) => {
-        const parsed = JSON.parse(source.content) as WorkflowDefinition;
+        const parsed = JSON.parse(source.content) as StudioWorkflowDefinition;
         if (!active) return;
         setDefinition(parsed);
         setSavedDefinition(parsed);
@@ -126,7 +131,7 @@ export function WorkflowArtifactStudio({ filePath }: { filePath: string }) {
     };
   }, [filePath, sourceApi]);
 
-  const applyDefinition = useCallback((next: WorkflowDefinition) => {
+  const applyDefinition = useCallback((next: StudioWorkflowDefinition) => {
     setDefinition((current) => {
       if (
         !current ||
@@ -151,7 +156,7 @@ export function WorkflowArtifactStudio({ filePath }: { filePath: string }) {
     if (!definition) return;
     setSaving(true);
     try {
-      await workflowApi.validate(definition);
+      await workflowApi.validate(toBackendWorkflowDefinition(definition));
       const expectedRevision = await resolveWorkflowSourceRevision(
         sourceApi,
         filePath,
@@ -182,7 +187,7 @@ export function WorkflowArtifactStudio({ filePath }: { filePath: string }) {
     setPublishing(true);
     try {
       const published = await workflowApi.publish(
-        definition,
+        toBackendWorkflowDefinition(definition),
         version?.definitionId,
         undefined,
         filePath
@@ -258,14 +263,18 @@ export function WorkflowArtifactStudio({ filePath }: { filePath: string }) {
       ) {
         await save();
       }
-      const nextRun = await workflowApi.debug(definition, stepId, {
-        definitionId: version?.definitionId,
-        sourcePath: filePath,
-        workspaceId: run ? undefined : workspaceId,
-        input: {},
-        parentRunId: run?.id,
-        scope: 'node',
-      });
+      const nextRun = await workflowApi.debug(
+        toBackendWorkflowDefinition(definition),
+        stepId,
+        {
+          definitionId: version?.definitionId,
+          sourcePath: filePath,
+          workspaceId: run ? undefined : workspaceId,
+          input: {},
+          parentRunId: run?.id,
+          scope: 'node',
+        }
+      );
       await refreshRun(nextRun.id);
       if (workspaceId) rememberTestWorkspace(filePath, workspaceId);
       toast.success(

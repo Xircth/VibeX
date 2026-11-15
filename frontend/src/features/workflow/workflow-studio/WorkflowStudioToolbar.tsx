@@ -1,14 +1,23 @@
 import {
   ArrowLeft,
   Bell,
+  Bot,
   ChevronDown,
   CirclePause,
   CirclePlay,
+  GitBranch,
+  Layers,
   Plus,
   RotateCcw,
+  Send,
+  ShieldCheck,
   SlidersHorizontal,
+  Sparkles,
   Square,
+  Terminal,
   Undo2,
+  Users,
+  Zap,
 } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
@@ -16,14 +25,18 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { Input } from '@/components/ui/input';
+import { formatOrchestratorLabel } from '@/features/pulse';
 
 import { resolveWorkflowAgentId } from '../workflowAgent';
+import { WORKFLOW_PRESET_TEMPLATES } from './presetTemplates';
 import { StudioAgentIcon } from './StudioAgentIcon';
 import type { WorkflowStudioView } from './useWorkflowStudio';
 import { WorkflowMetrics } from './WorkflowMetrics';
+import { WorkflowReplayPopover } from './WorkflowReplayPopover';
 
 export function WorkflowStudioToolbar({
   studio,
@@ -45,6 +58,7 @@ export function WorkflowStudioToolbar({
     setSelectedStepId,
     workspaceSummary,
     addStep,
+    applyPreset,
     agentOptions,
     config,
     onUndo,
@@ -87,7 +101,7 @@ export function WorkflowStudioToolbar({
         </div>
       ) : null}
 
-      <div className="workflow-studio-floating-controls pointer-events-auto flex shrink-0 items-center p-1">
+      <div className="workflow-studio-floating-controls pointer-events-auto flex shrink-0 items-center gap-1.5 p-1">
         {onDefinitionChange ? (
           <Input
             aria-label={t('studio.name')}
@@ -100,12 +114,22 @@ export function WorkflowStudioToolbar({
             {definition.name}
           </span>
         )}
+        {definition.orchestratorPreset ? (
+          <span
+            data-testid="workflow-preset-pill"
+            className="rounded-full border border-border bg-muted/70 px-2 py-0.5 text-2xs font-medium text-foreground"
+          >
+            {formatOrchestratorLabel(definition.orchestratorPreset)}
+          </span>
+        ) : null}
       </div>
 
       <WorkflowMetrics
         nodeCount={definition.steps.length}
         agentCount={
-          definition.steps.filter((step) => step.kind === 'agent').length
+          definition.steps.filter(
+            (step) => step.kind === 'agent' || step.kind === 'session'
+          ).length
         }
         releaseVersion={releaseVersion}
         dirty={Boolean(dirty)}
@@ -128,13 +152,80 @@ export function WorkflowStudioToolbar({
                 {workspaceSummary ?? t('studio.workspace')}
               </Button>
             ) : null}
+
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  data-testid="workflow-presets-trigger"
+                >
+                  <Layers className="mr-1 size-3.5" />
+                  Templates
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent
+                align="start"
+                sideOffset={8}
+                className="w-72"
+              >
+                {WORKFLOW_PRESET_TEMPLATES.map((preset) => (
+                  <DropdownMenuItem
+                    key={preset.id}
+                    data-testid={`workflow-preset-${preset.id}`}
+                    onSelect={() => applyPreset(preset.id)}
+                    className="flex flex-col items-start gap-0.5 py-2"
+                  >
+                    <span className="flex items-center gap-1.5 text-xs font-semibold text-foreground">
+                      <Sparkles className="size-3.5 text-primary" />
+                      {preset.label}
+                    </span>
+                    <span className="text-2xs leading-4 text-muted-foreground">
+                      {preset.summary}
+                    </span>
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
+
+            <WorkflowReplayPopover studio={studio} />
+
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button size="sm" variant="ghost">
                   <Plus className="mr-1 size-3.5" /> {t('studio.addNode')}
                 </Button>
               </DropdownMenuTrigger>
-              <DropdownMenuContent align="start" sideOffset={8}>
+              <DropdownMenuContent align="start" sideOffset={8} className="w-56">
+                <DropdownMenuItem onSelect={() => addStep('trigger')}>
+                  <Zap className="size-4" />
+                  Event Trigger
+                </DropdownMenuItem>
+                <DropdownMenuItem onSelect={() => addStep('session')}>
+                  <Terminal className="size-4" />
+                  Session Step (Fresh Context)
+                </DropdownMenuItem>
+                <DropdownMenuItem onSelect={() => addStep('bot')}>
+                  <Bot className="size-4" />
+                  Bot Step (Persistent Memory)
+                </DropdownMenuItem>
+                <DropdownMenuItem onSelect={() => addStep('group_stage')}>
+                  <Users className="size-4" />
+                  Group Stage
+                </DropdownMenuItem>
+                <DropdownMenuItem onSelect={() => addStep('user_gate')}>
+                  <ShieldCheck className="size-4" />
+                  User Gate
+                </DropdownMenuItem>
+                <DropdownMenuItem onSelect={() => addStep('control')}>
+                  <GitBranch className="size-4" />
+                  Flow Control
+                </DropdownMenuItem>
+                <DropdownMenuItem onSelect={() => addStep('outbox_action')}>
+                  <Send className="size-4" />
+                  Outbox Action
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
                 <DropdownMenuItem onSelect={() => addStep('agent')}>
                   <StudioAgentIcon
                     agentId={resolveWorkflowAgentId(
@@ -151,6 +242,7 @@ export function WorkflowStudioToolbar({
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
+
             <Button
               size="icon"
               variant="ghost"
@@ -249,15 +341,20 @@ export function WorkflowStudioToolbar({
               {publishing ? t('studio.publishing') : t('studio.publish')}
             </Button>
           </>
-        ) : run && run.controlState === 'active' ? (
-          <Button size="sm" variant="outline" onClick={onPauseRun}>
-            <CirclePause className="mr-1.5 size-3.5" /> {t('studio.pause')}
-          </Button>
-        ) : run ? (
-          <Button size="sm" variant="outline" onClick={onResumeRun}>
-            <CirclePlay className="mr-1.5 size-3.5" /> {t('studio.resume')}
-          </Button>
-        ) : null}
+        ) : (
+          <>
+            <WorkflowReplayPopover studio={studio} />
+            {run && run.controlState === 'active' ? (
+              <Button size="sm" variant="outline" onClick={onPauseRun}>
+                <CirclePause className="mr-1.5 size-3.5" /> {t('studio.pause')}
+              </Button>
+            ) : run ? (
+              <Button size="sm" variant="outline" onClick={onResumeRun}>
+                <CirclePlay className="mr-1.5 size-3.5" /> {t('studio.resume')}
+              </Button>
+            ) : null}
+          </>
+        )}
       </div>
     </div>
   );

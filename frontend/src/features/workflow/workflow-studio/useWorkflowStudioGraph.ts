@@ -6,11 +6,9 @@ import {
   type Edge,
   type ReactFlowInstance,
 } from '@xyflow/react';
-import type {
-  WorkflowDefinition,
-  WorkflowEventRecord,
-  WorkflowStepView,
-} from 'shared/types';
+import type { WorkflowEventRecord, WorkflowStepView } from 'shared/types';
+
+import type { EventEnvelope, PulseEvalMode } from '@/lib/api/pulse';
 
 import { latestWorkflowStepAttempts } from '../workflowProjection';
 import type { WorkflowStudioAgentOption } from '../workflowAgent';
@@ -19,6 +17,7 @@ import {
   confirmationParentId,
   type StudioMode,
   type StudioNode,
+  type StudioWorkflowDefinition,
 } from './types';
 import { isWorkflowConnectionValid } from './workflowConnection';
 import {
@@ -34,13 +33,17 @@ export function useWorkflowStudioGraph({
   events,
   agentOptions,
   mode,
+  replayEnvelope,
+  onTriggerEvalModeChange,
 }: {
-  definition: WorkflowDefinition;
-  onDefinitionChange?: (definition: WorkflowDefinition) => void;
+  definition: StudioWorkflowDefinition;
+  onDefinitionChange?: (definition: StudioWorkflowDefinition) => void;
   steps: WorkflowStepView[];
   events: WorkflowEventRecord[];
   agentOptions: WorkflowStudioAgentOption[];
   mode: StudioMode;
+  replayEnvelope?: EventEnvelope | null;
+  onTriggerEvalModeChange?: (stepId: string, evalMode: PulseEvalMode) => void;
 }) {
   const [selectedStepId, setSelectedStepId] = useState<string | null>(null);
   const [logStepId, setLogStepId] = useState<string | null>(null);
@@ -65,7 +68,9 @@ export function useWorkflowStudioGraph({
         events,
         agentOptions,
         logStepId,
-        toggleLog
+        toggleLog,
+        replayEnvelope,
+        onTriggerEvalModeChange
       ),
     [
       agentOptions,
@@ -74,6 +79,8 @@ export function useWorkflowStudioGraph({
       latest,
       logStepId,
       mode,
+      onTriggerEvalModeChange,
+      replayEnvelope,
       selectedStepId,
       toggleLog,
     ]

@@ -305,12 +305,20 @@ impl BuiltInProfile {
     }
 
     /// Whether Host may put `mcpServers` on `session/new`, `session/load`, and
-    /// `session/resume`. OpenClaw rejects a non-empty list. Cline and Pi accept
-    /// the field but never connect those servers (companion is wire-only).
+    /// `session/resume`. OpenClaw rejects a non-empty list. Cline, Pi, and
+    /// DeepSeek Harness accept the field but load their companion MCP servers
+    /// from their own config file on disk (`~/.dsh/mcp.json` for DeepSeek),
+    /// so injecting via `session/new` would cause a duplicate that fails
+    /// `failOnStartupError` in the agent's MCP client.
     pub fn delivers_session_mcp(&self) -> bool {
         !matches!(
             AgentKind::from_lenient(self.agent_id.as_str()),
-            Some(AgentKind::Openclaw | AgentKind::Cline | AgentKind::Pi)
+            Some(
+                AgentKind::Openclaw
+                    | AgentKind::Cline
+                    | AgentKind::Pi
+                    | AgentKind::DeepseekHarness
+            )
         )
     }
 

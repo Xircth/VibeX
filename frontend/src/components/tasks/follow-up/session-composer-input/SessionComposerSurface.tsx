@@ -213,7 +213,7 @@ export function SessionComposerSurface({
       ) : null}
       <div
         className={cn(
-          'session-composer-input-surface min-h-[3.25rem] px-1 pb-1 pt-0',
+          'session-composer-input-surface min-h-[1.75rem] px-1 pb-1 pt-0',
           disabled && 'opacity-60'
         )}
         data-testid="session-composer-input-surface"
@@ -250,7 +250,7 @@ export function SessionComposerSurface({
           }}
           isDisabled={disabled}
           className={cn(
-            'session-composer-editor min-h-[3.25rem] w-full px-0.5 pb-1 pt-0 font-sans subpixel-antialiased text-[13px] leading-5 tracking-[0.005em]',
+            'session-composer-editor min-h-[1.75rem] w-full px-0.5 pb-1 pt-0 font-sans subpixel-antialiased text-[13px] leading-5 tracking-[0.005em]',
             className
           )}
           maxRows={7}

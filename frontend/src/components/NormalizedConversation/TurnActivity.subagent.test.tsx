@@ -1,41 +1,10 @@
 import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
-import type { ChatToolCallItem } from '@astryxdesign/core/Chat';
 import { BackendTransportProvider } from '@/lib/transport';
 import type { BackendTransport } from '@/lib/backendTransport';
 import { TurnActivity } from './TurnActivity';
 import type { IndexedTurnItem } from './messageTurnAggregate';
 import type { ToolResultBlock, ToolUseBlock } from './messageTurnBlocks';
-
-const captured = vi.hoisted(() => ({
-  groups: [] as Array<{
-    calls: ChatToolCallItem[];
-    defaultIsExpanded?: boolean;
-  }>,
-}));
-
-vi.mock('@astryxdesign/core/Chat', () => ({
-  ChatToolCalls: ({
-    calls,
-    defaultIsExpanded,
-  }: {
-    calls: ChatToolCallItem[];
-    defaultIsExpanded?: boolean;
-  }) => {
-    captured.groups.push({ calls, defaultIsExpanded });
-    return (
-      <div data-testid="chat-tool-calls">
-        {calls.map((call) => (
-          <div key={call.key ?? call.name}>
-            <span>{call.name}</span>
-            {call.stats}
-            {call.resultDetail}
-          </div>
-        ))}
-      </div>
-    );
-  },
-}));
 
 vi.mock('./DisplayConversationEntry', () => ({
   default: () => <div />,
@@ -77,10 +46,10 @@ function toolItem(
   };
 }
 
-function capturedNames(): string[] {
-  return captured.groups.flatMap((group) =>
-    group.calls.map((call) => String(call.name ?? ''))
-  );
+function renderedChipRowTexts(): string[] {
+  return screen
+    .queryAllByTestId('turn-tool-chip-row')
+    .map((row) => row.textContent ?? '');
 }
 
 describe('TurnActivity subagent expansion', () => {
@@ -133,7 +102,6 @@ describe('TurnActivity subagent expansion', () => {
   });
 
   it('renders the host product card for MCP delegation and shows the poll tool', () => {
-    captured.groups = [];
     const transport = {
       environment: 'desktop',
       call: vi.fn().mockResolvedValue(undefined),
@@ -182,21 +150,15 @@ describe('TurnActivity subagent expansion', () => {
     expect(statusRow).toHaveTextContent('子代理状态');
     expect(statusRow).toHaveTextContent('已完成');
     expect(screen.queryByText(/你好，我是 Codex/)).not.toBeInTheDocument();
+    expect(renderedChipRowTexts()).not.toContain('子代理');
     expect(
-      capturedNames().some((name) =>
-        /get_delegation_status|子代理状态|Sub-agent status/i.test(name)
-      )
-    ).toBe(true);
-    expect(capturedNames()).not.toContain('子代理');
-    expect(
-      capturedNames().some((name) =>
+      renderedChipRowTexts().some((name) =>
         /vibex-delegation-mcp__delegate_to_agent/.test(name)
       )
     ).toBe(false);
   });
 
   it('expands the card result from the sibling poll instead of a truncated preview', () => {
-    captured.groups = [];
     const full =
       '你好，我是 Codex，OpenAI 的编程助手。我擅长阅读现有代码、编写和修改实现、运行测试，并在动手前先说明我打算做什么。';
     const transport = {
@@ -267,7 +229,6 @@ describe('TurnActivity subagent expansion', () => {
   });
 
   it('renders only the product card for prefixed and Grok-envelope MCP names', () => {
-    captured.groups = [];
     const transport = {
       environment: 'desktop',
       call: vi.fn().mockResolvedValue(undefined),
@@ -318,19 +279,18 @@ describe('TurnActivity subagent expansion', () => {
     expect(
       screen.queryByText(/vibex-delegation-mcp__delegate_to_agent/)
     ).not.toBeInTheDocument();
-    expect(capturedNames()).not.toContain('子代理');
+    expect(renderedChipRowTexts()).not.toContain('子代理');
     expect(
-      capturedNames().some((name) =>
+      renderedChipRowTexts().some((name) =>
         /搜索|Search|delegate_to_agent|vibex-delegation/.test(name)
       )
     ).toBe(false);
   });
 
   it('preserves the dedicated question card inside the activity aggregate', () => {
-    captured.groups = [];
     render(
       <TurnActivity
-        turnId="turn-ask"
+        turnId="turn-ask-card"
         timestamp="2026-08-18T00:00:00.000Z"
         items={[
           toolItem(
@@ -362,19 +322,19 @@ describe('TurnActivity subagent expansion', () => {
     expect(
       screen.getByRole('button', { name: '查看详情' })
     ).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '运行 1 个命令' }));
     expect(screen.getByText('ls')).toBeInTheDocument();
     expect(
-      capturedNames().some((name) =>
+      renderedChipRowTexts().some((name) =>
         /ask_user_question|问题|Question/i.test(name)
       )
     ).toBe(false);
   });
 
   it('skips the tool-use question card while a matching elicitation row is pending and renders it in-place once answered', () => {
-    captured.groups = [];
     const { rerender } = render(
       <TurnActivity
-        turnId="turn-ask"
+        turnId="turn-ask-pending"
         timestamp="2026-08-18T00:00:00.000Z"
         items={[
           toolItem(
@@ -411,11 +371,12 @@ describe('TurnActivity subagent expansion', () => {
     expect(
       screen.queryByTestId('ask-question-tool-card')
     ).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '运行 1 个命令' }));
     expect(screen.getByText('ls')).toBeInTheDocument();
 
     rerender(
       <TurnActivity
-        turnId="turn-ask"
+        turnId="turn-ask-pending"
         timestamp="2026-08-18T00:00:00.000Z"
         items={[
           toolItem(
@@ -457,7 +418,6 @@ describe('TurnActivity subagent expansion', () => {
   });
 
   it('nests Claude child tool calls inside SubagentCard and excludes them from top-level tool rows', () => {
-    captured.groups = [];
     const parentSubagent = toolItem(
       'Agent',
       {
@@ -526,7 +486,9 @@ describe('TurnActivity subagent expansion', () => {
       'Scanning directories...'
     );
     expect(
-      capturedNames().some((name) => /git status|Check git status/i.test(name))
+      renderedChipRowTexts().some((name) =>
+        /git status|Check git status/i.test(name)
+      )
     ).toBe(false);
   });
 });

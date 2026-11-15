@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react';
-import { Info, Loader2, TriangleAlert } from 'lucide-react';
+import { Info, TriangleAlert } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import type { ConversationSessionNotice } from 'shared/types';
 import { toast } from '@/components/ui/toast';
+import { PixelGridLoader } from '@/components/ui/pixel-grid-loader';
 import { getErrorMessage } from '@/lib/modals';
 import { cn } from '@/lib/utils';
 import {
@@ -103,7 +104,7 @@ export function AgentRuntimeStatus({
           }
           data-placement={placement}
         >
-          <span className="conv-spinner" aria-hidden="true" />
+          <PixelGridLoader size="sm" />
           <span className="conv-shimmer-text tabular-nums">{streamLabel}</span>
         </div>
       </div>
@@ -153,10 +154,7 @@ export function AgentRuntimeStatus({
     >
       <div className="flex flex-wrap items-center gap-2">
         {isActive ? (
-          <Loader2
-            className="h-3.5 w-3.5 shrink-0 animate-spin text-muted-foreground"
-            aria-hidden="true"
-          />
+          <PixelGridLoader size="sm" />
         ) : isError ? (
           <TriangleAlert
             className="h-3.5 w-3.5 shrink-0 text-destructive"

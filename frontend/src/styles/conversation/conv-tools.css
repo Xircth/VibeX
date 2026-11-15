@@ -1123,11 +1123,6 @@ button.vibex-tool-call-target-label:hover {
   opacity: 0.7;
 }
 
-.conv-thinking-spinner {
-  flex: 0 0 auto;
-  color: var(--conv-tool-icon);
-}
-
 .conv-nested-scroll {
   max-height: 100lh;
   overflow-y: auto;

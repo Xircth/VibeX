@@ -482,20 +482,19 @@ export function SessionSettingsSummary({
         <button
           type="button"
           data-testid="session-settings-summary"
-          data-raised-selector
           disabled={disabled}
           aria-label={triggerLabel}
           title={triggerLabel}
           className={cn(
-            'raised-control group inline-flex h-7 min-w-0 max-w-[min(29rem,calc(100vw-14rem))] items-center gap-1.5',
-            'px-2.5 text-xs font-medium tracking-[-0.01em]',
+            'group inline-flex h-8 min-w-0 max-w-[min(29rem,calc(100vw-14rem))] items-center gap-2 rounded-md border-0 bg-transparent px-2.5 text-sm font-medium tracking-[-0.01em] text-foreground transition-colors',
+            'hover:bg-muted/60 data-[state=open]:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50',
             'active:scale-[0.98]'
           )}
         >
           {resolvedAgentId ? (
             <AgentIcon
               agent={resolvedAgentId}
-              className="h-3.5 w-3.5 shrink-0"
+              className="h-[18px] w-[18px] shrink-0"
               iconLight={resolvedIconLight}
               iconDark={resolvedIconDark}
               iconSvg={resolvedIconSvg}
@@ -521,7 +520,7 @@ export function SessionSettingsSummary({
                   ))
                 : selectedAgentLabel}
           </span>
-          <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform duration-150 group-data-[state=open]:rotate-180" />
+          <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground transition-transform duration-150 group-data-[state=open]:rotate-180" />
         </button>
       </DropdownMenuTrigger>
       <DropdownMenuContent
@@ -546,7 +545,7 @@ export function SessionSettingsSummary({
                 <>
                   <AgentIcon
                     agent={persona.agentName}
-                    className="h-3.5 w-3.5 shrink-0"
+                    className="h-4 w-4 shrink-0"
                   />
                   <span className="truncate">
                     {getAgentName(persona.agentName)}

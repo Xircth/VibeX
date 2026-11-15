@@ -128,8 +128,13 @@ describe('ActionBar', () => {
       '语音输入',
       '发送',
     ]);
-    expect(screen.getByTestId('session-settings-summary')).toHaveClass(
+    expect(screen.getByTestId('session-settings-summary')).not.toHaveClass(
       'raised-control'
+    );
+    expect(screen.getByTestId('session-settings-summary')).toHaveClass(
+      'border-0',
+      'h-8',
+      'text-sm'
     );
   });
 

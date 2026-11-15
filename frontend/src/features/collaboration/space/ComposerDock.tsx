@@ -307,7 +307,7 @@ export const ComposerDock = memo(function ComposerDock() {
                 void handleAttachFiles(files);
               }}
             />
-            <div className="flex flex-wrap items-center gap-1 pt-1">
+            <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
               <input
                 ref={composerFileInputRef}
                 type="file"
@@ -322,11 +322,11 @@ export const ComposerDock = memo(function ComposerDock() {
                 disabled={sending}
                 size="sm"
                 variant="ghost"
-                className="collaboration-icon-btn h-7 w-7 p-0"
+                className="collaboration-icon-btn h-8 w-8 p-0"
                 title={i18n.t('panels:ui.collabPage.chooseFile')}
                 aria-label={i18n.t('panels:ui.collabPage.chooseFile')}
               >
-                <Paperclip className="h-3.5 w-3.5" aria-hidden="true" />
+                <Paperclip className="h-[18px] w-[18px]" aria-hidden="true" />
               </Button>
               <ActionBarUtilityButtons
                 compactContextEnabled={false}
@@ -346,11 +346,11 @@ export const ComposerDock = memo(function ComposerDock() {
                 disabled={sending}
                 size="sm"
                 variant="ghost"
-                className="collaboration-icon-btn h-7 w-7 p-0"
+                className="collaboration-icon-btn h-8 w-8 p-0"
                 title={i18n.t('panels:ui.collabPage.bot')}
                 aria-label={i18n.t('panels:ui.collabPage.bot')}
               >
-                <AtSign className="h-3.5 w-3.5" aria-hidden="true" />
+                <AtSign className="h-[18px] w-[18px]" aria-hidden="true" />
               </Button>
               <div className="flex-1" />
               {isPrivateChatActive ? (

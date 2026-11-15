@@ -165,7 +165,7 @@ export const ActionBar = memo(function ActionBar({
     hasComments ?? (comments ? comments.length > 0 : false);
 
   return (
-    <div className="flex flex-wrap items-center gap-1 pt-1">
+    <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
       {onStashDraft && onRestoreDraft ? (
         <ComposerStashMenu
           scopeId={stashScopeId}

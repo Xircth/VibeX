@@ -60,14 +60,8 @@ function createTabDragGhost(
   clientX: number,
   clientY: number
 ): HTMLElement {
-  const ghost = tabElement.cloneNode(true) as HTMLElement;
-  const computed = window.getComputedStyle(tabElement);
+  const ghost = document.createElement('div');
   const rect = tabElement.getBoundingClientRect();
-
-  ghost.classList.remove('dv-drop-target');
-  ghost.querySelectorAll('.dv-drop-target-dropzone').forEach((node) => {
-    node.remove();
-  });
 
   ghost.setAttribute('data-dockview-tab-drag-ghost', 'true');
   ghost.style.position = 'fixed';
@@ -82,18 +76,10 @@ function createTabDragGhost(
   ghost.style.margin = '0';
   ghost.style.pointerEvents = 'none';
   ghost.style.zIndex = '100000';
-  ghost.style.opacity = '0.92';
-  ghost.style.display = 'flex';
-  ghost.style.alignItems = 'center';
-  ghost.style.fontFamily = computed.fontFamily;
-  ghost.style.fontSize = computed.fontSize;
-  ghost.style.color = computed.color || 'var(--text-strong)';
-  ghost.style.backgroundColor = 'var(--surface-dialog)';
   ghost.style.borderRadius = 'var(--radius, 6px)';
-  ghost.style.boxShadow = '0 8px 24px hsl(var(--shadow-ink) / 0.28)';
+  ghost.style.border = '2px dashed hsl(var(--primary) / 0.72)';
+  ghost.style.background = 'transparent';
 
-  // Design tokens are scoped to `.legacy-design`, so the ghost must mount
-  // inside that scope for its token colors to resolve.
   (tabElement.closest('.legacy-design') ?? document.body).appendChild(ghost);
   return ghost;
 }

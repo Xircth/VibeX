@@ -35,18 +35,18 @@ export function ComposerPrimaryActionButton({
     >
       {pending ? (
         <Loader2
-          className="h-[11.2px] w-[11.2px] animate-spin"
+          className="h-4 w-4 animate-spin"
           aria-hidden="true"
         />
       ) : action === 'send' ? (
         <ArrowUp
-          className="h-[12.6px] w-[12.6px]"
+          className="h-[17px] w-[17px]"
           strokeWidth={2.25}
           aria-hidden="true"
         />
       ) : (
         <Square
-          className="h-[7px] w-[7px] fill-current stroke-none"
+          className="h-[10px] w-[10px] fill-current stroke-none"
           aria-hidden="true"
         />
       )}

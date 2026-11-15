@@ -1,0 +1,408 @@
+/* ============================================
+ * Conversation ToolChips — Compact Rows & Diff Chips
+ * Token-driven view layer for TurnActivity batches and rows.
+ * ============================================ */
+
+@keyframes conv-tool-chip-fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(-2px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.conv-tool-chips-batch {
+  display: flex;
+  flex-direction: column;
+}
+
+.conv-tool-chips-header {
+  gap: 6px;
+  padding: 2px 0;
+  color: var(--conv-text-secondary);
+  transition: color 140ms ease;
+}
+
+.conv-tool-chips-header.is-expanded,
+.conv-tool-chips-header:hover {
+  color: var(--conv-text-primary);
+}
+
+.conv-tool-chips-batch-chevron {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+  color: var(--conv-text-tertiary);
+  transform: rotate(-90deg);
+  transition:
+    transform 160ms cubic-bezier(0.22, 1, 0.36, 1),
+    color 140ms ease;
+}
+
+.conv-tool-chips-header:hover .conv-tool-chips-batch-chevron,
+.conv-tool-chips-batch-chevron.is-expanded {
+  color: var(--conv-text-secondary);
+}
+
+.conv-tool-chips-batch-chevron.is-expanded {
+  transform: rotate(0deg);
+}
+
+.conv-tool-chips-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  margin-top: 2px;
+  animation: conv-tool-chip-fade-up 150ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+/* ---------- Individual ToolChip Row ---------- */
+
+.conv-tool-chip-item {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.conv-tool-chip-row {
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  align-items: center;
+  gap: 8px;
+  margin-inline: -6px;
+  padding: 3px 6px;
+  border-radius: var(--radius-inner, 0.375rem);
+  color: var(--conv-text-secondary);
+  font-family: var(--font-ui);
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 1.6;
+  text-align: left;
+  transition:
+    background-color 140ms ease,
+    color 140ms ease;
+}
+
+.conv-tool-chip-row.is-expandable {
+  cursor: pointer;
+}
+
+.conv-tool-chip-row.is-expandable:hover,
+.conv-tool-chip-row.is-expanded {
+  background: var(--conv-surface-control);
+  color: var(--conv-text-primary);
+}
+
+.conv-tool-chip-row.is-expandable:focus-visible {
+  outline: 2px solid hsl(var(--ring));
+  outline-offset: 1px;
+}
+
+.conv-tool-chip-row.is-error {
+  color: var(--conv-tool-error);
+}
+
+/* 16x16 icon slot that swaps semantic icon -> rotating chevron on hover/open */
+.conv-tool-chip-icon-slot {
+  position: relative;
+  display: inline-flex;
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  color: var(--conv-text-tertiary);
+}
+
+.conv-tool-chip-row.is-error .conv-tool-chip-icon-slot {
+  color: var(--conv-tool-error);
+}
+
+.conv-tool-chip-kind-icon,
+.conv-tool-chip-chevron {
+  width: 13.5px;
+  height: 13.5px;
+  transition:
+    opacity 140ms ease,
+    transform 160ms cubic-bezier(0.22, 1, 0.36, 1),
+    color 140ms ease;
+}
+
+.conv-tool-chip-spinner {
+  animation: spin 1s linear infinite;
+  color: var(--conv-tool-icon);
+}
+
+.conv-tool-chip-chevron {
+  position: absolute;
+  opacity: 0;
+  transform: rotate(-90deg);
+}
+
+.conv-tool-chip-chevron.is-expanded {
+  transform: rotate(0deg);
+}
+
+.conv-tool-chip-row.is-expandable:hover .conv-tool-chip-kind-icon,
+.conv-tool-chip-row.is-expandable.is-expanded .conv-tool-chip-kind-icon {
+  opacity: 0;
+}
+
+.conv-tool-chip-row.is-expandable:hover .conv-tool-chip-chevron,
+.conv-tool-chip-row.is-expandable.is-expanded .conv-tool-chip-chevron {
+  opacity: 1;
+  color: var(--conv-text-secondary);
+}
+
+.conv-tool-chip-label {
+  flex-shrink: 0;
+  white-space: nowrap;
+  color: inherit;
+}
+
+/* Inline target pill (hosts <ToolCallTarget>) */
+.conv-tool-chip-pill {
+  display: inline-flex;
+  min-width: 0;
+  max-width: min(30rem, 100%);
+  align-items: center;
+  gap: 4px;
+  padding: 1px 7px;
+  border-radius: var(--radius-inner, 0.375rem);
+  border: 1px solid var(--conv-border-subtle);
+  background: var(--conv-surface-control);
+  color: var(--conv-text-primary);
+  font-family: var(--font-ui);
+  font-size: 12px;
+  line-height: 1.45;
+  transition:
+    background-color 140ms ease,
+    border-color 140ms ease;
+}
+
+.conv-tool-chip-row:hover .conv-tool-chip-pill {
+  border-color: var(--conv-border-strong);
+}
+
+.conv-tool-chip-pill.is-mono {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+}
+
+.conv-tool-chip-pill .vibex-tool-call-target {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.conv-tool-chip-pill .vibex-tool-call-target-label {
+  color: inherit;
+  font: inherit;
+}
+
+.conv-tool-chip-pill button.vibex-tool-call-target-label:hover {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.conv-tool-chip-error-badge {
+  flex-shrink: 0;
+  padding: 1px 6px;
+  border-radius: var(--radius-inner, 0.375rem);
+  background: hsl(var(--destructive) / 0.12);
+  color: var(--conv-tool-error);
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+/* Indented left-guide expanded detail container */
+.conv-tool-chip-detail {
+  margin-inline-start: 7px;
+  margin-top: 3px;
+  margin-bottom: 6px;
+  padding-inline-start: 14px;
+  border-inline-start: 1px solid var(--conv-border-subtle);
+  animation: conv-tool-chip-fade-up 150ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+/* ---------- Bottom Aggregated File-Diff Chips ---------- */
+
+.conv-tool-diff-chips {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding-top: 6px;
+}
+
+.conv-tool-diff-chip {
+  display: inline-flex;
+  height: 24px;
+  max-width: 100%;
+  align-items: center;
+  gap: 5px;
+  padding: 0 8px;
+  border-radius: var(--radius-inner, 0.375rem);
+  border: 1px solid var(--conv-border-subtle);
+  background: var(--conv-surface-control);
+  color: var(--conv-text-primary);
+  font-family: var(--font-ui);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1;
+  cursor: pointer;
+  transition:
+    background-color 140ms ease,
+    border-color 140ms ease,
+    color 140ms ease;
+}
+
+.conv-tool-diff-chip:hover {
+  background: var(--conv-surface-control-hover);
+  border-color: var(--conv-border-strong);
+}
+
+.conv-tool-diff-chip:focus-visible {
+  outline: 2px solid hsl(var(--ring));
+  outline-offset: 1px;
+}
+
+.conv-tool-diff-more {
+  color: var(--conv-text-secondary);
+  font-weight: 400;
+}
+
+.conv-tool-diff-more:hover {
+  color: var(--conv-text-primary);
+}
+
+.conv-tool-diff-file-icon {
+  width: 13px;
+  height: 13px;
+  flex-shrink: 0;
+}
+
+.conv-tool-diff-name {
+  min-width: 0;
+  max-width: 14rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.conv-tool-diff-add {
+  flex-shrink: 0;
+  color: var(--conv-tool-success);
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.conv-tool-diff-del {
+  flex-shrink: 0;
+  color: var(--conv-tool-error);
+  font-size: 11px;
+  font-weight: 500;
+}
+
+/* ---------- Portal Floating Diff Preview ---------- */
+
+.conv-tool-diff-preview {
+  position: fixed;
+  z-index: 80;
+  pointer-events: none;
+  overflow: hidden;
+  border-radius: var(--radius);
+  border: 1px solid var(--conv-border-strong);
+  background: var(--surface-popover, var(--conv-surface-card));
+  box-shadow: var(
+    --shadow-popover,
+    0 12px 32px -12px hsl(var(--foreground) / 0.24)
+  );
+  animation: conv-tool-chip-fade-up 130ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.conv-tool-diff-preview-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--conv-border-subtle);
+  background: var(--conv-surface-control);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--conv-text-secondary);
+}
+
+.conv-tool-diff-preview-path {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.conv-tool-diff-preview-counts {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 6px;
+}
+
+.conv-tool-diff-preview-body {
+  padding: 5px 0;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1.55;
+  color: var(--conv-text-secondary);
+}
+
+.conv-tool-diff-preview-line {
+  display: flex;
+  min-width: 0;
+  padding: 0 10px;
+}
+
+.conv-tool-diff-preview-line.is-add {
+  background: hsl(var(--success) / 0.12);
+  color: var(--conv-tool-success);
+}
+
+.conv-tool-diff-preview-line.is-del {
+  background: hsl(var(--destructive) / 0.12);
+  color: var(--conv-tool-error);
+}
+
+.conv-tool-diff-preview-sign {
+  width: 14px;
+  flex-shrink: 0;
+  user-select: none;
+  opacity: 0.72;
+}
+
+.conv-tool-diff-preview-code {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .conv-tool-chips-batch-chevron,
+  .conv-tool-chip-kind-icon,
+  .conv-tool-chip-chevron,
+  .conv-tool-chip-row,
+  .conv-tool-chip-pill,
+  .conv-tool-diff-chip {
+    transition: none;
+  }
+
+  .conv-tool-chips-list,
+  .conv-tool-chip-detail,
+  .conv-tool-diff-preview {
+    animation: none;
+  }
+}

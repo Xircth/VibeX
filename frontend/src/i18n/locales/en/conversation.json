@@ -276,6 +276,10 @@
     "fileReadFrom": "From line {{start}}",
     "searchResults": "Search results"
   },
+  "toolChips": {
+    "showDiff": "Show diff for {{file}}",
+    "more": "+{{count}} more"
+  },
   "statusDock": {
     "dismiss": "Dismiss notice",
     "dismissLocalError": "Dismiss local error",

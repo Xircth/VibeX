@@ -87,6 +87,10 @@ import {
   nextStreamingActivityVerb,
   shouldShowAssistantStreamingStatus,
 } from './assistantStreamingActivity';
+import {
+  PixelGridLoader,
+  formatLoadingElapsed,
+} from '@/components/ui/pixel-grid-loader';
 
 export interface MessageTurnContext {
   taskAttemptId?: string;
@@ -319,6 +323,8 @@ function AssistantStreamingStatus({ hasContent }: { hasContent: boolean }) {
   const [verb, setVerb] = useState(() =>
     nextStreamingActivityVerb(STREAMING_ACTIVITY_VERBS)
   );
+  const [elapsedMs, setElapsedMs] = useState(0);
+  const startedAtRef = useRef(Date.now());
 
   useEffect(() => {
     if (prefersReducedMotion()) return;
@@ -328,6 +334,15 @@ function AssistantStreamingStatus({ hasContent }: { hasContent: boolean }) {
       );
     }, STREAMING_ACTIVITY_INTERVAL_MS);
     return () => window.clearInterval(timer);
+  }, []);
+
+  // Tenths-of-a-second tick, matching the pixel grid's perceptible cadence: a
+  // once-per-second counter reads as stalled beside a 650ms animation.
+  useEffect(() => {
+    const ticker = window.setInterval(() => {
+      setElapsedMs(Date.now() - startedAtRef.current);
+    }, 100);
+    return () => window.clearInterval(ticker);
   }, []);
 
   return (
@@ -340,8 +355,11 @@ function AssistantStreamingStatus({ hasContent }: { hasContent: boolean }) {
       aria-live="polite"
       aria-label={statusLabel}
     >
-      <span className="conv-spinner" aria-hidden="true" />
+      <PixelGridLoader size="sm" />
       <span className="conv-shimmer-text">{`${verb}…`}</span>
+      <span className="conv-streaming-elapsed tabular-nums">
+        {formatLoadingElapsed(elapsedMs)}
+      </span>
     </div>
   );
 }

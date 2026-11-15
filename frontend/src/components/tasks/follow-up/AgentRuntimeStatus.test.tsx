@@ -154,7 +154,7 @@ describe('AgentRuntimeStatus', () => {
     expect(indicator).toHaveClass('conv-thinking-placeholder');
     expect(indicator).not.toHaveClass('rounded-lg');
     expect(indicator.closest('.conv-entry-item')).not.toBeNull();
-    expect(indicator.querySelector('.conv-spinner')).not.toBeNull();
+    expect(indicator.querySelector('.conv-pixel-grid')).not.toBeNull();
     const label = indicator.querySelector('.conv-shimmer-text');
     expect(label).toHaveClass('tabular-nums');
     expect(label).toHaveTextContent('连接中... 正在重试 2/10 次');

@@ -294,7 +294,8 @@ describe('ComposerDock BotSpace session settings', () => {
     renderComposerDock();
 
     const trigger = await screen.findByTestId('session-settings-summary');
-    expect(trigger).toHaveClass('raised-control');
+    expect(trigger).not.toHaveClass('raised-control');
+    expect(trigger).toHaveClass('border-0', 'h-8', 'text-sm');
     await waitFor(() => {
       expect(trigger).toHaveTextContent('Sonnet 4');
     });

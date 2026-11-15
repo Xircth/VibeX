@@ -16,7 +16,7 @@ describe('SessionComposerFrame', () => {
 
     expect(status.parentElement).toBe(anchor.parentElement);
     expect(body.parentElement).toBe(anchor);
-    expect(body).toHaveClass('rounded-lg');
+    expect(body).toHaveClass('rounded-[var(--radius-composer,0.75rem)]');
     expect(status.nextElementSibling).toBe(anchor);
     expect(body).not.toContainElement(status);
   });

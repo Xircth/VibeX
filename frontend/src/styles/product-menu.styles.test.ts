@@ -123,18 +123,26 @@ describe('product option menus', () => {
       '.legacy-design .composer-at-reference-menu.composer-status-surface'
     );
 
+    const baseTokens = declarationsFor('.legacy-design');
+    const shell = declarationsFor('.composer-shell');
+
+    expect(baseTokens['--_radius-composer']?.value).toBe('1.25rem');
+    expect(shell.border?.value).toBe('1px solid var(--border-strong)');
+    expect(shell['border-radius']?.value).toBe(
+      'var(--radius-composer, var(--radius-container, var(--radius)))'
+    );
     expect(body['border-radius']?.value).toBe(
-      'var(--radius-container, var(--radius))'
+      'var(--radius-composer, var(--radius-container, var(--radius)))'
     );
     expect(menu.bottom?.value).toBe(
-      'calc(100% - var(--radius-container, var(--radius)))'
+      'calc(100% - var(--radius-composer, var(--radius-container, var(--radius))))'
     );
     expect(menu['padding-bottom']?.value).toBe(
-      'var(--radius-container, var(--radius))'
+      'var(--radius-composer, var(--radius-container, var(--radius)))'
     );
     expect(Number.parseInt(menu['z-index']?.value ?? '', 10)).toBeLessThan(10);
     expect(menu['border-radius']?.value).toBe(
-      'var(--radius-container, var(--radius)) var(--radius-container, var(--radius)) 0 0'
+      'var(--radius-composer, var(--radius-container, var(--radius))) var(--radius-composer, var(--radius-container, var(--radius))) 0 0'
     );
 
     const atOptionActive = declarationsFor(
@@ -176,7 +184,7 @@ describe('product option menus', () => {
     expect(button['background-color']?.important).toBe(true);
     expect(button.color?.value).toBe('hsl(var(--background))');
     expect(button['border-radius']?.value).toBe('999px');
-    expect(button.width?.value).toBe('22.4px');
-    expect(button.height?.value).toBe('22.4px');
+    expect(button.width?.value).toBe('30px');
+    expect(button.height?.value).toBe('30px');
   });
 });

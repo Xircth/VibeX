@@ -276,6 +276,10 @@
     "fileReadFrom": "从第 {{start}} 行开始",
     "searchResults": "搜索结果"
   },
+  "toolChips": {
+    "showDiff": "查看 {{file}} 的变更",
+    "more": "+{{count}} 更多"
+  },
   "statusDock": {
     "dismiss": "关闭提示",
     "dismissLocalError": "关闭本地错误提示",

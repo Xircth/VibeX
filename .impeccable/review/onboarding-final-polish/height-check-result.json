@@ -1,0 +1,574 @@
+{
+  "result": {
+    "acquisition": {
+      "codeDispatched": true,
+      "entryTabId": 603792596,
+      "ownedPageCount": 1,
+      "status": "acquired",
+      "tabIds": [
+        603792596
+      ]
+    },
+    "elapsedMs": 2732,
+    "nextAction": {
+      "mimeType": "image/png",
+      "path": "C:\\Users\\18190\\AppData\\Local\\Tabbit Browser\\User Data\\LocalAgent\\Runtime\\artifacts\\task-9397cbe0-7882-447c-aa69-9df3617c21e9\\screenshot-shot-6dad855b-5a54-45ae-8858-4d00989b9ad3.png",
+      "type": "load_image"
+    },
+    "requestId": "height-all-viewports",
+    "screenshotsDelta": [
+      {
+        "captureId": "shot-27e56bc8-2b3f-4b2a-88f0-856c7423c7e8",
+        "mimeType": "image/png",
+        "nextAction": {
+          "mimeType": "image/png",
+          "path": "C:\\Users\\18190\\AppData\\Local\\Tabbit Browser\\User Data\\LocalAgent\\Runtime\\artifacts\\task-9397cbe0-7882-447c-aa69-9df3617c21e9\\screenshot-shot-27e56bc8-2b3f-4b2a-88f0-856c7423c7e8.png",
+          "type": "load_image"
+        },
+        "path": "C:\\Users\\18190\\AppData\\Local\\Tabbit Browser\\User Data\\LocalAgent\\Runtime\\artifacts\\task-9397cbe0-7882-447c-aa69-9df3617c21e9\\screenshot-shot-27e56bc8-2b3f-4b2a-88f0-856c7423c7e8.png",
+        "recommendedLimitExceeded": false,
+        "screenshotCount": 1,
+        "warnings": []
+      },
+      {
+        "captureId": "shot-a11c3257-f669-4719-b227-e79ecdd96532",
+        "mimeType": "image/png",
+        "nextAction": {
+          "mimeType": "image/png",
+          "path": "C:\\Users\\18190\\AppData\\Local\\Tabbit Browser\\User Data\\LocalAgent\\Runtime\\artifacts\\task-9397cbe0-7882-447c-aa69-9df3617c21e9\\screenshot-shot-a11c3257-f669-4719-b227-e79ecdd96532.png",
+          "type": "load_image"
+        },
+        "path": "C:\\Users\\18190\\AppData\\Local\\Tabbit Browser\\User Data\\LocalAgent\\Runtime\\artifacts\\task-9397cbe0-7882-447c-aa69-9df3617c21e9\\screenshot-shot-a11c3257-f669-4719-b227-e79ecdd96532.png",
+        "recommendedLimitExceeded": false,
+        "screenshotCount": 2,
+        "warnings": []
+      },
+      {
+        "captureId": "shot-ff40ef77-86a1-4b6f-806c-c2c1f42a4f0e",
+        "mimeType": "image/png",
+        "nextAction": {
+          "mimeType": "image/png",
+          "path": "C:\\Users\\18190\\AppData\\Local\\Tabbit Browser\\User Data\\LocalAgent\\Runtime\\artifacts\\task-9397cbe0-7882-447c-aa69-9df3617c21e9\\screenshot-shot-ff40ef77-86a1-4b6f-806c-c2c1f42a4f0e.png",
+          "type": "load_image"
+        },
+        "path": "C:\\Users\\18190\\AppData\\Local\\Tabbit Browser\\User Data\\LocalAgent\\Runtime\\artifacts\\task-9397cbe0-7882-447c-aa69-9df3617c21e9\\screenshot-shot-ff40ef77-86a1-4b6f-806c-c2c1f42a4f0e.png",
+        "recommendedLimitExceeded": false,
+        "screenshotCount": 3,
+        "warnings": []
+      },
+      {
+        "captureId": "shot-6dad855b-5a54-45ae-8858-4d00989b9ad3",
+        "mimeType": "image/png",
+        "nextAction": {
+          "mimeType": "image/png",
+          "path": "C:\\Users\\18190\\AppData\\Local\\Tabbit Browser\\User Data\\LocalAgent\\Runtime\\artifacts\\task-9397cbe0-7882-447c-aa69-9df3617c21e9\\screenshot-shot-6dad855b-5a54-45ae-8858-4d00989b9ad3.png",
+          "type": "load_image"
+        },
+        "path": "C:\\Users\\18190\\AppData\\Local\\Tabbit Browser\\User Data\\LocalAgent\\Runtime\\artifacts\\task-9397cbe0-7882-447c-aa69-9df3617c21e9\\screenshot-shot-6dad855b-5a54-45ae-8858-4d00989b9ad3.png",
+        "recommendedLimitExceeded": true,
+        "screenshotCount": 4,
+        "warnings": [
+          "Recommended screenshot limit of 3 exceeded"
+        ]
+      }
+    ],
+    "value": [
+      {
+        "height": 1000,
+        "metrics": {
+          "document": {
+            "height": 1000,
+            "scrollHeight": 1000,
+            "scrollWidth": 1440,
+            "width": 1440
+          },
+          "elements": {
+            ".agent-model-provider-manager.is-embedded": {
+              "background": "rgb(255, 255, 255)",
+              "clientHeight": 138,
+              "clientWidth": 565,
+              "display": "block",
+              "height": 139.1428680419922,
+              "scrollHeight": 138,
+              "scrollWidth": 565,
+              "width": 565.6517944335938,
+              "x": 669.7678833007812,
+              "y": 418.3571472167969
+            },
+            ".agent-preflight-grid": {
+              "background": "rgba(0, 0, 0, 0)",
+              "clientHeight": 114,
+              "clientWidth": 566,
+              "display": "grid",
+              "height": 114.28572082519531,
+              "scrollHeight": 114,
+              "scrollWidth": 566,
+              "width": 565.6517944335938,
+              "x": 669.7678833007812,
+              "y": 240.07144165039062
+            },
+            ".onboarding-agent-detail": {
+              "background": "rgb(241, 241, 241)",
+              "clientHeight": 647,
+              "clientWidth": 614,
+              "display": "flex",
+              "height": 648.0357666015625,
+              "scrollHeight": 647,
+              "scrollWidth": 614,
+              "width": 614.794677734375,
+              "x": 645.1964721679688,
+              "y": 103.50000762939453
+            },
+            ".onboarding-agent-list": {
+              "background": "rgba(0, 0, 0, 0)",
+              "clientHeight": 647,
+              "clientWidth": 438,
+              "display": "block",
+              "height": 648.0357666015625,
+              "scrollHeight": 1192,
+              "scrollWidth": 438,
+              "width": 445.1964416503906,
+              "x": 180.00001525878906,
+              "y": 103.50000762939453
+            },
+            ".onboarding-config-body": {
+              "background": "rgba(0, 0, 0, 0)",
+              "clientHeight": 796,
+              "clientWidth": 1080,
+              "display": "block",
+              "height": 795.9285888671875,
+              "scrollHeight": 796,
+              "scrollWidth": 1080,
+              "width": 1080,
+              "x": 180.00001525878906,
+              "y": 103.50000762939453
+            },
+            ".onboarding-config-footer": {
+              "background": "rgba(0, 0, 0, 0)",
+              "clientHeight": 56,
+              "clientWidth": 1080,
+              "display": "flex",
+              "height": 56.57143020629883,
+              "scrollHeight": 56,
+              "scrollWidth": 1080,
+              "width": 1080,
+              "x": 180.00001525878906,
+              "y": 919.4285888671875
+            },
+            ".onboarding-roster": {
+              "background": "rgb(255, 255, 255)",
+              "clientHeight": 72,
+              "clientWidth": 1080,
+              "display": "block",
+              "height": 72.39286041259766,
+              "scrollHeight": 72,
+              "scrollWidth": 1080,
+              "width": 1080,
+              "x": 180.00001525878906,
+              "y": 775.5357666015625
+            }
+          }
+        },
+        "name": "desktop",
+        "shot": {
+          "bytes": 99971,
+          "captureId": "shot-27e56bc8-2b3f-4b2a-88f0-856c7423c7e8",
+          "capturedFullPage": false,
+          "height": 1000,
+          "issuesDelta": [],
+          "mimeType": "image/png",
+          "nextAction": {
+            "mimeType": "image/png",
+            "path": "C:\\Users\\18190\\AppData\\Local\\Tabbit Browser\\User Data\\LocalAgent\\Runtime\\artifacts\\task-9397cbe0-7882-447c-aa69-9df3617c21e9\\screenshot-shot-27e56bc8-2b3f-4b2a-88f0-856c7423c7e8.png",
+            "type": "load_image"
+          },
+          "path": "C:\\Users\\18190\\AppData\\Local\\Tabbit Browser\\User Data\\LocalAgent\\Runtime\\artifacts\\task-9397cbe0-7882-447c-aa69-9df3617c21e9\\screenshot-shot-27e56bc8-2b3f-4b2a-88f0-856c7423c7e8.png",
+          "recommendedLimitExceeded": false,
+          "requestedFullPage": false,
+          "requiresImageLoad": true,
+          "screenshotCount": 1,
+          "sha256": "cd9d992b0b14c252a7a8aff208adad86ea461acba23d10a114695deabb322c9d",
+          "type": "browser_screenshot",
+          "warnings": [],
+          "width": 1440
+        },
+        "width": 1440
+      },
+      {
+        "height": 720,
+        "metrics": {
+          "document": {
+            "height": 720,
+            "scrollHeight": 720,
+            "scrollWidth": 1280,
+            "width": 1280
+          },
+          "elements": {
+            ".agent-model-provider-manager.is-embedded": {
+              "background": "rgb(255, 255, 255)",
+              "clientHeight": 138,
+              "clientWidth": 559,
+              "display": "block",
+              "height": 139.1428680419922,
+              "scrollHeight": 138,
+              "scrollWidth": 559,
+              "width": 559.9375,
+              "x": 589.7678833007812,
+              "y": 418.3571472167969
+            },
+            ".agent-preflight-grid": {
+              "background": "rgba(0, 0, 0, 0)",
+              "clientHeight": 114,
+              "clientWidth": 560,
+              "display": "grid",
+              "height": 114.28572082519531,
+              "scrollHeight": 114,
+              "scrollWidth": 560,
+              "width": 559.9375,
+              "x": 589.7678833007812,
+              "y": 240.07144165039062
+            },
+            ".onboarding-agent-detail": {
+              "background": "rgb(241, 241, 241)",
+              "clientHeight": 367,
+              "clientWidth": 608,
+              "display": "flex",
+              "height": 368.0357360839844,
+              "scrollHeight": 577,
+              "scrollWidth": 608,
+              "width": 614.794677734375,
+              "x": 565.1964721679688,
+              "y": 103.50000762939453
+            },
+            ".onboarding-agent-list": {
+              "background": "rgba(0, 0, 0, 0)",
+              "clientHeight": 367,
+              "clientWidth": 438,
+              "display": "block",
+              "height": 368.0357360839844,
+              "scrollHeight": 1192,
+              "scrollWidth": 438,
+              "width": 445.1964416503906,
+              "x": 100.00000762939453,
+              "y": 103.50000762939453
+            },
+            ".onboarding-config-body": {
+              "background": "rgba(0, 0, 0, 0)",
+              "clientHeight": 516,
+              "clientWidth": 1080,
+              "display": "block",
+              "height": 515.9285888671875,
+              "scrollHeight": 516,
+              "scrollWidth": 1080,
+              "width": 1080,
+              "x": 100.00000762939453,
+              "y": 103.50000762939453
+            },
+            ".onboarding-config-footer": {
+              "background": "rgba(0, 0, 0, 0)",
+              "clientHeight": 56,
+              "clientWidth": 1080,
+              "display": "flex",
+              "height": 56.57143020629883,
+              "scrollHeight": 56,
+              "scrollWidth": 1080,
+              "width": 1080,
+              "x": 100.00000762939453,
+              "y": 639.4285888671875
+            },
+            ".onboarding-roster": {
+              "background": "rgb(255, 255, 255)",
+              "clientHeight": 72,
+              "clientWidth": 1080,
+              "display": "block",
+              "height": 72.39286041259766,
+              "scrollHeight": 72,
+              "scrollWidth": 1080,
+              "width": 1080,
+              "x": 100.00000762939453,
+              "y": 495.5357360839844
+            }
+          }
+        },
+        "name": "small-desktop",
+        "shot": {
+          "bytes": 70305,
+          "captureId": "shot-a11c3257-f669-4719-b227-e79ecdd96532",
+          "capturedFullPage": false,
+          "height": 720,
+          "issuesDelta": [],
+          "mimeType": "image/png",
+          "nextAction": {
+            "mimeType": "image/png",
+            "path": "C:\\Users\\18190\\AppData\\Local\\Tabbit Browser\\User Data\\LocalAgent\\Runtime\\artifacts\\task-9397cbe0-7882-447c-aa69-9df3617c21e9\\screenshot-shot-a11c3257-f669-4719-b227-e79ecdd96532.png",
+            "type": "load_image"
+          },
+          "path": "C:\\Users\\18190\\AppData\\Local\\Tabbit Browser\\User Data\\LocalAgent\\Runtime\\artifacts\\task-9397cbe0-7882-447c-aa69-9df3617c21e9\\screenshot-shot-a11c3257-f669-4719-b227-e79ecdd96532.png",
+          "recommendedLimitExceeded": false,
+          "requestedFullPage": false,
+          "requiresImageLoad": true,
+          "screenshotCount": 2,
+          "sha256": "5e8b114a29a24daecf78a7afa6325b9cfda38e279e28b231a228549a77657c3a",
+          "type": "browser_screenshot",
+          "warnings": [],
+          "width": 1280
+        },
+        "width": 1280
+      },
+      {
+        "height": 1276,
+        "metrics": {
+          "document": {
+            "height": 1276,
+            "scrollHeight": 1276,
+            "scrollWidth": 1984,
+            "width": 1984
+          },
+          "elements": {
+            ".agent-model-provider-manager.is-embedded": {
+              "background": "rgb(255, 255, 255)",
+              "clientHeight": 138,
+              "clientWidth": 565,
+              "display": "block",
+              "height": 139.1428680419922,
+              "scrollHeight": 138,
+              "scrollWidth": 565,
+              "width": 565.6517944335938,
+              "x": 941.7678833007812,
+              "y": 418.3571472167969
+            },
+            ".agent-preflight-grid": {
+              "background": "rgba(0, 0, 0, 0)",
+              "clientHeight": 114,
+              "clientWidth": 566,
+              "display": "grid",
+              "height": 114.28572082519531,
+              "scrollHeight": 114,
+              "scrollWidth": 566,
+              "width": 565.6517944335938,
+              "x": 941.7678833007812,
+              "y": 240.07144165039062
+            },
+            ".onboarding-agent-detail": {
+              "background": "rgb(241, 241, 241)",
+              "clientHeight": 923,
+              "clientWidth": 614,
+              "display": "flex",
+              "height": 924.0357666015625,
+              "scrollHeight": 923,
+              "scrollWidth": 614,
+              "width": 614.794677734375,
+              "x": 917.1964721679688,
+              "y": 103.50000762939453
+            },
+            ".onboarding-agent-list": {
+              "background": "rgba(0, 0, 0, 0)",
+              "clientHeight": 923,
+              "clientWidth": 438,
+              "display": "block",
+              "height": 924.0357666015625,
+              "scrollHeight": 1192,
+              "scrollWidth": 438,
+              "width": 445.1964416503906,
+              "x": 452.0000305175781,
+              "y": 103.50000762939453
+            },
+            ".onboarding-config-body": {
+              "background": "rgba(0, 0, 0, 0)",
+              "clientHeight": 1072,
+              "clientWidth": 1080,
+              "display": "block",
+              "height": 1071.9285888671875,
+              "scrollHeight": 1072,
+              "scrollWidth": 1080,
+              "width": 1080,
+              "x": 452.0000305175781,
+              "y": 103.50000762939453
+            },
+            ".onboarding-config-footer": {
+              "background": "rgba(0, 0, 0, 0)",
+              "clientHeight": 56,
+              "clientWidth": 1080,
+              "display": "flex",
+              "height": 56.57143020629883,
+              "scrollHeight": 56,
+              "scrollWidth": 1080,
+              "width": 1080,
+              "x": 452.0000305175781,
+              "y": 1195.4285888671875
+            },
+            ".onboarding-roster": {
+              "background": "rgb(255, 255, 255)",
+              "clientHeight": 72,
+              "clientWidth": 1080,
+              "display": "block",
+              "height": 72.39286041259766,
+              "scrollHeight": 72,
+              "scrollWidth": 1080,
+              "width": 1080,
+              "x": 452.0000305175781,
+              "y": 1051.5357666015625
+            }
+          }
+        },
+        "name": "user-1984",
+        "shot": {
+          "bytes": 122213,
+          "captureId": "shot-ff40ef77-86a1-4b6f-806c-c2c1f42a4f0e",
+          "capturedFullPage": false,
+          "height": 1276,
+          "issuesDelta": [],
+          "mimeType": "image/png",
+          "nextAction": {
+            "mimeType": "image/png",
+            "path": "C:\\Users\\18190\\AppData\\Local\\Tabbit Browser\\User Data\\LocalAgent\\Runtime\\artifacts\\task-9397cbe0-7882-447c-aa69-9df3617c21e9\\screenshot-shot-ff40ef77-86a1-4b6f-806c-c2c1f42a4f0e.png",
+            "type": "load_image"
+          },
+          "path": "C:\\Users\\18190\\AppData\\Local\\Tabbit Browser\\User Data\\LocalAgent\\Runtime\\artifacts\\task-9397cbe0-7882-447c-aa69-9df3617c21e9\\screenshot-shot-ff40ef77-86a1-4b6f-806c-c2c1f42a4f0e.png",
+          "recommendedLimitExceeded": false,
+          "requestedFullPage": false,
+          "requiresImageLoad": true,
+          "screenshotCount": 3,
+          "sha256": "9125736ad467e22fd15650fa12247022d887cc308bd567d4b3b2071d3e252da1",
+          "type": "browser_screenshot",
+          "warnings": [],
+          "width": 1984
+        },
+        "width": 1984
+      },
+      {
+        "height": 844,
+        "metrics": {
+          "document": {
+            "height": 844,
+            "scrollHeight": 844,
+            "scrollWidth": 390,
+            "width": 390
+          },
+          "elements": {
+            ".agent-model-provider-manager.is-embedded": {
+              "background": "rgb(255, 255, 255)",
+              "clientHeight": 203,
+              "clientWidth": 302,
+              "display": "block",
+              "height": 204.2857208251953,
+              "scrollHeight": 203,
+              "scrollWidth": 302,
+              "width": 303.4285888671875,
+              "x": 40.57143020629883,
+              "y": 506.357177734375
+            },
+            ".agent-preflight-grid": {
+              "background": "rgba(0, 0, 0, 0)",
+              "clientHeight": 178,
+              "clientWidth": 303,
+              "display": "grid",
+              "height": 178.2857208251953,
+              "scrollHeight": 178,
+              "scrollWidth": 303,
+              "width": 303.4285888671875,
+              "x": 40.57143020629883,
+              "y": 232.07144165039062
+            },
+            ".onboarding-agent-detail": {
+              "background": "rgb(241, 241, 241)",
+              "clientHeight": 418,
+              "clientWidth": 343,
+              "display": "flex",
+              "height": 419.2946472167969,
+              "scrollHeight": 731,
+              "scrollWidth": 343,
+              "width": 350.2857360839844,
+              "x": 20,
+              "y": 99.50000762939453
+            },
+            ".onboarding-agent-list": {
+              "background": "rgba(0, 0, 0, 0)",
+              "clientHeight": 0,
+              "clientWidth": 0,
+              "display": "block",
+              "height": 0,
+              "scrollHeight": 0,
+              "scrollWidth": 0,
+              "width": 0,
+              "x": 0,
+              "y": 0
+            },
+            ".onboarding-config-body": {
+              "background": "rgba(0, 0, 0, 0)",
+              "clientHeight": 614,
+              "clientWidth": 350,
+              "display": "block",
+              "height": 613.9285888671875,
+              "scrollHeight": 614,
+              "scrollWidth": 350,
+              "width": 350.2857360839844,
+              "x": 20,
+              "y": 99.50000762939453
+            },
+            ".onboarding-config-footer": {
+              "background": "rgba(0, 0, 0, 0)",
+              "clientHeight": 90,
+              "clientWidth": 350,
+              "display": "flex",
+              "height": 90.5714340209961,
+              "scrollHeight": 90,
+              "scrollWidth": 350,
+              "width": 350.2857360839844,
+              "x": 20,
+              "y": 733.4285888671875
+            },
+            ".onboarding-roster": {
+              "background": "rgb(255, 255, 255)",
+              "clientHeight": 119,
+              "clientWidth": 350,
+              "display": "block",
+              "height": 119.1339340209961,
+              "scrollHeight": 119,
+              "scrollWidth": 350,
+              "width": 350.2857360839844,
+              "x": 20,
+              "y": 542.794677734375
+            }
+          }
+        },
+        "name": "mobile-details",
+        "shot": {
+          "bytes": 40565,
+          "captureId": "shot-6dad855b-5a54-45ae-8858-4d00989b9ad3",
+          "capturedFullPage": false,
+          "height": 844,
+          "issuesDelta": [],
+          "mimeType": "image/png",
+          "nextAction": {
+            "mimeType": "image/png",
+            "path": "C:\\Users\\18190\\AppData\\Local\\Tabbit Browser\\User Data\\LocalAgent\\Runtime\\artifacts\\task-9397cbe0-7882-447c-aa69-9df3617c21e9\\screenshot-shot-6dad855b-5a54-45ae-8858-4d00989b9ad3.png",
+            "type": "load_image"
+          },
+          "path": "C:\\Users\\18190\\AppData\\Local\\Tabbit Browser\\User Data\\LocalAgent\\Runtime\\artifacts\\task-9397cbe0-7882-447c-aa69-9df3617c21e9\\screenshot-shot-6dad855b-5a54-45ae-8858-4d00989b9ad3.png",
+          "recommendedLimitExceeded": true,
+          "requestedFullPage": false,
+          "requiresImageLoad": true,
+          "screenshotCount": 4,
+          "sha256": "006a1a9bb45c274a1b62278d60cfac2ce8700a84260c0dab303dd6a24a27083b",
+          "type": "browser_screenshot",
+          "warnings": [
+            "Recommended screenshot limit of 3 exceeded"
+          ],
+          "width": 390
+        },
+        "width": 390
+      }
+    ]
+  },
+  "status": "succeeded",
+  "transition": {
+    "closedPages": [],
+    "documentGeneration": 0,
+    "openedPages": [],
+    "pageCount": 1,
+    "targetEpoch": 2,
+    "url": "http://127.0.0.1:5173/e2e/onboarding/?scenario=auth",
+    "urlChanged": false
+  }
+}

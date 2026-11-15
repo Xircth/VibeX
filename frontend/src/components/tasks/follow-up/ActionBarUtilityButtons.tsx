@@ -35,14 +35,14 @@ export function ActionBarUtilityButtons({
           disabled={!canCompactContext || isCompactingContext}
           size="sm"
           variant="ghost"
-          className="h-7 w-7 p-0"
+          className="h-8 w-8 p-0"
           title={COMPACT_CONTEXT_LABEL}
           aria-label={COMPACT_CONTEXT_LABEL}
         >
           {isCompactingContext ? (
-            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            <Loader2 className="h-[18px] w-[18px] animate-spin" />
           ) : (
-            <Archive className="h-3.5 w-3.5" />
+            <Archive className="h-[18px] w-[18px]" />
           )}
         </Button>
       ) : null}
@@ -53,7 +53,7 @@ export function ActionBarUtilityButtons({
           disabled={!canEnhancePrompt && !isEnhancingPrompt}
           size="sm"
           variant="ghost"
-          className="h-7 w-7 p-0"
+          className="h-8 w-8 p-0"
           title={
             isEnhancingPrompt ? STOP_ENHANCE_PROMPT_LABEL : ENHANCE_PROMPT_LABEL
           }
@@ -63,9 +63,9 @@ export function ActionBarUtilityButtons({
           aria-busy={isEnhancingPrompt}
         >
           {isEnhancingPrompt ? (
-            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            <Loader2 className="h-[18px] w-[18px] animate-spin" />
           ) : (
-            <Lightbulb className="h-3.5 w-3.5" />
+            <Lightbulb className="h-[18px] w-[18px]" />
           )}
         </Button>
       ) : null}

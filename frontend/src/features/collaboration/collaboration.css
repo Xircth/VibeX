@@ -1851,6 +1851,11 @@
   box-shadow: none !important;
 }
 
+.collaboration-composer-wrap .collaboration-icon-btn {
+  width: 2rem;
+  height: 2rem;
+}
+
 .collaboration-expand:hover,
 .collaboration-expand:focus-visible,
 .collaboration-expand:active,

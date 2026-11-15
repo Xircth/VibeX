@@ -332,7 +332,7 @@ describe('SessionComposerInput (Astryx)', () => {
     ).toHaveTextContent('是否已经合并到master?');
   });
 
-  it('gives the actual editable surface a two-to-seven-line height range', () => {
+  it('gives the actual editable surface a compact one-to-seven-line height range', () => {
     const queryClient = new QueryClient({
       defaultOptions: { queries: { retry: false } },
     });
@@ -352,7 +352,7 @@ describe('SessionComposerInput (Astryx)', () => {
 
     const editor = getEditor();
 
-    expect(getComputedStyle(editor).minHeight).toBe('3.25rem');
+    expect(getComputedStyle(editor).minHeight).toBe('1.75rem');
     expect(editor.style.maxHeight).toBe('154px');
     expect(getComputedStyle(editor).overflowY).toBe('auto');
   });

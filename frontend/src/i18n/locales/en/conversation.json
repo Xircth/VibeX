@@ -276,6 +276,10 @@
     "fileReadFrom": "From line {{start}}",
     "searchResults": "Search results"
   },
+  "toolChips": {
+    "showDiff": "Show diff for {{file}}",
+    "more": "+{{count}} more"
+  },
   "statusDock": {
     "dismiss": "Dismiss notice",
     "dismissLocalError": "Dismiss local error",
@@ -610,7 +614,14 @@
     "cancel": "Cancel request",
     "retry": "Retry manually",
     "copyFailed": "Could not copy error",
-    "copyError": "Copy error"
+    "copyError": "Copy error",
+    "stream": {
+      "connecting": "Connecting...",
+      "connectingRetrying": "Connecting... Retrying",
+      "connectingRetryingAttempt": "Connecting... Retrying attempt {{attempt}}",
+      "connectingRetryingCount": "Connecting... Retrying {{attempt}}/{{max}}",
+      "cancelling": "Cancelling..."
+    }
   },
   "steering": {
     "native": "Steer",

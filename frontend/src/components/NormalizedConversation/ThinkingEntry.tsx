@@ -1,10 +1,11 @@
 import React, { useRef } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Brain, ChevronDown, Loader2 } from 'lucide-react';
+import { Brain, ChevronDown } from 'lucide-react';
 import { useExpandable } from '@/stores/useExpandableStore';
 import { AstryxMarkdown } from './AstryxMarkdown';
 import { cn } from '@/lib/utils';
 import { useNestedWheel } from './nestedScroll';
+import { PixelGridLoader } from '@/components/ui/pixel-grid-loader';
 
 export const ThinkingEntry: React.FC<{
   content: string;
@@ -50,10 +51,7 @@ export const ThinkingEntry: React.FC<{
         aria-label={expanded ? t('thinking.collapse') : t('thinking.expand')}
       >
         {isStreaming ? (
-          <Loader2
-            aria-hidden="true"
-            className="conv-thinking-spinner h-3.5 w-3.5 shrink-0 animate-spin motion-reduce:animate-none"
-          />
+          <PixelGridLoader size="sm" />
         ) : (
           <Brain
             aria-hidden="true"

@@ -451,7 +451,7 @@ pub(super) async fn resolve_on_path(executable: &str) -> Option<PathBuf> {
     utils::shell::resolve_executable_path(executable).await
 }
 
-pub(super) async fn probe_first_output_line(path: &Path, args: &[&str]) -> Option<String> {
+pub(crate) async fn probe_first_output_line(path: &Path, args: &[&str]) -> Option<String> {
     if args.is_empty() {
         return None;
     }

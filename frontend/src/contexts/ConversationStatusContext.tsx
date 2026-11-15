@@ -33,6 +33,7 @@ export type ConversationStatusNotice =
       id: string;
       kind: 'session-notice';
       notice: ConversationSessionNotice;
+      titleOverride?: string | null;
       onCancel?: () => void | Promise<unknown>;
       onRetry?: () => void | Promise<unknown>;
       onRebind?: () => void | Promise<unknown>;

@@ -1,7 +1,6 @@
 import { createContext, useContext, type ReactNode } from 'react';
 
 export type SessionSurfaceChrome = {
-  composerIdentity?: ReactNode;
   hidePersonaHostNotes?: boolean;
 };
 

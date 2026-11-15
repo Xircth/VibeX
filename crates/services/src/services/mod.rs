@@ -18,6 +18,7 @@ pub mod git_host;
 pub mod image;
 pub mod local_runtime_discovery;
 pub mod mcp;
+pub mod native_engine_adopt;
 pub mod notification;
 pub mod pr_description;
 pub mod pr_monitor;

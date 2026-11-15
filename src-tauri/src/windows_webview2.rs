@@ -646,8 +646,10 @@ mod win32_desktop {
             set_path_sacl_sd(&asset_dir.join("logs"), dir_sd);
             create_dir_all_and_fix_il(&asset_dir.join("webview-profiles"));
             if let Ok(exe) = std::env::current_exe() {
-                let identifier = webview2_identifier_for_executable(&exe);
-                if let Some(user_data) = webview2_user_data_dir(identifier) {
+                let env_override = std::env::var(DEV_APP_IDENTIFIER_ENV).ok();
+                let identifier =
+                    resolve_webview2_identifier_for_executable(&exe, env_override.as_deref());
+                if let Some(user_data) = webview2_user_data_dir(&identifier) {
                     set_path_sacl_sd(&user_data, dir_sd);
                     create_dir_all_and_fix_il(&user_data.join("EBWebView"));
                 }

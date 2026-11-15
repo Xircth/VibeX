@@ -1,5 +1,11 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -243,5 +249,81 @@ describe('ProjectQuickSwitcher', () => {
         { replace: true }
       );
     });
+  });
+
+  it('distinguishes running, unread-success, and unread-error states on the +N background badge while ignoring transient loading', () => {
+    const store = useWindowProjectsStore.getState();
+
+    // Transient initial loading without running sessions should not show +N badge
+    store.setProjectSnapshot('proj-beta', {
+      isLoading: true,
+      hasRunning: false,
+      runningCount: 0,
+      hasError: false,
+      hasSessions: false,
+      recentSessions: [],
+    });
+
+    renderSwitcher();
+    expect(
+      screen.queryByTestId('project-switcher-background-badge')
+    ).not.toBeInTheDocument();
+
+    // Unread completion uses success tint
+    act(() => {
+      store.setProjectAlert({
+        projectId: 'proj-beta',
+        workspaceId: 'ws-beta',
+        sessionId: 'sess-beta',
+        taskId: null,
+        kind: 'success',
+        unread: true,
+        createdAt: '2026-04-18T10:00:00Z',
+        title: 'Done',
+        description: 'Completed',
+      });
+    });
+
+    const badgeAfterSuccess = screen.getByTestId(
+      'project-switcher-background-badge'
+    );
+    expect(badgeAfterSuccess).toHaveTextContent('+1');
+    expect(badgeAfterSuccess.className).toContain('text-[hsl(var(--success))]');
+
+    // Adding a running project promotes badge to primary
+    act(() => {
+      store.setProjectSnapshot('proj-running', {
+        isLoading: false,
+        hasRunning: true,
+        runningCount: 1,
+        hasError: false,
+        hasSessions: true,
+        recentSessions: [],
+      });
+    });
+    expect(
+      screen.getByTestId('project-switcher-background-badge')
+    ).toHaveTextContent('+2');
+    expect(
+      screen.getByTestId('project-switcher-background-badge').className
+    ).toContain('text-primary');
+
+    // Unread error promotes badge to destructive
+    act(() => {
+      store.setProjectAlert({
+        projectId: 'proj-beta',
+        workspaceId: 'ws-beta',
+        sessionId: 'sess-beta',
+        taskId: null,
+        kind: 'error',
+        unread: true,
+        createdAt: '2026-04-18T10:02:00Z',
+        title: 'Failed',
+        description: 'Error',
+      });
+    });
+    expect(
+      screen.getByTestId('project-switcher-background-badge').className
+    ).toContain('text-destructive');
   });
 });

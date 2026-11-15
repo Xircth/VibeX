@@ -85,7 +85,11 @@ export function ProjectQuickSwitcher() {
   const navigate = useNavigate();
   const { openSurfaceMenu } = useAppContextMenu();
   const { project, projectId } = useProject();
-  const { projects, projectsById, isLoading: isProjectsLoading } = useProjects();
+  const {
+    projects,
+    projectsById,
+    isLoading: isProjectsLoading,
+  } = useProjects();
   const switchProject = useProjectSwitcher();
 
   const open = useWindowProjectsStore((state) => state.railVisible);
@@ -142,20 +146,24 @@ export function ProjectQuickSwitcher() {
   const backgroundSummary = useMemo(() => {
     let count = 0;
     let hasError = false;
+    let hasRunning = false;
     for (const candidate of visibleProjects) {
       if (candidate.id === resolvedProjectId) continue;
       const snapshot = projectSnapshots[candidate.id];
       const alert = projectAlerts[candidate.id];
-      const isRunning = Boolean(snapshot?.isLoading || snapshot?.hasRunning);
+      const isRunning = Boolean(snapshot?.hasRunning);
       const isUnread = Boolean(alert?.unread);
       if (isRunning || isUnread) {
         count += 1;
         if (alert?.kind === 'error' && alert.unread) {
           hasError = true;
         }
+        if (isRunning) {
+          hasRunning = true;
+        }
       }
     }
-    return { count, hasError };
+    return { count, hasError, hasRunning };
   }, [projectAlerts, projectSnapshots, resolvedProjectId, visibleProjects]);
 
   const treeNodes = useMemo<EnrichedProjectNode[]>(() => {
@@ -400,8 +408,7 @@ export function ProjectQuickSwitcher() {
     if (event.key === 'ArrowUp') {
       event.preventDefault();
       if (flatItems.length === 0) return;
-      const prev =
-        (highlightedIndex - 1 + flatItems.length) % flatItems.length;
+      const prev = (highlightedIndex - 1 + flatItems.length) % flatItems.length;
       setHighlightedIndex(prev);
       const prevId = flatItems[prev]?.id;
       if (prevId) {
@@ -653,7 +660,9 @@ export function ProjectQuickSwitcher() {
                 'rounded px-1 py-0.5 text-[10px] font-semibold leading-none tabular-nums',
                 backgroundSummary.hasError
                   ? 'bg-destructive/15 text-destructive'
-                  : 'bg-primary/15 text-primary'
+                  : backgroundSummary.hasRunning
+                    ? 'bg-primary/15 text-primary'
+                    : 'bg-[hsl(var(--success)/0.15)] text-[hsl(var(--success))]'
               )}
             >
               +{backgroundSummary.count}

@@ -19,6 +19,12 @@
   },
   "automationFailureTitle": "Automation run failed",
   "openProject": "Open {{name}}",
+  "backgroundProjects": {
+    "ariaLabel": "Active background projects",
+    "runningStatus": "{{count}} session(s) running",
+    "moreProjectsAria": "{{count}} more active background project(s)",
+    "moreProjectsTitle": "More active projects"
+  },
   "backgroundTasksTitle": "{{count}} background task(s) running",
   "updateAvailableTitle": "An update is available",
   "update": {

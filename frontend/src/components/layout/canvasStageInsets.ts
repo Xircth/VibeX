@@ -6,6 +6,7 @@ import {
   isEditorGroup,
   isLeftGroup,
   isRightShellNavGroup,
+  isSessionGroup,
 } from '@/utils/dockviewGroupPolicy';
 
 export interface CanvasStageInsets {
@@ -23,15 +24,18 @@ export function measureCanvasStageInsets(
   }
 
   const hostRect = host.getBoundingClientRect();
-  const editorGroups = api.groups
-    .filter((group) => isEditorGroup(group) && group.api.isVisible)
+  const stageGroups = api.groups
+    .filter(
+      (group) =>
+        (isEditorGroup(group) || isSessionGroup(group)) && group.api.isVisible
+    )
     .sort(compareEditorGroups);
 
   let editorCenterX: number | null = null;
-  for (const editorGroup of editorGroups) {
-    const editorRect = getGroupElement(editorGroup)?.getBoundingClientRect();
-    if (editorRect && editorRect.width > 0) {
-      editorCenterX = editorRect.left + editorRect.width / 2;
+  for (const stageGroup of stageGroups) {
+    const stageRect = getGroupElement(stageGroup)?.getBoundingClientRect();
+    if (stageRect && stageRect.width > 0) {
+      editorCenterX = stageRect.left + stageRect.width / 2;
       break;
     }
   }

@@ -116,6 +116,35 @@ describe('createLazyDockviewPanel', () => {
     expect(await screen.findByTestId('recovered-panel')).toBeInTheDocument();
     consoleError.mockRestore();
   });
+
+  it('reuses the resolved lazy component synchronously across subsequent mounted instances without flashing the fallback', async () => {
+    let loaderCalls = 0;
+    const Panel = createLazyDockviewPanel(async () => {
+      loaderCalls += 1;
+      return {
+        default: (props: IDockviewPanelProps) => (
+          <div data-testid={`cached-panel-${props.api?.id ?? 'default'}`} />
+        ),
+      };
+    }, 0);
+
+    render(
+      React.createElement(Panel, {
+        api: { id: 'first' },
+      } as unknown as IDockviewPanelProps)
+    );
+    expect(await screen.findByTestId('cached-panel-first')).toBeInTheDocument();
+    expect(loaderCalls).toBe(1);
+
+    const secondRender = render(
+      React.createElement(Panel, {
+        api: { id: 'second' },
+      } as unknown as IDockviewPanelProps)
+    );
+    // Must be present synchronously right after render() with zero async wait and zero extra loader() call
+    expect(secondRender.getByTestId('cached-panel-second')).toBeInTheDocument();
+    expect(loaderCalls).toBe(1);
+  });
 });
 
 function tabProps({

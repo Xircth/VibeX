@@ -16,7 +16,7 @@ import {
   getNextEditorGroupId,
   isEditorGroup,
 } from '@/utils/dockviewGroupPolicy';
-import { syncDockviewGroupRegistry } from '@/utils/dockviewHelpers';
+import { assignDockviewGroupIdAndRole } from '@/utils/dockviewGroupRole';
 
 let releasing = false;
 
@@ -85,9 +85,12 @@ function adoptLegacyTerminalGroup(
   }
 
   if (group.id === GROUP_IDS.BOTTOM) {
-    const nextId = getNextEditorGroupId(api);
-    (group as { id: string }).id = nextId;
-    syncDockviewGroupRegistry(api);
+    assignDockviewGroupIdAndRole(
+      api,
+      group,
+      getNextEditorGroupId(api),
+      'editor'
+    );
   }
 
   group.locked = false;

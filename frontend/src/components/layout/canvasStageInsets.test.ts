@@ -213,4 +213,60 @@ describe('canvasStageInsets', () => {
       right: 0,
     });
   });
+
+  it('resolves Zone B stage insets accurately when only session groups are visible between left and right Zone A panels', () => {
+    const host = document.createElement('div');
+    mockRect(host, { left: 48, width: 1600 });
+
+    const leftView = document.createElement('div');
+    const leftEl = document.createElement('div');
+    leftEl.setAttribute('data-left-dock', 'true');
+    leftView.appendChild(leftEl);
+    host.appendChild(leftView);
+
+    const sessionView = document.createElement('div');
+    const sessionEl = document.createElement('div');
+    sessionEl.setAttribute('data-session-dock', 'true');
+    sessionView.appendChild(sessionEl);
+    host.appendChild(sessionView);
+
+    const rightDockView = document.createElement('div');
+    const rightDockEl = document.createElement('div');
+    rightDockEl.setAttribute('data-left-dock', 'true');
+    rightDockEl.setAttribute('data-shell-nav-side', 'right');
+    rightDockView.appendChild(rightDockEl);
+    host.appendChild(rightDockView);
+
+    mockRect(leftView, { left: 48, width: 240 });
+    mockRect(sessionView, { left: 288, width: 1060 });
+    mockRect(rightDockView, { left: 1348, width: 300 });
+
+    const api = {
+      groups: [
+        {
+          id: GROUP_IDS.LEFT,
+          element: leftEl,
+          panels: [{ id: PANEL_IDS.SESSION_LIST }],
+          api: { isVisible: true, width: 240 },
+        },
+        {
+          id: GROUP_IDS.RIGHT,
+          element: sessionEl,
+          panels: [{ id: 'session:1' }],
+          api: { isVisible: true, width: 1060 },
+        },
+        {
+          id: `${GROUP_IDS.LEFT}-1`,
+          element: rightDockEl,
+          panels: [{ id: PANEL_IDS.GIT }],
+          api: { isVisible: true, width: 300 },
+        },
+      ],
+    } as unknown as Pick<DockviewApi, 'groups'>;
+
+    expect(measureCanvasStageInsets(api, host, DEFAULT_ARRANGEMENT)).toEqual({
+      left: 240,
+      right: 300,
+    });
+  });
 });

@@ -8,14 +8,8 @@ export function isCreateSessionFormVisibleForProject(input: {
   if (!input.open) return false;
   if (!input.openedForProjectId || !input.currentProjectId) return false;
   if (input.openedForProjectId !== input.currentProjectId) return false;
-  if (
-    input.openedForWorkspaceId !== undefined ||
-    input.currentWorkspaceId !== undefined
-  ) {
-    return (
-      (input.openedForWorkspaceId ?? null) ===
-      (input.currentWorkspaceId ?? null)
-    );
+  if (input.openedForWorkspaceId != null) {
+    return input.openedForWorkspaceId === (input.currentWorkspaceId ?? null);
   }
   return true;
 }

@@ -10,7 +10,6 @@ import {
   type ComponentType,
   type ReactNode,
 } from 'react';
-import i18n from '@/i18n';
 import { createPortal } from 'react-dom';
 import { useParams } from 'react-router-dom';
 import {
@@ -18,14 +17,16 @@ import {
   type DockviewApi,
   type DockviewReadyEvent,
 } from 'dockview-react';
-import type { DockviewWillShowOverlayLocationEvent } from 'dockview-core';
 import {
   WorkspaceDockviewTab,
   panelComponents,
 } from '@/components/layout/panels/PanelRegistry';
 import { WorkspaceActivityRail } from '@/components/layout/WorkspaceActivityRail';
 import { WorkspaceTabAddMenu } from '@/components/layout/panels/WorkspaceTabAddMenu';
-import { useOptionalPanelActionsContext } from '@/contexts/PanelActionsContext';
+import {
+  useOptionalPanelActionsContext,
+  usePanelActionsContext,
+} from '@/contexts/PanelActionsContext';
 import { useViews } from '@vibex/plugin-sdk';
 import { useUserSystem } from '@/components/ConfigProvider';
 import { PluginOverlays } from '@/components/plugins/PluginOverlays';
@@ -42,15 +43,7 @@ import { MobileDeviceConnectBanner } from '@/components/layout/MobileDeviceConne
 import { StatusBar } from '@/components/layout/StatusBar';
 import { WorkspaceZeroProjectStage } from '@/components/layout/WorkspaceZeroProjectStage';
 import { ProjectLayoutScope, useProject } from '@/contexts/ProjectContext';
-import {
-  EDITOR_GROUP_PREFIX,
-  GROUP_IDS,
-  MAX_EDITOR_GROUPS,
-  MIN_RIGHT_PANEL_WIDTH,
-  PANEL_IDS,
-  useLayoutStore,
-} from '@/stores/useLayoutStore';
-import { usePanelActionsContext } from '@/contexts/PanelActionsContext';
+import { useLayoutStore } from '@/stores/useLayoutStore';
 import {
   RightPanelSlotContext,
   type SessionPanelPlacement,
@@ -65,47 +58,19 @@ import { useWorkspaceOverlay } from '@/contexts/WorkspaceOverlayContext';
 import { chromeHidesNativeSurface } from '@/lib/nativeSurfaceHandoff';
 import { KeepAliveSurface } from '@/components/layout/KeepAliveSurface';
 import { KANBAN_INACTIVE_EVICT_MS } from '@/components/layout/kanbanKeepAlive';
+import { syncDockviewGroupRegistry } from '@/utils/dockviewGroupRole';
 import {
-  applyLeftGroupHeaderHiding,
-  syncDockviewGroupRegistry,
-} from '@/utils/dockviewHelpers';
-import {
-  applyWorkspaceZoneConstraints,
-  MIN_LEFT_PANEL_WIDTH,
-} from '@/utils/dockviewWorkspaceConstraints';
-import {
-  dismissEmptyEditorColumn,
-  ensureWelcomeEditorGroup,
-  installEditorColumnWidthRebalance,
-  restoreFlexibleEditorColumn,
-  setColumnVisible,
   setLeftDockVisible,
   setSessionDockVisible,
   setColumnsVisible,
-  shouldPersistSessionColumnWidth,
 } from '@/utils/dockviewEditorGroup';
-import {
-  groupsHiddenWhenEditorAreaCollapsed,
-  shouldDismissEditorColumnAfterPanelRemoval,
-} from '@/utils/lastPreviewTabLayout';
+import { groupsHiddenWhenEditorAreaCollapsed } from '@/utils/lastPreviewTabLayout';
 import { DEFAULT_TERMINAL_PANEL_HEIGHT } from '@/lib/terminalPreferences';
-import {
-  addSessionPanelWithoutStealingFocus,
-  revealSessionPanelWithoutStealingFocus,
-} from '@/utils/dockviewSessionPanel';
 import {
   isTerminalShelfGroup,
   isTerminalShelfOpen,
   terminalShelfGroupId,
 } from '@/lib/terminalShelf';
-import {
-  releaseLegacyTerminalZones,
-  rememberTerminalShelfFromApi,
-} from '@/utils/terminalZoneRelease';
-import {
-  ACTIVITY_RAIL_PANEL_TITLES,
-  getDefaultActivityRailPanelId,
-} from '@/lib/activityRailOrder';
 import {
   arrangementsEqual,
   getLayoutArrangement,
@@ -113,7 +78,6 @@ import {
   slotOfZone,
   useLayoutArrangement,
   type LayoutArrangement,
-  type LayoutZone,
 } from '@/lib/layoutArrangement';
 import {
   arrangeSerializedLayout,
@@ -122,67 +86,36 @@ import {
 } from '@/utils/dockviewLayoutTransform';
 import { SearchPalette } from '@/components/search/SearchPalette';
 import { useWorkspaceShortcuts } from '@/hooks/useWorkspaceShortcuts';
-import {
-  BOTTOM_PANEL_IDS,
-  compareEditorGroups,
-  getGroupElement,
-  getNextEditorGroupId,
-  getNextLeftGroupId,
-  getNextRightGroupId,
-  isBottomGroup,
-  isEditorGroup,
-  isLeftGroup,
-  isSessionGroup,
-  isSessionPanelId,
-  isPlaceholderPanelId,
-  LEFT_GROUP_PREFIX,
-  LEFT_PANEL_IDS,
-  listLeftDockGroups,
-  listSessionGroups,
-  RIGHT_GROUP_PREFIX,
-} from '@/utils/dockviewGroupPolicy';
-import { installDockviewPointerTabDnd } from '@/utils/dockviewPointerTabDnd';
-import { syncWorkspaceOpenSessionIdsFromDockview } from '@/lib/workspaceSessionTabSlots';
+import { isPlaceholderPanelId } from '@/utils/dockviewGroupPolicy';
 import '@/styles/dockview-ayu.css';
-import {
-  defaultSessionPanelWidth,
-  layoutDockviewPreservingGroupWidths,
-  settleDockviewGroupWidths,
-} from '@/utils/dockviewStartupSizing';
 import { useWorkspaceStageStyle } from '@/lib/workspaceStageStyle';
 import { useDockviewPanelActionsBinding } from '@/hooks/useDockviewPanelActionsBinding';
-import { CollaborationSpaceProvider } from '@/features/collaboration/space/SpaceContext';
+import { OptionalCollaborationSpaceProvider } from '@/features/collaboration/space/SpaceContext';
+import { useWorkspaceStageInsets } from '@/components/layout/useWorkspaceStageInsets';
+import { registerWorkspaceStageCreationHost } from '@/components/layout/workspaceStageCreationHost';
 import {
-  findCanvasBoundarySash,
-  measureCanvasStageInsets,
-  type CanvasStageInsets,
-} from '@/components/layout/canvasStageInsets';
-
-const LAYOUT = {
-  // A (dock) defaults to 10% of the full grid; C (session) uses the shared
-  // fixed default calculated by defaultSessionPanelWidth. Users can resize
-  // either column above its usable minimum; that choice persists verbatim.
-  LEFT_PANEL_DEFAULT_RATIO: 0.1,
-  LEFT_PANEL_MIN_WIDTH: MIN_LEFT_PANEL_WIDTH,
-  LAYOUT_CHANGE_DEBOUNCE_MS: 500,
-  IDLE_PERSIST_TIMEOUT_MS: 1000,
-} as const;
-
-/**
- * Default widths, floored at each zone's usable minimum for small windows.
- */
-function defaultDockWidth(gridWidth: number): number {
-  return Math.max(
-    LAYOUT.LEFT_PANEL_MIN_WIDTH,
-    Math.round(gridWidth * LAYOUT.LEFT_PANEL_DEFAULT_RATIO)
-  );
-}
-
-function defaultSessionWidth(gridWidth: number): number {
-  return defaultSessionPanelWidth(gridWidth, MIN_RIGHT_PANEL_WIDTH);
-}
-
-type DockviewGroup = NonNullable<ReturnType<DockviewApi['getGroup']>>;
+  getLiveDockviewApi,
+  isDockviewApiDisposed,
+} from '@/utils/dockviewSessionPanel';
+import {
+  buildDefaultLayout,
+  defaultDockWidth,
+  defaultSessionWidth,
+  ensureDockviewSessionPanel,
+  getBottomGroup,
+  getEditorGroups,
+  getLeftGroup,
+  getRightGroup,
+  normalizeGroupIds,
+  restoreWorkspaceDockviewPanels,
+} from '@/components/layout/ideLayoutGroupNormalization';
+import {
+  attachDockviewWorkspaceListeners,
+  forwardPointerDownToCanvasBoundarySash,
+  registerDockviewOverlayDropGuard,
+  routeWorkspaceTabBarDrop,
+  type DropTargetZone,
+} from '@/components/layout/ideLayoutDockviewListeners';
 
 interface IDELayoutProps {
   rightPanelContent?: ReactNode;
@@ -201,232 +134,6 @@ const LazyWorkspaceCanvasStage = lazy(() =>
   }))
 );
 
-function getLeftGroup(api: DockviewApi): DockviewGroup | undefined {
-  return (
-    api.getGroup(GROUP_IDS.LEFT) ??
-    api.groups.find(
-      (group) =>
-        isLeftGroup(group) &&
-        group.element?.getAttribute('data-shell-nav-side') !== 'right'
-    ) ??
-    api.groups.find((group) => isLeftGroup(group))
-  );
-}
-
-function getBottomGroup(api: DockviewApi): DockviewGroup | undefined {
-  return (
-    api.getGroup(GROUP_IDS.BOTTOM) ??
-    api.groups.find((group) => isBottomGroup(group))
-  );
-}
-
-function getRightGroup(api: DockviewApi): DockviewGroup | undefined {
-  return (
-    api.getGroup(GROUP_IDS.RIGHT) ??
-    api.groups.find((group) => isSessionGroup(group))
-  );
-}
-
-function zoneGroup(
-  api: DockviewApi,
-  zone: LayoutZone
-): DockviewGroup | undefined {
-  switch (zone) {
-    case 'dock':
-      return getLeftGroup(api);
-    case 'terminal':
-      return getBottomGroup(api);
-    case 'session':
-      return getRightGroup(api);
-    default:
-      return getEditorGroups(api)[0];
-  }
-}
-
-/**
- * Verify the visible zone groups appear left-to-right in the order the
- * arrangement prescribes. Ad-hoc group re-creation paths (e.g. restoring the
- * dock next to the editor) can scramble the column order; a mismatch here
- * triggers a re-apply of the arrangement, which normalizes the grid.
- */
-function zoneOrderMatchesArrangement(
-  api: DockviewApi,
-  arrangement: LayoutArrangement
-): boolean {
-  const leftGroups = listLeftDockGroups(api.groups);
-  const skipDockCheck =
-    leftGroups.length > 1 ||
-    leftGroups.some(
-      (group) => group.element?.getAttribute('data-shell-nav-side') === 'right'
-    );
-
-  let previousLeft = Number.NEGATIVE_INFINITY;
-  for (const slot of ['left', 'center', 'right'] as const) {
-    const zone = arrangement[slot];
-    if (zone === 'dock' && skipDockCheck) continue;
-
-    const group = zoneGroup(api, zone);
-    if (!group?.api.isVisible) continue;
-
-    const rect = getGroupElement(group)?.getBoundingClientRect();
-    if (!rect || rect.width <= 0) continue;
-
-    if (rect.left <= previousLeft) return false;
-    previousLeft = rect.left;
-  }
-  return true;
-}
-
-function getEditorGroups(api: DockviewApi): DockviewGroup[] {
-  return api.groups
-    .filter((group) => isEditorGroup(group))
-    .sort(compareEditorGroups);
-}
-
-function normalizeGroupIds(api: DockviewApi) {
-  releaseLegacyTerminalZones(api);
-  rememberTerminalShelfFromApi(api);
-
-  const leftGroups = listLeftDockGroups(api.groups);
-  if (leftGroups.length > 0) {
-    const primary =
-      leftGroups.find(
-        (group) =>
-          group.id === GROUP_IDS.LEFT &&
-          group.element?.getAttribute('data-shell-nav-side') !== 'right'
-      ) ??
-      leftGroups.find(
-        (group) =>
-          group.element?.getAttribute('data-shell-nav-side') !== 'right'
-      ) ??
-      leftGroups[0];
-    if (
-      primary &&
-      primary.element?.getAttribute('data-shell-nav-side') !== 'right'
-    ) {
-      (primary as { id: string }).id = GROUP_IDS.LEFT;
-    }
-    for (const group of leftGroups) {
-      if (
-        group === primary &&
-        group.element?.getAttribute('data-shell-nav-side') !== 'right'
-      ) {
-        continue;
-      }
-      if (!group.id.startsWith(LEFT_GROUP_PREFIX)) {
-        (group as { id: string }).id = getNextLeftGroupId(api);
-      }
-    }
-  }
-
-  const sessionGroups = listSessionGroups(api.groups);
-  if (sessionGroups.length > 0) {
-    const primary =
-      sessionGroups.find((group) => group.id === GROUP_IDS.RIGHT) ??
-      sessionGroups[0];
-    (primary as { id: string }).id = GROUP_IDS.RIGHT;
-    for (const group of sessionGroups) {
-      if (group === primary) continue;
-      if (!group.id.startsWith(RIGHT_GROUP_PREFIX)) {
-        (group as { id: string }).id = getNextRightGroupId(api);
-      }
-    }
-  }
-
-  for (const group of api.groups) {
-    if (
-      isEditorGroup(group) &&
-      group.panels.length > 0 &&
-      !group.id.startsWith(EDITOR_GROUP_PREFIX)
-    ) {
-      (group as { id: string }).id = getNextEditorGroupId(api);
-    }
-  }
-
-  syncDockviewGroupRegistry(api);
-  applyLeftGroupHeaderHiding(api);
-  applyWorkspaceZoneConstraints(api);
-  syncWorkspaceOpenSessionIdsFromDockview(api);
-}
-
-function buildDefaultLayout(api: DockviewApi) {
-  const welcomePanel = api.addPanel({
-    id: PANEL_IDS.WELCOME,
-    component: PANEL_IDS.WELCOME,
-    title: i18n.t('panels:panelRegistry.welcome', { defaultValue: 'Welcome' }),
-    renderer: 'onlyWhenVisible',
-  });
-  (welcomePanel.group as { id: string }).id = `${EDITOR_GROUP_PREFIX}1`;
-
-  const leftGroup = api.addGroup({
-    id: GROUP_IDS.LEFT,
-    referencePanel: welcomePanel,
-    direction: 'left',
-    hideHeader: true,
-    constraints: { minimumWidth: LAYOUT.LEFT_PANEL_MIN_WIDTH },
-    initialWidth: defaultDockWidth(api.width),
-  });
-
-  const defaultLeftPanelId = getDefaultActivityRailPanelId();
-  api.addPanel({
-    id: defaultLeftPanelId,
-    component: defaultLeftPanelId,
-    title: ACTIVITY_RAIL_PANEL_TITLES[defaultLeftPanelId],
-    renderer: 'onlyWhenVisible',
-    position: {
-      referenceGroup: leftGroup,
-      direction: 'within',
-    },
-  });
-
-  if (useLayoutStore.getState().isRightPanelVisible) {
-    const rightGroup = api.addGroup({
-      id: GROUP_IDS.RIGHT,
-      referencePanel: welcomePanel,
-      direction: 'right',
-      constraints: { minimumWidth: MIN_RIGHT_PANEL_WIDTH },
-      initialWidth: defaultSessionWidth(api.width),
-    });
-
-    addSessionPanelWithoutStealingFocus(api, rightGroup);
-
-    normalizeGroupIds(api);
-    settleDockviewGroupWidths([
-      { group: leftGroup, width: defaultDockWidth(api.width) },
-      { group: rightGroup, width: defaultSessionWidth(api.width) },
-    ]);
-    return;
-  }
-
-  normalizeGroupIds(api);
-  settleDockviewGroupWidths([
-    { group: leftGroup, width: defaultDockWidth(api.width) },
-  ]);
-}
-
-function recreateWelcomeEditorGroup(
-  api: DockviewApi
-): DockviewGroup | undefined {
-  const leftGroup = getLeftGroup(api);
-  const group = ensureWelcomeEditorGroup(api, {
-    arrangement: getLayoutArrangement(),
-    sessionWidth: useLayoutStore.getState().rightPanelWidth,
-    dockWidth: leftGroup?.api.isVisible ? leftGroup.api.width : undefined,
-  });
-  normalizeGroupIds(api);
-  return group;
-}
-
-function dismissEditorColumnAfterLastTab(api: DockviewApi): void {
-  const leftGroup = getLeftGroup(api);
-  dismissEmptyEditorColumn(api, {
-    arrangement: getLayoutArrangement(),
-    sessionWidth: useLayoutStore.getState().rightPanelWidth,
-    dockWidth: leftGroup?.api.isVisible ? leftGroup.api.width : undefined,
-  });
-  normalizeGroupIds(api);
-}
-
 export function IDELayout({
   rightPanelContent,
   toolbarContent,
@@ -443,6 +150,7 @@ export function IDELayout({
   }>();
   const apiRef = useRef<DockviewApi | null>(null);
   const dockviewRootRef = useRef<HTMLDivElement>(null);
+  const dockviewListenersCleanupRef = useRef<(() => void) | null>(null);
   const { activeWorktreeId } = useWorktree();
   const { projectId: contextProjectId } = useProject();
   const projectId = contextProjectId ?? routeProjectId;
@@ -739,17 +447,24 @@ export function IDELayout({
       }
 
       isResettingRef.current = false;
-      requestAnimationFrame(() =>
+      requestAnimationFrame(() => {
+        if (apiRef.current !== api || isDockviewApiDisposed(api)) return;
         applyDefaultSizes(api, () => {
-          if (!persistAfterBuild) return;
+          if (
+            !persistAfterBuild ||
+            apiRef.current !== api ||
+            isDockviewApiDisposed(api)
+          ) {
+            return;
+          }
 
           try {
             setSerializedLayout(api.toJSON());
           } catch {
             // Ignore serialization failures during rebuild.
           }
-        })
-      );
+        });
+      });
     },
     [applyDefaultSizes, buildArrangeOptions, setSerializedLayout]
   );
@@ -775,110 +490,19 @@ export function IDELayout({
 
   const ensureWorkspacePanelsVisible = useCallback(
     (api: DockviewApi) => {
-      if (effectiveActiveTab !== 'workspace' && !effectiveWorkspaceId) return;
-
-      let leftGroup = getLeftGroup(api);
-      if (!leftGroup) {
-        const editorGroup =
-          getEditorGroups(api)[0] ?? recreateWelcomeEditorGroup(api);
-        const referencePanel = editorGroup?.panels[0];
-        if (!referencePanel) return;
-
-        leftGroup = api.addGroup({
-          id: GROUP_IDS.LEFT,
-          referencePanel,
-          direction: 'left',
-          hideHeader: true,
-          constraints: { minimumWidth: LAYOUT.LEFT_PANEL_MIN_WIDTH },
-          initialWidth: defaultDockWidth(api.width),
-        });
-      }
-
-      const hasLeftPanel = [...LEFT_PANEL_IDS].some((panelId) =>
-        api.getPanel(panelId)
-      );
-      if (!hasLeftPanel) {
-        const defaultLeftPanelId = getDefaultActivityRailPanelId();
-        api.addPanel({
-          id: defaultLeftPanelId,
-          component: defaultLeftPanelId,
-          title: ACTIVITY_RAIL_PANEL_TITLES[defaultLeftPanelId],
-          renderer: 'onlyWhenVisible',
-          position: {
-            referenceGroup: GROUP_IDS.LEFT,
-            direction: 'within',
-          },
-        });
-      }
-
-      setLeftDockVisible(api, getLayoutArrangement(), true);
-
-      const hasVisibleEditorPanels = getEditorGroups(api).some(
-        (group) => group.api.isVisible && group.panels.length > 0
-      );
-      const hasVisibleSessionPanels = listSessionGroups(api.groups).some(
-        (group) => group.api.isVisible && group.panels.length > 0
-      );
-      if (!hasVisibleEditorPanels && !hasVisibleSessionPanels) {
-        const welcomeGroup = recreateWelcomeEditorGroup(api);
-        if (welcomeGroup) {
-          setColumnVisible(api, getLayoutArrangement(), welcomeGroup, true);
-          restoreFlexibleEditorColumn(
-            api,
-            getLayoutArrangement(),
-            useLayoutStore.getState().rightPanelWidth
-          );
-        }
-      }
-
-      const restoredFromKanban = terminalVisibleBeforeKanbanRef.current;
-      terminalVisibleBeforeKanbanRef.current = null;
-      const shelfId = terminalShelfGroupId();
-      const shelf = shelfId ? api.getGroup(shelfId) : undefined;
-      if (
-        shelf &&
-        restoredFromKanban !== null &&
-        shelf.api.isVisible !== restoredFromKanban
-      ) {
-        shelf.api.setVisible(restoredFromKanban);
-      }
-      normalizeGroupIds(api);
+      restoreWorkspaceDockviewPanels(api, {
+        effectiveActiveTab,
+        effectiveWorkspaceId,
+        terminalVisibleBeforeKanbanRef,
+      });
     },
     [effectiveActiveTab, effectiveWorkspaceId]
   );
 
-  const ensureSessionPanel = useCallback((api: DockviewApi) => {
-    let rightGroup = getRightGroup(api);
-    if (!rightGroup) {
-      const editorGroup =
-        getEditorGroups(api)[0] ?? recreateWelcomeEditorGroup(api);
-      const referencePanel = editorGroup?.panels[0];
-      if (!referencePanel) return undefined;
-
-      rightGroup = api.addGroup({
-        id: GROUP_IDS.RIGHT,
-        referencePanel,
-        direction: 'right',
-        constraints: { minimumWidth: MIN_RIGHT_PANEL_WIDTH },
-        initialWidth: defaultSessionWidth(api.width),
-      });
-    }
-
-    const sessionGroups = listSessionGroups(api.groups);
-    const existingSessionPanel =
-      api.getPanel(PANEL_IDS.AI_CHAT) ??
-      api.panels.find((panel) => isSessionPanelId(panel.id)) ??
-      sessionGroups.find((group) => group.panels.length > 0)?.panels[0];
-
-    if (existingSessionPanel) {
-      revealSessionPanelWithoutStealingFocus(existingSessionPanel);
-    } else {
-      addSessionPanelWithoutStealingFocus(api, rightGroup);
-    }
-
-    normalizeGroupIds(api);
-    return rightGroup;
-  }, []);
+  const ensureSessionPanel = useCallback(
+    (api: DockviewApi) => ensureDockviewSessionPanel(api),
+    []
+  );
 
   enforceTabVisibilityRef.current = (api: DockviewApi) => {
     if (hidesBottomDock) {
@@ -895,138 +519,80 @@ export function IDELayout({
     }
   };
 
-  const lastDropTargetZoneRef = useRef<'editor' | 'session' | null>(null);
+  const lastDropTargetZoneRef = useRef<DropTargetZone>(null);
 
-  const registerDndGuard = useCallback((api: DockviewApi) => {
-    return api.onWillShowOverlay((event) => {
-      const ev: DockviewWillShowOverlayLocationEvent = event;
-      if (ev.kind === 'edge') {
-        event.preventDefault();
-        return;
-      }
-
-      const targetGroup = ev.group;
-      const panelData = ev.getData?.();
-      const draggedPanelId = panelData?.panelId ?? ev.panel?.id;
-
-      if (!targetGroup || !draggedPanelId) {
-        return;
-      }
-
-      const sourceGroup = panelData?.groupId
-        ? api.getGroup(panelData.groupId)
-        : undefined;
-      const isSourceLeftPanel = sourceGroup
-        ? isLeftGroup(sourceGroup)
-        : LEFT_PANEL_IDS.has(draggedPanelId);
-      const isSourceBottomPanel = sourceGroup
-        ? isBottomGroup(sourceGroup)
-        : BOTTOM_PANEL_IDS.has(draggedPanelId);
-      const isTargetLeftGroup = isLeftGroup(targetGroup);
-      const isTargetBottomGroup = isBottomGroup(targetGroup);
-      const isTargetEditorGroup = isEditorGroup(targetGroup);
-      const isTargetSessionGroup = isSessionGroup(targetGroup);
-
-      if (isSourceBottomPanel || isTargetBottomGroup) {
-        event.preventDefault();
-        return;
-      }
-
-      if (isTargetLeftGroup && !isSourceLeftPanel) {
-        event.preventDefault();
-        return;
-      }
-
-      if (isSourceLeftPanel && !isTargetLeftGroup) {
-        event.preventDefault();
-        return;
-      }
-
-      if (
-        isTargetEditorGroup &&
-        getEditorGroups(api).length >= MAX_EDITOR_GROUPS &&
-        ev.position !== 'center' &&
-        ev.kind === 'content'
-      ) {
-        event.preventDefault();
-        return;
-      }
-
-      if (
-        isTargetSessionGroup &&
-        listSessionGroups(api.groups).length >= MAX_EDITOR_GROUPS &&
-        ev.position !== 'center' &&
-        ev.kind === 'content'
-      ) {
-        event.preventDefault();
-        return;
-      }
-
-      lastDropTargetZoneRef.current = isTargetSessionGroup
-        ? 'session'
-        : isTargetEditorGroup
-          ? 'editor'
-          : null;
-    });
-  }, []);
+  const registerDndGuard = useCallback(
+    (api: DockviewApi) =>
+      registerDockviewOverlayDropGuard(api, lastDropTargetZoneRef),
+    []
+  );
 
   // Tab bar drop handler: accepts panel drag payloads from Zone A (file tree, git, sessions)
   const panelActions = useOptionalPanelActionsContext();
   const [isTabBarDragOver, setIsTabBarDragOver] = useState(false);
 
-  const handleTabBarDragOver = useCallback((event: React.DragEvent<HTMLDivElement>) => {
-    if (!event.dataTransfer.types.includes('application/x-vibex-panel')) {
-      return;
-    }
-    event.preventDefault();
-    event.dataTransfer.dropEffect = 'copy';
-    setIsTabBarDragOver(true);
-  }, []);
-
-  const handleTabBarDragLeave = useCallback((event: React.DragEvent<HTMLDivElement>) => {
-    // Only clear if leaving the container entirely
-    if (!event.currentTarget.contains(event.relatedTarget as Node)) {
-      setIsTabBarDragOver(false);
-    }
-  }, []);
-
-  const handleTabBarDrop = useCallback((event: React.DragEvent<HTMLDivElement>) => {
-    if (!event.dataTransfer.types.includes('application/x-vibex-panel')) {
-      return;
-    }
-    event.preventDefault();
-    setIsTabBarDragOver(false);
-
-    const rawData = event.dataTransfer.getData('application/x-vibex-panel');
-    if (!rawData || !panelActions) return;
-
-    try {
-      const payload = JSON.parse(rawData);
-
-      // Route to appropriate panel opener based on component type
-      if (payload.component === 'preview' && payload.params?.filePath) {
-        panelActions.openFilePreview(payload.params.filePath, {
-          title: payload.title,
-          activate: true,
-        });
-      } else if (payload.component === 'preview' && payload.params?.commitSha) {
-        // Commit diff - open as diff preview
-        panelActions.openFilePreview(payload.params.commitSha, {
-          title: payload.title,
-          activate: true,
-          mode: 'diff',
-        });
-      } else if (payload.component && payload.id) {
-        // Generic panel
-        panelActions.openOrFocusPanel(payload.id, payload.title, payload.params);
+  const handleTabBarDragOver = useCallback(
+    (event: React.DragEvent<HTMLDivElement>) => {
+      if (!event.dataTransfer.types.includes('application/x-vibex-panel')) {
+        return;
       }
-    } catch (error) {
-      console.warn('[TabBarDrop] Failed to parse drop payload:', error);
+      event.preventDefault();
+      event.dataTransfer.dropEffect = 'copy';
+      setIsTabBarDragOver(true);
+    },
+    []
+  );
+
+  const handleTabBarDragLeave = useCallback(
+    (event: React.DragEvent<HTMLDivElement>) => {
+      if (!event.currentTarget.contains(event.relatedTarget as Node)) {
+        setIsTabBarDragOver(false);
+      }
+    },
+    []
+  );
+
+  const handleTabBarDrop = useCallback(
+    (event: React.DragEvent<HTMLDivElement>) => {
+      if (!event.dataTransfer.types.includes('application/x-vibex-panel')) {
+        return;
+      }
+      event.preventDefault();
+      setIsTabBarDragOver(false);
+
+      const rawData = event.dataTransfer.getData('application/x-vibex-panel');
+      if (!rawData || !panelActions) return;
+
+      routeWorkspaceTabBarDrop(rawData, panelActions);
+    },
+    [panelActions]
+  );
+
+  const readLiveDockviewApi = useCallback((): DockviewApi | null => {
+    const liveApi = getLiveDockviewApi(apiRef.current);
+    if (!liveApi && apiRef.current !== null) {
+      apiRef.current = null;
     }
-  }, [panelActions]);
+    return liveApi;
+  }, []);
+
+  const setDockviewHostNode = useCallback(
+    (node: HTMLDivElement | null) => {
+      if (node !== null) return;
+      dockviewListenersCleanupRef.current?.();
+      dockviewListenersCleanupRef.current = null;
+      apiRef.current = null;
+      setDockviewApi(null);
+      setReadyDockviewApi((prev) => (prev === null ? prev : null));
+    },
+    [setDockviewApi]
+  );
 
   const handleReady = useCallback(
     (event: DockviewReadyEvent) => {
+      dockviewListenersCleanupRef.current?.();
+      dockviewListenersCleanupRef.current = null;
+
       const api = event.api;
       apiRef.current = api;
       setDockviewApi(api);
@@ -1063,297 +629,32 @@ export function IDELayout({
         if (!isDefaultArrangement(currentArrangement)) {
           applyArrangement(api, currentArrangement);
         }
-        requestAnimationFrame(() => applyDefaultSizes(api));
+        requestAnimationFrame(() => {
+          if (apiRef.current === api && !isDockviewApiDisposed(api)) {
+            applyDefaultSizes(api);
+          }
+        });
       }
 
       enforceTabVisibilityRef.current(api);
       setReadyDockviewApi(api);
 
-      let resizeFrame: number | null = null;
-      const dockviewResizeObserver = new ResizeObserver((entries) => {
-        const entry = entries[0];
-        if (!entry) return;
-
-        const { width, height } = entry.contentRect;
-        if (width <= 0 || height <= 0) return;
-
-        if (resizeFrame !== null) {
-          cancelAnimationFrame(resizeFrame);
+      dockviewListenersCleanupRef.current = attachDockviewWorkspaceListeners(
+        api,
+        {
+          apiRef,
+          dockviewRootEl: dockviewRootRef.current,
+          isResettingRef,
+          isCollapsedRef,
+          lastDropTargetZoneRef,
+          layoutChangeTimerRef,
+          lastSelfHealAtRef,
+          registerDndGuard,
+          applyArrangement,
+          setSerializedLayout,
+          setRightPanelWidth,
         }
-        resizeFrame = requestAnimationFrame(() => {
-          resizeFrame = null;
-          if (apiRef.current !== api) return;
-
-          const arrangement = getLayoutArrangement();
-          const dockGroups =
-            slotOfZone(arrangement, 'dock') !== 'center' &&
-            slotOfZone(arrangement, 'dock') !== 'bottom'
-              ? listLeftDockGroups(api.groups)
-              : [];
-          const sideGroups = [
-            ...(dockGroups.length > 0
-              ? dockGroups
-              : slotOfZone(arrangement, 'dock') !== 'center' &&
-                  slotOfZone(arrangement, 'dock') !== 'bottom'
-                ? [getLeftGroup(api)]
-                : []),
-            slotOfZone(arrangement, 'session') !== 'center' &&
-            slotOfZone(arrangement, 'session') !== 'bottom'
-              ? getRightGroup(api)
-              : null,
-          ].filter((group): group is DockviewGroup => Boolean(group));
-
-          applyWorkspaceZoneConstraints(api, width);
-          layoutDockviewPreservingGroupWidths(api, sideGroups, width, height);
-        });
-      });
-      if (dockviewRootRef.current) {
-        dockviewResizeObserver.observe(dockviewRootRef.current);
-      }
-
-      const pointerTabDndDisposable = dockviewRootRef.current
-        ? installDockviewPointerTabDnd(dockviewRootRef.current)
-        : null;
-      const dndGuardDisposable = registerDndGuard(api);
-      const removePanelDisposable = api.onDidRemovePanel((panel) => {
-        if (isResettingRef.current) return;
-
-        if (isSessionPanelId(panel.id)) {
-          const remainingSessionPanels = api.panels.some((item) =>
-            isSessionPanelId(item.id)
-          );
-          const sessionGroupsHavePanels = listSessionGroups(api.groups).some(
-            (group) => group.panels.length > 0
-          );
-          if (!remainingSessionPanels && !sessionGroupsHavePanels) {
-            useLayoutStore.getState().setRightPanelVisible(false);
-            setSessionDockVisible(api, getLayoutArrangement(), false);
-            const hasVisibleEditorPanels = getEditorGroups(api).some(
-              (group) => group.api.isVisible && group.panels.length > 0
-            );
-            if (!hasVisibleEditorPanels) {
-              const welcomeGroup = recreateWelcomeEditorGroup(api);
-              if (welcomeGroup) {
-                setColumnVisible(
-                  api,
-                  getLayoutArrangement(),
-                  welcomeGroup,
-                  true
-                );
-                restoreFlexibleEditorColumn(
-                  api,
-                  getLayoutArrangement(),
-                  useLayoutStore.getState().rightPanelWidth
-                );
-                api.getPanel(PANEL_IDS.WELCOME)?.api.setActive();
-              }
-            }
-            normalizeGroupIds(api);
-            return;
-          }
-        }
-
-        normalizeGroupIds(api);
-        const editorGroups = getEditorGroups(api);
-        const hasEditorPanels = editorGroups.some(
-          (group) => group.panels.length > 0
-        );
-        const hasVisibleSessionPanels = listSessionGroups(api.groups).some(
-          (group) => group.api.isVisible && group.panels.length > 0
-        );
-
-        if (
-          shouldDismissEditorColumnAfterPanelRemoval(panel, editorGroups) ||
-          (!hasEditorPanels && !LEFT_PANEL_IDS.has(panel.id))
-        ) {
-          if (hasVisibleSessionPanels) {
-            dismissEditorColumnAfterLastTab(api);
-          } else {
-            const welcomeGroup = recreateWelcomeEditorGroup(api);
-            if (welcomeGroup) {
-              setColumnVisible(api, getLayoutArrangement(), welcomeGroup, true);
-              restoreFlexibleEditorColumn(
-                api,
-                getLayoutArrangement(),
-                useLayoutStore.getState().rightPanelWidth
-              );
-              api.getPanel(PANEL_IDS.WELCOME)?.api.setActive();
-            }
-          }
-        }
-      });
-
-      const normalizeGroupsDisposable = api.onDidAddGroup((group) => {
-        if (!isResettingRef.current) {
-          const isUnassignedGroupId =
-            group.id !== GROUP_IDS.LEFT &&
-            !group.id.startsWith(EDITOR_GROUP_PREFIX) &&
-            group.id !== GROUP_IDS.RIGHT &&
-            !group.id.startsWith(RIGHT_GROUP_PREFIX) &&
-            group.id !== GROUP_IDS.BOTTOM;
-          if (
-            lastDropTargetZoneRef.current === 'session' &&
-            isUnassignedGroupId
-          ) {
-            (group as { id: string }).id = getNextRightGroupId(api);
-            group.element?.setAttribute('data-session-dock', 'true');
-          } else if (
-            lastDropTargetZoneRef.current === 'editor' &&
-            isUnassignedGroupId
-          ) {
-            (group as { id: string }).id = getNextEditorGroupId(api);
-            group.element?.removeAttribute('data-session-dock');
-          }
-          lastDropTargetZoneRef.current = null;
-          normalizeGroupIds(api);
-        }
-      });
-
-      const movePanelDisposable = api.onDidMovePanel(({ panel, from }) => {
-        if (isResettingRef.current) return;
-
-        if (panel.group === from) {
-          if (
-            lastDropTargetZoneRef.current === 'editor' &&
-            isSessionGroup(from)
-          ) {
-            from.element?.removeAttribute('data-session-dock');
-            (from as { id: string }).id = getNextEditorGroupId(api);
-          } else if (
-            lastDropTargetZoneRef.current === 'session' &&
-            isEditorGroup(from)
-          ) {
-            from.element?.setAttribute('data-session-dock', 'true');
-            (from as { id: string }).id = getNextRightGroupId(api);
-          }
-        }
-        lastDropTargetZoneRef.current = null;
-
-        if (getEditorGroups(api).length === 0 && !isCollapsedRef.current) {
-          recreateWelcomeEditorGroup(api);
-        }
-
-        if (listSessionGroups(api.groups).length === 0) {
-          const editorGroups = getEditorGroups(api);
-          const referenceGroup =
-            editorGroups[editorGroups.length - 1] ?? getLeftGroup(api);
-          const referencePanel = referenceGroup?.panels[0];
-          if (referencePanel) {
-            const rightGroup = api.addGroup({
-              id: GROUP_IDS.RIGHT,
-              referencePanel,
-              direction: 'right',
-              constraints: { minimumWidth: MIN_RIGHT_PANEL_WIDTH },
-              initialWidth:
-                useLayoutStore.getState().rightPanelWidth ||
-                defaultSessionWidth(api.width),
-            });
-            rightGroup.element?.setAttribute('data-session-dock', 'true');
-            if (!useLayoutStore.getState().isRightPanelVisible) {
-              rightGroup.api.setVisible(false);
-            }
-          }
-        }
-
-        normalizeGroupIds(api);
-      });
-
-      const removeGroupDisposable = api.onDidRemoveGroup(() => {
-        if (!isResettingRef.current) {
-          normalizeGroupIds(api);
-        }
-      });
-      const columnWidthRebalance = installEditorColumnWidthRebalance(api, {
-        shouldRebalance: () => !isResettingRef.current,
-      });
-
-      const layoutDisposable = api.onDidLayoutChange(() => {
-        if (isResettingRef.current) return;
-
-        if (layoutChangeTimerRef.current) {
-          clearTimeout(layoutChangeTimerRef.current);
-        }
-
-        layoutChangeTimerRef.current = setTimeout(() => {
-          layoutChangeTimerRef.current = null;
-          if (isResettingRef.current) return;
-
-          normalizeGroupIds(api);
-
-          // Self-heal: if some code path re-created a zone group in the
-          // wrong column, snap the grid back to the configured arrangement.
-          // Cooldown guards against churn if a mismatch were ever persistent.
-          const currentArrangement = getLayoutArrangement();
-          if (
-            !zoneOrderMatchesArrangement(api, currentArrangement) &&
-            Date.now() - lastSelfHealAtRef.current > 5000
-          ) {
-            lastSelfHealAtRef.current = Date.now();
-            applyArrangement(api, currentArrangement);
-            return;
-          }
-
-          const persistLayout = () => {
-            try {
-              setSerializedLayout(api.toJSON());
-            } catch {
-              // Ignore serialization failures during transient layout states.
-            }
-
-            // Keep the stored session width in sync so default rebuilds and
-            // cross-slot moves reuse the user's last column width. Center and
-            // bottom slots are skipped: there the group width is the flexible
-            // remainder / plain column width, not a meaningful column memory.
-            // A crushed editor column is also skipped: the session has absorbed
-            // leftover space, and that expanded width is not user intent.
-            try {
-              const rightGroup = getRightGroup(api);
-              const sessionSlot = slotOfZone(getLayoutArrangement(), 'session');
-              if (
-                rightGroup?.api.isVisible &&
-                sessionSlot !== 'center' &&
-                sessionSlot !== 'bottom' &&
-                rightGroup.api.width > 0 &&
-                shouldPersistSessionColumnWidth(api) &&
-                rightGroup.api.width !==
-                  useLayoutStore.getState().rightPanelWidth
-              ) {
-                setRightPanelWidth(rightGroup.api.width);
-              }
-            } catch {
-              // Ignore width sync failures during transient layout states.
-            }
-          };
-
-          if (typeof requestIdleCallback === 'function') {
-            requestIdleCallback(persistLayout, {
-              timeout: LAYOUT.IDLE_PERSIST_TIMEOUT_MS,
-            });
-          } else {
-            persistLayout();
-          }
-        }, LAYOUT.LAYOUT_CHANGE_DEBOUNCE_MS);
-      });
-
-      return () => {
-        dockviewResizeObserver.disconnect();
-        if (resizeFrame !== null) {
-          cancelAnimationFrame(resizeFrame);
-        }
-        pointerTabDndDisposable?.dispose();
-        dndGuardDisposable.dispose();
-        removePanelDisposable.dispose();
-        normalizeGroupsDisposable.dispose();
-        movePanelDisposable.dispose();
-        removeGroupDisposable.dispose();
-        columnWidthRebalance.dispose();
-        layoutDisposable.dispose();
-
-        if (layoutChangeTimerRef.current) {
-          clearTimeout(layoutChangeTimerRef.current);
-          layoutChangeTimerRef.current = null;
-        }
-      };
+      );
     },
     [
       applyArrangement,
@@ -1369,6 +670,8 @@ export function IDELayout({
 
   useLayoutEffect(() => {
     if (!isLayoutScopeReady) {
+      dockviewListenersCleanupRef.current?.();
+      dockviewListenersCleanupRef.current = null;
       apiRef.current = null;
       setReadyDockviewApi(null);
       setDockviewApi(null);
@@ -1387,14 +690,19 @@ export function IDELayout({
       previous.serializedLayout !== null &&
       serializedLayout === null
     ) {
-      const api = apiRef.current;
+      const api = readLiveDockviewApi();
       if (!api) return;
       rebuildDefaultLayout(api);
     }
-  }, [currentLayoutProject, rebuildDefaultLayout, serializedLayout]);
+  }, [
+    currentLayoutProject,
+    readLiveDockviewApi,
+    rebuildDefaultLayout,
+    serializedLayout,
+  ]);
 
   useLayoutEffect(() => {
-    const api = apiRef.current;
+    const api = readLiveDockviewApi();
     if (!api) return;
     if (effectiveActiveTab !== 'workspace') return;
     if (isWorkspaceEditorAreaCollapsed) return;
@@ -1406,29 +714,36 @@ export function IDELayout({
         'Failed to restore workspace panels, rebuilding layout.',
         error
       );
-      rebuildDefaultLayout(api);
+      if (!isDockviewApiDisposed(api)) {
+        rebuildDefaultLayout(api);
+      }
     }
   }, [
     effectiveActiveTab,
     effectiveWorkspaceId,
     ensureWorkspacePanelsVisible,
     isWorkspaceEditorAreaCollapsed,
+    readLiveDockviewApi,
     rebuildDefaultLayout,
   ]);
 
   // Surfaces that declare hidesBottomDock replace the dock/workspace/terminal
   // zones; only the session zone stays interactive next to them.
   useLayoutEffect(() => {
-    const api = apiRef.current;
+    const api = readLiveDockviewApi();
     if (!api || !hidesBottomDock) return;
 
-    hideWorkspaceZonesForKanban(api);
-  }, [hidesBottomDock, hideWorkspaceZonesForKanban]);
+    try {
+      hideWorkspaceZonesForKanban(api);
+    } catch (error) {
+      console.warn('Failed to hide workspace zones for surface.', error);
+    }
+  }, [hidesBottomDock, hideWorkspaceZonesForKanban, readLiveDockviewApi]);
 
   // Re-shape the grid when the arrangement preference changes (e.g. from the
   // settings window, synced through the storage event).
   useEffect(() => {
-    const api = apiRef.current;
+    const api = readLiveDockviewApi();
     if (!api) return;
     if (
       appliedArrangementRef.current &&
@@ -1438,7 +753,7 @@ export function IDELayout({
     }
 
     applyArrangement(api, arrangement);
-  }, [arrangement, applyArrangement]);
+  }, [arrangement, applyArrangement, readLiveDockviewApi]);
 
   const workspaceStageStyle = useWorkspaceStageStyle();
   const collaborationEnabled = Boolean(config?.multi_agent_enabled);
@@ -1451,62 +766,74 @@ export function IDELayout({
   // Layout-phase so the native browser host measures the destination split
   // before the HWND is allowed to paint.
   useLayoutEffect(() => {
-    const api = apiRef.current;
+    const api = readLiveDockviewApi();
     if (!api) return;
 
-    const shouldShow =
-      isRightPanelVisible && !!rightPanelContent && !isWorkspaceCanvasMode;
-    const rightGroup = shouldShow
-      ? (ensureSessionPanel(api) ?? getRightGroup(api))
-      : getRightGroup(api);
-    if (!rightGroup) return;
+    try {
+      const shouldShow =
+        isRightPanelVisible && !!rightPanelContent && !isWorkspaceCanvasMode;
+      const rightGroup = shouldShow
+        ? (ensureSessionPanel(api) ?? getRightGroup(api))
+        : getRightGroup(api);
+      if (!rightGroup) return;
 
-    setSessionDockVisible(api, getLayoutArrangement(), shouldShow);
+      setSessionDockVisible(api, getLayoutArrangement(), shouldShow);
+    } catch (error) {
+      console.warn(
+        'Failed to sync session dock visibility, rebuilding layout.',
+        error
+      );
+      if (!isDockviewApiDisposed(api)) {
+        rebuildDefaultLayout(api);
+      }
+    }
   }, [
     ensureSessionPanel,
     isRightPanelVisible,
     isWorkspaceCanvasMode,
+    readLiveDockviewApi,
+    rebuildDefaultLayout,
     rightPanelContent,
   ]);
 
   // Collapsed editor area: hide the editor column and terminal strip. The
   // file-tree dock stays; the session column takes the leftover width.
   useEffect(() => {
-    const api = apiRef.current;
+    const api = readLiveDockviewApi();
     if (!api || effectiveActiveTab !== 'workspace') return;
 
-    if (isWorkspaceEditorAreaCollapsed) {
-      const updates = groupsHiddenWhenEditorAreaCollapsed({
-        dock: getLeftGroup(api),
-        workspace: getEditorGroups(api),
-        terminal: getBottomGroup(api),
-        session: getRightGroup(api),
-      }).map((group) => ({ group, visible: false }));
-      setColumnsVisible(api, getLayoutArrangement(), updates);
-      wasEditorAreaCollapsedRef.current = true;
-      return;
-    }
-
-    const recoveringFromToolbarCollapse = wasEditorAreaCollapsedRef.current;
-    wasEditorAreaCollapsedRef.current = false;
-
-    const editorUpdates = getEditorGroups(api).flatMap((group) => {
-      if (group.api.isVisible) return [];
-      if (isTerminalShelfGroup(group.id) && !isTerminalShelfOpen()) {
-        return [];
-      }
-      const hasContent = group.panels.some(
-        (panel) => !isPlaceholderPanelId(panel.id)
-      );
-      if (recoveringFromToolbarCollapse || hasContent) {
-        return [{ group, visible: true }];
-      }
-      return [];
-    });
-    if (editorUpdates.length > 0) {
-      setColumnsVisible(api, getLayoutArrangement(), editorUpdates);
-    }
     try {
+      if (isWorkspaceEditorAreaCollapsed) {
+        const updates = groupsHiddenWhenEditorAreaCollapsed({
+          dock: getLeftGroup(api),
+          workspace: getEditorGroups(api),
+          terminal: getBottomGroup(api),
+          session: getRightGroup(api),
+        }).map((group) => ({ group, visible: false }));
+        setColumnsVisible(api, getLayoutArrangement(), updates);
+        wasEditorAreaCollapsedRef.current = true;
+        return;
+      }
+
+      const recoveringFromToolbarCollapse = wasEditorAreaCollapsedRef.current;
+      wasEditorAreaCollapsedRef.current = false;
+
+      const editorUpdates = getEditorGroups(api).flatMap((group) => {
+        if (group.api.isVisible) return [];
+        if (isTerminalShelfGroup(group.id) && !isTerminalShelfOpen()) {
+          return [];
+        }
+        const hasContent = group.panels.some(
+          (panel) => !isPlaceholderPanelId(panel.id)
+        );
+        if (recoveringFromToolbarCollapse || hasContent) {
+          return [{ group, visible: true }];
+        }
+        return [];
+      });
+      if (editorUpdates.length > 0) {
+        setColumnsVisible(api, getLayoutArrangement(), editorUpdates);
+      }
       ensureWorkspacePanelsVisible(api);
     } catch {
       // Ignore restore failures; the workspace-tab effect retries.
@@ -1515,6 +842,7 @@ export function IDELayout({
     effectiveActiveTab,
     ensureWorkspacePanelsVisible,
     isWorkspaceEditorAreaCollapsed,
+    readLiveDockviewApi,
   ]);
 
   const sessionPlacement = useMemo<SessionPanelPlacement>(
@@ -1532,20 +860,20 @@ export function IDELayout({
       setChromeOccluded(true);
       return;
     }
-    const api = apiRef.current;
+    const api = readLiveDockviewApi();
     if (api && !isWorkspaceEditorAreaCollapsed) {
       try {
         ensureWorkspacePanelsVisible(api);
+        const shouldShow =
+          isRightPanelVisible && !!rightPanelContent && !isWorkspaceCanvasMode;
+        const rightGroup = shouldShow
+          ? (ensureSessionPanel(api) ?? getRightGroup(api))
+          : getRightGroup(api);
+        if (rightGroup) {
+          setSessionDockVisible(api, getLayoutArrangement(), shouldShow);
+        }
       } catch {
         // HostBrowserPanel still waits for a stable destination slot.
-      }
-      const shouldShow =
-        isRightPanelVisible && !!rightPanelContent && !isWorkspaceCanvasMode;
-      const rightGroup = shouldShow
-        ? (ensureSessionPanel(api) ?? getRightGroup(api))
-        : getRightGroup(api);
-      if (rightGroup) {
-        setSessionDockVisible(api, getLayoutArrangement(), shouldShow);
       }
     }
     setChromeOccluded(false);
@@ -1556,6 +884,7 @@ export function IDELayout({
     isRightPanelVisible,
     isWorkspaceCanvasMode,
     isWorkspaceEditorAreaCollapsed,
+    readLiveDockviewApi,
     rightPanelContent,
     setChromeOccluded,
   ]);
@@ -1563,146 +892,37 @@ export function IDELayout({
     return () => setChromeOccluded(false);
   }, [setChromeOccluded]);
 
-  const [canvasStageInsets, setCanvasStageInsets] = useState<CanvasStageInsets>(
-    { left: 0, right: 0 }
-  );
-
-  useLayoutEffect(() => {
-    if (!isWorkspaceCanvasMode) return;
-    const measureInsets = () => {
-      const next = measureCanvasStageInsets(
-        apiRef.current ?? readyDockviewApi,
-        dockviewRootRef.current,
-        arrangement
-      );
-      setCanvasStageInsets((prev) =>
-        prev.left === next.left && prev.right === next.right ? prev : next
-      );
-    };
-
-    const api = apiRef.current ?? readyDockviewApi;
-    const resizeObserver =
-      typeof ResizeObserver !== 'undefined'
-        ? new ResizeObserver(() => measureInsets())
-        : null;
-    const groupDisposables: Array<{ dispose: () => void }> = [];
-    const clearGroupObservers = () => {
-      while (groupDisposables.length > 0) {
-        groupDisposables.pop()?.dispose();
-      }
-      resizeObserver?.disconnect();
-    };
-
-    const syncGroupObservers = () => {
-      clearGroupObservers();
-      const host = dockviewRootRef.current;
-      if (resizeObserver && host) {
-        resizeObserver.observe(host);
-      }
-      const currentApi = apiRef.current ?? readyDockviewApi;
-      if (!currentApi) return;
-      for (const group of currentApi.groups) {
-        if (group.api?.onDidDimensionsChange) {
-          groupDisposables.push(
-            group.api.onDidDimensionsChange(() => measureInsets())
-          );
-        }
-        if (group.api?.onDidVisibilityChange) {
-          groupDisposables.push(
-            group.api.onDidVisibilityChange(() => measureInsets())
-          );
-        }
-        if (resizeObserver) {
-          const el = getGroupElement(group);
-          if (el) {
-            resizeObserver.observe(el);
-            if (el.parentElement) {
-              resizeObserver.observe(el.parentElement);
-            }
-          }
-        }
-      }
-    };
-
-    syncGroupObservers();
-    measureInsets();
-
-    const handleStructureChange = () => {
-      syncGroupObservers();
-      measureInsets();
-    };
-    const apiDisposables = [
-      api?.onDidLayoutChange(handleStructureChange),
-      api?.onDidAddGroup(handleStructureChange),
-      api?.onDidRemoveGroup(handleStructureChange),
-      api?.onDidMovePanel(handleStructureChange),
-    ];
-
-    let removeSashMoveListeners: (() => void) | null = null;
-    const handlePointerDownCapture = (event: PointerEvent) => {
-      const target = event.target;
-      const host = dockviewRootRef.current;
-      if (!(target instanceof Element) || !host || !host.contains(target)) {
-        return;
-      }
-      if (!target.closest('.dv-sash')) return;
-      removeSashMoveListeners?.();
-      const onMove = () => measureInsets();
-      const onEnd = () => {
-        measureInsets();
-        removeSashMoveListeners?.();
-      };
-      document.addEventListener('pointermove', onMove);
-      document.addEventListener('pointerup', onEnd);
-      document.addEventListener('pointercancel', onEnd);
-      removeSashMoveListeners = () => {
-        document.removeEventListener('pointermove', onMove);
-        document.removeEventListener('pointerup', onEnd);
-        document.removeEventListener('pointercancel', onEnd);
-        removeSashMoveListeners = null;
-      };
-    };
-    document.addEventListener('pointerdown', handlePointerDownCapture, true);
-
-    return () => {
-      document.removeEventListener(
-        'pointerdown',
-        handlePointerDownCapture,
-        true
-      );
-      removeSashMoveListeners?.();
-      for (const disp of apiDisposables) {
-        disp?.dispose();
-      }
-      clearGroupObservers();
-    };
-  }, [
+  const canvasStageInsets = useWorkspaceStageInsets({
+    enabled:
+      hasProject && isLayoutScopeReady && effectiveActiveTab === 'workspace',
+    apiRef,
+    readyDockviewApi,
+    dockviewRootRef,
     arrangement,
     isDockviewMounted,
-    isWorkspaceCanvasMode,
-    readyDockviewApi,
     serializedLayout,
-  ]);
+  });
+
+  const showStageCreationOverlay =
+    hasProject && effectiveActiveTab === 'workspace';
+  const stageCreationCleanupRef = useRef<(() => void) | null>(null);
+  const setStageCreationHostNode = useCallback(
+    (node: HTMLDivElement | null) => {
+      stageCreationCleanupRef.current?.();
+      stageCreationCleanupRef.current = node
+        ? registerWorkspaceStageCreationHost(node)
+        : null;
+    },
+    []
+  );
 
   const forwardCanvasBoundarySashPointerDown = useCallback(
     (side: 'left' | 'right', event: React.PointerEvent<HTMLDivElement>) => {
-      const host = dockviewRootRef.current;
-      if (!host || event.button !== 0) return;
-      const bestSash = findCanvasBoundarySash(host, canvasStageInsets, side);
-      if (!bestSash) return;
-      event.preventDefault();
-      event.stopPropagation();
-      bestSash.dispatchEvent(
-        new PointerEvent('pointerdown', {
-          bubbles: true,
-          cancelable: true,
-          clientX: event.clientX,
-          clientY: event.clientY,
-          pointerId: event.pointerId,
-          pointerType: event.pointerType,
-          button: event.button,
-          buttons: event.buttons || 1,
-        })
+      forwardPointerDownToCanvasBoundarySash(
+        dockviewRootRef.current,
+        canvasStageInsets,
+        side,
+        event
       );
     },
     [canvasStageInsets]
@@ -1727,122 +947,140 @@ export function IDELayout({
         <div
           className="workspace-stage-host relative flex flex-1 min-w-0 flex-col"
           data-canvas-stage-active={isWorkspaceCanvasMode ? 'true' : undefined}
-          ref={dockviewRootRef}
         >
           <MobileDeviceConnectBanner />
-          {showZeroProjectStage ? <WorkspaceZeroProjectStage /> : null}
+          <div
+            className="relative flex min-h-0 min-w-0 flex-1 flex-col"
+            ref={dockviewRootRef}
+          >
+            {showZeroProjectStage ? <WorkspaceZeroProjectStage /> : null}
 
-          {hasProject && isDockviewMounted ? (
-            <div
-              className="min-h-0 flex-1"
-              style={
-                effectiveActiveTab === 'workspace'
-                  ? undefined
-                  : { display: 'none' }
-              }
-              aria-hidden={effectiveActiveTab !== 'workspace'}
-            >
+            {hasProject && isDockviewMounted ? (
               <div
-                className={`tab-bar-drop-zone ${isTabBarDragOver ? 'is-drag-over' : ''}`}
-                onDragOver={handleTabBarDragOver}
-                onDragLeave={handleTabBarDragLeave}
-                onDrop={handleTabBarDrop}
+                className="min-h-0 flex-1"
+                style={
+                  effectiveActiveTab === 'workspace'
+                    ? undefined
+                    : { display: 'none' }
+                }
+                aria-hidden={effectiveActiveTab !== 'workspace'}
               >
-                <DockviewReact
-                  components={panelComponents}
-                  defaultTabComponent={WorkspaceDockviewTab}
-                  leftHeaderActionsComponent={WorkspaceTabAddMenu}
-                  onReady={handleReady}
-                  className="dockview-theme-light dockview-theme-ayu"
-                  disableAutoResizing={true}
-                  disableFloatingGroups={true}
-                  dndEdges={false}
+                <div
+                  ref={setDockviewHostNode}
+                  className={`tab-bar-drop-zone ${isTabBarDragOver ? 'is-drag-over' : ''}`}
+                  onDragOver={handleTabBarDragOver}
+                  onDragLeave={handleTabBarDragLeave}
+                  onDrop={handleTabBarDrop}
+                >
+                  <DockviewReact
+                    components={panelComponents}
+                    defaultTabComponent={WorkspaceDockviewTab}
+                    leftHeaderActionsComponent={WorkspaceTabAddMenu}
+                    onReady={handleReady}
+                    className="dockview-theme-light dockview-theme-ayu"
+                    disableAutoResizing={true}
+                    disableFloatingGroups={true}
+                    dndEdges={false}
+                  />
+                </div>
+              </div>
+            ) : null}
+
+            {isWorkspaceCanvasMode ? (
+              <div
+                className="kanban-overlay absolute top-0 bottom-0 z-10 min-w-0"
+                style={{
+                  left: canvasStageInsets.left,
+                  right: canvasStageInsets.right,
+                  width: `calc(100% - ${canvasStageInsets.left + canvasStageInsets.right}px)`,
+                }}
+                data-testid="workspace-canvas-stage"
+              >
+                {canvasStageInsets.left > 0 ? (
+                  <div
+                    aria-hidden="true"
+                    data-testid="workspace-canvas-sash-proxy-left"
+                    className="absolute top-0 bottom-0 -left-1 z-30 w-2 cursor-ew-resize"
+                    onPointerDown={(event) =>
+                      forwardCanvasBoundarySashPointerDown('left', event)
+                    }
+                  />
+                ) : null}
+                {canvasStageInsets.right > 0 ? (
+                  <div
+                    aria-hidden="true"
+                    data-testid="workspace-canvas-sash-proxy-right"
+                    className="absolute top-0 bottom-0 -right-1 z-30 w-2 cursor-ew-resize"
+                    onPointerDown={(event) =>
+                      forwardCanvasBoundarySashPointerDown('right', event)
+                    }
+                  />
+                ) : null}
+                <Suspense fallback={null}>
+                  <LazyWorkspaceCanvasStage
+                    presentation="canvas"
+                    workspaceStage
+                    zoneOrder={['list', 'monitor', 'session']}
+                  />
+                </Suspense>
+              </div>
+            ) : null}
+
+            {showStageCreationOverlay ? (
+              <div
+                ref={setStageCreationHostNode}
+                data-testid="workspace-stage-creation-overlay"
+                className="workspace-stage-creation-overlay pointer-events-none absolute top-0 bottom-0 z-20 min-w-0 overflow-hidden rounded-[14px]"
+                style={{
+                  left: canvasStageInsets.left,
+                  right: canvasStageInsets.right,
+                  width: `calc(100% - ${canvasStageInsets.left + canvasStageInsets.right}px)`,
+                }}
+              />
+            ) : null}
+
+            {hasProject ? (
+              <KeepAliveSurface
+                active={effectiveActiveTab === 'kanban'}
+                evictAfterMs={KANBAN_INACTIVE_EVICT_MS}
+                className="kanban-overlay absolute inset-0 z-10"
+              >
+                <Suspense
+                  fallback={
+                    <div className="kanban-loading-state flex h-full w-full items-center justify-center p-6 text-sm">
+                      <div className="workspace-loading-panel flex items-center gap-3 px-4 py-3">
+                        <div className="h-4 w-4 animate-spin rounded-full border border-primary border-t-transparent" />
+                        <span>Loading Kanban...</span>
+                      </div>
+                    </div>
+                  }
+                >
+                  <LazyKanbanBoard />
+                </Suspense>
+              </KeepAliveSurface>
+            ) : null}
+
+            {ActiveSdkTabComponent ? (
+              <div className="kanban-overlay absolute inset-0 z-10">
+                <ActiveSdkTabComponent
+                  workspaceId={surfaceWorkspaceId}
+                  projectId={projectId ?? null}
                 />
               </div>
-            </div>
-          ) : null}
+            ) : null}
 
-          {isWorkspaceCanvasMode ? (
-            <div
-              className="kanban-overlay absolute top-0 bottom-0 z-10 min-w-0"
-              style={{
-                left: canvasStageInsets.left,
-                right: canvasStageInsets.right,
-                width: `calc(100% - ${canvasStageInsets.left + canvasStageInsets.right}px)`,
-              }}
-              data-testid="workspace-canvas-stage"
-            >
-              {canvasStageInsets.left > 0 ? (
-                <div
-                  aria-hidden="true"
-                  data-testid="workspace-canvas-sash-proxy-left"
-                  className="absolute top-0 bottom-0 -left-1 z-30 w-2 cursor-ew-resize"
-                  onPointerDown={(event) =>
-                    forwardCanvasBoundarySashPointerDown('left', event)
-                  }
+            {activePluginTab ? (
+              <div className="kanban-overlay absolute inset-0 z-10">
+                <PluginRemoteView
+                  item={activePluginTab}
+                  slot="app.tab"
+                  enabled
+                  workspaceId={surfaceWorkspaceId}
+                  projectId={projectId ?? null}
                 />
-              ) : null}
-              {canvasStageInsets.right > 0 ? (
-                <div
-                  aria-hidden="true"
-                  data-testid="workspace-canvas-sash-proxy-right"
-                  className="absolute top-0 bottom-0 -right-1 z-30 w-2 cursor-ew-resize"
-                  onPointerDown={(event) =>
-                    forwardCanvasBoundarySashPointerDown('right', event)
-                  }
-                />
-              ) : null}
-              <Suspense fallback={null}>
-                <LazyWorkspaceCanvasStage
-                  presentation="canvas"
-                  workspaceStage
-                  zoneOrder={['list', 'monitor', 'session']}
-                />
-              </Suspense>
-            </div>
-          ) : null}
-
-          {hasProject ? (
-            <KeepAliveSurface
-              active={effectiveActiveTab === 'kanban'}
-              evictAfterMs={KANBAN_INACTIVE_EVICT_MS}
-              className="kanban-overlay absolute inset-0 z-10"
-            >
-              <Suspense
-                fallback={
-                  <div className="kanban-loading-state flex h-full w-full items-center justify-center p-6 text-sm">
-                    <div className="workspace-loading-panel flex items-center gap-3 px-4 py-3">
-                      <div className="h-4 w-4 animate-spin rounded-full border border-primary border-t-transparent" />
-                      <span>Loading Kanban...</span>
-                    </div>
-                  </div>
-                }
-              >
-                <LazyKanbanBoard />
-              </Suspense>
-            </KeepAliveSurface>
-          ) : null}
-
-          {ActiveSdkTabComponent ? (
-            <div className="kanban-overlay absolute inset-0 z-10">
-              <ActiveSdkTabComponent
-                workspaceId={surfaceWorkspaceId}
-                projectId={projectId ?? null}
-              />
-            </div>
-          ) : null}
-
-          {activePluginTab ? (
-            <div className="kanban-overlay absolute inset-0 z-10">
-              <PluginRemoteView
-                item={activePluginTab}
-                slot="app.tab"
-                enabled
-                workspaceId={surfaceWorkspaceId}
-                projectId={projectId ?? null}
-              />
-            </div>
-          ) : null}
+              </div>
+            ) : null}
+          </div>
         </div>
       </RightPanelSlotContext.Provider>
     </div>
@@ -1865,18 +1103,19 @@ export function IDELayout({
       )}
 
       <ProjectLayoutScope>
-        {collaborationEnabled ? (
-          <CollaborationSpaceProvider workspaceId={surfaceWorkspaceId}>
-            {layoutBody}
-          </CollaborationSpaceProvider>
-        ) : (
-          layoutBody
-        )}
+        <OptionalCollaborationSpaceProvider
+          enabled={collaborationEnabled}
+          workspaceId={surfaceWorkspaceId}
+        >
+          {layoutBody}
+        </OptionalCollaborationSpaceProvider>
       </ProjectLayoutScope>
 
-      {hasProject && rightPanelContent && sessionContentHost
-        ? createPortal(rightPanelContent, sessionContentHost)
-        : null}
+      {hasProject && rightPanelContent && sessionContentHost ? (
+        <RightPanelSlotContext.Provider value={sessionPlacement}>
+          {createPortal(rightPanelContent, sessionContentHost)}
+        </RightPanelSlotContext.Provider>
+      ) : null}
 
       <StatusBar />
     </div>

@@ -2,6 +2,22 @@ import type { IDockviewPanel } from 'dockview-core';
 import type { DockviewApi } from 'dockview-react';
 import { PANEL_IDS } from '@/stores/useLayoutStore';
 
+export function isDockviewApiDisposed(
+  api: DockviewApi | null | undefined
+): boolean {
+  if (!api) return true;
+  const component = (
+    api as unknown as { component?: { isDisposed?: boolean } }
+  ).component;
+  return component?.isDisposed === true;
+}
+
+export function getLiveDockviewApi(
+  api: DockviewApi | null | undefined
+): DockviewApi | null {
+  return api && !isDockviewApiDisposed(api) ? api : null;
+}
+
 /**
  * Dockview's `inactive: true` skips both panel activation and group
  * activation. With the default `onlyWhenVisible` renderer that leaves an
@@ -12,7 +28,35 @@ import { PANEL_IDS } from '@/stores/useLayoutStore';
 export function revealSessionPanelWithoutStealingFocus(
   panel: IDockviewPanel
 ): void {
-  panel.group.model.openPanel(panel, { skipSetGroupActive: true });
+  const model = panel.group?.model;
+  if (!model || model.isDisposed) {
+    return;
+  }
+
+  const headerState = model.header as unknown as
+    | { isDisposed?: boolean; size?: number }
+    | undefined;
+  if (headerState?.isDisposed) {
+    return;
+  }
+
+  // Disposing a Dockview instance empties `tabsContainer` (`header.size === 0`)
+  // while leaving `model.panels` populated; calling `openPanel` in that state
+  // passes `index = model.panels.length` into `Tabs.addTab` and throws
+  // `Error("invalid location")`.
+  const tabCount = headerState?.size;
+  const panelAlreadyRegistered = Array.isArray(model.panels)
+    ? model.panels.includes(panel)
+    : false;
+  if (
+    panelAlreadyRegistered &&
+    typeof tabCount === 'number' &&
+    tabCount < model.panels.length
+  ) {
+    return;
+  }
+
+  model.openPanel(panel, { skipSetGroupActive: true });
 }
 
 export function addSessionPanelWithoutStealingFocus(
@@ -33,6 +77,8 @@ export function addSessionPanelWithoutStealingFocus(
       inactive: true,
     });
 
-  revealSessionPanelWithoutStealingFocus(panel);
+  if (!isDockviewApiDisposed(api)) {
+    revealSessionPanelWithoutStealingFocus(panel);
+  }
   return panel;
 }

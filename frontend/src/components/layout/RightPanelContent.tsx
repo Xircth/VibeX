@@ -1,15 +1,31 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
+import { createPortal } from 'react-dom';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useParams, useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { Loader2, X } from 'lucide-react';
+import { getCanvasWorkspaceController } from '@/components/kanban/canvas/canvasWorkspaceBridge';
 import { BranchInfoHeader } from '@/components/layout/BranchInfoHeader';
+import { useWorkspaceStageCreationHost } from '@/components/layout/workspaceStageCreationHost';
 import { KanbanSessionConversationView } from '@/components/kanban/KanbanSessionConversationView';
 import { useUserSystem } from '@/components/ConfigProvider';
+import { useOptionalCollaborationSpaceStore } from '@/features/collaboration/space/SpaceStoreContext';
 import { effectiveWorkspaceTab } from '@/lib/hostSurfaceIds';
 import { useKanbanSessionContext } from '@/contexts/KanbanSessionContext';
 import { kanbanBindsExecutionConversation } from '@/lib/kanbanViews';
 import { RightPanelSessionCreationProvider } from '@/contexts/RightPanelSessionCreationContext';
+import {
+  isKnownRightPanelHost,
+  useIsRightPanelHostAttached,
+  useRightPanelSlot,
+} from '@/contexts/RightPanelSlotContext';
 import { useWorktree } from '@/contexts/WorktreeContext';
 import {
   useProjectRepos,
@@ -18,8 +34,9 @@ import {
   useRepoBranchSelection,
 } from '@/hooks';
 import { useTaskAttempt } from '@/hooks/useTaskAttempt';
-import { PANEL_IDS, useLayoutStore } from '@/stores/useLayoutStore';
+import { useLayoutStore } from '@/stores/useLayoutStore';
 import { usePanelActionsContext } from '@/contexts/PanelActionsContext';
+import { NativeSurfaceOcclusionHold } from '@/contexts/WorkspaceOverlayContext';
 import { useProject } from '@/contexts/ProjectContext';
 import { scratchApi, sessionsApi } from '@/lib/api';
 import {
@@ -35,7 +52,11 @@ import {
 } from '@/utils/executor';
 import {
   CREATE_AGENT_SESSION_EVENT,
+  DISMISS_CREATE_SESSION_OVERLAY_EVENT,
+  REQUEST_CREATE_SESSION_OVERLAY_EVENT,
+  dismissCollaborationCreateOverlays,
   type CreateAgentSessionEventDetail,
+  type RequestCreateSessionOverlayEventDetail,
 } from '@/lib/requestCreateSession';
 import {
   SessionCreationForm,
@@ -133,11 +154,42 @@ function CreateSessionOverlay({
   ) => void;
 }) {
   const { t } = useTranslation(['panels', 'common']);
+
+  useEffect(() => {
+    if (!dismissible) return;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        event.stopPropagation();
+        onClose();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [dismissible, onClose]);
+
+  const dialogTitle = t('rightPanelContent.newSession');
+
   return (
-    <div className="absolute inset-0 z-10 flex items-center justify-center bg-background/70 p-6 backdrop-blur-md">
-      <div className="relative w-full max-w-[360px] rounded-xl border border-border/70 bg-background/95 p-4 shadow-xl">
+    <div
+      className="collaboration-thread-overlay pointer-events-auto absolute inset-0 z-10 flex items-center justify-center bg-background/70 p-6 backdrop-blur-md"
+      onMouseDown={(event) => {
+        if (dismissible && event.target === event.currentTarget) {
+          onClose();
+        }
+      }}
+    >
+      {dismissible ? <NativeSurfaceOcclusionHold /> : null}
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-label={dialogTitle}
+        className="dialog-surface relative flex max-h-full w-full max-w-[380px] flex-col overflow-y-auto rounded-xl border border-border/70 p-4 shadow-xl"
+      >
         {dismissible ? (
           <button
+            type="button"
+            aria-label={t('common:buttons.close', 'Close')}
             className="absolute right-2 top-2 z-10 rounded-sm opacity-70 ring-offset-background transition-opacity hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
             onClick={onClose}
           >
@@ -146,7 +198,7 @@ function CreateSessionOverlay({
           </button>
         ) : null}
         <SessionCreationForm
-          title={t('rightPanelContent.newSession')}
+          title={dialogTitle}
           gitInitIncomplete={gitInitIncomplete}
           isGitProject={isGitProject}
           mode={createMode}
@@ -184,6 +236,26 @@ export function RightPanelContent() {
   const { t } = useTranslation(['panels', 'common', 'settings']);
   const navigate = useNavigateWithSearch();
   const [searchParams, setSearchParams] = useSearchParams();
+  const { host: slotHost } = useRightPanelSlot();
+  const rootRef = useRef<HTMLDivElement>(null);
+  const [inferredPortalHost, setInferredPortalHost] =
+    useState<HTMLElement | null>(null);
+
+  useLayoutEffect(() => {
+    if (slotHost) {
+      setInferredPortalHost(null);
+      return;
+    }
+    const parent = rootRef.current?.parentElement ?? null;
+    const isManagedPortalHost = Boolean(
+      parent && (!parent.isConnected || isKnownRightPanelHost(parent))
+    );
+    setInferredPortalHost(isManagedPortalHost ? parent : null);
+  }, [slotHost]);
+
+  const isSlotSurfaceAttached = useIsRightPanelHostAttached(
+    slotHost ?? inferredPortalHost
+  );
   const {
     projectId: routeProjectId,
     workspaceId,
@@ -195,6 +267,9 @@ export function RightPanelContent() {
   }>();
   const { profiles, config } = useUserSystem();
   const activeTab = useLayoutStore((state) => state.activeTab);
+  const isRightPanelVisible = useLayoutStore(
+    (state) => state.isRightPanelVisible
+  );
   const routeTab = workspaceId || sessionId ? 'workspace' : null;
   const effectiveActiveTab = effectiveWorkspaceTab(routeTab, activeTab, {
     collaborationEnabled: Boolean(config?.multi_agent_enabled),
@@ -368,7 +443,8 @@ export function RightPanelContent() {
     reset: resetRepoBranchSelection,
   } = useRepoBranchSelection({
     repos,
-    enabled: isCreateOverlayVisible || showEmptyCreateForm,
+    enabled:
+      isCreateOverlayVisible || (isSlotSurfaceAttached && showEmptyCreateForm),
   });
 
   useEffect(() => {
@@ -420,8 +496,9 @@ export function RightPanelContent() {
     ]
   );
 
-  const { openSessionTab, openOrFocusPanel, runInEditorGroup } =
-    usePanelActionsContext();
+  const { openSessionTab } = usePanelActionsContext();
+  const stageCreationHost = useWorkspaceStageCreationHost();
+  const collaborationStore = useOptionalCollaborationSpaceStore();
   const pendingTargetGroupIdRef = useRef<string | null>(null);
 
   const handleCreatedSession = useCallback(
@@ -470,15 +547,25 @@ export function RightPanelContent() {
   const activeWorkspaceSessionWorkspaceId =
     workspaceExecutionWorkspaceId || rightSessionWorkspaceId;
 
+  const lastAutoOpenedSessionKeyRef = useRef<string | null>(null);
   useEffect(() => {
     if (
       effectiveActiveTab !== 'workspace' ||
       !activeWorkspaceSessionId ||
       !activeWorkspaceSessionWorkspaceId ||
-      isCreateOverlayVisible
+      (!isRightPanelVisible && !sessionId)
     ) {
+      lastAutoOpenedSessionKeyRef.current = null;
       return;
     }
+    const sessionKey = `${activeWorkspaceSessionWorkspaceId}:${activeWorkspaceSessionId}`;
+    if (lastAutoOpenedSessionKeyRef.current === sessionKey) {
+      return;
+    }
+    if (isCreateOverlayVisible) {
+      return;
+    }
+    lastAutoOpenedSessionKeyRef.current = sessionKey;
     openSessionTab({
       sessionId: activeWorkspaceSessionId,
       workspaceId: activeWorkspaceSessionWorkspaceId,
@@ -488,7 +575,9 @@ export function RightPanelContent() {
     activeWorkspaceSessionWorkspaceId,
     effectiveActiveTab,
     isCreateOverlayVisible,
+    isRightPanelVisible,
     openSessionTab,
+    sessionId,
   ]);
 
   const canCreateSession =
@@ -602,6 +691,15 @@ export function RightPanelContent() {
       });
       setIsCreateOverlayOpen(false);
     },
+    onError: () => {
+      if (!isCreateOverlayOpen && effectiveProjectId) {
+        collaborationStore?.getSnapshot().closeAllOverlays();
+        dismissCollaborationCreateOverlays();
+        setIsCreateOverlayOpen(true);
+        setCreateOverlayProjectId(effectiveProjectId);
+        setCreateOverlayWorkspaceId(currentOverlayWorkspaceId);
+      }
+    },
   });
 
   const { reset: resetCreateSessionMutation } = createSessionMutation;
@@ -613,6 +711,8 @@ export function RightPanelContent() {
       setCreateOverlayWorkspaceId(open ? currentOverlayWorkspaceId : null);
 
       if (open) {
+        collaborationStore?.getSnapshot().closeAllOverlays();
+        dismissCollaborationCreateOverlays();
         sessionControlsPresetRef.current = null;
         setCreateWorkspaceValue(defaultWorkspaceValue);
         setSelectedExecutorProfile(defaultExecutorProfile);
@@ -621,9 +721,11 @@ export function RightPanelContent() {
         return;
       }
 
+      pendingTargetGroupIdRef.current = null;
       resetCreateSessionMutation();
     },
     [
+      collaborationStore,
       currentOverlayWorkspaceId,
       defaultExecutorProfile,
       defaultWorkspaceValue,
@@ -634,8 +736,35 @@ export function RightPanelContent() {
   );
 
   useEffect(() => {
+    const handleDismiss = () => {
+      handleCreateOverlayOpenChange(false);
+    };
+    window.addEventListener(
+      DISMISS_CREATE_SESSION_OVERLAY_EVENT,
+      handleDismiss
+    );
+    return () => {
+      window.removeEventListener(
+        DISMISS_CREATE_SESSION_OVERLAY_EVENT,
+        handleDismiss
+      );
+    };
+  }, [handleCreateOverlayOpenChange]);
+
+  useEffect(() => {
+    if (!isCreateOverlayOpen) {
+      return;
+    }
     if (
-      !isCreateOverlayOpen ||
+      createOverlayProjectId &&
+      createOverlayProjectId === effectiveProjectId &&
+      createOverlayWorkspaceId === null &&
+      currentOverlayWorkspaceId !== null
+    ) {
+      setCreateOverlayWorkspaceId(currentOverlayWorkspaceId);
+      return;
+    }
+    if (
       isCreateSessionFormVisibleForProject({
         open: true,
         openedForProjectId: createOverlayProjectId,
@@ -659,23 +788,27 @@ export function RightPanelContent() {
 
   const openCreateSessionOverlay = useCallback(() => {
     handleCreateOverlayOpenChange(true);
-    if (effectiveActiveTab === 'workspace') {
-      const targetGroupId = pendingTargetGroupIdRef.current;
-      const openPlaceholder = () =>
-        openOrFocusPanel(PANEL_IDS.AI_CHAT, t('rightPanelContent.newSession'));
-      if (targetGroupId) {
-        runInEditorGroup(targetGroupId, openPlaceholder);
-      } else {
-        openPlaceholder();
-      }
-    }
-  }, [
-    effectiveActiveTab,
-    handleCreateOverlayOpenChange,
-    openOrFocusPanel,
-    runInEditorGroup,
-    t,
-  ]);
+  }, [handleCreateOverlayOpenChange]);
+
+  useEffect(() => {
+    const handleRequestOverlay = (event: Event) => {
+      const customEvent =
+        event as CustomEvent<RequestCreateSessionOverlayEventDetail>;
+      pendingTargetGroupIdRef.current =
+        customEvent.detail?.targetGroupId ?? null;
+      openCreateSessionOverlay();
+    };
+    window.addEventListener(
+      REQUEST_CREATE_SESSION_OVERLAY_EVENT,
+      handleRequestOverlay
+    );
+    return () => {
+      window.removeEventListener(
+        REQUEST_CREATE_SESSION_OVERLAY_EVENT,
+        handleRequestOverlay
+      );
+    };
+  }, [openCreateSessionOverlay]);
 
   const sessionCreationContextValue = useMemo(
     () => ({ openCreateSessionOverlay }),
@@ -687,17 +820,25 @@ export function RightPanelContent() {
       return;
     }
 
-    useLayoutStore.getState().setRightPanelVisible(true);
-    if (effectiveActiveTab === 'kanban') {
-      useLayoutStore.getState().setKanbanSessionVisible(true);
+    const canvasController = getCanvasWorkspaceController();
+    if (canvasController?.createSession) {
+      canvasController.createSession();
+    } else {
+      if (effectiveActiveTab === 'kanban') {
+        useLayoutStore.getState().setRightPanelVisible(true);
+        useLayoutStore.getState().setKanbanSessionVisible(true);
+      }
+      if (!isCreateOverlayVisible) {
+        openCreateSessionOverlay();
+      }
     }
 
-    openCreateSessionOverlay();
     const nextSearchParams = new URLSearchParams(searchParams);
     nextSearchParams.delete('newSession');
     setSearchParams(nextSearchParams, { replace: true });
   }, [
     effectiveActiveTab,
+    isCreateOverlayVisible,
     openCreateSessionOverlay,
     searchParams,
     setSearchParams,
@@ -855,47 +996,61 @@ export function RightPanelContent() {
 
   return (
     <RightPanelSessionCreationProvider value={sessionCreationContextValue}>
-      <div className="h-full flex overflow-hidden bg-transparent">
+      <div ref={rootRef} className="h-full flex overflow-hidden bg-transparent">
         <div className="relative flex-1 min-w-0 flex flex-col overflow-hidden">
-          {isGitProject ? <BranchInfoHeader /> : null}
+          {isSlotSurfaceAttached && isGitProject ? <BranchInfoHeader /> : null}
           <div className="right-panel-conversation-region relative flex-1 min-h-0 overflow-hidden">
-            {isWorkspaceRoute && workspaceExecutionWorkspaceId ? (
-              <div className="h-full min-h-0 overflow-hidden">
-                <KanbanSessionConversationView
-                  {...workspaceConversationViewProps}
-                />
-              </div>
-            ) : bindExecutionConversation &&
-              showRightSession &&
-              visibleRightSession &&
-              rightSessionConversationViewProps ? (
-              <div className="h-full min-h-0 overflow-hidden">
-                <KanbanSessionConversationView
-                  {...rightSessionConversationViewProps}
-                />
-              </div>
-            ) : bindExecutionConversation && isRightSessionPending ? (
-              <div className="workspace-loading-state flex h-full min-h-0 flex-col items-center justify-center gap-3 p-6 text-sm">
-                <Loader2 className="h-6 w-6 animate-spin" />
-                <div className="workspace-loading-panel flex flex-col items-center gap-1 px-5 py-4">
-                  <p className="font-medium text-foreground">
-                    {i18n.t('panels:ui.rightPanel.loadingSession')}
-                  </p>
-                  <p className="text-xs text-muted-foreground">
-                    {i18n.t(
-                      'panels:ui.rightPanel.preparingTheConversationPanel'
-                    )}
-                  </p>
+            {isSlotSurfaceAttached ? (
+              isWorkspaceRoute && workspaceExecutionWorkspaceId ? (
+                <div className="h-full min-h-0 overflow-hidden">
+                  <KanbanSessionConversationView
+                    {...workspaceConversationViewProps}
+                  />
                 </div>
-              </div>
+              ) : bindExecutionConversation &&
+                showRightSession &&
+                visibleRightSession &&
+                rightSessionConversationViewProps ? (
+                <div className="h-full min-h-0 overflow-hidden">
+                  <KanbanSessionConversationView
+                    {...rightSessionConversationViewProps}
+                  />
+                </div>
+              ) : bindExecutionConversation && isRightSessionPending ? (
+                <div className="workspace-loading-state flex h-full min-h-0 flex-col items-center justify-center gap-3 p-6 text-sm">
+                  <Loader2 className="h-6 w-6 animate-spin" />
+                  <div className="workspace-loading-panel flex flex-col items-center gap-1 px-5 py-4">
+                    <p className="font-medium text-foreground">
+                      {i18n.t('panels:ui.rightPanel.loadingSession')}
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      {i18n.t(
+                        'panels:ui.rightPanel.preparingTheConversationPanel'
+                      )}
+                    </p>
+                  </div>
+                </div>
+              ) : null
             ) : null}
 
-            {isCreateOverlayVisible || showEmptyCreateForm ? (
+            {isSlotSurfaceAttached &&
+            !(isCreateOverlayVisible && stageCreationHost) &&
+            (isCreateOverlayVisible || showEmptyCreateForm) ? (
               <CreateSessionOverlay
                 key={effectiveProjectId ?? 'create-session'}
                 {...overlayProps}
               />
             ) : null}
+            {isCreateOverlayVisible && stageCreationHost
+              ? createPortal(
+                  <CreateSessionOverlay
+                    key={effectiveProjectId ?? 'create-session'}
+                    {...overlayProps}
+                    dismissible
+                  />,
+                  stageCreationHost
+                )
+              : null}
           </div>
         </div>
       </div>

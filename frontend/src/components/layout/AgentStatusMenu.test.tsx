@@ -293,4 +293,140 @@ describe('AgentStatusMenu', () => {
     expect(screen.getByText('安装')).toBeInTheDocument();
     expect(screen.getByText('检查')).toBeInTheDocument();
   });
+
+  it('renders subscription quota on separate rows (max 2 items per row) and omits empty rows for unsubscribed Agents', () => {
+    const onMenuOpen = vi.fn();
+    render(
+      <AgentStatusMenu
+        agents={[
+          agent({
+            agent_id: 'claude_code',
+            display_name: 'Claude Code',
+            acp_version: '1.0.0',
+            position: 0,
+          }),
+          agent({
+            agent_id: 'antigravity',
+            display_name: 'Antigravity',
+            acp_version: '1.0.0',
+            position: 1,
+          }),
+          agent({
+            agent_id: 'codex',
+            display_name: 'Codex',
+            acp_version: '1.0.0',
+            position: 2,
+          }),
+        ]}
+        defaultAgentId="claude_code"
+        onMenuOpen={onMenuOpen}
+        planUsages={{
+          claude_code: {
+            planType: 'max',
+            windows: [
+              {
+                id: 'five_hour',
+                usedPercent: 35,
+                windowMinutes: 300,
+                resetsAtMs: Date.now() + 3_600_000,
+              },
+              {
+                id: 'seven_day',
+                usedPercent: 72,
+                windowMinutes: 10_080,
+                resetsAtMs: Date.now() + 86_400_000,
+              },
+            ],
+            credits: null,
+          },
+          antigravity: {
+            planType: 'pro',
+            windows: [
+              {
+                id: 'gemini_five_hour',
+                usedPercent: 20,
+                windowMinutes: 300,
+                resetsAtMs: Date.now() + 3_600_000,
+              },
+              {
+                id: 'gemini_weekly',
+                usedPercent: 15,
+                windowMinutes: 10_080,
+                resetsAtMs: Date.now() + 86_400_000,
+              },
+              {
+                id: 'claude_gpt_five_hour',
+                usedPercent: 68,
+                windowMinutes: 300,
+                resetsAtMs: Date.now() + 3_600_000,
+              },
+              {
+                id: 'claude_gpt_weekly',
+                usedPercent: 92,
+                windowMinutes: 10_080,
+                resetsAtMs: Date.now() + 86_400_000,
+              },
+            ],
+            credits: null,
+          },
+        }}
+      />
+    );
+
+    fireEvent.mouseEnter(
+      screen.getByRole('button', { name: /默认 Agent：Claude Code/ })
+    );
+    expect(onMenuOpen).toHaveBeenCalledTimes(1);
+
+    // Claude Code: 2 quota items -> 1 extra quota row below status row
+    const claudeItem = screen.getByRole('listitem', { name: 'Claude Code' });
+    expect(claudeItem.children).toHaveLength(7);
+    const claudeRow0 = within(claudeItem).getByTestId(
+      'agent-status-quota-row-claude_code-0'
+    );
+    expect(claudeRow0.children).toHaveLength(2);
+    expect(within(claudeRow0).getByText('5 小时窗口')).toBeInTheDocument();
+    expect(within(claudeRow0).getByText('35%')).toBeInTheDocument();
+    expect(
+      within(claudeRow0).getByText('每周窗口（全部模型）')
+    ).toBeInTheDocument();
+    expect(within(claudeRow0).getByText('72%')).toBeInTheDocument();
+    expect(
+      within(claudeItem).queryByTestId('agent-status-quota-row-claude_code-1')
+    ).toBeNull();
+
+    // Antigravity: 4 quota items -> 2 extra quota rows (2 items per row)
+    const antigravityItem = screen.getByRole('listitem', {
+      name: 'Antigravity',
+    });
+    expect(antigravityItem.children).toHaveLength(8);
+    const antigravityRow0 = within(antigravityItem).getByTestId(
+      'agent-status-quota-row-antigravity-0'
+    );
+    const antigravityRow1 = within(antigravityItem).getByTestId(
+      'agent-status-quota-row-antigravity-1'
+    );
+    expect(antigravityRow0.children).toHaveLength(2);
+    expect(antigravityRow1.children).toHaveLength(2);
+    expect(
+      within(antigravityRow0).getByText('Gemini 5 小时')
+    ).toBeInTheDocument();
+    expect(
+      within(antigravityRow0).getByText('Gemini 每周')
+    ).toBeInTheDocument();
+    expect(
+      within(antigravityRow1).getByText('Claude/GPT 5 小时')
+    ).toBeInTheDocument();
+    expect(
+      within(antigravityRow1).getByText('Claude/GPT 每周')
+    ).toBeInTheDocument();
+    expect(within(antigravityRow1).getByText('92%')).toBeInTheDocument();
+
+    // Codex (no subscription): strictly status row only, no extra/empty rows
+    const codexItem = screen.getByRole('listitem', { name: 'Codex' });
+    expect(codexItem.children).toHaveLength(6);
+    expect(
+      within(codexItem).queryByTestId(/agent-status-quota-row-codex/)
+    ).toBeNull();
+  });
 });

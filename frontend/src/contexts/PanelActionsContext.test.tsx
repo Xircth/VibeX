@@ -12,6 +12,10 @@ import { settleDockviewGroupWidths } from '@/utils/dockviewStartupSizing';
 import { useDockviewPanelActionsBinding } from '@/hooks/useDockviewPanelActionsBinding';
 import { resolveImagePreviewSource } from '@/lib/imagePreviewRegistry';
 import {
+  resetPreviewPanelDirtyForTests,
+  setPreviewPanelDirty,
+} from '@/components/panels/previewPanelDirty';
+import {
   PanelActionsContext,
   PanelActionsProvider,
   useOptionalPanelActionsContext,
@@ -1017,11 +1021,159 @@ describe('PanelActionsContext editor placement', () => {
     });
 
     expect(editorGroup.panels.map((p) => p.id)).toEqual([
+      PANEL_IDS.WELCOME,
       'ai-chat:session-ab-1',
     ]);
     expect(api.getGroup('group-right')).toBeUndefined();
     expect(useLayoutStore.getState().isRightPanelVisible).toBe(false);
 
+    act(() => {
+      actions?.openNotes();
+    });
+
+    expect(editorGroup.panels.map((p) => p.id)).toEqual([
+      PANEL_IDS.WELCOME,
+      'ai-chat:session-ab-1',
+      PANEL_IDS.NOTES,
+    ]);
+
+    api.dispose();
+    container.remove();
+  });
+
+  it('opens a new session tab alongside Welcome in the visible Zone B group instead of a hidden empty group-right', () => {
+    useLayoutStore.getState().resetLayout();
+    const container = document.createElement('div');
+    container.style.width = '1200px';
+    container.style.height = '600px';
+    document.body.appendChild(container);
+    const api = createDockview(container, {
+      createComponent: () => ({
+        element: document.createElement('div'),
+        init: () => {},
+        dispose: () => {},
+      }),
+    });
+    api.layout(1200, 600, true);
+    const welcome = api.addPanel({
+      id: PANEL_IDS.WELCOME,
+      component: PANEL_IDS.WELCOME,
+      title: 'Welcome',
+    });
+    const editorGroup = welcome.group;
+    (editorGroup as { id: string }).id = 'group-editor-1';
+
+    const hiddenEmptyRightGroup = api.addGroup({
+      id: 'group-right',
+      referencePanel: welcome,
+      direction: 'right',
+    });
+    (
+      hiddenEmptyRightGroup as unknown as { element?: HTMLElement }
+    ).element?.setAttribute('data-session-dock', 'true');
+    hiddenEmptyRightGroup.api.setVisible(false);
+    syncDockviewGroupRegistry(api);
+
+    let actions: PanelActions | undefined;
+    function Probe() {
+      actions = usePanelActionsContext();
+      return null;
+    }
+    renderWithQueryClient(
+      <PanelActionsProvider>
+        <Probe />
+      </PanelActionsProvider>
+    );
+    act(() => actions?.setDockviewApi(api as unknown as DockviewApi));
+
+    act(() => {
+      actions?.openSessionTab({
+        sessionId: 'session-from-welcome',
+        workspaceId: 'ws-1',
+        title: 'From Welcome',
+      });
+    });
+
+    expect(editorGroup.panels.map((p) => p.id)).toEqual([
+      PANEL_IDS.WELCOME,
+      'ai-chat:session-from-welcome',
+    ]);
+    expect(hiddenEmptyRightGroup.panels).toHaveLength(0);
+    expect(hiddenEmptyRightGroup.api.isVisible).toBe(false);
+
+    api.dispose();
+    container.remove();
+  });
+
+  it('skips dirty preview tabs during diff preview queue eviction and guards closePanel', () => {
+    resetPreviewPanelDirtyForTests();
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(false);
+    const container = document.createElement('div');
+    Object.defineProperty(container, 'clientWidth', { value: 1200 });
+    Object.defineProperty(container, 'clientHeight', { value: 800 });
+    document.body.appendChild(container);
+
+    const api = createDockview(container, {
+      createComponent: () => ({
+        element: document.createElement('div'),
+        init: () => undefined,
+      }),
+    });
+    api.layout(1200, 800);
+
+    const welcome = api.addPanel({
+      id: PANEL_IDS.WELCOME,
+      component: PANEL_IDS.WELCOME,
+    });
+    const editorGroup = welcome.group;
+    (editorGroup as { id: string }).id = 'group-editor-1';
+    syncDockviewGroupRegistry(api);
+
+    let actions: PanelActions | undefined;
+    function Probe() {
+      actions = usePanelActionsContext();
+      return null;
+    }
+    renderWithQueryClient(
+      <PanelActionsProvider>
+        <Probe />
+      </PanelActionsProvider>
+    );
+    act(() => actions?.setDockviewApi(api as unknown as DockviewApi));
+
+    act(() => {
+      actions?.openDiffPreviewAtPath('src/file-1.ts');
+      setPreviewPanelDirty('diff:src/file-1.ts', true, 'src/file-1.ts');
+      actions?.openDiffPreviewAtPath('src/file-2.ts');
+      actions?.openDiffPreviewAtPath('src/file-3.ts');
+      actions?.openDiffPreviewAtPath('src/file-4.ts');
+      actions?.openDiffPreviewAtPath('src/file-5.ts');
+      actions?.openDiffPreviewAtPath('src/file-6.ts');
+    });
+
+    expect(editorGroup.panels.map((panel) => panel.id)).toEqual([
+      PANEL_IDS.WELCOME,
+      'diff:src/file-1.ts',
+      'diff:src/file-3.ts',
+      'diff:src/file-4.ts',
+      'diff:src/file-5.ts',
+      'diff:src/file-6.ts',
+    ]);
+
+    act(() => {
+      actions?.closePanel('diff:src/file-1.ts');
+    });
+    expect(confirmSpy).toHaveBeenCalledTimes(1);
+    expect(api.getPanel('diff:src/file-1.ts')).toBeDefined();
+
+    confirmSpy.mockReturnValue(true);
+    act(() => {
+      actions?.closePanel('diff:src/file-1.ts');
+    });
+    expect(api.getPanel('diff:src/file-1.ts')).toBeUndefined();
+
+    confirmSpy.mockRestore();
+    resetPreviewPanelDirtyForTests();
     api.dispose();
     container.remove();
   });

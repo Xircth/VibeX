@@ -213,12 +213,26 @@ function MarkdownImagePastePlugin({
   return null;
 }
 
+function canonicalMarkdownBaseline(markdown: string): string {
+  try {
+    return richTextStateToMarkdown(toEditorState(markdown));
+  } catch {
+    return markdown.replace(/\r\n/g, '\n');
+  }
+}
+
 function MarkdownExternalSyncPlugin({
   markdown,
   lastMarkdownRef,
+  externalBaselineRef,
+  canonicalBaselineRef,
+  hasEmittedUserEditRef,
 }: {
   markdown: string;
   lastMarkdownRef: MutableRefObject<string>;
+  externalBaselineRef: MutableRefObject<string>;
+  canonicalBaselineRef: MutableRefObject<string>;
+  hasEmittedUserEditRef: MutableRefObject<boolean>;
 }) {
   const [editor] = useLexicalComposerContext();
 
@@ -227,13 +241,23 @@ function MarkdownExternalSyncPlugin({
       return;
     }
     lastMarkdownRef.current = markdown;
+    externalBaselineRef.current = markdown;
+    canonicalBaselineRef.current = canonicalMarkdownBaseline(markdown);
+    hasEmittedUserEditRef.current = false;
     try {
       const nextState = editor.parseEditorState(toEditorState(markdown));
       editor.setEditorState(nextState);
     } catch {
       // Ignore malformed external markdown updates.
     }
-  }, [editor, lastMarkdownRef, markdown]);
+  }, [
+    canonicalBaselineRef,
+    editor,
+    externalBaselineRef,
+    hasEmittedUserEditRef,
+    lastMarkdownRef,
+    markdown,
+  ]);
 
   return null;
 }
@@ -247,11 +271,27 @@ export function MarkdownRichTextEditor({
   pasteImages,
 }: MarkdownRichTextEditorProps) {
   const lastMarkdownRef = useRef(markdown);
+  const externalBaselineRef = useRef(markdown);
+  const canonicalBaselineRef = useRef(canonicalMarkdownBaseline(markdown));
+  const hasEmittedUserEditRef = useRef(false);
   const defaultValue = useRef(toEditorState(markdown)).current;
 
   const handleChange = useCallback(
     (_state: unknown, editor: LexicalEditor) => {
       const next = markdownFromEditor(editor);
+      if (next === canonicalBaselineRef.current) {
+        if (!hasEmittedUserEditRef.current) {
+          return;
+        }
+        hasEmittedUserEditRef.current = false;
+        lastMarkdownRef.current = externalBaselineRef.current;
+        onMarkdownChange(externalBaselineRef.current);
+        return;
+      }
+      if (next === lastMarkdownRef.current) {
+        return;
+      }
+      hasEmittedUserEditRef.current = true;
       lastMarkdownRef.current = next;
       onMarkdownChange(next);
     },
@@ -290,6 +330,9 @@ export function MarkdownRichTextEditor({
             <MarkdownExternalSyncPlugin
               markdown={markdown}
               lastMarkdownRef={lastMarkdownRef}
+              externalBaselineRef={externalBaselineRef}
+              canonicalBaselineRef={canonicalBaselineRef}
+              hasEmittedUserEditRef={hasEmittedUserEditRef}
             />
             <MarkdownMermaidPreviewPlugin />
           </>

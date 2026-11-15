@@ -55,6 +55,15 @@ describe('isCreateSessionFormVisibleForProject', () => {
         currentWorkspaceId: 'wt-1',
       })
     ).toBe(true);
+    expect(
+      isCreateSessionFormVisibleForProject({
+        open: true,
+        openedForProjectId: 'project-a',
+        currentProjectId: 'project-a',
+        openedForWorkspaceId: null,
+        currentWorkspaceId: 'wt-1',
+      })
+    ).toBe(true);
   });
 
   it('hides the form when either project id is missing', () => {

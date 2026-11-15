@@ -21,8 +21,14 @@ import {
   readLeftPanelSplitMemory,
   writeLeftPanelSplitMemory,
 } from '@/lib/leftPanelSplitMemory';
-import { listLeftDockGroups } from '@/utils/dockviewGroupPolicy';
-import { syncDockviewGroupRegistry } from '@/utils/dockviewHelpers';
+import {
+  getNextLeftGroupId,
+  listLeftDockGroups,
+} from '@/utils/dockviewGroupPolicy';
+import {
+  assignDockviewGroupIdAndRole,
+  syncDockviewGroupRegistry,
+} from '@/utils/dockviewGroupRole';
 import { settleDockviewGroupWidths } from '@/utils/dockviewStartupSizing';
 import { MIN_LEFT_PANEL_WIDTH } from '@/utils/dockviewWorkspaceConstraints';
 
@@ -202,6 +208,12 @@ export function swapLeftDockPanels(
         direction,
       },
     });
+    assignDockviewGroupIdAndRole(
+      api,
+      recreated.group,
+      getNextLeftGroupId(api),
+      'left'
+    );
     recreated.group.element?.setAttribute('data-left-dock', 'true');
     recreated.group.element?.setAttribute('data-shell-nav-side', sideB);
     settleDockviewGroupWidths([

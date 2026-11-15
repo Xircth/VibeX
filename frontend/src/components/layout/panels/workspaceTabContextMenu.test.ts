@@ -257,4 +257,145 @@ describe('buildWorkspaceTabContextMenu', () => {
     }
     expect(openSpaceDetails).toHaveBeenCalledTimes(1);
   });
+
+  it('includes the session creation submenu under New on default tabs (such as Welcome) when openSession is provided', () => {
+    const openSession = vi.fn();
+    const items = buildWorkspaceTabContextMenu(
+      {
+        ...labels,
+        session: '会话',
+      },
+      {
+        openSession,
+        agents: [{ id: 'CODEX', label: 'Codex' }],
+        closeCurrent: vi.fn(),
+        closeOthers: vi.fn(),
+        canSplit: true,
+        splitDown: vi.fn(),
+        splitLeft: vi.fn(),
+        splitRight: vi.fn(),
+        openNote: vi.fn(),
+        openReview: vi.fn(),
+        openTerminal: vi.fn(),
+        shells: [{ value: 'powershell.exe', label: 'PowerShell' }],
+        sortByName: vi.fn(),
+      }
+    );
+
+    const created = items.find((item) => item.id === 'new');
+    expect(created?.type).toBe('submenu');
+    if (created?.type !== 'submenu') return;
+    expect(created.children.map((item) => item.id)).toEqual([
+      'new-session',
+      'new-note',
+      'new-review',
+      'new-terminal',
+    ]);
+  });
+});
+
+describe('useWorkspaceEditorTabMenu', () => {
+  it('defers translation lookup until open() and deduplicates agentManagementApi.bar() across tabs while guarding Close Others on dirty preview tabs', async () => {
+    const { renderHook } = await import('@testing-library/react');
+    const i18nModule = await import('@/i18n');
+    const contextMenuModule = await import('@/components/context-menu');
+    const { agentManagementApi } = await import('@/features/agent-management');
+    const { resetPreviewPanelDirtyForTests, setPreviewPanelDirty } =
+      await import('@/components/panels/previewPanelDirty');
+    const { EDITOR_GROUP_PREFIX, PANEL_IDS } = await import(
+      '@/stores/useLayoutStore'
+    );
+    const { resetWorkspaceTabMenuCacheForTests, useWorkspaceEditorTabMenu } =
+      await import('./workspaceTabContextMenu');
+
+    resetPreviewPanelDirtyForTests();
+    resetWorkspaceTabMenuCacheForTests();
+
+    const openSurfaceMenuSpy = vi.fn();
+    vi.spyOn(contextMenuModule, 'useAppContextMenu').mockReturnValue({
+      openSurfaceMenu: openSurfaceMenuSpy,
+    } as unknown as ReturnType<typeof contextMenuModule.useAppContextMenu>);
+
+    const barSpy = vi.spyOn(agentManagementApi, 'bar').mockResolvedValue([]);
+    const getFixedTSpy = vi.spyOn(i18nModule.default, 'getFixedT');
+
+    const closeOtherDirty = vi.fn();
+    const closeOtherClean = vi.fn();
+    const group = {
+      id: `${EDITOR_GROUP_PREFIX}1`,
+      panels: [
+        {
+          id: 'file:/workspace/current.ts',
+          api: { close: vi.fn(), component: PANEL_IDS.PREVIEW },
+        },
+        {
+          id: 'file:/workspace/dirty.ts',
+          api: { close: closeOtherDirty, component: PANEL_IDS.PREVIEW },
+        },
+        {
+          id: 'file:/workspace/clean.ts',
+          api: { close: closeOtherClean, component: PANEL_IDS.PREVIEW },
+        },
+      ],
+    };
+
+    const hookA = renderHook(() =>
+      useWorkspaceEditorTabMenu(
+        {
+          id: 'file:/workspace/current.ts',
+          component: PANEL_IDS.PREVIEW,
+          group,
+        },
+        vi.fn()
+      )
+    );
+    const hookB = renderHook(() =>
+      useWorkspaceEditorTabMenu(
+        {
+          id: 'file:/workspace/dirty.ts',
+          component: PANEL_IDS.PREVIEW,
+          group,
+        },
+        vi.fn()
+      )
+    );
+
+    expect(hookA.result.current).not.toBeNull();
+    expect(hookB.result.current).not.toBeNull();
+    // Zero translation calls during tab renders, and only 1 shared bar() IPC call across multiple tabs
+    expect(getFixedTSpy).not.toHaveBeenCalled();
+    expect(barSpy).toHaveBeenCalledTimes(1);
+
+    setPreviewPanelDirty('file:/workspace/dirty.ts', true, 'src/dirty.ts');
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(false);
+
+    const mouseEvent = new MouseEvent('contextmenu', {
+      bubbles: true,
+      cancelable: true,
+      clientX: 40,
+      clientY: 20,
+    });
+    hookA.result.current?.open(mouseEvent);
+    expect(getFixedTSpy).toHaveBeenCalledTimes(1);
+    expect(openSurfaceMenuSpy).toHaveBeenCalledTimes(1);
+
+    const builtItems = openSurfaceMenuSpy.mock.calls[0]?.[1] ?? [];
+    const closeSubmenu = builtItems.find(
+      (item: { id: string }) => item.id === 'close'
+    );
+    expect(closeSubmenu?.type).toBe('submenu');
+    const closeOthersItem = closeSubmenu?.children?.find(
+      (item: { id: string }) => item.id === 'close-others'
+    );
+    expect(closeOthersItem).toBeDefined();
+    closeOthersItem?.onSelect?.();
+
+    expect(confirmSpy).toHaveBeenCalledTimes(1);
+    expect(closeOtherDirty).not.toHaveBeenCalled();
+    expect(closeOtherClean).toHaveBeenCalledTimes(1);
+
+    resetPreviewPanelDirtyForTests();
+    resetWorkspaceTabMenuCacheForTests();
+    vi.restoreAllMocks();
+  });
 });

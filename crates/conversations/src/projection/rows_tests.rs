@@ -420,6 +420,7 @@
         let skipped_artifact_snapshot = serde_json::to_string(&ProjectionSnapshotState {
             full_fold: true,
             turns: Vec::new(),
+            turn_order: Vec::new(),
             turn_metrics: std::collections::BTreeMap::new(),
             side_rows: Vec::new(),
             side_row_turns: std::collections::BTreeMap::new(),

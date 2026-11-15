@@ -1195,10 +1195,9 @@ export function doesToolUseMatchQuestionRequest(
   );
 }
 
-export function findMatchingAskQuestionTool(
-  request: ConversationQuestionRequest,
+export function collectAskQuestionToolUses(
   turns: readonly { turn: MessageTurn }[]
-): ToolUseBlock | null {
+): ToolUseBlock[] {
   const askToolUses: ToolUseBlock[] = [];
   for (const { turn } of turns) {
     if (turn.role !== 'assistant') continue;
@@ -1208,20 +1207,38 @@ export function findMatchingAskQuestionTool(
       }
     }
   }
+  return askToolUses;
+}
+
+export function findMatchingAskQuestionToolInUses(
+  request: ConversationQuestionRequest,
+  askToolUses: readonly ToolUseBlock[]
+): ToolUseBlock | null {
   if (askToolUses.length === 0) return null;
-  const exact = [...askToolUses]
-    .reverse()
-    .find((use) => doesToolUseMatchQuestionRequest(use, request));
-  if (exact) return exact;
-  return (
-    [...askToolUses]
-      .reverse()
-      .find(
-        (use) =>
-          !firstQuestionTitle(
-            questionTabsFromRequest(questionRequestFromToolUse(use))
-          )
-      ) ?? null
+  for (let i = askToolUses.length - 1; i >= 0; i -= 1) {
+    const use = askToolUses[i]!;
+    if (doesToolUseMatchQuestionRequest(use, request)) return use;
+  }
+  for (let i = askToolUses.length - 1; i >= 0; i -= 1) {
+    const use = askToolUses[i]!;
+    if (
+      !firstQuestionTitle(
+        questionTabsFromRequest(questionRequestFromToolUse(use))
+      )
+    ) {
+      return use;
+    }
+  }
+  return null;
+}
+
+export function findMatchingAskQuestionTool(
+  request: ConversationQuestionRequest,
+  turns: readonly { turn: MessageTurn }[]
+): ToolUseBlock | null {
+  return findMatchingAskQuestionToolInUses(
+    request,
+    collectAskQuestionToolUses(turns)
   );
 }
 

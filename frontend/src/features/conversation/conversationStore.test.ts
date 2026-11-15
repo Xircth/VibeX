@@ -3742,6 +3742,88 @@ describe('conversationStore (row-op dumb container)', () => {
     );
     expect(streamingAssistant?.turn.timestamp).toBe(startedAt);
   });
+
+  it('skips late append_text deltas via settledAssistantRowIds and preserves settled turn references during streaming', () => {
+    const settledRow = assistantRow(
+      'turn-1',
+      [{ type: 'text', text: 'Done' }],
+      2n,
+      'settled'
+    );
+    const streamingRow = assistantRow(
+      'turn-2',
+      [{ type: 'text', text: 'Start' }],
+      3n,
+      'streaming'
+    );
+    let state = conversationStoreReducer(emptyConversationStoreState, {
+      type: 'load_success',
+      conversationId: CONVERSATION_ID,
+      detail: emptyDetail([
+        userRow('turn-1', 'Q1', 1n),
+        settledRow,
+        userRow('turn-2', 'Q2', 3n),
+        streamingRow,
+      ]),
+    });
+    state = conversationStoreReducer(state, {
+      type: 'row_ops',
+      batch: batch([], 4n, { previous_sequence: 1n }),
+    });
+    const beforeTurns = timelineTurnsForEntry(entryOf(state));
+    const settledTurnBefore = beforeTurns.find(
+      (row) => row.key === 'conversation-turn-1:assistant'
+    );
+
+    // Late append_text targeting already-settled turn-1 must not resurrect liveText overlay.
+    state = conversationStoreReducer(state, {
+      type: 'row_ops',
+      batch: batch(
+        [
+          {
+            op: 'append_text',
+            row_id: 'turn-1:assistant',
+            revision: 5n,
+            stream: 'text',
+            delta: ' stale',
+          },
+          {
+            op: 'append_text',
+            row_id: 'turn-2:assistant',
+            revision: 6n,
+            stream: 'text',
+            delta: ' more',
+          },
+        ],
+        6n,
+        { previous_sequence: 4n }
+      ),
+    });
+
+    const entry = entryOf(state);
+    expect(entry.settledAssistantRowIds['turn-1:assistant']).toBe(true);
+    expect(entry.liveText['turn-1:assistant']).toBeUndefined();
+    const afterTurns = timelineTurnsForEntry(entry);
+    const settledTurnAfter = afterTurns.find(
+      (row) => row.key === 'conversation-turn-1:assistant'
+    );
+    const streamingTurnAfter = afterTurns.find(
+      (row) => row.key === 'conversation-turn-2:assistant'
+    );
+    expect(settledTurnAfter).toBe(settledTurnBefore);
+    expect(textOf(streamingTurnAfter!.turn.blocks)).toBe('Start more');
+  });
+
+  it('returns the exact windowRows reference when combineWindowAndLiveRows receives empty liveRows and no cache rewrites', async () => {
+    const { combineWindowAndLiveRows } = await import('./store/queue');
+    const windowRows = [
+      userRow('turn-1', 'Hello', 1n),
+      assistantRow('turn-1', [{ type: 'text', text: 'World' }], 2n, 'settled'),
+    ];
+    expect(
+      combineWindowAndLiveRows(CONVERSATION_ID, windowRows, [], {})
+    ).toBe(windowRows);
+  });
 });
 
 function textOf(blocks: ContentBlock[]): string {

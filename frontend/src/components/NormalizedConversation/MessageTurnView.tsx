@@ -634,13 +634,6 @@ export const MessageTurnView = memo(function MessageTurnView({
   questions?: TimelineQuestion[];
 }) {
   const { t } = useTranslation(['conversation', 'common', 'app']);
-  const turnInProgress = phase === 'streaming' || phase === 'optimistic';
-  const [nowMs, setNowMs] = useState(() => Date.now());
-  useEffect(() => {
-    if (!turnInProgress) return;
-    const id = window.setInterval(() => setNowMs(Date.now()), 1000);
-    return () => window.clearInterval(id);
-  }, [turnInProgress]);
   const { config } = useOptionalUserSystem() ?? {};
   const hideThinking = resolveHideModelThinking(config);
   const [editing, setEditing] = useState(false);
@@ -737,51 +730,137 @@ export const MessageTurnView = memo(function MessageTurnView({
     );
   }
 
-  const renderTurnItem = (
-    item: TurnRenderItem,
-    key: string,
-    hideToolLabel = false
-  ): ReactNode => {
-    if (item.kind === 'markdown' && collapseProcess) {
-      const commandOutput = splitAssistantCommandOutput(item.text);
-      if (commandOutput) {
+  return (
+    <AssistantTurnView
+      turn={turn}
+      phase={phase}
+      attempt={attempt}
+      task={task}
+      context={context}
+      hideThinking={hideThinking}
+      collapseProcess={collapseProcess}
+      resolvedWorkspacePath={resolvedWorkspacePath}
+      hasTurnError={hasTurnError}
+      delegations={delegations}
+      onOpenChild={onOpenChild}
+      questions={questions}
+      slice={slice}
+      isLastSlice={isLastSlice}
+    />
+  );
+});
+
+const AssistantTurnView = memo(function AssistantTurnView({
+  turn,
+  phase,
+  attempt,
+  task,
+  context,
+  hideThinking,
+  collapseProcess,
+  resolvedWorkspacePath,
+  hasTurnError,
+  delegations,
+  onOpenChild,
+  questions,
+  slice,
+  isLastSlice,
+}: {
+  turn: MessageTurn;
+  phase: MessageTurnPhase;
+  attempt: WorkspaceWithSession;
+  task: TaskWithAttemptStatus | null;
+  context: MessageTurnContext;
+  hideThinking: boolean;
+  collapseProcess: boolean;
+  resolvedWorkspacePath: string | null | undefined;
+  hasTurnError: boolean;
+  delegations: ConversationDelegationView[];
+  onOpenChild?: (childConversationId: string) => void;
+  questions: TimelineQuestion[];
+  slice:
+    | { kind: 'process-fold'; count: number; startIndex: number }
+    | { kind: 'block'; itemIndex: number }
+    | { kind: 'status' }
+    | null;
+  isLastSlice: boolean;
+}) {
+  const turnInProgress = phase === 'streaming' || phase === 'optimistic';
+  const [nowMs, setNowMs] = useState(() => Date.now());
+  useEffect(() => {
+    if (!turnInProgress) return;
+    const id = window.setInterval(() => setNowMs(Date.now()), 1000);
+    return () => window.clearInterval(id);
+  }, [turnInProgress]);
+
+  const isStreaming = phase === 'streaming';
+  const plannedItems = useMemo(
+    () => planTurnBlocks(turn.blocks),
+    [turn.blocks]
+  );
+  const items = useMemo(
+    () =>
+      hideThinking
+        ? plannedItems.filter((item) => item.kind !== 'thinking')
+        : plannedItems,
+    [plannedItems, hideThinking]
+  );
+  const segments = useMemo(
+    () =>
+      collapseProcess
+        ? collapseTurnSegments(items, { isStreaming })
+        : [{ kind: 'items' as const, startIndex: 0, items }],
+    [collapseProcess, items, isStreaming]
+  );
+  const originalIndices = useMemo(
+    () => new Map(items.map((item, index) => [item, index])),
+    [items]
+  );
+  const pollResults = useMemo(
+    () =>
+      collectHostDelegationPollResults(
+        items.filter((item) => item.kind === 'tool')
+      ),
+    [items]
+  );
+
+  const renderTurnItem = useCallback(
+    (item: TurnRenderItem, key: string, hideToolLabel = false): ReactNode => {
+      if (item.kind === 'markdown' && collapseProcess) {
+        const commandOutput = splitAssistantCommandOutput(item.text);
+        if (commandOutput) {
+          return (
+            <AssistantCommandOutputEntry
+              key={key}
+              prefix={commandOutput.prefix}
+              output={commandOutput.output}
+              expansionKey={key}
+              markdownContext={context}
+            />
+          );
+        }
+      }
+      if (item.kind === 'tool' && item.use) {
         return (
-          <AssistantCommandOutputEntry
+          <DisplayConversationEntry
             key={key}
-            prefix={commandOutput.prefix}
-            output={commandOutput.output}
+            entry={toolBlockToNormalizedEntry(
+              item.use,
+              item.result,
+              turn.timestamp
+            )}
             expansionKey={key}
-            markdownContext={context}
+            taskAttempt={attempt}
+            task={task ?? undefined}
+            hideToolLabel={hideToolLabel}
           />
         );
       }
-    }
-    if (item.kind === 'tool' && item.use) {
-      return (
-        <DisplayConversationEntry
-          key={key}
-          entry={toolBlockToNormalizedEntry(
-            item.use,
-            item.result,
-            turn.timestamp
-          )}
-          expansionKey={key}
-          taskAttempt={attempt}
-          task={task ?? undefined}
-          hideToolLabel={hideToolLabel}
-        />
-      );
-    }
-    return renderItem(item, key, context, phase === 'streaming');
-  };
+      return renderItem(item, key, context, isStreaming);
+    },
+    [attempt, collapseProcess, context, isStreaming, task, turn.timestamp]
+  );
 
-  const plannedItems = planTurnBlocks(turn.blocks);
-  const items = hideThinking
-    ? plannedItems.filter((item) => item.kind !== 'thinking')
-    : plannedItems;
-  const segments = collapseProcess
-    ? collapseTurnSegments(items, { isStreaming: phase === 'streaming' })
-    : [{ kind: 'items' as const, startIndex: 0, items }];
   const foldDurationMs = (segmentItems: TurnRenderItem[]) =>
     collapsedMessagesDurationMs({
       items: segmentItems,
@@ -791,10 +870,6 @@ export const MessageTurnView = memo(function MessageTurnView({
       settled: !turnInProgress,
       nowMs: turnInProgress ? nowMs : undefined,
     });
-  const originalIndices = new Map(items.map((item, index) => [item, index]));
-  const pollResults = collectHostDelegationPollResults(
-    items.filter((item) => item.kind === 'tool')
-  );
 
   const renderUnits = (
     list: TurnRenderItem[],
@@ -829,7 +904,7 @@ export const MessageTurnView = memo(function MessageTurnView({
             renderTurnItem(item, `${turn.id}-${index}`)
           }
           isStreaming={
-            phase === 'streaming' &&
+            isStreaming &&
             !hasTurnError &&
             activityItems.at(-1)?.index === items.length - 1
           }

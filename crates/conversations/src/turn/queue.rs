@@ -527,9 +527,7 @@ pub async fn fork_visible_conversation(
     };
     drop(conn);
 
-    let copied = crate::ConversationProjector::project_turns_summary(pool, child_id)
-        .await?
-        .len();
+    let copied = crate::ConversationProjector::count_visible_turns(pool, child_id).await?;
     Ok((child_id, copied))
 }
 

@@ -361,7 +361,9 @@
     "matches_other": "{{count}} matches",
     "openInPreview": "Open in preview",
     "loadingDiff": "Loading diff…",
-    "noHeadDiff": "No differences against HEAD"
+    "noHeadDiff": "No differences against HEAD",
+    "showAllLines": "Show all {{count}} lines",
+    "showFewerLines": "Show first {{count}} lines"
   },
   "timelineImage": {
     "show": "Show image",

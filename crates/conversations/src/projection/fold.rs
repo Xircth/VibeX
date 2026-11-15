@@ -73,8 +73,7 @@ impl ProjectionFold {
                     let turn = turns.get_mut(&turn_id).expect("turn exists");
                     let row_existed = !turn.assistant.blocks.is_empty();
                     turn.revision = record.sequence;
-                    turn.trailing_raw_text.clear();
-                    turn.emitted_internal_count = 0;
+                    turn.clear_trailing_raw_text();
                     let cleaned_block = match block {
                         ContentBlock::Text { text } => {
                             let extracted = agents::extract_and_strip_internal_messages(
@@ -546,7 +545,7 @@ impl ProjectionFold {
 }
 
 #[derive(Clone, Serialize, Deserialize)]
-pub(super) struct ProjectedTurn {
+pub(crate) struct ProjectedTurn {
     pub(super) turn_id: Uuid,
     pub(super) user: MessageTurn,
     pub(super) assistant: MessageTurn,
@@ -575,6 +574,8 @@ pub(super) struct ProjectedTurn {
     /// Count of internal messages already emitted for `trailing_raw_text`.
     #[serde(default)]
     pub(super) emitted_internal_count: usize,
+    #[serde(skip)]
+    pub(super) internal_scan_cursor: agents::conversation::InternalMessageScanCursor,
 }
 
 impl ProjectedTurn {
@@ -662,6 +663,7 @@ pub(super) fn ensure_turn(
             usage_announced: false,
             trailing_raw_text: String::new(),
             emitted_internal_count: 0,
+            internal_scan_cursor: Default::default(),
         },
     );
 }
@@ -721,6 +723,7 @@ fn finalize_trailing_raw_text(
         }
     }
     turn.emitted_internal_count = 0;
+    turn.internal_scan_cursor = Default::default();
 }
 
 fn settle_turn(
@@ -873,8 +876,7 @@ fn insert_mid_turn_user_slice(
         next_assistant.usage = carry_usage;
         turn.assistant = next_assistant;
         turn.usage_announced = false;
-        turn.trailing_raw_text.clear();
-        turn.emitted_internal_count = 0;
+        turn.clear_trailing_raw_text();
     }
     if !blocks.is_empty() {
         turn.prefix_segments.push(new_message_turn(

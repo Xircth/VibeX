@@ -5,7 +5,6 @@ import type {
   AgentSessionConfigOption,
   AsyncTaskRecord,
   ConversationRowOp,
-  ConversationRowOpBatch,
   ConversationSessionGoal,
   DeliveryChannel,
   GoalControlReceipt,
@@ -39,7 +38,32 @@ import {
   type ConversationTimelineTurn,
   type ResettableConversationRowOpBatch,
 } from './conversationStore';
+import {
+  STREAM_FLUSH_BLOCK_CHARS,
+  STREAM_FLUSH_CHARS_PER_FRAME,
+  STREAM_FLUSH_FRAME_MS,
+  STREAM_FLUSH_MAX_MS,
+  coalescePendingRowOpBatches,
+  hasTerminalTurnOp,
+  isPureAppendBatch,
+  isResetBatch,
+  liveConversationChars,
+  normalizeGapPage,
+  parkEntryWindowRows,
+  streamFlushDelayMs,
+  toBigIntSeq,
+} from './timelineRegistryHelpers';
 import type { TimelineRow } from 'shared/types';
+
+export {
+  STREAM_FLUSH_BLOCK_CHARS,
+  STREAM_FLUSH_CHARS_PER_FRAME,
+  STREAM_FLUSH_FRAME_MS,
+  STREAM_FLUSH_MAX_MS,
+  isPureAppendBatch,
+  liveConversationChars,
+  streamFlushDelayMs,
+};
 
 const EMPTY_SESSION_MODES: ConversationSessionModesState = {
   current: null,
@@ -48,89 +72,10 @@ const EMPTY_SESSION_MODES: ConversationSessionModesState = {
 const EMPTY_CONFIG_OPTIONS: AgentSessionConfigOption[] = [];
 const EMPTY_ASYNC_TASKS: AsyncTaskRecord[] = [];
 
-export const STREAM_FLUSH_FRAME_MS = 16;
-export const STREAM_FLUSH_MAX_MS = 96;
-export const STREAM_FLUSH_CHARS_PER_FRAME = 16 * 1024;
-export const STREAM_FLUSH_BLOCK_CHARS = 128;
 const STREAM_QUEUE_CAP = 256;
 const SMALL_SEQUENCE_GAP_MAX = 256n;
 const MAX_STALE_BIND_RETRIES = 2;
 const STALE_BIND_RETRY_DELAY_MS = 150;
-
-function isResetBatch(batch: ResettableConversationRowOpBatch): boolean {
-  return batch.reset === true;
-}
-
-export function streamFlushDelayMs(liveRunChars: number): number {
-  const frames = Math.max(
-    1,
-    Math.ceil(liveRunChars / STREAM_FLUSH_CHARS_PER_FRAME)
-  );
-  return Math.min(STREAM_FLUSH_MAX_MS, STREAM_FLUSH_FRAME_MS * frames);
-}
-
-export function isPureAppendBatch(
-  batch: ResettableConversationRowOpBatch
-): boolean {
-  if (isResetBatch(batch)) return false;
-  if (batch.ops.length === 0) return false;
-  if (
-    batch.session_modes != null ||
-    batch.session_config_options != null ||
-    batch.available_commands != null ||
-    batch.session_goal != null ||
-    batch.async_tasks != null ||
-    batch.prompt_suggestion != null
-  ) {
-    return false;
-  }
-  return batch.ops.every((op) => op.op === 'append_text');
-}
-
-export function liveConversationChars(
-  entry: ConversationStoreState['byConversationId'][string] | undefined,
-  pendingBatches: readonly ConversationRowOpBatch[] = []
-): number {
-  let chars = 0;
-  if (entry) {
-    for (const overlay of Object.values(entry.liveText)) {
-      chars += overlay.text.length + overlay.reasoning.length;
-    }
-    const liveRows = entry.liveRows;
-    for (let r = liveRows.length - 1; r >= 0; r -= 1) {
-      const row = liveRows[r];
-      if (
-        row &&
-        row.row.kind === 'message_turn' &&
-        row.row.turn.role === 'assistant' &&
-        row.row.phase === 'streaming'
-      ) {
-        const blocks = row.row.turn.blocks;
-        const lastIdx = blocks.length - 1;
-        for (let i = 0; i < blocks.length; i += 1) {
-          const block = blocks[i];
-          if (!block) continue;
-          if (block.type === 'text' || block.type === 'thinking') {
-            if (i === lastIdx && !entry.liveText[row.row_id]) {
-              chars += block.text.length;
-            }
-          } else {
-            chars += STREAM_FLUSH_BLOCK_CHARS;
-          }
-        }
-        break;
-      }
-    }
-  }
-  for (const batch of pendingBatches) {
-    for (const op of batch.ops) {
-      if (op.op === 'append_text') {
-        chars += op.delta.length;
-      }
-    }
-  }
-  return chars;
-}
 
 type Controller = {
   stopped: boolean;
@@ -633,18 +578,7 @@ function parkInactiveConversation(conversationId: string): void {
     ...state,
     byConversationId: {
       ...state.byConversationId,
-      [conversationId]: {
-        ...entry,
-        rows: entry.windowRows,
-        liveRows: [],
-        liveText: {},
-        optimisticTurns: [],
-        optimisticBaselineUserRowIds: {},
-        lastSequence: 0n,
-        loadedLastSequence: 0n,
-        loading: false,
-        gap: { kind: 'none' },
-      },
+      [conversationId]: parkEntryWindowRows(entry),
     },
   };
   unmarkInactiveConversation(conversationId);
@@ -1069,24 +1003,6 @@ function loadDetail(
     });
 }
 
-const TERMINAL_TURN_PHASES = new Set([
-  'settled',
-  'failed',
-  'cancelled',
-  'interrupted',
-]);
-
-function hasTerminalTurnOp(batch: ConversationRowOpBatch): boolean {
-  return batch.ops.some(
-    (op) =>
-      op.op === 'upsert' &&
-      ((op.row.row.kind === 'message_turn' &&
-        TERMINAL_TURN_PHASES.has(op.row.row.phase)) ||
-        op.row.row.kind === 'file_change_summary' ||
-        op.row.row.kind === 'turn_error')
-  );
-}
-
 function flushPendingBatches(
   conversationId: string,
   controller: Controller
@@ -1096,8 +1012,9 @@ function flushPendingBatches(
   const batches = controller.pendingBatches;
   if (batches.length === 0) return;
   controller.pendingBatches = [];
+  const coalesced = coalescePendingRowOpBatches(batches);
   let shouldResetResync = false;
-  for (const pending of batches) {
+  for (const pending of coalesced) {
     if (isResetBatch(pending)) {
       shouldResetResync = true;
     }
@@ -1352,100 +1269,6 @@ function startKeepalive(conversationId: string, slot: Slot): void {
   );
 }
 
-function toBigIntSeq(value: unknown, fallback: bigint): bigint {
-  if (typeof value === 'bigint') return value;
-  if (typeof value === 'number' && Number.isFinite(value)) {
-    return BigInt(Math.trunc(value));
-  }
-  if (typeof value === 'string' && value.trim().length > 0) {
-    try {
-      return BigInt(value.trim());
-    } catch {
-      return fallback;
-    }
-  }
-  return fallback;
-}
-
-function normalizeGapPage(
-  raw: unknown,
-  afterSequence: bigint
-): { lastSequence: bigint; reset: boolean; ops: ConversationRowOp[] } {
-  const rec =
-    raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : {};
-  const lastSequence = toBigIntSeq(
-    rec.lastSequence ?? rec.last_sequence,
-    afterSequence
-  );
-  const reset = Boolean(rec.reset);
-  const ops: ConversationRowOp[] = [];
-  if (Array.isArray(rec.ops)) {
-    for (const op of rec.ops) {
-      if (op && typeof op === 'object' && 'op' in op) {
-        ops.push(op as ConversationRowOp);
-      }
-    }
-  }
-  if (Array.isArray(rec.rows)) {
-    for (const candidate of rec.rows) {
-      if (!candidate || typeof candidate !== 'object') continue;
-      const rowRec = candidate as Record<string, unknown>;
-      const rowId =
-        typeof rowRec.row_id === 'string'
-          ? rowRec.row_id
-          : typeof rowRec.rowId === 'string'
-            ? rowRec.rowId
-            : null;
-      if (!rowId) continue;
-      if (
-        rowRec.deleted === true ||
-        rowRec.is_deleted === true ||
-        rowRec.tombstone === true
-      ) {
-        ops.push({
-          op: 'delete',
-          row_id: rowId,
-          revision: toBigIntSeq(rowRec.revision, lastSequence),
-        });
-      } else if (rowRec.row && typeof rowRec.row === 'object') {
-        ops.push({ op: 'upsert', row: candidate as TimelineRow });
-      }
-    }
-  }
-  for (const list of [rec.tombstones, rec.deleted_rows, rec.deletedRows]) {
-    if (!Array.isArray(list)) continue;
-    for (const item of list) {
-      if (typeof item === 'string') {
-        ops.push({ op: 'delete', row_id: item, revision: lastSequence });
-      } else if (item && typeof item === 'object') {
-        const itemRec = item as Record<string, unknown>;
-        const rowId =
-          typeof itemRec.row_id === 'string'
-            ? itemRec.row_id
-            : typeof itemRec.rowId === 'string'
-              ? itemRec.rowId
-              : null;
-        if (rowId) {
-          ops.push({
-            op: 'delete',
-            row_id: rowId,
-            revision: toBigIntSeq(itemRec.revision, lastSequence),
-          });
-        }
-      }
-    }
-  }
-  const deletedRowIds = rec.deleted_row_ids ?? rec.deletedRowIds;
-  if (Array.isArray(deletedRowIds)) {
-    for (const rowId of deletedRowIds) {
-      if (typeof rowId === 'string' && rowId.length > 0) {
-        ops.push({ op: 'delete', row_id: rowId, revision: lastSequence });
-      }
-    }
-  }
-  return { lastSequence, reset, ops };
-}
-
 function isUnimplementedGapError(error: unknown): boolean {
   const message = getInvokeErrorMessage(error) ?? String(error ?? '');
   return /unknown command|not found|unimplemented|not implemented|404/i.test(
@@ -1470,7 +1293,11 @@ async function backfillSmallGap(
       ops: ConversationRowOp[];
     };
     if (typeof api.rowsSince === 'function') {
-      const res = await api.rowsSince({ conversationId, afterSequence });
+      const res = await api.rowsSince({
+        conversationId,
+        afterSequence,
+        limit: 500,
+      });
       normalized = normalizeGapPage(res, afterSequence);
     } else if (typeof api.eventsSince === 'function') {
       const res = await api.eventsSince({ conversationId, afterSequence });

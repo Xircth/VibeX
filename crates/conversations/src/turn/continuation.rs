@@ -5,8 +5,10 @@ use agents::{
 use db::models::{conversation::ConversationAgentBindingRecord, session::Session};
 use uuid::Uuid;
 
+use std::collections::HashSet;
+
 use super::{ConversationSessionService, ConversationStartTurnInput, PreparedTurnPrompt};
-use crate::{ConversationServiceError, continuation::select_history};
+use crate::{ConversationServiceError, continuation::select_history_with_older_omitted};
 
 /// Continuation key: agent identity fingerprint for resume matching.
 /// Same agent + same normalized working directory = same key.
@@ -110,17 +112,26 @@ impl ConversationSessionService {
                     .await?;
                 let current_id = turn_id.to_string();
                 let current_prefix = format!("{turn_id}:");
-                let turns: Vec<_> =
-                    crate::ConversationProjector::project_turns_summary(pool, input.conversation_id)
-                        .await?
-                        .into_iter()
-                        .filter(|t| t.id != current_id && !t.id.starts_with(&current_prefix))
-                        .collect();
                 let current_bytes = serde_json::to_vec(&prepared.agent_blocks)
                     .map_err(|e| ConversationServiceError::Internal(e.to_string()))?
                     .len();
                 let budget = (64 * 1024usize).min((128 * 1024usize).saturating_sub(current_bytes));
-                let selection = select_history(&turns, budget);
+                let (tail_turns, older_ids) =
+                    crate::ConversationProjector::project_turns_summary_tail_within_bytes(
+                        pool,
+                        input.conversation_id,
+                        budget.saturating_mul(2),
+                    )
+                    .await?;
+                let turns: Vec<_> = tail_turns
+                    .into_iter()
+                    .filter(|t| t.id != current_id && !t.id.starts_with(&current_prefix))
+                    .collect();
+                let older_omitted: Vec<String> = older_ids
+                    .into_iter()
+                    .filter(|id| id != &current_id && !id.starts_with(&current_prefix))
+                    .collect();
+                let selection = select_history_with_older_omitted(&turns, older_omitted, budget);
                 if selection.prompt.len() > budget {
                     return Err(ConversationServiceError::SessionUnavailable {
                         code: "handoff_budget_exceeded",
@@ -238,30 +249,45 @@ impl ConversationSessionService {
                     .await?;
                 let current_id = turn_id.to_string();
                 let current_prefix = format!("{turn_id}:");
-                let all_turns =
-                    crate::ConversationProjector::project_turns_summary(pool, input.conversation_id)
-                        .await?;
-                let unknown_turns: Vec<_> = all_turns
+                let current_bytes = serde_json::to_vec(&prepared.agent_blocks)
+                    .map_err(|e| ConversationServiceError::Internal(e.to_string()))?
+                    .len();
+                let budget =
+                    (64 * 1024usize).min((128 * 1024usize).saturating_sub(current_bytes));
+                let known_exact: HashSet<String> = known_prefixes
                     .iter()
-                    .filter(|t| {
-                        t.id != current_id
-                            && !t.id.starts_with(&current_prefix)
-                            && !known_prefixes.iter().any(|prefix| {
-                                t.id == prefix.trim_end_matches(':') || t.id.starts_with(prefix)
-                            })
-                            && !delivered_ids.contains(&t.id)
-                    })
-                    .cloned()
+                    .map(|p| p.trim_end_matches(':').to_string())
                     .collect();
-                if unknown_turns.is_empty() {
+                let is_unknown = |id: &str| {
+                    id != current_id
+                        && !id.starts_with(&current_prefix)
+                        && !known_exact.contains(id)
+                        && !known_prefixes.iter().any(|prefix| id.starts_with(prefix))
+                        && !delivered_ids.contains(id)
+                };
+                let (tail_turns, older_ids) =
+                    crate::ConversationProjector::project_turns_summary_tail_within_bytes(
+                        pool,
+                        input.conversation_id,
+                        budget.saturating_mul(2),
+                    )
+                    .await?;
+                let unknown_turns: Vec<_> = tail_turns
+                    .into_iter()
+                    .filter(|t| is_unknown(&t.id))
+                    .collect();
+                let older_unknown_ids: Vec<String> = older_ids
+                    .into_iter()
+                    .filter(|id| is_unknown(id))
+                    .collect();
+                if unknown_turns.is_empty() && older_unknown_ids.is_empty() {
                     None
                 } else {
-                    let current_bytes = serde_json::to_vec(&prepared.agent_blocks)
-                        .map_err(|e| ConversationServiceError::Internal(e.to_string()))?
-                        .len();
-                    let budget =
-                        (64 * 1024usize).min((128 * 1024usize).saturating_sub(current_bytes));
-                    let selection = select_history(&unknown_turns, budget);
+                    let selection = select_history_with_older_omitted(
+                        &unknown_turns,
+                        older_unknown_ids,
+                        budget,
+                    );
                     if selection.prompt.len() > budget {
                         return Err(ConversationServiceError::SessionUnavailable {
                             code: "handoff_budget_exceeded",

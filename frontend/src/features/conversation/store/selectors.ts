@@ -1,4 +1,4 @@
-import type { TimelineRow } from 'shared/types';
+import type { MessageTurn, TimelineRow } from 'shared/types';
 import { plausibleTurnStartMs } from '@/components/conversation-thread/turnClock';
 import {
   alignStreamingAssistantWithUserPhase,
@@ -19,7 +19,20 @@ import {
   type ConversationStoreState,
   type ConversationTimelineItem,
   type ConversationTimelineTurn,
+  type LiveTextOverlay,
 } from './turnLifecycle';
+
+type CachedProjectedRowTurn = {
+  blocks: MessageTurn['blocks'];
+  phase: string;
+  revision: TimelineRow['revision'];
+  overlay: LiveTextOverlay | undefined;
+  timestampOverride: string | null;
+  forkPointStatus: ConversationTimelineTurn['forkPointStatus'];
+  result: ConversationTimelineTurn;
+};
+
+const projectedRowTurnCache = new WeakMap<TimelineRow, CachedProjectedRowTurn>();
 
 export function timelineTurnsForEntry(
   entry: ConversationStoreEntry | null
@@ -45,42 +58,67 @@ export function timelineTurnsForEntry(
   const persisted = entry.rows.flatMap((row) => {
     if (row.row.kind !== 'message_turn') return [];
     const overlay = liveOverlayForRow(row, entry.liveText);
-    let turn = overlay
-      ? {
-          ...row.row.turn,
-          blocks: overlayLiveText(row.row.turn.blocks, overlay),
-        }
-      : row.row.turn;
+    let timestampOverride: string | null = null;
     if (
       row.row.phase === 'streaming' &&
-      turn.role === 'assistant' &&
+      row.row.turn.role === 'assistant' &&
       activeTurnId &&
       !hasActiveUserRow &&
       activeStartedAt &&
       activeStartedMs !== null &&
       messageTurnPairKey(row.row_id) === activeTurnId
     ) {
-      const existingMs = plausibleTurnStartMs(turn.timestamp);
+      const existingMs = plausibleTurnStartMs(row.row.turn.timestamp);
       if (existingMs === null || activeStartedMs < existingMs) {
-        turn = { ...turn, timestamp: activeStartedAt };
+        timestampOverride = activeStartedAt;
       }
     }
-    return [
-      {
-        key: `conversation-${row.row_id}`,
-        turn,
-        revision: toBigInt(row.revision),
-        phase: row.row.phase as ConversationTimelineTurn['phase'],
-        forkPointStatus:
-          'fork_point_status' in row.row
-            ? ((
-                row.row as {
-                  fork_point_status?: ConversationTimelineTurn['forkPointStatus'];
-                }
-              ).fork_point_status ?? null)
-            : null,
-      },
-    ];
+    const forkPointStatus: ConversationTimelineTurn['forkPointStatus'] =
+      'fork_point_status' in row.row
+        ? ((
+            row.row as {
+              fork_point_status?: ConversationTimelineTurn['forkPointStatus'];
+            }
+          ).fork_point_status ?? null)
+        : null;
+    const cached = projectedRowTurnCache.get(row);
+    if (
+      cached &&
+      cached.blocks === row.row.turn.blocks &&
+      cached.phase === row.row.phase &&
+      cached.revision === row.revision &&
+      cached.overlay === overlay &&
+      cached.timestampOverride === timestampOverride &&
+      cached.forkPointStatus === forkPointStatus
+    ) {
+      return [cached.result];
+    }
+    let turn = overlay
+      ? {
+          ...row.row.turn,
+          blocks: overlayLiveText(row.row.turn.blocks, overlay),
+        }
+      : row.row.turn;
+    if (timestampOverride !== null) {
+      turn = { ...turn, timestamp: timestampOverride };
+    }
+    const projected: ConversationTimelineTurn = {
+      key: `conversation-${row.row_id}`,
+      turn,
+      revision: toBigInt(row.revision),
+      phase: row.row.phase as ConversationTimelineTurn['phase'],
+      forkPointStatus,
+    };
+    projectedRowTurnCache.set(row, {
+      blocks: row.row.turn.blocks,
+      phase: row.row.phase,
+      revision: row.revision,
+      overlay,
+      timestampOverride,
+      forkPointStatus,
+      result: projected,
+    });
+    return [projected];
   });
   const maxRowRevision = entry.rows.reduce((max, row) => {
     if (!isLiveProjectorRowId(row.row_id, entry.conversationId)) return max;

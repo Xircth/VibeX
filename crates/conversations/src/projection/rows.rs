@@ -9,6 +9,7 @@ use agents::{
     },
 };
 use db::models::conversation_event::ConversationEventRecord;
+use uuid::Uuid;
 
 use super::{
     AGENT_BINDING_LOAD_FAILURE_NOTICE_ROW_ID, AGENT_BINDING_REBIND_NOTICE_ROW_ID,
@@ -562,7 +563,7 @@ impl ProjectionFold {
                 {
                     match action {
                         AgentHandoffRowAction::Upsert { row_id, notice } => {
-                            upsert_stable_notice(side_rows, &row_id, record.sequence, notice);
+                            upsert_stable_notice(side_rows, &row_id, record.sequence, *notice);
                         }
                         AgentHandoffRowAction::Remove { row_id } => {
                             side_row_turns.remove(&row_id);
@@ -684,32 +685,30 @@ impl ProjectionFold {
 
     pub(super) fn timeline_rows(&self) -> Vec<TimelineRow> {
         let mut rows = Vec::with_capacity(self.turn_order.len() * 2 + self.side_rows.len());
-        rows.extend(
-            self.side_rows
-                .iter()
-                .filter(|row| self.side_row_turn_id(row).is_none())
-                .cloned(),
-        );
+        let turn_set: std::collections::HashSet<Uuid> = self.turn_order.iter().copied().collect();
+        let mut by_turn: std::collections::HashMap<Uuid, Vec<&TimelineRow>> =
+            std::collections::HashMap::new();
+        let mut orphan_side_rows = Vec::new();
+
+        for row in &self.side_rows {
+            match self.side_row_turn_id(row) {
+                None => rows.push(row.clone()),
+                Some(tid) if turn_set.contains(&tid) => {
+                    by_turn.entry(tid).or_default().push(row);
+                }
+                Some(_) => orphan_side_rows.push(row),
+            }
+        }
+
         for turn_id in &self.turn_order {
             if let Some(turn) = self.turns.get(turn_id) {
                 rows.extend(message_rows(turn));
             }
-            rows.extend(
-                self.side_rows
-                    .iter()
-                    .filter(|row| self.side_row_turn_id(row) == Some(*turn_id))
-                    .cloned(),
-            );
+            if let Some(turn_side_rows) = by_turn.remove(turn_id) {
+                rows.extend(turn_side_rows.into_iter().cloned());
+            }
         }
-        rows.extend(
-            self.side_rows
-                .iter()
-                .filter(|row| {
-                    self.side_row_turn_id(row)
-                        .is_some_and(|tid| !self.turn_order.contains(&tid))
-                })
-                .cloned(),
-        );
+        rows.extend(orphan_side_rows.into_iter().cloned());
         rows
     }
 }
@@ -877,7 +876,7 @@ pub(super) fn message_rows(turn: &ProjectedTurn) -> Vec<TimelineRow> {
 enum AgentHandoffRowAction {
     Upsert {
         row_id: String,
-        notice: ConversationSessionNotice,
+        notice: Box<ConversationSessionNotice>,
     },
     Remove {
         row_id: String,
@@ -954,14 +953,14 @@ fn agent_handoff_notice(
     });
     Some(AgentHandoffRowAction::Upsert {
         row_id: row_id.clone(),
-        notice: ConversationSessionNotice {
+        notice: Box::new(ConversationSessionNotice {
             title: "上下文接力".into(),
             message: Some(structured.to_string()),
             severity: "info".into(),
             announcement_id: Some(row_id),
             action: None,
             ..Default::default()
-        },
+        }),
     })
 }
 

@@ -4,15 +4,21 @@ import { useShallow } from 'zustand/react/shallow';
 type State = {
   expanded: Record<string, boolean>;
   revision: number;
+  processRevision: number;
   setKey: (key: string, value: boolean) => void;
   setKeys: (keys: readonly string[], value: boolean) => void;
   toggleKey: (key: string, fallback?: boolean) => void;
   clear: () => void;
 };
 
+function isProcessKey(key: string): boolean {
+  return key.startsWith('process:');
+}
+
 const useExpandableStore = create<State>((set) => ({
   expanded: {},
   revision: 0,
+  processRevision: 0,
   setKey: (key, value) =>
     set((s) =>
       s.expanded[key] === value
@@ -20,6 +26,7 @@ const useExpandableStore = create<State>((set) => ({
         : {
             expanded: { ...s.expanded, [key]: value },
             revision: s.revision + 1,
+            processRevision: s.processRevision + (isProcessKey(key) ? 1 : 0),
           }
     ),
   setKeys: (keys, value) =>
@@ -32,6 +39,8 @@ const useExpandableStore = create<State>((set) => ({
               ...Object.fromEntries(keys.map((key) => [key, value])),
             },
             revision: s.revision + 1,
+            processRevision:
+              s.processRevision + (keys.some(isProcessKey) ? 1 : 0),
           }
     ),
   toggleKey: (key, fallback = false) =>
@@ -40,9 +49,15 @@ const useExpandableStore = create<State>((set) => ({
       return {
         expanded: { ...s.expanded, [key]: next },
         revision: s.revision + 1,
+        processRevision: s.processRevision + (isProcessKey(key) ? 1 : 0),
       };
     }),
-  clear: () => set((s) => ({ expanded: {}, revision: s.revision + 1 })),
+  clear: () =>
+    set((s) => ({
+      expanded: {},
+      revision: s.revision + 1,
+      processRevision: s.processRevision + 1,
+    })),
 }));
 
 export function useExpandable(
@@ -74,6 +89,14 @@ export function useExpandableGroup(
 
 export function useExpandableRevision(): number {
   return useExpandableStore((s) => s.revision);
+}
+
+export function useProcessExpandableRevision(): number {
+  return useExpandableStore((s) => s.processRevision);
+}
+
+export function getExpandableRevision(): number {
+  return useExpandableStore.getState().revision;
 }
 
 export function isExpandableOpen(key: string, fallback = false): boolean {

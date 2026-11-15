@@ -229,14 +229,15 @@ impl ConversationEventAppender {
             let mut conn = pool.acquire().await?;
             sqlx::query("BEGIN IMMEDIATE").execute(&mut *conn).await?;
 
-            let chunk_outcome: Result<
+            type ChunkOutcome = Result<
                 (
                     Vec<CommittedConversationEvent>,
                     Vec<(usize, sqlx::Error)>,
                     HashMap<Uuid, WriteSideProjectorState>,
                 ),
-                (sqlx::Error, HashSet<Uuid>),
-            > = async {
+                (sqlx::Error, Vec<Uuid>),
+            >;
+            let chunk_outcome: ChunkOutcome = async {
                 let mut committed = Vec::with_capacity(range.len());
                 let mut failed = Vec::new();
                 let mut touched_states: HashMap<Uuid, WriteSideProjectorState> = HashMap::new();
@@ -245,7 +246,12 @@ impl ConversationEventAppender {
                 for idx in range {
                     let item = &events[idx];
                     if let Err(err) = sqlx::query("SAVEPOINT sp_item").execute(&mut *conn).await {
-                        return Err((err, touched_states.keys().copied().collect()));
+                        let rollback_ids: Vec<Uuid> = touched_states
+                            .keys()
+                            .chain(dirty_conversations.iter())
+                            .copied()
+                            .collect();
+                        return Err((err, rollback_ids));
                     }
 
                     enum StepDone {
@@ -276,8 +282,8 @@ impl ConversationEventAppender {
                         .await?;
                         let record =
                             insert_conversation_event(&mut conn, item.as_append()).await?;
-                        let mut candidate = match touched_states.get(&record.conversation_id) {
-                            Some(in_batch) => in_batch.clone(),
+                        let mut candidate = match touched_states.remove(&record.conversation_id) {
+                            Some(in_batch) => in_batch,
                             None => {
                                 get_or_load_write_projector_on_conn(
                                     &mut conn,
@@ -300,7 +306,12 @@ impl ConversationEventAppender {
                                 .execute(&mut *conn)
                                 .await
                             {
-                                return Err((err, touched_states.keys().copied().collect()));
+                                let rollback_ids: Vec<Uuid> = touched_states
+                                    .keys()
+                                    .chain(dirty_conversations.iter())
+                                    .copied()
+                                    .collect();
+                                return Err((err, rollback_ids));
                             }
                             committed.push(CommittedConversationEvent {
                                 index: idx,
@@ -313,7 +324,12 @@ impl ConversationEventAppender {
                                 .execute(&mut *conn)
                                 .await
                             {
-                                return Err((err, touched_states.keys().copied().collect()));
+                                let rollback_ids: Vec<Uuid> = touched_states
+                                    .keys()
+                                    .chain(dirty_conversations.iter())
+                                    .copied()
+                                    .collect();
+                                return Err((err, rollback_ids));
                             }
                             dirty_conversations.insert(record.conversation_id);
                             touched_states.insert(record.conversation_id, *candidate);
@@ -336,11 +352,31 @@ impl ConversationEventAppender {
                 }
 
                 for cid in &dirty_conversations {
+                    if !touched_states.contains_key(cid) {
+                        match get_or_load_write_projector_on_conn(&mut conn, *cid, i64::MAX).await {
+                            Ok(reloaded) => {
+                                touched_states.insert(*cid, reloaded);
+                            }
+                            Err(err) => {
+                                let rollback_ids: Vec<Uuid> = touched_states
+                                    .keys()
+                                    .chain(dirty_conversations.iter())
+                                    .copied()
+                                    .collect();
+                                return Err((err, rollback_ids));
+                            }
+                        }
+                    }
                     if let Some(state) = touched_states.get(cid)
                         && let Err(err) =
                             flush_write_projector_snapshot_on_conn(&mut conn, *cid, state).await
                     {
-                        return Err((err, touched_states.keys().copied().collect()));
+                        let rollback_ids: Vec<Uuid> = touched_states
+                            .keys()
+                            .chain(dirty_conversations.iter())
+                            .copied()
+                            .collect();
+                        return Err((err, rollback_ids));
                     }
                 }
 
@@ -1021,8 +1057,20 @@ impl ConversationProjector {
         conversation_id: Uuid,
         ordinal: i64,
     ) -> Result<(), sqlx::Error> {
-        let drop_input_ids =
-            Self::durable_inputs_undone_by_truncate(conn, conversation_id, ordinal).await?;
+        let input_events = ConversationEventRecord::events_of_kind_since(
+            &mut *conn,
+            conversation_id,
+            "conversation_input",
+            0,
+        )
+        .await?;
+        let drop_input_ids = Self::durable_inputs_undone_by_truncate(
+            conn,
+            conversation_id,
+            ordinal,
+            &input_events,
+        )
+        .await?;
 
         let cut_sequence: Option<i64> = sqlx::query_scalar(
             r#"SELECT MIN(events.sequence)
@@ -1100,7 +1148,7 @@ impl ConversationProjector {
             .await?;
         }
 
-        Self::delete_durable_input_events(conn, conversation_id, &drop_input_ids).await?;
+        Self::delete_durable_input_events(conn, &input_events, &drop_input_ids).await?;
 
         sqlx::query(
             r#"DELETE FROM conversation_turns
@@ -1120,6 +1168,7 @@ impl ConversationProjector {
         conn: &mut SqliteConnection,
         conversation_id: Uuid,
         ordinal: i64,
+        input_events: &[ConversationEventRecord],
     ) -> Result<HashSet<Uuid>, sqlx::Error> {
         let mut ids: HashSet<Uuid> = sqlx::query_scalar(
             r#"SELECT id
@@ -1163,15 +1212,13 @@ impl ConversationProjector {
             return Ok(ids);
         }
 
-        let events =
-            ConversationEventRecord::events_since(&mut *conn, conversation_id, 0, i64::MAX).await?;
-        for record in events {
+        for record in input_events {
             if let ParsedEvent::Known(ConversationEvent::ConversationInput {
                 event:
                     ConversationInputEvent::Dispatched {
                         input_id, turn_id, ..
                     },
-            }) = conversation_event_from_record(&record)
+            }) = conversation_event_from_record(record)
                 && truncated_turn_ids.contains(&turn_id)
             {
                 ids.insert(input_id);
@@ -1182,29 +1229,33 @@ impl ConversationProjector {
 
     async fn delete_durable_input_events(
         conn: &mut SqliteConnection,
-        conversation_id: Uuid,
+        input_events: &[ConversationEventRecord],
         drop_input_ids: &HashSet<Uuid>,
     ) -> Result<(), sqlx::Error> {
         if drop_input_ids.is_empty() {
             return Ok(());
         }
-        let events =
-            ConversationEventRecord::events_since(&mut *conn, conversation_id, 0, i64::MAX).await?;
-        for record in events {
-            if record.event_kind != "conversation_input" {
-                continue;
-            }
+        let mut delete_event_ids = Vec::new();
+        for record in input_events {
             let ParsedEvent::Known(ConversationEvent::ConversationInput { event }) =
-                conversation_event_from_record(&record)
+                conversation_event_from_record(record)
             else {
                 continue;
             };
             if drop_input_ids.contains(&conversation_input_event_id(&event)) {
-                sqlx::query("DELETE FROM conversation_events WHERE id = ?")
-                    .bind(record.id)
-                    .execute(&mut *conn)
-                    .await?;
+                delete_event_ids.push(record.id);
             }
+        }
+        for chunk in delete_event_ids.chunks(200) {
+            let placeholders = std::iter::repeat_n("?", chunk.len())
+                .collect::<Vec<_>>()
+                .join(", ");
+            let sql = format!("DELETE FROM conversation_events WHERE id IN ({placeholders})");
+            let mut query = sqlx::query(&sql);
+            for event_id in chunk {
+                query = query.bind(event_id);
+            }
+            query.execute(&mut *conn).await?;
         }
         Ok(())
     }

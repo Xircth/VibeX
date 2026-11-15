@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 type ComposerPrimaryActionButtonProps = {
   action: 'send' | 'stop';
   label: string;
+  shortcutHint?: string | null;
   pending?: boolean;
   disabled?: boolean;
   onClick: () => void;
@@ -13,10 +14,12 @@ type ComposerPrimaryActionButtonProps = {
 export function ComposerPrimaryActionButton({
   action,
   label,
+  shortcutHint = null,
   pending = false,
   disabled = false,
   onClick,
 }: ComposerPrimaryActionButtonProps) {
+  const tooltipTitle = shortcutHint ? `${label} (${shortcutHint})` : label;
   return (
     <Button
       type="button"
@@ -28,7 +31,7 @@ export function ComposerPrimaryActionButton({
       data-basic-guide={action === 'send' ? 'session-send' : undefined}
       aria-label={label}
       aria-busy={pending || undefined}
-      title={label}
+      title={tooltipTitle}
     >
       {pending ? (
         <Loader2

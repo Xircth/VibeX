@@ -122,4 +122,38 @@ describe('ActionBarIdleControls', () => {
     });
     expect(sendButton.querySelector('.animate-spin')).toBeInTheDocument();
   });
+
+  it('surfaces configured send shortcut in tooltip title and localizes labels across languages', async () => {
+    const { act } = await import('@testing-library/react');
+    const { default: i18n } = await import('@/i18n');
+    const previousLanguage = i18n.language;
+
+    try {
+      const { unmount } = renderIdleControls({ sendShortcut: 'Enter' });
+      const enterSendButton = screen.getByRole('button', { name: SEND_LABEL });
+      expect(enterSendButton).toHaveAttribute('title', `${SEND_LABEL} (Enter)`);
+      unmount();
+
+      await act(async () => {
+        await i18n.changeLanguage('en');
+      });
+
+      renderIdleControls({
+        hasComments: true,
+        sendShortcut: 'ModifierEnter',
+      });
+      const modSendButton = screen.getByRole('button', { name: 'Send' });
+      expect(modSendButton).toHaveAttribute(
+        'title',
+        expect.stringMatching(/^Send \((Ctrl\+Enter|\u2318\+Enter)\)$/)
+      );
+      expect(
+        screen.getByRole('button', { name: 'Clear review' })
+      ).toBeInTheDocument();
+    } finally {
+      await act(async () => {
+        await i18n.changeLanguage(previousLanguage);
+      });
+    }
+  });
 });

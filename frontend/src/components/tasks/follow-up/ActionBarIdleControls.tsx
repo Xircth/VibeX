@@ -1,9 +1,22 @@
+import { useTranslation } from 'react-i18next';
+import type { SendMessageShortcut } from 'shared/types';
 import { Button } from '@/components/ui/button';
 import { ComposerPrimaryActionButton } from './ComposerPrimaryActionButton';
 
-const CLEAR_REVIEW_LABEL = '\u6e05\u9664\u5ba1\u67e5';
-const SEND_LABEL = '\u53d1\u9001';
-const RESOLVE_CONFLICT_LABEL = '\u89e3\u51b3\u51b2\u7a81';
+function formatSendShortcutHint(
+  shortcut: SendMessageShortcut | null | undefined
+): string | null {
+  if (!shortcut) return null;
+  if (shortcut === 'ModifierEnter') {
+    const isApplePlatform =
+      typeof navigator !== 'undefined' &&
+      /Mac|iPhone|iPad|iPod/i.test(
+        navigator.platform || navigator.userAgent || ''
+      );
+    return isApplePlatform ? '⌘+Enter' : 'Ctrl+Enter';
+  }
+  return 'Enter';
+}
 
 type ActionBarIdleControlsProps = {
   isEditable: boolean;
@@ -12,6 +25,7 @@ type ActionBarIdleControlsProps = {
   canSendFollowUp: boolean;
   hasComments: boolean;
   hasConflictResolutionInstructions: boolean;
+  sendShortcut?: SendMessageShortcut | null;
   onSendFollowUp: () => void;
   onClearComments: () => void;
 };
@@ -23,12 +37,15 @@ export function ActionBarIdleControls({
   canSendFollowUp,
   hasComments,
   hasConflictResolutionInstructions,
+  sendShortcut = null,
   onSendFollowUp,
   onClearComments,
 }: ActionBarIdleControlsProps) {
+  const { t } = useTranslation('tasks');
+  const clearReviewLabel = t('composer.clearReview', '清除审查');
   const sendLabel = hasConflictResolutionInstructions
-    ? RESOLVE_CONFLICT_LABEL
-    : SEND_LABEL;
+    ? t('composer.resolveConflict', '解决冲突')
+    : t('composer.send', '发送');
 
   return (
     <div className="flex items-center gap-1">
@@ -40,13 +57,14 @@ export function ActionBarIdleControls({
           disabled={!isEditable}
           className="h-7 px-2 text-xs"
         >
-          {CLEAR_REVIEW_LABEL}
+          {clearReviewLabel}
         </Button>
       ) : null}
 
       <ComposerPrimaryActionButton
         action="send"
         label={sendLabel}
+        shortcutHint={formatSendShortcutHint(sendShortcut)}
         onClick={onSendFollowUp}
         disabled={
           !canSendFollowUp || !isEditable || isAwaitingNewSessionConfirmation

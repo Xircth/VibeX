@@ -47,10 +47,10 @@ export function SessionComposerTopbar({
         <button
           type="button"
           onClick={() => setShowDiffStats((prev) => !prev)}
-          className="composer-control inline-flex items-center rounded-md px-2 py-0.5 text-xs transition-colors"
+          className="composer-control inline-flex items-center rounded-md px-2 py-0.5 text-xs tabular-nums transition-colors"
         >
           {showDiffStats ? (
-            <span className="inline-flex items-center gap-1.5 font-mono">
+            <span className="inline-flex items-center gap-1.5 font-mono tabular-nums">
               <span className="text-[hsl(var(--success))]">+{added}</span>
               <span className="text-destructive">-{deleted}</span>
             </span>

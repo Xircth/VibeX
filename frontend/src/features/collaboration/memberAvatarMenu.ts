@@ -1,4 +1,4 @@
-import { AtSign, MessageCircle, PanelsTopLeft } from 'lucide-react';
+import { AtSign, MessageCircle, PanelsTopLeft, Zap } from 'lucide-react';
 import { Fragment, createElement, type CSSProperties } from 'react';
 import type { ProductContextMenuItem } from '@/components/context-menu/contextMenuTypes';
 import i18n from '@/i18n';
@@ -7,10 +7,12 @@ import {
   deriveMemberBotAvatar,
   type MemberBotAvatarConfig,
 } from './MemberBotAvatar';
+import { requestCollaborationPulseProposal } from './collaborationPulseEvents';
 
 export type MemberAvatarMenuCopy = {
   openPrivateChat: string;
   openSession: string;
+  bindPulseTrigger?: string;
 };
 
 export const MEMBER_AVATAR_MENU_COPY: MemberAvatarMenuCopy = {
@@ -20,16 +22,26 @@ export const MEMBER_AVATAR_MENU_COPY: MemberAvatarMenuCopy = {
   get openSession() {
     return i18n.t('panels:collabCopy.openSession');
   },
+  get bindPulseTrigger() {
+    return i18n.t(
+      'panels:collabCopy.bindPulseTrigger',
+      'Bind Event Trigger to Seat…'
+    );
+  },
 };
 
 export type BuildMemberAvatarMenuInput = {
   nickname: string;
   color: string;
   avatar?: MemberBotAvatarConfig;
+  memberId?: string;
+  spaceId?: string;
+  spaceName?: string;
   copy?: MemberAvatarMenuCopy;
   onMention: () => void;
   onOpenPrivateChat: () => void;
   onOpenSession: () => void;
+  onBindPulseTrigger?: () => void;
 };
 
 export function memberMentionMenuLabel(nickname: string): string {
@@ -44,10 +56,14 @@ export function buildMemberAvatarMenuItems({
   nickname,
   color,
   avatar,
+  memberId,
+  spaceId,
+  spaceName,
   copy = MEMBER_AVATAR_MENU_COPY,
   onMention,
   onOpenPrivateChat,
   onOpenSession,
+  onBindPulseTrigger,
 }: BuildMemberAvatarMenuInput): ProductContextMenuItem[] {
   const name = memberMentionMenuLabel(nickname);
   const baseAvatar = avatar ?? deriveMemberBotAvatar(name);
@@ -86,6 +102,23 @@ export function buildMemberAvatarMenuItems({
       label: copy.openSession,
       icon: PanelsTopLeft,
       onSelect: onOpenSession,
+    },
+    { type: 'separator', id: 'pulse-seat-sep' },
+    {
+      id: 'bind-member-pulse-trigger',
+      label: copy.bindPulseTrigger ?? 'Bind Event Trigger to Seat…',
+      icon: Zap,
+      onSelect:
+        onBindPulseTrigger ??
+        (() => {
+          requestCollaborationPulseProposal({
+            kind: 'group-seat',
+            spaceId: spaceId ?? null,
+            spaceName: spaceName ?? null,
+            memberId: memberId ?? null,
+            nickname: name,
+          });
+        }),
     },
   ];
 }

@@ -1,6 +1,7 @@
 import {
   Bell,
   BellOff,
+  CalendarClock,
   Copy,
   Eye,
   EyeOff,
@@ -10,9 +11,11 @@ import {
   PinOff,
   Trash2,
   UserMinus,
+  Zap,
 } from 'lucide-react';
 import type { ProductContextMenuItem } from '@/components/context-menu/contextMenuTypes';
 import { UNGROUPED_SECTION_ID } from './contactGroups';
+import { requestCollaborationPulseProposal } from './collaborationPulseEvents';
 import type { ChatListEntry } from './spaceModel';
 import i18n from '@/i18n';
 
@@ -30,6 +33,8 @@ export type ContactRowMenuCopy = {
   renameAssistant: string;
   renameGroup: string;
   copyThreadId: string;
+  createPulseTrigger?: string;
+  schedulePulse?: string;
   hideFromSidebar: string;
   showInSidebar: string;
   delete: string;
@@ -61,6 +66,15 @@ export const CONTACT_ROW_MENU_COPY: ContactRowMenuCopy = {
   get copyThreadId() {
     return i18n.t('panels:contactRowMenu.copyThreadId');
   },
+  get createPulseTrigger() {
+    return i18n.t(
+      'panels:contactRowMenu.createPulseTrigger',
+      'Create Event Trigger…'
+    );
+  },
+  get schedulePulse() {
+    return i18n.t('panels:contactRowMenu.schedulePulse', 'Schedule Pulse…');
+  },
   get hideFromSidebar() {
     return i18n.t('panels:contactRowMenu.hideFromSidebar');
   },
@@ -88,6 +102,8 @@ export type BuildContactRowMenuInput = {
   onToggleUnread: () => void;
   onRename: () => void;
   onCopyId: () => void;
+  onCreatePulseTrigger?: () => void;
+  onSchedulePulse?: () => void;
   onHide: () => void;
   onDelete: () => void;
   onStepDownSupervisor?: () => void;
@@ -106,6 +122,8 @@ export function buildContactRowMenuItems({
   onToggleUnread,
   onRename,
   onCopyId,
+  onCreatePulseTrigger,
+  onSchedulePulse,
   onHide,
   onDelete,
   onStepDownSupervisor,
@@ -157,6 +175,47 @@ export function buildContactRowMenuItems({
       onSelect: onCopyId,
     }
   );
+
+  if (entry.type === 'direct') {
+    const resolvedMemberId =
+      entry.member.member_id?.trim() ||
+      entry.member.conversation_id?.trim() ||
+      entry.threadId ||
+      'bot';
+    items.push(
+      { type: 'separator', id: 'sep-pulse' },
+      {
+        id: 'create-pulse-trigger',
+        label: copy.createPulseTrigger ?? 'Create Event Trigger…',
+        icon: Zap,
+        onSelect:
+          onCreatePulseTrigger ??
+          (() => {
+            requestCollaborationPulseProposal({
+              kind: 'bot',
+              memberId: resolvedMemberId,
+              botName: entry.name,
+              mode: 'event',
+            });
+          }),
+      },
+      {
+        id: 'schedule-pulse',
+        label: copy.schedulePulse ?? 'Schedule Pulse…',
+        icon: CalendarClock,
+        onSelect:
+          onSchedulePulse ??
+          (() => {
+            requestCollaborationPulseProposal({
+              kind: 'bot',
+              memberId: resolvedMemberId,
+              botName: entry.name,
+              mode: 'schedule',
+            });
+          }),
+      }
+    );
+  }
 
   if (isSupervisor) {
     if (onStepDownSupervisor) {

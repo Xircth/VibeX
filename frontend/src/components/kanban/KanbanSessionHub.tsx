@@ -78,6 +78,7 @@ import { useOptionalCollaborationSpaceStore } from '@/features/collaboration/spa
 import { consumeCanvasParentNodeId } from './canvas/canvasWorkspaceBridge';
 import { SessionHubMonitor } from './session-hub/SessionHubMonitor';
 import { SessionHubSidebar } from './session-hub/SessionHubSidebar';
+import { IssuePulseDispatchPopover } from './IssuePulseDispatchPopover';
 
 const LazyCanvasCreateSessionPanel = lazy(() =>
   import('./canvas/CanvasCreateSessionPanel').then((module) => ({
@@ -89,19 +90,28 @@ const LazySessionCanvasView = lazy(() =>
     default: module.SessionCanvasView,
   }))
 );
+const LazyPulseDeckView = lazy(() =>
+  import('./PulseDeckView').then((module) => ({
+    default: module.PulseDeckView,
+  }))
+);
 import { useKanbanSessionMutations } from './session-hub/useKanbanSessionMutations';
 import {
-  DEFAULT_SESSION_LIST_WIDTH,
   ARCHIVED_SESSION_STATUS,
   MAX_SESSION_LIST_WIDTH,
   MIN_SESSION_LIST_WIDTH,
   SESSION_LIST_WIDTH_STORAGE_KEY,
+  applyOptimisticSessionPatches,
   getBulkDeleteSessionSummary,
   getCanCreateKanbanSession,
   getExecutorFilterOptions,
   filterKanbanSessions,
   groupKanbanSessionsByStatus,
+  isMainlineBranch,
   mapSessionErrorMessage,
+  matchesBranch,
+  readInitialSessionListWidth,
+  resolveRestoredSessionName,
   sessionCompletesWhenViewed,
   sortSessions,
   toggleStringValue,
@@ -110,52 +120,6 @@ import {
 } from './session-hub/utils';
 
 type SessionStatusKey = ActiveSessionStatus;
-const MAINLINE_BRANCH_NAMES = new Set(['main', 'master']);
-
-function isMainlineBranch(branch: string | null | undefined) {
-  const normalized = (branch ?? '').trim().toLowerCase();
-  return (
-    MAINLINE_BRANCH_NAMES.has(normalized) ||
-    normalized.endsWith('/main') ||
-    normalized.endsWith('/master')
-  );
-}
-
-function matchesBranch(
-  branch: string | null | undefined,
-  expectedBranch: string
-) {
-  const normalized = (branch ?? '').trim().toLowerCase();
-  return (
-    normalized === expectedBranch || normalized.endsWith(`/${expectedBranch}`)
-  );
-}
-
-function resolveRestoredSessionName(
-  session: KanbanProjectSessionRecord,
-  activeSessions: KanbanProjectSessionRecord[]
-) {
-  const baseName =
-    (session.fullName ?? '').trim() || (session.name ?? '').trim() || 'session';
-  const activeNames = new Set(
-    activeSessions
-      .map((candidate) => (candidate.fullName ?? '').trim())
-      .filter((name) => name.length > 0)
-  );
-
-  if (!activeNames.has(baseName)) {
-    return null;
-  }
-
-  let suffix = 1;
-  let candidateName = `${baseName}_${suffix}`;
-  while (activeNames.has(candidateName)) {
-    suffix += 1;
-    candidateName = `${baseName}_${suffix}`;
-  }
-
-  return candidateName;
-}
 
 interface KanbanSessionHubProps {
   /** Left-to-right zone order for the hub row (list / monitor / session). */
@@ -185,6 +149,7 @@ export function KanbanSessionHub({
   const [canvasWindowSessionIds, setCanvasWindowSessionIds] = useState<
     string[]
   >([]);
+  const [isPulseDeckOpen, setIsPulseDeckOpen] = useState(false);
   const [searchParams, setSearchParams] = useSearchParams();
   const { projectId, project } = useProject();
   const { data: repos, isPending: isReposPending } = useProjectRepos(projectId);
@@ -349,25 +314,9 @@ export function KanbanSessionHub({
     inreview: true,
     done: true,
   });
-  const [sessionListWidth, setSessionListWidth] = useState(() => {
-    if (typeof window === 'undefined') {
-      return DEFAULT_SESSION_LIST_WIDTH;
-    }
-
-    const stored = Number.parseInt(
-      window.localStorage.getItem(SESSION_LIST_WIDTH_STORAGE_KEY) ?? '',
-      10
-    );
-
-    if (Number.isNaN(stored)) {
-      return DEFAULT_SESSION_LIST_WIDTH;
-    }
-
-    return Math.min(
-      MAX_SESSION_LIST_WIDTH,
-      Math.max(MIN_SESSION_LIST_WIDTH, stored)
-    );
-  });
+  const [sessionListWidth, setSessionListWidth] = useState(
+    readInitialSessionListWidth
+  );
   const sessionListResizeStartRef = useRef<{
     x: number;
     width: number;
@@ -607,30 +556,11 @@ export function KanbanSessionHub({
 
   const sessionsWithOptimisticStatus = useMemo(
     () =>
-      sessions.map((session) => {
-        const optimisticStatus = optimisticStatusBySessionId[session.id];
-        const hasOptimisticPin = Object.prototype.hasOwnProperty.call(
-          optimisticPinnedAtBySessionId,
-          session.id
-        );
-        const optimisticPinnedAt = optimisticPinnedAtBySessionId[session.id];
-        const statusChanged =
-          Boolean(optimisticStatus) && optimisticStatus !== session.status;
-        const pinChanged =
-          hasOptimisticPin && optimisticPinnedAt !== session.pinnedAt;
-
-        if (!statusChanged && !pinChanged) {
-          return session;
-        }
-
-        const nextStatus = optimisticStatus ?? session.status;
-        return {
-          ...session,
-          status: nextStatus,
-          isCompleted: nextStatus === 'done',
-          pinnedAt: hasOptimisticPin ? optimisticPinnedAt : session.pinnedAt,
-        };
-      }),
+      applyOptimisticSessionPatches(
+        sessions,
+        optimisticStatusBySessionId,
+        optimisticPinnedAtBySessionId
+      ),
     [optimisticPinnedAtBySessionId, optimisticStatusBySessionId, sessions]
   );
 
@@ -1385,10 +1315,35 @@ export function KanbanSessionHub({
           [status as SessionStatusKey]: expanded,
         }));
       }}
+      pulseDispatchSlot={
+        <IssuePulseDispatchPopover
+          compactIconOnly
+          projectId={projectId}
+          workspaceId={activeWorktreeId}
+          sessionId={listExecutionPlacement?.sessionId ?? null}
+          sessionTitle={project?.name ?? null}
+          branchName={
+            workspaces.find((w) => w.id === activeWorktreeId)?.branch ?? null
+          }
+          isPulseDeckOpen={isPulseDeckOpen}
+          onCreateFreshSession={() => {
+            if (boardStyle === 'canvas') {
+              handleCreatePopoverOpenChange(true);
+              return;
+            }
+            requestCreateSessionInExecutionArea(setSearchParams, searchParams);
+          }}
+          onOpenPulseDeck={() => setIsPulseDeckOpen((prev) => !prev)}
+        />
+      }
     />
   );
 
-  const monitorElement = (
+  const monitorElement = isPulseDeckOpen ? (
+    <Suspense fallback={null}>
+      <LazyPulseDeckView projectId={projectId} className="min-w-0 flex-1" />
+    </Suspense>
+  ) : (
     <SessionHubMonitor
       monitorRecords={monitorRecords}
       canUseRightPanelForSessions={canUseRightPanelForSessions}
@@ -1400,107 +1355,119 @@ export function KanbanSessionHub({
   if (boardStyle === 'canvas') {
     return (
       <TooltipProvider delayDuration={120}>
-        <div className="session-hub-shell h-full w-full min-h-0 min-w-0">
-          <Suspense fallback={null}>
-            <LazySessionCanvasView
-              projectId={projectId ?? ''}
-              sessions={sessionsForCanvas}
-              sessionsReady={!isLoading}
-              listWidth={sessionListWidth}
-              projectName={project?.name ?? ''}
-              list={sidebarElement}
-              createPanel={
-                isCreatePopoverVisible ? (
-                  <Suspense fallback={null}>
-                    <LazyCanvasCreateSessionPanel
-                      isGitProject={Boolean(project?.is_git)}
-                      createMode={createMode}
-                      onCreateModeChange={setUserCreateMode}
-                      workspaceBranchOptions={workspaceBranchOptions}
-                      createWorkspaceValue={createWorkspaceValue}
-                      onCreateWorkspaceValueChange={updateCreateWorkspaceValue}
-                      profiles={profiles}
-                      selectedExecutorProfile={selectedExecutorProfile}
-                      onSelectedExecutorProfileChange={
-                        updateSelectedExecutorProfile
-                      }
-                      repoBranchConfigs={repoBranchConfigs}
-                      onRepoBranchChange={setRepoBranch}
-                      isLoadingRepoBranches={isLoadingRepoBranches}
-                      canCreateSession={canCreateSession}
-                      isCreatePending={createSessionMutation.isPending}
-                      createError={createSessionMutation.error}
-                      onSubmit={(input) => {
-                        void handleSubmitCreateSession(input);
-                      }}
-                      onClose={() => handleCreatePopoverOpenChange(false)}
-                      onSessionControlsPresetChange={(preset) => {
-                        sessionControlsPresetRef.current = preset;
-                      }}
-                    />
-                  </Suspense>
-                ) : null
-              }
-              onRenameSession={renameListedSession}
-              onArchiveSession={async (session) => {
-                const archived = await handleSessionStatusChange(
-                  session,
-                  ARCHIVED_SESSION_STATUS
-                );
-                if (archived) canvasApiRef.current?.removeSession(session.id);
-              }}
-              onDeleteSession={handleDeleteSession}
-              onApiReady={(api) => {
-                canvasApiRef.current = api;
-              }}
-              onWindowSessionIdsChange={setCanvasWindowSessionIds}
-              onSelectedSessionChange={replaceRightSession}
-              hideSessionList={workspaceStage}
-              registerWorkspaceController={workspaceStage}
-              onCreateSession={() => {
-                pendingCreateParentNodeIdRef.current =
-                  consumeCanvasParentNodeId();
-                if (!workspaceStage) {
-                  setKanbanCanvasListVisible(true);
+        <div className="session-hub-shell relative h-full w-full min-h-0 min-w-0">
+          {isPulseDeckOpen ? (
+            <div className="flex h-full min-h-0 w-full">
+              {workspaceStage ? null : sidebarElement}
+              <Suspense fallback={null}>
+                <LazyPulseDeckView
+                  projectId={projectId}
+                  className="min-w-0 flex-1"
+                />
+              </Suspense>
+            </div>
+          ) : (
+            <Suspense fallback={null}>
+              <LazySessionCanvasView
+                projectId={projectId ?? ''}
+                sessions={sessionsForCanvas}
+                sessionsReady={!isLoading}
+                listWidth={sessionListWidth}
+                projectName={project?.name ?? ''}
+                list={sidebarElement}
+                createPanel={
+                  isCreatePopoverVisible ? (
+                    <Suspense fallback={null}>
+                      <LazyCanvasCreateSessionPanel
+                        isGitProject={Boolean(project?.is_git)}
+                        createMode={createMode}
+                        onCreateModeChange={setUserCreateMode}
+                        workspaceBranchOptions={workspaceBranchOptions}
+                        createWorkspaceValue={createWorkspaceValue}
+                        onCreateWorkspaceValueChange={updateCreateWorkspaceValue}
+                        profiles={profiles}
+                        selectedExecutorProfile={selectedExecutorProfile}
+                        onSelectedExecutorProfileChange={
+                          updateSelectedExecutorProfile
+                        }
+                        repoBranchConfigs={repoBranchConfigs}
+                        onRepoBranchChange={setRepoBranch}
+                        isLoadingRepoBranches={isLoadingRepoBranches}
+                        canCreateSession={canCreateSession}
+                        isCreatePending={createSessionMutation.isPending}
+                        createError={createSessionMutation.error}
+                        onSubmit={(input) => {
+                          void handleSubmitCreateSession(input);
+                        }}
+                        onClose={() => handleCreatePopoverOpenChange(false)}
+                        onSessionControlsPresetChange={(preset) => {
+                          sessionControlsPresetRef.current = preset;
+                        }}
+                      />
+                    </Suspense>
+                  ) : null
                 }
-                handleCreatePopoverOpenChange(true);
-              }}
-              onCreateSessionWithExecutor={(executorName) => {
-                if (createSessionMutation.isPending) return;
-                pendingCreateParentNodeIdRef.current =
-                  consumeCanvasParentNodeId();
-                if (!workspaceStage) {
-                  setKanbanCanvasListVisible(true);
-                }
-                handleCreatePopoverOpenChange(true);
-                const executorProfile: ExecutorProfileId = {
-                  executor:
-                    executorName as NonNullable<ExecutorProfileId>['executor'],
-                  variant: null,
-                };
-                updateSelectedExecutorProfile(executorProfile);
-                if (
-                  getCanCreateKanbanSession({
-                    executorProfile,
-                    isPending: createSessionMutation.isPending,
-                    mode: defaultCreateMode,
-                    selectedWorkspaceOption: findWorkspaceBranchOption(
-                      workspaceBranchOptions,
-                      defaultWorkspaceValue
-                    ),
-                    projectRepoCount: project?.is_git ? projectRepos.length : 0,
-                    repoBranchConfigs,
-                  })
-                ) {
-                  void handleSubmitCreateSession(undefined, {
-                    workspaceValue: defaultWorkspaceValue,
-                    executorProfile,
-                    mode: defaultCreateMode,
-                  });
-                }
-              }}
-            />
-          </Suspense>
+                onRenameSession={renameListedSession}
+                onArchiveSession={async (session) => {
+                  const archived = await handleSessionStatusChange(
+                    session,
+                    ARCHIVED_SESSION_STATUS
+                  );
+                  if (archived) canvasApiRef.current?.removeSession(session.id);
+                }}
+                onDeleteSession={handleDeleteSession}
+                onApiReady={(api) => {
+                  canvasApiRef.current = api;
+                }}
+                onWindowSessionIdsChange={setCanvasWindowSessionIds}
+                onSelectedSessionChange={replaceRightSession}
+                hideSessionList={workspaceStage}
+                registerWorkspaceController={workspaceStage}
+                onCreateSession={() => {
+                  pendingCreateParentNodeIdRef.current =
+                    consumeCanvasParentNodeId();
+                  if (!workspaceStage) {
+                    setKanbanCanvasListVisible(true);
+                  }
+                  handleCreatePopoverOpenChange(true);
+                }}
+                onCreateSessionWithExecutor={(executorName) => {
+                  if (createSessionMutation.isPending) return;
+                  pendingCreateParentNodeIdRef.current =
+                    consumeCanvasParentNodeId();
+                  if (!workspaceStage) {
+                    setKanbanCanvasListVisible(true);
+                  }
+                  handleCreatePopoverOpenChange(true);
+                  const executorProfile: ExecutorProfileId = {
+                    executor:
+                      executorName as NonNullable<ExecutorProfileId>['executor'],
+                    variant: null,
+                  };
+                  updateSelectedExecutorProfile(executorProfile);
+                  if (
+                    getCanCreateKanbanSession({
+                      executorProfile,
+                      isPending: createSessionMutation.isPending,
+                      mode: defaultCreateMode,
+                      selectedWorkspaceOption: findWorkspaceBranchOption(
+                        workspaceBranchOptions,
+                        defaultWorkspaceValue
+                      ),
+                      projectRepoCount: project?.is_git ? projectRepos.length : 0,
+                      repoBranchConfigs,
+                    })
+                  ) {
+                    void handleSubmitCreateSession(undefined, {
+                      workspaceValue: defaultWorkspaceValue,
+                      executorProfile,
+                      mode: defaultCreateMode,
+                    });
+                  }
+                }}
+              />
+            </Suspense>
+          )}
         </div>
       </TooltipProvider>
     );

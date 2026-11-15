@@ -3,7 +3,7 @@ use chrono::Utc;
 use db::models::{
     conversation::ConversationRecord,
     conversation_event::AppendConversationEvent,
-    conversation_turn::{ConversationTurnRecord, CreateConversationTurn},
+    conversation_turn::ConversationTurnRecord,
     session::{CreateSession, Session, SessionStatus},
 };
 use executors::profile::ExecutorProfileId;
@@ -400,12 +400,20 @@ pub async fn create_fork_conversation(
         initial_prompt: input.initial_prompt,
         status: Some(SessionStatus::InProgress),
     };
+    let _ = crate::ensure_legacy_jsonl_migrated_on_pool(pool, input.parent_conversation_id).await?;
     let mut conn = pool.acquire().await?;
     sqlx::query("BEGIN IMMEDIATE").execute(&mut *conn).await?;
     let transaction = async {
         Session::create_on_connection(&mut conn, &session, input.id, parent.workspace_id)
             .await
             .map_err(|error| ConversationServiceError::Internal(error.to_string()))?;
+        copy_sqlite_conversation_snapshot_on_connection(
+            &mut conn,
+            input.parent_conversation_id,
+            input.id,
+            None,
+        )
+        .await?;
         ConversationEventAppender::append_and_apply(
             &mut conn,
             AppendConversationEvent {
@@ -434,13 +442,6 @@ pub async fn create_fork_conversation(
         }
     };
     drop(conn);
-    crate::jsonl_history::copy_transcript_snapshot(
-        pool,
-        input.parent_conversation_id,
-        input.id,
-        None,
-    )
-    .await?;
     Ok(input.id)
 }
 
@@ -462,6 +463,7 @@ pub async fn fork_visible_conversation(
             ))
         })?;
     ensure_conversation_has_no_in_flight_turn(pool, &parent).await?;
+    let _ = crate::ensure_legacy_jsonl_migrated_on_pool(pool, input.source_id).await?;
     if let Some(until_turn_id) = input.until_turn_id {
         let turn = ConversationTurnRecord::find_by_id(pool, until_turn_id)
             .await?
@@ -496,6 +498,13 @@ pub async fn fork_visible_conversation(
         Session::create_on_connection(&mut conn, &session, child_id, parent.workspace_id)
             .await
             .map_err(|error| ConversationServiceError::Internal(error.to_string()))?;
+        copy_sqlite_conversation_snapshot_on_connection(
+            &mut conn,
+            input.source_id,
+            child_id,
+            input.until_turn_id,
+        )
+        .await?;
         Ok::<_, ConversationServiceError>(())
     }
     .await;
@@ -508,46 +517,179 @@ pub async fn fork_visible_conversation(
     };
     drop(conn);
 
-    let copied = crate::jsonl_history::copy_transcript_snapshot(
-        pool,
-        input.source_id,
-        child_id,
-        input.until_turn_id,
+    let copied = crate::ConversationProjector::project_turns_summary(pool, child_id)
+        .await?
+        .len();
+    Ok((child_id, copied))
+}
+
+async fn copy_sqlite_conversation_snapshot_on_connection(
+    conn: &mut sqlx::SqliteConnection,
+    source_id: Uuid,
+    child_id: Uuid,
+    until_turn_id: Option<Uuid>,
+) -> Result<(), ConversationServiceError> {
+    use std::collections::{HashMap, HashSet};
+    use db::models::conversation_event::{ConversationEventRecord, insert_conversation_event};
+
+    let source_turns = sqlx::query_as::<_, ConversationTurnRecord>(
+        r#"SELECT id,
+                  conversation_id,
+                  ordinal,
+                  agent_binding_id,
+                  prompt_id,
+                  role,
+                  origin,
+                  completion_effects_claimed_at,
+                  status,
+                  text_preview,
+                  input_blocks_json,
+                  stop_reason,
+                  model,
+                  usage_json,
+                  error_json,
+                  started_at,
+                  completed_at,
+                  created_at,
+                  updated_at
+           FROM conversation_turns
+           WHERE conversation_id = ?
+           ORDER BY ordinal ASC"#,
     )
+    .bind(source_id)
+    .fetch_all(&mut *conn)
     .await?;
-    let source_turns = ConversationTurnRecord::list_for_conversation(pool, input.source_id).await?;
+
     let mut kept_turns = Vec::new();
+    let mut dropped_turn_ids = HashSet::new();
+    let mut reached_cutoff = false;
     for turn in source_turns {
-        let stop = input.until_turn_id.is_some_and(|cut| turn.id == cut);
+        if reached_cutoff {
+            dropped_turn_ids.insert(turn.id);
+            continue;
+        }
+        let is_cut = until_turn_id.is_some_and(|cut| turn.id == cut);
         kept_turns.push(turn);
-        if stop {
-            break;
+        if is_cut {
+            reached_cutoff = true;
         }
     }
-    for source_turn in kept_turns {
-        if let Ok(created) = ConversationTurnRecord::create_pending(
-            pool,
-            Uuid::new_v4(),
-            CreateConversationTurn {
+
+    let mut turn_map = HashMap::with_capacity(kept_turns.len());
+    let mut kept_turn_ids = HashSet::with_capacity(kept_turns.len());
+    for (idx, source_turn) in kept_turns.iter().enumerate() {
+        let new_turn_id = Uuid::new_v4();
+        let ordinal = (idx as i64) + 1;
+        let in_flight = is_in_flight_turn_status(&source_turn.status);
+        let status = if in_flight {
+            "completed"
+        } else {
+            source_turn.status.as_str()
+        };
+        let completed_at = if in_flight {
+            source_turn.completed_at.or_else(|| Some(Utc::now()))
+        } else {
+            source_turn.completed_at
+        };
+        sqlx::query(
+            r#"INSERT INTO conversation_turns (
+                   id,
+                   conversation_id,
+                   agent_binding_id,
+                   ordinal,
+                   prompt_id,
+                   role,
+                   origin,
+                   status,
+                   text_preview,
+                   input_blocks_json,
+                   stop_reason,
+                   model,
+                   usage_json,
+                   error_json,
+                   started_at,
+                   completed_at,
+                   created_at,
+                   updated_at
+               ) VALUES (?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"#,
+        )
+        .bind(new_turn_id)
+        .bind(child_id)
+        .bind(ordinal)
+        .bind(&source_turn.prompt_id)
+        .bind(&source_turn.role)
+        .bind(&source_turn.origin)
+        .bind(status)
+        .bind(&source_turn.text_preview)
+        .bind(&source_turn.input_blocks_json)
+        .bind(&source_turn.stop_reason)
+        .bind(&source_turn.model)
+        .bind(&source_turn.usage_json)
+        .bind(&source_turn.error_json)
+        .bind(source_turn.started_at)
+        .bind(completed_at)
+        .bind(source_turn.created_at)
+        .bind(source_turn.updated_at)
+        .execute(&mut *conn)
+        .await?;
+        turn_map.insert(source_turn.id, new_turn_id);
+        kept_turn_ids.insert(source_turn.id);
+    }
+
+    let source_events =
+        ConversationEventRecord::events_since(&mut *conn, source_id, 0, i64::MAX).await?;
+    let first_dropped_seq = if until_turn_id.is_some() {
+        source_events
+            .iter()
+            .find(|ev| ev.turn_id.is_some_and(|tid| dropped_turn_ids.contains(&tid)))
+            .map(|ev| ev.sequence)
+    } else {
+        None
+    };
+
+    for record in source_events {
+        if record.event_kind == "conversation_relation_created" {
+            continue;
+        }
+        let mapped_turn_id = match record.turn_id {
+            Some(tid) => {
+                if until_turn_id.is_some() && !kept_turn_ids.contains(&tid) {
+                    continue;
+                }
+                turn_map.get(&tid).copied()
+            }
+            None => {
+                if first_dropped_seq.is_some_and(|cutoff| record.sequence >= cutoff) {
+                    continue;
+                }
+                None
+            }
+        };
+        insert_conversation_event(
+            &mut *conn,
+            AppendConversationEvent {
+                id: Uuid::new_v4(),
                 conversation_id: child_id,
-                prompt_id: source_turn.prompt_id.as_deref(),
-                text_preview: source_turn.text_preview.as_deref(),
-                input_blocks_json: &source_turn.input_blocks_json,
+                turn_id: mapped_turn_id,
+                binding_id: None,
+                connection_id: None,
+                prompt_id: record.prompt_id.as_deref(),
+                source: &record.source,
+                event_kind: &record.event_kind,
+                normalized_json: &record.normalized_json,
+                raw_json: record.raw_json.as_deref(),
+                idempotency_key: None,
             },
         )
-        .await
-        {
-            let _ = ConversationTurnRecord::mark_completed(
-                pool,
-                created.id,
-                source_turn.stop_reason.as_deref(),
-                None,
-                None,
-            )
-            .await;
-        }
+        .await?;
     }
-    Ok((child_id, copied))
+
+    crate::ConversationProjector::rebuild_on_connection(&mut *conn, child_id).await?;
+    sqlx::query("UPDATE sessions SET legacy_jsonl_migrated = 1 WHERE id = ?")
+        .bind(child_id)
+        .execute(&mut *conn)
+        .await?;
+    Ok(())
 }
 
 pub async fn create_workflow_conversation(

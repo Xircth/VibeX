@@ -4,13 +4,19 @@ use std::{
 };
 
 use agents::{
-    AgentAuthenticationStatus, AgentContentBlock, AgentId, AgentLifecycleState,
-    AgentManagementSnapshot, SessionGate, SessionGateError, SessionGateInput, SessionLaunchLock,
-    bind_pi_acp_pi_command, discover_path_acp_launch_lock, lifecycle_ready_for_path_acp,
+    AgentAuthenticationStatus, AgentContentBlock, AgentId, AgentKind, AgentLifecycleState,
+    AgentManagementSnapshot, BuiltInProfileCatalog, ProfileTopology, SessionGate, SessionGateError,
+    SessionGateInput, SessionLaunchLock, bind_pi_acp_pi_command, discover_path_acp_launch_lock,
+    engine::{EngineRuntimePreference, resolve_native_engine_kind_with_env},
+    launch_program_is_legacy_acp_shim, lifecycle_ready_for_path_acp,
+    secret_resolution::{
+        ProviderAuthMode, ProviderInstanceConfig, SecretRef, SecretResolver,
+        ensure_private_instance_dir,
+    },
     session_launch_rejection_message,
 };
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
-use db::models::{repo::Repo, workspace::Workspace};
+use db::models::{provider_instance::ProviderInstanceRecord, repo::Repo, workspace::Workspace};
 use serde::Deserialize;
 use sqlx::{Row, SqlitePool};
 
@@ -114,11 +120,35 @@ pub async fn session_launch_rejection_from_pool(
     session_launch_rejection_message(&error, output.as_deref())
 }
 
+fn is_native_engine_launch(agent_id: &AgentId, setting_env: &HashMap<String, String>) -> bool {
+    let env_mode_owned = setting_env
+        .get("VIBEX_ENGINE_MODE")
+        .cloned()
+        .or_else(|| std::env::var("VIBEX_ENGINE_MODE").ok());
+    if resolve_native_engine_kind_with_env(
+        agent_id.as_str(),
+        EngineRuntimePreference::NativeFirst,
+        env_mode_owned.as_deref(),
+    )
+    .is_some()
+    {
+        return true;
+    }
+    env_mode_owned
+        .as_deref()
+        .map(str::trim)
+        .is_none_or(|mode| !mode.eq_ignore_ascii_case("acp"))
+        && BuiltInProfileCatalog::bundled()
+            .profile(agent_id)
+            .is_some_and(|profile| matches!(profile.topology, ProfileTopology::NativeEngine(_)))
+}
+
 async fn session_launch_lock_from_payload(
     pool: &SqlitePool,
     agent_id: &AgentId,
     lock_id: &str,
     payload: LockedLaunchPayload,
+    allow_runtime_program: bool,
 ) -> Result<SessionLaunchLock, ConversationServiceError> {
     let acp_component = sqlx::query(
         r#"SELECT absolute_path, version
@@ -133,7 +163,7 @@ async fn session_launch_lock_from_payload(
     .fetch_optional(pool)
     .await?;
     let runtime_component = sqlx::query(
-        r#"SELECT version
+        r#"SELECT absolute_path, version
            FROM agent_install_component
            WHERE lock_id = ?
              AND component_kind IN ('runtime', 'agent_runtime', 'combined_runtime')
@@ -144,28 +174,67 @@ async fn session_launch_lock_from_payload(
     .bind(lock_id)
     .fetch_optional(pool)
     .await?;
-    let absolute_acp_program = match acp_component.as_ref() {
-        Some(component) => PathBuf::from(component.try_get::<String, _>("absolute_path")?),
-        None => payload.absolute_acp_program.ok_or_else(|| {
+    let runtime_version = match runtime_component.as_ref() {
+        Some(component) => component.try_get::<String, _>("version")?,
+        None => payload.runtime_version.unwrap_or_default(),
+    };
+    let runtime_program = match runtime_component.as_ref() {
+        Some(component) => Some(PathBuf::from(
+            component.try_get::<String, _>("absolute_path")?,
+        )),
+        None => None,
+    };
+    let acp_program = match acp_component.as_ref() {
+        Some(component) => Some(PathBuf::from(
+            component.try_get::<String, _>("absolute_path")?,
+        )),
+        None => payload.absolute_acp_program,
+    };
+    let (absolute_acp_program, used_runtime_fallback) = if allow_runtime_program {
+        match (runtime_program, acp_program) {
+            (Some(rt), Some(acp))
+                if launch_program_is_legacy_acp_shim(agent_id, &acp)
+                    || !agents::launch_program_available(&acp) =>
+            {
+                (rt, true)
+            }
+            (Some(rt), None) => (rt, true),
+            (_, Some(acp)) => (acp, false),
+            (None, None) => {
+                return Err(ConversationServiceError::Internal(
+                    "Installation lock has no runtime or ACP component path".to_string(),
+                ));
+            }
+        }
+    } else {
+        let program = acp_program.ok_or_else(|| {
             ConversationServiceError::Internal(
                 "Installation lock has no ACP component path".to_string(),
             )
-        })?,
+        })?;
+        (program, false)
     };
     if !absolute_acp_program.is_absolute() {
         return Err(ConversationServiceError::Internal(
             "Installation lock ACP component path is not absolute".to_string(),
         ));
     }
-    let acp_version = match acp_component.as_ref() {
-        Some(component) => component.try_get::<String, _>("version")?,
-        None => payload.acp_version.ok_or_else(|| {
-            ConversationServiceError::Internal("Installation lock has no ACP version".to_string())
-        })?,
-    };
-    let runtime_version = match runtime_component.as_ref() {
-        Some(component) => component.try_get::<String, _>("version")?,
-        None => payload.runtime_version.unwrap_or_default(),
+    let acp_version = if used_runtime_fallback {
+        payload
+            .acp_version
+            .unwrap_or_else(|| runtime_version.clone())
+    } else {
+        match acp_component.as_ref() {
+            Some(component) => component.try_get::<String, _>("version")?,
+            None if allow_runtime_program => payload
+                .acp_version
+                .unwrap_or_else(|| runtime_version.clone()),
+            None => payload.acp_version.ok_or_else(|| {
+                ConversationServiceError::Internal(
+                    "Installation lock has no ACP version".to_string(),
+                )
+            })?,
+        }
     };
     Ok(SessionLaunchLock {
         agent_id: agent_id.clone(),
@@ -180,6 +249,15 @@ async fn session_launch_lock_from_payload(
 pub async fn resolve_agent_runtime_launch_settings(
     pool: &SqlitePool,
     agent_id: &AgentId,
+) -> Result<AgentRuntimeLaunchSettings, ConversationServiceError> {
+    resolve_agent_runtime_launch_settings_with_resolver(pool, agent_id, &SecretResolver::new())
+        .await
+}
+
+pub(crate) async fn resolve_agent_runtime_launch_settings_with_resolver(
+    pool: &SqlitePool,
+    agent_id: &AgentId,
+    secret_resolver: &SecretResolver,
 ) -> Result<AgentRuntimeLaunchSettings, ConversationServiceError> {
     let row = sqlx::query(
         r#"SELECT membership.enabled,
@@ -206,6 +284,18 @@ pub async fn resolve_agent_runtime_launch_settings(
         ConversationServiceError::NotFound(format!("Agent `{agent_id}` has not been added"))
     })?;
 
+    let mut env = row
+        .try_get::<Option<String>, _>("env_json")?
+        .filter(|value| !value.trim().is_empty())
+        .map(|value| serde_json::from_str::<HashMap<String, String>>(&value))
+        .transpose()?
+        .unwrap_or_default();
+    let explicit_env_keys = env
+        .keys()
+        .cloned()
+        .collect::<std::collections::HashSet<_>>();
+    let native_engine = is_native_engine_launch(agent_id, &env);
+
     let mut lifecycle = parse_management_lifecycle(row.try_get::<String, _>("lifecycle")?.as_str());
     // Persisted NeedsAuth cannot block a real session/new. ACP AuthRequired is
     // the authority (ADR-0021).
@@ -217,10 +307,25 @@ pub async fn resolve_agent_runtime_launch_settings(
     let mut current_lock = match (resolved_json.as_deref(), lock_id.as_deref()) {
         (Some(resolved_json), Some(lock_id)) => {
             let payload: LockedLaunchPayload = serde_json::from_str(resolved_json)?;
-            Some(session_launch_lock_from_payload(pool, agent_id, lock_id, payload).await?)
+            match session_launch_lock_from_payload(pool, agent_id, lock_id, payload, native_engine)
+                .await
+            {
+                Ok(lock) => Some(lock),
+                Err(_) if native_engine => None,
+                Err(error) => return Err(error),
+            }
         }
         _ => None,
     };
+    if native_engine
+        && let Some(ref lock) = current_lock
+        && (launch_program_is_legacy_acp_shim(agent_id, &lock.absolute_acp_program)
+            || !agents::launch_program_available(&agents::prefer_path_launch_program(
+                &lock.absolute_acp_program,
+            )))
+    {
+        current_lock = None;
+    }
     if current_lock.is_none() {
         current_lock = discover_path_acp_launch_lock(agent_id).await;
     }
@@ -252,12 +357,6 @@ pub async fn resolve_agent_runtime_launch_settings(
         }
     };
 
-    let mut env = row
-        .try_get::<Option<String>, _>("env_json")?
-        .filter(|value| !value.trim().is_empty())
-        .map(|value| serde_json::from_str::<HashMap<String, String>>(&value))
-        .transpose()?
-        .unwrap_or_default();
     let mut args = authorization.args;
     let requested_pi_command = env
         .get("PI_ACP_PI_COMMAND")
@@ -284,6 +383,14 @@ pub async fn resolve_agent_runtime_launch_settings(
     if agent_id.as_str() == "pi" {
         bind_pi_acp_pi_command(&mut env, requested_pi_command.as_deref());
     }
+    apply_provider_instance_launch_env(
+        pool,
+        agent_id,
+        &mut env,
+        &explicit_env_keys,
+        secret_resolver,
+    )
+    .await?;
     // Prefer PATH over a stale lock path (ADR-0060 / CodeG connect).
     let absolute_acp_program =
         agents::prefer_path_launch_program(&authorization.absolute_acp_program);
@@ -304,6 +411,335 @@ pub async fn resolve_agent_runtime_launch_settings(
             acp_version: authorization.acp_version,
         },
     })
+}
+
+fn candidate_provider_agent_ids(agent_id: &AgentId) -> Vec<String> {
+    let raw = agent_id.as_str();
+    let mut ids = vec![raw.to_string()];
+    let hyphenated = raw.replace('_', "-");
+    if hyphenated != raw {
+        ids.push(hyphenated);
+    }
+    if matches!(raw, "claude_code" | "claude-code") {
+        ids.push("claude".to_string());
+    }
+    ids
+}
+
+fn map_provider_store_err(
+    err: db::models::provider_instance::ProviderInstanceStoreError,
+) -> ConversationServiceError {
+    match err {
+        db::models::provider_instance::ProviderInstanceStoreError::Database(db_err) => db_err.into(),
+        other => ConversationServiceError::BadRequest(other.to_string()),
+    }
+}
+
+async fn find_selected_provider_instance(
+    pool: &SqlitePool,
+    agent_id: &AgentId,
+    requested_instance_id: Option<&str>,
+) -> Result<Option<ProviderInstanceRecord>, ConversationServiceError> {
+    let exists: Option<i64> = sqlx::query_scalar(
+        "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'provider_instances' LIMIT 1",
+    )
+    .fetch_optional(pool)
+    .await?;
+    if exists.is_none() {
+        return Ok(None);
+    }
+    let candidates = candidate_provider_agent_ids(agent_id);
+    if let Some(id) = requested_instance_id.map(str::trim).filter(|v| !v.is_empty()) {
+        for candidate in &candidates {
+            if let Some(rec) = ProviderInstanceRecord::find_by_instance(pool, candidate, id)
+                .await
+                .map_err(map_provider_store_err)?
+            {
+                return Ok(Some(rec));
+            }
+        }
+        return Ok(None);
+    }
+    for candidate in &candidates {
+        if let Some(rec) = ProviderInstanceRecord::find_default_for_agent(pool, candidate)
+            .await
+            .map_err(map_provider_store_err)?
+        {
+            return Ok(Some(rec));
+        }
+    }
+    Ok(None)
+}
+
+fn parse_secret_ref_value(value: &serde_json::Value) -> Result<Option<SecretRef>, String> {
+    if value.is_null() {
+        return Ok(None);
+    }
+    if let Some(raw) = value.as_str() {
+        let trimmed = raw.trim();
+        if trimmed.is_empty() {
+            return Ok(None);
+        }
+        if trimmed.starts_with("op://") {
+            return Ok(Some(SecretRef::OnePassword {
+                op_ref: trimmed.to_string(),
+            }));
+        }
+        if let Some(var_name) = trimmed.strip_prefix("env:") {
+            return Ok(Some(SecretRef::EnvVar {
+                name: var_name.trim().to_string(),
+            }));
+        }
+        if trimmed.starts_with('{') {
+            let parsed: serde_json::Value = serde_json::from_str(trimmed)
+                .map_err(|err| format!("invalid secret binding JSON: {err}"))?;
+            return parse_secret_ref_value(&parsed);
+        }
+        return Err("plain-text string is not a valid SecretRef".to_string());
+    }
+    serde_json::from_value::<SecretRef>(value.clone())
+        .map(Some)
+        .map_err(|err| format!("invalid SecretRef payload: {err}"))
+}
+
+async fn resolve_secret_bindings_value(
+    bindings_value: &serde_json::Value,
+    env: &mut HashMap<String, String>,
+    resolver: &SecretResolver,
+) -> Result<(), ConversationServiceError> {
+    let parsed_owned;
+    let map = match bindings_value {
+        serde_json::Value::Null => return Ok(()),
+        serde_json::Value::String(raw) if raw.trim().is_empty() => return Ok(()),
+        serde_json::Value::String(raw) => {
+            parsed_owned = serde_json::from_str::<serde_json::Value>(raw.trim()).map_err(|e| {
+                ConversationServiceError::BadRequest(format!(
+                    "Invalid secret_bindings_json payload: {e}"
+                ))
+            })?;
+            parsed_owned.as_object().ok_or_else(|| {
+                ConversationServiceError::BadRequest(
+                    "secret_bindings_json must be a JSON object".to_string(),
+                )
+            })?
+        }
+        serde_json::Value::Object(map) => map,
+        _ => {
+            return Err(ConversationServiceError::BadRequest(
+                "secret_bindings_json must be a JSON object".to_string(),
+            ));
+        }
+    };
+    for (env_key, binding_val) in map {
+        let key = env_key.trim();
+        if key.is_empty() {
+            continue;
+        }
+        if let Some(secret_ref) =
+            parse_secret_ref_value(binding_val).map_err(ConversationServiceError::BadRequest)?
+        {
+            let resolved = resolver.resolve(&secret_ref).await.map_err(|err| {
+                ConversationServiceError::BadRequest(format!(
+                    "Failed to resolve secret binding `{key}`: {err}"
+                ))
+            })?;
+            env.insert(key.to_string(), resolved);
+        }
+    }
+    Ok(())
+}
+
+fn sanitize_instance_segment(raw: &str) -> String {
+    let sanitized: String = raw
+        .chars()
+        .map(|ch| if ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_' | '.') { ch } else { '_' })
+        .collect();
+    let trimmed = sanitized.trim_matches(['.', '_']);
+    if trimmed.is_empty() { "instance".to_string() } else { trimmed.to_string() }
+}
+
+fn auth_mode_is_oauth(raw_auth_mode: &str, auth_json: &serde_json::Value) -> bool {
+    let mode = auth_json.get("mode").and_then(serde_json::Value::as_str).unwrap_or_default();
+    let kind = auth_json.get("type").and_then(serde_json::Value::as_str).unwrap_or_default();
+    raw_auth_mode.trim().eq_ignore_ascii_case("oauth")
+        || matches!(mode.to_ascii_lowercase().as_str(), "officialoauth" | "official_oauth" | "oauth")
+        || matches!(kind.to_ascii_lowercase().as_str(), "subscription" | "oauth")
+}
+
+fn auth_mode_explicit_profile_dir(auth_json: &serde_json::Value) -> Option<PathBuf> {
+    ["profileDir", "profile_dir", "configDir", "config_dir"]
+        .into_iter()
+        .find_map(|k| auth_json.get(k).and_then(serde_json::Value::as_str))
+        .map(str::trim)
+        .filter(|dir| !dir.is_empty())
+        .map(PathBuf::from)
+}
+
+fn auth_mode_requests_profile_isolation(auth_json: &serde_json::Value) -> bool {
+    auth_mode_explicit_profile_dir(auth_json).is_some()
+        || [
+            "isolateProfile",
+            "isolate_profile",
+            "isolatedProfile",
+            "isolated_profile",
+            "isolatedProfileDir",
+            "isolated_profile_dir",
+        ]
+        .iter()
+        .any(|k| auth_json.get(*k).and_then(serde_json::Value::as_bool) == Some(true))
+}
+
+async fn apply_provider_instance_launch_env(
+    pool: &SqlitePool,
+    agent_id: &AgentId,
+    env: &mut HashMap<String, String>,
+    explicit_env_keys: &std::collections::HashSet<String>,
+    resolver: &SecretResolver,
+) -> Result<(), ConversationServiceError> {
+    if let Some(col_bindings) = sqlx::query_scalar::<_, Option<String>>(
+        "SELECT secret_bindings_json FROM agent_setting WHERE agent_type = ?",
+    )
+    .bind(agent_id.as_str())
+    .fetch_optional(pool)
+    .await
+    .ok()
+    .flatten()
+    .flatten()
+    {
+        resolve_secret_bindings_value(&serde_json::Value::String(col_bindings), env, resolver).await?;
+    }
+    if let Some(raw_bindings) = env.remove("VIBEX_SECRET_BINDINGS_JSON") {
+        resolve_secret_bindings_value(&serde_json::Value::String(raw_bindings), env, resolver).await?;
+    }
+
+    let requested_instance_id = env.get("VIBEX_PROVIDER_INSTANCE_ID").cloned();
+    let Some(record) =
+        find_selected_provider_instance(pool, agent_id, requested_instance_id.as_deref()).await?
+    else {
+        return Ok(());
+    };
+
+    env.insert("VIBEX_PROVIDER_INSTANCE_ID".to_string(), record.instance_id.clone());
+    let instances_root = env
+        .get("VIBEX_PROVIDER_INSTANCES_ROOT")
+        .map(|v| v.trim())
+        .filter(|v| !v.is_empty())
+        .map(PathBuf::from)
+        .unwrap_or_else(|| utils::assets::asset_dir().join("provider-instances"));
+    env.entry("VIBEX_PROVIDER_INSTANCES_ROOT".to_string())
+        .or_insert_with(|| instances_root.to_string_lossy().into_owned());
+
+    let auth_json = serde_json::from_str::<serde_json::Value>(&record.auth_mode)
+        .unwrap_or_else(|_| serde_json::Value::String(record.auth_mode.clone()));
+    let agent_kind = agent_id
+        .as_str()
+        .parse::<AgentKind>()
+        .ok()
+        .or_else(|| record.agent_id.parse::<AgentKind>().ok());
+
+    if let Some(kind) = agent_kind
+        && let Ok(parsed_mode) = serde_json::from_value::<ProviderAuthMode>(auth_json.clone())
+    {
+        let cfg = ProviderInstanceConfig {
+            id: None,
+            instance_id: record.instance_id.clone(),
+            agent_id: kind,
+            auth_mode: parsed_mode,
+            display_name: record.display_name.clone(),
+            is_default: record.is_default,
+        };
+        let resolved_env = resolver.resolve_launch_env(&cfg).await.map_err(|err| {
+            ConversationServiceError::BadRequest(format!(
+                "Failed to resolve credentials for provider instance `{}`: {err}",
+                record.instance_id
+            ))
+        })?;
+        for (key, value) in resolved_env {
+            if !explicit_env_keys.contains(&key) {
+                env.insert(key, value);
+            }
+        }
+    } else if let Some(obj) = auth_json.as_object()
+        && let Some((api_key_var, base_url_var, oauth_var)) = match agent_kind {
+            Some(AgentKind::ClaudeCode) => Some(("ANTHROPIC_API_KEY", "ANTHROPIC_BASE_URL", "CLAUDE_CODE_OAUTH_TOKEN")),
+            Some(AgentKind::Codex) => Some(("OPENAI_API_KEY", "OPENAI_BASE_URL", "CODEX_ACCESS_TOKEN")),
+            _ => None,
+        }
+    {
+        if !explicit_env_keys.contains(base_url_var)
+            && let Some(url) = ["baseUrl", "base_url", "proxyUrl", "proxy_url", "anthropicBaseUrl", "openaiBaseUrl"]
+                .into_iter()
+                .find_map(|k| obj.get(k).and_then(serde_json::Value::as_str))
+                .map(str::trim)
+                .filter(|u| !u.is_empty())
+        {
+            env.insert(base_url_var.to_string(), url.to_string());
+        }
+        for (fields, target_var) in [
+            (&["keyRef", "key_ref", "apiKeyRef", "api_key_ref", "opReference", "op_reference"][..], api_key_var),
+            (&["oauthTokenRef", "oauth_token_ref", "tokenRef", "token_ref"][..], oauth_var),
+        ] {
+            if explicit_env_keys.contains(target_var) {
+                continue;
+            }
+            if let Some(val) = fields.iter().find_map(|k| obj.get(*k))
+                && let Some(secret_ref) = parse_secret_ref_value(val).map_err(ConversationServiceError::BadRequest)?
+            {
+                let secret = resolver.resolve(&secret_ref).await.map_err(|err| {
+                    ConversationServiceError::BadRequest(format!(
+                        "Failed to resolve credential `{target_var}` for `{}`: {err}",
+                        record.instance_id
+                    ))
+                })?;
+                env.insert(target_var.to_string(), secret);
+            }
+        }
+    }
+
+    if let Some(inst_bindings) = sqlx::query_scalar::<_, Option<String>>(
+        "SELECT secret_bindings_json FROM provider_instances WHERE agent_id = ? AND instance_id = ?",
+    )
+    .bind(&record.agent_id)
+    .bind(&record.instance_id)
+    .fetch_optional(pool)
+    .await
+    .ok()
+    .flatten()
+    .flatten()
+    {
+        resolve_secret_bindings_value(&serde_json::Value::String(inst_bindings), env, resolver).await?;
+    }
+    for bindings_key in ["secretBindings", "secret_bindings", "secret_bindings_json"] {
+        if let Some(bindings_val) = auth_json.get(bindings_key) {
+            resolve_secret_bindings_value(bindings_val, env, resolver).await?;
+        }
+    }
+
+    let isolate_oauth_dir = auth_mode_is_oauth(&record.auth_mode, &auth_json)
+        && (!record.is_default || auth_mode_requests_profile_isolation(&auth_json));
+    if isolate_oauth_dir
+        && let Some((config_env_var, agent_slug, leaf_dir)) = match agent_kind {
+            Some(AgentKind::ClaudeCode) => Some(("CLAUDE_CONFIG_DIR", "claude_code", "claude-config")),
+            Some(AgentKind::Codex) => Some(("CODEX_HOME", "codex", "codex-home")),
+            _ => None,
+        }
+        && !explicit_env_keys.contains(config_env_var)
+    {
+        let base = instances_root.join(agent_slug).join(sanitize_instance_segment(&record.instance_id));
+        let isolated_dir = match auth_mode_explicit_profile_dir(&auth_json) {
+            Some(explicit) if explicit.is_absolute() => explicit,
+            Some(relative) => base.join(relative),
+            None => base.join(leaf_dir),
+        };
+        ensure_private_instance_dir(&isolated_dir).map_err(|err| {
+            ConversationServiceError::Internal(format!(
+                "Failed to initialize isolated provider directory `{}`: {err}",
+                isolated_dir.display()
+            ))
+        })?;
+        env.insert(config_env_var.to_string(), isolated_dir.to_string_lossy().into_owned());
+    }
+    Ok(())
 }
 
 pub async fn workspace_prompt_blocks(
@@ -994,5 +1430,46 @@ mod working_dir_tests {
             directories,
             vec![std::path::PathBuf::from("/Users/mac/Projects/VibeX")]
         );
+    }
+
+    #[tokio::test]
+    async fn provider_instance_wiring_resolves_secrets_and_isolates_oauth_profiles() {
+        use db::models::provider_instance::{
+            CreateProviderInstanceInput, ProviderInstanceRecord, ensure_provider_instances_schema,
+        };
+        let pool = sqlx::SqlitePool::connect("sqlite::memory:").await.unwrap();
+        ensure_provider_instances_schema(&pool).await.unwrap();
+        sqlx::query("ALTER TABLE provider_instances ADD COLUMN secret_bindings_json TEXT")
+            .execute(&pool)
+            .await
+            .unwrap();
+        let temp = tempfile::tempdir().unwrap();
+        for (inst, name, auth, is_default) in [
+            ("default", "Personal Claude", r#"{"mode":"OfficialOAuth"}"#, true),
+            ("work-oauth", "Work Claude", r#"{"mode":"OfficialOAuth","accountEmail":"work@co"}"#, false),
+        ] {
+            ProviderInstanceRecord::create(&pool, CreateProviderInstanceInput {
+                id: None, agent_id: "claude-code", instance_id: inst, display_name: name, auth_mode: auth, is_default,
+            }).await.unwrap();
+        }
+        let bindings = serde_json::json!({"CUSTOM_EXTRA_TOKEN": {"kind": "inline", "value": "bound-token-value"}}).to_string();
+        sqlx::query("UPDATE provider_instances SET secret_bindings_json = ? WHERE instance_id = 'work-oauth'")
+            .bind(bindings)
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        let mut env = std::collections::HashMap::from([
+            ("VIBEX_PROVIDER_INSTANCE_ID".to_string(), "work-oauth".to_string()),
+            ("VIBEX_PROVIDER_INSTANCES_ROOT".to_string(), temp.path().to_string_lossy().into_owned()),
+        ]);
+        let agent_id = agents::AgentId::parse("claude_code").unwrap();
+        super::apply_provider_instance_launch_env(
+            &pool, &agent_id, &mut env, &std::collections::HashSet::new(), &agents::secret_resolution::SecretResolver::new(),
+        ).await.unwrap();
+        assert_eq!(env.get("VIBEX_PROVIDER_INSTANCE_ID").map(String::as_str), Some("work-oauth"));
+        assert_eq!(env.get("CUSTOM_EXTRA_TOKEN").map(String::as_str), Some("bound-token-value"));
+        let config_dir = env.get("CLAUDE_CONFIG_DIR").expect("isolated CLAUDE_CONFIG_DIR");
+        assert!(std::path::Path::new(config_dir).is_dir() && config_dir.contains("work-oauth"));
     }
 }

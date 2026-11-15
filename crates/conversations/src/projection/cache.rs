@@ -1,18 +1,17 @@
 use std::{
-    collections::HashMap,
+    collections::{BTreeMap, HashMap, HashSet},
     sync::{Arc, Mutex as StdMutex, OnceLock},
 };
 
 use agents::conversation::{
     ContentBlock, ConversationEvent, ConversationRowOp, ConversationSessionNotice,
-    ConversationTimeline, ConversationTimelineRow, SessionStats, TimelineRow, TimelineTextStream,
-    TurnRole, TurnUsage, cap_content_blocks, cap_timeline_preview_fields,
-    cap_timeline_row_preview_fields,
+    ConversationTimelineRow, SessionStats, TimelineRow, TimelineTextStream, TurnRole, TurnUsage,
+    cap_content_blocks, cap_timeline_row_preview_fields,
 };
 use db::models::{
     conversation_event::ConversationEventRecord,
     conversation_snapshot::ConversationProjectionSnapshotRecord,
-    conversation_timeline_row::{ConversationTimelineRowRecord, NewConversationTimelineRow},
+    conversation_timeline_row::ConversationTimelineRowRecord,
 };
 use sqlx::{Executor, Sqlite, SqliteConnection, SqlitePool};
 use tokio::{sync::Mutex, time::Instant};
@@ -20,15 +19,16 @@ use uuid::Uuid;
 
 use super::{
     AGENT_CONNECTION_RECOVERING_NOTICE_ROW_ID, AGENT_SESSION_CONNECT_ERROR_NOTICE_ROW_ID,
-    CONVERSATION_PROJECTION_VERSION, ConversationProjector, ConversationRowWindow,
-    OpenConversationProjection, ParsedEvent, ProjectionFold, ProjectionSnapshotState,
-    conversation_event_from_record, emit_captured_internal_message,
+    CONVERSATION_PROJECTION_VERSION, ConversationProjector, ConversationRowWindow, ParsedEvent,
+    ProjectionFold, ProjectionSnapshotState, TurnMetricsSummary, conversation_event_from_record,
+    emit_captured_internal_message,
     fold::{ProjectedTurn, append_thinking_block, ensure_turn},
     rows::{message_row, message_rows},
+    session_stats_from_metrics, summarize_turn_metrics,
 };
 
 pub(super) enum TouchedTurnRows {
-    All(Uuid),
+    ChangedAt(Uuid, i64),
     AssistantOnly(Uuid),
 }
 
@@ -174,11 +174,13 @@ impl ProjectionFold {
     ) -> Vec<ConversationRowOp> {
         let mut ops = deleted_rows;
         match touched_turn_rows {
-            Some(TouchedTurnRows::All(turn_id)) => {
+            Some(TouchedTurnRows::ChangedAt(turn_id, changed_seq)) => {
                 if let Some(turn) = self.turns.get(&turn_id) {
                     for mut row in message_rows(turn) {
-                        cap_timeline_row_preview_fields(&mut row);
-                        ops.push(ConversationRowOp::Upsert { row });
+                        if row.revision == changed_seq {
+                            cap_timeline_row_preview_fields(&mut row);
+                            ops.push(ConversationRowOp::Upsert { row });
+                        }
                     }
                 }
             }
@@ -225,12 +227,16 @@ pub(super) fn upsert_stable_notice(
     sequence: i64,
     notice: ConversationSessionNotice,
 ) {
-    side_rows.retain(|row| row.row_id != row_id);
-    side_rows.push(TimelineRow {
-        row_id: row_id.into(),
-        revision: sequence,
-        row: ConversationTimelineRow::SessionNotice { notice },
-    });
+    if let Some(existing) = side_rows.iter_mut().find(|row| row.row_id == row_id) {
+        existing.revision = sequence;
+        existing.row = ConversationTimelineRow::SessionNotice { notice };
+    } else {
+        side_rows.push(TimelineRow {
+            row_id: row_id.into(),
+            revision: sequence,
+            row: ConversationTimelineRow::SessionNotice { notice },
+        });
+    }
 }
 
 pub(super) fn clear_session_connect_notices(
@@ -372,16 +378,18 @@ impl IncrementalRowProjector {
             fold = ProjectionFold::default();
         }
         fold.complete_antigravity_reads = antigravity_conversation(pool, conversation_id).await?;
-        let tail = ConversationEventRecord::events_since(
-            pool,
-            conversation_id,
-            fold.last_sequence,
-            i64::MAX,
-        )
-        .await?;
-        for record in &tail {
-            if record.sequence <= up_to_sequence {
-                fold.apply(record)?;
+        if up_to_sequence > fold.last_sequence {
+            let tail = ConversationEventRecord::events_since(
+                pool,
+                conversation_id,
+                fold.last_sequence,
+                i64::MAX,
+            )
+            .await?;
+            for record in &tail {
+                if record.sequence <= up_to_sequence {
+                    fold.apply(record)?;
+                }
             }
         }
         Ok(Self { fold, generation })
@@ -413,7 +421,8 @@ impl IncrementalRowProjector {
 /// `db_cursor` is the last SQLite sequence folded into this process. Transcript
 /// deltas advance `projector.last_sequence()` without moving `db_cursor`, so the
 /// next durable event (turn completed, checkpoint) is still applied.
-const MAX_CACHED_ROW_PROJECTORS: usize = 32;
+const MAX_CACHED_ROW_PROJECTORS: usize = 96;
+const MAX_WRITE_PROJECTORS: usize = 96;
 
 pub struct CachedRowProjector {
     pub projector: IncrementalRowProjector,
@@ -521,22 +530,52 @@ fn row_op_target_id(op: &ConversationRowOp) -> &str {
 }
 
 /// Append `new_ops` into `ops`, coalescing redundant earlier ops for the same `row_id`
-/// whenever a full-row `Upsert` or `Delete` supersedes them within the same batch.
+/// whenever a full-row `Upsert` or `Delete` supersedes them within the same batch, and
+/// merging consecutive `AppendText` deltas on the same `(row_id, stream)`.
 pub fn extend_coalesced_row_ops(
     ops: &mut Vec<ConversationRowOp>,
     new_ops: impl IntoIterator<Item = ConversationRowOp>,
 ) {
     for op in new_ops {
-        match &op {
+        match op {
             ConversationRowOp::Upsert { row } => {
                 ops.retain(|existing| row_op_target_id(existing) != row.row_id);
+                ops.push(ConversationRowOp::Upsert { row });
             }
-            ConversationRowOp::Delete { row_id, .. } => {
+            ConversationRowOp::Delete { row_id, revision } => {
                 ops.retain(|existing| row_op_target_id(existing) != row_id);
+                ops.push(ConversationRowOp::Delete { row_id, revision });
             }
-            ConversationRowOp::AppendText { .. } | ConversationRowOp::PatchBlocks { .. } => {}
+            ConversationRowOp::AppendText {
+                row_id,
+                revision,
+                stream,
+                delta,
+            } => {
+                if let Some(ConversationRowOp::AppendText {
+                    row_id: prev_id,
+                    revision: prev_rev,
+                    stream: prev_stream,
+                    delta: prev_delta,
+                }) = ops.last_mut()
+                    && *prev_id == row_id
+                    && *prev_stream == stream
+                {
+                    prev_delta.push_str(&delta);
+                    *prev_rev = revision;
+                } else {
+                    ops.push(ConversationRowOp::AppendText {
+                        row_id,
+                        revision,
+                        stream,
+                        delta,
+                    });
+                }
+            }
+            ConversationRowOp::PatchBlocks { .. } => {
+                ops.push(op);
+            }
         }
-        ops.push(op);
     }
 }
 
@@ -546,11 +585,6 @@ pub type ConversationRowProjectors = Arc<Mutex<HashMap<Uuid, CachedRowProjector>
 
 /// Trim the projector cache to [`MAX_CACHED_ROW_PROJECTORS`], never evicting the
 /// conversation that just published.
-///
-/// Eviction is by least recent use rather than on turn settle: settle is the busiest
-/// moment on the publish path, so dropping the projector there guaranteed a cold
-/// reload — and a full replay of the turn's events — exactly when several publishers
-/// were racing to emit the terminal row op.
 pub fn evict_least_recently_used_projectors(
     cache: &mut HashMap<Uuid, CachedRowProjector>,
     keep: Uuid,
@@ -568,6 +602,572 @@ pub fn evict_least_recently_used_projectors(
     }
 }
 
+#[derive(Clone)]
+pub(crate) struct WriteSideProjectorState {
+    pub(super) fold: ProjectionFold,
+    pub(super) turn_ordinals: HashMap<Uuid, i64>,
+    pub(super) turn_metrics: BTreeMap<Uuid, TurnMetricsSummary>,
+    pub(super) loaded_turns: HashSet<Uuid>,
+    pub(super) full_history_loaded: bool,
+    pub(super) initial_prompt: Option<String>,
+    pub(super) last_used: std::time::Instant,
+}
+
+static WRITE_SIDE_PROJECTORS: OnceLock<StdMutex<HashMap<Uuid, WriteSideProjectorState>>> =
+    OnceLock::new();
+
+fn write_side_projectors() -> &'static StdMutex<HashMap<Uuid, WriteSideProjectorState>> {
+    WRITE_SIDE_PROJECTORS.get_or_init(|| StdMutex::new(HashMap::new()))
+}
+
+pub(crate) fn evict_write_projector(conversation_id: Uuid) {
+    if let Some(lock) = WRITE_SIDE_PROJECTORS.get() {
+        lock.lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .remove(&conversation_id);
+    }
+}
+
+pub(super) fn sync_write_projector_on_rebuild(conversation_id: Uuid, fold: &ProjectionFold) {
+    let mut map = write_side_projectors()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    // Drop any cached state so the next write reloads fresh turn_ordinals + fold cleanly,
+    // or if already cached, replace fold/metrics and clear stale turn_ordinals.
+    map.remove(&conversation_id);
+    let _ = fold;
+}
+
+pub(crate) fn commit_write_projector_states(
+    states: HashMap<Uuid, WriteSideProjectorState>,
+) {
+    if states.is_empty() {
+        return;
+    }
+    let mut map = write_side_projectors()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let now = std::time::Instant::now();
+    let keep_ids: HashSet<Uuid> = states.keys().copied().collect();
+    for (cid, mut state) in states {
+        state.last_used = now;
+        map.insert(cid, state);
+    }
+    while map.len() > MAX_WRITE_PROJECTORS {
+        let candidate = map
+            .iter()
+            .filter(|(id, _)| !keep_ids.contains(id))
+            .min_by_key(|(_, entry)| entry.last_used)
+            .map(|(id, _)| *id)
+            .or_else(|| {
+                map.iter()
+                    .min_by_key(|(_, entry)| entry.last_used)
+                    .map(|(id, _)| *id)
+            });
+        let Some(evict_id) = candidate else {
+            break;
+        };
+        map.remove(&evict_id);
+    }
+}
+
+async fn load_turn_ordinals_on_conn(
+    conn: &mut SqliteConnection,
+    conversation_id: Uuid,
+) -> Result<HashMap<Uuid, i64>, sqlx::Error> {
+    let rows: Vec<(Uuid, i64)> =
+        sqlx::query_as("SELECT id, ordinal FROM conversation_turns WHERE conversation_id = ?")
+            .bind(conversation_id)
+            .fetch_all(&mut *conn)
+            .await?;
+    Ok(rows.into_iter().collect())
+}
+
+pub(crate) async fn get_or_load_write_projector_on_conn(
+    conn: &mut SqliteConnection,
+    conversation_id: Uuid,
+    before_sequence: i64,
+) -> Result<WriteSideProjectorState, sqlx::Error> {
+    let prev_max_seq: i64 = sqlx::query_scalar(
+        "SELECT COALESCE(MAX(sequence), 0) FROM conversation_events WHERE conversation_id = ? AND sequence < ?",
+    )
+    .bind(conversation_id)
+    .bind(before_sequence)
+    .fetch_one(&mut *conn)
+    .await?;
+
+    if let Some(cached) = write_side_projectors()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .get(&conversation_id)
+        .cloned()
+        && cached.fold.last_sequence == prev_max_seq
+    {
+        return Ok(cached);
+    }
+
+    let complete_antigravity_reads = antigravity_conversation(&mut *conn, conversation_id).await?;
+    let initial_prompt = sqlx::query_scalar::<_, Option<String>>(
+        "SELECT initial_prompt FROM sessions WHERE id = ?",
+    )
+    .bind(conversation_id)
+    .fetch_optional(&mut *conn)
+    .await?
+    .flatten();
+    let turn_ordinals = load_turn_ordinals_on_conn(&mut *conn, conversation_id).await?;
+
+    if prev_max_seq == 0 {
+        return Ok(WriteSideProjectorState {
+            fold: ProjectionFold {
+                complete_antigravity_reads,
+                ..ProjectionFold::default()
+            },
+            turn_ordinals,
+            turn_metrics: BTreeMap::new(),
+            loaded_turns: HashSet::new(),
+            full_history_loaded: true,
+            initial_prompt,
+            last_used: std::time::Instant::now(),
+        });
+    }
+
+    if let Some(snapshot) = ConversationProjectionSnapshotRecord::find(&mut *conn, conversation_id)
+        .await?
+        .filter(|s| {
+            s.projection_version == CONVERSATION_PROJECTION_VERSION as i64
+                && s.last_sequence == prev_max_seq
+        })
+        && let Ok(snap_state) = serde_json::from_str::<ProjectionSnapshotState>(&snapshot.fold_json)
+    {
+        if snap_state.full_fold {
+            let snap_metrics = snap_state.turn_metrics.clone();
+            let mut fold = ProjectionFold::from_snapshot_state(snap_state);
+            fold.complete_antigravity_reads = complete_antigravity_reads;
+            let turn_metrics = if snap_metrics.is_empty() {
+                fold.collect_turn_metrics()
+            } else {
+                snap_metrics
+            };
+            let loaded_turns = fold.turns.keys().copied().collect();
+            return Ok(WriteSideProjectorState {
+                fold,
+                turn_ordinals,
+                turn_metrics,
+                loaded_turns,
+                full_history_loaded: true,
+                initial_prompt,
+                last_used: std::time::Instant::now(),
+            });
+        }
+        let fold = ProjectionFold {
+            side_rows: snap_state.side_rows,
+            side_row_turns: snap_state.side_row_turns,
+            last_sequence: snap_state.last_sequence,
+            auto_permission_approvals: snap_state.auto_permission_approvals,
+            complete_antigravity_reads,
+            ..ProjectionFold::default()
+        };
+        return Ok(WriteSideProjectorState {
+            fold,
+            turn_ordinals,
+            turn_metrics: snap_state.turn_metrics,
+            loaded_turns: HashSet::new(),
+            full_history_loaded: false,
+            initial_prompt,
+            last_used: std::time::Instant::now(),
+        });
+    }
+
+    // Snapshot missing or behind `prev_max_seq` (e.g. raw event insert in tests): replay
+    // prior events once and backfill materialized rows before applying the new event.
+    let prior_events =
+        ConversationEventRecord::events_since(&mut *conn, conversation_id, 0, i64::MAX).await?;
+    let mut fold = ProjectionFold {
+        complete_antigravity_reads,
+        ..ProjectionFold::default()
+    };
+    for ev in &prior_events {
+        if ev.sequence < before_sequence {
+            fold.apply(ev)?;
+        }
+    }
+    if turn_ordinals.is_empty() && !fold.turns.is_empty() {
+        fold.seed_user_prompt_from_session(conversation_id, initial_prompt.as_deref());
+    }
+    ConversationProjector::persist_snapshot(&mut *conn, conversation_id, &fold).await?;
+    let _ = crate::search::reindex_timeline_rows_on_conn(
+        &mut *conn,
+        conversation_id,
+        &fold.timeline_rows(),
+    )
+    .await;
+    let turn_metrics = fold.collect_turn_metrics();
+    let loaded_turns = fold.turns.keys().copied().collect();
+    Ok(WriteSideProjectorState {
+        fold,
+        turn_ordinals,
+        turn_metrics,
+        loaded_turns,
+        full_history_loaded: true,
+        initial_prompt,
+        last_used: std::time::Instant::now(),
+    })
+}
+
+fn target_turn_id_for_record(
+    state: &WriteSideProjectorState,
+    record: &ConversationEventRecord,
+) -> Option<Uuid> {
+    if let Some(turn_id) = record.turn_id {
+        return Some(turn_id);
+    }
+    match conversation_event_from_record(record) {
+        ParsedEvent::Known(ConversationEvent::ConversationSteering { event }) => match event {
+            agents::ConversationSteeringEvent::Requested {
+                expected_turn_id, ..
+            }
+            | agents::ConversationSteeringEvent::Accepted {
+                expected_turn_id, ..
+            }
+            | agents::ConversationSteeringEvent::Rejected {
+                expected_turn_id, ..
+            }
+            | agents::ConversationSteeringEvent::Unknown {
+                expected_turn_id, ..
+            } => Some(expected_turn_id),
+        },
+        ParsedEvent::Known(
+            ConversationEvent::AssistantTextDelta { .. }
+            | ConversationEvent::AssistantReasoningDelta { .. }
+            | ConversationEvent::AssistantContentAppended { .. }
+            | ConversationEvent::ToolCallUpsert { .. }
+            | ConversationEvent::UsageUpdated { .. }
+            | ConversationEvent::TurnCompleted { .. }
+            | ConversationEvent::TurnCancelled { .. }
+            | ConversationEvent::TurnFailed { .. },
+        ) => state
+            .fold
+            .turn_order
+            .last()
+            .copied()
+            .or_else(|| {
+                state
+                    .turn_ordinals
+                    .iter()
+                    .max_by_key(|(_, ord)| *ord)
+                    .map(|(id, _)| *id)
+            })
+            .or(Some(record.conversation_id)),
+        _ => None,
+    }
+}
+
+async fn ensure_turn_loaded_on_conn(
+    conn: &mut SqliteConnection,
+    conversation_id: Uuid,
+    state: &mut WriteSideProjectorState,
+    record: &ConversationEventRecord,
+) -> Result<(), sqlx::Error> {
+    if state.full_history_loaded {
+        return Ok(());
+    }
+    let Some(turn_id) = target_turn_id_for_record(state, record) else {
+        return Ok(());
+    };
+    if state.loaded_turns.contains(&turn_id) {
+        return Ok(());
+    }
+
+    let turn_events =
+        ConversationEventRecord::events_for_turn(&mut *conn, conversation_id, turn_id).await?;
+    let min_turn_seq = turn_events
+        .iter()
+        .filter(|ev| ev.sequence < record.sequence)
+        .map(|ev| ev.sequence)
+        .min();
+
+    if let Some(min_seq) = min_turn_seq {
+        let tail = ConversationEventRecord::events_since(
+            &mut *conn,
+            conversation_id,
+            min_seq.saturating_sub(1),
+            i64::MAX,
+        )
+        .await?;
+        let mut temp_fold = ProjectionFold {
+            complete_antigravity_reads: state.fold.complete_antigravity_reads,
+            ..ProjectionFold::default()
+        };
+        for ev in &tail {
+            if ev.sequence < record.sequence
+                && (ev.turn_id == Some(turn_id) || ev.turn_id.is_none())
+            {
+                temp_fold.apply(ev)?;
+            }
+        }
+        if let Some(reconstructed) = temp_fold.turns.remove(&turn_id) {
+            if !state.fold.turn_order.contains(&turn_id) {
+                state.fold.turn_order.push(turn_id);
+            }
+            state.fold.turns.insert(turn_id, reconstructed);
+        }
+    } else if turn_id == conversation_id && state.turn_ordinals.is_empty() {
+        let tail =
+            ConversationEventRecord::events_since(&mut *conn, conversation_id, 0, i64::MAX).await?;
+        let mut temp_fold = ProjectionFold {
+            complete_antigravity_reads: state.fold.complete_antigravity_reads,
+            ..ProjectionFold::default()
+        };
+        for ev in &tail {
+            if ev.sequence < record.sequence && ev.turn_id.is_none() {
+                temp_fold.apply(ev)?;
+            }
+        }
+        if let Some(reconstructed) = temp_fold.turns.remove(&turn_id) {
+            if !state.fold.turn_order.contains(&turn_id) {
+                state.fold.turn_order.push(turn_id);
+            }
+            state.fold.turns.insert(turn_id, reconstructed);
+        }
+    }
+
+    state.loaded_turns.insert(turn_id);
+    Ok(())
+}
+
+async fn resolve_turn_ordinal_on_conn(
+    conn: &mut SqliteConnection,
+    conversation_id: Uuid,
+    turn_ordinals: &mut HashMap<Uuid, i64>,
+    turn_id: Uuid,
+) -> Result<i64, sqlx::Error> {
+    if let Some(ord) = turn_ordinals.get(&turn_id).copied() {
+        return Ok(ord);
+    }
+    if let Some(ord) =
+        sqlx::query_scalar::<_, i64>("SELECT ordinal FROM conversation_turns WHERE id = ?")
+            .bind(turn_id)
+            .fetch_optional(&mut *conn)
+            .await?
+    {
+        turn_ordinals.insert(turn_id, ord);
+        return Ok(ord);
+    }
+    let existing_slot: Option<i64> = sqlx::query_scalar(
+        "SELECT sort_index / 1000000 FROM conversation_timeline_rows WHERE conversation_id = ? AND (row_id = ? OR row_id = ?) LIMIT 1",
+    )
+    .bind(conversation_id)
+    .bind(format!("{turn_id}:user"))
+    .bind(format!("{turn_id}:assistant"))
+    .fetch_optional(&mut *conn)
+    .await?;
+    if let Some(slot) = existing_slot.filter(|s| *s >= 1) {
+        turn_ordinals.insert(turn_id, slot);
+        return Ok(slot);
+    }
+    let max_db_slot: i64 = sqlx::query_scalar(
+        "SELECT COALESCE(MAX(sort_index), 0) / 1000000 FROM conversation_timeline_rows WHERE conversation_id = ?",
+    )
+    .bind(conversation_id)
+    .fetch_one(&mut *conn)
+    .await?;
+    let max_mem = turn_ordinals.values().copied().max().unwrap_or(0);
+    let synthetic = max_db_slot.max(max_mem) + 1;
+    turn_ordinals.insert(turn_id, synthetic);
+    Ok(synthetic)
+}
+
+fn find_row_in_fold(fold: &ProjectionFold, row_id: &str) -> Option<TimelineRow> {
+    if let Some((prefix, _)) = row_id.split_once(':')
+        && let Ok(turn_id) = Uuid::parse_str(prefix)
+        && let Some(turn) = fold.turns.get(&turn_id)
+    {
+        return message_rows(turn).into_iter().find(|r| r.row_id == row_id);
+    }
+    fold.side_rows.iter().find(|r| r.row_id == row_id).cloned()
+}
+
+async fn row_turn_ordinal_on_conn(
+    conn: &mut SqliteConnection,
+    conversation_id: Uuid,
+    fold: &ProjectionFold,
+    turn_ordinals: &mut HashMap<Uuid, i64>,
+    row_id: &str,
+) -> Result<Option<i64>, sqlx::Error> {
+    if let Some(side) = fold.side_rows.iter().find(|r| r.row_id == row_id) {
+        return match fold.side_row_turn_id(side) {
+            Some(turn_id) => Ok(Some(
+                resolve_turn_ordinal_on_conn(conn, conversation_id, turn_ordinals, turn_id).await?,
+            )),
+            None => Ok(None),
+        };
+    }
+    if let Some((prefix, _)) = row_id.split_once(':')
+        && let Ok(turn_id) = Uuid::parse_str(prefix)
+    {
+        let ord =
+            resolve_turn_ordinal_on_conn(conn, conversation_id, turn_ordinals, turn_id).await?;
+        return Ok(Some(ord));
+    }
+    Ok(None)
+}
+
+pub(crate) async fn apply_and_persist_incremental_on_conn(
+    conn: &mut SqliteConnection,
+    state: &mut WriteSideProjectorState,
+    record: &ConversationEventRecord,
+) -> Result<(), sqlx::Error> {
+    let cid = record.conversation_id;
+    ensure_turn_loaded_on_conn(conn, cid, state, record).await?;
+    let ops = state.fold.apply(record)?;
+
+    if state.turn_ordinals.is_empty()
+        && !state.fold.turns.is_empty()
+        && !state.fold.turns.values().any(|t| !t.user.blocks.is_empty())
+    {
+        state
+            .fold
+            .seed_user_prompt_from_session(cid, state.initial_prompt.as_deref());
+        if let Some(&first_turn_id) = state.fold.turn_order.first() {
+            let user_row_id = format!("{first_turn_id}:user");
+            if let Some(mut seeded_user) = find_row_in_fold(&state.fold, &user_row_id) {
+                cap_timeline_row_preview_fields(&mut seeded_user);
+                let ord = resolve_turn_ordinal_on_conn(
+                    conn,
+                    cid,
+                    &mut state.turn_ordinals,
+                    first_turn_id,
+                )
+                .await?;
+                let row_json = serde_json::to_string(&seeded_user).map_err(json_decode_error)?;
+                ConversationTimelineRowRecord::upsert_row_on_conn(
+                    conn,
+                    cid,
+                    Some(ord),
+                    &seeded_user.row_id,
+                    seeded_user.revision,
+                    &row_json,
+                )
+                .await?;
+                let _ =
+                    crate::search::upsert_fts_from_timeline_row_on_conn(conn, cid, &seeded_user)
+                        .await;
+            }
+        }
+    }
+
+    let fold_turn_ids = state.fold.turn_order.clone();
+    for turn_id in fold_turn_ids {
+        let ord = resolve_turn_ordinal_on_conn(conn, cid, &mut state.turn_ordinals, turn_id).await?;
+        if let Some(turn) = state.fold.turns.get(&turn_id) {
+            match summarize_turn_metrics(turn, ord) {
+                Some(summary) => {
+                    state.turn_metrics.insert(turn_id, summary);
+                }
+                None => {
+                    state.turn_metrics.remove(&turn_id);
+                }
+            }
+        }
+    }
+
+    for op in &ops {
+        match op {
+            ConversationRowOp::Delete { row_id, revision } => {
+                ConversationTimelineRowRecord::soft_delete_row_on_conn(conn, cid, row_id, *revision)
+                    .await?;
+                if let Err(error) = crate::search::delete_fts_row_on_conn(conn, cid, row_id).await {
+                    tracing::warn!("conversation FTS delete failed: {error}");
+                }
+            }
+            ConversationRowOp::Upsert { row } => {
+                let mut full_row =
+                    find_row_in_fold(&state.fold, &row.row_id).unwrap_or_else(|| row.clone());
+                cap_timeline_row_preview_fields(&mut full_row);
+                let turn_ordinal = row_turn_ordinal_on_conn(
+                    conn,
+                    cid,
+                    &state.fold,
+                    &mut state.turn_ordinals,
+                    &full_row.row_id,
+                )
+                .await?;
+                let row_json = serde_json::to_string(&full_row).map_err(json_decode_error)?;
+                ConversationTimelineRowRecord::upsert_row_on_conn(
+                    conn,
+                    cid,
+                    turn_ordinal,
+                    &full_row.row_id,
+                    full_row.revision,
+                    &row_json,
+                )
+                .await?;
+                if matches!(full_row.row, ConversationTimelineRow::MessageTurn { .. })
+                    && let Err(error) =
+                        crate::search::upsert_fts_from_timeline_row_on_conn(conn, cid, &full_row)
+                            .await
+                {
+                    tracing::warn!("conversation FTS upsert failed: {error}");
+                }
+            }
+            ConversationRowOp::AppendText { row_id, .. }
+            | ConversationRowOp::PatchBlocks { row_id, .. } => {
+                if let Some(mut full_row) = find_row_in_fold(&state.fold, row_id) {
+                    cap_timeline_row_preview_fields(&mut full_row);
+                    let turn_ordinal = row_turn_ordinal_on_conn(
+                        conn,
+                        cid,
+                        &state.fold,
+                        &mut state.turn_ordinals,
+                        &full_row.row_id,
+                    )
+                    .await?;
+                    let row_json = serde_json::to_string(&full_row).map_err(json_decode_error)?;
+                    ConversationTimelineRowRecord::upsert_row_on_conn(
+                        conn,
+                        cid,
+                        turn_ordinal,
+                        &full_row.row_id,
+                        full_row.revision,
+                        &row_json,
+                    )
+                    .await?;
+                }
+            }
+        }
+    }
+
+    Ok(())
+}
+
+pub(crate) async fn flush_write_projector_snapshot_on_conn(
+    conn: &mut SqliteConnection,
+    conversation_id: Uuid,
+    state: &WriteSideProjectorState,
+) -> Result<(), sqlx::Error> {
+    let total_rows = ConversationTimelineRowRecord::count(&mut *conn, conversation_id).await?;
+    let session_stats_json = session_stats_from_metrics(&state.turn_metrics)
+        .map(|stats| serde_json::to_string(&stats))
+        .transpose()
+        .map_err(json_decode_error)?;
+    let fold_json = serde_json::to_string(
+        &state
+            .fold
+            .to_lightweight_snapshot_state(&state.turn_metrics),
+    )
+    .map_err(json_decode_error)?;
+    ConversationProjectionSnapshotRecord::upsert(
+        &mut *conn,
+        conversation_id,
+        CONVERSATION_PROJECTION_VERSION as i64,
+        state.fold.last_sequence,
+        &fold_json,
+        total_rows,
+        session_stats_json.as_deref(),
+    )
+    .await
+}
+
 impl ConversationProjector {
     pub(super) async fn load_fold_from_snapshot<'e, E>(
         executor: E,
@@ -582,19 +1182,14 @@ impl ConversationProjector {
             {
                 let state: ProjectionSnapshotState =
                     serde_json::from_str(&snapshot.fold_json).map_err(json_decode_error)?;
-                Ok(ProjectionFold::from_snapshot_state(state))
+                if state.full_fold {
+                    Ok(ProjectionFold::from_snapshot_state(state))
+                } else {
+                    Ok(ProjectionFold::default())
+                }
             }
             _ => Ok(ProjectionFold::default()),
         }
-    }
-
-    pub(crate) async fn persist_fold_to_pool(
-        pool: &SqlitePool,
-        conversation_id: Uuid,
-        fold: &ProjectionFold,
-    ) -> Result<(), sqlx::Error> {
-        let mut conn = pool.acquire().await?;
-        Self::persist_snapshot(&mut conn, conversation_id, fold).await
     }
 
     pub(super) async fn persist_snapshot(
@@ -602,7 +1197,37 @@ impl ConversationProjector {
         conversation_id: Uuid,
         fold: &ProjectionFold,
     ) -> Result<(), sqlx::Error> {
-        let rows = fold.timeline_rows();
+        sqlx::query(
+            "DELETE FROM conversation_timeline_rows WHERE conversation_id = ? AND deleted_sequence IS NULL",
+        )
+        .bind(conversation_id)
+        .execute(&mut *conn)
+        .await?;
+
+        let mut turn_ordinals = load_turn_ordinals_on_conn(&mut *conn, conversation_id).await?;
+        for mut row in fold.timeline_rows() {
+            cap_timeline_row_preview_fields(&mut row);
+            let turn_ordinal = row_turn_ordinal_on_conn(
+                &mut *conn,
+                conversation_id,
+                fold,
+                &mut turn_ordinals,
+                &row.row_id,
+            )
+            .await?;
+            let row_json = serde_json::to_string(&row).map_err(json_decode_error)?;
+            ConversationTimelineRowRecord::upsert_row_on_conn(
+                &mut *conn,
+                conversation_id,
+                turn_ordinal,
+                &row.row_id,
+                row.revision,
+                &row_json,
+            )
+            .await?;
+        }
+
+        let total_rows = ConversationTimelineRowRecord::count(&mut *conn, conversation_id).await?;
         let session_stats_json = fold
             .session_stats()
             .map(|stats| serde_json::to_string(&stats))
@@ -610,78 +1235,16 @@ impl ConversationProjector {
             .map_err(json_decode_error)?;
         let fold_json =
             serde_json::to_string(&fold.to_snapshot_state()).map_err(json_decode_error)?;
-        let encoded: Vec<(i64, String, i64, String)> = rows
-            .iter()
-            .enumerate()
-            .map(|(index, row)| {
-                serde_json::to_string(row)
-                    .map(|row_json| (index as i64, row.row_id.clone(), row.revision, row_json))
-                    .map_err(json_decode_error)
-            })
-            .collect::<Result<Vec<_>, _>>()?;
-        let stored: Vec<NewConversationTimelineRow<'_>> = encoded
-            .iter()
-            .map(
-                |(sort_index, row_id, revision, row_json)| NewConversationTimelineRow {
-                    sort_index: *sort_index,
-                    row_id,
-                    revision: *revision,
-                    row_json,
-                },
-            )
-            .collect();
-        ConversationTimelineRowRecord::replace_all(conn, conversation_id, &stored).await?;
         ConversationProjectionSnapshotRecord::upsert(
             &mut *conn,
             conversation_id,
             CONVERSATION_PROJECTION_VERSION as i64,
             fold.last_sequence,
             &fold_json,
-            rows.len() as i64,
+            total_rows,
             session_stats_json.as_deref(),
         )
         .await
-    }
-
-    pub(super) async fn try_materialized_open(
-        pool: &SqlitePool,
-        conversation_id: Uuid,
-        limit: usize,
-    ) -> Result<Option<OpenConversationProjection>, sqlx::Error> {
-        let Some(snapshot) = Self::usable_snapshot(pool, conversation_id).await? else {
-            return Ok(None);
-        };
-        if snapshot.total_rows <= 0 {
-            return Ok(None);
-        }
-        let latest = latest_event_sequence(pool, conversation_id).await?;
-        if latest > snapshot.last_sequence {
-            return Ok(None);
-        }
-        let bounded = limit.max(1) as i64;
-        let records =
-            ConversationTimelineRowRecord::list_tail(pool, conversation_id, bounded).await?;
-        let expected = snapshot.total_rows.min(bounded);
-        if records.len() as i64 != expected {
-            return Ok(None);
-        }
-        let rows = decode_timeline_row_records(&records)?;
-        let truncated = snapshot.total_rows > rows.len() as i64;
-        let start = snapshot.total_rows.saturating_sub(rows.len() as i64);
-        let mut timeline = ConversationTimeline {
-            conversation_id,
-            projection_version: CONVERSATION_PROJECTION_VERSION,
-            last_sequence: snapshot.last_sequence,
-            rows,
-            truncated_from_start: truncated,
-            older_cursor: truncated.then(|| start.to_string()),
-        };
-        cap_timeline_preview_fields(&mut timeline);
-        let session_stats = decode_session_stats(snapshot.session_stats_json.as_deref())?;
-        Ok(Some(OpenConversationProjection {
-            timeline,
-            session_stats,
-        }))
     }
 
     pub(super) async fn try_materialized_window(
@@ -776,7 +1339,7 @@ pub(super) fn decode_timeline_row_records(
         .collect()
 }
 
-fn decode_session_stats(json: Option<&str>) -> Result<Option<SessionStats>, sqlx::Error> {
+pub(super) fn decode_session_stats(json: Option<&str>) -> Result<Option<SessionStats>, sqlx::Error> {
     json.map(|value| serde_json::from_str(value).map_err(json_decode_error))
         .transpose()
 }
@@ -807,6 +1370,10 @@ impl IncrementalRowProjector {
     }
 }
 
+#[cfg(test)]
+pub(crate) fn evict_write_projector_for_tests(conversation_id: Uuid) {
+    evict_write_projector(conversation_id);
+}
 
 #[cfg(test)]
 #[path = "cache_tests.rs"]

@@ -30,6 +30,7 @@ pub use conversation::{
 };
 pub use conversation_artifacts::SqliteConversationArtifactEventSink;
 pub use conversation_execution::ConversationSessionExecutionPort;
+pub use agents::ConversationSteeringDeliveryMode;
 pub use conversations::{
     ConversationInputStatus, ConversationInputSubmission, ConversationInputView,
     ConversationRelationView, ConversationSteeringReceipt, ConversationSteeringStatus,

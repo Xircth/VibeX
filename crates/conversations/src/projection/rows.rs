@@ -64,10 +64,11 @@ impl ProjectionFold {
         deleted_rows: &mut Vec<ConversationRowOp>,
     ) {
         let side_rows = &mut self.side_rows;
+        let side_row_turns = &mut self.side_row_turns;
         let auto_permission_approvals = &mut self.auto_permission_approvals;
         match event {
             ConversationEvent::PermissionRequested { request } => {
-                side_rows.push(side_row(
+                let row = side_row(
                     record.sequence,
                     ConversationTimelineRow::PermissionRequest {
                         request: ConversationPermissionView {
@@ -76,9 +77,15 @@ impl ProjectionFold {
                             status: "pending".into(),
                             details: request.request.details,
                             options: request.request.options,
+                            revision: (request.request.revision > 0)
+                                .then_some(request.request.revision),
                         },
                     },
-                ));
+                );
+                if let Some(tid) = record.turn_id {
+                    side_row_turns.insert(row.row_id.clone(), tid);
+                }
+                side_rows.push(row);
             }
             ConversationEvent::PermissionResponded {
                 permission_id,
@@ -87,12 +94,9 @@ impl ProjectionFold {
                 let auto_allow = response.auto
                     && matches!(response.response, AgentPermissionResponse::Selected { .. });
                 if auto_allow {
-                    remove_side_row(
-                        side_rows,
-                        deleted_rows,
-                        &format!("perm:{permission_id}"),
-                        record.sequence,
-                    );
+                    let row_id = format!("perm:{permission_id}");
+                    side_row_turns.remove(&row_id);
+                    remove_side_row(side_rows, deleted_rows, &row_id, record.sequence);
                     *auto_permission_approvals = auto_permission_approvals.saturating_add(1);
                     upsert_stable_notice(
                         side_rows,
@@ -101,10 +105,6 @@ impl ProjectionFold {
                         auto_permission_notice(*auto_permission_approvals),
                     );
                 } else {
-                    // Fold the response onto the pending permission row so a rebuilt
-                    // projection matches the live store (which sets `status: 'responded'`)
-                    // — otherwise an answered (or recovery-voided, ADR-0001) permission
-                    // reloads as perpetually pending.
                     for entry in side_rows.iter_mut() {
                         if let ConversationTimelineRow::PermissionRequest { request } =
                             &mut entry.row
@@ -118,20 +118,22 @@ impl ProjectionFold {
                 }
             }
             ConversationEvent::QuestionRequested { request } => {
-                side_rows.push(side_row(
+                let row = side_row(
                     record.sequence,
                     ConversationTimelineRow::QuestionRequest {
                         request,
                         response: None,
                     },
-                ));
+                );
+                if let Some(tid) = record.turn_id {
+                    side_row_turns.insert(row.row_id.clone(), tid);
+                }
+                side_rows.push(row);
             }
             ConversationEvent::QuestionResponded {
                 question_id,
                 response,
             } => {
-                // Fold the answer onto the pending question row so a rebuilt projection
-                // no longer shows answered questions as perpetually pending.
                 for entry in side_rows.iter_mut() {
                     if let ConversationTimelineRow::QuestionRequest {
                         request,
@@ -146,13 +148,17 @@ impl ProjectionFold {
                 }
             }
             ConversationEvent::FeedbackRequested { request } => {
-                side_rows.push(side_row(
+                let row = side_row(
                     record.sequence,
                     ConversationTimelineRow::FeedbackRequest {
                         request,
                         response: None,
                     },
-                ));
+                );
+                if let Some(tid) = record.turn_id {
+                    side_row_turns.insert(row.row_id.clone(), tid);
+                }
+                side_rows.push(row);
             }
             ConversationEvent::FeedbackSubmitted {
                 feedback_id,
@@ -189,14 +195,18 @@ impl ProjectionFold {
                     existing.revision = record.sequence;
                     existing.row = ConversationTimelineRow::TerminalSummary { terminal: view };
                 } else {
-                    side_rows.push(side_row(
+                    let row = side_row(
                         record.sequence,
                         ConversationTimelineRow::TerminalSummary { terminal: view },
-                    ));
+                    );
+                    if let Some(tid) = record.turn_id {
+                        side_row_turns.insert(row.row_id.clone(), tid);
+                    }
+                    side_rows.push(row);
                 }
             }
             ConversationEvent::DelegationStarted { delegation } => {
-                side_rows.push(side_row(
+                let row = side_row(
                     record.sequence,
                     ConversationTimelineRow::Delegation {
                         delegation: ConversationDelegationView {
@@ -209,16 +219,16 @@ impl ProjectionFold {
                             result: None,
                         },
                     },
-                ));
+                );
+                if let Some(tid) = record.turn_id {
+                    side_row_turns.insert(row.row_id.clone(), tid);
+                }
+                side_rows.push(row);
             }
             ConversationEvent::DelegationCompleted {
                 delegation_id,
                 result,
             } => {
-                // Fold the outcome onto the running delegation row so a rebuilt
-                // projection shows one card per delegation (keeping agent_type,
-                // task_preview, child_conversation_id from the start event) rather
-                // than a second, context-less "completed" row.
                 let status = match &result {
                     ConversationDelegationResult::Ok { .. } => "completed",
                     ConversationDelegationResult::Err { error }
@@ -244,7 +254,7 @@ impl ProjectionFold {
                     }
                 }
                 if !merged {
-                    side_rows.push(side_row(
+                    let row = side_row(
                         record.sequence,
                         ConversationTimelineRow::Delegation {
                             delegation: ConversationDelegationView {
@@ -257,7 +267,11 @@ impl ProjectionFold {
                                 result: Some(result),
                             },
                         },
-                    ));
+                    );
+                    if let Some(tid) = record.turn_id {
+                        side_row_turns.insert(row.row_id.clone(), tid);
+                    }
+                    side_rows.push(row);
                 }
             }
             ConversationEvent::FileChangeSummaryUpdated { summary } => {
@@ -270,10 +284,14 @@ impl ProjectionFold {
                 ));
             }
             ConversationEvent::ArtifactRevisionRecorded { artifact } => {
-                side_rows.push(side_row(
+                let row = side_row(
                     record.sequence,
                     ConversationTimelineRow::ArtifactRevision { artifact },
-                ));
+                );
+                if let Some(tid) = record.turn_id {
+                    side_row_turns.insert(row.row_id.clone(), tid);
+                }
+                side_rows.push(row);
             }
             ConversationEvent::AgentBindingLoadFailed { reason } => {
                 // Reload path must read the same as the live path: a legible,
@@ -619,12 +637,32 @@ impl ProjectionFold {
 
     pub(super) fn timeline_rows(&self) -> Vec<TimelineRow> {
         let mut rows = Vec::with_capacity(self.turn_order.len() * 2 + self.side_rows.len());
-        rows.extend(self.side_rows.iter().cloned());
+        rows.extend(
+            self.side_rows
+                .iter()
+                .filter(|row| self.side_row_turn_id(row).is_none())
+                .cloned(),
+        );
         for turn_id in &self.turn_order {
             if let Some(turn) = self.turns.get(turn_id) {
                 rows.extend(message_rows(turn));
             }
+            rows.extend(
+                self.side_rows
+                    .iter()
+                    .filter(|row| self.side_row_turn_id(row) == Some(*turn_id))
+                    .cloned(),
+            );
         }
+        rows.extend(
+            self.side_rows
+                .iter()
+                .filter(|row| {
+                    self.side_row_turn_id(row)
+                        .is_some_and(|tid| !self.turn_order.contains(&tid))
+                })
+                .cloned(),
+        );
         rows
     }
 }

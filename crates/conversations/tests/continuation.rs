@@ -596,3 +596,70 @@ async fn repeated_switch_back_does_not_re_deliver_a_known_gap() {
     );
     assert!(prompt.contains("codex second"));
 }
+
+#[tokio::test]
+async fn persisting_switched_session_agent_before_turn_still_delivers_portable_handoff() {
+    let f = Fixture::new().await;
+    let pool = &f.ctx.deployment.db().pool;
+
+    f.service
+        .submit_and_dispatch(f.input("claude_code", "remember the amber key"), "user")
+        .await
+        .unwrap();
+    f.service.cancel_turn(f.conversation, None).await.unwrap();
+    if let Some(conn_id) = f
+        .ctx
+        .agent_runtime
+        .live_connection_id(AgentSessionId(f.conversation))
+        .await
+    {
+        let _ = f.ctx.agent_runtime.disconnect(conn_id).await;
+    }
+    tokio::time::sleep(Duration::from_millis(50)).await;
+
+    // Simulate confirming an Agent switch in the UI before sending the next message:
+    // `sessions.agent_id` and `sessions.executor` are immediately updated so the
+    // session list and Bot/Session details reflect `codex`, while `active_agent_binding_id`
+    // still points to the last bound runtime (`claude_code`).
+    sqlx::query(
+        "UPDATE sessions SET agent_id = 'codex', agent_type = 'codex', executor = 'codex', model = NULL WHERE id = ?",
+    )
+    .bind(f.conversation)
+    .execute(pool)
+    .await
+    .unwrap();
+
+    let mut events = f.ctx.agent_runtime.subscribe_events();
+    let second = f
+        .service
+        .submit_and_dispatch(f.input("codex", "continue on codex"), "user")
+        .await
+        .unwrap();
+    assert!(second.turn.is_some());
+
+    let mut delivered_prompt = None;
+    for _ in 0..30 {
+        let event: AgentEventEnvelope = tokio::time::timeout(Duration::from_secs(2), events.recv())
+            .await
+            .unwrap()
+            .unwrap();
+        if let agents::AgentEvent::MessageChunk {
+            content: AgentContentBlock::Text { text },
+        } = event.event
+        {
+            delivered_prompt = Some(text);
+            break;
+        }
+    }
+    let prompt = delivered_prompt.expect("Codex receives prompt with portable history");
+    assert!(
+        prompt.contains("remember the amber key"),
+        "Codex must still receive portable history even after sessions.agent_id was updated at switch time: {prompt}"
+    );
+    let active = ConversationAgentBindingRecord::active_for_conversation(pool, f.conversation)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(active.agent_id.as_str(), "codex");
+    f.service.cancel_turn(f.conversation, None).await.unwrap();
+}

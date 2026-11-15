@@ -63,7 +63,7 @@ pub trait ConversationEventSink: Send + Sync + 'static {
 pub struct ConversationLivePipeline {
     pool: SqlitePool,
     projectors: ConversationRowProjectors,
-    sink: Arc<dyn ConversationEventSink>,
+    coalescer: crate::live_coalescer::LiveRowOpCoalescer,
     conversation_locks: Mutex<HashMap<Uuid, Arc<tokio::sync::Mutex<()>>>>,
 }
 
@@ -81,9 +81,37 @@ impl ConversationLivePipeline {
         Self {
             pool,
             projectors,
-            sink,
+            coalescer: crate::live_coalescer::LiveRowOpCoalescer::new(sink),
             conversation_locks: Mutex::new(HashMap::new()),
         }
+    }
+
+    /// Flush any buffered streaming row ops for `conversation_id` immediately.
+    pub fn flush_conversation(&self, conversation_id: Uuid) {
+        self.coalescer.flush_conversation(conversation_id);
+    }
+
+    /// Emit a `reset: true` barrier batch after truncation/edit/rollback so live clients
+    /// re-open the authoritative timeline window cleanly.
+    pub async fn publish_reset(&self, conversation_id: Uuid, last_sequence: i64) {
+        let conv_lock = self.conversation_lock(conversation_id);
+        let _conv_guard = conv_lock.lock().await;
+        self.projectors.lock().await.remove(&conversation_id);
+        let batch = ConversationRowOpBatch {
+            conversation_id,
+            last_sequence,
+            previous_sequence: None,
+            reset: true,
+            ops: Vec::new(),
+            session_modes: None,
+            session_config_options: None,
+            available_commands: None,
+            session_goal: None,
+            async_tasks: None,
+            prompt_suggestion: None,
+        };
+        self.coalescer
+            .submit(conversation_id, batch, true, true, false);
     }
 
     /// Acquire the per-conversation serialisation lock. Creates one on first access.
@@ -250,10 +278,13 @@ impl ConversationLivePipeline {
         if let Some((previous_sequence, last_sequence)) = should_emit {
             let emit_global =
                 should_emit_global(&ops, &control, queue_changed);
+            let immediate_barrier = is_immediate_barrier(&new_records, &ops, &control, queue_changed);
+            let is_streaming = !immediate_barrier && is_streaming_batch(&new_records, &ops);
             let batch = ConversationRowOpBatch {
                 conversation_id,
                 last_sequence,
                 previous_sequence: Some(previous_sequence),
+                reset: false,
                 ops,
                 session_modes: control.session_modes,
                 session_config_options: control.session_config_options,
@@ -262,20 +293,237 @@ impl ConversationLivePipeline {
                 async_tasks: control.async_tasks,
                 prompt_suggestion: control.prompt_suggestion,
             };
-            self.sink.emit_conversation_batch(conversation_id, &batch);
-            if emit_global {
-                self.sink.emit_global_batch(&batch);
-            }
+            self.coalescer.submit(
+                conversation_id,
+                batch,
+                emit_global,
+                immediate_barrier,
+                is_streaming,
+            );
         }
 
         // Check for workbench-affecting events and notify if needed.
         if is_workbench_changed(&new_records) {
             if let Ok(Some(session)) = Session::find_by_id(&self.pool, conversation_id).await {
-                self.sink.emit_workspaces_sessions_changed(WorkspaceSessionsChanged {
+                self.coalescer.emit_workspaces_sessions_changed(WorkspaceSessionsChanged {
                     workspace_id: session.workspace_id,
                     conversation_id,
                 });
             }
+        }
+    }
+
+    /// Publish a slice of newly committed events directly in memory, grouped by conversation.
+    ///
+    /// When the cached projector's `db_cursor` matches `first_seq - 1`, zero `events_since`
+    /// SQLite queries are executed — the committed records are folded in memory and coalesced
+    /// into one [`ConversationRowOpBatch`] per conversation. Only when `db_cursor < first_seq - 1`
+    /// does it query the missing gap (`< first_seq`) before folding `conv_records`.
+    pub async fn publish_batch(&self, records: &[ConversationEventRecord]) {
+        if records.is_empty() {
+            return;
+        }
+        let mut order: Vec<Uuid> = Vec::new();
+        let mut by_conversation: HashMap<Uuid, Vec<&ConversationEventRecord>> = HashMap::new();
+        for record in records {
+            by_conversation
+                .entry(record.conversation_id)
+                .or_insert_with(|| {
+                    order.push(record.conversation_id);
+                    Vec::new()
+                })
+                .push(record);
+        }
+        for conversation_id in order {
+            if let Some(mut conv_records) = by_conversation.remove(&conversation_id) {
+                conv_records.sort_by_key(|r| r.sequence);
+                self.publish_conversation_batch(conversation_id, &conv_records)
+                    .await;
+            }
+        }
+    }
+
+    async fn publish_conversation_batch(
+        &self,
+        conversation_id: Uuid,
+        conv_records: &[&ConversationEventRecord],
+    ) {
+        if conv_records.is_empty() {
+            return;
+        }
+        let conv_lock = self.conversation_lock(conversation_id);
+        let _conv_guard = conv_lock.lock().await;
+
+        let first_seq = conv_records[0].sequence;
+        let last_seq = conv_records[conv_records.len() - 1].sequence;
+        let before_first = first_seq.saturating_sub(1);
+
+        let (mut publish_after, mut has_projector) = {
+            let mut map = self.projectors.lock().await;
+            match map.get_mut(&conversation_id) {
+                Some(entry) => {
+                    entry.sync_if_rebuilt(conversation_id);
+                    (entry.db_cursor, true)
+                }
+                None => (before_first, false),
+            }
+        };
+
+        // Reset cached projector if the conversation was truncated behind `db_cursor`.
+        if has_projector
+            && last_seq <= publish_after
+            && let Ok(max_seq) =
+                ConversationEventRecord::max_sequence(&self.pool, conversation_id).await
+            && max_seq < publish_after
+        {
+            self.projectors.lock().await.remove(&conversation_id);
+            publish_after = before_first;
+            has_projector = false;
+        }
+
+        let mut new_records: Vec<ConversationEventRecord> = Vec::with_capacity(conv_records.len());
+        if publish_after < before_first {
+            match ConversationEventRecord::events_since(
+                &self.pool,
+                conversation_id,
+                publish_after,
+                2000,
+            )
+            .await
+            {
+                Ok(gap_records) => {
+                    for gap in gap_records {
+                        if gap.sequence < first_seq {
+                            publish_after = gap.sequence;
+                            new_records.push(gap);
+                        }
+                    }
+                }
+                Err(error) => {
+                    tracing::warn!(
+                        %conversation_id,
+                        %error,
+                        "row-op batch emit: reading gap events failed"
+                    );
+                    return;
+                }
+            }
+        }
+
+        let mut prev_seq = publish_after;
+        for &rec in conv_records {
+            if rec.sequence <= prev_seq {
+                continue;
+            }
+            if rec.sequence > prev_seq + 1 {
+                if let Ok(mid_gap) = ConversationEventRecord::events_since(
+                    &self.pool,
+                    conversation_id,
+                    prev_seq,
+                    2000,
+                )
+                .await
+                {
+                    for gap in mid_gap {
+                        if gap.sequence < rec.sequence && gap.sequence > prev_seq {
+                            prev_seq = gap.sequence;
+                            new_records.push(gap);
+                        }
+                    }
+                }
+            }
+            prev_seq = rec.sequence;
+            new_records.push(rec.clone());
+        }
+
+        if new_records.is_empty() {
+            return;
+        }
+
+        let control = extract_session_control_state(&new_records);
+        let queue_changed = new_records
+            .iter()
+            .any(|item| item.event_kind == "conversation_input");
+
+        let loaded_projector = if !has_projector {
+            match IncrementalRowProjector::load(&self.pool, conversation_id, publish_after).await {
+                Ok(projector) => Some(CachedRowProjector::new(projector)),
+                Err(error) => {
+                    tracing::warn!(%conversation_id, %error, "row-op batch emit: projector load failed");
+                    return;
+                }
+            }
+        } else {
+            None
+        };
+
+        let mut ops = Vec::new();
+        let should_emit = {
+            let mut map = self.projectors.lock().await;
+            if let Some(projector) = loaded_projector {
+                map.entry(conversation_id).or_insert(projector);
+            }
+            let entry = map
+                .get_mut(&conversation_id)
+                .expect("projector present after insert");
+            entry.touch();
+            let previous_sequence = entry.last_emitted_sequence;
+            for item in &new_records {
+                match entry.apply_persisted(item) {
+                    Ok(Some(record_ops)) => extend_coalesced_row_ops(&mut ops, record_ops),
+                    Ok(None) => {}
+                    Err(error) => {
+                        tracing::warn!(sequence = item.sequence, %error, "row-op batch emit: fold failed");
+                    }
+                }
+            }
+            let last_sequence = entry.db_cursor;
+            let will_emit = !ops.is_empty() || !control.is_empty() || queue_changed;
+            let result = if will_emit {
+                entry.last_emitted_sequence = last_sequence;
+                Some((previous_sequence, last_sequence))
+            } else {
+                None
+            };
+            evict_least_recently_used_projectors(&mut map, conversation_id);
+            self.prune_conversation_locks(&map);
+            result
+        };
+
+        if let Some((previous_sequence, last_sequence)) = should_emit {
+            let emit_global = should_emit_global(&ops, &control, queue_changed);
+            let immediate_barrier = is_immediate_barrier(&new_records, &ops, &control, queue_changed);
+            let is_streaming = !immediate_barrier && is_streaming_batch(&new_records, &ops);
+            let batch = ConversationRowOpBatch {
+                conversation_id,
+                last_sequence,
+                previous_sequence: Some(previous_sequence),
+                reset: false,
+                ops,
+                session_modes: control.session_modes,
+                session_config_options: control.session_config_options,
+                available_commands: control.available_commands,
+                session_goal: control.session_goal,
+                async_tasks: control.async_tasks,
+                prompt_suggestion: control.prompt_suggestion,
+            };
+            self.coalescer.submit(
+                conversation_id,
+                batch,
+                emit_global,
+                immediate_barrier,
+                is_streaming,
+            );
+        }
+
+        if is_workbench_changed(&new_records)
+            && let Ok(Some(session)) = Session::find_by_id(&self.pool, conversation_id).await
+        {
+            self.coalescer
+                .emit_workspaces_sessions_changed(WorkspaceSessionsChanged {
+                    workspace_id: session.workspace_id,
+                    conversation_id,
+                });
         }
     }
 
@@ -338,10 +586,16 @@ impl ConversationLivePipeline {
         }
 
         let emit_global = prompt_suggestion.is_some();
+        let immediate_barrier = prompt_suggestion.is_some()
+            || ops
+                .iter()
+                .any(|op| matches!(op, ConversationRowOp::Delete { .. }));
+        let is_streaming = !immediate_barrier && !ops.is_empty();
         let batch = ConversationRowOpBatch {
             conversation_id,
             last_sequence: cursor,
             previous_sequence: Some(cursor),
+            reset: false,
             ops,
             session_modes: None,
             session_config_options: None,
@@ -350,11 +604,64 @@ impl ConversationLivePipeline {
             async_tasks: None,
             prompt_suggestion,
         };
-        self.sink.emit_conversation_batch(conversation_id, &batch);
-        if emit_global {
-            self.sink.emit_global_batch(&batch);
-        }
+        self.coalescer.submit(
+            conversation_id,
+            batch,
+            emit_global,
+            immediate_barrier,
+            is_streaming,
+        );
     }
+}
+
+fn is_immediate_barrier(
+    records: &[ConversationEventRecord],
+    ops: &[ConversationRowOp],
+    control: &SessionControlState,
+    queue_changed: bool,
+) -> bool {
+    queue_changed
+        || !control.is_empty()
+        || ops
+            .iter()
+            .any(|op| matches!(op, ConversationRowOp::Delete { .. }))
+        || records.iter().any(|record| {
+            matches!(
+                record.event_kind.as_str(),
+                "user_turn_created"
+                    | "user_turn_queued"
+                    | "user_turn_started"
+                    | "turn_blocked"
+                    | "turn_completed"
+                    | "turn_failed"
+                    | "turn_cancelled"
+                    | "turn_interrupted"
+                    | "conversation_input"
+                    | "conversation_steering"
+                    | "permission_requested"
+                    | "permission_resolved"
+                    | "question_requested"
+                    | "question_resolved"
+            )
+        })
+}
+
+fn is_streaming_batch(records: &[ConversationEventRecord], ops: &[ConversationRowOp]) -> bool {
+    !ops.is_empty()
+        && records.iter().all(|record| {
+            matches!(
+                record.event_kind.as_str(),
+                "assistant_text_delta"
+                    | "assistant_thinking_delta"
+                    | "assistant_content_block"
+                    | "tool_call_upsert"
+                    | "tool_call_update"
+                    | "tool_call_completed"
+                    | "tool_call_failed"
+                    | "terminal_output_delta"
+                    | "plan_updated"
+            )
+        })
 }
 
 /// Extract session-control state from a batch of event records.
@@ -442,6 +749,8 @@ const WORKBENCH_EVENT_KINDS: &[&str] = &[
     "turn_interrupted",
     "conversation_input",
     "user_turn_created",
+    "agent_binding_ready",
+    "session_config_options_updated",
 ];
 
 /// Check if any record in the batch affects the workbench.
@@ -781,5 +1090,115 @@ mod tests {
                 "{kind} should not be workbench-affecting"
             );
         }
+    }
+
+    #[tokio::test]
+    async fn publish_batch_folds_aligned_records_in_memory_without_db_requery_and_coalesces_ops() {
+        use agents::conversation::{ConversationRowOp, TimelineTextStream};
+
+        let pool = test_pool().await;
+        let projectors = ConversationRowProjectors::default();
+        let (sink, batches, _workbench) = CapturingSink::new();
+        let pipeline = ConversationLivePipeline::new(pool.clone(), projectors, Arc::new(sink));
+
+        let conversation_id = Uuid::new_v4();
+        let turn_id = Uuid::new_v4();
+        ConversationTurnRecord::create_pending(
+            &pool,
+            turn_id,
+            CreateConversationTurn {
+                conversation_id,
+                prompt_id: None,
+                text_preview: Some("hello"),
+                input_blocks_json: "[]",
+            },
+        )
+        .await
+        .expect("create pending turn");
+        let channel = format!("conversation-events:{conversation_id}");
+
+        let rec1 = append_event(
+            &pool,
+            conversation_id,
+            turn_id,
+            "user_turn_created",
+            &ConversationEvent::UserTurnCreated {
+                blocks: vec![ConversationInputBlock::Text {
+                    text: "hello".to_string(),
+                }],
+                workflow_refs: Vec::new(),
+            },
+        )
+        .await;
+        pipeline.publish_batch(std::slice::from_ref(&rec1)).await;
+        batches.lock().unwrap().clear();
+
+        // Construct seq=2 and seq=3 ONLY in memory (not inserted into SQLite).
+        // Because `db_cursor == 1 == first_seq - 1`, `publish_batch` must NOT query
+        // `events_since` and must coalesce both deltas into a single `AppendText` batch.
+        let mem_delta_1 = ConversationEventRecord {
+            id: Uuid::new_v4(),
+            conversation_id,
+            turn_id: Some(turn_id),
+            binding_id: None,
+            connection_id: None,
+            prompt_id: None,
+            sequence: 2,
+            source: "acp".to_string(),
+            event_kind: "assistant_text_delta".to_string(),
+            event_version: 1,
+            normalized_json: serde_json::to_string(&ConversationEvent::AssistantTextDelta {
+                text: "hello ".to_string(),
+                message_id: None,
+            })
+            .expect("serialize delta 1"),
+            raw_json: None,
+            idempotency_key: None,
+            created_at: chrono::Utc::now(),
+        };
+        let mem_delta_2 = ConversationEventRecord {
+            id: Uuid::new_v4(),
+            conversation_id,
+            turn_id: Some(turn_id),
+            binding_id: None,
+            connection_id: None,
+            prompt_id: None,
+            sequence: 3,
+            source: "acp".to_string(),
+            event_kind: "assistant_text_delta".to_string(),
+            event_version: 1,
+            normalized_json: serde_json::to_string(&ConversationEvent::AssistantTextDelta {
+                text: "world".to_string(),
+                message_id: None,
+            })
+            .expect("serialize delta 2"),
+            raw_json: None,
+            idempotency_key: None,
+            created_at: chrono::Utc::now(),
+        };
+        pipeline
+            .publish_batch(&[mem_delta_1, mem_delta_2])
+            .await;
+
+        let captured = batches.lock().unwrap().clone();
+        let conv_batches: Vec<_> = captured.iter().filter(|(ch, _)| ch == &channel).collect();
+        assert_eq!(conv_batches.len(), 1);
+        assert_eq!(conv_batches[0].1.previous_sequence, Some(1));
+        assert_eq!(conv_batches[0].1.last_sequence, 3);
+        let append_text = conv_batches[0]
+            .1
+            .ops
+            .iter()
+            .find_map(|op| match op {
+                ConversationRowOp::AppendText {
+                    delta,
+                    stream: TimelineTextStream::Text,
+                    revision,
+                    ..
+                } => Some((delta.as_str(), *revision)),
+                _ => None,
+            })
+            .expect("coalesced AppendText op present");
+        assert_eq!(append_text, ("hello world", 3));
     }
 }

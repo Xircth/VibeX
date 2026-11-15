@@ -40,13 +40,6 @@ impl ConversationSessionService {
                 &connection_id.to_string(),
             )
             .await?;
-            crate::jsonl_history::prepare_binding_transcript(
-                pool,
-                conversation_id,
-                &binding,
-                connection_id,
-            )
-            .await?;
             ConversationAgentBindingRecord::activate(pool, conversation_id, binding.id).await
         }
         .await;
@@ -359,8 +352,7 @@ impl ConversationSessionService {
                     binding.resume_allowed
                         && binding.connection_id.as_deref()
                             == Some(connection_id.to_string().as_str())
-                }) && agents::transcript_target::is_bound(connection_id)
-                {
+                }) {
                     return Ok(controls);
                 }
                 self.commit_native_binding(
@@ -435,8 +427,11 @@ impl ConversationSessionService {
                 )
                 .await;
             } else {
-                crate::jsonl_history::preserve_transcript_before_detach(pool, conversation_id)
-                    .await?;
+                crate::flush_conversation_persistence(conversation_id).await;
+                self.ctx
+                    .event_publisher
+                    .flush_conversation(conversation_id)
+                    .await;
                 persisted_session.external_session_id = None;
                 let _ = sqlx::query(
                     r#"UPDATE sessions
@@ -596,8 +591,11 @@ impl ConversationSessionService {
                 strategy,
                 Some(agents::SessionRecoveryStrategy::CreatedNewSession)
             ) {
-                crate::jsonl_history::preserve_transcript_before_detach(pool, conversation_id)
-                    .await?;
+                crate::flush_conversation_persistence(conversation_id).await;
+                self.ctx
+                    .event_publisher
+                    .flush_conversation(conversation_id)
+                    .await;
             }
             restore_strategy = strategy;
             snapshot
@@ -616,8 +614,11 @@ impl ConversationSessionService {
                     .as_ref()
                     .is_some_and(|binding| binding.agent_id != agent_id)
             {
-                crate::jsonl_history::preserve_transcript_before_detach(pool, conversation_id)
-                    .await?;
+                crate::flush_conversation_persistence(conversation_id).await;
+                self.ctx
+                    .event_publisher
+                    .flush_conversation(conversation_id)
+                    .await;
             }
             let prepared = self
                 .ctx
@@ -855,19 +856,28 @@ pub(crate) async fn conversation_has_recorded_turns(
     pool: &SqlitePool,
     conversation_id: Uuid,
 ) -> Result<bool, sqlx::Error> {
-    if !db::models::conversation_turn::ConversationTurnRecord::list_for_conversation(
-        pool,
-        conversation_id,
+    let _ = crate::ensure_legacy_jsonl_migrated_on_pool(pool, conversation_id).await?;
+    let has_recorded: i64 = sqlx::query_scalar(
+        r#"SELECT EXISTS(
+               SELECT 1 FROM conversation_turns
+                WHERE conversation_id = ?1
+                  AND NOT (status = 'pending' AND prompt_id IS NULL)
+           ) OR EXISTS(
+               SELECT 1 FROM conversation_events
+                WHERE conversation_id = ?1
+                  AND event_kind IN (
+                      'assistant_text_delta',
+                      'assistant_reasoning_delta',
+                      'assistant_content_appended',
+                      'tool_call_upsert',
+                      'turn_completed'
+                  )
+           )"#,
     )
-    .await?
-    .iter()
-    .all(|turn| turn.status == "pending" && turn.prompt_id.is_none())
-    {
-        return Ok(true);
-    }
-    Ok(crate::jsonl_history::load_all_turns(pool, conversation_id)
-        .await?
-        .is_some_and(|turns| !turns.is_empty()))
+    .bind(conversation_id)
+    .fetch_one(pool)
+    .await?;
+    Ok(has_recorded != 0)
 }
 
 async fn linked_agent_for_external_session(

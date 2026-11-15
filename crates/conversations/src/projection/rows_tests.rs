@@ -418,8 +418,11 @@
         .await;
 
         let skipped_artifact_snapshot = serde_json::to_string(&ProjectionSnapshotState {
+            full_fold: true,
             turns: Vec::new(),
+            turn_metrics: std::collections::BTreeMap::new(),
             side_rows: Vec::new(),
+            side_row_turns: std::collections::BTreeMap::new(),
             last_sequence: record.sequence,
             auto_permission_approvals: 0,
         })
@@ -760,6 +763,8 @@
                 event: agents::conversation::ConversationSteeringEvent::Accepted {
                     steering_id,
                     expected_turn_id: turn_id,
+                    delivery_mode: Some(agents::ConversationSteeringDeliveryMode::Native),
+                    restarted_turn_id: None,
                 },
             },
             None,
@@ -1279,14 +1284,29 @@
         assert!(full.rows.len() > 5);
         assert_eq!(open.timeline.rows.len(), 5);
         assert!(open.timeline.truncated_from_start);
-        assert_eq!(
-            open.timeline.older_cursor,
-            Some((full.rows.len() - 5).to_string())
-        );
+        let decoded_cursor = open
+            .timeline
+            .older_cursor
+            .as_deref()
+            .and_then(crate::projection::decode_timeline_cursor)
+            .expect("opaque keyset older_cursor");
+        assert_eq!(decoded_cursor.row_id, open.timeline.rows[0].row_id);
         assert_eq!(
             open.timeline.rows.last().map(|row| row.row_id.as_str()),
             full.rows.last().map(|row| row.row_id.as_str())
         );
+        let page = ConversationProjector::project_timeline_page(
+            &pool,
+            conversation_id,
+            open.timeline.older_cursor.as_deref(),
+            None,
+            None,
+            3,
+        )
+        .await
+        .expect("keyset page");
+        assert_eq!(page.rows.len(), 3);
+        assert_eq!(page.rows.last().unwrap().row_id, full.rows[full.rows.len() - 6].row_id);
         let window = ConversationProjector::project_row_window(&pool, conversation_id, 2, 3)
             .await
             .expect("window");

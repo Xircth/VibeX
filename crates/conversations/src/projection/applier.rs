@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use agents::conversation::{ConversationEvent, ConversationInputEvent};
 use db::models::{
@@ -13,7 +13,9 @@ use db::models::{
         ConversationFileChangeRecord, ConversationPermissionRecord, ConversationTerminalRecord,
         InsertConversationFileChange, UpsertConversationPermission, UpsertConversationTerminal,
     },
+    conversation_snapshot::ConversationProjectionSnapshotRecord,
     conversation_steering::ConversationSteeringRecord,
+    conversation_timeline_row::{ConversationTimelineRowRecord, SORT_INDEX_SLOT_SPAN},
     conversation_tool::{ConversationToolCallRecord, UpsertConversationToolCall},
     conversation_turn::ConversationTurnRecord,
 };
@@ -22,48 +24,360 @@ use sqlx::{SqliteConnection, SqlitePool};
 use uuid::Uuid;
 
 use super::{
-    ConversationProjector, ParsedEvent, cache::json_decode_error, conversation_event_from_record,
-    conversation_input_event_id,
+    CONVERSATION_PROJECTION_VERSION, ConversationProjector, ParsedEvent,
+    cache::{
+        self, WriteSideProjectorState, apply_and_persist_incremental_on_conn,
+        commit_write_projector_states, evict_write_projector,
+        flush_write_projector_snapshot_on_conn, get_or_load_write_projector_on_conn,
+        json_decode_error,
+    },
+    conversation_event_from_record, conversation_input_event_id,
 };
+
+pub const MAX_BATCH_EVENTS: usize = 64;
+pub const MAX_BATCH_BYTES: usize = 1_048_576;
+
+/// Pre-computed checkpoint finalization metadata committed inside the same `BEGIN IMMEDIATE`
+/// transaction as its corresponding event (zero filesystem/git I/O inside the transaction).
+#[derive(Debug, Clone)]
+pub struct CheckpointMetadataUpdate {
+    pub checkpoint_id: Uuid,
+    pub after_snapshot_json: String,
+    pub diff_summary_json: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct BatchConversationEvent {
+    pub id: Uuid,
+    pub conversation_id: Uuid,
+    pub turn_id: Option<Uuid>,
+    pub binding_id: Option<Uuid>,
+    pub connection_id: Option<String>,
+    pub prompt_id: Option<String>,
+    pub source: String,
+    pub event_kind: String,
+    pub normalized_json: String,
+    pub raw_json: Option<String>,
+    pub idempotency_key: Option<String>,
+    pub checkpoint_update: Option<CheckpointMetadataUpdate>,
+}
+
+impl BatchConversationEvent {
+    pub fn from_append(input: AppendConversationEvent<'_>) -> Self {
+        Self {
+            id: input.id,
+            conversation_id: input.conversation_id,
+            turn_id: input.turn_id,
+            binding_id: input.binding_id,
+            connection_id: input.connection_id.map(str::to_owned),
+            prompt_id: input.prompt_id.map(str::to_owned),
+            source: input.source.to_owned(),
+            event_kind: input.event_kind.to_owned(),
+            normalized_json: input.normalized_json.to_owned(),
+            raw_json: input.raw_json.map(str::to_owned),
+            idempotency_key: input.idempotency_key.map(str::to_owned),
+            checkpoint_update: None,
+        }
+    }
+
+    pub fn as_append(&self) -> AppendConversationEvent<'_> {
+        AppendConversationEvent {
+            id: self.id,
+            conversation_id: self.conversation_id,
+            turn_id: self.turn_id,
+            binding_id: self.binding_id,
+            connection_id: self.connection_id.as_deref(),
+            prompt_id: self.prompt_id.as_deref(),
+            source: canonical_event_source(&self.source),
+            event_kind: &self.event_kind,
+            normalized_json: &self.normalized_json,
+            raw_json: self.raw_json.as_deref(),
+            idempotency_key: self.idempotency_key.as_deref(),
+        }
+    }
+
+    fn estimated_bytes(&self) -> usize {
+        self.normalized_json.len()
+            + self.raw_json.as_deref().map_or(0, str::len)
+            + self
+                .checkpoint_update
+                .as_ref()
+                .map_or(0, |cp| cp.after_snapshot_json.len() + cp.diff_summary_json.len())
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct CommittedConversationEvent {
+    pub index: usize,
+    pub record: ConversationEventRecord,
+    pub duplicate: bool,
+}
+
+#[derive(Debug, Default)]
+pub struct BatchAppendResult {
+    pub committed: Vec<CommittedConversationEvent>,
+    pub failed: Vec<(usize, sqlx::Error)>,
+}
+
+pub(crate) async fn apply_checkpoint_metadata_update_on_conn(
+    conn: &mut SqliteConnection,
+    update: &CheckpointMetadataUpdate,
+) -> Result<(), sqlx::Error> {
+    sqlx::query(
+        r#"UPDATE conversation_checkpoints
+           SET after_snapshot_json = ?,
+               diff_summary_json = ?,
+               finalized_at = datetime('now', 'subsec')
+           WHERE id = ?"#,
+    )
+    .bind(&update.after_snapshot_json)
+    .bind(&update.diff_summary_json)
+    .bind(update.checkpoint_id)
+    .execute(&mut *conn)
+    .await?;
+    Ok(())
+}
+
+fn split_batch_ranges(events: &[BatchConversationEvent]) -> Vec<std::ops::Range<usize>> {
+    let mut ranges = Vec::new();
+    let mut start = 0usize;
+    while start < events.len() {
+        let mut end = start;
+        let mut bytes = 0usize;
+        while end < events.len() && (end - start) < MAX_BATCH_EVENTS {
+            let item_bytes = events[end].estimated_bytes();
+            if end > start && bytes.saturating_add(item_bytes) > MAX_BATCH_BYTES {
+                break;
+            }
+            bytes = bytes.saturating_add(item_bytes);
+            end += 1;
+        }
+        ranges.push(start..end);
+        start = end;
+    }
+    ranges
+}
+
+fn canonical_event_source(source: &str) -> &str {
+    match source {
+        "agent" => "acp",
+        other => other,
+    }
+}
+
+async fn ensure_turn_shell_for_user_turn_created(
+    conn: &mut SqliteConnection,
+    conversation_id: Uuid,
+    event_kind: &str,
+    turn_id: Option<Uuid>,
+) -> Result<(), sqlx::Error> {
+    if event_kind != "user_turn_created" {
+        return Ok(());
+    }
+    let Some(turn_id) = turn_id else {
+        return Ok(());
+    };
+    sqlx::query(
+        r#"INSERT OR IGNORE INTO conversation_turns (id, conversation_id, ordinal, status)
+           SELECT ?1,
+                  ?2,
+                  COALESCE((SELECT MAX(ordinal) FROM conversation_turns WHERE conversation_id = ?2), 0) + 1,
+                  'pending'
+           WHERE EXISTS (SELECT 1 FROM sessions WHERE id = ?2)"#,
+    )
+    .bind(turn_id)
+    .bind(conversation_id)
+    .execute(&mut *conn)
+    .await?;
+    Ok(())
+}
 
 pub struct ConversationEventAppender;
 
 impl ConversationEventAppender {
-    /// Append an event and apply its projection side-effects **atomically**.
-    ///
-    /// Root-cause fix for 架构报告 A-3: the event insert, the derived-table projection
-    /// (`apply_record`), and the snapshot refresh now run inside a single
-    /// `BEGIN IMMEDIATE` transaction. If anything fails the whole thing rolls back, so
-    /// the event log and its projection can never drift out of sync.
+    /// Append an event and apply its projection side-effects **atomically** in one
+    /// `BEGIN IMMEDIATE` transaction, incrementally updating `conversation_timeline_rows`,
+    /// `conversation_fts`, and the lightweight snapshot watermark.
     pub async fn append(
         pool: &SqlitePool,
         input: AppendConversationEvent<'_>,
     ) -> Result<ConversationEventRecord, sqlx::Error> {
-        let mut conn = pool.acquire().await?;
-        sqlx::query("BEGIN IMMEDIATE").execute(&mut *conn).await?;
+        let batch = [BatchConversationEvent::from_append(input)];
+        let mut out = Self::append_batch(pool, &batch).await?;
+        if let Some((_, error)) = out.failed.pop() {
+            return Err(error);
+        }
+        out.committed
+            .pop()
+            .map(|c| c.record)
+            .ok_or_else(|| sqlx::Error::Protocol("append_batch produced no result".into()))
+    }
 
-        match Self::append_and_apply(&mut conn, input).await {
-            Ok(record) => {
-                if let Err(error) = sqlx::query("COMMIT").execute(&mut *conn).await {
-                    let _ = sqlx::query("ROLLBACK").execute(&mut *conn).await;
-                    return Err(error);
+    /// Append a bounded batch (`<= 64` events and `<= 1 MiB` per `BEGIN IMMEDIATE` chunk),
+    /// isolating per-item errors with `SAVEPOINT sp_item` so one malformed item never aborts
+    /// valid sibling items in the same batch.
+    pub async fn append_batch(
+        pool: &SqlitePool,
+        events: &[BatchConversationEvent],
+    ) -> Result<BatchAppendResult, sqlx::Error> {
+        if events.is_empty() {
+            return Ok(BatchAppendResult::default());
+        }
+
+        let mut total = BatchAppendResult::default();
+        for range in split_batch_ranges(events) {
+            let mut conn = pool.acquire().await?;
+            sqlx::query("BEGIN IMMEDIATE").execute(&mut *conn).await?;
+
+            let chunk_outcome: Result<
+                (
+                    Vec<CommittedConversationEvent>,
+                    Vec<(usize, sqlx::Error)>,
+                    HashMap<Uuid, WriteSideProjectorState>,
+                ),
+                (sqlx::Error, HashSet<Uuid>),
+            > = async {
+                let mut committed = Vec::with_capacity(range.len());
+                let mut failed = Vec::new();
+                let mut touched_states: HashMap<Uuid, WriteSideProjectorState> = HashMap::new();
+                let mut dirty_conversations: HashSet<Uuid> = HashSet::new();
+
+                for idx in range {
+                    let item = &events[idx];
+                    if let Err(err) = sqlx::query("SAVEPOINT sp_item").execute(&mut *conn).await {
+                        return Err((err, touched_states.keys().copied().collect()));
+                    }
+
+                    enum StepDone {
+                        Duplicate(ConversationEventRecord),
+                        Applied(ConversationEventRecord, Box<WriteSideProjectorState>),
+                    }
+
+                    let step_res: Result<StepDone, sqlx::Error> = async {
+                        if let Some(cp) = &item.checkpoint_update {
+                            apply_checkpoint_metadata_update_on_conn(&mut conn, cp).await?;
+                        }
+                        if let Some(existing) = find_conversation_event_by_idempotency(
+                            &mut conn,
+                            item.conversation_id,
+                            item.idempotency_key.as_deref(),
+                        )
+                        .await?
+                        {
+                            return Ok(StepDone::Duplicate(existing));
+                        }
+
+                        ensure_turn_shell_for_user_turn_created(
+                            &mut conn,
+                            item.conversation_id,
+                            &item.event_kind,
+                            item.turn_id,
+                        )
+                        .await?;
+                        let record =
+                            insert_conversation_event(&mut conn, item.as_append()).await?;
+                        let mut candidate = match touched_states.get(&record.conversation_id) {
+                            Some(in_batch) => in_batch.clone(),
+                            None => {
+                                get_or_load_write_projector_on_conn(
+                                    &mut conn,
+                                    record.conversation_id,
+                                    record.sequence,
+                                )
+                                .await?
+                            }
+                        };
+                        ConversationStateApplier::apply_record(&mut conn, &record).await?;
+                        apply_and_persist_incremental_on_conn(&mut conn, &mut candidate, &record)
+                            .await?;
+                        Ok(StepDone::Applied(record, Box::new(candidate)))
+                    }
+                    .await;
+
+                    match step_res {
+                        Ok(StepDone::Duplicate(existing)) => {
+                            if let Err(err) = sqlx::query("RELEASE SAVEPOINT sp_item")
+                                .execute(&mut *conn)
+                                .await
+                            {
+                                return Err((err, touched_states.keys().copied().collect()));
+                            }
+                            committed.push(CommittedConversationEvent {
+                                index: idx,
+                                record: existing,
+                                duplicate: true,
+                            });
+                        }
+                        Ok(StepDone::Applied(record, candidate)) => {
+                            if let Err(err) = sqlx::query("RELEASE SAVEPOINT sp_item")
+                                .execute(&mut *conn)
+                                .await
+                            {
+                                return Err((err, touched_states.keys().copied().collect()));
+                            }
+                            dirty_conversations.insert(record.conversation_id);
+                            touched_states.insert(record.conversation_id, *candidate);
+                            committed.push(CommittedConversationEvent {
+                                index: idx,
+                                record,
+                                duplicate: false,
+                            });
+                        }
+                        Err(item_err) => {
+                            let _ = sqlx::query("ROLLBACK TO SAVEPOINT sp_item")
+                                .execute(&mut *conn)
+                                .await;
+                            let _ = sqlx::query("RELEASE SAVEPOINT sp_item")
+                                .execute(&mut *conn)
+                                .await;
+                            failed.push((idx, item_err));
+                        }
+                    }
                 }
-                Ok(record)
+
+                for cid in &dirty_conversations {
+                    if let Some(state) = touched_states.get(cid)
+                        && let Err(err) =
+                            flush_write_projector_snapshot_on_conn(&mut conn, *cid, state).await
+                    {
+                        return Err((err, touched_states.keys().copied().collect()));
+                    }
+                }
+
+                Ok((committed, failed, touched_states))
             }
-            Err(error) => {
-                let _ = sqlx::query("ROLLBACK").execute(&mut *conn).await;
-                Err(error)
+            .await;
+
+            match chunk_outcome {
+                Ok((committed, failed, touched_states)) => {
+                    if let Err(commit_err) = sqlx::query("COMMIT").execute(&mut *conn).await {
+                        let _ = sqlx::query("ROLLBACK").execute(&mut *conn).await;
+                        for cid in touched_states.keys() {
+                            evict_write_projector(*cid);
+                        }
+                        return Err(commit_err);
+                    }
+                    commit_write_projector_states(touched_states);
+                    total.committed.extend(committed);
+                    total.failed.extend(failed);
+                }
+                Err((tx_err, touched_ids)) => {
+                    let _ = sqlx::query("ROLLBACK").execute(&mut *conn).await;
+                    for cid in touched_ids {
+                        evict_write_projector(cid);
+                    }
+                    return Err(tx_err);
+                }
             }
         }
+
+        Ok(total)
     }
 
     pub(crate) async fn append_and_apply(
         conn: &mut SqliteConnection,
         input: AppendConversationEvent<'_>,
     ) -> Result<ConversationEventRecord, sqlx::Error> {
-        // Idempotency is checked inside the IMMEDIATE transaction so it is serialized
-        // with concurrent appends. A duplicate's side-effects were already applied at
-        // first insert, so return it without re-applying (avoids double inserts).
         if let Some(existing) = find_conversation_event_by_idempotency(
             conn,
             input.conversation_id,
@@ -74,9 +388,25 @@ impl ConversationEventAppender {
             return Ok(existing);
         }
 
-        let record = insert_conversation_event(conn, input).await?;
+        ensure_turn_shell_for_user_turn_created(
+            conn,
+            input.conversation_id,
+            input.event_kind,
+            input.turn_id,
+        )
+        .await?;
+        let mut normalized_input = input;
+        normalized_input.source = canonical_event_source(normalized_input.source);
+        let record = insert_conversation_event(conn, normalized_input).await?;
+        let mut state =
+            get_or_load_write_projector_on_conn(conn, record.conversation_id, record.sequence)
+                .await?;
         ConversationStateApplier::apply_record(conn, &record).await?;
-        ConversationProjector::refresh_snapshot_on_settle(conn, &record).await?;
+        apply_and_persist_incremental_on_conn(conn, &mut state, &record).await?;
+        flush_write_projector_snapshot_on_conn(conn, record.conversation_id, &state).await?;
+        let mut map = HashMap::with_capacity(1);
+        map.insert(record.conversation_id, state);
+        commit_write_projector_states(map);
         Ok(record)
     }
 
@@ -288,7 +618,16 @@ impl ConversationStateApplier {
                 agents::ConversationSteeringEvent::Accepted {
                     steering_id,
                     expected_turn_id,
+                    delivery_mode,
+                    restarted_turn_id,
                 } => {
+                    let delivery_mode_str = match delivery_mode {
+                        Some(agents::ConversationSteeringDeliveryMode::Native) => Some("native"),
+                        Some(agents::ConversationSteeringDeliveryMode::InterruptRestart) => {
+                            Some("interrupt_restart")
+                        }
+                        None => Some("native"),
+                    };
                     ConversationSteeringRecord::settle_on_connection(
                         conn,
                         record.conversation_id,
@@ -297,6 +636,8 @@ impl ConversationStateApplier {
                         "accepted",
                         None,
                         None,
+                        delivery_mode_str,
+                        restarted_turn_id,
                     )
                     .await?;
                 }
@@ -314,6 +655,8 @@ impl ConversationStateApplier {
                         "rejected",
                         Some(&code),
                         Some(&message),
+                        None,
+                        None,
                     )
                     .await?;
                 }
@@ -330,6 +673,8 @@ impl ConversationStateApplier {
                         "unknown",
                         Some("delivery_unknown"),
                         Some(&message),
+                        None,
+                        None,
                     )
                     .await?;
                 }
@@ -650,12 +995,6 @@ impl ConversationProjector {
         conversation_id: Uuid,
         ordinal: i64,
     ) -> Result<(), sqlx::Error> {
-        let _ = crate::jsonl_history::truncate_transcript_to_user_ordinal(
-            pool,
-            conversation_id,
-            ordinal.saturating_sub(1).max(0) as usize,
-        )
-        .await;
         let mut conn = pool.acquire().await?;
         sqlx::query("BEGIN IMMEDIATE").execute(&mut *conn).await?;
 
@@ -663,12 +1002,14 @@ impl ConversationProjector {
             Ok(()) => {
                 if let Err(error) = sqlx::query("COMMIT").execute(&mut *conn).await {
                     let _ = sqlx::query("ROLLBACK").execute(&mut *conn).await;
+                    cache::evict_write_projector(conversation_id);
                     return Err(error);
                 }
                 Ok(())
             }
             Err(error) => {
                 let _ = sqlx::query("ROLLBACK").execute(&mut *conn).await;
+                cache::evict_write_projector(conversation_id);
                 Err(error)
             }
         }
@@ -679,15 +1020,9 @@ impl ConversationProjector {
         conversation_id: Uuid,
         ordinal: i64,
     ) -> Result<(), sqlx::Error> {
-        // Durable input Submitted/Claimed events have no turn_id, so they sit
-        // before the turn-owned cut. If they survive, rebuild re-queues the
-        // truncated prompt and a reset-to-here resend submits it a second time.
         let drop_input_ids =
             Self::durable_inputs_undone_by_truncate(conn, conversation_id, ordinal).await?;
 
-        // The first event sequence owned by the target turn (or any later turn) is the
-        // truncation cut: dropping events at/after it removes the target turn and
-        // everything that followed, while turn-less infra events before it stay put.
         let cut_sequence: Option<i64> = sqlx::query_scalar(
             r#"SELECT MIN(events.sequence)
                FROM conversation_events events
@@ -698,6 +1033,60 @@ impl ConversationProjector {
         .bind(ordinal)
         .fetch_one(&mut *conn)
         .await?;
+
+        let has_target_turns: bool = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM conversation_turns WHERE conversation_id = ? AND ordinal >= ?)",
+        )
+        .bind(conversation_id)
+        .bind(ordinal)
+        .fetch_one(&mut *conn)
+        .await?;
+
+        if !has_target_turns && drop_input_ids.is_empty() && cut_sequence.is_none() {
+            return Ok(());
+        }
+
+        let deleted_sequence = ConversationProjectionSnapshotRecord::allocate_next_sequence(
+            conn,
+            conversation_id,
+            CONVERSATION_PROJECTION_VERSION as i64,
+        )
+        .await?;
+
+        let min_sort_index = ordinal.max(1) * SORT_INDEX_SLOT_SPAN;
+        let mut deleted_row_ids = ConversationTimelineRowRecord::soft_delete_from_sort_index_on_conn(
+            conn,
+            conversation_id,
+            min_sort_index,
+            deleted_sequence,
+        )
+        .await?;
+
+        if let Some(cut_seq) = cut_sequence {
+            let side_deleted: Vec<String> = sqlx::query_scalar(
+                r#"UPDATE conversation_timeline_rows
+                      SET revision = ?1,
+                          deleted_sequence = ?1
+                    WHERE conversation_id = ?2
+                      AND sort_index < ?3
+                      AND revision >= ?4
+                      AND deleted_sequence IS NULL
+                RETURNING row_id"#,
+            )
+            .bind(deleted_sequence)
+            .bind(conversation_id)
+            .bind(SORT_INDEX_SLOT_SPAN)
+            .bind(cut_seq)
+            .fetch_all(&mut *conn)
+            .await?;
+            deleted_row_ids.extend(side_deleted);
+        }
+
+        if let Err(error) =
+            crate::search::delete_fts_rows_on_conn(conn, conversation_id, &deleted_row_ids).await
+        {
+            tracing::warn!("conversation FTS delete on truncate failed: {error}");
+        }
 
         if let Some(cut_sequence) = cut_sequence {
             sqlx::query(
@@ -721,38 +1110,9 @@ impl ConversationProjector {
         .execute(&mut *conn)
         .await?;
 
-        // Re-derive the side-effect tables + snapshot from the surviving events.
-        Self::rebuild_on_connection(conn, conversation_id).await?;
-
-        // Best-effort full-text reindex — truncate removed message text, so the
-        // stale index would otherwise still match the discarded turns (P1-2).
-        let reindex = async {
-            let fold = Self::load_fold_from_snapshot(&mut *conn, conversation_id).await?;
-            let timeline = fold.into_timeline(conversation_id);
-            let mut body = crate::search::extract_searchable_text(&timeline);
-            let manifest = crate::transcript_segments::read_on_connection(
-                conn,
-                &agents::acp_transcript::vibex_acp_transcripts_root(),
-                conversation_id,
-            )
-            .await?;
-            if let Some(turns) = manifest
-                .or_else(|| crate::jsonl_history::read_existing_transcript_turns(conversation_id))
-            {
-                let jsonl_timeline =
-                    crate::jsonl_history::timeline_from_turns(conversation_id, &turns);
-                let jsonl_body = crate::search::extract_searchable_text(&jsonl_timeline);
-                if !jsonl_body.is_empty() {
-                    body = jsonl_body;
-                }
-            }
-            crate::search::reindex_conversation(&mut *conn, conversation_id, &body).await
-        }
-        .await;
-        if let Err(error) = reindex {
-            tracing::warn!("conversation FTS reindex on truncate failed: {error}");
-        }
-        Ok(())
+        // Re-derive the side-effect tables, surviving rows (preserving tombstones),
+        // row-level FTS, and snapshot from the surviving events.
+        Self::rebuild_on_connection(conn, conversation_id).await
     }
 
     async fn durable_inputs_undone_by_truncate(

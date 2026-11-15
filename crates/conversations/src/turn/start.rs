@@ -89,8 +89,6 @@ impl ConversationSessionService {
             .turn_is_still_in_flight(input.conversation_id, turn_id)
             .await?
         {
-            crate::jsonl_history::preserve_unprompted_input(pool, input.conversation_id, turn_id)
-                .await?;
             return Err(ConversationServiceError::Conflict(
                 "Turn was cancelled before the Agent handshake".to_string(),
             ));
@@ -148,8 +146,6 @@ impl ConversationSessionService {
                     self.drop_live_agent_connection(input.conversation_id).await;
                 }
             }
-            crate::jsonl_history::preserve_unprompted_input(pool, input.conversation_id, turn_id)
-                .await?;
             return Err(ConversationServiceError::Conflict(
                 "Turn was cancelled before the Agent handshake".to_string(),
             ));
@@ -157,8 +153,6 @@ impl ConversationSessionService {
 
         if result.is_err() {
             crate::handoff::settle(pool, turn_id).await?;
-            crate::jsonl_history::preserve_unprompted_input(pool, input.conversation_id, turn_id)
-                .await?;
         }
         match result {
             Ok(prompt) => {
@@ -713,7 +707,24 @@ pub fn subscribe_runtime_events() -> tokio::sync::broadcast::Receiver<RuntimeEve
     runtime_event_sender().subscribe()
 }
 
+fn is_terminal_tool_call_status(status: Option<&str>) -> bool {
+    matches!(
+        status.map(str::trim).map(str::to_ascii_lowercase).as_deref(),
+        Some("completed" | "failed" | "cancelled" | "canceled" | "done" | "error")
+    )
+}
+
 pub(crate) fn emit_runtime_event(envelope: &ConversationEventEnvelope, event_kind: &str) {
+    match &envelope.event {
+        ConversationEvent::AssistantTextDelta { .. }
+        | ConversationEvent::AssistantReasoningDelta { .. } => return,
+        ConversationEvent::ToolCallUpsert { tool_call }
+            if !is_terminal_tool_call_status(tool_call.status.as_deref()) =>
+        {
+            return;
+        }
+        _ => {}
+    }
     let _ = runtime_event_sender().send(RuntimeEventNotification {
         id: envelope.id,
         conversation_id: envelope.conversation_id,
@@ -764,32 +775,35 @@ pub(crate) fn spawn_turn_end_collaboration_cleanup(
         let reply = if turn_completed {
             match turn_assistant_text {
                 Some(text) => text,
-                None => crate::jsonl_history::load_all_turns(&pool, conversation_id)
-                    .await
-                    .ok()
-                    .flatten()
-                    .and_then(|turns| {
-                        let last_user_idx = turns.iter().rposition(|turn| {
-                            matches!(turn.role, agents::TurnRole::User)
-                                && !turn.id.contains(":steer:")
-                        });
-                        let round_slice = match last_user_idx {
-                            Some(idx) => &turns[idx + 1..],
-                            None => &turns[..],
-                        };
-                        round_slice
-                            .iter()
-                            .rev()
-                            .find(|turn| turn.role == agents::TurnRole::Assistant)
-                            .map(|turn| {
-                                crate::runtime_events::space_turn_conclusion_text(
-                                    &turn.blocks,
-                                    false,
-                                    "",
-                                )
-                            })
-                    })
-                    .unwrap_or_default(),
+                None => {
+                    let _ =
+                        crate::ensure_legacy_jsonl_migrated_on_pool(&pool, conversation_id).await;
+                    crate::ConversationProjector::project_turns_summary(&pool, conversation_id)
+                        .await
+                        .ok()
+                        .and_then(|turns| {
+                            let last_user_idx = turns.iter().rposition(|turn| {
+                                matches!(turn.role, agents::TurnRole::User)
+                                    && !turn.id.contains(":steer:")
+                            });
+                            let round_slice = match last_user_idx {
+                                Some(idx) => &turns[idx + 1..],
+                                None => &turns[..],
+                            };
+                            round_slice
+                                .iter()
+                                .rev()
+                                .find(|turn| turn.role == agents::TurnRole::Assistant)
+                                .map(|turn| {
+                                    crate::runtime_events::space_turn_conclusion_text(
+                                        &turn.blocks,
+                                        false,
+                                        "",
+                                    )
+                                })
+                        })
+                        .unwrap_or_default()
+                }
             }
         } else {
             String::new()

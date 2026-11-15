@@ -508,6 +508,7 @@
                 kind: AgentPermissionOptionKind::AllowOnce,
                 description: None,
             }],
+            revision: 1,
         };
         append_event(
             &pool,
@@ -702,7 +703,7 @@
     }
 
     #[tokio::test]
-    async fn snapshot_is_materialized_only_on_turn_settle() {
+    async fn snapshot_and_rows_are_materialized_incrementally_on_every_append() {
         let pool = setup_pool().await;
         let (conversation_id, turn_id) = seed_turn(&pool).await;
 
@@ -730,16 +731,17 @@
             None,
         )
         .await;
-        assert!(
+        let mid_snapshot =
             db::models::conversation_snapshot::ConversationProjectionSnapshotRecord::find(
                 &pool,
                 conversation_id,
             )
             .await
-            .expect("find snapshot")
-            .is_none(),
-            "no snapshot before the turn settles"
-        );
+            .expect("find mid-turn snapshot")
+            .expect("snapshot materialized incrementally before turn settles");
+        assert_eq!(mid_snapshot.last_sequence, 2);
+        // 1 user row + 1 assistant row + 1 active `status:agent-request` notice = 3 rows
+        assert_eq!(mid_snapshot.total_rows, 3);
 
         append_event(
             &pool,
@@ -761,8 +763,263 @@
             .expect("find snapshot")
             .expect("snapshot exists after settle");
         assert_eq!(snapshot.last_sequence, 3);
+        // `TurnCompleted` transitions `status:agent-request` to `Completed` (1 global side row)
+        // alongside `{turn_id}:user` and `{turn_id}:assistant` = 3 active rows.
+        assert_eq!(snapshot.total_rows, 3);
         assert_eq!(
             snapshot.projection_version,
             CONVERSATION_PROJECTION_VERSION as i64
+        );
+
+        let rows = db::models::conversation_timeline_row::ConversationTimelineRowRecord::list_range(
+            &pool,
+            conversation_id,
+            0,
+            10,
+        )
+        .await
+        .expect("list materialized rows");
+        assert_eq!(rows.len(), 3);
+        let user_row_id = format!("{turn_id}:user");
+        let assistant_row_id = format!("{turn_id}:assistant");
+        let user_row = rows
+            .iter()
+            .find(|r| r.row_id == user_row_id)
+            .expect("user row present");
+        let assistant_row = rows
+            .iter()
+            .find(|r| r.row_id == assistant_row_id)
+            .expect("assistant row present");
+        assert_eq!(
+            user_row.revision, 1,
+            "user row revision must remain 1 across streaming deltas and TurnCompleted"
+        );
+        assert_eq!(assistant_row.revision, 3);
+    }
+
+    #[tokio::test]
+    async fn append_batch_isolates_savepoint_item_failure_and_commits_siblings() {
+        let pool = setup_pool().await;
+        let (conversation_id, turn_id) = seed_turn(&pool).await;
+
+        let ev0 = ConversationEvent::UserTurnCreated {
+            blocks: vec![ConversationInputBlock::Text {
+                text: "batch hello".into(),
+            }],
+            workflow_refs: Vec::new(),
+        };
+        // Reordering a nonexistent ConversationInput fails inside `ConversationStateApplier`
+        // AFTER `insert_conversation_event`, exercising full SAVEPOINT rollback of item 1.
+        let ev1_bad = ConversationEvent::ConversationInput {
+            event: agents::ConversationInputEvent::Reordered {
+                input_id: Uuid::new_v4(),
+                revision: 2,
+                sort_key: 100,
+            },
+        };
+        let ev2 = ConversationEvent::AssistantTextDelta {
+            text: "batch world".into(),
+            message_id: None,
+        };
+
+        let batch = vec![
+            super::BatchConversationEvent {
+                id: Uuid::new_v4(),
+                conversation_id,
+                turn_id: Some(turn_id),
+                binding_id: None,
+                connection_id: None,
+                prompt_id: None,
+                source: "user".into(),
+                event_kind: "user_turn_created".into(),
+                normalized_json: serde_json::to_string(&ev0).unwrap(),
+                raw_json: None,
+                idempotency_key: None,
+                checkpoint_update: None,
+            },
+            super::BatchConversationEvent {
+                id: Uuid::new_v4(),
+                conversation_id,
+                turn_id: None,
+                binding_id: None,
+                connection_id: None,
+                prompt_id: None,
+                source: "user".into(),
+                event_kind: "conversation_input".into(),
+                normalized_json: serde_json::to_string(&ev1_bad).unwrap(),
+                raw_json: None,
+                idempotency_key: None,
+                checkpoint_update: None,
+            },
+            super::BatchConversationEvent {
+                id: Uuid::new_v4(),
+                conversation_id,
+                turn_id: Some(turn_id),
+                binding_id: None,
+                connection_id: None,
+                prompt_id: None,
+                source: "acp".into(),
+                event_kind: "assistant_text_delta".into(),
+                normalized_json: serde_json::to_string(&ev2).unwrap(),
+                raw_json: None,
+                idempotency_key: None,
+                checkpoint_update: None,
+            },
+        ];
+
+        let outcome = ConversationEventAppender::append_batch(&pool, &batch)
+            .await
+            .expect("append_batch outer transaction commits");
+        assert_eq!(outcome.committed.len(), 2);
+        assert_eq!(outcome.committed[0].index, 0);
+        assert_eq!(outcome.committed[1].index, 2);
+        assert_eq!(outcome.failed.len(), 1);
+        assert_eq!(outcome.failed[0].0, 1);
+
+        let open = crate::ConversationProjector::project_open(&pool, conversation_id, 16)
+            .await
+            .expect("project_open");
+        assert_eq!(open.timeline.rows.len(), 3);
+        let full = crate::ConversationProjector::project(&pool, conversation_id)
+            .await
+            .expect("project full");
+        assert_eq!(open.timeline.rows, full.rows);
+    }
+
+    #[tokio::test]
+    async fn incremental_projection_matches_full_fold_and_emits_tombstones_on_truncate() {
+        let pool = setup_pool().await;
+        let (conversation_id, turn1_id) = seed_turn(&pool).await;
+
+        append_event(
+            &pool,
+            conversation_id,
+            Some(turn1_id),
+            "user",
+            ConversationEvent::UserTurnCreated {
+                blocks: vec![ConversationInputBlock::Text {
+                    text: "first prompt".into(),
+                }],
+                workflow_refs: Vec::new(),
+            },
+            None,
+        )
+        .await;
+        append_event(
+            &pool,
+            conversation_id,
+            Some(turn1_id),
+            "acp",
+            ConversationEvent::AssistantTextDelta {
+                text: "first reply".into(),
+                message_id: None,
+            },
+            None,
+        )
+        .await;
+        append_event(
+            &pool,
+            conversation_id,
+            Some(turn1_id),
+            "runtime",
+            ConversationEvent::TurnCompleted {
+                stop_reason: Some("end_turn".into()),
+            },
+            None,
+        )
+        .await;
+
+        let turn2 = ConversationTurnRecord::create_pending(
+            &pool,
+            Uuid::new_v4(),
+            db::models::conversation_turn::CreateConversationTurn {
+                conversation_id,
+                prompt_id: Some("p2"),
+                text_preview: Some("second prompt"),
+                input_blocks_json: "[]",
+            },
+        )
+        .await
+        .expect("create turn 2");
+        append_event(
+            &pool,
+            conversation_id,
+            Some(turn2.id),
+            "user",
+            ConversationEvent::UserTurnCreated {
+                blocks: vec![ConversationInputBlock::Text {
+                    text: "second prompt".into(),
+                }],
+                workflow_refs: Vec::new(),
+            },
+            None,
+        )
+        .await;
+        let pre_truncate_end = append_event(
+            &pool,
+            conversation_id,
+            Some(turn2.id),
+            "acp",
+            ConversationEvent::AssistantTextDelta {
+                text: "second reply".into(),
+                message_id: None,
+            },
+            None,
+        )
+        .await;
+        assert_eq!(pre_truncate_end.sequence, 5);
+
+        let open_before = crate::ConversationProjector::project_open(&pool, conversation_id, 50)
+            .await
+            .expect("open before");
+        let full_before = crate::ConversationProjector::project(&pool, conversation_id)
+            .await
+            .expect("full before");
+        assert_eq!(open_before.timeline.rows, full_before.rows);
+
+        crate::ConversationProjector::truncate_to_turn_ordinal(&pool, conversation_id, 2)
+            .await
+            .expect("truncate turn 2");
+
+        let delta =
+            db::models::conversation_timeline_row::ConversationTimelineRowRecord::rows_since_executor(
+                &pool,
+                conversation_id,
+                5,
+            )
+            .await
+            .expect("rows_since after truncate");
+        assert_eq!(delta.tombstones.len(), 2);
+        assert!(delta.tombstones.iter().all(|t| t.deleted_sequence > 5));
+
+        let turn2_retry = ConversationTurnRecord::create_pending(
+            &pool,
+            Uuid::new_v4(),
+            db::models::conversation_turn::CreateConversationTurn {
+                conversation_id,
+                prompt_id: Some("p2-retry"),
+                text_preview: Some("retry"),
+                input_blocks_json: "[]",
+            },
+        )
+        .await
+        .expect("create turn 2 retry");
+        let retry_ev = append_event(
+            &pool,
+            conversation_id,
+            Some(turn2_retry.id),
+            "user",
+            ConversationEvent::UserTurnCreated {
+                blocks: vec![ConversationInputBlock::Text {
+                    text: "retry prompt".into(),
+                }],
+                workflow_refs: Vec::new(),
+            },
+            None,
+        )
+        .await;
+        assert!(
+            retry_ev.sequence > delta.tombstones[0].deleted_sequence,
+            "post-truncate sequence must never regress"
         );
     }

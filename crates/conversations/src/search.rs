@@ -28,6 +28,27 @@ pub struct ConversationSearchHit {
     pub title: Option<String>,
     /// A short highlighted excerpt around the match (`[` … `]` mark the terms).
     pub snippet: String,
+    #[serde(
+        default,
+        rename = "matchSource",
+        skip_serializing_if = "Option::is_none"
+    )]
+    #[ts(optional, rename = "matchSource")]
+    pub match_source: Option<String>,
+    #[serde(
+        default,
+        rename = "matchedRowId",
+        skip_serializing_if = "Option::is_none"
+    )]
+    #[ts(optional, rename = "matchedRowId")]
+    pub matched_row_id: Option<String>,
+    #[serde(
+        default,
+        rename = "matchedTurnOrdinal",
+        skip_serializing_if = "Option::is_none"
+    )]
+    #[ts(optional, rename = "matchedTurnOrdinal")]
+    pub matched_turn_ordinal: Option<i64>,
 }
 
 /// Turn a free-form user query into a safe FTS5 MATCH expression for the
@@ -301,6 +322,18 @@ pub async fn search_conversations(
     workspace_id: Option<Uuid>,
     limit: i64,
 ) -> Result<Vec<ConversationSearchHit>, sqlx::Error> {
+    search_conversations_with_offset(conn, query, workspace_id, limit, 0).await
+}
+
+/// Combined session title + row-level `conversation_fts` search with offset pagination and
+/// match metadata (`matchSource`, `matchedRowId`, `matchedTurnOrdinal`).
+pub async fn search_conversations_with_offset(
+    conn: &mut SqliteConnection,
+    query: &str,
+    workspace_id: Option<Uuid>,
+    limit: i64,
+    offset: i64,
+) -> Result<Vec<ConversationSearchHit>, sqlx::Error> {
     if limit <= 0 {
         return Ok(Vec::new());
     }
@@ -308,6 +341,8 @@ pub async fn search_conversations(
         return Ok(Vec::new());
     };
     let bounded_limit = limit.max(1);
+    let bounded_offset = offset.max(0) as usize;
+    let total_needed = bounded_offset.saturating_add(bounded_limit as usize);
 
     let title_sql = format!(
         "SELECT id AS conversation_id, workspace_id, name AS title, \
@@ -324,40 +359,51 @@ pub async fn search_conversations(
     );
     let mut title_q = sqlx::query(&title_sql)
         .bind(&pattern)
-        .bind(bounded_limit);
+        .bind(total_needed as i64);
     if let Some(ws_id) = workspace_id {
         title_q = title_q.bind(ws_id);
     }
     let title_rows = title_q.fetch_all(&mut *conn).await?;
 
-    let mut hits = Vec::with_capacity(bounded_limit as usize);
-    let mut seen = HashSet::new();
+    let mut hits: Vec<ConversationSearchHit> = Vec::with_capacity(total_needed);
+    let mut index_by_conv: std::collections::HashMap<Uuid, usize> = std::collections::HashMap::new();
     for row in title_rows {
         let conversation_id: Uuid = row.try_get("conversation_id")?;
-        if seen.insert(conversation_id) {
+        if let std::collections::hash_map::Entry::Vacant(entry) =
+            index_by_conv.entry(conversation_id)
+        {
+            entry.insert(hits.len());
             hits.push(ConversationSearchHit {
                 conversation_id,
                 workspace_id: row.try_get("workspace_id")?,
                 title: row.try_get("title")?,
                 snippet: row.try_get("snippet")?,
+                match_source: Some("title".to_string()),
+                matched_row_id: None,
+                matched_turn_ordinal: None,
             });
         }
     }
 
-    let remaining = (bounded_limit as usize).saturating_sub(hits.len());
-    if remaining == 0 {
-        return Ok(hits);
-    }
+    let normalize_row_id = |raw: Option<String>| -> Option<String> {
+        raw.filter(|r| !r.is_empty() && r != INDEXED_SENTINEL_ROW_ID && r != LEGACY_BODY_ROW_ID)
+    };
 
     if can_use_trigram_match(query)
         && let Some(match_expr) = to_fts_match_query(query)
     {
         let fts_sql = format!(
             "SELECT s.id AS conversation_id, s.workspace_id AS workspace_id, s.name AS title, \
+                    conversation_fts.row_id AS row_id, \
+                    CASE WHEN ctr.sort_index >= 1000000 THEN ctr.sort_index / 1000000 ELSE NULL END AS turn_ordinal, \
                     snippet(conversation_fts, 3, '[', ']', '…', 24) AS snippet \
              FROM conversation_fts \
              JOIN sessions s ON CAST(s.id AS TEXT) = conversation_fts.conversation_id \
                 OR lower(hex(s.id)) = replace(lower(conversation_fts.conversation_id), '-', '') \
+             LEFT JOIN conversation_timeline_rows ctr \
+                ON ctr.conversation_id = s.id \
+               AND ctr.row_id = conversation_fts.row_id \
+               AND ctr.deleted_sequence IS NULL \
              WHERE conversation_fts MATCH ?1 \
                AND s.deleted_at IS NULL {} \
              ORDER BY s.pinned_at IS NULL, s.pinned_at DESC, s.updated_at DESC \
@@ -368,34 +414,54 @@ pub async fn search_conversations(
                 ""
             }
         );
-        let fetch_cap = (bounded_limit.saturating_mul(4)).max(16);
+        let fetch_cap = ((total_needed as i64).saturating_mul(4)).max(16);
         let mut fts_q = sqlx::query(&fts_sql).bind(match_expr).bind(fetch_cap);
         if let Some(ws_id) = workspace_id {
             fts_q = fts_q.bind(ws_id);
         }
         let fts_rows = fts_q.fetch_all(&mut *conn).await?;
         for row in fts_rows {
-            if hits.len() >= bounded_limit as usize {
-                break;
-            }
             let conversation_id: Uuid = row.try_get("conversation_id")?;
-            if seen.insert(conversation_id) {
-                hits.push(ConversationSearchHit {
-                    conversation_id,
-                    workspace_id: row.try_get("workspace_id")?,
-                    title: row.try_get("title")?,
-                    snippet: row.try_get("snippet")?,
-                });
+            let matched_row_id = normalize_row_id(row.try_get("row_id").ok());
+            let matched_turn_ordinal: Option<i64> = row.try_get("turn_ordinal").ok().flatten();
+            if let Some(&existing_idx) = index_by_conv.get(&conversation_id) {
+                let hit = &mut hits[existing_idx];
+                if hit.match_source.as_deref() == Some("title") {
+                    hit.match_source = Some("both".to_string());
+                    hit.snippet = row.try_get("snippet")?;
+                    hit.matched_row_id = matched_row_id;
+                    hit.matched_turn_ordinal = matched_turn_ordinal;
+                }
+                continue;
             }
+            if hits.len() >= total_needed {
+                continue;
+            }
+            index_by_conv.insert(conversation_id, hits.len());
+            hits.push(ConversationSearchHit {
+                conversation_id,
+                workspace_id: row.try_get("workspace_id")?,
+                title: row.try_get("title")?,
+                snippet: row.try_get("snippet")?,
+                match_source: Some("body".to_string()),
+                matched_row_id,
+                matched_turn_ordinal,
+            });
         }
     } else {
         // Short query (< 3 chars per term) fallback where trigram MATCH has no 3-grams.
         let like_sql = format!(
             "SELECT s.id AS conversation_id, s.workspace_id AS workspace_id, s.name AS title, \
+                    conversation_fts.row_id AS row_id, \
+                    CASE WHEN ctr.sort_index >= 1000000 THEN ctr.sort_index / 1000000 ELSE NULL END AS turn_ordinal, \
                     conversation_fts.text AS raw_text \
              FROM conversation_fts \
              JOIN sessions s ON CAST(s.id AS TEXT) = conversation_fts.conversation_id \
                 OR lower(hex(s.id)) = replace(lower(conversation_fts.conversation_id), '-', '') \
+             LEFT JOIN conversation_timeline_rows ctr \
+                ON ctr.conversation_id = s.id \
+               AND ctr.row_id = conversation_fts.row_id \
+               AND ctr.deleted_sequence IS NULL \
              WHERE conversation_fts.text LIKE ?1 ESCAPE '\\' \
                AND s.deleted_at IS NULL {} \
              ORDER BY s.pinned_at IS NULL, s.pinned_at DESC, s.updated_at DESC \
@@ -406,30 +472,49 @@ pub async fn search_conversations(
                 ""
             }
         );
-        let fetch_cap = (bounded_limit.saturating_mul(4)).max(16);
+        let fetch_cap = ((total_needed as i64).saturating_mul(4)).max(16);
         let mut like_q = sqlx::query(&like_sql).bind(&pattern).bind(fetch_cap);
         if let Some(ws_id) = workspace_id {
             like_q = like_q.bind(ws_id);
         }
         let like_rows = like_q.fetch_all(&mut *conn).await?;
         for row in like_rows {
-            if hits.len() >= bounded_limit as usize {
-                break;
-            }
             let conversation_id: Uuid = row.try_get("conversation_id")?;
-            if seen.insert(conversation_id) {
-                let raw_text: String = row.try_get("raw_text")?;
-                hits.push(ConversationSearchHit {
-                    conversation_id,
-                    workspace_id: row.try_get("workspace_id")?,
-                    title: row.try_get("title")?,
-                    snippet: highlight_short_excerpt(&raw_text, query),
-                });
+            let matched_row_id = normalize_row_id(row.try_get("row_id").ok());
+            let matched_turn_ordinal: Option<i64> = row.try_get("turn_ordinal").ok().flatten();
+            if let Some(&existing_idx) = index_by_conv.get(&conversation_id) {
+                let hit = &mut hits[existing_idx];
+                if hit.match_source.as_deref() == Some("title") {
+                    let raw_text: String = row.try_get("raw_text")?;
+                    hit.match_source = Some("both".to_string());
+                    hit.snippet = highlight_short_excerpt(&raw_text, query);
+                    hit.matched_row_id = matched_row_id;
+                    hit.matched_turn_ordinal = matched_turn_ordinal;
+                }
+                continue;
             }
+            if hits.len() >= total_needed {
+                continue;
+            }
+            let raw_text: String = row.try_get("raw_text")?;
+            index_by_conv.insert(conversation_id, hits.len());
+            hits.push(ConversationSearchHit {
+                conversation_id,
+                workspace_id: row.try_get("workspace_id")?,
+                title: row.try_get("title")?,
+                snippet: highlight_short_excerpt(&raw_text, query),
+                match_source: Some("body".to_string()),
+                matched_row_id,
+                matched_turn_ordinal,
+            });
         }
     }
 
-    Ok(hits)
+    Ok(hits
+        .into_iter()
+        .skip(bounded_offset)
+        .take(bounded_limit as usize)
+        .collect())
 }
 
 /// Project a conversation and (re)index its row-level text. Used by backfill and
@@ -438,12 +523,8 @@ pub async fn reindex_from_projection(
     pool: &SqlitePool,
     conversation_id: Uuid,
 ) -> Result<(), sqlx::Error> {
-    let timeline = match crate::jsonl_history::load_all_turns(pool, conversation_id).await? {
-        Some(turns) if !turns.is_empty() => {
-            crate::jsonl_history::timeline_from_turns(conversation_id, &turns)
-        }
-        _ => ConversationProjector::project(pool, conversation_id).await?,
-    };
+    let _ = crate::ensure_legacy_jsonl_migrated_on_pool(pool, conversation_id).await?;
+    let timeline = ConversationProjector::project(pool, conversation_id).await?;
     let mut conn = pool.acquire().await?;
     reindex_timeline_rows_on_conn(&mut conn, conversation_id, &timeline.rows).await
 }

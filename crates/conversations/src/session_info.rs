@@ -68,6 +68,40 @@ pub async fn read_history_page(
     {
         return Err(sqlx::Error::Protocol("history_revision_conflict".into()));
     }
+    if !request.item_ids.is_empty() {
+        let _ = crate::ensure_legacy_jsonl_migrated_on_pool(pool, conversation_id).await;
+        let packed = crate::handoff::DeterministicHandoffService::read_history_items_by_ids(
+            pool,
+            conversation_id,
+            &request.item_ids,
+        )
+        .await
+        .map_err(|err| match err {
+            crate::handoff::HandoffError::Database(db_err) => db_err,
+            other => sqlx::Error::Protocol(other.to_string()),
+        })?;
+        let items = packed
+            .into_iter()
+            .map(|item| SessionHistoryItem {
+                id: item.id,
+                role: match item.role.as_str() {
+                    "user" => TurnRole::User,
+                    "system" => TurnRole::System,
+                    _ => TurnRole::Assistant,
+                },
+                text: item.content,
+                text_offset: 0,
+                next_text_offset: None,
+                omitted_blocks: 0,
+            })
+            .collect();
+        return Ok(SessionHistoryPage {
+            history_revision: revision,
+            items,
+            next_after_item_id: None,
+            has_more: false,
+        });
+    }
     if request.item_id.is_some() && request.after_item_id.is_some() {
         return Err(sqlx::Error::Protocol(
             "Choose item_id or after_item_id".into(),
@@ -76,9 +110,21 @@ pub async fn read_history_page(
     if request.text_offset.unwrap_or(0) > 0 && request.item_id.is_none() {
         return Err(sqlx::Error::Protocol("text_offset requires item_id".into()));
     }
-    let turns = crate::jsonl_history::load_all_turns(pool, conversation_id)
+    let _ = crate::ensure_legacy_jsonl_migrated_on_pool(pool, conversation_id).await;
+    let mut turns = crate::ConversationProjector::project_turns_summary(pool, conversation_id).await?;
+    if turns.is_empty()
+        && let Some(segment_turns) = crate::transcript_segments::read_in(
+            pool,
+            &agents::acp_transcript::vibex_acp_transcripts_root(),
+            conversation_id,
+        )
         .await?
-        .ok_or_else(|| sqlx::Error::Protocol("history_unavailable".into()))?;
+    {
+        turns = segment_turns;
+    }
+    if turns.is_empty() {
+        return Err(sqlx::Error::Protocol("history_unavailable".into()));
+    }
     let all = crate::continuation::visible_items(&turns);
     let index = if let Some(id) = request.item_id.as_ref().or(request.after_item_id.as_ref()) {
         let found = all
@@ -383,6 +429,7 @@ async fn try_load_compact_transcript(
         tools: Vec<String>,
         message_id: Option<String>,
     }
+    let _ = crate::ensure_legacy_jsonl_migrated_on_pool(pool, conversation_id).await;
     let keep = usize::try_from(max_messages.min(MAX_SESSION_MESSAGES)).unwrap_or(200);
     let mut before_sequence = i64::MAX;
     let mut messages: Vec<CompactMessage> = Vec::new();
@@ -492,43 +539,23 @@ async fn try_load_compact_transcript(
         }
     }
 
-    // Wire-recorded ACP turns persist assistant messages and tool calls to the
-    // JSONL transcript rather than `conversation_events`. When the JSONL file
-    // exists on disk, prefer its full user + assistant turn sequence while
-    // retaining any brand-new uncommitted user turn at the head of `messages`.
-    let external_session_id = sqlx::query_scalar::<_, Option<String>>(
-        r#"SELECT COALESCE(
-            (SELECT external_session_id FROM sessions WHERE id = ?1),
-            (SELECT acp_session_id FROM conversation_agent_bindings
-             WHERE conversation_id = ?1 AND acp_session_id IS NOT NULL
-             ORDER BY created_at DESC LIMIT 1)
-        )"#,
-    )
-    .bind(conversation_id)
-    .fetch_optional(pool)
-    .await
-    .ok()
-    .flatten()
-    .flatten();
-    let manifest_turns = crate::transcript_segments::read_in(
-        pool,
-        &agents::acp_transcript::vibex_acp_transcripts_root(),
-        conversation_id,
-    )
-    .await;
-    let jsonl_turns = match manifest_turns {
-        Ok(Some(turns)) => Some(turns),
-        Ok(None) => {
-            crate::jsonl_history::flush_and_read_existing_transcript_turns(
-                conversation_id,
-                external_session_id.as_deref(),
-            )
-            .await
+    let has_assistant_in_events = messages.iter().any(|m| m.role == "assistant");
+    let jsonl_turns = if !has_assistant_in_events {
+        match crate::transcript_segments::read_in(
+            pool,
+            &agents::acp_transcript::vibex_acp_transcripts_root(),
+            conversation_id,
+        )
+        .await
+        {
+            Ok(turns) => turns,
+            Err(error) => {
+                tracing::warn!(%conversation_id, %error, "cannot read conversation manifest");
+                return Err(error);
+            }
         }
-        Err(error) => {
-            tracing::warn!(%conversation_id, %error, "cannot read conversation manifest");
-            return Err(error);
-        }
+    } else {
+        None
     };
     if let Some(jsonl_turns) = jsonl_turns {
         let mut jsonl_messages_rev: Vec<CompactMessage> = Vec::new();
@@ -1031,6 +1058,8 @@ mod tests {
         .unwrap();
         sqlx::query("CREATE TABLE conversation_transcript_segments (id BLOB, conversation_id BLOB, ordinal INTEGER, binding_id BLOB, state TEXT, sealed_length INTEGER, digest TEXT)")
             .execute(&pool).await.unwrap();
+        sqlx::query("CREATE TABLE sessions (id BLOB PRIMARY KEY, history_revision INTEGER DEFAULT 0, legacy_jsonl_migrated INTEGER DEFAULT 1)")
+            .execute(&pool).await.unwrap();
         pool
     }
 
@@ -1162,49 +1191,46 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn compact_transcript_and_host_history_read_jsonl_assistant_turns() {
+    async fn compact_transcript_and_host_history_read_sqlite_and_segment_assistant_turns() {
         let pool = pool().await;
         let conversation_id = Uuid::new_v4();
-        let _ = crate::jsonl_history::read_existing_transcript_turns(conversation_id);
-        let root = agents::acp_transcript::vibex_acp_transcripts_root();
-        let sid = conversation_id.simple().to_string();
-        let path = agents::acp_transcript::transcript_path_in(&root, "claude-code", &sid)
-            .expect("transcript path");
-        if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent).expect("create dir");
-        }
-        let header = serde_json::to_string(&agents::acp_transcript::TranscriptHeader::new(
-            "claude-code",
-            &sid,
-            "",
-            1_700_000_000_000,
-        ))
-        .unwrap();
-        let e1 = serde_json::to_string(&agents::acp_transcript::TranscriptEntry {
-            t: 1_700_000_001_000,
-            k: agents::acp_transcript::EntryKind::Prompt,
-            steer: false,
-            p: serde_json::json!([{ "type": "text", "text": "first question" }]),
-        })
-        .unwrap();
-        let e2 = serde_json::to_string(&agents::acp_transcript::TranscriptEntry {
-            t: 1_700_000_002_000,
-            k: agents::acp_transcript::EntryKind::Update,
-            steer: false,
-            p: serde_json::json!({
-                "sessionUpdate": "agent_message_chunk",
-                "content": { "type": "text", "text": "first answer" }
-            }),
-        })
-        .unwrap();
-        let e3 = serde_json::to_string(&agents::acp_transcript::TranscriptEntry {
-            t: 1_700_000_003_000,
-            k: agents::acp_transcript::EntryKind::TurnEnd,
-            steer: false,
-            p: serde_json::json!({ "stopReason": "end_turn" }),
-        })
-        .unwrap();
-        std::fs::write(&path, format!("{header}\n{e1}\n{e2}\n{e3}\n")).expect("write transcript");
+        let temp = tempfile::tempdir().expect("tempdir");
+        crate::transcript_segments::replace_snapshot_in(
+            &pool,
+            temp.path(),
+            conversation_id,
+            "session",
+            &[
+                agents::conversation::MessageTurn {
+                    id: format!("{conversation_id}:user:1"),
+                    role: TurnRole::User,
+                    blocks: vec![ContentBlock::Text {
+                        text: "first question".to_string(),
+                    }],
+                    timestamp: chrono::Utc::now(),
+                    completed_at: None,
+                    usage: None,
+                    duration_ms: None,
+                    model: None,
+                    agent_message_id: None,
+                },
+                agents::conversation::MessageTurn {
+                    id: format!("{conversation_id}:assistant:1"),
+                    role: TurnRole::Assistant,
+                    blocks: vec![ContentBlock::Text {
+                        text: "first answer".to_string(),
+                    }],
+                    timestamp: chrono::Utc::now(),
+                    completed_at: Some(chrono::Utc::now()),
+                    usage: None,
+                    duration_ms: None,
+                    model: None,
+                    agent_message_id: None,
+                },
+            ],
+        )
+        .await
+        .expect("replace snapshot");
 
         insert_event(
             &pool,
@@ -1222,6 +1248,16 @@ mod tests {
             &pool,
             conversation_id,
             2,
+            ConversationEvent::AssistantTextDelta {
+                text: "first answer".to_string(),
+                message_id: Some("msg-1".to_string()),
+            },
+        )
+        .await;
+        insert_event(
+            &pool,
+            conversation_id,
+            3,
             ConversationEvent::UserTurnCreated {
                 blocks: vec![ConversationInputBlock::Text {
                     text: "second question".to_string(),
@@ -1234,7 +1270,6 @@ mod tests {
         let prompt = host_history_prompt(&pool, conversation_id, "second question")
             .await
             .expect("host history prompt");
-        let _ = std::fs::remove_file(&path);
         assert_eq!(
             prompt,
             "Previous conversation:\nUser: first question\nAssistant: first answer\n"

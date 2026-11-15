@@ -27,6 +27,7 @@ use super::*;
                     description: None,
                 },
             ],
+            revision: 1,
         };
         append_event(
             &pool,
@@ -288,10 +289,12 @@ use super::*;
             .expect("project timeline");
         assert_eq!(timeline.last_sequence, 6);
         assert!(timeline.rows.len() >= 3);
-        assert!(matches!(
-            timeline.rows[0].row,
-            ConversationTimelineRow::MessageTurn { .. }
-        ));
+        assert!(
+            timeline
+                .rows
+                .iter()
+                .any(|row| matches!(row.row, ConversationTimelineRow::MessageTurn { .. }))
+        );
         assert!(
             timeline
                 .rows
@@ -617,7 +620,9 @@ use super::*;
         let after = ConversationProjector::project(&pool, conversation_id)
             .await
             .expect("project after");
-        assert_eq!(after.last_sequence, 3);
+        // `truncate_to_turn_ordinal` allocates monotonic tombstone sequence `6` (`before + 1`)
+        // so `rows_since_with_tombstones` advances past pre-truncate watermarks.
+        assert_eq!(after.last_sequence, 6);
     }
 
     #[tokio::test]

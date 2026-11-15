@@ -222,14 +222,107 @@
             None,
         )
         .await;
-        assert_eq!(retry_event.sequence, 11);
+        assert!(
+            retry_event.sequence > 20,
+            "sequence must remain strictly monotonic across truncate_to_turn_ordinal, got {}",
+            retry_event.sequence
+        );
 
         let ops = cached
             .apply_persisted(&retry_event)
             .expect("apply_persisted succeeds")
-            .expect("must not drop sequence 11 after truncation rewind from 20 to 10");
+            .expect("must not drop post-truncate retry sequence");
         assert!(!ops.is_empty());
-        assert_eq!(cached.db_cursor, 11);
+        assert_eq!(cached.db_cursor, retry_event.sequence);
+    }
+
+    #[tokio::test]
+    async fn write_projector_cache_miss_recovers_single_turn_losslessly_across_split_internal_meta()
+    {
+        let pool = setup_pool().await;
+        let (conversation_id, turn1_id) = seed_turn(&pool).await;
+
+        append_event(
+            &pool,
+            conversation_id,
+            Some(turn1_id),
+            "user",
+            ConversationEvent::UserTurnCreated {
+                blocks: vec![ConversationInputBlock::Text {
+                    text: "check status".into(),
+                }],
+                workflow_refs: Vec::new(),
+            },
+            None,
+        )
+        .await;
+        append_event(
+            &pool,
+            conversation_id,
+            Some(turn1_id),
+            "acp",
+            ConversationEvent::AssistantTextDelta {
+                text: "Hello <vibex-internal-meta plugin=\"p1\" channel=\"ch\" nonce=\"n1\">{\"secret\":42}</vib".into(),
+                message_id: None,
+            },
+            None,
+        )
+        .await;
+
+        // Force an LRU cache miss on the write-side projector mid-stream while the internal
+        // meta closing tag is split across chunks and the persisted snapshot has full_fold=false.
+        super::evict_write_projector_for_tests(conversation_id);
+
+        append_event(
+            &pool,
+            conversation_id,
+            Some(turn1_id),
+            "acp",
+            ConversationEvent::AssistantTextDelta {
+                text: "ex-internal-meta>world!".into(),
+                message_id: None,
+            },
+            None,
+        )
+        .await;
+        append_event(
+            &pool,
+            conversation_id,
+            Some(turn1_id),
+            "runtime",
+            ConversationEvent::TurnCompleted {
+                stop_reason: Some("end_turn".into()),
+            },
+            None,
+        )
+        .await;
+
+        let open = ConversationProjector::project_open(&pool, conversation_id, 16)
+            .await
+            .expect("materialized open");
+        let full = ConversationProjector::project(&pool, conversation_id)
+            .await
+            .expect("full fold");
+        assert_eq!(open.timeline.rows, full.rows);
+        let assistant = open
+            .timeline
+            .rows
+            .iter()
+            .find_map(|r| match &r.row {
+                ConversationTimelineRow::MessageTurn { turn, .. }
+                    if turn.role == TurnRole::Assistant =>
+                {
+                    Some(turn)
+                }
+                _ => None,
+            })
+            .expect("assistant row");
+        assert_eq!(
+            assistant.blocks,
+            vec![ContentBlock::Text {
+                text: "Hello world!".into()
+            }]
+        );
     }
 
     #[tokio::test]
@@ -1185,9 +1278,12 @@
         .await;
 
         // Simulate a historical stale snapshot frozen at the `Connecting` sequence.
-        ConversationProjector::persist_fold_to_pool(&pool, conversation_id, &fold_at_connecting)
-            .await
-            .expect("overwrite with stale snapshot");
+        {
+            let mut conn = pool.acquire().await.expect("acquire test conn");
+            ConversationProjector::persist_snapshot(&mut conn, conversation_id, &fold_at_connecting)
+                .await
+                .expect("overwrite with stale snapshot");
+        }
 
         let healed_side_rows = ConversationProjector::persisted_side_rows(&pool, conversation_id)
             .await
@@ -1200,9 +1296,12 @@
         );
 
         // Overwrite again to test try_materialized_open / project_open self-healing.
-        ConversationProjector::persist_fold_to_pool(&pool, conversation_id, &fold_at_connecting)
-            .await
-            .expect("overwrite with stale snapshot again");
+        {
+            let mut conn = pool.acquire().await.expect("acquire test conn");
+            ConversationProjector::persist_snapshot(&mut conn, conversation_id, &fold_at_connecting)
+                .await
+                .expect("overwrite with stale snapshot again");
+        }
 
         let open_proj = ConversationProjector::project_open(&pool, conversation_id, 50)
             .await

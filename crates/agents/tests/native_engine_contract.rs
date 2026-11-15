@@ -353,8 +353,13 @@ async fn handshake_capability_negotiation_engine_mode_and_multi_instance_isolati
             .await
             .expect("Codex connect_duplex succeeds");
     assert!(codex_handle.official_session);
-    assert!(codex_driver.descriptor().supports_native_steer);
-    assert!(!codex_driver.descriptor().supports_prompt_cache_ttl);
+    assert!(codex_driver.capabilities().supports_native_steer);
+    assert!(!codex_driver.capabilities().supports_prompt_cache_ttl);
+    let codex_descriptor = codex_driver
+        .descriptor()
+        .expect("Codex driver exposes descriptor");
+    assert!(codex_descriptor.supports_native_steer);
+    assert!(!codex_descriptor.supports_prompt_cache_ttl);
     codex_peer.await.unwrap();
 
     // Claude duplex handshake with third-party proxy (`official_session == false`).

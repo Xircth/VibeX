@@ -7,7 +7,7 @@ use agents::{
     AgentAuthenticationStatus, AgentContentBlock, AgentId, AgentKind, AgentLifecycleState,
     AgentManagementSnapshot, BuiltInProfileCatalog, ProfileTopology, SessionGate, SessionGateError,
     SessionGateInput, SessionLaunchLock, bind_pi_acp_pi_command, discover_path_acp_launch_lock,
-    engine::{EngineRuntimePreference, resolve_native_engine_kind_with_env},
+    engine::{EngineRegistry, EngineRuntimePreference},
     launch_program_is_legacy_acp_shim, lifecycle_ready_for_path_acp,
     secret_resolution::{
         ProviderAuthMode, ProviderInstanceConfig, SecretRef, SecretResolver,
@@ -125,12 +125,13 @@ fn is_native_engine_launch(agent_id: &AgentId, setting_env: &HashMap<String, Str
         .get("VIBEX_ENGINE_MODE")
         .cloned()
         .or_else(|| std::env::var("VIBEX_ENGINE_MODE").ok());
-    if resolve_native_engine_kind_with_env(
-        agent_id.as_str(),
-        EngineRuntimePreference::NativeFirst,
-        env_mode_owned.as_deref(),
-    )
-    .is_some()
+    if EngineRegistry::bundled()
+        .resolve_driver_for_agent(
+            agent_id.as_str(),
+            EngineRuntimePreference::NativeFirst,
+            env_mode_owned.as_deref(),
+        )
+        .is_some()
     {
         return true;
     }

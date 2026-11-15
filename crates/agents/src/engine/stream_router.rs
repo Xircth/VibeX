@@ -152,11 +152,11 @@ pub(crate) fn sanitize_instance_dir_segment(raw: &str) -> String {
 }
 
 /// Allocates isolated per-`provider_instance_id` temp directories (`0o700` on Unix)
-/// and, when `spec.isolate_profile` is `true`, isolated `CODEX_HOME` / `CLAUDE_CONFIG_DIR`
-/// directories if the caller has not explicitly overridden them in `spec.env`.
-pub fn prepare_instance_isolation_env(
+/// and, when `spec.isolate_profile` is `true` and `profile_dir_keys` is `Some((env_key, dir_name))`,
+/// an isolated profile configuration directory unless already overridden in `spec.env`.
+pub fn prepare_instance_isolation_env_for_keys(
     spec: &EngineStartSpec,
-    kind: NativeEngineKind,
+    profile_dir_keys: Option<(&str, &str)>,
 ) -> std::io::Result<HashMap<String, String>> {
     let Some(instance_id) = spec
         .provider_instance_id
@@ -180,29 +180,16 @@ pub fn prepare_instance_isolation_env(
     create_private_dir_all(&tmp_dir)?;
 
     let mut isolated = HashMap::new();
-    if spec.isolate_profile {
-        match kind {
-            NativeEngineKind::CodexNative => {
-                if !spec.env.contains_key("CODEX_HOME") {
-                    let codex_home = instance_root.join("codex-home");
-                    create_private_dir_all(&codex_home)?;
-                    isolated.insert(
-                        "CODEX_HOME".to_string(),
-                        codex_home.to_string_lossy().into_owned(),
-                    );
-                }
-            }
-            NativeEngineKind::ClaudeNative => {
-                if !spec.env.contains_key("CLAUDE_CONFIG_DIR") {
-                    let claude_dir = instance_root.join("claude-config");
-                    create_private_dir_all(&claude_dir)?;
-                    isolated.insert(
-                        "CLAUDE_CONFIG_DIR".to_string(),
-                        claude_dir.to_string_lossy().into_owned(),
-                    );
-                }
-            }
-        }
+    if spec.isolate_profile
+        && let Some((env_key, dir_name)) = profile_dir_keys
+        && !spec.env.contains_key(env_key)
+    {
+        let profile_dir = instance_root.join(dir_name);
+        create_private_dir_all(&profile_dir)?;
+        isolated.insert(
+            env_key.to_string(),
+            profile_dir.to_string_lossy().into_owned(),
+        );
     }
 
     let tmp_str = tmp_dir.to_string_lossy().into_owned();
@@ -213,6 +200,20 @@ pub fn prepare_instance_isolation_env(
     }
 
     Ok(isolated)
+}
+
+/// Allocates isolated per-`provider_instance_id` temp directories (`0o700` on Unix)
+/// and, when `spec.isolate_profile` is `true`, isolated `CODEX_HOME` / `CLAUDE_CONFIG_DIR`
+/// directories if the caller has not explicitly overridden them in `spec.env`.
+pub fn prepare_instance_isolation_env(
+    spec: &EngineStartSpec,
+    kind: NativeEngineKind,
+) -> std::io::Result<HashMap<String, String>> {
+    let keys = match kind {
+        NativeEngineKind::CodexNative => Some(("CODEX_HOME", "codex-home")),
+        NativeEngineKind::ClaudeNative => Some(("CLAUDE_CONFIG_DIR", "claude-config")),
+    };
+    prepare_instance_isolation_env_for_keys(spec, keys)
 }
 
 #[derive(Clone)]

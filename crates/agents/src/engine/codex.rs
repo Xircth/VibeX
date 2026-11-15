@@ -33,17 +33,19 @@ pub use crate::engine::codex_protocol::{
 use crate::{
     conversation::ContentBlock,
     engine::{
-        EngineAuth, EngineCacheStatus, EngineCheckpoint, EngineError, EngineEvent,
-        EngineEventStream, EngineForkReceipt, EngineForkRequest, EngineHandle, EngineModelInfo,
-        EnginePermissionDecision, EnginePromptRequest, EngineRateLimits, EngineStartSpec,
-        EngineSteerReceipt, EngineSteerRequest, NativeEngineDriver, NativeEngineKind, PromptMode,
-        TurnEventRouter, TurnRouteFilter,
+        EngineAuth, EngineCacheStatus, EngineCapabilities, EngineCheckpoint, EngineError,
+        EngineEvent, EngineEventStream, EngineForkReceipt, EngineForkRequest, EngineHandle,
+        EngineModelInfo, EnginePermissionDecision, EnginePromptRequest, EngineRateLimits,
+        EngineStartSpec, EngineSteerReceipt, EngineSteerRequest, NativeEngineDriver,
+        NativeEngineKind, PromptMode, TurnEventRouter, TurnRouteFilter,
         codex_protocol::{
-            build_codex_turn_policy, nested_or_str, normalize_codex_notification,
-            parse_codex_models_response, serialize_codex_input_items, str_any,
+            build_codex_turn_policy, codex_capabilities, codex_normalize_mode, nested_or_str,
+            normalize_codex_notification, parse_codex_models_response, prepare_codex_launch_env,
+            resolve_codex_auth, resolve_codex_default_model, serialize_codex_input_items, str_any,
         },
-        format_bounded_diagnostic, is_placeholder_engine_session_id,
-        prepare_instance_isolation_env, stream_router::spawn_stderr_tail_reader,
+        descriptor::normalize_agent_token, format_bounded_diagnostic,
+        is_placeholder_engine_session_id, prepare_instance_isolation_env_for_keys,
+        stream_router::spawn_stderr_tail_reader,
     },
     stderr_tail::StderrTail,
 };
@@ -175,7 +177,8 @@ fn global_codex_servers() -> &'static AsyncRwLock<HashMap<CodexServerCacheKey, A
 impl CodexAppServer {
     pub async fn spawn_for_workspace(spec: &EngineStartSpec) -> Result<Arc<Self>, EngineError> {
         let codex_path = resolve_codex_binary(spec).await?;
-        let isolation_env = prepare_instance_isolation_env(spec, NativeEngineKind::CodexNative)?;
+        let isolation_env =
+            prepare_instance_isolation_env_for_keys(spec, Some(("CODEX_HOME", "codex-home")))?;
 
         let mut cmd = new_hidden_tokio_command(&codex_path, ["app-server"]);
         cmd.current_dir(&spec.working_dir)
@@ -1156,8 +1159,53 @@ impl NativeEngineDriver for CodexNativeDriver {
         NativeEngineKind::CodexNative.engine_id()
     }
 
-    fn kind(&self) -> NativeEngineKind {
-        NativeEngineKind::CodexNative
+    fn kind(&self) -> Option<NativeEngineKind> {
+        Some(NativeEngineKind::CodexNative)
+    }
+
+    fn supports_agent(&self, agent_kind_or_id: &str) -> bool {
+        matches!(
+            normalize_agent_token(agent_kind_or_id).as_str(),
+            "codex" | "codex_native" | "openai_codex" | "codex_cli"
+        )
+    }
+
+    fn capabilities(&self) -> EngineCapabilities {
+        codex_capabilities(self.engine_id())
+    }
+
+    fn normalize_mode(&self, raw: &str) -> Option<String> {
+        codex_normalize_mode(raw)
+    }
+
+    fn resolve_auth(&self, env: &HashMap<String, String>) -> EngineAuth {
+        resolve_codex_auth(env)
+    }
+
+    fn prepare_launch_env(
+        &self,
+        locked_program: &Path,
+        snapshot_env: &HashMap<String, String>,
+        launch_env: &mut HashMap<String, String>,
+        scrubbed_keys: &mut Vec<String>,
+    ) {
+        prepare_codex_launch_env(locked_program, snapshot_env, launch_env, scrubbed_keys);
+    }
+
+    fn profile_isolation_dir(&self) -> Option<(&'static str, &'static str)> {
+        Some(("CODEX_HOME", "codex-home"))
+    }
+
+    fn uses_custom_base_url(&self, spec: &EngineStartSpec) -> bool {
+        spec.uses_custom_base_url(NativeEngineKind::CodexNative)
+    }
+
+    fn resolve_default_model(&self, env: &HashMap<String, String>) -> Option<String> {
+        resolve_codex_default_model(env)
+    }
+
+    async fn invalidate_caches(&self) -> usize {
+        invalidate_codex_servers().await
     }
 
     async fn start(&self, spec: EngineStartSpec) -> Result<EngineHandle, EngineError> {

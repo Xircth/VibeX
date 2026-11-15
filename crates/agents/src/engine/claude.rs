@@ -7,6 +7,7 @@
 
 use std::{
     collections::HashMap,
+    path::Path,
     sync::{
         Arc, Mutex, RwLock,
         atomic::{AtomicBool, AtomicU64, Ordering},
@@ -31,17 +32,20 @@ pub use super::claude_events::{
     default_claude_models, resolve_claude_driver_script, resolve_node_executable,
 };
 use super::claude_events::{
-    default_claude_permission_options, normalize_sidecar_event, parse_sidecar_models,
-    serialize_sidecar_blocks, str_opt, str_or,
+    classify_claude_tool_call, claude_capabilities, claude_normalize_mode,
+    default_claude_permission_options, encode_claude_question_answers, normalize_sidecar_event,
+    parse_sidecar_models, prepare_claude_launch_env, resolve_claude_auth,
+    resolve_claude_default_model, serialize_sidecar_blocks, str_opt, str_or,
 };
 use crate::{
     engine::{
-        EngineAuth, EngineCacheStatus, EngineCheckpoint, EngineError, EngineEvent,
-        EngineEventStream, EngineForkReceipt, EngineForkRequest, EngineHandle, EngineModelInfo,
-        EnginePermissionDecision, EnginePromptRequest, EngineRateLimits, EngineStartSpec,
-        EngineSteerReceipt, EngineSteerRequest, NativeEngineDriver, NativeEngineKind, PromptMode,
-        TurnEventRouter, TurnRouteFilter, format_bounded_diagnostic,
-        is_placeholder_engine_session_id, prepare_instance_isolation_env,
+        EngineAuth, EngineCacheStatus, EngineCapabilities, EngineCheckpoint, EngineError,
+        EngineEvent, EngineEventStream, EngineForkReceipt, EngineForkRequest, EngineHandle,
+        EngineModelInfo, EnginePermissionDecision, EnginePromptRequest, EngineRateLimits,
+        EngineStartSpec, EngineSteerReceipt, EngineSteerRequest, EngineToolClassification,
+        NativeEngineDriver, NativeEngineKind, PromptMode, TurnEventRouter, TurnRouteFilter,
+        descriptor::normalize_agent_token, format_bounded_diagnostic,
+        is_placeholder_engine_session_id, prepare_instance_isolation_env_for_keys,
         stream_router::spawn_stderr_tail_reader,
     },
     stderr_tail::StderrTail,
@@ -105,7 +109,10 @@ impl ClaudeSidecarClient {
     pub async fn spawn(spec: &EngineStartSpec) -> Result<Arc<Self>, EngineError> {
         let node_binary = resolve_node_executable(spec).await?;
         let script_path = resolve_claude_driver_script(spec)?;
-        let isolation_env = prepare_instance_isolation_env(spec, NativeEngineKind::ClaudeNative)?;
+        let isolation_env = prepare_instance_isolation_env_for_keys(
+            spec,
+            Some(("CLAUDE_CONFIG_DIR", "claude-config")),
+        )?;
 
         let mut cmd = new_hidden_tokio_command(&node_binary, [&script_path]);
         cmd.current_dir(&spec.working_dir)
@@ -724,8 +731,72 @@ impl NativeEngineDriver for ClaudeNativeDriver {
         NativeEngineKind::ClaudeNative.engine_id()
     }
 
-    fn kind(&self) -> NativeEngineKind {
-        NativeEngineKind::ClaudeNative
+    fn kind(&self) -> Option<NativeEngineKind> {
+        Some(NativeEngineKind::ClaudeNative)
+    }
+
+    fn supports_agent(&self, agent_kind_or_id: &str) -> bool {
+        matches!(
+            normalize_agent_token(agent_kind_or_id).as_str(),
+            "claude_code" | "claudecode" | "claude" | "claude_native"
+        )
+    }
+
+    fn capabilities(&self) -> EngineCapabilities {
+        claude_capabilities(self.engine_id())
+    }
+
+    fn normalize_mode(&self, raw: &str) -> Option<String> {
+        claude_normalize_mode(raw)
+    }
+
+    fn resolve_auth(&self, env: &HashMap<String, String>) -> EngineAuth {
+        resolve_claude_auth(env)
+    }
+
+    fn prepare_launch_env(
+        &self,
+        locked_program: &Path,
+        _snapshot_env: &HashMap<String, String>,
+        launch_env: &mut HashMap<String, String>,
+        _scrubbed_keys: &mut Vec<String>,
+    ) {
+        prepare_claude_launch_env(locked_program, launch_env);
+    }
+
+    fn profile_isolation_dir(&self) -> Option<(&'static str, &'static str)> {
+        Some(("CLAUDE_CONFIG_DIR", "claude-config"))
+    }
+
+    fn uses_custom_base_url(&self, spec: &EngineStartSpec) -> bool {
+        !spec
+            .auth
+            .is_official_anthropic_session(&spec.env, &spec.config_overrides)
+    }
+
+    fn resolve_default_model(&self, env: &HashMap<String, String>) -> Option<String> {
+        resolve_claude_default_model(env)
+    }
+
+    fn model_aliases(&self, env: &HashMap<String, String>) -> HashMap<String, String> {
+        crate::end_turn_usage::collect_claude_model_aliases(env)
+    }
+
+    fn classify_tool_call(
+        &self,
+        raw_name: &str,
+        input: &Value,
+        parent_tool_use_id: Option<&str>,
+    ) -> EngineToolClassification {
+        classify_claude_tool_call(raw_name, input, parent_tool_use_id)
+    }
+
+    fn encode_question_answers(
+        &self,
+        entries: &[(String, Vec<String>)],
+        question_keys: &[(String, String)],
+    ) -> Value {
+        encode_claude_question_answers(entries, question_keys)
     }
 
     async fn start(&self, spec: EngineStartSpec) -> Result<EngineHandle, EngineError> {

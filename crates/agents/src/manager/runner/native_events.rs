@@ -8,7 +8,7 @@ use serde_json::{Map, Value, json};
 use super::*;
 use crate::{
     engine::{
-        EngineEvent, EngineHandle, EnginePermissionDecision, NativeEngineDriver, NativeEngineKind,
+        EngineEvent, EngineHandle, EnginePermissionDecision, NativeEngineDriver,
         is_placeholder_engine_session_id,
     },
     events::AgentPlanEntry,
@@ -31,145 +31,6 @@ pub(in crate::manager) fn parse_cache_tier(tier: Option<&str>) -> CacheTier {
         }
         _ => CacheTier::FiveMinute,
     }
-}
-
-fn classify_tool_kind_and_title(
-    engine_kind: NativeEngineKind,
-    raw_name: &str,
-    input: &Value,
-    parent_tool_use_id: Option<&str>,
-) -> (String, String, Option<Value>) {
-    let mut meta = Map::new();
-    if let Some(mcp_rest) = raw_name.strip_prefix("mcp__") {
-        let mut parts = mcp_rest.splitn(2, "__");
-        let server = parts.next().unwrap_or("");
-        let tool = parts.next().unwrap_or(mcp_rest);
-        meta.insert(
-            "mcp".to_string(),
-            json!({
-                "server": server,
-                "tool": tool,
-            }),
-        );
-        let title = if server.is_empty() {
-            tool.to_string()
-        } else {
-            format!("{server} / {tool}")
-        };
-        return ("other".to_string(), title, Some(Value::Object(meta)));
-    }
-
-    if engine_kind == NativeEngineKind::ClaudeNative {
-        let mut claude_meta = Map::new();
-        claude_meta.insert("toolName".to_string(), Value::String(raw_name.to_string()));
-        if let Some(parent_id) = parent_tool_use_id
-            .filter(|s| !s.is_empty())
-            .or_else(|| {
-                input
-                    .get("_parentToolUseId")
-                    .or_else(|| input.get("parent_tool_use_id"))
-                    .and_then(Value::as_str)
-                    .filter(|s| !s.is_empty())
-            })
-        {
-            claude_meta.insert(
-                "parentToolUseId".to_string(),
-                Value::String(parent_id.to_string()),
-            );
-        }
-        meta.insert("claudeCode".to_string(), Value::Object(claude_meta));
-    }
-
-    let (semantic_kind, display_title) = match raw_name {
-        "Bash" | "commandExecution" | "shell" | "exec_command" => {
-            let cmd = input
-                .get("command")
-                .and_then(|v| {
-                    v.as_str().map(str::to_string).or_else(|| {
-                        v.as_array().map(|arr| {
-                            arr.iter()
-                                .filter_map(Value::as_str)
-                                .collect::<Vec<_>>()
-                                .join(" ")
-                        })
-                    })
-                })
-                .or_else(|| input.get("description").and_then(Value::as_str).map(str::to_string))
-                .filter(|s| !s.trim().is_empty())
-                .unwrap_or_else(|| raw_name.to_string());
-            ("execute".to_string(), cmd)
-        }
-        "Edit" | "MultiEdit" | "Write" | "NotebookEdit" | "fileChange" | "apply_patch" => {
-            let path = input
-                .get("file_path")
-                .or_else(|| input.get("notebook_path"))
-                .or_else(|| input.get("path"))
-                .and_then(Value::as_str)
-                .map(str::to_string)
-                .or_else(|| {
-                    input
-                        .get("changes")
-                        .and_then(Value::as_array)
-                        .and_then(|arr| arr.first())
-                        .and_then(|c| c.get("path").or_else(|| c.get("filePath")))
-                        .and_then(Value::as_str)
-                        .map(str::to_string)
-                });
-            let title = match path {
-                Some(p) if !p.is_empty() => format!("{raw_name} {p}"),
-                _ => raw_name.to_string(),
-            };
-            ("edit".to_string(), title)
-        }
-        "Read" | "imageView" => {
-            let path = input
-                .get("file_path")
-                .or_else(|| input.get("path"))
-                .and_then(Value::as_str);
-            let title = match path {
-                Some(p) if !p.is_empty() => format!("Read {p}"),
-                _ => raw_name.to_string(),
-            };
-            ("read".to_string(), title)
-        }
-        "Grep" | "Glob" | "ToolSearch" => {
-            let pattern = input
-                .get("pattern")
-                .or_else(|| input.get("query"))
-                .and_then(Value::as_str);
-            let title = match pattern {
-                Some(p) if !p.is_empty() => format!("{raw_name} {p}"),
-                _ => raw_name.to_string(),
-            };
-            ("search".to_string(), title)
-        }
-        "WebFetch" | "WebSearch" | "webSearch" => {
-            let target = input
-                .get("url")
-                .or_else(|| input.get("query"))
-                .and_then(Value::as_str);
-            let title = match target {
-                Some(t) if !t.is_empty() => format!("{raw_name} {t}"),
-                _ => raw_name.to_string(),
-            };
-            ("fetch".to_string(), title)
-        }
-        "TodoWrite" => ("think".to_string(), "Update Plan".to_string()),
-        "Task" | "Agent" | "collabAgentToolCall" => {
-            let desc = input
-                .get("description")
-                .or_else(|| input.get("prompt"))
-                .and_then(Value::as_str)
-                .map(|s| s.chars().take(80).collect::<String>())
-                .filter(|s| !s.trim().is_empty())
-                .unwrap_or_else(|| "Subagent".to_string());
-            ("other".to_string(), desc)
-        }
-        _ => ("other".to_string(), raw_name.to_string()),
-    };
-
-    let meta_val = (!meta.is_empty()).then_some(Value::Object(meta));
-    (semantic_kind, display_title, meta_val)
 }
 
 fn format_file_change_diff_preview(input: &Value) -> Option<String> {
@@ -230,16 +91,16 @@ fn format_tool_result_content(tool_name: Option<&str>, content: &Value) -> Optio
 }
 
 fn build_permission_details(
-    engine_kind: NativeEngineKind,
+    driver: &dyn NativeEngineDriver,
     permission_id: &str,
     tool_name: &str,
     input: &Value,
     decision_reason: Option<&str>,
 ) -> Value {
-    let (semantic_kind, title, _) = classify_tool_kind_and_title(engine_kind, tool_name, input, None);
+    let cls = driver.classify_tool_call(tool_name, input, None);
     let mut details = Map::new();
-    details.insert("kind".to_string(), Value::String(semantic_kind));
-    details.insert("title".to_string(), Value::String(title));
+    details.insert("kind".to_string(), Value::String(cls.semantic_kind));
+    details.insert("title".to_string(), Value::String(cls.title));
     details.insert("toolName".to_string(), Value::String(tool_name.to_string()));
     if !permission_id.is_empty() {
         details.insert("toolCallId".to_string(), Value::String(permission_id.to_string()));
@@ -259,7 +120,7 @@ fn build_question_elicitation_payload(questions: &Value) -> (String, Value, Vec<
     let arr = questions.as_array().cloned().unwrap_or_default();
     let mut schema_items = Vec::new();
     let mut prompt_texts = Vec::new();
-    // Maps `(question_id, question_text)` for encoding answers back to Claude vs Codex.
+    // Maps `(question_id, question_text)` for encoding answers back via the active driver.
     let mut question_keys = Vec::new();
 
     for (idx, item) in arr.iter().enumerate() {
@@ -347,48 +208,12 @@ fn build_question_elicitation_payload(questions: &Value) -> (String, Value, Vec<
     (message, schema, question_keys)
 }
 
-fn encode_native_question_answers(
-    kind: NativeEngineKind,
-    content: &Value,
-    question_keys: &[(String, String)],
-) -> Value {
-    let entries = crate::ext_question::answer_entries(content);
-    let mut out = Map::new();
-
-    for (raw_key, labels) in entries {
-        let matched = question_keys
-            .iter()
-            .find(|(qid, qtext)| qid == &raw_key || qtext == &raw_key);
-        match kind {
-            NativeEngineKind::ClaudeNative => {
-                let key = matched
-                    .map(|(_, qtext)| {
-                        if qtext.is_empty() {
-                            raw_key.clone()
-                        } else {
-                            qtext.clone()
-                        }
-                    })
-                    .unwrap_or(raw_key);
-                out.insert(key, Value::String(labels.join(", ")));
-            }
-            NativeEngineKind::CodexNative => {
-                let key = matched.map(|(qid, _)| qid.clone()).unwrap_or(raw_key);
-                out.insert(key, json!({ "answers": labels }));
-            }
-        }
-    }
-
-    Value::Object(out)
-}
-
 impl AgentConnectionRunner {
     #[allow(clippy::too_many_arguments)]
     pub(in crate::manager) async fn handle_native_stream_event(
         &self,
         driver: &Arc<dyn NativeEngineDriver>,
         handle: &EngineHandle,
-        kind: NativeEngineKind,
         custom_base_url: bool,
         requested_model: Option<&str>,
         session_id: AgentSessionId,
@@ -470,8 +295,7 @@ impl AgentConnectionRunner {
             } => {
                 let id = tool_use_id.unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
                 turn_state.tool_names.insert(id.clone(), tool_name.clone());
-                let (semantic_kind, title, meta) = classify_tool_kind_and_title(
-                    kind,
+                let cls = driver.classify_tool_call(
                     &tool_name,
                     &input,
                     parent_tool_use_id.as_deref(),
@@ -487,12 +311,12 @@ impl AgentConnectionRunner {
                     AgentEvent::ToolCall {
                         tool_call: AgentToolCall {
                             id,
-                            title,
+                            title: cls.title,
                             status: Some("in_progress".to_string()),
                             content,
-                            kind: Some(semantic_kind),
+                            kind: Some(cls.semantic_kind),
                             input_preview: serde_json::to_string(&input).ok(),
-                            meta,
+                            meta: cls.meta,
                             images: Vec::new(),
                         },
                     },
@@ -592,7 +416,7 @@ impl AgentConnectionRunner {
                     engine_options
                 };
                 let details = Some(build_permission_details(
-                    kind,
+                    &**driver,
                     &permission_id,
                     &tool_name,
                     &input,
@@ -745,8 +569,8 @@ impl AgentConnectionRunner {
                 tokio::spawn(async move {
                     match rx.await {
                         Ok(AgentElicitationResponse::Accept { content }) => {
-                            let encoded =
-                                encode_native_question_answers(kind, &content, &question_keys);
+                            let entries = crate::ext_question::answer_entries(&content);
+                            let encoded = driver.encode_question_answers(&entries, &question_keys);
                             let _ = driver
                                 .respond_question(&handle, &request_id, encoded, false)
                                 .await;
@@ -934,7 +758,7 @@ impl AgentConnectionRunner {
                 false
             }
             EngineEvent::CacheStatusUpdated { cache_status, .. } => {
-                if kind == NativeEngineKind::ClaudeNative {
+                if driver.capabilities().records_idle_compaction_activity {
                     self.idle_compaction.record_session_activity(
                         session_id.0,
                         Utc::now(),
@@ -968,7 +792,7 @@ impl AgentConnectionRunner {
                 served_model,
                 ..
             } => {
-                if kind == NativeEngineKind::ClaudeNative {
+                if driver.capabilities().records_idle_compaction_activity {
                     let cache = driver.cache_status(handle);
                     let tier = parse_cache_tier(
                         cache
@@ -993,13 +817,15 @@ impl AgentConnectionRunner {
                         handle.official_session,
                     );
                 }
-                let alias_targets = if kind == NativeEngineKind::ClaudeNative {
-                    let mut merged_env = self.snapshot.launch_lock.env.clone();
-                    merged_env.extend(self.snapshot.env.clone());
-                    crate::end_turn_usage::collect_claude_model_aliases(&merged_env)
-                } else {
-                    HashMap::new()
-                };
+                let mut merged_env: HashMap<String, String> = self
+                    .snapshot
+                    .launch_lock
+                    .env
+                    .iter()
+                    .map(|(k, v)| (k.clone(), v.clone()))
+                    .collect();
+                merged_env.extend(self.snapshot.env.clone());
+                let alias_targets = driver.model_aliases(&merged_env);
                 if let Some(mismatch) =
                     crate::end_turn_usage::check_launch_vs_served_model_with_aliases(
                         requested_model,

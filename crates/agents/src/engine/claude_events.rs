@@ -2,19 +2,22 @@
 //! resolution helpers for [`super::claude::ClaudeNativeDriver`].
 
 use std::{
+    collections::HashMap,
     path::{Path, PathBuf},
     sync::{Arc, RwLock},
     time::Duration,
 };
 
 use chrono::{DateTime, Utc};
-use serde_json::{Value, json};
+use serde_json::{Map, Value, json};
 
 use crate::{
     conversation::ContentBlock,
     engine::{
-        EngineCacheStatus, EngineError, EngineEvent, EngineModelInfo, EnginePlanEntry,
-        EngineRateLimits, EngineStartSpec, PromptMode, is_placeholder_engine_session_id,
+        EngineAuth, EngineCacheStatus, EngineCapabilities, EngineCommandSpec, EngineEffortSpec,
+        EngineError, EngineEvent, EngineModeSpec, EngineModelInfo, EnginePlanEntry,
+        EngineRateLimits, EngineSelectChoice, EngineStartSpec, EngineToolClassification,
+        PromptMode, classify_standard_tool_call, is_placeholder_engine_session_id,
     },
     managed_toolchain::{
         default_managed_artifacts_dir, ensure_managed_node, managed_node_runtime,
@@ -613,4 +616,222 @@ pub async fn resolve_node_executable(spec: &EngineStartSpec) -> Result<PathBuf, 
     }
 
     Ok(ensure_managed_node(None).await?)
+}
+
+pub(super) fn claude_capabilities(engine_id: &str) -> EngineCapabilities {
+    EngineCapabilities {
+        engine_id: engine_id.to_string(),
+        supports_native_steer: true,
+        supports_native_revert: true,
+        supports_native_fork: true,
+        supports_rate_limit_push: true,
+        supports_prompt_cache_ttl: true,
+        records_idle_compaction_activity: true,
+        modes: EngineModeSpec {
+            modes: vec![
+                EngineSelectChoice {
+                    id: "default".to_string(),
+                    label: "Default".to_string(),
+                    description: Some("Prompt before sensitive tool actions".to_string()),
+                },
+                EngineSelectChoice {
+                    id: "acceptEdits".to_string(),
+                    label: "Accept Edits".to_string(),
+                    description: Some("Auto-approve workspace file edits".to_string()),
+                },
+                EngineSelectChoice {
+                    id: "plan".to_string(),
+                    label: "Plan".to_string(),
+                    description: Some(
+                        "Read-only analysis and planning without mutating files".to_string(),
+                    ),
+                },
+                EngineSelectChoice {
+                    id: "auto".to_string(),
+                    label: "Auto".to_string(),
+                    description: Some("Automatically decide safe tool permissions".to_string()),
+                },
+                EngineSelectChoice {
+                    id: "bypassPermissions".to_string(),
+                    label: "Bypass Permissions".to_string(),
+                    description: Some("Execute tools without permission prompts".to_string()),
+                },
+            ],
+            default_mode_id: "default".to_string(),
+            yolo_mode_id: "bypassPermissions".to_string(),
+        },
+        effort: Some(EngineEffortSpec {
+            choices: vec![
+                EngineSelectChoice {
+                    id: "low".to_string(),
+                    label: "Low".to_string(),
+                    description: None,
+                },
+                EngineSelectChoice {
+                    id: "medium".to_string(),
+                    label: "Medium".to_string(),
+                    description: None,
+                },
+                EngineSelectChoice {
+                    id: "high".to_string(),
+                    label: "High".to_string(),
+                    description: None,
+                },
+                EngineSelectChoice {
+                    id: "xhigh".to_string(),
+                    label: "Extra High".to_string(),
+                    description: None,
+                },
+                EngineSelectChoice {
+                    id: "max".to_string(),
+                    label: "Max".to_string(),
+                    description: None,
+                },
+            ],
+            default_value: "high".to_string(),
+        }),
+        default_commands: vec![
+            EngineCommandSpec {
+                name: "compact".to_string(),
+                description: "Compact conversation context".to_string(),
+            },
+            EngineCommandSpec {
+                name: "clear".to_string(),
+                description: "Clear active session context".to_string(),
+            },
+            EngineCommandSpec {
+                name: "review".to_string(),
+                description: "Review current workspace changes".to_string(),
+            },
+            EngineCommandSpec {
+                name: "init".to_string(),
+                description: "Initialize project instructions".to_string(),
+            },
+        ],
+    }
+}
+
+pub(super) fn claude_normalize_mode(raw: &str) -> Option<String> {
+    let trimmed = raw.trim();
+    match trimmed {
+        "yolo" | "full-access" | "bypassPermissions" => Some("bypassPermissions".to_string()),
+        "default" | "acceptEdits" | "plan" | "auto" => Some(trimmed.to_string()),
+        _ => None,
+    }
+}
+
+pub(super) fn resolve_claude_auth(env: &HashMap<String, String>) -> EngineAuth {
+    if let Some(api_key) = env
+        .get("ANTHROPIC_API_KEY")
+        .or_else(|| env.get("ANTHROPIC_AUTH_TOKEN"))
+        .filter(|v| !v.trim().is_empty())
+    {
+        return EngineAuth::ApiKey {
+            api_key: api_key.clone(),
+            base_url: env
+                .get("ANTHROPIC_BASE_URL")
+                .filter(|u| !u.trim().is_empty())
+                .cloned(),
+        };
+    }
+    if let Some(oauth_token) = env
+        .get("CLAUDE_CODE_OAUTH_TOKEN")
+        .filter(|v| !v.trim().is_empty())
+    {
+        return EngineAuth::OAuth {
+            oauth_token: Some(oauth_token.clone()),
+            account_email: None,
+        };
+    }
+    EngineAuth::Ambient
+}
+
+pub(super) fn prepare_claude_launch_env(
+    locked_program: &Path,
+    launch_env: &mut HashMap<String, String>,
+) {
+    if locked_program.is_absolute()
+        && locked_program.is_file()
+        && locked_program
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .is_some_and(|stem| stem.eq_ignore_ascii_case("claude"))
+        && !launch_env.contains_key("CLAUDE_CODE_EXECUTABLE")
+        && !launch_env.contains_key("VIBEX_CLAUDE_PATH")
+        && let Some(spawnable) =
+            workspace_utils::process::node_spawnable_runtime_path(locked_program)
+    {
+        launch_env.insert(
+            "CLAUDE_CODE_EXECUTABLE".to_string(),
+            spawnable.to_string_lossy().into_owned(),
+        );
+    }
+}
+
+pub(super) fn resolve_claude_default_model(env: &HashMap<String, String>) -> Option<String> {
+    let effective = crate::end_turn_usage::read_claude_settings_env(env);
+    effective
+        .get("ANTHROPIC_MODEL")
+        .map(String::as_str)
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
+}
+
+pub(super) fn classify_claude_tool_call(
+    raw_name: &str,
+    input: &Value,
+    parent_tool_use_id: Option<&str>,
+) -> EngineToolClassification {
+    let mut base = classify_standard_tool_call(raw_name, input);
+    if raw_name.starts_with("mcp__") {
+        return base;
+    }
+    let mut claude_meta = Map::new();
+    claude_meta.insert("toolName".to_string(), Value::String(raw_name.to_string()));
+    if let Some(parent_id) = parent_tool_use_id
+        .filter(|s| !s.is_empty())
+        .or_else(|| {
+            input
+                .get("_parentToolUseId")
+                .or_else(|| input.get("parent_tool_use_id"))
+                .and_then(Value::as_str)
+                .filter(|s| !s.is_empty())
+        })
+    {
+        claude_meta.insert(
+            "parentToolUseId".to_string(),
+            Value::String(parent_id.to_string()),
+        );
+    }
+    let mut meta = match base.meta {
+        Some(Value::Object(existing)) => existing,
+        _ => Map::new(),
+    };
+    meta.insert("claudeCode".to_string(), Value::Object(claude_meta));
+    base.meta = Some(Value::Object(meta));
+    base
+}
+
+pub(super) fn encode_claude_question_answers(
+    entries: &[(String, Vec<String>)],
+    question_keys: &[(String, String)],
+) -> Value {
+    let mut out = Map::new();
+    for (raw_key, labels) in entries {
+        let matched = question_keys
+            .iter()
+            .find(|(qid, qtext)| qid == raw_key || qtext == raw_key);
+        let key = matched
+            .map(|(_, qtext)| {
+                if qtext.is_empty() {
+                    raw_key.clone()
+                } else {
+                    qtext.clone()
+                }
+            })
+            .unwrap_or_else(|| raw_key.clone());
+        out.insert(key, Value::String(labels.join(", ")));
+    }
+    Value::Object(out)
 }

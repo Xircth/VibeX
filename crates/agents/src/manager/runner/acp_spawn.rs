@@ -387,12 +387,12 @@ impl AgentConnectionRunner {
         resolve_acp_process_stop(stop, prompt_in_flight, stderr)
     }
 
-    /// Builds the sanitized environment map and parent-env scrub list for a flagship
-    /// native engine connection (`ClaudeNative` / `CodexNative`), reusing proxy forwarding,
-    /// writable temp binding, built-in auth-mode scrubbing, and ChatGPT subscription scrubbing.
+    /// Builds the sanitized environment map and parent-env scrub list for a native engine
+    /// connection, delegating engine-specific executable binding and credential scrubbing
+    /// to [`crate::engine::NativeEngineDriver::prepare_launch_env`].
     pub(in crate::manager) fn build_native_engine_launch_env(
         &self,
-        kind: crate::engine::NativeEngineKind,
+        driver: &dyn crate::engine::NativeEngineDriver,
     ) -> AgentResult<(HashMap<String, String>, Vec<String>)> {
         if !self.snapshot.working_dir.is_dir() {
             return Err(AgentError::Runtime(format!(
@@ -406,46 +406,6 @@ impl AgentConnectionRunner {
         for (key, value) in &launch_lock.env {
             if !self.snapshot.env.contains_key(key) {
                 launch_env.insert(key.clone(), value.clone());
-            }
-        }
-
-        // If `launch_lock.absolute_acp_program` points directly at a standalone `claude` or
-        // `codex` binary on disk, surface it via the engine's executable env var unless the
-        // caller already supplied an explicit override.
-        let locked_program = &launch_lock.absolute_acp_program;
-        if locked_program.is_absolute() && locked_program.is_file() {
-            let stem = locked_program
-                .file_stem()
-                .and_then(|s| s.to_str())
-                .unwrap_or("");
-            match kind {
-                crate::engine::NativeEngineKind::ClaudeNative
-                    if stem.eq_ignore_ascii_case("claude")
-                        && locked_program.is_file()
-                        && !launch_env.contains_key("CLAUDE_CODE_EXECUTABLE")
-                        && !launch_env.contains_key("VIBEX_CLAUDE_PATH") =>
-                {
-                    if let Some(spawnable) =
-                        workspace_utils::process::node_spawnable_runtime_path(locked_program)
-                    {
-                        launch_env.insert(
-                            "CLAUDE_CODE_EXECUTABLE".to_string(),
-                            spawnable.to_string_lossy().into_owned(),
-                        );
-                    }
-                }
-                crate::engine::NativeEngineKind::CodexNative
-                    if stem.eq_ignore_ascii_case("codex")
-                        && locked_program.is_file()
-                        && !launch_env.contains_key("VIBEX_CODEX_PATH")
-                        && !launch_env.contains_key("CODEX_PATH") =>
-                {
-                    launch_env.insert(
-                        "CODEX_PATH".to_string(),
-                        locked_program.to_string_lossy().into_owned(),
-                    );
-                }
-                _ => {}
             }
         }
 
@@ -466,18 +426,12 @@ impl AgentConnectionRunner {
         launch_env.remove(PI_TRUST_WORKSPACE_ENV);
         scrubbed_keys.push(PI_TRUST_WORKSPACE_ENV.to_string());
 
-        if kind == crate::engine::NativeEngineKind::CodexNative {
-            let codex_subscription = crate::codex_uses_chatgpt_subscription(&self.snapshot.env);
-            for key in ["OPENAI_API_KEY", "OPENAI_BASE_URL"] {
-                let inherited_blank = std::env::var(key)
-                    .map(|value| value.trim().is_empty())
-                    .unwrap_or(false);
-                if (codex_subscription || inherited_blank) && !self.snapshot.env.contains_key(key) {
-                    launch_env.remove(key);
-                    scrubbed_keys.push(key.to_string());
-                }
-            }
-        }
+        driver.prepare_launch_env(
+            &launch_lock.absolute_acp_program,
+            &self.snapshot.env,
+            &mut launch_env,
+            &mut scrubbed_keys,
+        );
 
         Ok((launch_env, scrubbed_keys))
     }

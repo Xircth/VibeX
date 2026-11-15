@@ -7,7 +7,10 @@ use serde_json::{Map, Value, json};
 use super::*;
 use crate::{
     conversation::{AgentPromptCapabilities, DeliveryChannel},
-    engine::{EngineHandle, EngineModelInfo, NativeEngineDriver, NativeEngineKind},
+    engine::{
+        EngineCommandSpec, EngineEffortSpec, EngineHandle, EngineModeSpec, EngineModelInfo,
+        NativeEngineDriver,
+    },
 };
 
 fn build_select_choice(
@@ -22,119 +25,39 @@ fn build_select_choice(
     opt
 }
 
-fn default_native_modes(kind: NativeEngineKind, yolo: bool) -> SessionModeState {
-    match kind {
-        NativeEngineKind::ClaudeNative => {
-            let modes = vec![
-                acp::schema::v1::SessionMode::new("default", "Default")
-                    .description("Prompt before sensitive tool actions"),
-                acp::schema::v1::SessionMode::new("acceptEdits", "Accept Edits")
-                    .description("Auto-approve workspace file edits"),
-                acp::schema::v1::SessionMode::new("plan", "Plan")
-                    .description("Read-only analysis and planning without mutating files"),
-                acp::schema::v1::SessionMode::new("auto", "Auto")
-                    .description("Automatically decide safe tool permissions"),
-                acp::schema::v1::SessionMode::new("bypassPermissions", "Bypass Permissions")
-                    .description("Execute tools without permission prompts"),
-            ];
-            let initial = if yolo { "bypassPermissions" } else { "default" };
-            SessionModeState::new(initial, modes)
-        }
-        NativeEngineKind::CodexNative => {
-            let modes = vec![
-                acp::schema::v1::SessionMode::new("default", "Default")
-                    .description("Workspace-write sandbox with on-request approvals"),
-                acp::schema::v1::SessionMode::new("plan", "Plan")
-                    .description("Read-only sandbox for planning and code inspection"),
-                acp::schema::v1::SessionMode::new("full-access", "Full Access")
-                    .description("Unrestricted execution without approval prompts"),
-            ];
-            let initial = if yolo { "full-access" } else { "default" };
-            SessionModeState::new(initial, modes)
-        }
-    }
+fn build_mode_state(spec: &EngineModeSpec, yolo: bool) -> SessionModeState {
+    let modes = spec
+        .modes
+        .iter()
+        .map(|choice| {
+            let mut mode = acp::schema::v1::SessionMode::new(choice.id.clone(), choice.label.clone());
+            if let Some(desc) = choice.description.as_deref().filter(|d| !d.trim().is_empty()) {
+                mode = mode.description(desc.to_string());
+            }
+            mode
+        })
+        .collect();
+    let initial = if yolo {
+        spec.yolo_mode_id.clone()
+    } else {
+        spec.default_mode_id.clone()
+    };
+    SessionModeState::new(initial, modes)
 }
 
-fn default_effort_option(kind: NativeEngineKind) -> AcpSessionConfigOption {
-    let mut choices = vec![
-        build_select_choice("low", "Low", None),
-        build_select_choice("medium", "Medium", None),
-        build_select_choice("high", "High", None),
-        build_select_choice("xhigh", "Extra High", None),
-    ];
-    if kind == NativeEngineKind::ClaudeNative {
-        choices.push(build_select_choice("max", "Max", None));
-    }
+fn build_effort_option(spec: &EngineEffortSpec) -> AcpSessionConfigOption {
+    let choices = spec
+        .choices
+        .iter()
+        .map(|choice| build_select_choice(choice.id.clone(), choice.label.clone(), choice.description.clone()))
+        .collect();
     AcpSessionConfigOption::select(
         "effort",
         "推理强度",
-        "high",
+        spec.default_value.clone(),
         SessionConfigSelectOptions::Ungrouped(choices),
     )
     .category(SessionConfigOptionCategory::ThoughtLevel)
-}
-
-fn resolve_codex_home_dir(env: &HashMap<String, String>) -> Option<std::path::PathBuf> {
-    if let Some(explicit) = env
-        .get("CODEX_HOME")
-        .map(String::as_str)
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-    {
-        return Some(std::path::PathBuf::from(explicit));
-    }
-    if let Some(home) = ["USERPROFILE", "HOME"].into_iter().find_map(|key| {
-        env.get(key)
-            .map(String::as_str)
-            .map(str::trim)
-            .filter(|s| !s.is_empty())
-            .map(std::path::PathBuf::from)
-    }) {
-        return Some(home.join(".codex"));
-    }
-    if let Some(explicit) = std::env::var_os("CODEX_HOME")
-        .filter(|v| !v.is_empty())
-        .map(std::path::PathBuf::from)
-    {
-        return Some(explicit);
-    }
-    ["USERPROFILE", "HOME"]
-        .into_iter()
-        .find_map(|key| {
-            std::env::var_os(key)
-                .filter(|v| !v.is_empty())
-                .map(std::path::PathBuf::from)
-        })
-        .or_else(dirs::home_dir)
-        .map(|home| home.join(".codex"))
-}
-
-fn resolve_native_default_model(
-    kind: NativeEngineKind,
-    env: &HashMap<String, String>,
-) -> Option<String> {
-    match kind {
-        NativeEngineKind::ClaudeNative => {
-            let effective = crate::end_turn_usage::read_claude_settings_env(env);
-            effective
-                .get("ANTHROPIC_MODEL")
-                .map(String::as_str)
-                .map(str::trim)
-                .filter(|s| !s.is_empty())
-                .map(str::to_string)
-        }
-        NativeEngineKind::CodexNative => {
-            let codex_home = resolve_codex_home_dir(env)?;
-            let raw = std::fs::read_to_string(codex_home.join("config.toml")).ok()?;
-            let table = raw.parse::<toml::Table>().ok()?;
-            table
-                .get("model")
-                .and_then(toml::Value::as_str)
-                .map(str::trim)
-                .filter(|s| !s.is_empty())
-                .map(str::to_string)
-        }
-    }
 }
 
 fn build_model_option(
@@ -175,35 +98,15 @@ fn build_model_option(
     )
 }
 
-fn default_native_commands(kind: NativeEngineKind) -> Vec<AgentAvailableCommand> {
-    let mut commands = vec![
-        AgentAvailableCommand {
-            name: "compact".to_string(),
-            description: Some("Compact conversation context".to_string()),
+fn build_available_commands(specs: &[EngineCommandSpec]) -> Vec<AgentAvailableCommand> {
+    specs
+        .iter()
+        .map(|cmd| AgentAvailableCommand {
+            name: cmd.name.clone(),
+            description: (!cmd.description.trim().is_empty()).then(|| cmd.description.clone()),
             input_schema: None,
-        },
-        AgentAvailableCommand {
-            name: "review".to_string(),
-            description: Some("Review current workspace changes".to_string()),
-            input_schema: None,
-        },
-        AgentAvailableCommand {
-            name: "init".to_string(),
-            description: Some("Initialize project instructions".to_string()),
-            input_schema: None,
-        },
-    ];
-    if kind == NativeEngineKind::ClaudeNative {
-        commands.insert(
-            1,
-            AgentAvailableCommand {
-                name: "clear".to_string(),
-                description: Some("Clear active session context".to_string()),
-                input_schema: None,
-            },
-        );
-    }
-    commands
+        })
+        .collect()
 }
 
 fn update_select_option_value(
@@ -240,28 +143,6 @@ fn current_select_option_value(options: &[AcpSessionConfigOption], key: &str) ->
     (!val.is_empty()).then(|| val.to_string())
 }
 
-fn normalize_preferred_native_mode(kind: NativeEngineKind, raw: &str) -> Option<String> {
-    let trimmed = raw.trim();
-    if trimmed.is_empty() {
-        return None;
-    }
-    match kind {
-        NativeEngineKind::ClaudeNative => match trimmed {
-            "yolo" | "full-access" | "bypassPermissions" => Some("bypassPermissions".to_string()),
-            "default" | "acceptEdits" | "plan" | "auto" => Some(trimmed.to_string()),
-            _ => None,
-        },
-        NativeEngineKind::CodexNative => match trimmed {
-            "yolo" | "bypassPermissions" | "full-access" | "auto" => {
-                Some("full-access".to_string())
-            }
-            "default" | "acceptEdits" => Some("default".to_string()),
-            "plan" => Some("plan".to_string()),
-            _ => None,
-        },
-    }
-}
-
 impl AgentConnectionRunner {
     /// Checks whether a failed pre-handshake `run_native` attempt may safely fall back to
     /// `run_acp`. Standalone `claude` and `codex` CLIs are NOT ACP stdio servers and must
@@ -296,14 +177,23 @@ impl AgentConnectionRunner {
         crate::launch_program_available(&resolved)
     }
 
-    pub(in crate::manager) async fn populate_native_capabilities(&self, kind: NativeEngineKind) {
+    pub(in crate::manager) async fn populate_native_capabilities(
+        &self,
+        driver: &dyn NativeEngineDriver,
+    ) {
         let yolo = *self.auto_approve_mode.lock().await == AgentAutoApproveMode::Yolo;
-        let modes_state = default_native_modes(kind, yolo);
-        let (unified_opts, _) =
-            unify_session_config_options(Some(modes_state), vec![default_effort_option(kind)], true);
+        let engine_caps = driver.capabilities();
+        let modes_state = build_mode_state(&engine_caps.modes, yolo);
+        let extra_opts = engine_caps
+            .effort
+            .as_ref()
+            .map(build_effort_option)
+            .into_iter()
+            .collect();
+        let (unified_opts, _) = unify_session_config_options(Some(modes_state), extra_opts, true);
         let (modes, current_mode) = session_modes_from_config_options(&unified_opts);
         let config_options = agent_session_config_options_from_acp(unified_opts);
-        let available_commands = default_native_commands(kind);
+        let available_commands = build_available_commands(&engine_caps.default_commands);
 
         let mut caps = self.capabilities.write().await;
         caps.protocol_version = Some("native-v1".to_string());
@@ -317,10 +207,10 @@ impl AgentConnectionRunner {
         caps.load_session = true;
         caps.resume_session = true;
         caps.close_session = true;
-        caps.fork_session = true;
+        caps.fork_session = engine_caps.supports_native_fork;
         caps.list_sessions = false;
         caps.delete_session = false;
-        caps.steering = true;
+        caps.steering = engine_caps.supports_native_steer;
         caps.delivery_channel = DeliveryChannel::Native;
         caps.terminal = true;
         caps.additional_directories = true;
@@ -419,14 +309,14 @@ impl AgentConnectionRunner {
 
     pub(in crate::manager) async fn seed_native_session_controls(
         &self,
-        driver: &Arc<dyn NativeEngineDriver>,
+        driver: &dyn NativeEngineDriver,
         handle: &EngineHandle,
-        kind: NativeEngineKind,
         session_id: AgentSessionId,
     ) -> AgentSessionControlsSnapshot {
         let models = driver.list_models(handle).await.unwrap_or_default();
         let yolo = *self.auto_approve_mode.lock().await == AgentAutoApproveMode::Yolo;
-        let mut modes = default_native_modes(kind, yolo);
+        let engine_caps = driver.capabilities();
+        let mut modes = build_mode_state(&engine_caps.modes, yolo);
 
         let mut merged_env: HashMap<String, String> = self
             .snapshot
@@ -442,19 +332,21 @@ impl AgentConnectionRunner {
             .get("VIBEX_DEFAULT_MODEL")
             .map(|s| s.trim().to_string())
             .filter(|s| !s.is_empty())
-            .or_else(|| resolve_native_default_model(kind, &merged_env));
+            .or_else(|| driver.resolve_default_model(&merged_env));
         let mut raw_options = Vec::new();
         if let Some(model_opt) = build_model_option(&models, default_model_env.as_deref()) {
             raw_options.push(model_opt);
         }
-        raw_options.push(default_effort_option(kind));
+        if let Some(effort_opt) = engine_caps.effort.as_ref().map(build_effort_option) {
+            raw_options.push(effort_opt);
+        }
 
         let mut asserted = BTreeMap::new();
         if let Some(preferences) = self.preferred_controls.write().await.remove(&session_id) {
             if let Some(pref_mode) = preferences
                 .mode
                 .as_deref()
-                .and_then(|m| normalize_preferred_native_mode(kind, m))
+                .and_then(|m| driver.normalize_mode(m))
             {
                 modes.current_mode_id = acp::schema::v1::SessionModeId::new(pref_mode);
             }
@@ -474,7 +366,7 @@ impl AgentConnectionRunner {
             unify_session_config_options(Some(modes.clone()), raw_options, true);
         let model_ids: Vec<String> = models.into_iter().map(|m| m.id).collect();
         let last_model_id = current_select_option_value(&unified_options, "model");
-        let commands = default_native_commands(kind);
+        let commands = build_available_commands(&engine_caps.default_commands);
 
         {
             let mut controls = self.session_controls.write().await;
@@ -507,12 +399,13 @@ impl AgentConnectionRunner {
 
     pub(in crate::manager) async fn apply_native_mode_change(
         &self,
-        kind: NativeEngineKind,
+        driver: &dyn NativeEngineDriver,
         session_id: AgentSessionId,
         mode_id: String,
     ) -> AgentSessionControlsSnapshot {
-        let normalized =
-            normalize_preferred_native_mode(kind, &mode_id).unwrap_or_else(|| mode_id.clone());
+        let normalized = driver
+            .normalize_mode(&mode_id)
+            .unwrap_or_else(|| mode_id.clone());
         {
             let mut controls = self.session_controls.write().await;
             let entry = controls.entry(session_id).or_default();
@@ -543,7 +436,7 @@ impl AgentConnectionRunner {
 
     pub(in crate::manager) async fn apply_native_config_change(
         &self,
-        kind: NativeEngineKind,
+        driver: &dyn NativeEngineDriver,
         session_id: AgentSessionId,
         key: String,
         value: Value,
@@ -552,7 +445,7 @@ impl AgentConnectionRunner {
             && let Some(mode_str) = value.as_str().map(str::trim).filter(|s| !s.is_empty())
         {
             return self
-                .apply_native_mode_change(kind, session_id, mode_str.to_string())
+                .apply_native_mode_change(driver, session_id, mode_str.to_string())
                 .await;
         }
 
@@ -625,7 +518,7 @@ impl AgentConnectionRunner {
 
     pub(in crate::manager) async fn resolve_native_turn_controls(
         &self,
-        kind: NativeEngineKind,
+        driver: &dyn NativeEngineDriver,
         session_id: AgentSessionId,
         mode_override: Option<&str>,
         config_overrides: &[AgentSessionConfigOverride],
@@ -678,16 +571,13 @@ impl AgentConnectionRunner {
 
         let normalized_mode = raw_mode
             .as_deref()
-            .and_then(|m| normalize_preferred_native_mode(kind, m))
+            .and_then(|m| driver.normalize_mode(m))
             .or(raw_mode);
 
         let effective_mode = if yolo {
             match normalized_mode.as_deref() {
                 Some("plan") => Some("plan".to_string()),
-                _ => Some(match kind {
-                    NativeEngineKind::ClaudeNative => "bypassPermissions".to_string(),
-                    NativeEngineKind::CodexNative => "full-access".to_string(),
-                }),
+                _ => Some(driver.capabilities().modes.yolo_mode_id),
             }
         } else {
             normalized_mode

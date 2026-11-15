@@ -137,6 +137,15 @@ pub fn evaluate_filter_ast(filter: &GateFilterAst, envelope: &EventEnvelope) -> 
 /// Zero-eval template renderer supporting `{{event.id}}`, `{{actor.displayName}}`,
 /// RFC 6901 JSON Pointers (`{{/issue/key}}`), and dotted paths (`{{payload.issue.key}}`).
 pub fn render_template(template: &str, envelope: &EventEnvelope) -> String {
+    render_rule_template(template, None, envelope)
+}
+
+/// Renders a template with optional `{{rule.name}}` substitution alongside full `EventEnvelope` context.
+pub fn render_rule_template(
+    template: &str,
+    rule_name: Option<&str>,
+    envelope: &EventEnvelope,
+) -> String {
     if !template.contains("{{") {
         return template.to_string();
     }
@@ -150,7 +159,11 @@ pub fn render_template(template: &str, envelope: &EventEnvelope) -> String {
         let after_open = &rest[open_idx + 2..];
         if let Some(close_idx) = after_open.find("}}") {
             let raw_key = after_open[..close_idx].trim();
-            let replacement = resolve_template_token(raw_key, envelope, &envelope_value);
+            let replacement = match (raw_key, rule_name) {
+                ("rule.name" | "ruleName", Some(name)) => name.to_string(),
+                ("rule.name" | "ruleName", None) => String::new(),
+                _ => resolve_template_token(raw_key, envelope, &envelope_value),
+            };
             output.push_str(&replacement);
             rest = &after_open[close_idx + 2..];
         } else {
@@ -162,6 +175,28 @@ pub fn render_template(template: &str, envelope: &EventEnvelope) -> String {
 
     output.push_str(rest);
     output
+}
+
+/// Renders a `PulseCallbackSpec` payload template against an `EventEnvelope` and rule name,
+/// producing a concise default summary when `payload_template` is empty.
+pub fn render_callback_payload_text(
+    callback: &api_types::pulse::PulseCallbackSpec,
+    rule_name: &str,
+    envelope: &EventEnvelope,
+) -> String {
+    if callback.payload_template.trim().is_empty() {
+        let thread_suffix = envelope
+            .thread_key
+            .as_deref()
+            .filter(|s| !s.is_empty())
+            .map(|tk| format!(" [{tk}]"))
+            .unwrap_or_default();
+        return format!(
+            "[Pulse] {rule_name}: {}{thread_suffix} (event {})",
+            envelope.event_type, envelope.event_id
+        );
+    }
+    render_rule_template(&callback.payload_template, Some(rule_name), envelope)
 }
 
 fn resolve_template_token(key: &str, envelope: &EventEnvelope, envelope_value: &Value) -> String {
@@ -233,7 +268,7 @@ pub fn dry_run_rule(spec: &PulseRuleSpec, envelope: &EventEnvelope) -> PulseDryR
     let eval = evaluate_filter_ast(&spec.filter, envelope);
     let matched = valid && eval.matched;
 
-    let rendered_previews = spec
+    let mut rendered_previews: Vec<String> = spec
         .targets
         .iter()
         .map(|target| match target {
@@ -242,15 +277,19 @@ pub fn dry_run_rule(spec: &PulseRuleSpec, envelope: &EventEnvelope) -> PulseDryR
             }
             | PulseTargetSpec::Bot {
                 prompt_template, ..
-            } => render_template(prompt_template, envelope),
+            } => render_rule_template(prompt_template, Some(&spec.name), envelope),
             PulseTargetSpec::Group {
                 message_template, ..
-            } => render_template(message_template, envelope),
+            } => render_rule_template(message_template, Some(&spec.name), envelope),
             PulseTargetSpec::User {
                 title_template,
                 body_template,
                 ..
-            } => render_template(&format!("{title_template}\n{body_template}"), envelope),
+            } => render_rule_template(
+                &format!("{title_template}\n{body_template}"),
+                Some(&spec.name),
+                envelope,
+            ),
             PulseTargetSpec::Workflow {
                 workflow_id,
                 pinned_version,
@@ -258,6 +297,12 @@ pub fn dry_run_rule(spec: &PulseRuleSpec, envelope: &EventEnvelope) -> PulseDryR
             } => format!("Workflow {workflow_id}@v{pinned_version}"),
         })
         .collect();
+
+    if let Some(cb) = &spec.callback
+        && cb.enabled
+    {
+        rendered_previews.push(render_callback_payload_text(cb, &spec.name, envelope));
+    }
 
     PulseDryRunReport {
         valid,

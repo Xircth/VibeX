@@ -633,6 +633,7 @@ domain_commands! {
     PulseSourceList => "pulse_source_list" / "automation.read",
     PulseSourceUpsert => "pulse_source_upsert" / "automation.write",
     PulseSourceDelete => "pulse_source_delete" / "automation.write",
+    PulseSourceTest => "pulse_source_test" / "automation.write",
     PulseRuleList => "pulse_rule_list" / "automation.read",
     PulseRuleSave => "pulse_rule_save" / "automation.write",
     PulseRuleSetMode => "pulse_rule_set_mode" / "automation.write",

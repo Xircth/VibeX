@@ -120,6 +120,8 @@ async fn debounce_window_suppresses_burst_per_thread_and_allows_after_expiry() {
             form_schema: None,
             sla_timeout_seconds: None,
         }],
+        callback: None,
+        task_meta: None,
     };
 
     engine
@@ -320,6 +322,8 @@ async fn rate_breaker_evicts_expired_buckets_sla_disarms_cleanly_and_bound_sessi
             subscribe_thread: true,
             prompt_template: "Follow up on {{event.threadKey}}".to_string(),
         }],
+        callback: None,
+        task_meta: None,
     };
 
     let draft_rule = engine
@@ -385,6 +389,8 @@ async fn rate_breaker_evicts_expired_buckets_sla_disarms_cleanly_and_bound_sessi
             subscribe_thread: true,
             prompt_template: "Follow up on {{event.threadKey}}".to_string(),
         }],
+        callback: None,
+        task_meta: None,
     };
     engine
         .save_rule(
@@ -466,6 +472,8 @@ async fn rate_breaker_evicts_expired_buckets_sla_disarms_cleanly_and_bound_sessi
             form_schema: None,
             sla_timeout_seconds: None,
         }],
+        callback: None,
+        task_meta: None,
     };
     let interval_rule = engine
         .save_rule(
@@ -495,4 +503,242 @@ async fn rate_breaker_evicts_expired_buckets_sla_disarms_cleanly_and_bound_sessi
         .await
         .expect("tick when idle");
     assert_eq!(fired_tick.emitted_events.len(), 1);
+}
+
+#[tokio::test]
+async fn callback_meta_roundtrip_workflow_run_normalizer_and_fast_task_outbox() {
+    use std::collections::BTreeMap;
+
+    use api_types::pulse::{
+        PulseCallbackKind, PulseCallbackSpec, PulseTaskKind, PulseTaskLifecycleState, PulseTaskMeta,
+    };
+    use pulse::{FeishuSourceNormalizer, GitHubSourceNormalizer, validate_rule_spec};
+
+    let t0 = Utc.with_ymd_and_hms(2026, 4, 15, 9, 30, 0).unwrap();
+
+    // 1. Wire-schema round-trip (`camelCase` fields + `snake_case` enums).
+    let mut headers = BTreeMap::new();
+    headers.insert("X-Custom".to_string(), "v1".to_string());
+    let callback = PulseCallbackSpec {
+        kind: PulseCallbackKind::FeishuWebhook,
+        destination: "https://open.feishu.cn/open-apis/bot/v2/hook/demo".to_string(),
+        payload_template: "[{{rule.name}}] {{event.eventType}} {{payload.name}}={{payload.conclusion}} on {{payload.head_branch}}".to_string(),
+        headers,
+        enabled: true,
+    };
+    let cb_json = serde_json::to_value(&callback).expect("serialize callback");
+    assert_eq!(cb_json["kind"], "feishu_webhook");
+    assert_eq!(cb_json["payloadTemplate"], callback.payload_template);
+
+    let meta = PulseTaskMeta {
+        task_kind: Some(PulseTaskKind::FastTask),
+        lifecycle_state: Some(PulseTaskLifecycleState::Published),
+        bound_rule_template_id: Some("tpl-ci-alert".to_string()),
+        last_tested_at: Some(t0.to_rfc3339()),
+        last_test_passed: Some(true),
+        last_run_at: None,
+        last_run_status: None,
+        last_run_summary: None,
+    };
+    let meta_json = serde_json::to_value(&meta).expect("serialize task meta");
+    assert_eq!(meta_json["taskKind"], "fast_task");
+    assert_eq!(meta_json["lifecycleState"], "published");
+    assert_eq!(meta_json["lastTestPassed"], true);
+    let roundtrip_meta: PulseTaskMeta =
+        serde_json::from_value(meta_json).expect("deserialize task meta");
+    assert_eq!(roundtrip_meta, meta);
+
+    // 2. GitHubSourceNormalizer `workflow_run` (queued -> requested, completed -> completed) & `check_run`.
+    let queued_run_payload = json!({
+        "action": "queued",
+        "workflow_run": {
+            "id": 7001,
+            "name": "Build & Test",
+            "head_branch": "feat/pulse",
+            "head_sha": "abc1234",
+            "status": "queued",
+            "conclusion": null,
+            "html_url": "https://github.com/acme/vibex/actions/runs/7001",
+            "updated_at": "2026-04-15T09:29:00Z"
+        },
+        "repository": { "full_name": "acme/vibex" },
+        "sender": { "login": "octocat", "type": "User" }
+    });
+    let gh_norm = GitHubSourceNormalizer::new("src-gh", None);
+    let queued_env = gh_norm
+        .normalize_webhook("workflow_run", "deliv-wf-7001-q", &queued_run_payload, t0)
+        .expect("normalize queued workflow_run");
+    assert_eq!(queued_env.event_type, "github.workflow_run.requested");
+    assert_eq!(
+        queued_env.thread_key.as_deref(),
+        Some("github:acme/vibex@abc1234")
+    );
+
+    let completed_run_payload = json!({
+        "action": "completed",
+        "workflow_run": {
+            "id": 7001,
+            "name": "Build & Test",
+            "head_branch": "feat/pulse",
+            "head_sha": "abc1234",
+            "status": "completed",
+            "conclusion": "failure",
+            "html_url": "https://github.com/acme/vibex/actions/runs/7001",
+            "updated_at": "2026-04-15T09:30:00Z"
+        },
+        "repository": { "full_name": "acme/vibex" },
+        "sender": { "login": "octocat", "type": "User" }
+    });
+    let completed_env = gh_norm
+        .normalize_webhook(
+            "workflow_run",
+            "deliv-wf-7001-c",
+            &completed_run_payload,
+            t0,
+        )
+        .expect("normalize completed workflow_run");
+    assert_eq!(completed_env.event_type, "github.workflow_run.completed");
+    assert_eq!(completed_env.payload["conclusion"], "failure");
+    assert_eq!(completed_env.payload["head_branch"], "feat/pulse");
+    assert_eq!(completed_env.payload["name"], "Build & Test");
+    assert_eq!(
+        completed_env.payload["html_url"],
+        "https://github.com/acme/vibex/actions/runs/7001"
+    );
+
+    let check_run_env = gh_norm
+        .normalize_webhook(
+            "check_run",
+            "deliv-cr-1",
+            &json!({
+                "action": "completed",
+                "check_run": {
+                    "id": 88,
+                    "name": "clippy",
+                    "head_sha": "abc1234",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "html_url": "https://github.com/acme/vibex/runs/88"
+                },
+                "repository": { "full_name": "acme/vibex" },
+                "sender": { "login": "octocat", "type": "User" }
+            }),
+            t0,
+        )
+        .expect("normalize check_run");
+    assert_eq!(check_run_env.event_type, "github.check_run.completed");
+    assert_eq!(check_run_env.payload["conclusion"], "success");
+
+    // 3. FeishuSourceNormalizer rich-text `post` message extraction.
+    let feishu_post_env = FeishuSourceNormalizer::new("src-feishu", None)
+        .normalize(
+            &json!({
+                "header": { "event_id": "ev_99", "event_type": "im.message.receive_v1" },
+                "event": {
+                    "sender": { "sender_type": "user", "sender_id": { "open_id": "ou_alice" } },
+                    "message": {
+                        "message_id": "om_99",
+                        "chat_id": "oc_dev",
+                        "message_type": "post",
+                        "content": "{\"title\":\"Deploy Notice\",\"content\":[[{\"tag\":\"text\",\"text\":\"v1.2 shipped\"}]]}"
+                    }
+                }
+            }),
+            t0,
+        )
+        .expect("normalize feishu post");
+    assert_eq!(feishu_post_env.event_type, "feishu.im.message");
+    assert!(
+        feishu_post_env.payload["text"]
+            .as_str()
+            .unwrap_or("")
+            .contains("v1.2 shipped")
+    );
+
+    // 4. Callback-only FastTask rule (`targets: []`) validates, ingests, renders template, and populates `recent_outbox`.
+    let pool = memory_pool().await;
+    let engine = PulseEngine::new(pool);
+    engine
+        .store()
+        .upsert_source(PulseSourceUpsert {
+            id: "src-gh".to_string(),
+            kind: EventSourceKind::Github,
+            title: "GitHub Poller".to_string(),
+            enabled: true,
+            healthy: true,
+            status_message: None,
+            cursor_watermark: None,
+            public_webhook_path: None,
+            config_json: json!({ "mode": "poll", "repo": "acme/vibex" }),
+            signing_secret: Some("sec".to_string()),
+            now: t0.to_rfc3339(),
+        })
+        .await
+        .expect("upsert gh source");
+
+    let fast_spec = PulseRuleSpec {
+        name: "CI Failure Alert".to_string(),
+        description: None,
+        project_id: None,
+        workspace_id: None,
+        eval_mode: PulseEvalMode::Auto,
+        orchestrator: PresetOrchestratorKind::DirectReflex,
+        filter: GateFilterAst {
+            source_kinds: vec![EventSourceKind::Github],
+            source_instance_ids: vec!["src-gh".to_string()],
+            event_types: vec!["github.workflow_run.completed".to_string()],
+            allowed_actors: Vec::new(),
+            conditions: Vec::new(),
+        },
+        temporal: None,
+        debounce_ms: 0,
+        claim_exclusive: false,
+        targets: Vec::new(),
+        callback: Some(callback),
+        task_meta: Some(meta),
+    };
+    assert!(
+        validate_rule_spec(&fast_spec).is_empty(),
+        "callback-only FastTask rule should pass rule validation"
+    );
+    let saved_rule = engine
+        .save_rule(None, true, MandateOrigin::ExplicitHuman, fast_spec, None, t0)
+        .await
+        .expect("save callback-only fast_task rule");
+
+    let outcome = engine
+        .ingest_event(completed_env, t0)
+        .await
+        .expect("ingest completed workflow_run");
+    assert_eq!(outcome.dispatch_plan.actions.len(), 1);
+    match &outcome.dispatch_plan.actions[0] {
+        PulseDispatchAction::EnqueueOutbox {
+            rule_id,
+            target_kind,
+            payload,
+            ..
+        } => {
+            assert_eq!(rule_id.as_deref(), Some(saved_rule.id.as_str()));
+            assert_eq!(target_kind, "feishu_webhook");
+            assert_eq!(
+                payload["renderedText"],
+                "[CI Failure Alert] github.workflow_run.completed Build & Test=failure on feat/pulse"
+            );
+        }
+        other => panic!("expected EnqueueOutbox, got {other:?}"),
+    }
+
+    let deck = engine.deck_snapshot(None).await.expect("deck snapshot");
+    assert_eq!(deck.sources[0].has_signing_secret, true);
+    assert_eq!(deck.sources[0].config_json["repo"], "acme/vibex");
+    assert_eq!(deck.recent_outbox.len(), 1);
+    assert_eq!(
+        deck.recent_outbox[0].rule_id.as_deref(),
+        Some(saved_rule.id.as_str())
+    );
+    assert_eq!(deck.recent_outbox[0].target_kind, "feishu_webhook");
+    assert_eq!(
+        deck.recent_outbox[0].destination.as_deref(),
+        Some("https://open.feishu.cn/open-apis/bot/v2/hook/demo")
+    );
 }

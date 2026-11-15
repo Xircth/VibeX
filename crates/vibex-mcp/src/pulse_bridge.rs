@@ -514,6 +514,22 @@ pub(crate) fn normalize_rule_spec_camel_case(raw: &Value) -> Value {
     rename_alias(&mut out, "workspace_id", "workspaceId");
     rename_alias(&mut out, "debounce_ms", "debounceMs");
     rename_alias(&mut out, "claim_exclusive", "claimExclusive");
+    rename_alias(&mut out, "task_meta", "taskMeta");
+
+    if let Some(Value::Object(cb_map)) = out.get_mut("callback") {
+        rename_alias(cb_map, "payload_template", "payloadTemplate");
+    }
+
+    if let Some(Value::Object(meta_map)) = out.get_mut("taskMeta") {
+        rename_alias(meta_map, "task_kind", "taskKind");
+        rename_alias(meta_map, "lifecycle_state", "lifecycleState");
+        rename_alias(meta_map, "bound_rule_template_id", "boundRuleTemplateId");
+        rename_alias(meta_map, "last_tested_at", "lastTestedAt");
+        rename_alias(meta_map, "last_test_passed", "lastTestPassed");
+        rename_alias(meta_map, "last_run_at", "lastRunAt");
+        rename_alias(meta_map, "last_run_status", "lastRunStatus");
+        rename_alias(meta_map, "last_run_summary", "lastRunSummary");
+    }
 
     if let Some(Value::Object(filter_map)) = out.get_mut("filter") {
         rename_alias(filter_map, "source_kinds", "sourceKinds");

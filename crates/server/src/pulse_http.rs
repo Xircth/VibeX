@@ -57,6 +57,7 @@ where
             get(handle_list_sources::<R>).post(handle_upsert_source::<R>),
         )
         .route("/sources/{id}", delete(handle_delete_source::<R>))
+        .route("/sources/{id}/test", post(handle_test_source::<R>))
         .route(
             "/rules",
             get(handle_list_rules::<R>).post(handle_save_rule::<R>),
@@ -284,6 +285,27 @@ where
         json!({ "id": id }),
     )
     .await
+}
+
+async fn handle_test_source<R>(
+    State(state): State<Arc<ServerState<R>>>,
+    Extension(credential): Extension<AuthenticatedCredential>,
+    Path(id): Path<String>,
+    raw_body: Bytes,
+) -> Response
+where
+    R: ConversationRepository + Send + Sync + 'static,
+{
+    let mut body = if raw_body.iter().all(|b| b.is_ascii_whitespace()) {
+        json!({})
+    } else {
+        match serde_json::from_slice::<Value>(&raw_body) {
+            Ok(parsed) => parsed,
+            Err(err) => return bad_request_response(&format!("invalid JSON body: {err}")),
+        }
+    };
+    merge_path_id(&mut body, "id", id);
+    run_protected_pulse_command(&state, &credential, "pulse_source_test", body).await
 }
 
 async fn handle_list_rules<R>(

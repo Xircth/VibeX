@@ -713,7 +713,14 @@ impl PulseEngine {
                     }
 
                     let target_actions = self
-                        .plan_and_persist_targets(&rule.id, &rule.spec.targets, &envelope, now)
+                        .plan_and_persist_targets(
+                            &rule.id,
+                            &rule.spec.name,
+                            &rule.spec.targets,
+                            rule.spec.callback.as_ref(),
+                            &envelope,
+                            now,
+                        )
                         .await?;
                     actions.extend(target_actions);
                 }
@@ -785,7 +792,14 @@ impl PulseEngine {
             .increment_rule_matched(&rule.id, &now_iso)
             .await?;
         let actions = self
-            .plan_and_persist_targets(&rule.id, &rule.spec.targets, &candidate.envelope, now)
+            .plan_and_persist_targets(
+                &rule.id,
+                &rule.spec.name,
+                &rule.spec.targets,
+                rule.spec.callback.as_ref(),
+                &candidate.envelope,
+                now,
+            )
             .await?;
 
         let plan = PulseDispatchPlan {
@@ -893,6 +907,7 @@ impl PulseEngine {
             pending_interactions,
             active_ticket_count,
             pending_user_interaction_count,
+            outbox_records,
         ) = tokio::try_join!(
             self.store.list_sources(),
             self.store.list_rules(project_id),
@@ -901,6 +916,7 @@ impl PulseEngine {
             self.store.list_pending_user_interactions(),
             self.store.count_active_subscriptions(),
             self.store.count_pending_user_interactions(),
+            self.store.list_recent_outbox(30),
         )?;
 
         Ok(PulseDeckSnapshot {
@@ -912,18 +928,65 @@ impl PulseEngine {
             observed_candidates,
             subscriptions,
             pending_interactions,
+            busy_rule_ids: Vec::new(),
+            recent_outbox: outbox_records
+                .into_iter()
+                .map(|r| r.to_entry_view())
+                .collect(),
         })
     }
 
     async fn plan_and_persist_targets(
         &self,
         rule_id: &str,
+        rule_name: &str,
         targets: &[PulseTargetSpec],
+        callback: Option<&api_types::pulse::PulseCallbackSpec>,
         envelope: &EventEnvelope,
         now: DateTime<Utc>,
     ) -> Result<Vec<PulseDispatchAction>, PulseError> {
         let now_iso = now.to_rfc3339();
-        let mut actions = Vec::with_capacity(targets.len());
+        let mut actions = Vec::with_capacity(targets.len() + usize::from(callback.is_some()));
+
+        if let Some(cb) = callback
+            && cb.enabled
+            && !cb.destination.trim().is_empty()
+        {
+            let rendered_text =
+                crate::filter::render_callback_payload_text(cb, rule_name, envelope);
+            let target_kind = cb.kind.as_str().to_string();
+            let dedupe_key = format!("rule-callback:{}:{}", rule_id, envelope.event_id);
+            let payload = json!({
+                "ruleId": rule_id,
+                "ruleName": rule_name,
+                "destination": cb.destination.trim(),
+                "headers": cb.headers,
+                "renderedText": rendered_text,
+                "eventId": envelope.event_id,
+                "eventType": envelope.event_type,
+                "threadKey": envelope.thread_key,
+                "replyChannel": envelope.reply_channels.first(),
+                "payload": envelope.payload,
+            });
+            if self
+                .store
+                .enqueue_outbox(
+                    &Uuid::new_v4().to_string(),
+                    &dedupe_key,
+                    &target_kind,
+                    &payload,
+                    &now_iso,
+                )
+                .await?
+            {
+                actions.push(PulseDispatchAction::EnqueueOutbox {
+                    rule_id: Some(rule_id.to_string()),
+                    dedupe_key,
+                    target_kind,
+                    payload,
+                });
+            }
+        }
 
         for target in targets {
             match target {

@@ -255,6 +255,7 @@ pub fn host_application_core(
         rate_limit_recovery,
         side_chats: Arc::new(tokio::sync::Mutex::new(std::collections::HashMap::new())),
     });
+    crate::pulse_connectors::register_pulse_domain_host(&domains);
     domains.spawn_plugin_updates();
     domains.spawn_pulse_temporal_worker();
     let companion = companion_memory.map(|memory| {

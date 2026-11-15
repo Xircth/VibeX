@@ -2,7 +2,7 @@
 //! `ThreadKeyed` session reuse & isolation, `BotTurnMailbox` serial/coalescing drain loop,
 //! and busy-target detection for `skip_if_busy` temporal rules.
 
-use std::collections::HashSet;
+use std::collections::{BTreeMap, BTreeSet, HashSet};
 
 use agents::{AgentId, AgentSessionConfigOverride, ConversationInputPayload};
 use api_types::pulse::{
@@ -21,12 +21,12 @@ use conversations::{
 use db::models::{
     collaboration_identity::resolve_pulse_bot_session,
     conversation_turn::ConversationTurnRecord,
-    pulse::ensure_pulse_schema,
+    pulse::{ensure_pulse_schema, pulse_outbox_wake},
     session::{CreateSession, Session},
     task::{CreateTask, Task, TaskStatus},
     workspace::{CreateWorkspace, Workspace},
 };
-use pulse::{PulseDispatchAction, PulseDispatchPlan};
+use pulse::{PulseDispatchAction, PulseDispatchPlan, render_callback_payload_text};
 use serde_json::{Value, json};
 use uuid::Uuid;
 use workflows::{WorkflowCore, WorkflowStore, notify_workflow_work};
@@ -57,6 +57,13 @@ impl ServerApplicationDomains {
                 .flatten()
         };
 
+        let mut matched_rule_ids = BTreeSet::new();
+        for action in &plan.actions {
+            if let Some(rule_id) = action_rule_id(action) {
+                matched_rule_ids.insert(rule_id.to_string());
+            }
+        }
+
         // Run rule-matched actions before subscription follow-ups so newly spawned
         // `ThreadKeyed` sessions bind their UUIDs into `pulse_thread_subscriptions`
         // and deduplicate cleanly within the same event dispatch plan.
@@ -68,6 +75,7 @@ impl ServerApplicationDomains {
 
         let mut dispatched_sessions = HashSet::new();
         let mut saw_outbox = false;
+        let mut rule_errors: BTreeMap<String, String> = BTreeMap::new();
 
         for action in ordered_actions {
             if matches!(action, PulseDispatchAction::EnqueueOutbox { .. }) {
@@ -80,11 +88,74 @@ impl ServerApplicationDomains {
             ))
             .await
             {
+                if let Some(rule_id) = action_rule_id(action) {
+                    rule_errors.entry(rule_id.to_string()).or_insert_with(|| error.clone());
+                }
                 tracing::debug!(?error, "Pulse dispatch action completed in best-effort mode");
             }
         }
 
+        let now_iso = Utc::now().to_rfc3339();
+        let store = self.pulse_engine.store();
+        for rule_id in &matched_rule_ids {
+            let Ok(Some(rule)) = store.get_rule(rule_id).await else {
+                continue;
+            };
+            let has_enabled_callback = if let Some(cb) = rule.spec.callback.as_ref()
+                && cb.enabled
+                && !cb.destination.trim().is_empty()
+            {
+                if let Some(env) = trigger_envelope.as_ref() {
+                    let rendered_text = render_callback_payload_text(cb, &rule.spec.name, env);
+                    let target_kind = cb.kind.as_str().to_string();
+                    let dedupe_key = format!("rule-callback:{}:{}", rule.id, env.event_id);
+                    let payload = json!({
+                        "ruleId": rule.id,
+                        "ruleName": rule.spec.name,
+                        "destination": cb.destination.trim(),
+                        "headers": cb.headers,
+                        "renderedText": rendered_text,
+                        "eventId": env.event_id,
+                        "eventType": env.event_type,
+                        "threadKey": env.thread_key,
+                        "replyChannel": env.reply_channels.first(),
+                        "payload": env.payload,
+                    });
+                    let _ = store
+                        .enqueue_outbox(
+                            &Uuid::new_v4().to_string(),
+                            &dedupe_key,
+                            &target_kind,
+                            &payload,
+                            &now_iso,
+                        )
+                        .await;
+                    saw_outbox = true;
+                }
+                true
+            } else {
+                false
+            };
+
+            if !has_enabled_callback {
+                let (status, summary) = if let Some(err) = rule_errors.get(rule_id) {
+                    ("failed", err.clone())
+                } else if let Some(env) = trigger_envelope.as_ref() {
+                    (
+                        "succeeded",
+                        format!("Dispatched `{}` ({})", env.event_type, env.event_id),
+                    )
+                } else {
+                    ("succeeded", "Dispatched Pulse targets".to_string())
+                };
+                let _ = store
+                    .record_rule_task_run(rule_id, status, &summary, &now_iso)
+                    .await;
+            }
+        }
+
         if saw_outbox {
+            pulse_outbox_wake().notify_one();
             Box::pin(self.drain_pulse_outbox()).await;
         }
     }
@@ -784,4 +855,15 @@ pub(crate) fn resolve_fallback_agent_id(raw: &str) -> Result<AgentId, String> {
     AgentId::parse(raw)
         .or_else(|_| AgentId::parse("claude-code"))
         .map_err(|err| err.to_string())
+}
+
+fn action_rule_id(action: &PulseDispatchAction) -> Option<&str> {
+    match action {
+        PulseDispatchAction::SpawnOrSendSession { rule_id, .. }
+        | PulseDispatchAction::EnqueueBotMailbox { rule_id, .. }
+        | PulseDispatchAction::DispatchGroupStage { rule_id, .. }
+        | PulseDispatchAction::CreateUserInteraction { rule_id, .. }
+        | PulseDispatchAction::StartOrResumeWorkflow { rule_id, .. }
+        | PulseDispatchAction::EnqueueOutbox { rule_id, .. } => rule_id.as_deref(),
+    }
 }

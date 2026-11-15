@@ -169,10 +169,8 @@ impl FeishuSourceNormalizer {
         let raw_content = message.get("content").and_then(Value::as_str).unwrap_or("");
         let parsed_content: Value =
             serde_json::from_str(raw_content).unwrap_or_else(|_| json!({ "raw": raw_content }));
-        let text = parsed_content
-            .get("text")
-            .and_then(Value::as_str)
-            .unwrap_or(raw_content);
+        let extracted_text = extract_feishu_message_text(message_type, raw_content, &parsed_content);
+        let text = extracted_text.as_str();
 
         let topic_id = message
             .get("thread_id")
@@ -408,6 +406,60 @@ impl FeishuSourceNormalizer {
             }),
         })
     }
+}
+
+fn extract_feishu_message_text(
+    message_type: &str,
+    raw_content: &str,
+    parsed_content: &Value,
+) -> String {
+    if let Some(text) = parsed_content.get("text").and_then(Value::as_str) {
+        return text.to_string();
+    }
+    if message_type == "post" {
+        let post_root = parsed_content
+            .get("content")
+            .is_some()
+            .then_some(parsed_content)
+            .or_else(|| {
+                parsed_content
+                    .as_object()?
+                    .values()
+                    .find(|v| v.get("content").is_some())
+            });
+        if let Some(post) = post_root {
+            let mut parts = Vec::new();
+            if let Some(title) = post
+                .get("title")
+                .and_then(Value::as_str)
+                .filter(|s| !s.trim().is_empty())
+            {
+                parts.push(title.trim().to_string());
+            }
+            if let Some(lines) = post.get("content").and_then(Value::as_array) {
+                for line in lines {
+                    if let Some(nodes) = line.as_array() {
+                        let line_str: String = nodes
+                            .iter()
+                            .filter_map(|node| {
+                                node.get("text")
+                                    .or_else(|| node.get("user_name"))
+                                    .and_then(Value::as_str)
+                            })
+                            .collect::<Vec<_>>()
+                            .join("");
+                        if !line_str.trim().is_empty() {
+                            parts.push(line_str);
+                        }
+                    }
+                }
+            }
+            if !parts.is_empty() {
+                return parts.join("\n");
+            }
+        }
+    }
+    raw_content.to_string()
 }
 
 // =============================================================================
@@ -791,6 +843,8 @@ impl GitHubSourceNormalizer {
     ) -> Result<EventEnvelope, SourceNormalizeError> {
         let repo = raw
             .pointer("/repository/full_name")
+            .or_else(|| raw.pointer("/workflow_run/repository/full_name"))
+            .or_else(|| raw.pointer("/check_run/repository/full_name"))
             .and_then(Value::as_str)
             .filter(|s| !s.is_empty())
             .ok_or(SourceNormalizeError::MissingField("repository.full_name"))?;
@@ -800,7 +854,12 @@ impl GitHubSourceNormalizer {
             .and_then(Value::as_str)
             .unwrap_or("triggered");
 
-        let sender = raw.get("sender").unwrap_or(&Value::Null);
+        let sender = raw
+            .get("sender")
+            .filter(|v| !v.is_null())
+            .or_else(|| raw.pointer("/workflow_run/triggering_actor"))
+            .or_else(|| raw.pointer("/workflow_run/actor"))
+            .unwrap_or(&Value::Null);
         let sender_login = sender
             .get("login")
             .and_then(Value::as_str)
@@ -943,6 +1002,104 @@ impl GitHubSourceNormalizer {
                         "conclusion": conclusion,
                         "headSha": head_sha,
                         "headBranch": suite.get("head_branch").cloned().unwrap_or(Value::Null),
+                        "number": pr_number,
+                    }),
+                )
+            }
+            "workflow_run" => {
+                let wf_run = raw
+                    .get("workflow_run")
+                    .ok_or(SourceNormalizeError::MissingField("workflow_run"))?;
+                let normalized_action = match action {
+                    "queued" => "requested",
+                    other => other,
+                };
+                let head_sha = wf_run
+                    .get("head_sha")
+                    .and_then(Value::as_str)
+                    .unwrap_or("");
+                if !head_sha.is_empty() && self.self_artifacts.contains(head_sha) {
+                    is_self = true;
+                }
+                let pr_number = wf_run
+                    .pointer("/pull_requests/0/number")
+                    .and_then(Value::as_u64);
+                let name = wf_run
+                    .get("name")
+                    .or_else(|| wf_run.get("display_title"))
+                    .cloned()
+                    .unwrap_or(Value::Null);
+                let head_branch = wf_run
+                    .get("head_branch")
+                    .cloned()
+                    .unwrap_or(Value::Null);
+                let html_url = wf_run
+                    .get("html_url")
+                    .cloned()
+                    .unwrap_or(Value::Null);
+                let conclusion = wf_run
+                    .get("conclusion")
+                    .cloned()
+                    .unwrap_or(Value::Null);
+                let run_id = wf_run.get("id").cloned().unwrap_or(Value::Null);
+                (
+                    format!("github.workflow_run.{normalized_action}"),
+                    pr_number,
+                    None,
+                    json!({
+                        "repository": repo,
+                        "action": normalized_action,
+                        "id": run_id,
+                        "runId": run_id,
+                        "runNumber": wf_run.get("run_number").cloned().unwrap_or(Value::Null),
+                        "name": name,
+                        "status": wf_run.get("status").cloned().unwrap_or_else(|| json!(normalized_action)),
+                        "conclusion": conclusion,
+                        "head_branch": head_branch,
+                        "headBranch": head_branch,
+                        "head_sha": head_sha,
+                        "headSha": head_sha,
+                        "html_url": html_url,
+                        "htmlUrl": html_url,
+                        "event": wf_run.get("event").cloned().unwrap_or(Value::Null),
+                        "number": pr_number,
+                    }),
+                )
+            }
+            "check_run" => {
+                let check = raw
+                    .get("check_run")
+                    .ok_or(SourceNormalizeError::MissingField("check_run"))?;
+                let head_sha = check
+                    .get("head_sha")
+                    .and_then(Value::as_str)
+                    .unwrap_or("");
+                if !head_sha.is_empty() && self.self_artifacts.contains(head_sha) {
+                    is_self = true;
+                }
+                let pr_number = check
+                    .pointer("/pull_requests/0/number")
+                    .and_then(Value::as_u64);
+                let html_url = check
+                    .get("html_url")
+                    .or_else(|| check.get("details_url"))
+                    .cloned()
+                    .unwrap_or(Value::Null);
+                (
+                    format!("github.check_run.{action}"),
+                    pr_number,
+                    None,
+                    json!({
+                        "repository": repo,
+                        "action": action,
+                        "id": check.get("id").cloned().unwrap_or(Value::Null),
+                        "name": check.get("name").cloned().unwrap_or(Value::Null),
+                        "status": check.get("status").cloned().unwrap_or(Value::Null),
+                        "conclusion": check.get("conclusion").cloned().unwrap_or(Value::Null),
+                        "head_sha": head_sha,
+                        "headSha": head_sha,
+                        "html_url": html_url,
+                        "htmlUrl": html_url,
                         "number": pr_number,
                     }),
                 )

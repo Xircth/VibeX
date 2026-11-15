@@ -129,11 +129,15 @@ pub fn validate_rule_spec(spec: &PulseRuleSpec) -> Vec<PulseDryRunViolation> {
         validate_temporal_spec(&mut violations, temporal);
     }
 
-    if spec.targets.is_empty() {
+    let has_active_callback = spec
+        .callback
+        .as_ref()
+        .is_some_and(|cb| cb.enabled && !cb.destination.trim().is_empty());
+    if spec.targets.is_empty() && !has_active_callback {
         violations.push(violation(
             "targets",
             "empty_targets",
-            "At least one target is required.",
+            "At least one target or enabled callback is required.",
         ));
     }
 

@@ -7,9 +7,9 @@ use std::sync::LazyLock;
 
 use api_types::pulse::{
     ApprovalOptionSpec, BotConversationScope, BotMailboxPolicy, EventEnvelope, EventSourceKind,
-    MandateOrigin, PulseEvalMode, PulseEventSchemaView, PulseObservedCandidateView, PulseRuleSpec,
-    PulseRuleView, PulseSourceView, PulseSubscriptionView, PulseUserInteractionView,
-    UserInteractionKind, UserInteractionSeverity,
+    MandateOrigin, PulseEvalMode, PulseEventSchemaView, PulseObservedCandidateView,
+    PulseOutboxEntryView, PulseRuleSpec, PulseRuleView, PulseSourceView, PulseSubscriptionView,
+    PulseTaskMeta, PulseUserInteractionView, UserInteractionKind, UserInteractionSeverity,
 };
 use pulse_rows::*;
 use sqlx::SqlitePool;
@@ -158,6 +158,46 @@ pub struct PulseOutboxRecord {
     pub updated_at: String,
 }
 
+impl PulseOutboxRecord {
+    pub fn to_entry_view(&self) -> PulseOutboxEntryView {
+        let rule_id = self
+            .payload
+            .get("ruleId")
+            .or_else(|| self.payload.get("rule_id"))
+            .and_then(serde_json::Value::as_str)
+            .filter(|s| !s.trim().is_empty())
+            .map(str::to_string);
+
+        let destination = self
+            .payload
+            .get("destination")
+            .or_else(|| self.payload.get("url"))
+            .or_else(|| self.payload.get("channel"))
+            .or_else(|| self.payload.get("target"))
+            .and_then(serde_json::Value::as_str)
+            .filter(|s| !s.trim().is_empty())
+            .map(str::to_string)
+            .or_else(|| {
+                let rc = self.payload.get("replyChannel")?;
+                let kind = rc.get("sourceKind")?.as_str()?;
+                let cid = rc.get("channelId")?.as_str()?;
+                Some(format!("{kind}:{cid}"))
+            });
+
+        PulseOutboxEntryView {
+            id: self.id.clone(),
+            rule_id,
+            target_kind: self.target_kind.clone(),
+            destination,
+            status: self.status.clone(),
+            attempts: self.attempts,
+            last_error: self.last_error.clone(),
+            created_at: self.created_at.clone(),
+            updated_at: self.updated_at.clone(),
+        }
+    }
+}
+
 impl SqlitePulseStore {
     pub fn new(pool: SqlitePool) -> Self {
         Self { pool }
@@ -212,6 +252,19 @@ impl SqlitePulseStore {
         self.get_source(&input.id)
             .await?
             .ok_or(sqlx::Error::RowNotFound)
+    }
+
+    pub async fn clear_source_signing_secret(
+        &self,
+        id: &str,
+        now: &str,
+    ) -> Result<Option<PulseSourceRecord>, sqlx::Error> {
+        sqlx::query("UPDATE pulse_sources SET signing_secret = NULL, updated_at = ? WHERE id = ?")
+            .bind(now)
+            .bind(id)
+            .execute(&self.pool)
+            .await?;
+        self.get_source(id).await
     }
 
     pub async fn get_source(&self, id: &str) -> Result<Option<PulseSourceRecord>, sqlx::Error> {
@@ -278,6 +331,26 @@ impl SqlitePulseStore {
             .execute(&self.pool)
             .await?;
         Ok(res.rows_affected() > 0)
+    }
+
+    pub async fn update_source_health_and_cursor(
+        &self,
+        id: &str,
+        healthy: bool,
+        status_message: Option<&str>,
+        cursor_watermark: Option<&str>,
+        now: &str,
+    ) -> Result<(), sqlx::Error> {
+        let sql = "UPDATE pulse_sources SET healthy = ?, status_message = ?, cursor_watermark = COALESCE(?, cursor_watermark), updated_at = ? WHERE id = ?";
+        sqlx::query(sql)
+            .bind(healthy)
+            .bind(status_message)
+            .bind(cursor_watermark)
+            .bind(now)
+            .bind(id)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
     }
 
     pub async fn increment_source_received(&self, id: &str, now: &str) -> Result<(), sqlx::Error> {
@@ -605,6 +678,34 @@ impl SqlitePulseStore {
             .execute(&self.pool)
             .await?;
         Ok(())
+    }
+
+    pub async fn record_rule_task_run(
+        &self,
+        id: &str,
+        run_status: &str,
+        run_summary: &str,
+        now: &str,
+    ) -> Result<bool, sqlx::Error> {
+        let Some(mut current) = self.get_rule(id).await? else {
+            return Ok(false);
+        };
+        let mut meta = current.spec.task_meta.take().unwrap_or_else(PulseTaskMeta::default);
+        meta.last_run_at = Some(now.to_string());
+        meta.last_run_status = Some(run_status.to_string());
+        meta.last_run_summary = Some(run_summary.to_string());
+        current.spec.task_meta = Some(meta);
+
+        let spec_json = serde_json::to_string(&current.spec).map_err(protocol_error)?;
+        let res = sqlx::query(
+            "UPDATE pulse_rules SET spec_json = ?, updated_at = ? WHERE id = ?",
+        )
+        .bind(spec_json)
+        .bind(now)
+        .bind(id)
+        .execute(&self.pool)
+        .await?;
+        Ok(res.rows_affected() > 0)
     }
 
     pub async fn delete_rule(&self, id: &str) -> Result<bool, sqlx::Error> {
@@ -1255,6 +1356,19 @@ impl SqlitePulseStore {
             .execute(&self.pool)
             .await?;
         Ok(res.rows_affected() > 0)
+    }
+
+    pub async fn list_recent_outbox(&self, limit: u32) -> Result<Vec<PulseOutboxRecord>, sqlx::Error> {
+        let sql = format!(
+            "SELECT {OUTBOX_COLUMNS} FROM pulse_outbox ORDER BY updated_at DESC, created_at DESC LIMIT ?"
+        );
+        sqlx::query_as::<_, OutboxRow>(&sql)
+            .bind(i64::from(limit.clamp(1, 200)))
+            .fetch_all(&self.pool)
+            .await?
+            .into_iter()
+            .map(parse_outbox_row)
+            .collect()
     }
 
     // --- Event Schemas (`pulse_event_schemas`) ---

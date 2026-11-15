@@ -13,8 +13,8 @@ pub use engine::{
     PulseTemporalTickReport,
 };
 pub use filter::{
-    FilterEvalOutcome, dry_run_rule, evaluate_condition, evaluate_filter_ast, render_template,
-    resolve_json_pointer,
+    FilterEvalOutcome, dry_run_rule, evaluate_condition, evaluate_filter_ast,
+    render_callback_payload_text, render_rule_template, render_template, resolve_json_pointer,
 };
 pub use guard::{
     ChainRateBreaker, DEFAULT_CHAIN_WINDOW_SECS, DEFAULT_MAX_HOP_COUNT,

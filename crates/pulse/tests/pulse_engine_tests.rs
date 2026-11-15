@@ -275,6 +275,8 @@ fn validate_rule_spec_collects_every_violation_in_one_pass_without_fail_fast() {
                 input_mapping: BTreeMap::new(),
             },
         ],
+        callback: None,
+        task_meta: None,
     };
 
     let violations = validate_rule_spec(&invalid_spec);
@@ -398,6 +400,8 @@ fn rfc6901_filter_conditions_template_interpolation_and_dry_run_work() {
         targets: vec![minimal_session_target(
             "Handle {{/issue/key}} ({{event.id}}) by {{actor.displayName}}: {{payload.issue.summary}}",
         )],
+        callback: None,
+        task_meta: None,
     };
 
     let report = dry_run_rule(&spec, &envelope);
@@ -739,6 +743,7 @@ fn temporal_evaluator_handles_cron_weekdays_catchup_interval_and_inactivity_sla(
             debounce_ms: 0,
             claim_exclusive: false,
             targets: vec![minimal_session_target("SLA expired on {{threadKey}}")],
+            callback: None, task_meta: None,
         },
         webhook_route_id: None,
         next_fire_at: None,
@@ -810,6 +815,7 @@ async fn mandate_origin_untrusted_forces_disabled_draft_observe_rule() {
         debounce_ms: 0,
         claim_exclusive: false,
         targets: vec![minimal_session_target("Exfiltrate")],
+        callback: None, task_meta: None,
     };
 
     let (enabled, draft_only, enforced) = enforce_mandate_origin(
@@ -880,6 +886,7 @@ async fn engine_deduplicates_receipts_guards_loops_and_trips_chain_rate_breaker(
                 debounce_ms: 0,
                 claim_exclusive: false,
                 targets: vec![minimal_session_target("Reply to {{threadKey}}")],
+                callback: None, task_meta: None,
             },
             None,
             now,
@@ -1083,6 +1090,7 @@ async fn thread_subscription_o1_routing_bot_mailbox_fifo_coalesce_and_observe_pr
                         input_mapping: workflow_inputs,
                     },
                 ],
+                callback: None, task_meta: None,
             },
             None,
             now,
@@ -1304,6 +1312,7 @@ async fn engine_tick_temporal_outbox_retry_and_event_schema_catalog_work_end_to_
                 debounce_ms: 0,
                 claim_exclusive: false,
                 targets: vec![minimal_session_target("Wake up for {{event.type}}")],
+                callback: None, task_meta: None,
             },
             None,
             t0,
@@ -1338,6 +1347,7 @@ async fn engine_tick_temporal_outbox_retry_and_event_schema_catalog_work_end_to_
                 debounce_ms: 0,
                 claim_exclusive: false,
                 targets: vec![minimal_session_target("Escalate stalled PR {{threadKey}}")],
+                callback: None, task_meta: None,
             },
             None,
             t0,

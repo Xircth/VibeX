@@ -45,6 +45,7 @@ pub(crate) const fn is_pulse_domain_command(command: DomainCommand) -> bool {
             | DomainCommand::PulseSourceList
             | DomainCommand::PulseSourceUpsert
             | DomainCommand::PulseSourceDelete
+            | DomainCommand::PulseSourceTest
             | DomainCommand::PulseRuleList
             | DomainCommand::PulseRuleSave
             | DomainCommand::PulseRuleSetMode
@@ -149,6 +150,7 @@ impl ServerApplicationDomains {
             notify_workflow_work();
         }
 
+        self.poll_github_sources(engine, now).await;
         self.drain_pulse_outbox().await;
         self.drain_all_queued_bot_mailboxes().await;
 
@@ -195,6 +197,18 @@ impl ServerApplicationDomains {
                     .deck_snapshot(project_id)
                     .await
                     .map_err(map_pulse_error)?;
+                let mut busy_ids: Vec<String> =
+                    self.compute_busy_pulse_rule_ids().await.into_iter().collect();
+                busy_ids.sort();
+                snapshot.busy_rule_ids = busy_ids;
+                snapshot.recent_outbox = engine
+                    .store()
+                    .list_recent_outbox(30)
+                    .await
+                    .map_err(map_sqlx_error)?
+                    .into_iter()
+                    .map(|r| r.to_entry_view())
+                    .collect();
                 snapshot.engine_active = self.automation_ownership.current();
                 to_json_value(snapshot)
             }
@@ -217,25 +231,59 @@ impl ServerApplicationDomains {
                     .id
                     .filter(|s| !s.trim().is_empty())
                     .unwrap_or_else(|| Uuid::new_v4().to_string());
+                let existing = engine
+                    .store()
+                    .get_source(&id)
+                    .await
+                    .map_err(map_sqlx_error)?;
+                let config_json = input
+                    .config_json
+                    .or_else(|| existing.as_ref().map(|e| e.config_json.clone()))
+                    .unwrap_or_else(|| json!({}));
+                let new_secret = input
+                    .signing_secret
+                    .map(|s| s.trim().to_string())
+                    .filter(|s| !s.is_empty());
+                let should_clear_secret =
+                    new_secret.is_none() && input.clear_signing_secret == Some(true);
+                let effective_secret = if should_clear_secret {
+                    None
+                } else {
+                    new_secret.or_else(|| existing.as_ref().and_then(|e| e.signing_secret.clone()))
+                };
                 let public_webhook_path = is_webhook_source_kind(input.kind)
                     .then(|| format!("/api/pulse/webhooks/{id}"));
-                let record = engine
+                let mut record = engine
                     .store()
                     .upsert_source(PulseSourceUpsert {
-                        id,
+                        id: id.clone(),
                         kind: input.kind,
                         title,
                         enabled: input.enabled,
-                        healthy: true,
-                        status_message: None,
-                        cursor_watermark: None,
+                        healthy: existing.as_ref().map(|e| e.view.healthy).unwrap_or(true),
+                        status_message: existing
+                            .as_ref()
+                            .and_then(|e| e.view.status_message.clone()),
+                        cursor_watermark: existing
+                            .as_ref()
+                            .and_then(|e| e.view.cursor_watermark.clone()),
                         public_webhook_path,
-                        config_json: input.config_json.unwrap_or_else(|| json!({})),
-                        signing_secret: input.signing_secret.filter(|s| !s.trim().is_empty()),
-                        now: now_iso,
+                        config_json,
+                        signing_secret: effective_secret,
+                        now: now_iso.clone(),
                     })
                     .await
                     .map_err(map_sqlx_error)?;
+                if should_clear_secret
+                    && let Some(cleared) = engine
+                        .store()
+                        .clear_source_signing_secret(&id, &now_iso)
+                        .await
+                        .map_err(map_sqlx_error)?
+                {
+                    record = cleared;
+                }
+                crate::pulse_connectors::reset_github_poll_cooldown(&id);
                 self.emit_pulse_deck_changed();
                 let view: PulseSourceView = record.view;
                 to_json_value(view)
@@ -247,8 +295,13 @@ impl ServerApplicationDomains {
                     .delete_source(&id)
                     .await
                     .map_err(map_sqlx_error)?;
+                crate::pulse_connectors::reset_github_poll_cooldown(&id);
                 self.emit_pulse_deck_changed();
                 Ok(Value::Null)
+            }
+            DomainCommand::PulseSourceTest => {
+                let result = self.execute_pulse_source_test(engine, &args, now).await?;
+                to_json_value(result)
             }
             DomainCommand::PulseRuleList => {
                 let project_id = args
@@ -563,7 +616,7 @@ impl ServerApplicationDomains {
         }
     }
 
-    async fn ingest_webhook_request(
+    pub(crate) async fn ingest_webhook_request(
         &self,
         engine: &PulseEngine,
         input: PulseWebhookIngestArgs,
@@ -854,6 +907,8 @@ struct PulseSourceUpsertArgs {
     config_json: Option<Value>,
     #[serde(default, alias = "signing_secret")]
     signing_secret: Option<String>,
+    #[serde(default, alias = "clear_signing_secret")]
+    clear_signing_secret: Option<bool>,
 }
 
 #[derive(Deserialize)]
@@ -936,20 +991,20 @@ struct PulseEventSchemaDefineArgs {
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct PulseWebhookIngestArgs {
+pub(crate) struct PulseWebhookIngestArgs {
     #[serde(alias = "source_id")]
-    source_id: String,
+    pub(crate) source_id: String,
     #[serde(default)]
-    headers: BTreeMap<String, String>,
+    pub(crate) headers: BTreeMap<String, String>,
     #[serde(alias = "raw_body_base64")]
-    raw_body_base64: String,
+    pub(crate) raw_body_base64: String,
 }
 
 const fn default_true() -> bool {
     true
 }
 
-const fn is_webhook_source_kind(kind: EventSourceKind) -> bool {
+pub(crate) const fn is_webhook_source_kind(kind: EventSourceKind) -> bool {
     matches!(
         kind,
         EventSourceKind::Feishu
@@ -960,7 +1015,7 @@ const fn is_webhook_source_kind(kind: EventSourceKind) -> bool {
     )
 }
 
-fn unwrap_input(args: &Value) -> &Value {
+pub(crate) fn unwrap_input(args: &Value) -> &Value {
     args.get("input").unwrap_or(args)
 }
 
@@ -972,7 +1027,10 @@ fn to_json_value<T: serde::Serialize>(value: T) -> Result<Value, ApplicationErro
     serde_json::to_value(value).map_err(|err| ApplicationError::internal(err.to_string()))
 }
 
-fn require_str_field_aliases(value: &Value, keys: &[&str]) -> Result<String, ApplicationError> {
+pub(crate) fn require_str_field_aliases(
+    value: &Value,
+    keys: &[&str],
+) -> Result<String, ApplicationError> {
     let inner = unwrap_input(value);
     for target in [inner, value] {
         for key in keys {
@@ -1121,11 +1179,11 @@ pub(crate) async fn ensure_sdk_source_exists(
     Ok(())
 }
 
-fn map_sqlx_error(err: sqlx::Error) -> ApplicationError {
+pub(crate) fn map_sqlx_error(err: sqlx::Error) -> ApplicationError {
     ApplicationError::internal(err.to_string())
 }
 
-fn map_pulse_error(err: PulseError) -> ApplicationError {
+pub(crate) fn map_pulse_error(err: PulseError) -> ApplicationError {
     match err {
         PulseError::Database(db_err) => ApplicationError::internal(db_err.to_string()),
         PulseError::ValidationFailed(violations) => ApplicationError::bad_request(format!(

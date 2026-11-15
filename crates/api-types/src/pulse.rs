@@ -368,6 +368,86 @@ pub enum PresetOrchestratorKind {
     WindowAggregator,
 }
 
+fn default_true() -> bool {
+    true
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+#[ts(export, rename_all = "snake_case")]
+pub enum PulseCallbackKind {
+    FeishuWebhook,
+    GithubComment,
+    WebhookPost,
+    ReplyChannel,
+}
+
+impl PulseCallbackKind {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::FeishuWebhook => "feishu_webhook",
+            Self::GithubComment => "github_comment",
+            Self::WebhookPost => "webhook_post",
+            Self::ReplyChannel => "reply_channel",
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, rename_all = "camelCase")]
+pub struct PulseCallbackSpec {
+    pub kind: PulseCallbackKind,
+    pub destination: String,
+    #[serde(default)]
+    pub payload_template: String,
+    #[serde(default)]
+    pub headers: BTreeMap<String, String>,
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+#[ts(export, rename_all = "snake_case")]
+pub enum PulseTaskLifecycleState {
+    Editing,
+    PendingTest,
+    Publishing,
+    Published,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+#[ts(export, rename_all = "snake_case")]
+pub enum PulseTaskKind {
+    FastTask,
+    ReusableRule,
+    WorkflowTrigger,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, rename_all = "camelCase")]
+pub struct PulseTaskMeta {
+    #[serde(default)]
+    pub task_kind: Option<PulseTaskKind>,
+    #[serde(default)]
+    pub lifecycle_state: Option<PulseTaskLifecycleState>,
+    #[serde(default)]
+    pub bound_rule_template_id: Option<String>,
+    #[serde(default)]
+    pub last_tested_at: Option<String>,
+    #[serde(default)]
+    pub last_test_passed: Option<bool>,
+    #[serde(default)]
+    pub last_run_at: Option<String>,
+    #[serde(default)]
+    pub last_run_status: Option<String>,
+    #[serde(default)]
+    pub last_run_summary: Option<String>,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export, rename_all = "camelCase")]
@@ -390,6 +470,10 @@ pub struct PulseRuleSpec {
     #[serde(default)]
     pub claim_exclusive: bool,
     pub targets: Vec<PulseTargetSpec>,
+    #[serde(default)]
+    pub callback: Option<PulseCallbackSpec>,
+    #[serde(default)]
+    pub task_meta: Option<PulseTaskMeta>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
@@ -453,6 +537,42 @@ pub struct PulseSourceView {
     pub received_count_24h: u64,
     pub rejected_count_24h: u64,
     pub updated_at: String,
+    #[serde(default)]
+    pub config_json: serde_json::Value,
+    #[serde(default)]
+    pub has_signing_secret: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, rename_all = "camelCase")]
+pub struct PulseOutboxEntryView {
+    pub id: String,
+    #[serde(default)]
+    pub rule_id: Option<String>,
+    pub target_kind: String,
+    #[serde(default)]
+    pub destination: Option<String>,
+    pub status: String,
+    pub attempts: u32,
+    #[serde(default)]
+    pub last_error: Option<String>,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, rename_all = "camelCase")]
+pub struct PulseSourceTestResult {
+    pub ok: bool,
+    pub source_id: String,
+    pub mode: String,
+    pub message: String,
+    #[serde(default)]
+    pub webhook_path: Option<String>,
+    #[serde(default)]
+    pub sample_envelope: Option<EventEnvelope>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
@@ -529,4 +649,78 @@ pub struct PulseDeckSnapshot {
     pub observed_candidates: Vec<PulseObservedCandidateView>,
     pub subscriptions: Vec<PulseSubscriptionView>,
     pub pending_interactions: Vec<PulseUserInteractionView>,
+    #[serde(default)]
+    pub busy_rule_ids: Vec<String>,
+    #[serde(default)]
+    pub recent_outbox: Vec<PulseOutboxEntryView>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn callback_spec_and_task_meta_round_trip_camel_case_with_defaults() {
+        let legacy_rule_json = json!({
+            "name": "Legacy Rule",
+            "evalMode": "auto",
+            "filter": {},
+            "targets": []
+        });
+        let legacy_parsed: PulseRuleSpec =
+            serde_json::from_value(legacy_rule_json).expect("legacy PulseRuleSpec must deserialize");
+        assert!(legacy_parsed.callback.is_none());
+        assert!(legacy_parsed.task_meta.is_none());
+
+        let rich_rule_json = json!({
+            "name": "Fast CI Notifier",
+            "evalMode": "auto",
+            "filter": {
+                "sourceKinds": ["github"],
+                "eventTypes": ["github.workflow_run.completed"]
+            },
+            "targets": [],
+            "callback": {
+                "kind": "feishu_webhook",
+                "destination": "https://open.feishu.cn/open-apis/bot/v2/hook/demo",
+                "payloadTemplate": "Run {{payload.name}}: {{payload.conclusion}}"
+            },
+            "taskMeta": {
+                "taskKind": "fast_task",
+                "lifecycleState": "pending_test",
+                "boundRuleTemplateId": "tpl-ci",
+                "lastTestedAt": "2026-11-16T00:00:00Z",
+                "lastTestPassed": true,
+                "lastRunAt": "2026-11-16T00:01:00Z",
+                "lastRunStatus": "succeeded",
+                "lastRunSummary": "Delivered Feishu callback"
+            }
+        });
+
+        let parsed: PulseRuleSpec =
+            serde_json::from_value(rich_rule_json).expect("rich PulseRuleSpec must deserialize");
+        let cb = parsed.callback.as_ref().expect("callback present");
+        assert_eq!(cb.kind, PulseCallbackKind::FeishuWebhook);
+        assert!(cb.enabled, "enabled should default to true");
+        assert!(cb.headers.is_empty());
+        assert_eq!(cb.payload_template, "Run {{payload.name}}: {{payload.conclusion}}");
+
+        let meta = parsed.task_meta.as_ref().expect("task_meta present");
+        assert_eq!(meta.task_kind, Some(PulseTaskKind::FastTask));
+        assert_eq!(
+            meta.lifecycle_state,
+            Some(PulseTaskLifecycleState::PendingTest)
+        );
+        assert_eq!(meta.bound_rule_template_id.as_deref(), Some("tpl-ci"));
+        assert_eq!(meta.last_test_passed, Some(true));
+        assert_eq!(meta.last_run_status.as_deref(), Some("succeeded"));
+
+        let serialized = serde_json::to_value(&parsed).expect("serialize back to camelCase");
+        assert_eq!(serialized["callback"]["kind"], "feishu_webhook");
+        assert_eq!(serialized["callback"]["enabled"], true);
+        assert_eq!(serialized["callback"]["payloadTemplate"], "Run {{payload.name}}: {{payload.conclusion}}");
+        assert_eq!(serialized["taskMeta"]["taskKind"], "fast_task");
+        assert_eq!(serialized["taskMeta"]["lifecycleState"], "pending_test");
+    }
 }

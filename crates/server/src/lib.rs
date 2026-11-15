@@ -23,6 +23,7 @@ mod pairing_cli;
 mod plugin_artifact;
 mod preview_proxy;
 mod product_mcp;
+mod pulse_connectors;
 mod pulse_dispatch;
 mod pulse_http;
 mod pulse_outbox;
@@ -87,6 +88,7 @@ pub use preview_proxy::{
     PreviewProxyRegistry, PreviewRegistrationError, start_loopback_preview_proxy,
 };
 pub use product_mcp::{ProductMcpSessionLookup, start_product_mcp_gateway};
+pub use pulse_connectors::{bridge_feishu_inbound_to_pulse, trigger_pulse_poll_for_source};
 pub use pulse_runtime::PULSE_DECK_CHANGED_EVENT;
 
 pub fn start_chat_inbound(

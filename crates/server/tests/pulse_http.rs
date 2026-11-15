@@ -1289,3 +1289,163 @@ async fn pulse_security_hardening_hmac_sdk_emit_and_full_rest_parity_impl() {
     assert_eq!(status, StatusCode::OK);
 }
 
+#[test]
+fn pulse_http_source_test_secret_preservation_poller_and_callbacks() {
+    run_pulse_test(pulse_http_source_test_secret_preservation_poller_and_callbacks_impl());
+}
+
+async fn authed_post(router: &axum::Router, uri: &str, body: Option<Value>) -> (StatusCode, Value) {
+    let bytes = body.map(|v| serde_json::to_vec(&v).unwrap()).unwrap_or_default();
+    send_json(router.clone(), Method::POST, uri, Some(TEST_TOKEN), &[], bytes).await
+}
+
+async fn pulse_http_source_test_secret_preservation_poller_and_callbacks_impl() {
+    use std::sync::{Arc, Mutex, atomic::{AtomicUsize, Ordering}};
+    use axum::{Json, routing::{get, post}};
+
+    let gh_phase = Arc::new(AtomicUsize::new(0));
+    let feishu_received: Arc<Mutex<Vec<Value>>> = Arc::new(Mutex::new(Vec::new()));
+    let gh_comments_received: Arc<Mutex<Vec<Value>>> = Arc::new(Mutex::new(Vec::new()));
+    let (gh_phase_r, fs_ok_r, gh_cmt_r) = (gh_phase.clone(), feishu_received.clone(), gh_comments_received.clone());
+
+    let mock_app = axum::Router::new()
+        .route("/repos/acme/vibex/actions/runs", get(move || {
+            let phase = gh_phase_r.load(Ordering::SeqCst);
+            async move {
+                let (id, conclusion, sha) = if phase == 0 { (9001, "success", "111aaa") } else { (9002, "failure", "222bbb") };
+                Json(json!({ "workflow_runs": [{
+                    "id": id, "name": "CI", "head_branch": "main", "head_sha": sha,
+                    "status": "completed", "conclusion": conclusion,
+                    "html_url": format!("https://github.com/acme/vibex/actions/runs/{id}"),
+                    "updated_at": "2026-04-15T10:05:00Z",
+                    "repository": { "full_name": "acme/vibex" },
+                    "actor": { "login": "octocat", "type": "User" }
+                }] }))
+            }
+        }))
+        .route("/feishu-hook-ok", post(move |Json(body): Json<Value>| {
+            fs_ok_r.lock().unwrap().push(body);
+            async { Json(json!({ "code": 0, "msg": "success" })) }
+        }))
+        .route("/feishu-hook-err", post(|| async { Json(json!({ "code": 9499, "msg": "bad sign" })) }))
+        .route("/gh-comments", post(move |Json(body): Json<Value>| {
+            gh_cmt_r.lock().unwrap().push(body);
+            async { (StatusCode::CREATED, Json(json!({ "id": 1 }))) }
+        }));
+
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.expect("bind mock");
+    let mock_base = format!("http://{}", listener.local_addr().unwrap());
+    tokio::spawn(async move { let _ = axum::serve(listener, mock_app).await; });
+
+    let temp = TempDir::new().expect("tempdir");
+    std::fs::write(
+        temp.path().join("settings.json"),
+        serde_json::to_vec(&json!({
+            "chat_channels": { "channels": [{
+                "id": "fs-bot-1", "kind": "feishu", "enabled": true, "config": { "app_id": "cli_demo" }
+            }] }
+        })).unwrap(),
+    ).expect("write settings.json");
+
+    let server = HeadlessServer::bootstrap(
+        ServerBootstrapConfig::new(temp.path()).with_token(ServerToken::new(TEST_TOKEN)),
+    ).await.expect("bootstrap HeadlessServer");
+    let router = server.runtime().router();
+
+    // 1. Secret preservation + `hasSigningSecret` + `configJson` + `PulseSourceTest`
+    let whsec = format!("whsec_{}", base64::engine::general_purpose::STANDARD.encode(b"0123456789abcdef0123456789abcdef"));
+    let (st, s1) = authed_post(&router, "/api/pulse/sources", Some(json!({
+        "id": "src-std-keep", "kind": "webhook_standard", "title": "Std v1",
+        "signingSecret": whsec, "configJson": { "env": "prod" }
+    }))).await;
+    assert_eq!((st, s1["hasSigningSecret"].as_bool(), s1["configJson"]["env"].as_str()), (StatusCode::OK, Some(true), Some("prod")));
+
+    let (st, s2) = authed_post(&router, "/api/pulse/sources", Some(json!({
+        "id": "src-std-keep", "kind": "webhook_standard", "title": "Std v2", "signingSecret": "   "
+    }))).await;
+    assert_eq!((st, s2["hasSigningSecret"].as_bool(), s2["configJson"]["env"].as_str()), (StatusCode::OK, Some(true), Some("prod")));
+
+    let (st, test_ok) = authed_post(&router, "/api/pulse/sources/src-std-keep/test", None).await;
+    assert_eq!((st, test_ok["ok"].as_bool()), (StatusCode::OK, Some(true)));
+    assert!(test_ok["sampleEnvelope"]["eventId"].is_string());
+
+    let (_, s3) = authed_post(&router, "/api/pulse/sources", Some(json!({
+        "id": "src-std-keep", "kind": "webhook_standard", "title": "Std v3", "clearSigningSecret": true
+    }))).await;
+    assert_eq!(s3["hasSigningSecret"], false);
+    let (st, test_fail) = authed_post(&router, "/api/pulse/sources/src-std-keep/test", None).await;
+    assert_eq!((st, test_fail["ok"].as_bool()), (StatusCode::OK, Some(false)));
+
+    // 2. Feishu long_connection test + real inbound bridge into PulseEngine
+    authed_post(&router, "/api/pulse/sources", Some(json!({
+        "id": "src-fs-ws", "kind": "feishu", "title": "Feishu Bot WS",
+        "configJson": { "mode": "long_connection", "channelId": "fs-bot-1" }
+    }))).await;
+    let (st, fs_test) = call_host_command(router.clone(), "pulse_source_test", json!({ "id": "src-fs-ws" })).await;
+    assert_eq!((st, fs_test["ok"].as_bool(), fs_test["mode"].as_str()), (StatusCode::OK, Some(true), Some("long_connection")));
+
+    authed_post(&router, "/api/pulse/rules", Some(json!({
+        "id": "rule-fs-bridge", "enabled": true,
+        "spec": {
+            "name": "Feishu Bridge", "evalMode": "auto", "orchestrator": "direct_reflex",
+            "filter": { "sourceKinds": ["feishu"], "sourceInstanceIds": ["src-fs-ws"], "eventTypes": ["feishu.im.message"] },
+            "targets": [],
+            "callback": { "kind": "feishu_webhook", "destination": format!("{mock_base}/feishu-hook-ok"), "payloadTemplate": "Echo: {{payload.text}}" },
+            "taskMeta": { "taskKind": "fast_task", "lifecycleState": "published" }
+        }
+    }))).await;
+    let bridged = server::bridge_feishu_inbound_to_pulse(server.pool().clone(), "fs-bot-1".to_string(), json!({}), json!({
+        "header": { "event_id": "ev_live_1", "event_type": "im.message.receive_v1" },
+        "event": {
+            "sender": { "sender_type": "user", "sender_id": { "open_id": "ou_bob" } },
+            "message": { "message_id": "om_live_1", "chat_id": "oc_1", "message_type": "text", "content": "{\"text\":\"deploy prod\"}" }
+        }
+    })).await;
+    assert_eq!(bridged, 1);
+
+    // 3. GitHub poll test + background poller + FastTask callbacks (Feishu ok/err + GitHub comment)
+    authed_post(&router, "/api/pulse/sources", Some(json!({
+        "id": "src-gh-poll", "kind": "github", "title": "GitHub Poller",
+        "configJson": { "mode": "poll", "repo": "acme/vibex", "apiBaseUrl": mock_base, "githubToken": "ghp_mock", "pollIntervalSecs": 15 }
+    }))).await;
+    let (st, gh_test) = authed_post(&router, "/api/pulse/sources/src-gh-poll/test", None).await;
+    assert_eq!((st, gh_test["ok"].as_bool(), gh_test["sampleEnvelope"]["eventType"].as_str()), (StatusCode::OK, Some(true), Some("github.workflow_run.completed")));
+
+    for (rid, rname, kind, dest) in [
+        ("rule-fs-ok", "CI Alert", "feishu_webhook", format!("{mock_base}/feishu-hook-ok")),
+        ("rule-fs-err", "Broken Hook", "feishu_webhook", format!("{mock_base}/feishu-hook-err")),
+        ("rule-gh-cmt", "PR Commenter", "github_comment", format!("{mock_base}/gh-comments")),
+    ] {
+        let (st, r) = authed_post(&router, "/api/pulse/rules", Some(json!({
+            "id": rid, "enabled": true,
+            "spec": {
+                "name": rname, "evalMode": "auto", "orchestrator": "direct_reflex",
+                "filter": { "sourceKinds": ["github"], "sourceInstanceIds": ["src-gh-poll"], "eventTypes": ["github.workflow_run.completed"] },
+                "targets": [],
+                "callback": { "kind": kind, "destination": dest, "payloadTemplate": "[{{rule.name}}] {{payload.name}}={{payload.conclusion}} on {{payload.head_branch}}" },
+                "taskMeta": { "taskKind": "fast_task", "lifecycleState": "published" }
+            }
+        }))).await;
+        assert_eq!(st, StatusCode::OK, "save callback rule {rid}: {r}");
+    }
+
+    gh_phase.store(1, Ordering::SeqCst);
+    assert!(server::trigger_pulse_poll_for_source("src-gh-poll").await);
+
+    let fs_payloads = feishu_received.lock().unwrap().clone();
+    assert_eq!(fs_payloads.len(), 2);
+    assert_eq!(fs_payloads[0]["content"]["text"], "Echo: deploy prod");
+    assert_eq!((fs_payloads[1]["msg_type"].as_str(), fs_payloads[1]["content"]["text"].as_str()), (Some("text"), Some("[CI Alert] CI=failure on main")));
+    let gh_payloads = gh_comments_received.lock().unwrap().clone();
+    assert_eq!(gh_payloads[0]["body"], "[PR Commenter] CI=failure on main");
+
+    let (st, deck) = send_json(router, Method::GET, "/api/pulse/deck", Some(TEST_TOKEN), &[], Vec::new()).await;
+    assert_eq!(st, StatusCode::OK);
+    let outbox = deck["recentOutbox"].as_array().expect("recentOutbox");
+    assert!(outbox.iter().any(|o| o["ruleId"] == "rule-fs-ok" && o["status"] == "delivered"));
+    assert!(outbox.iter().any(|o| o["ruleId"] == "rule-fs-err" && o["status"] == "pending" && o["attempts"] == 1 && o["lastError"].as_str().unwrap_or("").contains("bad sign")));
+    let rules = deck["rules"].as_array().expect("rules");
+    assert_eq!(rules.iter().find(|r| r["id"] == "rule-fs-ok").unwrap()["spec"]["taskMeta"]["lastRunStatus"], "succeeded");
+    assert_eq!(rules.iter().find(|r| r["id"] == "rule-fs-err").unwrap()["spec"]["taskMeta"]["lastRunStatus"], "failed");
+}
+

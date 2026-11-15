@@ -677,6 +677,8 @@ async fn hybrid_pipeline_and_other_presets_execute_with_user_gate_and_outbox() {
             subscribe_thread: true,
             prompt_template: "Reply to PR comment".to_string(),
         }],
+        callback: None,
+        task_meta: None,
     };
     let reflex_def = build_workflow_from_pulse_rule(&pulse_rule).unwrap();
     let (_, reflex_run) =

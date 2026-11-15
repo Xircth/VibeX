@@ -173,6 +173,11 @@ pub(super) fn decode_json_opt<T: DeserializeOwned>(
 }
 
 pub(super) fn parse_source_row(row: SourceRow) -> Result<PulseSourceRecord, sqlx::Error> {
+    let config_json: serde_json::Value = decode_json(&row.config_json)?;
+    let has_signing_secret = row
+        .signing_secret
+        .as_deref()
+        .is_some_and(|s| !s.trim().is_empty());
     Ok(PulseSourceRecord {
         view: PulseSourceView {
             id: row.id,
@@ -186,8 +191,10 @@ pub(super) fn parse_source_row(row: SourceRow) -> Result<PulseSourceRecord, sqlx
             received_count_24h: u64::try_from(row.received_count_24h.max(0)).unwrap_or(0),
             rejected_count_24h: u64::try_from(row.rejected_count_24h.max(0)).unwrap_or(0),
             updated_at: row.updated_at,
+            config_json: config_json.clone(),
+            has_signing_secret,
         },
-        config_json: decode_json(&row.config_json)?,
+        config_json,
         signing_secret: row.signing_secret,
         created_at: row.created_at,
     })

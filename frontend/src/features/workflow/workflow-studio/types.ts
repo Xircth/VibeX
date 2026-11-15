@@ -261,6 +261,7 @@ export type WorkflowStudioProps<
   activeWorktree?: { name: string; path: string } | null;
   notifyContext?: { projectId: string; workspaceId: string } | null;
   capturedEvents?: EventEnvelope[];
+  studioMode?: boolean;
   className?: string;
 };
 

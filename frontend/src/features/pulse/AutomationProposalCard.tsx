@@ -136,7 +136,7 @@ export function AutomationProposalCard({
             {sourceBadges.map((badge) => (
               <span
                 key={badge}
-                className="inline-flex items-center rounded-full border border-border bg-muted/60 px-2 py-0.5 text-2xs font-medium text-foreground"
+                className="inline-flex items-center rounded-full border border-border bg-muted/60 px-2 py-0.5 text-2xs font-medium tabular-nums text-foreground"
               >
                 {badge}
               </span>

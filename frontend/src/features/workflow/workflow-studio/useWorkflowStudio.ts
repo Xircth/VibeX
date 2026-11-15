@@ -81,12 +81,13 @@ export function useWorkflowStudio<
   onReview,
   activeWorktree,
   capturedEvents,
+  studioMode: rawStudioMode,
   className,
 }: WorkflowStudioProps<TDef>) {
   const { t, i18n } = useTranslation('workflow');
   const studioModeInput = useMemo(
-    () => isStudioOnlyDefinition(rawDefinition),
-    [rawDefinition]
+    () => rawStudioMode ?? isStudioOnlyDefinition(rawDefinition),
+    [rawDefinition, rawStudioMode]
   );
   const definition = useMemo(
     () => toStudioWorkflowDefinition(rawDefinition),

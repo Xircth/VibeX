@@ -13,7 +13,11 @@ import {
   formatTemporalBadgeLabel,
 } from '@/features/pulse';
 import type {
+  EventSourceKind,
   GateFilterAst as PulseGateFilterAst,
+  PresetOrchestratorKind,
+  PulseEvalMode,
+  PulseTemporalSpec,
   PulseWorkspaceIsolation,
 } from '@/lib/api/pulse';
 
@@ -27,6 +31,7 @@ import {
   type StudioStepCommon,
   type StudioWorkflowDefinition,
   type StudioWorkflowStep,
+  type TriggerKind,
   type WorkflowStudioDefinitionInput,
 } from './types';
 
@@ -60,8 +65,13 @@ export function resolveSessionIsolation(
   if (step.workspaceIsolation) {
     return step.workspaceIsolation;
   }
-  if (step.kind === 'agent' && step.workspaceAccess === 'write_isolated') {
-    return 'isolated_worktree';
+  if (step.kind === 'agent') {
+    if (step.workspaceAccess === 'write_isolated') {
+      return 'isolated_worktree';
+    }
+    if (step.workspaceAccess === 'read_only_shared') {
+      return 'scratch';
+    }
   }
   return 'project_root';
 }
@@ -411,6 +421,207 @@ export function switchExecutionPrimitive(
   };
 }
 
+const STUDIO_PHASE_PREFIX = '[vibex-studio:v1]';
+const PULSE_TRIGGER_PREFIX = '[pulse-trigger]';
+
+type StudioPhaseMetadata = {
+  userPhase?: string | null;
+  hasOrchestratorPreset?: boolean;
+  orchestratorPreset?: PresetOrchestratorKind | null;
+  hasFilter?: boolean;
+  filter?: PulseGateFilterAst | null;
+  hasSubscribeThread?: boolean;
+  subscribeThread?: boolean;
+  hasThreadKeyTemplate?: boolean;
+  threadKeyTemplate?: string | null;
+  trigger?: {
+    title: string;
+    triggerKind: TriggerKind;
+    sourceKind: EventSourceKind;
+    eventType: string;
+    evalMode: PulseEvalMode;
+    hasTemporal?: boolean;
+    temporal?: PulseTemporalSpec | null;
+    filter: PulseGateFilterAst;
+  };
+  session?: {
+    workspaceIsolation: PulseWorkspaceIsolation;
+    executorProfileId: JsonValue | null;
+    modeOverride: string | null;
+    configOverrides: { [key in string]?: string };
+    outputLanguage: string | null;
+    outputDescription: string | null;
+    hasAllowSkipOnReview?: boolean;
+    allowSkipOnReview?: boolean;
+  };
+  bot?: {
+    hasOutputDescription?: boolean;
+    outputDescription?: string | null;
+    hasOutputSchema?: boolean;
+  };
+  userGate?: {
+    hasApproverScope?: boolean;
+    approverScope?: string;
+    hasSlaTimeoutSeconds?: boolean;
+    slaTimeoutSeconds?: number | null;
+    hasDecisionSchema?: boolean;
+    decisionSchema?: JsonValue | null;
+    hasFormSchema?: boolean;
+    formSchema?: JsonValue | null;
+  };
+  control?: {
+    title: string;
+    hasExpression?: boolean;
+    expression?: string;
+    hasMaxIterations?: boolean;
+    maxIterations?: number;
+    hasLoopTargetStepId?: boolean;
+    loopTargetStepId?: string;
+    hasWaitEventType?: boolean;
+    waitEventType?: string;
+    hasThreadKeyTemplate?: boolean;
+    threadKeyTemplate?: string | null;
+    hasTimeoutSeconds?: boolean;
+    timeoutSeconds?: number | null;
+  };
+  outbox?: {
+    actionKind: OutboxActionKind;
+    title: string;
+    payloadTemplate: string;
+  };
+  legacy?: {
+    workspaceIsolation?: PulseWorkspaceIsolation;
+    slaTimeoutSeconds?: number | null;
+  };
+};
+
+function encodeStudioPhase(
+  userPhase: string | null,
+  meta: StudioPhaseMetadata
+): string | null {
+  const hasPayload = Object.entries(meta).some(
+    ([key, value]) => key !== 'userPhase' && value !== undefined
+  );
+  if (!hasPayload) {
+    return userPhase;
+  }
+  return `${STUDIO_PHASE_PREFIX}${JSON.stringify({
+    ...meta,
+    userPhase: userPhase ?? null,
+  })}`;
+}
+
+function decodeStudioPhase(phase: string | null): {
+  userPhase: string | null;
+  meta: StudioPhaseMetadata | null;
+} {
+  if (!phase || !phase.startsWith(STUDIO_PHASE_PREFIX)) {
+    return { userPhase: phase, meta: null };
+  }
+  try {
+    const parsed = JSON.parse(
+      phase.slice(STUDIO_PHASE_PREFIX.length)
+    ) as StudioPhaseMetadata;
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+      return {
+        userPhase: parsed.userPhase ?? null,
+        meta: parsed,
+      };
+    }
+  } catch {
+    // Fall back to literal phase if not valid JSON metadata.
+  }
+  return { userPhase: phase, meta: null };
+}
+
+function applyCommonStudioMetadata<T extends StudioStepCommon>(
+  common: T,
+  meta: StudioPhaseMetadata | null
+): T {
+  if (!meta) return common;
+  const next = { ...common };
+  if (meta.hasFilter) {
+    next.filter = meta.filter;
+  }
+  if (meta.hasSubscribeThread) {
+    next.subscribeThread = meta.subscribeThread;
+  }
+  if (meta.hasThreadKeyTemplate) {
+    next.threadKeyTemplate = meta.threadKeyTemplate;
+  }
+  return next;
+}
+
+function captureCommonStudioMetadata(
+  step: StudioStepCommon,
+  options?: { omitFilter?: boolean; omitSubscribeThread?: boolean }
+): Partial<StudioPhaseMetadata> {
+  const meta: Partial<StudioPhaseMetadata> = {};
+  if (!options?.omitFilter && 'filter' in step && step.filter !== undefined) {
+    meta.hasFilter = true;
+    meta.filter = step.filter;
+  }
+  if (
+    !options?.omitSubscribeThread &&
+    'subscribeThread' in step &&
+    step.subscribeThread !== undefined
+  ) {
+    meta.hasSubscribeThread = true;
+    meta.subscribeThread = step.subscribeThread;
+  }
+  if ('threadKeyTemplate' in step && step.threadKeyTemplate !== undefined) {
+    meta.hasThreadKeyTemplate = true;
+    meta.threadKeyTemplate = step.threadKeyTemplate;
+  }
+  return meta;
+}
+
+function normalizeBackendThreadKeyPointer(
+  template: string | null | undefined
+): string | null {
+  if (!template) return null;
+  const trimmed = template.trim();
+  if (!trimmed) return null;
+  if (trimmed.startsWith('/') && trimmed !== '/') {
+    return trimmed;
+  }
+  const match = /^\{\{\s*([a-zA-Z0-9_./-]+)\s*\}\}$/.exec(trimmed);
+  if (match?.[1]) {
+    const pointer = `/${match[1].replace(/\./g, '/').replace(/^\/+/, '')}`;
+    return pointer !== '/' ? pointer : '/threadKey';
+  }
+  return null;
+}
+
+function inferOutboxChannelActionKind(
+  step: Extract<WorkflowStep, { kind: 'outbox_action' }>
+): OutboxActionKind {
+  if (step.actionKind === 'webhook_post' || step.actionKind === 'emit_event') {
+    return step.actionKind;
+  }
+  if (
+    step.payloadTemplate &&
+    typeof step.payloadTemplate === 'object' &&
+    !Array.isArray(step.payloadTemplate) &&
+    typeof step.payloadTemplate.channelHint === 'string'
+  ) {
+    const hint = step.payloadTemplate.channelHint;
+    if (
+      hint === 'feishu_reply' ||
+      hint === 'jira_comment' ||
+      hint === 'github_comment' ||
+      hint === 'webhook_post' ||
+      hint === 'emit_event'
+    ) {
+      return hint;
+    }
+  }
+  const target = step.targetTemplate.toLowerCase();
+  if (target.startsWith('feishu:')) return 'feishu_reply';
+  if (target.startsWith('jira:')) return 'jira_comment';
+  return 'github_comment';
+}
+
 function isStudioOnlyStep(
   step: StudioWorkflowStep | WorkflowStep
 ): step is StudioWorkflowStep {
@@ -447,57 +658,155 @@ export function isStudioOnlyDefinition(
 export function toStudioWorkflowDefinition(
   input: WorkflowStudioDefinitionInput
 ): StudioWorkflowDefinition {
-  const steps: StudioWorkflowStep[] = input.steps.map((step) => {
+  let decodedOrchestratorPreset:
+    | { present: true; value: PresetOrchestratorKind | null | undefined }
+    | { present: false } =
+    'orchestratorPreset' in input
+      ? { present: true, value: input.orchestratorPreset }
+      : { present: false };
+
+  const steps: StudioWorkflowStep[] = input.steps.map((step, index) => {
     if (isStudioOnlyStep(step)) {
       return step;
     }
+    const { userPhase, meta } = decodeStudioPhase(step.phase);
+    if (index === 0 && !decodedOrchestratorPreset.present && meta?.hasOrchestratorPreset) {
+      decodedOrchestratorPreset = {
+        present: true,
+        value: meta.orchestratorPreset ?? null,
+      };
+    }
+
+    const baseCommon: StudioStepCommon = applyCommonStudioMetadata(
+      {
+        id: step.id,
+        dependsOn: step.dependsOn,
+        phase: userPhase,
+        inputBindings: step.inputBindings,
+      },
+      meta
+    );
+
     switch (step.kind) {
       case 'agent':
-      case 'approval':
-      case 'notify':
-        return step;
-      case 'session':
         return {
-          id: step.id,
-          dependsOn: step.dependsOn,
-          phase: step.phase,
-          inputBindings: step.inputBindings,
-          subscribeThread: step.subscribeThread,
+          ...step,
+          ...baseCommon,
+          ...(meta?.legacy?.workspaceIsolation !== undefined
+            ? { workspaceIsolation: meta.legacy.workspaceIsolation }
+            : {}),
+        };
+      case 'approval':
+        return {
+          ...step,
+          ...baseCommon,
+          ...(meta?.legacy?.slaTimeoutSeconds !== undefined
+            ? { slaTimeoutSeconds: meta.legacy.slaTimeoutSeconds }
+            : {}),
+        };
+      case 'notify': {
+        if (meta?.trigger) {
+          const { hasTemporal, temporal, ...triggerRest } = meta.trigger;
+          return {
+            ...baseCommon,
+            kind: 'trigger',
+            ...triggerRest,
+            ...(hasTemporal ? { temporal: temporal ?? null } : {}),
+          };
+        }
+        if (step.title.startsWith(PULSE_TRIGGER_PREFIX)) {
+          const parsedTitle =
+            step.title.slice(PULSE_TRIGGER_PREFIX.length).trim() ||
+            'Event Trigger';
+          return {
+            ...baseCommon,
+            kind: 'trigger',
+            title: parsedTitle,
+            triggerKind: 'platform',
+            sourceKind: 'github',
+            eventType: 'github.pr.opened',
+            evalMode: 'observe',
+            temporal: null,
+            filter: {
+              ...DEFAULT_GATE_FILTER,
+              sourceKinds: ['github'],
+              eventTypes: ['github.pr.opened'],
+            },
+          };
+        }
+        return {
+          ...step,
+          ...baseCommon,
+          ...(meta?.legacy?.slaTimeoutSeconds !== undefined
+            ? { slaTimeoutSeconds: meta.legacy.slaTimeoutSeconds }
+            : {}),
+        };
+      }
+      case 'session': {
+        const inferredIsolation: PulseWorkspaceIsolation =
+          step.workspaceAccess === 'write_isolated'
+            ? 'isolated_worktree'
+            : step.workspaceAccess === 'read_only_shared'
+              ? 'scratch'
+              : 'project_root';
+        const sessionStep: StudioWorkflowStep = {
+          ...baseCommon,
+          ...(meta?.hasSubscribeThread
+            ? (meta.subscribeThread !== undefined
+                ? { subscribeThread: meta.subscribeThread }
+                : {})
+            : step.subscribeThread
+              ? { subscribeThread: true }
+              : {}),
           kind: 'session',
           agentId: step.agentId,
           prompt: step.promptTemplate,
           workspaceIsolation:
-            step.workspaceAccess === 'write_isolated'
-              ? 'isolated_worktree'
-              : 'project_root',
-          executorProfileId: null,
-          modeOverride: step.modelOverride,
-          configOverrides: {},
-          outputLanguage: 'en',
-          outputDescription: null,
+            meta?.session?.workspaceIsolation ?? inferredIsolation,
+          executorProfileId: meta?.session?.executorProfileId ?? null,
+          modeOverride:
+            meta?.session !== undefined
+              ? meta.session.modeOverride
+              : step.modelOverride,
+          configOverrides: meta?.session?.configOverrides ?? {},
+          outputLanguage:
+            meta?.session !== undefined ? meta.session.outputLanguage : 'en',
+          outputDescription: meta?.session?.outputDescription ?? null,
           outputSchema: step.outputSchema,
           completionPolicy: step.completion,
+          ...(meta?.session?.hasAllowSkipOnReview
+            ? { allowSkipOnReview: meta.session.allowSkipOnReview }
+            : {}),
         };
-      case 'bot':
-        return {
-          id: step.id,
-          dependsOn: step.dependsOn,
-          phase: step.phase,
-          inputBindings: step.inputBindings,
+        return sessionStep;
+      }
+      case 'bot': {
+        const botStep: StudioWorkflowStep = {
+          ...baseCommon,
           kind: 'bot',
           memberId: step.memberId,
           conversationScope: step.conversationScope,
           mailboxPolicy: step.mailboxPolicy,
           prompt: step.promptTemplate,
-          outputDescription: null,
-          outputSchema: step.outputSchema,
+          ...(meta?.bot
+            ? {
+                ...(meta.bot.hasOutputDescription
+                  ? { outputDescription: meta.bot.outputDescription }
+                  : {}),
+                ...(meta.bot.hasOutputSchema
+                  ? { outputSchema: step.outputSchema }
+                  : {}),
+              }
+            : {
+                outputDescription: null,
+                outputSchema: step.outputSchema,
+              }),
         };
+        return botStep;
+      }
       case 'group_stage':
         return {
-          id: step.id,
-          dependsOn: step.dependsOn,
-          phase: step.phase,
-          inputBindings: step.inputBindings,
+          ...baseCommon,
           kind: 'group_stage',
           spaceId: step.spaceId,
           dispatchMode: step.dispatchMode,
@@ -505,74 +814,117 @@ export function toStudioWorkflowDefinition(
         };
       case 'user_gate':
         return {
-          id: step.id,
-          dependsOn: step.dependsOn,
-          phase: step.phase,
-          inputBindings: step.inputBindings,
+          ...baseCommon,
           kind: 'user_gate',
           interactionKind:
             step.interactionKind === 'digest' ? 'notify' : step.interactionKind,
           title: step.titleTemplate,
           bodyTemplate: step.bodyTemplate,
-          slaTimeoutSeconds: step.slaTimeoutSeconds,
-          formSchema: step.formSchema,
+          ...(meta?.userGate
+            ? {
+                ...(meta.userGate.hasApproverScope
+                  ? { approverScope: meta.userGate.approverScope }
+                  : {}),
+                ...(meta.userGate.hasSlaTimeoutSeconds
+                  ? { slaTimeoutSeconds: meta.userGate.slaTimeoutSeconds }
+                  : {}),
+                ...(meta.userGate.hasDecisionSchema
+                  ? { decisionSchema: meta.userGate.decisionSchema }
+                  : {}),
+                ...(meta.userGate.hasFormSchema
+                  ? { formSchema: meta.userGate.formSchema }
+                  : {}),
+              }
+            : {
+                slaTimeoutSeconds: step.slaTimeoutSeconds,
+                formSchema: step.formSchema,
+              }),
         };
       case 'condition_branch':
         return {
-          id: step.id,
-          dependsOn: step.dependsOn,
-          phase: step.phase,
-          inputBindings: step.inputBindings,
-          filter: step.filter,
+          ...baseCommon,
+          ...(meta?.hasFilter
+            ? (meta.filter !== undefined ? { filter: meta.filter } : {})
+            : { filter: step.filter }),
           kind: 'control',
           controlKind: 'condition',
-          title: step.id,
-          expression: step.thenStepIds.join(', '),
+          title: meta?.control?.title ?? step.id,
+          ...(meta?.control
+            ? meta.control.hasExpression
+              ? { expression: meta.control.expression }
+              : {}
+            : { expression: step.thenStepIds.join(', ') }),
         };
       case 'bounded_loop':
         return {
-          id: step.id,
-          dependsOn: step.dependsOn,
-          phase: step.phase,
-          inputBindings: step.inputBindings,
+          ...baseCommon,
           kind: 'control',
           controlKind: 'bounded_loop',
-          title: step.id,
-          maxIterations: step.maxIterations,
-          loopTargetStepId: step.targetStepIds[0],
+          title: meta?.control?.title ?? step.id,
+          ...(meta?.control
+            ? {
+                ...(meta.control.hasMaxIterations
+                  ? { maxIterations: meta.control.maxIterations }
+                  : {}),
+                ...(meta.control.hasLoopTargetStepId
+                  ? { loopTargetStepId: meta.control.loopTargetStepId }
+                  : {}),
+              }
+            : {
+                maxIterations: step.maxIterations,
+                loopTargetStepId: step.targetStepIds[0],
+              }),
         };
       case 'wait_for_event':
         return {
-          id: step.id,
-          dependsOn: step.dependsOn,
-          phase: step.phase,
-          inputBindings: step.inputBindings,
-          filter: step.filter,
+          ...baseCommon,
+          ...(meta?.hasFilter
+            ? (meta.filter !== undefined ? { filter: meta.filter } : {})
+            : step.filter !== null
+              ? { filter: step.filter }
+              : {}),
           kind: 'control',
           controlKind: 'wait_for_event',
-          title: step.id,
-          waitEventType: step.eventTypes[0] ?? 'sdk.custom',
-          threadKeyTemplate: step.threadKeyPointer,
-          timeoutSeconds: step.timeoutSeconds,
+          title: meta?.control?.title ?? step.id,
+          ...(meta?.control
+            ? {
+                ...(meta.control.hasWaitEventType
+                  ? { waitEventType: meta.control.waitEventType }
+                  : {}),
+                ...(meta.control.hasThreadKeyTemplate
+                  ? { threadKeyTemplate: meta.control.threadKeyTemplate }
+                  : {}),
+                ...(meta.control.hasTimeoutSeconds
+                  ? { timeoutSeconds: meta.control.timeoutSeconds }
+                  : {}),
+              }
+            : {
+                waitEventType: step.eventTypes[0] ?? 'sdk.custom',
+                threadKeyTemplate: step.threadKeyPointer,
+                timeoutSeconds: step.timeoutSeconds,
+              }),
         };
-      case 'outbox_action':
+      case 'outbox_action': {
+        const extractedPayload =
+          meta?.outbox?.payloadTemplate ??
+          (typeof step.payloadTemplate === 'string'
+            ? step.payloadTemplate
+            : step.payloadTemplate &&
+                typeof step.payloadTemplate === 'object' &&
+                !Array.isArray(step.payloadTemplate) &&
+                typeof step.payloadTemplate.message === 'string'
+              ? step.payloadTemplate.message
+              : JSON.stringify(step.payloadTemplate));
         return {
-          id: step.id,
-          dependsOn: step.dependsOn,
-          phase: step.phase,
-          inputBindings: step.inputBindings,
+          ...baseCommon,
           kind: 'outbox_action',
           actionKind:
-            step.actionKind === 'reply_channel'
-              ? 'github_comment'
-              : step.actionKind,
-          title: step.id,
+            meta?.outbox?.actionKind ?? inferOutboxChannelActionKind(step),
+          title: meta?.outbox?.title ?? step.id,
           destination: step.targetTemplate,
-          payloadTemplate:
-            typeof step.payloadTemplate === 'string'
-              ? step.payloadTemplate
-              : JSON.stringify(step.payloadTemplate),
+          payloadTemplate: extractedPayload,
         };
+      }
     }
   });
 
@@ -583,8 +935,8 @@ export function toStudioWorkflowDefinition(
     inputSchema: input.inputSchema,
     steps,
     policy: input.policy,
-    ...('orchestratorPreset' in input
-      ? { orchestratorPreset: input.orchestratorPreset }
+    ...(decodedOrchestratorPreset.present
+      ? { orchestratorPreset: decodedOrchestratorPreset.value }
       : {}),
   };
 }
@@ -642,19 +994,106 @@ function toBackendGateFilter(filter: PulseGateFilterAst): SharedGateFilterAst {
 export function toBackendWorkflowDefinition(
   definition: StudioWorkflowDefinition
 ): WorkflowDefinition {
-  const steps: WorkflowStep[] = definition.steps.map((step) => {
-    const common = {
+  const hasPreset =
+    'orchestratorPreset' in definition &&
+    definition.orchestratorPreset !== undefined;
+
+  const steps: WorkflowStep[] = definition.steps.map((step, index) => {
+    const presetMeta: Partial<StudioPhaseMetadata> =
+      index === 0 && hasPreset
+        ? {
+            hasOrchestratorPreset: true,
+            orchestratorPreset: definition.orchestratorPreset ?? null,
+          }
+        : {};
+
+    const buildCommon = (
+      stepMeta: StudioPhaseMetadata,
+      options?: { omitFilter?: boolean; omitSubscribeThread?: boolean }
+    ) => ({
       id: step.id,
       dependsOn: step.dependsOn,
-      phase: step.phase,
+      phase: encodeStudioPhase(step.phase, {
+        ...presetMeta,
+        ...captureCommonStudioMetadata(step, options),
+        ...stepMeta,
+      }),
       inputBindings: step.inputBindings,
-    };
+    });
+
     switch (step.kind) {
-      case 'agent':
-      case 'approval':
-      case 'notify':
-        return step;
-      case 'session':
+      case 'agent': {
+        const legacyMeta: StudioPhaseMetadata =
+          step.workspaceIsolation !== undefined
+            ? { legacy: { workspaceIsolation: step.workspaceIsolation } }
+            : {};
+        const common = buildCommon(legacyMeta);
+        const {
+          workspaceIsolation: _wsIso,
+          filter: _filter,
+          subscribeThread: _sub,
+          threadKeyTemplate: _tk,
+          ...agentRest
+        } = step;
+        return {
+          ...agentRest,
+          ...common,
+        };
+      }
+      case 'approval': {
+        const legacyMeta: StudioPhaseMetadata =
+          step.slaTimeoutSeconds !== undefined
+            ? { legacy: { slaTimeoutSeconds: step.slaTimeoutSeconds } }
+            : {};
+        const common = buildCommon(legacyMeta);
+        const {
+          slaTimeoutSeconds: _sla,
+          filter: _filter,
+          subscribeThread: _sub,
+          threadKeyTemplate: _tk,
+          ...approvalRest
+        } = step;
+        return {
+          ...approvalRest,
+          ...common,
+        };
+      }
+      case 'notify': {
+        const legacyMeta: StudioPhaseMetadata =
+          step.slaTimeoutSeconds !== undefined
+            ? { legacy: { slaTimeoutSeconds: step.slaTimeoutSeconds } }
+            : {};
+        const common = buildCommon(legacyMeta);
+        const {
+          slaTimeoutSeconds: _sla,
+          filter: _filter,
+          subscribeThread: _sub,
+          threadKeyTemplate: _tk,
+          ...notifyRest
+        } = step;
+        return {
+          ...notifyRest,
+          ...common,
+        };
+      }
+      case 'session': {
+        const common = buildCommon({
+          session: {
+            workspaceIsolation: step.workspaceIsolation,
+            executorProfileId: step.executorProfileId,
+            modeOverride: step.modeOverride,
+            configOverrides: step.configOverrides,
+            outputLanguage: step.outputLanguage,
+            outputDescription: step.outputDescription,
+            ...('allowSkipOnReview' in step &&
+            step.allowSkipOnReview !== undefined
+              ? {
+                  hasAllowSkipOnReview: true,
+                  allowSkipOnReview: step.allowSkipOnReview,
+                }
+              : {}),
+          },
+        });
         return {
           ...common,
           kind: 'session',
@@ -663,13 +1102,30 @@ export function toBackendWorkflowDefinition(
           workspaceAccess:
             step.workspaceIsolation === 'isolated_worktree'
               ? 'write_isolated'
-              : 'native',
-          modelOverride: step.modeOverride,
+              : step.workspaceIsolation === 'scratch'
+                ? 'read_only_shared'
+                : 'native',
+          modelOverride: step.modeOverride?.trim() ? step.modeOverride : null,
           subscribeThread: Boolean(step.subscribeThread),
           completion: step.completionPolicy,
           outputSchema: step.outputSchema,
         };
-      case 'bot':
+      }
+      case 'bot': {
+        const common = buildCommon({
+          bot: {
+            ...('outputDescription' in step &&
+            step.outputDescription !== undefined
+              ? {
+                  hasOutputDescription: true,
+                  outputDescription: step.outputDescription,
+                }
+              : {}),
+            ...('outputSchema' in step && step.outputSchema !== undefined
+              ? { hasOutputSchema: true }
+              : {}),
+          },
+        });
         return {
           ...common,
           kind: 'bot',
@@ -680,7 +1136,9 @@ export function toBackendWorkflowDefinition(
           completion: 'automatic',
           outputSchema: step.outputSchema ?? null,
         };
-      case 'group_stage':
+      }
+      case 'group_stage': {
+        const common = buildCommon({});
         return {
           ...common,
           kind: 'group_stage',
@@ -696,7 +1154,28 @@ export function toBackendWorkflowDefinition(
           messageTemplate: step.prompt,
           quorumCount: null,
         };
-      case 'user_gate':
+      }
+      case 'user_gate': {
+        const common = buildCommon({
+          userGate: {
+            ...('approverScope' in step && step.approverScope !== undefined
+              ? { hasApproverScope: true, approverScope: step.approverScope }
+              : {}),
+            ...('slaTimeoutSeconds' in step &&
+            step.slaTimeoutSeconds !== undefined
+              ? {
+                  hasSlaTimeoutSeconds: true,
+                  slaTimeoutSeconds: step.slaTimeoutSeconds,
+                }
+              : {}),
+            ...('decisionSchema' in step && step.decisionSchema !== undefined
+              ? { hasDecisionSchema: true, decisionSchema: step.decisionSchema }
+              : {}),
+            ...('formSchema' in step && step.formSchema !== undefined
+              ? { hasFormSchema: true, formSchema: step.formSchema }
+              : {}),
+          },
+        });
         return {
           ...common,
           kind: 'user_gate',
@@ -723,7 +1202,38 @@ export function toBackendWorkflowDefinition(
           formSchema: step.formSchema ?? null,
           slaTimeoutSeconds: step.slaTimeoutSeconds ?? null,
         };
-      case 'control':
+      }
+      case 'control': {
+        const controlMeta: StudioPhaseMetadata['control'] = {
+          title: step.title,
+          ...('expression' in step && step.expression !== undefined
+            ? { hasExpression: true, expression: step.expression }
+            : {}),
+          ...('maxIterations' in step && step.maxIterations !== undefined
+            ? { hasMaxIterations: true, maxIterations: step.maxIterations }
+            : {}),
+          ...('loopTargetStepId' in step && step.loopTargetStepId !== undefined
+            ? {
+                hasLoopTargetStepId: true,
+                loopTargetStepId: step.loopTargetStepId,
+              }
+            : {}),
+          ...('waitEventType' in step && step.waitEventType !== undefined
+            ? { hasWaitEventType: true, waitEventType: step.waitEventType }
+            : {}),
+          ...('threadKeyTemplate' in step &&
+          step.threadKeyTemplate !== undefined
+            ? {
+                hasThreadKeyTemplate: true,
+                threadKeyTemplate: step.threadKeyTemplate,
+              }
+            : {}),
+          ...('timeoutSeconds' in step && step.timeoutSeconds !== undefined
+            ? { hasTimeoutSeconds: true, timeoutSeconds: step.timeoutSeconds }
+            : {}),
+        };
+        const common = buildCommon({ control: controlMeta });
+
         if (step.controlKind === 'bounded_loop') {
           return {
             ...common,
@@ -742,36 +1252,82 @@ export function toBackendWorkflowDefinition(
             eventTypes: step.waitEventType
               ? [step.waitEventType]
               : ['sdk.custom'],
-            threadKeyPointer: step.threadKeyTemplate ?? null,
+            threadKeyPointer: normalizeBackendThreadKeyPointer(
+              step.threadKeyTemplate
+            ),
             filter: step.filter ? toBackendGateFilter(step.filter) : null,
             timeoutSeconds: step.timeoutSeconds ?? null,
           };
         }
+        const downstreamIds = definition.steps
+          .filter(
+            (candidate) =>
+              candidate.id !== step.id && candidate.dependsOn.includes(step.id)
+          )
+          .map((candidate) => candidate.id);
         return {
           ...common,
           kind: 'condition_branch',
           filter: toBackendGateFilter(step.filter ?? DEFAULT_GATE_FILTER),
-          thenStepIds: [],
+          thenStepIds: downstreamIds,
           elseStepIds: [],
         };
-      case 'outbox_action':
+      }
+      case 'outbox_action': {
+        const common = buildCommon({
+          outbox: {
+            actionKind: step.actionKind,
+            title: step.title,
+            payloadTemplate: step.payloadTemplate,
+          },
+        });
+        if (
+          step.actionKind === 'webhook_post' ||
+          step.actionKind === 'emit_event'
+        ) {
+          return {
+            ...common,
+            kind: 'outbox_action',
+            actionKind: step.actionKind,
+            targetTemplate: step.destination,
+            payloadTemplate: step.payloadTemplate,
+          };
+        }
         return {
           ...common,
           kind: 'outbox_action',
-          actionKind:
-            step.actionKind === 'webhook_post' ||
-            step.actionKind === 'emit_event'
-              ? step.actionKind
-              : 'reply_channel',
+          actionKind: 'reply_channel',
           targetTemplate: step.destination,
-          payloadTemplate: step.payloadTemplate,
+          payloadTemplate: {
+            channelHint: step.actionKind,
+            message: step.payloadTemplate,
+          },
         };
-      case 'trigger':
+      }
+      case 'trigger': {
+        const common = buildCommon(
+          {
+            trigger: {
+              title: step.title,
+              triggerKind: step.triggerKind,
+              sourceKind: step.sourceKind,
+              eventType: step.eventType,
+              evalMode: step.evalMode,
+              ...('temporal' in step && step.temporal !== undefined
+                ? { hasTemporal: true, temporal: step.temporal ?? null }
+                : {}),
+              filter: step.filter,
+            },
+          },
+          { omitFilter: true }
+        );
+        const rawTitle = step.title || step.id;
         return {
           ...common,
           kind: 'notify',
-          title: step.title || `trigger:${step.id}`,
+          title: `${PULSE_TRIGGER_PREFIX} ${rawTitle}`.slice(0, 200),
         };
+      }
     }
   });
 

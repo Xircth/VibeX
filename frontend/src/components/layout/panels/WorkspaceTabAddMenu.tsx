@@ -122,18 +122,19 @@ export function WorkspaceTabAddMenu({
     }
 
     const matchedSdkPanel = sdkPanels.find((panel) => {
+      if (panel.builtin) return false;
       const pluginId = panel.pluginId ?? 'plugin';
       const rawId = panel.id.startsWith(`${pluginId}:`)
         ? panel.id.slice(pluginId.length + 1)
         : panel.id;
-      return rawId === 'workflow-studio';
+      return rawId === PANEL_IDS.WORKFLOW_STUDIO;
     });
     if (matchedSdkPanel) {
       const pluginId = matchedSdkPanel.pluginId ?? 'plugin';
       openPluginPanel({
         title: matchedSdkPanel.title || workflowStudioLabel,
         pluginId,
-        contributionId: 'workflow-studio',
+        contributionId: PANEL_IDS.WORKFLOW_STUDIO,
         icon: matchedSdkPanel.icon ?? 'git-branch',
         multiInstance: matchedSdkPanel.multiInstance !== false,
         instance: 'focus',
@@ -141,11 +142,7 @@ export function WorkspaceTabAddMenu({
       return;
     }
 
-    openOrFocusPanel(
-      (PANEL_IDS as Record<string, string>).WORKFLOW_STUDIO ??
-        'workflow-studio',
-      workflowStudioLabel
-    );
+    openOrFocusPanel(PANEL_IDS.WORKFLOW_STUDIO, workflowStudioLabel);
   };
 
   const combinedPluginItems = useMemo(() => {

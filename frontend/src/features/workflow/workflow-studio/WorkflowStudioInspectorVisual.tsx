@@ -125,7 +125,7 @@ export function WorkflowStudioInspectorVisual({
                   icon: Bot,
                 },
               ] as const
-            ).map((item) => {
+            ).map((item, index, items) => {
               const Icon = item.icon;
               const active =
                 item.id === 'bot'
@@ -137,6 +137,7 @@ export function WorkflowStudioInspectorVisual({
                   key={item.id}
                   type="button"
                   role="radio"
+                  tabIndex={active ? 0 : -1}
                   aria-checked={active}
                   disabled={!onDefinitionChange}
                   data-testid={`inspector-primitive-${item.id}`}
@@ -150,6 +151,31 @@ export function WorkflowStudioInspectorVisual({
                       )
                     )
                   }
+                  onKeyDown={(event) => {
+                    if (
+                      !onDefinitionChange ||
+                      (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight')
+                    ) {
+                      return;
+                    }
+                    event.preventDefault();
+                    const delta = event.key === 'ArrowRight' ? 1 : -1;
+                    const nextIndex =
+                      (index + delta + items.length) % items.length;
+                    const nextPrimitive = items[nextIndex].id;
+                    updateStep(selectedStep.id, (step) =>
+                      switchExecutionPrimitive(
+                        step,
+                        nextPrimitive,
+                        defaultAgentId,
+                        outputLanguage
+                      )
+                    );
+                    const group = event.currentTarget.parentElement;
+                    const buttons =
+                      group?.querySelectorAll<HTMLButtonElement>('[role="radio"]');
+                    buttons?.[nextIndex]?.focus();
+                  }}
                   className={cn(
                     'flex flex-col items-start rounded-md px-2.5 py-1.5 text-left transition-colors disabled:opacity-60',
                     active

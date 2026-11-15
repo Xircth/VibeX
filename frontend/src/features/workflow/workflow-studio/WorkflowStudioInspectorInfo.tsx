@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { Check, CirclePlay, Trash2 } from 'lucide-react';
 import type { JsonValue } from 'shared/types';
 
@@ -16,6 +16,15 @@ import { validateStudioStepExhaustively } from './workflowValidation';
 function canSaveStudioStep(step: StudioWorkflowStep): boolean {
   return validateStudioStepExhaustively(step).length === 0;
 }
+
+const INSPECTOR_TIERS: ReadonlyArray<{
+  id: StudioInspectorTier;
+  label: string;
+}> = [
+  { id: 'visual', label: 'Visual' },
+  { id: 'advanced', label: 'Advanced' },
+  { id: 'json', label: 'JSON' },
+];
 
 export function WorkflowStudioInspectorInfo({
   selectedStep,
@@ -48,6 +57,12 @@ export function WorkflowStudioInspectorInfo({
     onRerunFromNode,
     removeSelected,
   } = studio;
+  const [approvalNote, setApprovalNote] = useState('');
+  const tabButtonRefs = useRef<Record<StudioInspectorTier, HTMLButtonElement | null>>({
+    visual: null,
+    advanced: null,
+    json: null,
+  });
 
   const stepIssues = useMemo(() => {
     const ids = new Set(definition.steps.map((item) => item.id));
@@ -64,25 +79,33 @@ export function WorkflowStudioInspectorInfo({
         aria-label="Inspector Mode"
         className="flex items-center rounded-lg border border-border bg-muted/65 p-0.5"
       >
-        {(
-          [
-            { id: 'visual', label: 'Visual' },
-            { id: 'advanced', label: 'Advanced' },
-            { id: 'json', label: 'JSON' },
-          ] as const satisfies ReadonlyArray<{
-            id: StudioInspectorTier;
-            label: string;
-          }>
-        ).map((tier) => (
+        {INSPECTOR_TIERS.map((tier, index) => (
           <button
             key={tier.id}
+            ref={(node) => {
+              tabButtonRefs.current[tier.id] = node;
+            }}
             type="button"
             role="tab"
+            tabIndex={inspectorTier === tier.id ? 0 : -1}
             aria-selected={inspectorTier === tier.id}
             data-testid={`inspector-tier-${tier.id}`}
             onClick={() => setInspectorTier(tier.id)}
+            onKeyDown={(event) => {
+              if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') {
+                return;
+              }
+              event.preventDefault();
+              const delta = event.key === 'ArrowRight' ? 1 : -1;
+              const nextIndex =
+                (index + delta + INSPECTOR_TIERS.length) %
+                INSPECTOR_TIERS.length;
+              const nextTier = INSPECTOR_TIERS[nextIndex].id;
+              setInspectorTier(nextTier);
+              tabButtonRefs.current[nextTier]?.focus();
+            }}
             className={cn(
-              'flex !h-7 flex-1 items-center justify-center gap-1.5 rounded-md px-2.5 text-xs font-medium transition-colors',
+              'flex h-7 flex-1 items-center justify-center gap-1.5 rounded-md px-2.5 text-xs font-medium transition-colors',
               inspectorTier === tier.id
                 ? 'bg-card text-foreground shadow-sm'
                 : 'text-muted-foreground hover:text-foreground'
@@ -196,10 +219,62 @@ export function WorkflowStudioInspectorInfo({
         </Button>
       ) : null}
       {(selectedStep.kind === 'approval' ||
-        (selectedStep.kind === 'user_gate' &&
-          selectedStep.interactionKind === 'approval')) &&
+        selectedStep.kind === 'user_gate' ||
+        selectedRun?.status === 'waiting_approval') &&
       selectedRun?.status === 'waiting_approval' ? (
         <div className="space-y-2 rounded-lg border border-warning/35 bg-warning/[0.06] p-3">
+          <div className="space-y-1.5">
+            <Label htmlFor="workflow-approval-note">
+              {t('inspector.approvalNoteLabel', {
+                defaultValue: 'Approval note',
+              })}
+            </Label>
+            <input
+              id="workflow-approval-note"
+              type="text"
+              value={approvalNote}
+              onChange={(event) => setApprovalNote(event.target.value)}
+              placeholder={t('inspector.approvalNotePlaceholder', {
+                defaultValue: 'Add optional decision note…',
+              })}
+              className="h-8 w-full rounded-md border bg-background px-2.5 text-xs outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            />
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            <Button
+              type="button"
+              size="sm"
+              onClick={() => {
+                setDecisionError(null);
+                const trimmed = approvalNote.trim();
+                void onDecideApproval?.(selectedStep.id, {
+                  approved: true,
+                  optionId: 'approve',
+                  ...(trimmed ? { note: trimmed } : {}),
+                });
+                setApprovalNote('');
+              }}
+            >
+              {t('inspector.approve', { defaultValue: 'Approve' })}
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant="destructive"
+              onClick={() => {
+                setDecisionError(null);
+                const trimmed = approvalNote.trim();
+                void onDecideApproval?.(selectedStep.id, {
+                  approved: false,
+                  optionId: 'reject',
+                  ...(trimmed ? { note: trimmed } : {}),
+                });
+                setApprovalNote('');
+              }}
+            >
+              {t('inspector.reject', { defaultValue: 'Reject' })}
+            </Button>
+          </div>
           <Label htmlFor="workflow-approval-decision">
             {t('studio.decisionJson')}
           </Label>

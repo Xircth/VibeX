@@ -25,6 +25,7 @@ export const PANEL_IDS = {
   SESSION_LIST: 'session-list',
   BOTS: 'bots',
   COLLABORATION_SPACE: 'collaboration-space',
+  WORKFLOW_STUDIO: 'workflow-studio',
   EXTERNAL_DIRECTORY: 'external-directory',
 } as const;
 

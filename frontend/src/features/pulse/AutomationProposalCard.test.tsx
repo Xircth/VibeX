@@ -253,10 +253,34 @@ describe('PulseFilterBuilder', () => {
     expect(onChange).toHaveBeenCalledOnce();
   });
 
-  it('renders standalone PulseEvalModeControl in small size', () => {
+  it('renders standalone PulseEvalModeControl in small size and supports ArrowLeft/ArrowRight keyboard navigation', () => {
     const onChange = vi.fn();
-    render(<PulseEvalModeControl value="observe" size="sm" onChange={onChange} />);
-    fireEvent.click(screen.getByRole('button', { name: 'Auto' }));
+    const { rerender } = render(
+      <PulseEvalModeControl value="observe" size="sm" onChange={onChange} />
+    );
+    const observeBtn = screen.getByRole('button', { name: 'Observe' });
+    fireEvent.keyDown(observeBtn, { key: 'ArrowRight' });
     expect(onChange).toHaveBeenCalledWith('auto');
+    expect(document.activeElement).toBe(
+      screen.getByRole('button', { name: 'Auto' })
+    );
+
+    onChange.mockClear();
+    rerender(
+      <PulseEvalModeControl
+        value="observe"
+        size="sm"
+        lockAuto
+        onChange={onChange}
+      />
+    );
+    fireEvent.keyDown(screen.getByRole('button', { name: 'Observe' }), {
+      key: 'ArrowRight',
+    });
+    // Skips disabled/locked Auto and wraps directly to Off
+    expect(onChange).toHaveBeenCalledWith('off');
+    expect(document.activeElement).toBe(
+      screen.getByRole('button', { name: 'Off' })
+    );
   });
 });

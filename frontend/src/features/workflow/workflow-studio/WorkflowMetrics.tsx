@@ -17,7 +17,7 @@ export function WorkflowMetrics({
   return (
     <button
       type="button"
-      className="workflow-studio-floating-controls pointer-events-auto flex h-10 shrink-0 items-center gap-1.5 px-3 text-[10px] text-muted-foreground"
+      className="workflow-studio-floating-controls pointer-events-auto flex h-10 shrink-0 items-center gap-1.5 px-3 text-[10px] text-muted-foreground tabular-nums"
       aria-expanded={open}
       aria-label={t('studio.previewInformation')}
       onMouseEnter={() => setOpen(true)}

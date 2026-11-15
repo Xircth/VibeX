@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { memo, useCallback, useEffect, useState } from 'react';
 import {
   ArrowDown,
   ArrowUp,
@@ -29,16 +29,20 @@ import {
 
 export interface ComposerStashMenuProps {
   scopeId?: string | null;
-  draftValue: string;
+  draftValue?: string;
+  hasDraft?: boolean;
+  getDraftValue?: () => string;
   attachmentCount?: number;
   isEditable?: boolean;
   onStashDraft: () => void;
   onRestoreDraft: (text: string) => void;
 }
 
-export function ComposerStashMenu({
+export const ComposerStashMenu = memo(function ComposerStashMenu({
   scopeId,
   draftValue,
+  hasDraft,
+  getDraftValue,
   attachmentCount = 0,
   isEditable = true,
   onStashDraft,
@@ -74,17 +78,24 @@ export function ComposerStashMenu({
     return () => window.removeEventListener('storage', onStorage);
   }, [scopeId]);
 
-  const canStash = isEditable && draftValue.trim().length > 0;
+  const resolveDraftValue = useCallback(
+    () => (getDraftValue ? getDraftValue() : (draftValue ?? '')),
+    [draftValue, getDraftValue]
+  );
+
+  const canStash =
+    isEditable && (hasDraft ?? (draftValue?.trim().length ?? 0) > 0);
 
   const handleStashCurrent = useCallback(() => {
-    if (!isEditable || !draftValue.trim()) return;
+    const currentDraft = resolveDraftValue();
+    if (!isEditable || !currentDraft.trim()) return;
     const next = pushComposerDraftStash(scopeId, {
-      text: draftValue,
+      text: currentDraft,
       attachmentCount,
     });
     setItems(next);
     onStashDraft();
-  }, [attachmentCount, draftValue, isEditable, onStashDraft, scopeId]);
+  }, [attachmentCount, isEditable, onStashDraft, resolveDraftValue, scopeId]);
 
   const handleRestoreItem = useCallback(
     (id?: string) => {
@@ -92,10 +103,11 @@ export function ComposerStashMenu({
       const { popped, items: remaining } = popComposerDraftStash(scopeId, id);
       if (!popped) return;
 
+      const currentDraft = resolveDraftValue();
       let nextItems = remaining;
-      if (draftValue.trim() && draftValue !== popped.text) {
+      if (currentDraft.trim() && currentDraft !== popped.text) {
         nextItems = pushComposerDraftStash(scopeId, {
-          text: draftValue,
+          text: currentDraft,
           attachmentCount,
         });
       }
@@ -105,7 +117,7 @@ export function ComposerStashMenu({
         setOpen(false);
       }
     },
-    [attachmentCount, draftValue, isEditable, onRestoreDraft, scopeId]
+    [attachmentCount, isEditable, onRestoreDraft, resolveDraftValue, scopeId]
   );
 
   useEffect(() => {
@@ -120,7 +132,7 @@ export function ComposerStashMenu({
       ) {
         return;
       }
-      if (draftValue.trim()) {
+      if (resolveDraftValue().trim()) {
         event.preventDefault();
         handleStashCurrent();
       } else if (loadComposerDraftStash(scopeId).length > 0) {
@@ -130,7 +142,13 @@ export function ComposerStashMenu({
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [draftValue, handleRestoreItem, handleStashCurrent, isEditable, scopeId]);
+  }, [
+    handleRestoreItem,
+    handleStashCurrent,
+    isEditable,
+    resolveDraftValue,
+    scopeId,
+  ]);
 
   const handleDelete = (id: string) => {
     const next = removeComposerDraftStash(scopeId, id);
@@ -323,4 +341,4 @@ export function ComposerStashMenu({
       </PopoverContent>
     </Popover>
   );
-}
+});

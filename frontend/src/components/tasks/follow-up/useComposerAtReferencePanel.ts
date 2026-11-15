@@ -309,6 +309,8 @@ export function useComposerAtReferencePanel({
   const searchDebounceTimerRef = useRef<number | null>(null);
   const panelRef = useRef<PanelState | null>(null);
   panelRef.current = panel;
+  const contextRef = useRef(context);
+  contextRef.current = context;
 
   const clearDebounceTimer = useCallback(() => {
     if (searchDebounceTimerRef.current != null) {
@@ -343,7 +345,7 @@ export function useComposerAtReferencePanel({
   const search = useCallback(
     async (query: string) => {
       const requestId = ++requestRef.current;
-      const ctx = context ?? {};
+      const ctx = contextRef.current ?? {};
       const transport = ctx.transport;
       const [files, conversations, commits, instructions, hosts, projects] =
         await Promise.all([
@@ -396,7 +398,7 @@ export function useComposerAtReferencePanel({
         };
       });
     },
-    [context, loadSessionProjects, t]
+    [loadSessionProjects, t]
   );
 
   const openOrUpdate = useCallback(
@@ -410,23 +412,24 @@ export function useComposerAtReferencePanel({
         return;
       }
       searchedQueryRef.current = query;
+      const ctx = contextRef.current;
       setPanel((current) => {
         const initialGroups =
           current?.groups ??
-          (context?.spaceMembers !== undefined
+          (ctx?.spaceMembers !== undefined
             ? buildAtReferenceGroups(query, {
                 files: [],
                 conversations: [],
                 commits: [],
                 repoId: null,
                 instructions: [],
-                actions: context.actions ?? [],
-                members: context.spaceMembers,
+                actions: ctx.actions ?? [],
+                members: ctx.spaceMembers,
               })
             : EMPTY_GROUPS);
         const initialActiveTab =
           current?.activeTab ??
-          (context?.spaceMembers !== undefined
+          (ctx?.spaceMembers !== undefined
             ? firstNonEmptyTab(initialGroups, pinnedTabRef.current)
             : 'file');
         return {
@@ -448,7 +451,7 @@ export function useComposerAtReferencePanel({
         }, AT_REFERENCE_SEARCH_DEBOUNCE_MS);
       }
     },
-    [clearDebounceTimer, context, search]
+    [clearDebounceTimer, search]
   );
 
   const detect = useCallback(() => {
@@ -508,12 +511,14 @@ export function useComposerAtReferencePanel({
         void Promise.resolve(item.onActivate()).catch(() => undefined);
       }
       if (item.insertText) {
-        handle.insertToken(atReferenceItemToToken(item, context?.spaceMembers));
+        handle.insertToken(
+          atReferenceItemToToken(item, contextRef.current?.spaceMembers)
+        );
         onChange(handle.getValue());
       }
       close();
     },
-    [close, composerHandleRef, composerRootRef, context?.spaceMembers, onChange]
+    [close, composerHandleRef, composerRootRef, onChange]
   );
 
   const handleKeyDown = useCallback(

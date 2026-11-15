@@ -811,10 +811,32 @@ export function formatQuoteToken(
   return `[${header}](${escapeCommandPart(context.trim(), ')')})`;
 }
 
+export function mayContainStructuredComposerToken(
+  value: string,
+  options: StructuredTokenOptions = {}
+): boolean {
+  if (!value) return false;
+  if (value.includes('[')) return true;
+  if ((options.spaceMembers?.length ?? 0) > 0 && value.includes('@')) {
+    return true;
+  }
+  if ((options.bareAgentMentions?.length ?? 0) > 0 && value.includes('&')) {
+    return true;
+  }
+  if (options.includeLegacyTokens && /[@/$#&!]/.test(value)) {
+    return true;
+  }
+  return false;
+}
+
 export function getSessionComposerStructuredTokenSegments(
   value: string,
   options: StructuredTokenOptions = {}
 ): SessionComposerStructuredTokenSegment[] {
+  if (!value) return [];
+  if (!mayContainStructuredComposerToken(value, options)) {
+    return [{ kind: 'text', text: value }];
+  }
   const includeLegacyTokens = options.includeLegacyTokens ?? false;
   const segments: SessionComposerStructuredTokenSegment[] = [];
   let cursor = 0;

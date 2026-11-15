@@ -11,6 +11,7 @@ import {
   insertFileReferenceToken,
   insertPreviewElementToken,
   insertQuoteToken,
+  mayContainStructuredComposerToken,
   quoteTokenChipLabel,
   serializeSessionComposerBackendMessage,
   updateQuoteTokenAnnotation,
@@ -552,5 +553,25 @@ describe('session composer structured commands', () => {
     expect(serializeSessionComposerBackendMessage(cleared)).toBe(
       `Inspect ${formatQuoteToken('useLayoutEffect(() => {})')} carefully`
     );
+  });
+
+  it('short-circuits plain text via mayContainStructuredComposerToken while preserving markdown, @member, and &agent triggers', () => {
+    expect(mayContainStructuredComposerToken('')).toBe(false);
+    expect(
+      mayContainStructuredComposerToken('ordinary prose with @email and &amp;')
+    ).toBe(false);
+    expect(
+      mayContainStructuredComposerToken('See [@:App.tsx](src/App.tsx)')
+    ).toBe(true);
+    expect(
+      mayContainStructuredComposerToken('Ping @小A please', {
+        spaceMembers: [{ id: 'm1', nickname: '小A' }],
+      })
+    ).toBe(true);
+    expect(
+      mayContainStructuredComposerToken('Ask &Codex now', {
+        bareAgentMentions: [{ agent_kind: 'codex', display_name: 'Codex' }],
+      })
+    ).toBe(true);
   });
 });

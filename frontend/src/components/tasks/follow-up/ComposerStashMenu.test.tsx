@@ -99,4 +99,45 @@ describe('ComposerStashMenu', () => {
     expect(input.value).toBe('Shortcut draft [:quote](abc)');
     expect(loadComposerDraftStash('ws-shortcut')).toEqual([]);
   });
+
+  it('supports lazy getDraftValue + hasDraft without passing draftValue string', () => {
+    let latestDraft = 'Lazy stashed draft';
+    const onStashDraft = vi.fn(() => {
+      latestDraft = '';
+    });
+    const onRestoreDraft = vi.fn((restored: string) => {
+      latestDraft = restored;
+    });
+
+    const { rerender } = render(
+      <ComposerStashMenu
+        scopeId="ws-lazy"
+        hasDraft={true}
+        getDraftValue={() => latestDraft}
+        isEditable={true}
+        onStashDraft={onStashDraft}
+        onRestoreDraft={onRestoreDraft}
+      />
+    );
+
+    fireEvent.click(screen.getByTestId('composer-stash-push-button'));
+    expect(onStashDraft).toHaveBeenCalledTimes(1);
+    expect(loadComposerDraftStash('ws-lazy').map((e) => e.text)).toEqual([
+      'Lazy stashed draft',
+    ]);
+
+    rerender(
+      <ComposerStashMenu
+        scopeId="ws-lazy"
+        hasDraft={false}
+        getDraftValue={() => latestDraft}
+        isEditable={true}
+        onStashDraft={onStashDraft}
+        onRestoreDraft={onRestoreDraft}
+      />
+    );
+
+    fireEvent.keyDown(window, { key: 's', ctrlKey: true, altKey: true });
+    expect(onRestoreDraft).toHaveBeenCalledWith('Lazy stashed draft');
+  });
 });

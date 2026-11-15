@@ -1180,6 +1180,93 @@ export function TaskFollowUpSection({
     refetchAttemptBranch,
   });
 
+  const localMessageRef = useRef(localMessage);
+  localMessageRef.current = localMessage;
+
+  const onSendFollowUpRef = useRef(onSendFollowUp);
+  onSendFollowUpRef.current = onSendFollowUp;
+
+  const handleStableSendFollowUp = useCallback(() => {
+    void onSendFollowUpRef.current();
+  }, []);
+
+  const getLatestDraftValue = useCallback(
+    () => localMessageRef.current ?? '',
+    []
+  );
+
+  const handleStashDraft = useCallback(() => {
+    if (composerReplaceValueRef.current) {
+      composerReplaceValueRef.current('');
+    } else {
+      handleEditorChange('');
+    }
+  }, [handleEditorChange]);
+
+  const handleRestoreDraft = useCallback(
+    (restoredText: string) => {
+      if (composerReplaceValueRef.current) {
+        composerReplaceValueRef.current(restoredText);
+      } else {
+        handleEditorChange(restoredText);
+      }
+    },
+    [handleEditorChange]
+  );
+
+  const handleDismissPromptSuggestion = useCallback(() => {
+    if (sessionId) {
+      clearConversationPromptSuggestion(sessionId);
+    }
+  }, [sessionId]);
+
+  const handleResendLiveFeedback = useCallback(
+    (text?: string) => {
+      setLocalMessage(text ?? '');
+    },
+    [setLocalMessage]
+  );
+
+  const repoIds = useMemo(() => repos.map((repo) => repo.id), [repos]);
+
+  const composerInputContext = useMemo(
+    () => ({
+      workspaceId: workspaceIdValue,
+      workspacePath: composerWorkspacePath,
+      repoId: summaryRepoId ?? undefined,
+      repoIds,
+      executorProfile: effectiveExecutorProfile,
+      sessionId,
+      availableCommands: liveCommands.commands,
+      commandsLoading: liveCommands.loading,
+      transport: configuredBackendTransport,
+    }),
+    [
+      composerWorkspacePath,
+      configuredBackendTransport,
+      effectiveExecutorProfile,
+      liveCommands.commands,
+      liveCommands.loading,
+      repoIds,
+      sessionId,
+      summaryRepoId,
+      workspaceIdValue,
+    ]
+  );
+
+  const continuationConfig = useMemo(
+    () =>
+      sessionId && entries.length > 0 && !persona && !composerIdentity
+        ? {
+            policy: continuationPolicy,
+            onChange: setContinuationPolicy,
+          }
+        : null,
+    [composerIdentity, continuationPolicy, entries.length, persona, sessionId]
+  );
+
+  const hasDraft = Boolean(localMessage?.trim());
+
   if (!workspaceId) return null;
 
   return (
@@ -1322,7 +1409,7 @@ export function TaskFollowUpSection({
           <LiveFeedbackNotes
             notes={liveFeedbackNotes}
             conversationId={sessionId}
-            onResend={(text) => setLocalMessage(text ?? '')}
+            onResend={handleResendLiveFeedback}
           />
           <AgentMentionProvider
             transport={configuredBackendTransport}
@@ -1341,23 +1428,9 @@ export function TaskFollowUpSection({
                   ? storedPromptSuggestion
                   : null
               }
-              onDismissPromptSuggestion={() => {
-                if (sessionId) {
-                  clearConversationPromptSuggestion(sessionId);
-                }
-              }}
+              onDismissPromptSuggestion={handleDismissPromptSuggestion}
               messageHistory={userMessageHistory}
-              context={{
-                workspaceId: workspaceIdValue,
-                workspacePath: composerWorkspacePath,
-                repoId: summaryRepoId ?? undefined,
-                repoIds: repos.map((repo) => repo.id),
-                executorProfile: effectiveExecutorProfile,
-                sessionId,
-                availableCommands: liveCommands.commands,
-                commandsLoading: liveCommands.loading,
-                transport: configuredBackendTransport,
-              }}
+              context={composerInputContext}
               onSubmit={handleComposerSubmit}
               onAttachImages={handleAttachImages}
             />
@@ -1375,14 +1448,7 @@ export function TaskFollowUpSection({
             selectedConfigValues={selectedConfigValues}
             onSelectConfigOption={handleSelectConfigOption}
             sessionControlsLoading={catalogQuery.isLoading}
-            continuation={
-              sessionId && entries.length > 0 && !persona && !composerIdentity
-                ? {
-                    policy: continuationPolicy,
-                    onChange: setContinuationPolicy,
-                  }
-                : null
-            }
+            continuation={continuationConfig}
             persona={persona}
             isEditable={isEditable}
             isAttemptRunning={isComposerExecutionRunning}
@@ -1399,30 +1465,20 @@ export function TaskFollowUpSection({
             isEnhancingPrompt={isEnhancingPrompt}
             canEnhancePrompt={canEnhancePrompt}
             conflictResolutionInstructions={conflictResolutionInstructions}
-            comments={comments}
+            hasComments={comments.length > 0}
+            sendShortcut={config?.send_message_shortcut ?? 'Enter'}
             onCompactContext={handleCompactContext}
             onStopExecution={stopExecution}
-            onSendFollowUp={onSendFollowUp}
+            onSendFollowUp={handleStableSendFollowUp}
             onEnhancePrompt={handleEnhancePrompt}
             onClearComments={clearComments}
             onAttachImages={handleAttachImages}
             stashScopeId={workspaceIdValue ?? sessionId ?? 'global'}
-            draftValue={localMessage ?? ''}
+            hasDraft={hasDraft}
+            getDraftValue={getLatestDraftValue}
             attachmentCount={attachedImages.length}
-            onStashDraft={() => {
-              if (composerReplaceValueRef.current) {
-                composerReplaceValueRef.current('');
-              } else {
-                handleEditorChange('');
-              }
-            }}
-            onRestoreDraft={(restoredText) => {
-              if (composerReplaceValueRef.current) {
-                composerReplaceValueRef.current(restoredText);
-              } else {
-                handleEditorChange(restoredText);
-              }
-            }}
+            onStashDraft={handleStashDraft}
+            onRestoreDraft={handleRestoreDraft}
           />
         </SessionComposerFrame>
         <ComposerEngineHandoffModal controller={engineHandoff} />

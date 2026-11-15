@@ -1,9 +1,10 @@
-import { useMemo } from 'react';
+import { memo, useCallback, useMemo } from 'react';
 import { Slot } from '@/components/plugins/Slot';
 import type {
   AgentSessionConfigOption,
   ExecutorConfig,
   ExecutorProfileId,
+  SendMessageShortcut,
 } from 'shared/types';
 import type { ConversationSessionModesState } from '@/features/conversation/conversationStore';
 import { useSelectableAgents } from '@/features/agents/useSelectableAgents';
@@ -50,7 +51,9 @@ interface ActionBarProps {
   isEnhancingPrompt: boolean;
   canEnhancePrompt: boolean;
   conflictResolutionInstructions: string | null;
-  comments: unknown[];
+  comments?: unknown[];
+  hasComments?: boolean;
+  sendShortcut?: SendMessageShortcut | null;
   onCompactContext: () => void;
   onStopExecution: () => void;
   onSendFollowUp: () => void;
@@ -59,12 +62,14 @@ interface ActionBarProps {
   onAttachImages: (files: File[]) => void;
   stashScopeId?: string | null;
   draftValue?: string;
+  hasDraft?: boolean;
+  getDraftValue?: () => string;
   attachmentCount?: number;
   onStashDraft?: () => void;
   onRestoreDraft?: (text: string) => void;
 }
 
-export function ActionBar({
+export const ActionBar = memo(function ActionBar({
   profiles,
   effectiveExecutorProfile,
   onChangeExecutorProfile,
@@ -92,6 +97,8 @@ export function ActionBar({
   canEnhancePrompt,
   conflictResolutionInstructions,
   comments,
+  hasComments,
+  sendShortcut,
   onCompactContext,
   onStopExecution,
   onSendFollowUp,
@@ -99,7 +106,9 @@ export function ActionBar({
   onClearComments,
   onAttachImages,
   stashScopeId,
-  draftValue = '',
+  draftValue,
+  hasDraft,
+  getDraftValue,
   attachmentCount = 0,
   onStashDraft,
   onRestoreDraft,
@@ -112,24 +121,37 @@ export function ActionBar({
     return selectableAgents.find((a) => a.agentId === currentAgentId) ?? null;
   }, [selectableAgents, currentAgentId]);
 
+  const handleSelectExecutorProfile = useCallback(
+    (profile: ExecutorProfileId) => {
+      onChangeExecutorProfile(profile);
+    },
+    [onChangeExecutorProfile]
+  );
+
   const agentRail = useMemo(() => {
     if (!showProfileControls || persona) return null;
     return {
       profiles,
       effectiveExecutorProfile,
-      onChangeExecutorProfile: (profile: ExecutorProfileId) => {
-        onChangeExecutorProfile(profile);
-      },
+      onChangeExecutorProfile: handleSelectExecutorProfile,
       selectableAgents,
     };
   }, [
     effectiveExecutorProfile,
-    onChangeExecutorProfile,
+    handleSelectExecutorProfile,
     persona,
     profiles,
     selectableAgents,
     showProfileControls,
   ]);
+
+  const slotProps = useMemo(
+    () => ({ isEditable, isAttemptRunning }),
+    [isAttemptRunning, isEditable]
+  );
+
+  const resolvedHasComments =
+    hasComments ?? (comments ? comments.length > 0 : false);
 
   return (
     <div className="flex flex-wrap items-center gap-1 pt-1">
@@ -164,6 +186,8 @@ export function ActionBar({
         <ComposerStashMenu
           scopeId={stashScopeId}
           draftValue={draftValue}
+          hasDraft={hasDraft}
+          getDraftValue={getDraftValue}
           attachmentCount={attachmentCount}
           isEditable={isEditable}
           onStashDraft={onStashDraft}
@@ -176,10 +200,7 @@ export function ActionBar({
         onAttachImages={onAttachImages}
       />
 
-      <Slot
-        name="composer.toolbar"
-        slotProps={{ isEditable, isAttemptRunning }}
-      />
+      <Slot name="composer.toolbar" slotProps={slotProps} />
 
       <ActionBarUtilityButtons
         compactContextEnabled={compactContextEnabled}
@@ -203,14 +224,15 @@ export function ActionBar({
           isAwaitingNewSessionConfirmation={isAwaitingNewSessionConfirmation}
           isSendingFollowUp={isSendingFollowUp}
           canSendFollowUp={canSendFollowUp}
-          hasComments={comments.length > 0}
+          hasComments={resolvedHasComments}
           hasConflictResolutionInstructions={Boolean(
             conflictResolutionInstructions
           )}
+          sendShortcut={sendShortcut}
           onSendFollowUp={onSendFollowUp}
           onClearComments={onClearComments}
         />
       )}
     </div>
   );
-}
+});

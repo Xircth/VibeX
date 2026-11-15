@@ -1,1 +1,2 @@
 crates/db/migrations/*.sql text eol=lf
+plugins/*/README.md text eol=lf

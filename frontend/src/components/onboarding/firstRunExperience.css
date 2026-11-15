@@ -1978,6 +1978,41 @@
 .onboarding-roster .agent-management-bar {
   margin: 0;
   background: var(--surface-shell);
+  transition:
+    border-color 140ms ease-out,
+    box-shadow 140ms ease-out;
+}
+.onboarding-roster.is-drop-ready .agent-management-bar {
+  border-color: hsl(var(--primary) / 0.38);
+}
+.onboarding-roster.is-drop-over .agent-management-bar {
+  border-color: hsl(var(--primary));
+  box-shadow: 0 0 0 3px hsl(var(--primary) / 0.14);
+}
+.onboarding-agent-row.is-draggable .onboarding-agent-inspect {
+  cursor: grab;
+  touch-action: none;
+}
+.onboarding-agent-row.is-draggable .onboarding-agent-inspect:active {
+  cursor: grabbing;
+}
+.onboarding-agent-row.is-dragging {
+  opacity: 0.45;
+}
+.onboarding-agent-drag-overlay {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 36px;
+  padding: 0 12px 0 8px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-full);
+  background: var(--surface-shell);
+  color: var(--onboarding-ink);
+  font-size: 13px;
+  font-weight: 600;
+  box-shadow: 0 8px 20px hsl(var(--shadow-ink) / 0.16);
+  pointer-events: none;
 }
 .onboarding-agent-inspect:focus-visible,
 .onboarding-agent-action:focus-visible {

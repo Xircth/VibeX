@@ -1,3 +1,15 @@
+import {
+  DndContext,
+  DragOverlay,
+  PointerSensor,
+  pointerWithin,
+  rectIntersection,
+  useSensor,
+  useSensors,
+  type CollisionDetection,
+  type DragEndEvent,
+  type DragStartEvent,
+} from '@dnd-kit/core';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Plus, X } from 'lucide-react';
@@ -8,6 +20,7 @@ import type {
   AgentRegistryViewRow,
   UserAgentDefinitionRequest,
 } from 'shared/types';
+import { AgentManagementIcon } from '@/components/agents/AgentManagementIcon';
 import { Button } from '@/components/ui/button';
 import { backendListen } from '@/lib/backendTransport';
 import {
@@ -20,11 +33,20 @@ import { OnboardingAgentDetail } from './OnboardingAgentDetail';
 import { AgentSetupPicker } from './AgentSetupPicker';
 import type { ComponentProps } from 'react';
 import type { useOnboardingAgentChecks } from './useOnboardingAgentChecks';
-import { OnboardingRoster } from './OnboardingRoster';
+import {
+  ONBOARDING_ROSTER_DROPPABLE_ID,
+  OnboardingRoster,
+} from './OnboardingRoster';
 import {
   canJoinOnboardingRoster,
   onboardingAgentStatus,
 } from './onboardingAgentModel';
+
+const pickerCollisionDetection: CollisionDetection = (args) => {
+  const pointerHits = pointerWithin(args);
+  if (pointerHits.length > 0) return pointerHits;
+  return rectIntersection(args);
+};
 
 export function OnboardingAgents({
   picker,
@@ -39,7 +61,7 @@ export function OnboardingAgents({
 }: {
   picker: Omit<
     ComponentProps<typeof AgentSetupPicker>,
-    'onInspect' | 'onInstall'
+    'onInspect' | 'onInstall' | 'rosterIds' | 'onJoinRoster'
   >;
   onDirtyChange: (dirty: boolean) => void;
   management: ReturnType<typeof useAgentManagement>;
@@ -58,6 +80,8 @@ export function OnboardingAgents({
   const [loading, setLoading] = useState(false);
   const [adding, setAdding] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [draggedAgentId, setDraggedAgentId] = useState<AgentId | null>(null);
+  const setupRootRef = useRef<HTMLDivElement>(null);
   const registryRef = useRef<HTMLElement>(null);
   const [starting, setStarting] = useState<Set<string>>(() => new Set());
   const installing = useRef(new Set<string>());
@@ -69,10 +93,100 @@ export function OnboardingAgents({
   retryRef.current = retry;
   const agentsRef = useRef(picker.agents);
   agentsRef.current = picker.agents;
+  const checksRef = useRef(health.checks);
+  checksRef.current = health.checks;
+  const rosterIdsRef = useRef(rosterIds);
+  rosterIdsRef.current = rosterIds;
+  const onRosterChangeRef = useRef(onRosterChange);
+  onRosterChangeRef.current = onRosterChange;
   const managementRef = useRef(management.state.agents);
   managementRef.current = management.state.agents;
   const willInstallRef = useRef(onWillInstallAgent);
   willInstallRef.current = onWillInstallAgent;
+  const sensors = useSensors(
+    useSensor(PointerSensor, {
+      activationConstraint: { distance: 6 },
+    })
+  );
+
+  const joinRoster = useCallback(
+    (
+      id: AgentId,
+      insertIndex?: number,
+      checkOverride?: ReturnType<typeof useOnboardingAgentChecks>['checks'][AgentId]
+    ) => {
+      const option = agentsRef.current.find((item) => item.agentId === id);
+      if (!option) return;
+      const status = onboardingAgentStatus(
+        option,
+        checkOverride ?? checksRef.current[id]
+      );
+      if (!canJoinOnboardingRoster(status)) return;
+      const current = rosterIdsRef.current;
+      const without = current.filter((candidate) => candidate !== id);
+      const next =
+        insertIndex !== undefined &&
+        insertIndex >= 0 &&
+        insertIndex <= without.length
+          ? [
+              ...without.slice(0, insertIndex),
+              id,
+              ...without.slice(insertIndex),
+            ]
+          : [...without, id];
+      if (next.join('|') !== current.join('|')) {
+        onRosterChangeRef.current(next);
+      }
+    },
+    []
+  );
+
+  const handlePickerDragStart = useCallback(({ active }: DragStartEvent) => {
+    const id = active.data.current?.agentId as AgentId | undefined;
+    if (id) setDraggedAgentId(id);
+  }, []);
+
+  const handlePickerDragEnd = useCallback(
+    ({ active, over, activatorEvent, delta }: DragEndEvent) => {
+      setDraggedAgentId(null);
+      if (!over || over.id !== ONBOARDING_ROSTER_DROPPABLE_ID) return;
+      const id = active.data.current?.agentId as AgentId | undefined;
+      if (!id) return;
+      let insertIndex: number | undefined;
+      if (
+        'clientX' in activatorEvent &&
+        typeof activatorEvent.clientX === 'number'
+      ) {
+        const dropX = activatorEvent.clientX + delta.x;
+        const rosterEl =
+          setupRootRef.current?.querySelector('.onboarding-roster');
+        const items = Array.from(
+          rosterEl?.querySelectorAll<HTMLElement>(
+            '.agent-management-bar-page:not([inert]) [data-agent-id]'
+          ) ?? []
+        ).filter((el) => el.dataset.agentId && el.dataset.agentId !== id);
+        for (let index = 0; index < items.length; index += 1) {
+          const rect = items[index]!.getBoundingClientRect();
+          if (rect.width > 0 && dropX < rect.left + rect.width / 2) {
+            const targetId = items[index]!.dataset.agentId!;
+            const without = rosterIdsRef.current.filter(
+              (candidate) => candidate !== id
+            );
+            const foundIndex = without.indexOf(targetId);
+            if (foundIndex !== -1) insertIndex = foundIndex;
+            break;
+          }
+        }
+      }
+      joinRoster(id, insertIndex);
+    },
+    [joinRoster]
+  );
+
+  const handlePickerDragCancel = useCallback(() => {
+    setDraggedAgentId(null);
+  }, []);
+
   useEffect(() => {
     let active = true;
     let unlisten: (() => void) | undefined;
@@ -189,6 +303,9 @@ export function OnboardingAgents({
         ? { ...item, lifecycle: 'installing' as const }
         : item
     );
+  const draggedOption = draggedAgentId
+    ? rows.find((item) => item.agentId === draggedAgentId)
+    : undefined;
   const install = useCallback(
     async (id: AgentId, options?: { inspect?: boolean }) => {
       if (dirty || installing.current.has(id)) return;
@@ -230,6 +347,17 @@ export function OnboardingAgents({
     onConsumeAutoEnableIds?.();
     void Promise.allSettled(
       ids.map(async (id) => {
+        willInstallRef.current?.(id);
+        const initialOption = agentsRef.current.find(
+          (item) => item.agentId === id
+        );
+        const initialStatus = initialOption
+          ? onboardingAgentStatus(initialOption, checksRef.current[id])
+          : 'uninstalled';
+        if (initialStatus === 'ready') {
+          joinRoster(id);
+          return;
+        }
         const report = await check(id);
         const latestOption = agentsRef.current.find(
           (item) => item.agentId === id
@@ -237,136 +365,165 @@ export function OnboardingAgents({
         const latestView = managementRef.current.find(
           (item) => item.agent_id === id
         );
+        const checkOverride = report ? { report } : undefined;
         const status = latestOption
-          ? onboardingAgentStatus(
-              latestOption,
-              report ? { report } : undefined
-            )
+          ? onboardingAgentStatus(latestOption, checkOverride)
           : 'uninstalled';
+        if (canJoinOnboardingRoster(status)) {
+          joinRoster(id, undefined, checkOverride);
+          return;
+        }
         const needsInstall =
           !latestOption?.added ||
           Boolean(latestOption.needsInstallation) ||
           latestView?.lifecycle === 'uninstalled' ||
           latestView?.lifecycle === 'needs_repair' ||
           status === 'uninstalled';
-        if (!canJoinOnboardingRoster(status) && needsInstall) {
+        if (needsInstall) {
           await install(id, { inspect: false });
         }
       })
     );
-  }, [pendingAutoEnableIds, onConsumeAutoEnableIds, check, install]);
+  }, [pendingAutoEnableIds, onConsumeAutoEnableIds, check, install, joinRoster]);
   return (
-    <div className="onboarding-agent-setup">
-      <div
-        className={
-          inspectedId || registryOpen
-            ? 'onboarding-agents-layout has-detail'
-            : 'onboarding-agents-layout'
-        }
-      >
-        <section className="onboarding-agents-list-pane">
-          <AgentSetupPicker
-            {...picker}
-            agents={rows}
-            onInspect={inspect}
-            inspectedAgentId={inspectedId}
-            onInstall={(id) => void install(id)}
-          />
-        </section>
-        {registryOpen ? (
-          <aside
-            className="onboarding-agent-detail settings-page"
-            tabIndex={-1}
-            ref={registryRef}
-          >
-            <Button
-              className="self-end"
-              size="icon"
-              variant="ghost"
-              aria-label={t('onboarding.closeDetail')}
-              onClick={() => setRegistryOpen(false)}
-            >
-              <X className="h-4 w-4" />
-            </Button>
-            <AgentRegistryViewPanel
-              view={registry}
-              loading={loading}
-              addingAgentId={adding}
-              onRefresh={() => void loadRegistry(true)}
-              onAdd={(row) => void add(row)}
-              onAddUserDefinition={(request) => void add(request)}
+    <DndContext
+      sensors={sensors}
+      collisionDetection={pickerCollisionDetection}
+      onDragStart={handlePickerDragStart}
+      onDragEnd={handlePickerDragEnd}
+      onDragCancel={handlePickerDragCancel}
+    >
+      <div className="onboarding-agent-setup" ref={setupRootRef}>
+        <div
+          className={
+            inspectedId || registryOpen
+              ? 'onboarding-agents-layout has-detail'
+              : 'onboarding-agents-layout'
+          }
+        >
+          <section className="onboarding-agents-list-pane">
+            <AgentSetupPicker
+              {...picker}
+              agents={rows}
+              rosterIds={rosterIds}
+              onInspect={inspect}
+              onJoinRoster={(id) => joinRoster(id)}
+              inspectedAgentId={inspectedId}
+              onInstall={(id) => void install(id)}
             />
-          </aside>
-        ) : agent ? (
-          <OnboardingAgentDetail
-            key={agent.agent_id}
-            agent={agent}
-            operation={management.state.operations[agent.agent_id]}
-            onRefresh={management.refresh}
-            onDirtyChange={dirtyChange}
-            onClose={() => inspect(null)}
-            onInstall={() => install(agent.agent_id)}
-            checkState={health.checks[agent.agent_id]}
-            status={
-              selectedOption
-                ? onboardingAgentStatus(
-                    starting.has(agent.agent_id)
-                      ? { ...selectedOption, lifecycle: 'installing' }
-                      : selectedOption,
+          </section>
+          {registryOpen ? (
+            <aside
+              className="onboarding-agent-detail settings-page"
+              tabIndex={-1}
+              ref={registryRef}
+            >
+              <Button
+                className="self-end"
+                size="icon"
+                variant="ghost"
+                aria-label={t('onboarding.closeDetail')}
+                onClick={() => setRegistryOpen(false)}
+              >
+                <X className="h-4 w-4" />
+              </Button>
+              <AgentRegistryViewPanel
+                view={registry}
+                loading={loading}
+                addingAgentId={adding}
+                onRefresh={() => void loadRegistry(true)}
+                onAdd={(row) => void add(row)}
+                onAddUserDefinition={(request) => void add(request)}
+              />
+            </aside>
+          ) : agent ? (
+            <OnboardingAgentDetail
+              key={agent.agent_id}
+              agent={agent}
+              operation={management.state.operations[agent.agent_id]}
+              onRefresh={management.refresh}
+              onDirtyChange={dirtyChange}
+              onClose={() => inspect(null)}
+              onInstall={() => install(agent.agent_id)}
+              checkState={health.checks[agent.agent_id]}
+              status={
+                selectedOption
+                  ? onboardingAgentStatus(
+                      starting.has(agent.agent_id)
+                        ? { ...selectedOption, lifecycle: 'installing' }
+                        : selectedOption,
+                      health.checks[agent.agent_id]
+                    )
+                  : undefined
+              }
+              onCheck={checkSelected}
+              installing={starting.has(agent.agent_id)}
+              rosterAction={
+                selectedOption &&
+                canJoinOnboardingRoster(
+                  onboardingAgentStatus(
+                    selectedOption,
                     health.checks[agent.agent_id]
                   )
-                : undefined
+                ) &&
+                !rosterIds.includes(agent.agent_id) ? (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => joinRoster(agent.agent_id)}
+                  >
+                    {t('onboarding.joinRoster')}
+                  </Button>
+                ) : undefined
+              }
+            />
+          ) : null}
+        </div>
+        <OnboardingRoster
+          agents={management.state.agents}
+          ids={rosterIds}
+          onChange={onRosterChange}
+          onInspect={inspect}
+          dropReady={Boolean(draggedOption)}
+        />
+        <button
+          type="button"
+          className="onboarding-registry-entry"
+          onClick={() => {
+            if (dirty) {
+              setError(t('onboarding.unsavedConfiguration'));
+              return;
             }
-            onCheck={checkSelected}
-            installing={starting.has(agent.agent_id)}
-            rosterAction={
-              selectedOption &&
-              canJoinOnboardingRoster(
-                onboardingAgentStatus(
-                  selectedOption,
-                  health.checks[agent.agent_id]
-                )
-              ) &&
-              !rosterIds.includes(agent.agent_id) ? (
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() => onRosterChange([...rosterIds, agent.agent_id])}
-                >
-                  {t('onboarding.joinRoster')}
-                </Button>
-              ) : undefined
-            }
-          />
+            setRegistryOpen(true);
+            setInspectedId(null);
+            void loadRegistry();
+          }}
+        >
+          <Plus className="h-4 w-4" aria-hidden="true" />
+          <span>{t('onboarding.registryImport')}</span>
+        </button>
+        {error ? (
+          <p className="text-sm text-destructive" role="alert">
+            {error}
+          </p>
         ) : null}
       </div>
-      <OnboardingRoster
-        agents={management.state.agents}
-        ids={rosterIds}
-        onChange={onRosterChange}
-        onInspect={inspect}
-      />
-      <button
-        type="button"
-        className="onboarding-registry-entry"
-        onClick={() => {
-          if (dirty) {
-            setError(t('onboarding.unsavedConfiguration'));
-            return;
-          }
-          setRegistryOpen(true);
-          setInspectedId(null);
-          void loadRegistry();
-        }}
-      >
-        <Plus className="h-4 w-4" aria-hidden="true" />
-        <span>{t('onboarding.registryImport')}</span>
-      </button>
-      {error ? (
-        <p className="text-sm text-destructive" role="alert">
-          {error}
-        </p>
-      ) : null}
-    </div>
+      <DragOverlay>
+        {draggedOption ? (
+          <div className="onboarding-agent-drag-overlay">
+            <AgentManagementIcon
+              agent={{
+                agent_id: draggedOption.agentId,
+                icon_light: draggedOption.iconLight,
+                icon_dark: draggedOption.iconDark,
+                icon_svg: draggedOption.iconSvg,
+              }}
+              className="h-5 w-5"
+            />
+            <span>{draggedOption.displayName}</span>
+          </div>
+        ) : null}
+      </DragOverlay>
+    </DndContext>
   );
 }

@@ -9,6 +9,7 @@ import {
   isAuthPreflightItem,
   presentPreflightItems,
 } from '@/pages/settings/agentPreflightSnapshot';
+import { isNativeEngineAgent } from '@/pages/settings/agentProvisioning';
 
 export type OnboardingAgentCheck = {
   report?: AgentPreflightView;
@@ -40,7 +41,7 @@ export function onboardingAgentStatus(
   if (agent.needsInstallation) return 'uninstalled';
   if (!check) return 'checking';
   if (check.error || !check.report) return 'check_failed';
-  const items = presentPreflightItems(check.report.items);
+  const items = presentPreflightItems(check.report.items, agent.agentId);
   if (items.length === 0) return 'check_failed';
   const environment = items.filter((item) => !isAuthPreflightItem(item));
   if (environment.some((item) => item.status !== 'pass')) return 'uninstalled';
@@ -118,12 +119,18 @@ export function buildOnboardingAgentOptions(
       const sessionInstalled =
         Boolean(registry?.installed) ||
         COMPLETE_INSTALLATION_STATES.has(lifecycle);
-      // A detected vendor CLI affects display order; readiness still requires
-      // its ACP adapter (ADR-0010) and a passing preflight.
-      const acpReady = Boolean(managed?.acp_version || sessionInstalled);
       const cliDetected = Boolean(managed?.local_runtime?.path);
       const desktopDetected = Boolean(managed?.desktop_client?.path);
       const localDetected = cliDetected || desktopDetected;
+      // NativeEngine profiles run the official vendor CLI directly; AdapterBacked
+      // profiles still require their ACP adapter alongside any detected CLI.
+      const nativeEngineReady =
+        isNativeEngineAgent(agentId) &&
+        lifecycle !== 'needs_repair' &&
+        (cliDetected || Boolean(managed?.runtime_version));
+      const acpReady = Boolean(
+        managed?.acp_version || sessionInstalled || nativeEngineReady
+      );
       const runtimeInstalled = acpReady || localDetected;
 
       return {

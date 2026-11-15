@@ -240,7 +240,6 @@ const transport: BackendTransport = {
         agent_id: id,
         checked_at: new Date().toISOString(),
         items: [
-          ['membership', '运行入口'],
           ['runtime', 'Agent'],
           ['acp', 'ACP'],
         ].map(([itemId, label]) => ({

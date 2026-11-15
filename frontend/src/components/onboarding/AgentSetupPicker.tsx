@@ -1,4 +1,6 @@
+import { useDraggable } from '@dnd-kit/core';
 import { CircleAlert, Loader2 } from 'lucide-react';
+import { useEffect, useMemo, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { AgentDiscoveryProgressView, AgentId } from 'shared/types';
 import { AgentManagementIcon } from '@/components/agents/AgentManagementIcon';
@@ -6,6 +8,7 @@ import { Button } from '@/components/ui/button';
 import { OnboardingAgentStatusBadge } from './OnboardingAgentStatusBadge';
 import { cn } from '@/lib/utils';
 import {
+  canJoinOnboardingRoster,
   onboardingAgentStatus,
   type OnboardingAgentCheck,
   type OnboardingAgentOption,
@@ -74,6 +77,141 @@ function DiscoveryProgressMeter({
   );
 }
 
+function AgentSetupPickerRow({
+  agent,
+  check,
+  inRoster,
+  inspected,
+  onInspect,
+  onInstall,
+  onJoinRoster,
+}: {
+  agent: OnboardingAgentOption;
+  check?: OnboardingAgentCheck;
+  inRoster: boolean;
+  inspected: boolean;
+  onInspect: (agentId: AgentId) => void;
+  onInstall: (agentId: AgentId) => void;
+  onJoinRoster?: (agentId: AgentId) => void;
+}) {
+  const { t } = useTranslation('dialogs');
+  const status = onboardingAgentStatus(agent, check);
+  const canDragToRoster =
+    Boolean(onJoinRoster) && canJoinOnboardingRoster(status);
+  const canClickToJoinRoster =
+    Boolean(onJoinRoster) && status === 'ready' && !inRoster;
+  const { setNodeRef, listeners, isDragging } = useDraggable({
+    id: `picker-agent:${agent.agentId}`,
+    data: { agentId: agent.agentId },
+    disabled: !canDragToRoster,
+  });
+  const wasDraggedRef = useRef(false);
+
+  useEffect(() => {
+    if (isDragging) {
+      wasDraggedRef.current = true;
+      return;
+    }
+    if (wasDraggedRef.current) {
+      const timer = window.setTimeout(() => {
+        wasDraggedRef.current = false;
+      }, 0);
+      return () => window.clearTimeout(timer);
+    }
+  }, [isDragging]);
+
+  const install = status === 'uninstalled' || status === 'install_failed';
+  const action =
+    status === 'uninstalled'
+      ? 'installOneClick'
+      : status === 'install_failed'
+        ? 'reinstall'
+        : status === 'needs_auth'
+          ? 'configureAuth'
+          : 'viewDetails';
+
+  return (
+    <article
+      role="listitem"
+      data-agent-id={agent.agentId}
+      data-draggable={canDragToRoster ? 'true' : undefined}
+      className={cn(
+        'onboarding-agent-row',
+        inspected && 'is-inspected',
+        canDragToRoster && 'is-draggable',
+        isDragging && 'is-dragging'
+      )}
+    >
+      <button
+        type="button"
+        ref={setNodeRef}
+        {...(canDragToRoster ? listeners : undefined)}
+        className="onboarding-agent-inspect"
+        onClick={() => {
+          if (wasDraggedRef.current) {
+            wasDraggedRef.current = false;
+            return;
+          }
+          if (canClickToJoinRoster) {
+            onJoinRoster?.(agent.agentId);
+            return;
+          }
+          onInspect(agent.agentId);
+        }}
+        aria-label={t('onboarding.agentDetail', {
+          agent: agent.displayName,
+        })}
+        aria-expanded={inspected}
+      >
+        <span className="onboarding-agent-icon">
+          <AgentManagementIcon
+            agent={{
+              agent_id: agent.agentId,
+              icon_light: agent.iconLight,
+              icon_dark: agent.iconDark,
+              icon_svg: agent.iconSvg,
+            }}
+            className="h-6 w-6"
+          />
+        </span>
+        <span className="onboarding-agent-name">{agent.displayName}</span>
+      </button>
+      <div className="onboarding-agent-row-actions">
+        <OnboardingAgentStatusBadge status={status} />
+        {status === 'installing' || status === 'checking' ? (
+          <span className="onboarding-installing" role="status">
+            <Loader2
+              className="h-3.5 w-3.5 motion-safe:animate-spin"
+              aria-hidden="true"
+            />
+            {t(
+              status === 'installing'
+                ? 'onboarding.installingAgent'
+                : 'onboarding.checking'
+            )}
+          </span>
+        ) : (
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="onboarding-agent-action"
+            disabled={status === 'unsupported'}
+            onClick={() =>
+              install ? onInstall(agent.agentId) : onInspect(agent.agentId)
+            }
+            aria-label={t(`onboarding.${action}Aria`, {
+              agent: agent.displayName,
+            })}
+          >
+            {t(`onboarding.${action}`)}
+          </Button>
+        )}
+      </div>
+    </article>
+  );
+}
+
 export function AgentSetupPicker({
   agents,
   checks,
@@ -84,6 +222,8 @@ export function AgentSetupPicker({
   onInspect,
   onInstall,
   inspectedAgentId,
+  rosterIds,
+  onJoinRoster,
 }: {
   agents: OnboardingAgentOption[];
   checks: Record<string, OnboardingAgentCheck>;
@@ -94,8 +234,11 @@ export function AgentSetupPicker({
   onInspect: (agentId: AgentId) => void;
   onInstall: (agentId: AgentId) => void;
   inspectedAgentId?: AgentId | null;
+  rosterIds?: ReadonlyArray<AgentId>;
+  onJoinRoster?: (agentId: AgentId) => void;
 }) {
   const { t } = useTranslation('dialogs');
+  const rosterSet = useMemo(() => new Set(rosterIds ?? []), [rosterIds]);
   const discoveryBusy =
     discoveryProgress?.phase === 'pending' ||
     discoveryProgress?.phase === 'checking';
@@ -126,88 +269,18 @@ export function AgentSetupPicker({
         </div>
       ) : null}
       <div className="onboarding-agent-list" role="list">
-        {agents.map((agent) => {
-          const status = onboardingAgentStatus(agent, checks[agent.agentId]);
-          const install =
-            status === 'uninstalled' || status === 'install_failed';
-          const action =
-            status === 'uninstalled'
-              ? 'installOneClick'
-              : status === 'install_failed'
-                ? 'reinstall'
-                : status === 'needs_auth'
-                  ? 'configureAuth'
-                  : 'viewDetails';
-          return (
-            <article
-              key={agent.agentId}
-              role="listitem"
-              className={cn(
-                'onboarding-agent-row',
-                agent.agentId === inspectedAgentId && 'is-inspected'
-              )}
-            >
-              <button
-                type="button"
-                className="onboarding-agent-inspect"
-                onClick={() => onInspect(agent.agentId)}
-                aria-label={t('onboarding.agentDetail', {
-                  agent: agent.displayName,
-                })}
-                aria-expanded={agent.agentId === inspectedAgentId}
-              >
-                <span className="onboarding-agent-icon">
-                  <AgentManagementIcon
-                    agent={{
-                      agent_id: agent.agentId,
-                      icon_light: agent.iconLight,
-                      icon_dark: agent.iconDark,
-                      icon_svg: agent.iconSvg,
-                    }}
-                    className="h-6 w-6"
-                  />
-                </span>
-                <span className="onboarding-agent-name">
-                  {agent.displayName}
-                </span>
-              </button>
-              <div className="onboarding-agent-row-actions">
-                <OnboardingAgentStatusBadge status={status} />
-                {status === 'installing' || status === 'checking' ? (
-                  <span className="onboarding-installing" role="status">
-                    <Loader2
-                      className="h-3.5 w-3.5 motion-safe:animate-spin"
-                      aria-hidden="true"
-                    />
-                    {t(
-                      status === 'installing'
-                        ? 'onboarding.installingAgent'
-                        : 'onboarding.checking'
-                    )}
-                  </span>
-                ) : (
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    className="onboarding-agent-action"
-                    disabled={status === 'unsupported'}
-                    onClick={() =>
-                      install
-                        ? onInstall(agent.agentId)
-                        : onInspect(agent.agentId)
-                    }
-                    aria-label={t(`onboarding.${action}Aria`, {
-                      agent: agent.displayName,
-                    })}
-                  >
-                    {t(`onboarding.${action}`)}
-                  </Button>
-                )}
-              </div>
-            </article>
-          );
-        })}
+        {agents.map((agent) => (
+          <AgentSetupPickerRow
+            key={agent.agentId}
+            agent={agent}
+            check={checks[agent.agentId]}
+            inRoster={rosterSet.has(agent.agentId)}
+            inspected={agent.agentId === inspectedAgentId}
+            onInspect={onInspect}
+            onInstall={onInstall}
+            onJoinRoster={onJoinRoster}
+          />
+        ))}
       </div>
     </div>
   );

@@ -12,6 +12,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { AgentManagementIcon } from '@/components/agents/AgentManagementIcon';
+import { isNativeEngineAgent } from '@/pages/settings/agentProvisioning';
 import type { OnboardingAgentOption } from './onboardingAgentModel';
 
 /**
@@ -189,7 +190,10 @@ export function findLocallyDetectedAgents(
       iconSvg: agent.iconSvg,
       sourceLabelKey:
         !agent.needsInstallation &&
-        (agent.lifecycle === 'ready' || agent.lifecycle === 'needs_auth')
+        (agent.lifecycle === 'ready' ||
+          agent.lifecycle === 'needs_auth' ||
+          (isNativeEngineAgent(agent.agentId) &&
+            agent.lifecycle !== 'needs_repair'))
           ? 'onboarding.localAgentReady'
           : 'onboarding.localAgentNeedsInstall',
     }));

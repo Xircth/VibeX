@@ -554,18 +554,18 @@ describe('production first-run flow', () => {
     fireEvent.click(screen.getByRole('button', { name: t('retry') }));
     await screen.findByText(t('agentStatus.ready'));
   });
-  it('preflights and auto-installs confirmed locally detected Agents before adding them to the roster', async () => {
+  it('preflights and auto-installs confirmed locally detected AdapterBacked Agents before adding them to the roster', async () => {
     let resolveInstall!: (receipt: unknown) => void;
     api.addAndInstall.mockReturnValue(
       new Promise((resolve) => {
         resolveInstall = resolve;
       })
     );
-    const localClaude: AgentManagementView = {
-      ...agent('claude_code', false),
+    const localZcode: AgentManagementView = {
+      ...agent('zcode', false),
       local_runtime: {
-        path: 'C:\\Users\\developer\\AppData\\Roaming\\npm\\claude.cmd',
-        version: '2.1.173',
+        path: 'C:\\Users\\developer\\AppData\\Roaming\\npm\\zcode.cmd',
+        version: '1.0.0',
       },
     };
     const localCursor: AgentManagementView = {
@@ -575,19 +575,19 @@ describe('production first-run flow', () => {
         version: null,
       },
     };
-    api.bar.mockResolvedValue([agent('codex', true), localClaude, localCursor]);
+    api.bar.mockResolvedValue([agent('codex', true), localZcode, localCursor]);
     setup();
     fireEvent.click(screen.getByRole('button', { name: t('next') }));
     const dialog = await screen.findByRole('dialog', {
       name: t('localAgentsDetectedTitle'),
     });
-    const claudeCheckbox = within(dialog).getByRole('checkbox', {
-      name: /claude_code/i,
+    const zcodeCheckbox = within(dialog).getByRole('checkbox', {
+      name: /zcode/i,
     });
     const cursorCheckbox = within(dialog).getByRole('checkbox', {
       name: /cursor/i,
     });
-    expect(claudeCheckbox).toBeChecked();
+    expect(zcodeCheckbox).toBeChecked();
     expect(cursorCheckbox).toBeChecked();
 
     fireEvent.click(cursorCheckbox);
@@ -598,45 +598,41 @@ describe('production first-run flow', () => {
     );
 
     const roster = screen.getByRole('region', { name: t('rosterTitle') });
-    expect(
-      within(roster).queryByRole('button', { name: 'claude_code' })
-    ).toBeNull();
+    expect(within(roster).queryByRole('button', { name: 'zcode' })).toBeNull();
     expect(within(roster).queryByRole('button', { name: 'cursor' })).toBeNull();
 
     await waitFor(() => {
-      expect(api.preflight).toHaveBeenCalledWith('claude_code');
-      expect(api.addAndInstall).toHaveBeenCalledWith('claude_code');
+      expect(api.preflight).toHaveBeenCalledWith('zcode');
+      expect(api.addAndInstall).toHaveBeenCalledWith('zcode');
     });
     expect(api.addAndInstall).not.toHaveBeenCalledWith('cursor');
-    expect(
-      within(roster).queryByRole('button', { name: 'claude_code' })
-    ).toBeNull();
+    expect(within(roster).queryByRole('button', { name: 'zcode' })).toBeNull();
 
     await act(async () =>
       resolveInstall({
-        operation_id: 'install-local-claude',
-        agent_id: 'claude_code',
+        operation_id: 'install-local-zcode',
+        agent_id: 'zcode',
         kind: 'install',
         status: 'queued',
       })
     );
 
-    const installedClaude: AgentManagementView = {
-      ...localClaude,
+    const installedZcode: AgentManagementView = {
+      ...localZcode,
       lifecycle: 'ready',
       acp_version: '1.0',
     };
     api.bar.mockResolvedValue([
       agent('codex', true),
-      installedClaude,
+      installedZcode,
       localCursor,
     ]);
 
     await act(async () => {
       listeners.get('agent-management-event')?.forEach((handler) =>
         handler({
-          operation_id: 'install-local-claude',
-          agent_id: 'claude_code',
+          operation_id: 'install-local-zcode',
+          agent_id: 'zcode',
           kind: 'install',
           status: 'succeeded',
           progress_percent: 100,
@@ -650,7 +646,7 @@ describe('production first-run flow', () => {
       expect(
         within(screen.getByRole('region', { name: t('rosterTitle') })).getByRole(
           'button',
-          { name: 'claude_code' }
+          { name: 'zcode' }
         )
       ).toBeInTheDocument()
     );
@@ -660,6 +656,36 @@ describe('production first-run flow', () => {
         { name: 'cursor' }
       )
     ).toBeNull();
+  });
+  it('enables locally detected NativeEngine Agents after preflight without installing an ACP adapter', async () => {
+    const localClaude: AgentManagementView = {
+      ...agent('claude_code', false),
+      local_runtime: {
+        path: 'C:\\Users\\developer\\AppData\\Roaming\\npm\\claude.cmd',
+        version: '2.1.325',
+      },
+    };
+    api.bar.mockResolvedValue([agent('codex', true), localClaude]);
+    setup();
+    fireEvent.click(screen.getByRole('button', { name: t('next') }));
+    const dialog = await screen.findByRole('dialog', {
+      name: t('localAgentsDetectedTitle'),
+    });
+    expect(
+      within(dialog).getByRole('checkbox', { name: /claude_code/i })
+    ).toBeChecked();
+
+    fireEvent.click(
+      within(dialog).getByRole('button', { name: t('localAgentsConfirm') })
+    );
+
+    const roster = screen.getByRole('region', { name: t('rosterTitle') });
+    await waitFor(() =>
+      expect(
+        within(roster).getByRole('button', { name: 'claude_code' })
+      ).toBeInTheDocument()
+    );
+    expect(api.addAndInstall).not.toHaveBeenCalled();
   });
   it('leaves locally detected Agents disabled when skipping the local detection dialog', async () => {
     const localClaude: AgentManagementView = {
@@ -692,5 +718,238 @@ describe('production first-run flow', () => {
         { name: 'claude_code' }
       )
     ).toBeNull();
+  });
+  it('adds already-ready locally detected Agents directly to the roster without reinstalling or re-checking', async () => {
+    const readyClaude: AgentManagementView = {
+      ...agent('claude_code', true),
+      enabled: false,
+      local_runtime: {
+        path: 'C:\\Users\\developer\\AppData\\Roaming\\npm\\claude.cmd',
+        version: '2.1.173',
+      },
+    };
+    api.bar.mockResolvedValue([agent('codex', true), readyClaude]);
+    setup();
+    fireEvent.click(screen.getByRole('button', { name: t('next') }));
+    const dialog = await screen.findByRole('dialog', {
+      name: t('localAgentsDetectedTitle'),
+    });
+    const roster = screen.getByRole('region', { name: t('rosterTitle') });
+    await waitFor(() =>
+      expect(
+        within(roster).getByRole('button', { name: 'claude_code' })
+      ).toBeInTheDocument()
+    );
+
+    api.preflight.mockClear();
+    fireEvent.click(
+      within(dialog).getByRole('button', { name: t('localAgentsConfirm') })
+    );
+
+    expect(
+      within(roster).getByRole('button', { name: 'claude_code' })
+    ).toBeInTheDocument();
+    expect(api.addAndInstall).not.toHaveBeenCalled();
+    expect(api.preflight).not.toHaveBeenCalledWith('claude_code');
+  });
+  it('allows dragging a ready Agent from the Agent list into the roster', async () => {
+    const readyClaude: AgentManagementView = {
+      ...agent('claude_code', true),
+      local_runtime: {
+        path: 'C:\\Users\\developer\\AppData\\Roaming\\npm\\claude.cmd',
+        version: '2.1.173',
+      },
+    };
+    api.bar.mockResolvedValue([agent('codex', true), readyClaude]);
+    setup();
+    fireEvent.click(screen.getByRole('button', { name: t('next') }));
+    const dialog = await screen.findByRole('dialog', {
+      name: t('localAgentsDetectedTitle'),
+    });
+    fireEvent.click(
+      within(dialog).getByRole('button', { name: t('localAgentsSkip') })
+    );
+    const roster = screen.getByRole('region', { name: t('rosterTitle') });
+    await waitFor(() =>
+      expect(
+        within(roster).queryByRole('button', { name: 'claude_code' })
+      ).toBeNull()
+    );
+
+    const claudeInspectButton = screen.getByRole('button', {
+      name: i18n.t('dialogs:onboarding.agentDetail', {
+        agent: 'claude_code',
+      }),
+    });
+    const rectSpy = vi
+      .spyOn(HTMLElement.prototype, 'getBoundingClientRect')
+      .mockImplementation(function (this: HTMLElement) {
+        if (this.classList.contains('onboarding-roster')) {
+          return new DOMRect(0, 220, 600, 96);
+        }
+        if (this === claudeInspectButton) {
+          return new DOMRect(20, 60, 260, 44);
+        }
+        if (
+          this.classList.contains('agent-management-bar-item') &&
+          this.dataset.agentId === 'codex'
+        ) {
+          return new DOMRect(120, 250, 90, 36);
+        }
+        return new DOMRect(0, 0, 0, 0);
+      });
+
+    try {
+      await act(async () => {
+        fireEvent.pointerDown(claudeInspectButton, {
+          button: 0,
+          buttons: 1,
+          isPrimary: true,
+          clientX: 60,
+          clientY: 80,
+          pointerId: 1,
+        });
+      });
+      await act(async () => {
+        fireEvent.pointerMove(document, {
+          buttons: 1,
+          isPrimary: true,
+          clientX: 70,
+          clientY: 96,
+          pointerId: 1,
+        });
+      });
+      await act(async () => {
+        fireEvent.pointerMove(document, {
+          buttons: 1,
+          isPrimary: true,
+          clientX: 60,
+          clientY: 265,
+          pointerId: 1,
+        });
+      });
+      await act(async () => {
+        fireEvent.pointerUp(document, {
+          isPrimary: true,
+          clientX: 60,
+          clientY: 265,
+          pointerId: 1,
+        });
+      });
+
+      await waitFor(() =>
+        expect(
+          within(roster).getByRole('button', { name: 'claude_code' })
+        ).toBeInTheDocument()
+      );
+      expect(
+        within(roster)
+          .getAllByRole('button')
+          .map((btn) => btn.getAttribute('aria-label'))
+      ).toEqual(['claude_code', 'codex']);
+    } finally {
+      rectSpy.mockRestore();
+    }
+  });
+  it('allows dragging a needs_auth Agent from the Agent list into the roster', async () => {
+    const needsAuthClaude: AgentManagementView = {
+      ...agent('claude_code', true),
+      lifecycle: 'needs_auth',
+      local_runtime: {
+        path: 'C:\\Users\\developer\\AppData\\Roaming\\npm\\claude.cmd',
+        version: '2.1.173',
+      },
+    };
+    api.bar.mockResolvedValue([agent('codex', true), needsAuthClaude]);
+    setup();
+    fireEvent.click(screen.getByRole('button', { name: t('next') }));
+    const dialog = await screen.findByRole('dialog', {
+      name: t('localAgentsDetectedTitle'),
+    });
+    fireEvent.click(
+      within(dialog).getByRole('button', { name: t('localAgentsSkip') })
+    );
+    const roster = screen.getByRole('region', { name: t('rosterTitle') });
+    await waitFor(() =>
+      expect(
+        within(roster).queryByRole('button', { name: 'claude_code' })
+      ).toBeNull()
+    );
+    expect(await screen.findByText(t('agentStatus.needs_auth'))).toBeInTheDocument();
+
+    const claudeInspectButton = screen.getByRole('button', {
+      name: i18n.t('dialogs:onboarding.agentDetail', {
+        agent: 'claude_code',
+      }),
+    });
+    const rectSpy = vi
+      .spyOn(HTMLElement.prototype, 'getBoundingClientRect')
+      .mockImplementation(function (this: HTMLElement) {
+        if (this.classList.contains('onboarding-roster')) {
+          return new DOMRect(0, 220, 600, 96);
+        }
+        if (this === claudeInspectButton) {
+          return new DOMRect(20, 60, 260, 44);
+        }
+        if (
+          this.classList.contains('agent-management-bar-item') &&
+          this.dataset.agentId === 'codex'
+        ) {
+          return new DOMRect(120, 250, 90, 36);
+        }
+        return new DOMRect(0, 0, 0, 0);
+      });
+
+    try {
+      await act(async () => {
+        fireEvent.pointerDown(claudeInspectButton, {
+          button: 0,
+          buttons: 1,
+          isPrimary: true,
+          clientX: 60,
+          clientY: 80,
+          pointerId: 1,
+        });
+      });
+      await act(async () => {
+        fireEvent.pointerMove(document, {
+          buttons: 1,
+          isPrimary: true,
+          clientX: 70,
+          clientY: 96,
+          pointerId: 1,
+        });
+      });
+      await act(async () => {
+        fireEvent.pointerMove(document, {
+          buttons: 1,
+          isPrimary: true,
+          clientX: 260,
+          clientY: 265,
+          pointerId: 1,
+        });
+      });
+      await act(async () => {
+        fireEvent.pointerUp(document, {
+          isPrimary: true,
+          clientX: 260,
+          clientY: 265,
+          pointerId: 1,
+        });
+      });
+
+      await waitFor(() =>
+        expect(
+          within(roster).getByRole('button', { name: 'claude_code' })
+        ).toBeInTheDocument()
+      );
+      expect(
+        within(roster)
+          .getAllByRole('button')
+          .map((btn) => btn.getAttribute('aria-label'))
+      ).toEqual(['codex', 'claude_code']);
+    } finally {
+      rectSpy.mockRestore();
+    }
   });
 });

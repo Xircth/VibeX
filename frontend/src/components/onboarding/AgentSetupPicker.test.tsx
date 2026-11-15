@@ -178,4 +178,121 @@ describe('AgentSetupPicker icons', () => {
       screen.getByText(i18n.t('dialogs:onboarding.agentStatus.needs_auth'))
     ).toBeInTheDocument();
   });
+
+  it('adds a ready Agent directly to the roster on row click when not in rosterIds, while keeping viewDetails for inspection', () => {
+    const onInspect = vi.fn();
+    const onInstall = vi.fn();
+    const onJoinRoster = vi.fn();
+    render(
+      <AgentSetupPicker
+        agents={[
+          option({
+            agentId: 'claude_code',
+            displayName: 'Claude Code',
+            lifecycle: 'ready',
+            runtimeInstalled: true,
+            needsInstallation: false,
+          }),
+          option({
+            agentId: 'opencode',
+            displayName: 'OpenCode',
+            lifecycle: 'needs_auth',
+            runtimeInstalled: true,
+            needsInstallation: false,
+          }),
+          option({
+            agentId: 'codex',
+            displayName: 'Codex',
+            lifecycle: 'uninstalled',
+            runtimeInstalled: false,
+            needsInstallation: true,
+          }),
+        ]}
+        checks={{
+          claude_code: {
+            report: {
+              agent_id: 'claude_code',
+              checked_at: '',
+              items: [
+                {
+                  id: 'acp',
+                  label: 'ACP',
+                  status: 'pass',
+                  detail: '',
+                  version: '1.0',
+                  path: null,
+                  source: null,
+                  repairable: false,
+                  update_available: false,
+                  available_version: null,
+                  update_group: null,
+                },
+              ],
+            },
+          },
+          opencode: {
+            report: {
+              agent_id: 'opencode',
+              checked_at: '',
+              items: [
+                {
+                  id: 'acp',
+                  label: 'ACP',
+                  status: 'pass',
+                  detail: '',
+                  version: '1.0',
+                  path: null,
+                  source: null,
+                  repairable: false,
+                  update_available: false,
+                  available_version: null,
+                  update_group: null,
+                },
+              ],
+            },
+          },
+        }}
+        rosterIds={[]}
+        loading={false}
+        discoveryProgress={null}
+        error={null}
+        onRetry={() => undefined}
+        onInspect={onInspect}
+        onInstall={onInstall}
+        onJoinRoster={onJoinRoster}
+      />
+    );
+
+    const claudeRow = document.querySelector(
+      '[data-agent-id="claude_code"]'
+    ) as HTMLElement;
+    const opencodeRow = document.querySelector(
+      '[data-agent-id="opencode"]'
+    ) as HTMLElement;
+    const codexRow = document.querySelector(
+      '[data-agent-id="codex"]'
+    ) as HTMLElement;
+    expect(claudeRow).toHaveAttribute('data-draggable', 'true');
+    expect(opencodeRow).toHaveAttribute('data-draggable', 'true');
+    expect(codexRow).not.toHaveAttribute('data-draggable');
+
+    fireEvent.click(
+      screen.getByRole('button', {
+        name: i18n.t('dialogs:onboarding.agentDetail', {
+          agent: 'Claude Code',
+        }),
+      })
+    );
+    expect(onJoinRoster).toHaveBeenCalledWith('claude_code');
+    expect(onInspect).not.toHaveBeenCalled();
+
+    fireEvent.click(
+      screen.getByRole('button', {
+        name: i18n.t('dialogs:onboarding.viewDetailsAria', {
+          agent: 'Claude Code',
+        }),
+      })
+    );
+    expect(onInspect).toHaveBeenCalledWith('claude_code');
+  });
 });

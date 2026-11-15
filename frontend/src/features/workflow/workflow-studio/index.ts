@@ -9,6 +9,7 @@ export type {
   SessionStepSpec,
   StudioAddableStepKind,
   StudioInspectorTier,
+  StudioJoinMode,
   StudioNodeCategory,
   StudioWorkflowDefinition,
   StudioWorkflowStep,
@@ -20,7 +21,21 @@ export type {
   WorkflowStudioDefinitionInput,
   WorkflowStudioProps,
 } from './types';
-export { isWorkflowConnectionValid } from './workflowConnection';
+export {
+  isWorkflowConnectionValid,
+  wouldCreateWorkflowCycle,
+  type WorkflowGraphStepLike,
+} from './workflowConnection';
+export { buildEdges, buildWorkflowGraph, layoutNodes } from './workflowGraph';
+export {
+  defaultSourceHandleFor,
+  describeBranchEdge,
+  getStepOutputPorts,
+  isMultiPortStep,
+  resolveValidSourceHandle,
+  type StudioOutputPort,
+  type StudioPortAccent,
+} from './workflowPorts';
 export {
   WORKFLOW_PRESET_TEMPLATES,
   getWorkflowPresetTemplates,

@@ -6,6 +6,7 @@ import { cn } from '@/lib/utils';
 
 import type { StudioWorkflowDefinition, StudioWorkflowStep } from './types';
 import type { WorkflowStudioView } from './useWorkflowStudio';
+import { renameBranchPortKeys } from './workflowPorts';
 import {
   validateStudioStepExhaustively,
   validateStudioWorkflowExhaustively,
@@ -138,6 +139,16 @@ export function WorkflowStudioInspectorJson({
                     dependsOn: step.dependsOn.map((dep) =>
                       dep === oldId ? nextStep.id : dep
                     ),
+                    branchPorts: renameBranchPortKeys(
+                      step.branchPorts,
+                      oldId,
+                      nextStep.id
+                    ),
+                    ...(step.kind === 'control' &&
+                    step.controlKind === 'bounded_loop' &&
+                    step.loopTargetStepId === oldId
+                      ? { loopTargetStepId: nextStep.id }
+                      : {}),
                   }
             ),
           });

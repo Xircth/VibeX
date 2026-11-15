@@ -18,6 +18,7 @@ import type {
 import {
   DEFAULT_GATE_FILTER,
   type OutboxActionKind,
+  type StudioJoinMode,
   type StudioStepCommon,
   type StudioWorkflowDefinition,
   type StudioWorkflowStep,
@@ -39,6 +40,10 @@ type StudioPhaseMetadata = {
   subscribeThread?: boolean;
   hasThreadKeyTemplate?: boolean;
   threadKeyTemplate?: string | null;
+  hasBranchPorts?: boolean;
+  branchPorts?: Record<string, string>;
+  hasJoinMode?: boolean;
+  joinMode?: StudioJoinMode;
   trigger?: {
     title: string;
     triggerKind: TriggerKind;
@@ -115,9 +120,7 @@ function encodeStudioPhase(
   const hasPayload = Object.entries(meta).some(
     ([key, value]) => key !== 'userPhase' && value !== undefined
   );
-  if (!hasPayload) {
-    return userPhase;
-  }
+  if (!hasPayload) return userPhase;
   return `${STUDIO_PHASE_PREFIX}${JSON.stringify({
     ...meta,
     userPhase: userPhase ?? null,
@@ -136,10 +139,7 @@ function decodeStudioPhase(phase: string | null): {
       phase.slice(STUDIO_PHASE_PREFIX.length)
     ) as StudioPhaseMetadata;
     if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-      return {
-        userPhase: parsed.userPhase ?? null,
-        meta: parsed,
-      };
+      return { userPhase: parsed.userPhase ?? null, meta: parsed };
     }
   } catch {
     // Fall back to literal phase if not valid JSON metadata.
@@ -149,18 +149,24 @@ function decodeStudioPhase(phase: string | null): {
 
 function applyCommonStudioMetadata<T extends StudioStepCommon>(
   common: T,
-  meta: StudioPhaseMetadata | null
+  meta: StudioPhaseMetadata | null,
+  inferredBranchPorts?: Record<string, string>
 ): T {
-  if (!meta) return common;
   const next = { ...common };
-  if (meta.hasFilter) {
-    next.filter = meta.filter;
-  }
-  if (meta.hasSubscribeThread) {
-    next.subscribeThread = meta.subscribeThread;
-  }
-  if (meta.hasThreadKeyTemplate) {
+  if (meta?.hasFilter) next.filter = meta.filter;
+  if (meta?.hasSubscribeThread) next.subscribeThread = meta.subscribeThread;
+  if (meta?.hasThreadKeyTemplate) {
     next.threadKeyTemplate = meta.threadKeyTemplate;
+  }
+  if (meta?.hasBranchPorts) {
+    if (meta.branchPorts && Object.keys(meta.branchPorts).length > 0) {
+      next.branchPorts = meta.branchPorts;
+    }
+  } else if (inferredBranchPorts && Object.keys(inferredBranchPorts).length > 0) {
+    next.branchPorts = inferredBranchPorts;
+  }
+  if (meta?.hasJoinMode && meta.joinMode) {
+    next.joinMode = meta.joinMode;
   }
   return next;
 }
@@ -186,6 +192,17 @@ function captureCommonStudioMetadata(
     meta.hasThreadKeyTemplate = true;
     meta.threadKeyTemplate = step.threadKeyTemplate;
   }
+  if (
+    step.branchPorts !== undefined &&
+    Object.keys(step.branchPorts).length > 0
+  ) {
+    meta.hasBranchPorts = true;
+    meta.branchPorts = step.branchPorts;
+  }
+  if (step.joinMode !== undefined) {
+    meta.hasJoinMode = true;
+    meta.joinMode = step.joinMode;
+  }
   return meta;
 }
 
@@ -195,9 +212,7 @@ function normalizeBackendThreadKeyPointer(
   if (!template) return null;
   const trimmed = template.trim();
   if (!trimmed) return null;
-  if (trimmed.startsWith('/') && trimmed !== '/') {
-    return trimmed;
-  }
+  if (trimmed.startsWith('/') && trimmed !== '/') return trimmed;
   const match = /^\{\{\s*([a-zA-Z0-9_./-]+)\s*\}\}$/.exec(trimmed);
   if (match?.[1]) {
     const pointer = `/${match[1].replace(/\./g, '/').replace(/^\/+/, '')}`;
@@ -238,24 +253,13 @@ function inferOutboxChannelActionKind(
 function isStudioOnlyStep(
   step: StudioWorkflowStep | WorkflowStep
 ): step is StudioWorkflowStep {
-  if (step.kind === 'trigger' || step.kind === 'control') {
-    return true;
-  }
-  if (step.kind === 'session' && 'prompt' in step) {
-    return true;
-  }
-  if (step.kind === 'bot' && 'prompt' in step) {
-    return true;
-  }
-  if (step.kind === 'group_stage' && 'prompt' in step) {
-    return true;
-  }
-  if (step.kind === 'user_gate' && 'title' in step) {
-    return true;
-  }
-  if (step.kind === 'outbox_action' && 'destination' in step) {
-    return true;
-  }
+  if ('branchPorts' in step || 'joinMode' in step) return true;
+  if (step.kind === 'trigger' || step.kind === 'control') return true;
+  if (step.kind === 'session' && 'prompt' in step) return true;
+  if (step.kind === 'bot' && 'prompt' in step) return true;
+  if (step.kind === 'group_stage' && 'prompt' in step) return true;
+  if (step.kind === 'user_gate' && 'title' in step) return true;
+  if (step.kind === 'outbox_action' && 'destination' in step) return true;
   return false;
 }
 
@@ -266,6 +270,24 @@ export function isStudioOnlyDefinition(
     return true;
   }
   return input.steps.some(isStudioOnlyStep);
+}
+
+function inferConditionBranchPorts(
+  rawSteps: ReadonlyArray<StudioWorkflowStep | WorkflowStep>,
+  stepId: string,
+  dependsOn: readonly string[]
+): Record<string, string> | undefined {
+  const ports: Record<string, string> = {};
+  for (const depId of dependsOn) {
+    const pred = rawSteps.find((candidate) => candidate.id === depId);
+    if (!pred || pred.kind !== 'condition_branch') continue;
+    if (pred.elseStepIds.includes(stepId)) {
+      ports[depId] = 'branch:false';
+    } else if (pred.thenStepIds.includes(stepId)) {
+      ports[depId] = 'branch:true';
+    }
+  }
+  return Object.keys(ports).length > 0 ? ports : undefined;
 }
 
 export function toStudioWorkflowDefinition(
@@ -306,7 +328,8 @@ export function toStudioWorkflowDefinition(
         phase: userPhase,
         inputBindings: step.inputBindings,
       },
-      meta
+      meta,
+      inferConditionBranchPorts(input.steps, step.id, step.dependsOn)
     );
 
     switch (step.kind) {
@@ -371,7 +394,7 @@ export function toStudioWorkflowDefinition(
             : step.workspaceAccess === 'read_only_shared'
               ? 'scratch'
               : 'project_root';
-        const sessionStep: StudioWorkflowStep = {
+        return {
           ...baseCommon,
           ...(meta?.hasSubscribeThread
             ? meta.subscribeThread !== undefined
@@ -400,10 +423,9 @@ export function toStudioWorkflowDefinition(
             ? { allowSkipOnReview: meta.session.allowSkipOnReview }
             : {}),
         };
-        return sessionStep;
       }
-      case 'bot': {
-        const botStep: StudioWorkflowStep = {
+      case 'bot':
+        return {
           ...baseCommon,
           kind: 'bot',
           memberId: step.memberId,
@@ -419,13 +441,8 @@ export function toStudioWorkflowDefinition(
                   ? { outputSchema: step.outputSchema }
                   : {}),
               }
-            : {
-                outputDescription: null,
-                outputSchema: step.outputSchema,
-              }),
+            : { outputDescription: null, outputSchema: step.outputSchema }),
         };
-        return botStep;
-      }
       case 'group_stage':
         return {
           ...baseCommon,
@@ -587,15 +604,11 @@ function toJsonValue(value: unknown): JsonValue {
   ) {
     return value;
   }
-  if (Array.isArray(value)) {
-    return value.map(toJsonValue);
-  }
+  if (Array.isArray(value)) return value.map(toJsonValue);
   if (typeof value === 'object' && value !== null) {
     const out: { [key in string]?: JsonValue } = {};
     for (const [key, entry] of Object.entries(value)) {
-      if (entry !== undefined) {
-        out[key] = toJsonValue(entry);
-      }
+      if (entry !== undefined) out[key] = toJsonValue(entry);
     }
     return out;
   }
@@ -664,58 +677,13 @@ export function toBackendWorkflowDefinition(
 
     switch (step.kind) {
       case 'agent': {
-        const legacyMeta: StudioPhaseMetadata =
-          step.workspaceIsolation !== undefined
-            ? { legacy: { workspaceIsolation: step.workspaceIsolation } }
-            : {};
-        const common = buildCommon(legacyMeta);
-        const {
-          workspaceIsolation: _wsIso,
-          filter: _filter,
-          subscribeThread: _sub,
-          threadKeyTemplate: _tk,
-          ...agentRest
-        } = step;
-        return {
-          ...agentRest,
-          ...common,
-        };
+        const { workspaceIsolation, filter: _f, subscribeThread: _s, threadKeyTemplate: _t, branchPorts: _b, joinMode: _j, ...rest } = step;
+        return { ...rest, ...buildCommon(workspaceIsolation !== undefined ? { legacy: { workspaceIsolation } } : {}) };
       }
-      case 'approval': {
-        const legacyMeta: StudioPhaseMetadata =
-          step.slaTimeoutSeconds !== undefined
-            ? { legacy: { slaTimeoutSeconds: step.slaTimeoutSeconds } }
-            : {};
-        const common = buildCommon(legacyMeta);
-        const {
-          slaTimeoutSeconds: _sla,
-          filter: _filter,
-          subscribeThread: _sub,
-          threadKeyTemplate: _tk,
-          ...approvalRest
-        } = step;
-        return {
-          ...approvalRest,
-          ...common,
-        };
-      }
+      case 'approval':
       case 'notify': {
-        const legacyMeta: StudioPhaseMetadata =
-          step.slaTimeoutSeconds !== undefined
-            ? { legacy: { slaTimeoutSeconds: step.slaTimeoutSeconds } }
-            : {};
-        const common = buildCommon(legacyMeta);
-        const {
-          slaTimeoutSeconds: _sla,
-          filter: _filter,
-          subscribeThread: _sub,
-          threadKeyTemplate: _tk,
-          ...notifyRest
-        } = step;
-        return {
-          ...notifyRest,
-          ...common,
-        };
+        const { slaTimeoutSeconds, filter: _f, subscribeThread: _s, threadKeyTemplate: _t, branchPorts: _b, joinMode: _j, ...rest } = step;
+        return { ...rest, ...buildCommon(slaTimeoutSeconds !== undefined ? { legacy: { slaTimeoutSeconds } } : {}) };
       }
       case 'session': {
         const common = buildCommon({
@@ -922,18 +890,26 @@ export function toBackendWorkflowDefinition(
             timeoutSeconds: step.timeoutSeconds ?? null,
           };
         }
-        const downstreamIds = definition.steps
+        const downstreamSteps = definition.steps.filter(
+          (candidate) =>
+            candidate.id !== step.id && candidate.dependsOn.includes(step.id)
+        );
+        const elseStepIds = downstreamSteps
           .filter(
-            (candidate) =>
-              candidate.id !== step.id && candidate.dependsOn.includes(step.id)
+            (candidate) => candidate.branchPorts?.[step.id] === 'branch:false'
+          )
+          .map((candidate) => candidate.id);
+        const thenStepIds = downstreamSteps
+          .filter(
+            (candidate) => candidate.branchPorts?.[step.id] !== 'branch:false'
           )
           .map((candidate) => candidate.id);
         return {
           ...common,
           kind: 'condition_branch',
           filter: toBackendGateFilter(step.filter ?? DEFAULT_GATE_FILTER),
-          thenStepIds: downstreamIds,
-          elseStepIds: [],
+          thenStepIds,
+          elseStepIds,
         };
       }
       case 'outbox_action': {

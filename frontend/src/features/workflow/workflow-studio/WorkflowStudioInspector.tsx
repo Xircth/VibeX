@@ -6,6 +6,7 @@ import { cn } from '@/lib/utils';
 
 import { WorkflowStepConversation } from '../WorkflowStepConversation';
 import { renameStepOutputBindings } from './workflowGraph';
+import { renameBranchPortKeys } from './workflowPorts';
 import type { WorkflowStudioView } from './useWorkflowStudio';
 import { WorkflowStudioInspectorInfo } from './WorkflowStudioInspectorInfo';
 
@@ -57,18 +58,31 @@ export function WorkflowStudioInspector({
               return;
             onDefinitionChange?.({
               ...definition,
-              steps: definition.steps.map((step) => ({
-                ...step,
-                id: step.id === selectedStep.id ? nextId : step.id,
-                dependsOn: step.dependsOn.map((dependency) =>
-                  dependency === selectedStep.id ? nextId : dependency
-                ),
-                inputBindings: renameStepOutputBindings(
-                  step.inputBindings,
+              steps: definition.steps.map((step) => {
+                const nextBranchPorts = renameBranchPortKeys(
+                  step.branchPorts,
                   selectedStep.id,
                   nextId
-                ),
-              })),
+                );
+                return {
+                  ...step,
+                  id: step.id === selectedStep.id ? nextId : step.id,
+                  dependsOn: step.dependsOn.map((dependency) =>
+                    dependency === selectedStep.id ? nextId : dependency
+                  ),
+                  branchPorts: nextBranchPorts,
+                  inputBindings: renameStepOutputBindings(
+                    step.inputBindings,
+                    selectedStep.id,
+                    nextId
+                  ),
+                  ...(step.kind === 'control' &&
+                  step.controlKind === 'bounded_loop' &&
+                  step.loopTargetStepId === selectedStep.id
+                    ? { loopTargetStepId: nextId }
+                    : {}),
+                };
+              }),
             });
             setUnsavedStepIds((current) => {
               const next = new Set(current);

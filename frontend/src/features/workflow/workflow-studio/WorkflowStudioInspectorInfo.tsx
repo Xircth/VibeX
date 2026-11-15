@@ -1,13 +1,29 @@
 import { useMemo, useRef, useState } from 'react';
-import { Check, CirclePlay, Trash2 } from 'lucide-react';
+import {
+  ArrowDown,
+  ArrowUp,
+  Check,
+  CirclePlay,
+  Trash2,
+  X,
+} from 'lucide-react';
 import type { JsonValue } from 'shared/types';
 
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { cn } from '@/lib/utils';
 
-import type { StudioInspectorTier, StudioWorkflowStep } from './types';
+import type {
+  StudioInspectorTier,
+  StudioJoinMode,
+  StudioWorkflowStep,
+} from './types';
 import type { WorkflowStudioView } from './useWorkflowStudio';
+import {
+  getStepOutputPorts,
+  isMultiPortStep,
+  resolveValidSourceHandle,
+} from './workflowPorts';
 import { WorkflowStudioInspectorAdvanced } from './WorkflowStudioInspectorAdvanced';
 import { WorkflowStudioInspectorJson } from './WorkflowStudioInspectorJson';
 import { WorkflowStudioInspectorVisual } from './WorkflowStudioInspectorVisual';
@@ -53,6 +69,8 @@ export function WorkflowStudioInspectorInfo({
     run,
     onRerunFromNode,
     removeSelected,
+    disconnect,
+    updateStep,
   } = studio;
   const [approvalNote, setApprovalNote] = useState('');
   const tabButtonRefs = useRef<Record<StudioInspectorTier, HTMLButtonElement | null>>({
@@ -68,6 +86,20 @@ export function WorkflowStudioInspectorInfo({
 
   const isSessionTestable =
     selectedStep.kind === 'agent' || selectedStep.kind === 'session';
+
+  const movePredecessor = (index: number, delta: -1 | 1) => {
+    const targetIndex = index + delta;
+    if (targetIndex < 0 || targetIndex >= selectedStep.dependsOn.length) {
+      return;
+    }
+    updateStep(selectedStep.id, (step) => {
+      const nextDeps = [...step.dependsOn];
+      const [moved] = nextDeps.splice(index, 1);
+      if (!moved) return step;
+      nextDeps.splice(targetIndex, 0, moved);
+      return { ...step, dependsOn: nextDeps };
+    });
+  };
 
   return (
     <div className="space-y-4">
@@ -119,26 +151,136 @@ export function WorkflowStudioInspectorInfo({
       </div>
 
       {inspectorTier !== 'json' ? (
-        <div className="grid grid-cols-2 gap-3">
-          {[
-            {
-              label: t('studio.predecessors'),
-              values: selectedStep.dependsOn,
-            },
-            {
-              label: t('studio.successors'),
-              values: selectedSuccessors,
-            },
-          ].map((relation) => (
-            <div key={relation.label} className="space-y-1.5">
-              <Label>{relation.label}</Label>
-              <div className="flex min-h-8 flex-wrap items-center gap-1 rounded-lg bg-muted/55 px-2 py-1.5">
-                {relation.values.length === 0 ? (
+        <div className="space-y-2.5">
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1.5">
+              <Label>{t('studio.predecessors')}</Label>
+              <div className="flex min-h-8 flex-col justify-center gap-1 rounded-lg bg-muted/55 px-2 py-1.5">
+                {selectedStep.dependsOn.length === 0 ? (
                   <span className="text-[11px] text-muted-foreground">
                     {t('studio.none')}
                   </span>
                 ) : (
-                  relation.values.map((value) => (
+                  selectedStep.dependsOn.map((depId, depIndex) => {
+                    const predStep = definition.steps.find(
+                      (candidate) => candidate.id === depId
+                    );
+                    const predMultiPort = Boolean(
+                      predStep && isMultiPortStep(predStep)
+                    );
+                    const predPorts = predStep
+                      ? getStepOutputPorts(predStep, t)
+                      : [];
+                    const activeHandle = resolveValidSourceHandle(
+                      predStep,
+                      selectedStep.branchPorts?.[depId]
+                    );
+                    return (
+                      <div
+                        key={depId}
+                        data-testid={`inspector-predecessor-row-${depId}`}
+                        className="flex flex-wrap items-center justify-between gap-1 rounded-md bg-card px-1.5 py-1 shadow-sm"
+                      >
+                        <span className="truncate font-mono text-[10px] font-medium text-foreground">
+                          {depId}
+                        </span>
+                        <div className="flex items-center gap-0.5">
+                          {predMultiPort && onDefinitionChange ? (
+                            <select
+                              aria-label={t('inspector.flow.branchPortAria', {
+                                id: depId,
+                              })}
+                              data-testid={`inspector-predecessor-port-${depId}`}
+                              value={activeHandle}
+                              onChange={(event) => {
+                                const nextHandle = event.target.value;
+                                updateStep(selectedStep.id, (step) => ({
+                                  ...step,
+                                  branchPorts: {
+                                    ...(step.branchPorts ?? {}),
+                                    [depId]: nextHandle,
+                                  },
+                                }));
+                              }}
+                              className="h-5 rounded border border-border bg-background px-1 text-2xs font-medium text-foreground outline-none"
+                            >
+                              {predPorts.map((port) => (
+                                <option key={port.id} value={port.id}>
+                                  {port.shortLabel || port.label}
+                                </option>
+                              ))}
+                            </select>
+                          ) : predMultiPort ? (
+                            <span className="rounded bg-muted px-1 py-0.5 text-2xs text-muted-foreground">
+                              {predPorts.find((p) => p.id === activeHandle)
+                                ?.shortLabel ?? activeHandle}
+                            </span>
+                          ) : null}
+                          {onDefinitionChange &&
+                          selectedStep.dependsOn.length >= 2 ? (
+                            <>
+                              <button
+                                type="button"
+                                disabled={depIndex === 0}
+                                aria-label={t(
+                                  'inspector.flow.movePredecessorUp',
+                                  { id: depId }
+                                )}
+                                data-testid={`inspector-predecessor-up-${depId}`}
+                                onClick={() => movePredecessor(depIndex, -1)}
+                                className="grid size-5 place-items-center rounded text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-35"
+                              >
+                                <ArrowUp className="size-3" />
+                              </button>
+                              <button
+                                type="button"
+                                disabled={
+                                  depIndex ===
+                                  selectedStep.dependsOn.length - 1
+                                }
+                                aria-label={t(
+                                  'inspector.flow.movePredecessorDown',
+                                  { id: depId }
+                                )}
+                                data-testid={`inspector-predecessor-down-${depId}`}
+                                onClick={() => movePredecessor(depIndex, 1)}
+                                className="grid size-5 place-items-center rounded text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-35"
+                              >
+                                <ArrowDown className="size-3" />
+                              </button>
+                            </>
+                          ) : null}
+                          {onDefinitionChange ? (
+                            <button
+                              type="button"
+                              aria-label={t(
+                                'inspector.flow.disconnectPredecessor',
+                                { id: depId }
+                              )}
+                              data-testid={`inspector-predecessor-disconnect-${depId}`}
+                              onClick={() => disconnect(depId, selectedStep.id)}
+                              className="grid size-5 place-items-center rounded text-muted-foreground hover:bg-destructive/15 hover:text-destructive"
+                            >
+                              <X className="size-3" />
+                            </button>
+                          ) : null}
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label>{t('studio.successors')}</Label>
+              <div className="flex min-h-8 flex-wrap items-center gap-1 rounded-lg bg-muted/55 px-2 py-1.5">
+                {selectedSuccessors.length === 0 ? (
+                  <span className="text-[11px] text-muted-foreground">
+                    {t('studio.none')}
+                  </span>
+                ) : (
+                  selectedSuccessors.map((value) => (
                     <span
                       key={value}
                       className="rounded-full bg-card px-2 py-0.5 font-mono text-[10px] shadow-sm"
@@ -149,7 +291,55 @@ export function WorkflowStudioInspectorInfo({
                 )}
               </div>
             </div>
-          ))}
+          </div>
+
+          {selectedStep.kind !== 'trigger' &&
+          selectedStep.dependsOn.length >= 2 ? (
+            <div
+              data-testid="inspector-join-mode"
+              className="space-y-1.5 rounded-lg border border-border bg-muted/35 p-2.5"
+            >
+              <Label>{t('inspector.flow.joinModeLabel')}</Label>
+              <div className="grid grid-cols-2 gap-1 rounded-md border border-border bg-muted/60 p-0.5">
+                {(['all', 'any'] as const satisfies readonly StudioJoinMode[]).map(
+                  (modeOption) => {
+                    const currentJoin = selectedStep.joinMode ?? 'all';
+                    const active = currentJoin === modeOption;
+                    return (
+                      <button
+                        key={modeOption}
+                        type="button"
+                        disabled={!onDefinitionChange}
+                        aria-pressed={active}
+                        data-testid={`inspector-join-mode-${modeOption}`}
+                        onClick={() =>
+                          updateStep(selectedStep.id, (step) => ({
+                            ...step,
+                            joinMode: modeOption,
+                          }))
+                        }
+                        className={cn(
+                          'flex h-7 items-center justify-center rounded px-2 text-xs font-medium transition-colors disabled:opacity-60',
+                          active
+                            ? 'bg-card text-foreground shadow-sm'
+                            : 'text-muted-foreground hover:text-foreground'
+                        )}
+                      >
+                        {t(
+                          modeOption === 'any'
+                            ? 'inspector.flow.joinModeAny'
+                            : 'inspector.flow.joinModeAll'
+                        )}
+                      </button>
+                    );
+                  }
+                )}
+              </div>
+              <p className="text-[11px] leading-4 text-muted-foreground">
+                {t('inspector.flow.joinModeHint')}
+              </p>
+            </div>
+          ) : null}
         </div>
       ) : null}
 

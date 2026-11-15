@@ -82,6 +82,89 @@
   border-color: color-mix(in srgb, hsl(var(--warning)) 65%, hsl(var(--border)));
 }
 
+/* Ergonomic 18x18 hit-target port handles with crisp 11px visible core */
+.workflow-port-handle.react-flow__handle {
+  width: 18px;
+  height: 18px;
+  min-width: 18px;
+  min-height: 18px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  cursor: crosshair;
+  z-index: 12;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.workflow-port-handle.react-flow__handle-left {
+  left: -9px;
+}
+
+.workflow-port-handle.react-flow__handle-right {
+  right: -9px;
+}
+
+.workflow-port-handle.react-flow__handle::after {
+  content: '';
+  width: 11px;
+  height: 11px;
+  border-radius: 999px;
+  border: 2px solid color-mix(in srgb, hsl(var(--primary)) 62%, hsl(var(--border)));
+  background: var(--card);
+  box-shadow: 0 0 0 0 transparent;
+  transition:
+    border-color 140ms ease,
+    background-color 140ms ease,
+    box-shadow 140ms ease;
+}
+
+.workflow-port-handle.react-flow__handle:hover::after,
+.workflow-port-handle.react-flow__handle.connectingto::after,
+.workflow-port-handle.react-flow__handle.connectingfrom::after {
+  border-color: hsl(var(--primary));
+  background: color-mix(in srgb, hsl(var(--primary)) 22%, var(--card));
+  box-shadow: 0 0 0 4px hsl(var(--primary) / 0.22);
+}
+
+.workflow-port-accent-success.react-flow__handle::after {
+  border-color: hsl(var(--success));
+}
+
+.workflow-port-accent-success.react-flow__handle:hover::after,
+.workflow-port-accent-success.react-flow__handle.connectingfrom::after {
+  border-color: hsl(var(--success));
+  background: color-mix(in srgb, hsl(var(--success)) 24%, var(--card));
+  box-shadow: 0 0 0 4px hsl(var(--success) / 0.22);
+}
+
+.workflow-port-accent-warning.react-flow__handle::after {
+  border-color: hsl(var(--warning));
+}
+
+.workflow-port-accent-warning.react-flow__handle:hover::after,
+.workflow-port-accent-warning.react-flow__handle.connectingfrom::after {
+  border-color: hsl(var(--warning));
+  background: color-mix(in srgb, hsl(var(--warning)) 24%, var(--card));
+  box-shadow: 0 0 0 4px hsl(var(--warning) / 0.22);
+}
+
+.workflow-port-accent-destructive.react-flow__handle::after {
+  border-color: hsl(var(--destructive));
+}
+
+.workflow-port-accent-destructive.react-flow__handle:hover::after,
+.workflow-port-accent-destructive.react-flow__handle.connectingfrom::after {
+  border-color: hsl(var(--destructive));
+  background: color-mix(in srgb, hsl(var(--destructive)) 24%, var(--card));
+  box-shadow: 0 0 0 4px hsl(var(--destructive) / 0.22);
+}
+
+.workflow-port-accent-primary.react-flow__handle::after {
+  border-color: hsl(var(--primary));
+}
+
 .workflow-node-status-dot {
   width: 6px;
   height: 6px;
@@ -134,11 +217,47 @@
 .workflow-studio-edge.react-flow__edge path {
   stroke: var(--muted-foreground);
   stroke-width: 1.75;
+  transition: stroke 140ms ease;
+}
+
+.workflow-edge-branch-success.react-flow__edge path {
+  stroke: color-mix(in srgb, hsl(var(--success)) 78%, var(--muted-foreground));
+}
+
+.workflow-edge-branch-warning.react-flow__edge path {
+  stroke: color-mix(in srgb, hsl(var(--warning)) 84%, var(--muted-foreground));
+}
+
+.workflow-edge-branch-destructive.react-flow__edge path {
+  stroke: color-mix(
+    in srgb,
+    hsl(var(--destructive)) 78%,
+    var(--muted-foreground)
+  );
+}
+
+.workflow-edge-branch-primary.react-flow__edge path {
+  stroke: color-mix(in srgb, hsl(var(--primary)) 78%, var(--muted-foreground));
+}
+
+.workflow-edge-loopback.react-flow__edge path {
+  stroke-dasharray: 5 4;
+}
+
+.workflow-edge-completed.react-flow__edge path {
+  stroke: color-mix(in srgb, hsl(var(--success)) 70%, var(--muted-foreground));
 }
 
 .workflow-studio-edge.react-flow__edge.animated path {
   stroke: hsl(var(--primary));
   stroke-width: 2;
+}
+
+.workflow-studio-edge.react-flow__edge.selected path,
+.workflow-studio-edge.react-flow__edge:focus-visible path {
+  stroke: hsl(var(--primary));
+  stroke-width: 2.75;
+  filter: drop-shadow(0 0 4px hsl(var(--primary) / 0.32));
 }
 
 .workflow-inspector-tether path {
@@ -161,10 +280,6 @@
   background: var(--surface-card-strong);
   box-shadow: var(--shadow-popover);
   animation: workflow-panel-reveal 160ms ease-out;
-}
-
-.workflow-edge-completed path {
-  stroke: color-mix(in srgb, hsl(var(--success)) 70%, var(--muted-foreground));
 }
 
 .workflow-studio .react-flow__minimap.relative,

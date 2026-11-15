@@ -32,6 +32,7 @@ import {
 } from './types';
 import { useWorkflowStudioGraph } from './useWorkflowStudioGraph';
 import { withoutStepOutputBindings } from './workflowGraph';
+import { withoutRemovedBranchPorts } from './workflowPorts';
 import {
   createDefaultStepForKind,
   isStudioOnlyDefinition,
@@ -176,6 +177,7 @@ export function useWorkflowStudio<
     onTriggerEvalModeChange: onDefinitionChange
       ? updateTriggerEvalMode
       : undefined,
+    t,
   });
   const { selectedStepId, setSelectedStepId, latest } = graph;
   const notifiedRuns = useRef(new Set<string>());
@@ -372,6 +374,7 @@ export function useWorkflowStudio<
 
   const removeStep = (stepId: string) => {
     if (!onDefinitionChange) return;
+    const removedSet = new Set([stepId]);
     onDefinitionChange({
       ...definition,
       steps: definition.steps
@@ -381,10 +384,16 @@ export function useWorkflowStudio<
           dependsOn: step.dependsOn.filter(
             (dependency) => dependency !== stepId
           ),
+          branchPorts: withoutRemovedBranchPorts(step.branchPorts, removedSet),
           inputBindings: withoutStepOutputBindings(
             step.inputBindings,
-            new Set([stepId])
+            removedSet
           ),
+          ...(step.kind === 'control' &&
+          step.controlKind === 'bounded_loop' &&
+          step.loopTargetStepId === stepId
+            ? { loopTargetStepId: '' }
+            : {}),
         })),
     });
     setUnsavedStepIds((current) => {

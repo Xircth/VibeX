@@ -225,58 +225,54 @@ describe('Dual-Primitive WorkflowStudio & 3-Tier Inspector', () => {
 
     // 1. Trigger with inline Off | Observe | Auto pill
     const triggerNode = screen.getByTestId('workflow-node-gh-trigger');
-    expect(within(triggerNode).getByText('Platform Trigger')).toBeInTheDocument();
+    expect(within(triggerNode).getByText('触发器')).toBeInTheDocument();
+    expect(within(triggerNode).getByText('平台事件')).toBeInTheDocument();
     const inlineModeGroup = within(triggerNode).getByRole('group', {
-      name: /Trigger gh-trigger evaluation mode/i,
+      name: /触发器 gh-trigger 评估模式|Trigger gh-trigger evaluation mode/i,
     });
-    fireEvent.click(within(inlineModeGroup).getByRole('button', { name: 'Auto' }));
-    expect(
-      within(inlineModeGroup).getByRole('button', { name: 'Auto' })
-    ).toHaveAttribute('aria-pressed', 'true');
+    const autoBtn = within(inlineModeGroup).getByRole('button', {
+      name: /^Auto$|^自动$/i,
+    });
+    fireEvent.click(autoBtn);
+    expect(autoBtn).toHaveAttribute('aria-pressed', 'true');
 
     // 2. Persistent Bot node
     const botNode = screen.getByTestId('workflow-node-triage-bot');
-    expect(
-      within(botNode).getByText('Persistent Bot · Fixed Session Memory')
-    ).toBeInTheDocument();
-    expect(within(botNode).getByText('Coalesce Batch')).toBeInTheDocument();
+    expect(within(botNode).getByText('Bot 助手')).toBeInTheDocument();
+    expect(within(botNode).getByText('固定会话记忆')).toBeInTheDocument();
+    expect(within(botNode).getByText('窗口合并')).toBeInTheDocument();
 
-    // 3. Fresh Session node
+    // 3. Ephemeral Session node
     const sessionNode = screen.getByTestId('workflow-node-coder-session');
+    expect(within(sessionNode).getByText('临时会话')).toBeInTheDocument();
     expect(
-      within(sessionNode).getByText('Fresh Session · Context Resets Per Run')
+      within(sessionNode).getByText('每次运行重置上下文')
     ).toBeInTheDocument();
-    expect(
-      within(sessionNode).getByText('isolated_worktree')
-    ).toBeInTheDocument();
+    expect(within(sessionNode).getByText('独立 Worktree')).toBeInTheDocument();
 
     // 4. Group Stage node
     const groupNode = screen.getByTestId('workflow-node-council-stage');
-    expect(within(groupNode).getByText('Group Stage')).toBeInTheDocument();
+    expect(within(groupNode).getByText('群组协作')).toBeInTheDocument();
     expect(
-      within(groupNode).getByText(/Moderator Triage · lead-bot/)
+      within(groupNode).getByText(/主持人分诊 · lead-bot/)
     ).toBeInTheDocument();
 
-    // 5. Flow Control BoundedLoop node with tabular-nums Max 4x badge
+    // 5. Flow Control BoundedLoop node with tabular-nums badge
     const controlNode = screen.getByTestId('workflow-node-review-loop');
-    expect(
-      within(controlNode).getByText('Flow Control · BoundedLoop')
-    ).toBeInTheDocument();
-    const loopBadge = within(controlNode).getByText('Max 4x');
+    expect(within(controlNode).getByText('循环')).toBeInTheDocument();
+    const loopBadge = within(controlNode).getByText('最多 4 轮');
     expect(loopBadge).toHaveClass('tabular-nums');
 
     // 6. User Gate node with tabular-nums SLA badge
     const gateNode = screen.getByTestId('workflow-node-owner-gate');
-    expect(
-      within(gateNode).getByText('User Gate · Approval')
-    ).toBeInTheDocument();
+    expect(within(gateNode).getByText('人工门控')).toBeInTheDocument();
+    expect(within(gateNode).getByText('人工审批')).toBeInTheDocument();
     expect(within(gateNode).getByText('SLA 1800s')).toHaveClass('tabular-nums');
 
     // 7. Outbox Action node
     const outboxNode = screen.getByTestId('workflow-node-gh-outbox');
-    expect(
-      within(outboxNode).getByText('Outbox · GitHub Comment')
-    ).toBeInTheDocument();
+    expect(within(outboxNode).getByText('回写动作')).toBeInTheDocument();
+    expect(within(outboxNode).getByText('GitHub 评论')).toBeInTheDocument();
   });
 
   it('switches execution primitive between Fresh Session and Persistent Bot in the Visual inspector', () => {
@@ -289,19 +285,29 @@ describe('Dual-Primitive WorkflowStudio & 3-Tier Inspector', () => {
       )
     );
 
-    // Switch Fresh Session -> Persistent Bot
+    // Switch Ephemeral Session -> Persistent Bot
     fireEvent.click(screen.getByTestId('inspector-primitive-bot'));
     expect(
       within(screen.getByTestId('workflow-node-coder-session')).getByText(
-        'Persistent Bot · Fixed Session Memory'
+        'Bot 助手'
+      )
+    ).toBeInTheDocument();
+    expect(
+      within(screen.getByTestId('workflow-node-coder-session')).getByText(
+        '固定会话记忆'
       )
     ).toBeInTheDocument();
 
-    // Switch Persistent Bot -> Fresh Session
+    // Switch Persistent Bot -> Ephemeral Session
     fireEvent.click(screen.getByTestId('inspector-primitive-session'));
     expect(
       within(screen.getByTestId('workflow-node-coder-session')).getByText(
-        'Fresh Session · Context Resets Per Run'
+        '临时会话'
+      )
+    ).toBeInTheDocument();
+    expect(
+      within(screen.getByTestId('workflow-node-coder-session')).getByText(
+        '每次运行重置上下文'
       )
     ).toBeInTheDocument();
   });
@@ -346,11 +352,13 @@ describe('Dual-Primitive WorkflowStudio & 3-Tier Inspector', () => {
     fireEvent.click(screen.getByTestId('inspector-json-apply'));
 
     expect(
-      within(screen.getByTestId('workflow-node-review-loop')).getByText('Max 5x')
+      within(screen.getByTestId('workflow-node-review-loop')).getByText(
+        '最多 5 轮'
+      )
     ).toBeInTheDocument();
     expect(
       within(screen.getByTestId('inspector-json-validation')).getByText(
-        '0 issues'
+        '0 项问题'
       )
     ).toBeVisible();
   });
@@ -417,7 +425,7 @@ describe('Dual-Primitive WorkflowStudio & 3-Tier Inspector', () => {
 
     expect(
       within(screen.getByTestId('workflow-trigger-replay-gh-trigger')).getByText(
-        'Matched'
+        '命中'
       )
     ).toBeVisible();
     expect(
@@ -605,7 +613,7 @@ describe('Track R3: Built-in Dockview Panel & WorkflowStudioDockPanel', () => {
         'workflow_validate',
         expect.objectContaining({
           request: expect.objectContaining({
-            definition: expect.objectContaining({ name: 'New Workflow' }),
+            definition: expect.objectContaining({ name: '新建工作流' }),
           }),
         })
       );
@@ -613,11 +621,128 @@ describe('Track R3: Built-in Dockview Panel & WorkflowStudioDockPanel', () => {
         'workflow_publish',
         expect.objectContaining({
           request: expect.objectContaining({
-            definition: expect.objectContaining({ name: 'New Workflow' }),
+            definition: expect.objectContaining({ name: '新建工作流' }),
           }),
         })
       );
     });
+  });
+
+  it('consumes pending/live vibex:open-workflow-studio handoff events and dispatches vibex:open-pulse-deck on shortcut click', async () => {
+    const firstBackend = toBackendWorkflowDefinition(
+      WORKFLOW_PRESET_TEMPLATES[0].build('codex')
+    );
+    const secondBackend = toBackendWorkflowDefinition(sevenCategoryWorkflow);
+    const callSpy = vi.fn(
+      async (command: string, args?: Record<string, unknown>) => {
+        if (command === 'workflow_list') {
+          return [
+            {
+              id: 'wf-first',
+              name: 'First Workflow',
+              latestVersionId: 'ver-first',
+              latestVersion: 10n,
+              createdAt: '2026-11-15T10:00:00Z',
+              updatedAt: '2026-11-15T10:00:00Z',
+            },
+            {
+              id: 'wf-second',
+              name: 'Seven Category Hybrid Graph',
+              latestVersionId: 'ver-second',
+              latestVersion: 20n,
+              createdAt: '2026-11-15T10:05:00Z',
+              updatedAt: '2026-11-15T10:05:00Z',
+            },
+          ];
+        }
+        if (command === 'workflow_version') {
+          const versionId = (args as { versionId?: string })?.versionId;
+          return {
+            id: versionId,
+            definitionId: versionId === 'ver-second' ? 'wf-second' : 'wf-first',
+            version: versionId === 'ver-second' ? 20n : 10n,
+            normalizedJson: JSON.stringify(
+              versionId === 'ver-second' ? secondBackend : firstBackend
+            ),
+            digest: 'sha256:handoff',
+            createdAt: '2026-11-15T10:05:00Z',
+          };
+        }
+        if (command === 'pulse_captured_events') return [];
+        return null;
+      }
+    );
+
+    const win = window as unknown as {
+      __VIBEX_PENDING_WORKFLOW_STUDIO_OPEN__?: {
+        definitionId?: string | null;
+        presetId?: string | null;
+      } | null;
+    };
+    win.__VIBEX_PENDING_WORKFLOW_STUDIO_OPEN__ = {
+      definitionId: 'Seven Category Hybrid Graph',
+    };
+
+    const pulseDeckEvents: CustomEvent[] = [];
+    const onPulseDeck = (event: Event) =>
+      pulseDeckEvents.push(event as CustomEvent);
+    window.addEventListener('vibex:open-pulse-deck', onPulseDeck);
+
+    try {
+      render(
+        <BackendTransportProvider
+          transport={{ environment: 'desktop', call: callSpy }}
+        >
+          <WorkflowStudioDockPanel />
+        </BackendTransportProvider>
+      );
+
+      // 1. Consumes pending open by workflow name (skipping wf-first) and clears global slot
+      await waitFor(() => {
+        expect(
+          screen.getByTestId('workflow-node-council-stage')
+        ).toBeInTheDocument();
+      });
+      const selector = screen.getByRole('combobox', {
+        name: /选择工作流|Select workflow/i,
+      }) as HTMLSelectElement;
+      expect(selector.value).toBe('wf-second');
+      expect(win.__VIBEX_PENDING_WORKFLOW_STUDIO_OPEN__).toBeNull();
+
+      // 2. Live vibex:open-workflow-studio with presetId applies preset template cleanly
+      await act(async () => {
+        window.dispatchEvent(
+          new CustomEvent('vibex:open-workflow-studio', {
+            detail: { presetId: 'event_saga' },
+          })
+        );
+      });
+      expect(selector.value).toBe('__draft__');
+      expect(
+        screen.getByTestId('workflow-node-wait-ci-complete')
+      ).toBeInTheDocument();
+
+      // 3. Live vibex:open-workflow-studio with definitionId selects and loads wf-first
+      await act(async () => {
+        window.dispatchEvent(
+          new CustomEvent('vibex:open-workflow-studio', {
+            detail: { definitionId: 'wf-first' },
+          })
+        );
+      });
+      await waitFor(() => {
+        expect(selector.value).toBe('wf-first');
+      });
+
+      // 4. Quick return shortcut dispatches vibex:open-pulse-deck
+      fireEvent.click(screen.getByTestId('workflow-studio-open-pulse-deck'));
+      expect(pulseDeckEvents).toHaveLength(1);
+      expect(pulseDeckEvents[0].bubbles).toBe(true);
+      expect(pulseDeckEvents[0].cancelable).toBe(true);
+    } finally {
+      window.removeEventListener('vibex:open-pulse-deck', onPulseDeck);
+      win.__VIBEX_PENDING_WORKFLOW_STUDIO_OPEN__ = null;
+    }
   });
 });
 
@@ -1310,44 +1435,30 @@ describe('Track R3: Guarded Run Polling & ReactFlow O(N) Event Indexing + React.
       (WorkflowStepNode as unknown as { $$typeof?: symbol }).$$typeof
     ).toBe(Symbol.for('react.memo'));
 
+    const mkEv = (
+      id: string,
+      sequence: bigint,
+      eventKind: string,
+      step_id: string,
+      createdAt: string
+    ): WorkflowEventRecord => ({
+      id,
+      runId: 'run-1',
+      sequence,
+      eventVersion: 1n,
+      eventKind,
+      payloadJson: JSON.stringify({ step_id }),
+      operationId: null,
+      createdAt,
+    });
     const events: WorkflowEventRecord[] = [
-      {
-        id: 'ev-2',
-        runId: 'run-1',
-        sequence: 5n,
-        eventVersion: 1n,
-        eventKind: 'step_completed',
-        payloadJson: JSON.stringify({ step_id: 'triage-bot' }),
-        operationId: null,
-        createdAt: '2026-11-15T10:00:05Z',
-      },
-      {
-        id: 'ev-1',
-        runId: 'run-1',
-        sequence: 2n,
-        eventVersion: 1n,
-        eventKind: 'step_started',
-        payloadJson: JSON.stringify({ step_id: 'triage-bot' }),
-        operationId: null,
-        createdAt: '2026-11-15T10:00:01Z',
-      },
-      {
-        id: 'ev-3',
-        runId: 'run-1',
-        sequence: 8n,
-        eventVersion: 1n,
-        eventKind: 'step_started',
-        payloadJson: JSON.stringify({ step_id: 'coder-session' }),
-        operationId: null,
-        createdAt: '2026-11-15T10:00:08Z',
-      },
+      mkEv('ev-2', 5n, 'step_completed', 'triage-bot', '2026-11-15T10:00:05Z'),
+      mkEv('ev-1', 2n, 'step_started', 'triage-bot', '2026-11-15T10:00:01Z'),
+      mkEv('ev-3', 8n, 'step_started', 'coder-session', '2026-11-15T10:00:08Z'),
     ];
 
     const indexed = indexWorkflowEventsByStepId(events);
-    expect(indexed.get('triage-bot')?.map((e) => e.id)).toEqual([
-      'ev-1',
-      'ev-2',
-    ]);
+    expect(indexed.get('triage-bot')?.map((e) => e.id)).toEqual(['ev-1', 'ev-2']);
     expect(indexed.get('coder-session')?.map((e) => e.id)).toEqual(['ev-3']);
 
     const nodes = layoutNodes(
@@ -1370,7 +1481,6 @@ describe('Track R3: Guarded Run Polling & ReactFlow O(N) Event Indexing + React.
     expect(botNode?.data.events.map((e) => e.id)).toEqual(['ev-1', 'ev-2']);
     expect(sessionNode?.data.events.map((e) => e.id)).toEqual(['ev-3']);
     expect(triggerNode?.data.events).toHaveLength(0);
-    // Steps without events share the exact same stable EMPTY_EVENTS array reference
     expect(triggerNode?.data.events).toBe(gateNode?.data.events);
   });
 });

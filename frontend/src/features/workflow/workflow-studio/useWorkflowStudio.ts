@@ -17,7 +17,7 @@ import type {
 import { showDesktopToast } from '@/lib/desktopToast';
 
 import { resolveWorkflowAgentId } from '../workflowAgent';
-import { WORKFLOW_PRESET_TEMPLATES } from './presetTemplates';
+import { getWorkflowPresetTemplates } from './presetTemplates';
 import {
   EMPTY_AGENT_OPTIONS,
   EMPTY_EVENTS,
@@ -293,8 +293,8 @@ export function useWorkflowStudio<
   }, [definition.steps, selectedStepId]);
 
   const validationIssues = useMemo(
-    () => validateStudioWorkflowExhaustively(definition),
-    [definition]
+    () => validateStudioWorkflowExhaustively(definition, t),
+    [definition, t]
   );
 
   const defaultAgentId = useMemo(
@@ -315,7 +315,7 @@ export function useWorkflowStudio<
     const prefix =
       kind === 'agent' || kind === 'notify' || kind === 'approval'
         ? 'step'
-        : kind.replace('_', '-');
+        : kind.replace(/_/g, '-');
     const common = {
       id: nextStepId(prefix),
       dependsOn:
@@ -334,7 +334,8 @@ export function useWorkflowStudio<
       common,
       defaultAgentId,
       i18n.resolvedLanguage ?? i18n.language ?? 'en',
-      t('studio.newNotify')
+      t('studio.newNotify'),
+      t
     );
     onDefinitionChange({ ...definition, steps: [...definition.steps, step] });
     setUnsavedStepIds((current) => new Set(current).add(step.id));
@@ -344,7 +345,7 @@ export function useWorkflowStudio<
 
   const applyPreset = (presetId: PresetOrchestratorKind) => {
     if (!onDefinitionChange) return;
-    const template = WORKFLOW_PRESET_TEMPLATES.find(
+    const template = getWorkflowPresetTemplates(t).find(
       (item) => item.id === presetId
     );
     if (!template) return;

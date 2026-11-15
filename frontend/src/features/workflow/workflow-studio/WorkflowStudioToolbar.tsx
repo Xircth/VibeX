@@ -5,9 +5,11 @@ import {
   ChevronDown,
   CirclePause,
   CirclePlay,
+  Clock,
   GitBranch,
   Layers,
   Plus,
+  Repeat,
   RotateCcw,
   Send,
   ShieldCheck,
@@ -25,14 +27,14 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { Input } from '@/components/ui/input';
-import { formatOrchestratorLabel } from '@/features/pulse';
 
 import { resolveWorkflowAgentId } from '../workflowAgent';
-import { WORKFLOW_PRESET_TEMPLATES } from './presetTemplates';
+import { getWorkflowPresetTemplates } from './presetTemplates';
 import { StudioAgentIcon } from './StudioAgentIcon';
 import type { WorkflowStudioView } from './useWorkflowStudio';
 import { WorkflowMetrics } from './WorkflowMetrics';
@@ -85,11 +87,11 @@ export function WorkflowStudioToolbar({
     onPauseRun,
     onResumeRun,
   } = studio;
+  const presets = getWorkflowPresetTemplates(t);
   const hasValidationIssues = validationIssues.length > 0;
   const validationTooltip = hasValidationIssues
     ? t('studio.fixValidationIssuesTooltip', {
         count: validationIssues.length,
-        defaultValue: `Fix ${validationIssues.length} validation issue(s) before saving or publishing`,
       })
     : undefined;
 
@@ -127,7 +129,9 @@ export function WorkflowStudioToolbar({
             data-testid="workflow-preset-pill"
             className="rounded-full border border-border bg-muted/70 px-2 py-0.5 text-2xs font-medium text-foreground"
           >
-            {formatOrchestratorLabel(definition.orchestratorPreset)}
+            {t(`studio.orchestrators.${definition.orchestratorPreset}`, {
+              defaultValue: definition.orchestratorPreset,
+            })}
           </span>
         ) : null}
       </div>
@@ -169,7 +173,7 @@ export function WorkflowStudioToolbar({
                   data-testid="workflow-presets-trigger"
                 >
                   <Layers className="mr-1 size-3.5" />
-                  Templates
+                  {t('studio.templates')}
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent
@@ -177,7 +181,7 @@ export function WorkflowStudioToolbar({
                 sideOffset={8}
                 className="w-72"
               >
-                {WORKFLOW_PRESET_TEMPLATES.map((preset) => (
+                {presets.map((preset) => (
                   <DropdownMenuItem
                     key={preset.id}
                     data-testid={`workflow-preset-${preset.id}`}
@@ -205,35 +209,55 @@ export function WorkflowStudioToolbar({
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="start" sideOffset={8} className="w-56">
+                <DropdownMenuLabel className="px-2 py-1 text-2xs font-medium text-muted-foreground">
+                  {t('studio.addMenuSections.triggersAndPrimitives')}
+                </DropdownMenuLabel>
                 <DropdownMenuItem onSelect={() => addStep('trigger')}>
                   <Zap className="size-4" />
-                  Event Trigger
+                  {t('studio.nodeTypes.trigger')}
                 </DropdownMenuItem>
                 <DropdownMenuItem onSelect={() => addStep('session')}>
                   <Terminal className="size-4" />
-                  Session Step (Fresh Context)
+                  {t('studio.nodeTypes.session')}
                 </DropdownMenuItem>
                 <DropdownMenuItem onSelect={() => addStep('bot')}>
                   <Bot className="size-4" />
-                  Bot Step (Persistent Memory)
+                  {t('studio.nodeTypes.bot')}
                 </DropdownMenuItem>
+
+                <DropdownMenuSeparator />
+                <DropdownMenuLabel className="px-2 py-1 text-2xs font-medium text-muted-foreground">
+                  {t('studio.addMenuSections.collaborationAndFlow')}
+                </DropdownMenuLabel>
                 <DropdownMenuItem onSelect={() => addStep('group_stage')}>
                   <Users className="size-4" />
-                  Group Stage
+                  {t('studio.nodeTypes.group_stage')}
                 </DropdownMenuItem>
                 <DropdownMenuItem onSelect={() => addStep('user_gate')}>
                   <ShieldCheck className="size-4" />
-                  User Gate
+                  {t('studio.nodeTypes.user_gate')}
                 </DropdownMenuItem>
-                <DropdownMenuItem onSelect={() => addStep('control')}>
+                <DropdownMenuItem onSelect={() => addStep('condition_branch')}>
                   <GitBranch className="size-4" />
-                  Flow Control
+                  {t('studio.nodeTypes.condition_branch')}
+                </DropdownMenuItem>
+                <DropdownMenuItem onSelect={() => addStep('bounded_loop')}>
+                  <Repeat className="size-4" />
+                  {t('studio.nodeTypes.bounded_loop')}
+                </DropdownMenuItem>
+                <DropdownMenuItem onSelect={() => addStep('wait_for_event')}>
+                  <Clock className="size-4" />
+                  {t('studio.nodeTypes.wait_for_event')}
                 </DropdownMenuItem>
                 <DropdownMenuItem onSelect={() => addStep('outbox_action')}>
                   <Send className="size-4" />
-                  Outbox Action
+                  {t('studio.nodeTypes.outbox_action')}
                 </DropdownMenuItem>
+
                 <DropdownMenuSeparator />
+                <DropdownMenuLabel className="px-2 py-1 text-2xs font-medium text-muted-foreground">
+                  {t('studio.addMenuSections.legacySteps')}
+                </DropdownMenuLabel>
                 <DropdownMenuItem onSelect={() => addStep('agent')}>
                   <StudioAgentIcon
                     agentId={resolveWorkflowAgentId(
@@ -341,7 +365,6 @@ export function WorkflowStudioToolbar({
               >
                 {t('studio.validationIssueCount', {
                   count: validationIssues.length,
-                  defaultValue: `${validationIssues.length} issue(s)`,
                 })}
               </span>
             ) : null}

@@ -9,14 +9,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import {
-  PulseFilterBuilder,
-  formatMailboxPolicyLabel,
-} from '@/features/pulse';
+import { PulseFilterBuilder } from '@/features/pulse';
 import type { BotMailboxPolicy, PulseRuleSpec } from '@/lib/api/pulse';
 
 import { DEFAULT_GATE_FILTER, type StudioWorkflowStep } from './types';
 import type { WorkflowStudioView } from './useWorkflowStudio';
+import { formatWorkflowMailboxPolicy } from './workflowStepPresentation';
 
 function buildDryRunRuleSpec(
   step: StudioWorkflowStep,
@@ -137,6 +135,7 @@ export function WorkflowStudioInspectorAdvanced({
   studio: WorkflowStudioView;
 }) {
   const {
+    t,
     onDefinitionChange,
     updateStep,
     capturedEvents,
@@ -159,7 +158,7 @@ export function WorkflowStudioInspectorAdvanced({
       <div className="space-y-2.5 rounded-lg border border-border bg-muted/25 p-3">
         <div className="flex items-center justify-between gap-2">
           <Label htmlFor="advanced-subscribe-thread" className="text-xs">
-            Subscribe Correlated Thread
+            {t('inspector.advanced.subscribeThread')}
           </Label>
           <input
             id="advanced-subscribe-thread"
@@ -177,7 +176,7 @@ export function WorkflowStudioInspectorAdvanced({
         </div>
         <div className="space-y-1">
           <Label htmlFor="advanced-thread-key" className="text-xs">
-            Thread Correlation Key (`threadKey`)
+            {t('inspector.advanced.threadKey')}
           </Label>
           <Input
             id="advanced-thread-key"
@@ -192,12 +191,15 @@ export function WorkflowStudioInspectorAdvanced({
               }))
             }
           />
+          <p className="text-[11px] leading-4 text-muted-foreground">
+            {t('inspector.advanced.threadKeyHint')}
+          </p>
         </div>
       </div>
 
       {selectedStep.kind === 'bot' ? (
         <div className="space-y-1.5">
-          <Label>Bot Mailbox Policy</Label>
+          <Label>{t('inspector.advanced.botMailboxPolicy')}</Label>
           <Select
             value={selectedStep.mailboxPolicy}
             disabled={!onDefinitionChange}
@@ -209,15 +211,15 @@ export function WorkflowStudioInspectorAdvanced({
           >
             <SelectTrigger>
               <SelectValue>
-                {formatMailboxPolicyLabel(selectedStep.mailboxPolicy)}
+                {formatWorkflowMailboxPolicy(selectedStep.mailboxPolicy, t, true)}
               </SelectValue>
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="fifo_serial">
-                FIFO Serial (Sequential Turns)
+                {t('inspector.bot.mailboxOptions.fifo_serial_detail')}
               </SelectItem>
               <SelectItem value="coalesce_batch">
-                Coalesce Batch (Deduplicated Window)
+                {t('inspector.bot.mailboxOptions.coalesce_batch_detail')}
               </SelectItem>
             </SelectContent>
           </Select>
@@ -228,7 +230,7 @@ export function WorkflowStudioInspectorAdvanced({
       selectedStep.controlKind === 'bounded_loop' ? (
         <div className="space-y-1.5">
           <Label htmlFor="advanced-bounded-loop-max">
-            BoundedLoop Max Iterations (1-50)
+            {t('inspector.advanced.boundedLoopMax')}
           </Label>
           <Input
             id="advanced-bounded-loop-max"
@@ -251,12 +253,14 @@ export function WorkflowStudioInspectorAdvanced({
 
       {showSlaField ? (
         <div className="space-y-1.5">
-          <Label htmlFor="advanced-sla-timeout">SLA Timeout (seconds)</Label>
+          <Label htmlFor="advanced-sla-timeout">
+            {t('inspector.advanced.slaTimeoutSeconds')}
+          </Label>
           <Input
             id="advanced-sla-timeout"
             type="number"
             className="tabular-nums"
-            placeholder="Optional (min 10s)"
+            placeholder={t('inspector.userGate.optionalMin10Placeholder')}
             value={selectedStep.slaTimeoutSeconds ?? ''}
             disabled={!onDefinitionChange}
             onChange={(event) =>
@@ -278,7 +282,7 @@ export function WorkflowStudioInspectorAdvanced({
       ) : null}
 
       <div className="space-y-1.5">
-        <Label>Deterministic Gate Filter &amp; Sample Dry-Run</Label>
+        <Label>{t('inspector.advanced.gateFilterAndDryRun')}</Label>
         <PulseFilterBuilder
           filter={effectiveFilter}
           readOnly={!onDefinitionChange}

@@ -15,6 +15,7 @@ export type {
   TriggerKind,
   TriggerStepSpec,
   UserGateInteractionKind,
+  UserGateSeverity,
   UserGateStepSpec,
   WorkflowStudioDefinitionInput,
   WorkflowStudioProps,
@@ -22,6 +23,7 @@ export type {
 export { isWorkflowConnectionValid } from './workflowConnection';
 export {
   WORKFLOW_PRESET_TEMPLATES,
+  getWorkflowPresetTemplates,
   type WorkflowPresetTemplate,
 } from './presetTemplates';
 export {
@@ -30,6 +32,7 @@ export {
   switchExecutionPrimitive,
   toBackendWorkflowDefinition,
   toStudioWorkflowDefinition,
+  type WorkflowTranslateFn,
 } from './workflowStepPresentation';
 export {
   validateStudioStepExhaustively,

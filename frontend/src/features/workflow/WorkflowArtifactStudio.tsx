@@ -171,12 +171,12 @@ export function WorkflowArtifactStudio({
 
   const save = useCallback(async () => {
     if (!definition) return;
-    const issues = validateStudioWorkflowExhaustively(definition);
+    const issues = validateStudioWorkflowExhaustively(definition, t);
     if (issues.length > 0) {
       throw new Error(
         t('studio.validationBlockedSave', {
           count: issues.length,
-          defaultValue: `Fix ${issues.length} validation issue(s) before saving.`,
+          first: issues[0].message,
         })
       );
     }
@@ -204,12 +204,12 @@ export function WorkflowArtifactStudio({
 
   const publish = useCallback(async () => {
     if (!definition) throw new Error(t('studio.sourceNotLoaded'));
-    const issues = validateStudioWorkflowExhaustively(definition);
+    const issues = validateStudioWorkflowExhaustively(definition, t);
     if (issues.length > 0) {
       throw new Error(
         t('studio.validationBlockedSave', {
           count: issues.length,
-          defaultValue: `Fix ${issues.length} validation issue(s) before saving.`,
+          first: issues[0].message,
         })
       );
     }
@@ -436,7 +436,7 @@ export function WorkflowArtifactStudio({
           )
         ) {
           void workflowApi
-            .cancel(run.id, 'Reset from Workflow artifact editor')
+            .cancel(run.id, t('studio.auditReasons.resetArtifact'))
             .catch((error) =>
               toast.error(
                 error instanceof Error ? error.message : String(error)
@@ -452,7 +452,7 @@ export function WorkflowArtifactStudio({
       onStopRun={() => {
         if (!run) return;
         void workflowApi
-          .pause(run.id, 'Paused from Workflow artifact editor')
+          .pause(run.id, t('studio.auditReasons.pauseArtifact'))
           .then(() => refreshRun(run.id))
           .catch((error) =>
             toast.error(error instanceof Error ? error.message : String(error))
@@ -461,7 +461,7 @@ export function WorkflowArtifactStudio({
       onTerminateRun={() => {
         if (!run) return;
         void workflowApi
-          .cancel(run.id, 'Terminated from Workflow artifact editor')
+          .cancel(run.id, t('studio.auditReasons.terminateArtifact'))
           .then(() => refreshRun(run.id))
           .catch((error) =>
             toast.error(error instanceof Error ? error.message : String(error))
@@ -480,7 +480,7 @@ export function WorkflowArtifactStudio({
       onPauseStep={(stepId) => {
         if (!run) return;
         void workflowApi
-          .pauseStep(run.id, stepId, 'Paused in node conversation')
+          .pauseStep(run.id, stepId, t('studio.auditReasons.pauseStepConversation'))
           .then(() => refreshRun(run.id))
           .catch((error) =>
             toast.error(error instanceof Error ? error.message : String(error))
@@ -497,7 +497,7 @@ export function WorkflowArtifactStudio({
           await workflowApi.pauseStep(
             activeRun.id,
             stepId,
-            'Paused for user guidance'
+            t('studio.auditReasons.pauseForGuidance')
           );
         }
         await workflowApi.submitStepInput(activeRun.id, stepId, text);

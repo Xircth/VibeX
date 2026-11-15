@@ -140,7 +140,7 @@ export function WorkflowStudioInspector({
         )}
       </div>
       {events.length ? (
-        <div className="border-t px-3.5 py-2 text-[10px] text-muted-foreground">
+        <div className="border-t px-3.5 py-2 text-[10px] text-muted-foreground tabular-nums">
           {t('studio.eventSequence', {
             count: events.length,
             sequence: String(events.at(-1)?.sequence ?? 0),

@@ -112,7 +112,7 @@ export function WorkflowStudioInspectorAgent({
       </div>
 
       <div className="space-y-1.5">
-        <Label>Workspace Isolation</Label>
+        <Label>{t('inspector.session.workspaceIsolation')}</Label>
         <Select
           value={isolation}
           disabled={!onDefinitionChange}
@@ -128,7 +128,9 @@ export function WorkflowStudioInspectorAgent({
                   workspaceAccess:
                     nextIsolation === 'isolated_worktree'
                       ? 'write_isolated'
-                      : 'native',
+                      : nextIsolation === 'scratch'
+                        ? 'read_only_shared'
+                        : 'native',
                 };
               }
               return step;
@@ -140,13 +142,21 @@ export function WorkflowStudioInspectorAgent({
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="isolated_worktree">
-              isolated_worktree (Clean Worktree)
+              {t('inspector.session.isolationOptions.isolated_worktree')}
             </SelectItem>
             <SelectItem value="project_root">
-              project_root (Shared Workspace)
+              {t('inspector.session.isolationOptions.project_root')}
             </SelectItem>
+            {isolation === 'scratch' ? (
+              <SelectItem value="scratch">
+                {t('inspector.session.isolationOptions.scratch')}
+              </SelectItem>
+            ) : null}
           </SelectContent>
         </Select>
+        <p className="text-[11px] leading-4 text-muted-foreground">
+          {t('inspector.session.workspaceIsolationHint')}
+        </p>
       </div>
 
       <div className="space-y-1.5">

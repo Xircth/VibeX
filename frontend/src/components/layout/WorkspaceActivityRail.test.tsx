@@ -109,7 +109,7 @@ describe('WorkspaceActivityRail', () => {
     expect(getDefaultActivityRailPanelId()).toBe(PANEL_IDS.FILE_TREE);
   });
 
-  it('renders independent usage, pulse, and workflow studio views when mode is kanban and switches zh-CN <-> en cleanly', async () => {
+  it('renders only usage and automation tasks views when mode is kanban (no workflow studio rail entry) and switches zh-CN <-> en cleanly', async () => {
     const i18n = (await import('@/i18n')).default;
     const { act } = await import('@testing-library/react');
     try {
@@ -129,7 +129,10 @@ describe('WorkspaceActivityRail', () => {
           .getAllByRole('button')
           .filter((button) => button.getAttribute('aria-label'))
           .map((button) => button.getAttribute('aria-label'))
-      ).toEqual(['计量统计', '脉冲自动化', 'Workflow 编辑器']);
+      ).toEqual(['计量统计', '自动化任务']);
+      expect(
+        screen.queryByTestId('kanban-rail-builtin:workflows')
+      ).not.toBeInTheDocument();
 
       await act(async () => {
         await i18n.changeLanguage('en');
@@ -147,7 +150,7 @@ describe('WorkspaceActivityRail', () => {
           .getAllByRole('button')
           .filter((button) => button.getAttribute('aria-label'))
           .map((button) => button.getAttribute('aria-label'))
-      ).toEqual(['Usage', 'Pulse Automation', 'Workflow Studio']);
+      ).toEqual(['Usage', 'Automation Tasks']);
     } finally {
       await act(async () => {
         await i18n.changeLanguage('zh-CN');

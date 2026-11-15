@@ -26,7 +26,6 @@ import {
   Code2,
   FolderOpen,
   GitBranch,
-  GitFork,
   MessagesSquare,
   Search,
   Combine,
@@ -61,7 +60,7 @@ const RAIL_ICONS: Record<ActivityRailItemId, LucideIcon> = {
 };
 
 const KANBAN_RAIL_VIEWS: Array<{
-  id: 'builtin:usage' | 'builtin:pulse' | 'builtin:workflows';
+  id: 'builtin:usage' | 'builtin:pulse';
   titleKey: string;
   fallback: string;
   Icon: LucideIcon;
@@ -75,14 +74,8 @@ const KANBAN_RAIL_VIEWS: Array<{
   {
     id: 'builtin:pulse',
     titleKey: 'kanbanViews.pulse',
-    fallback: '脉冲自动化',
+    fallback: '自动化任务',
     Icon: Activity,
-  },
-  {
-    id: 'builtin:workflows',
-    titleKey: 'kanbanViews.workflows',
-    fallback: 'Workflow 编辑器',
-    Icon: GitFork,
   },
 ];
 

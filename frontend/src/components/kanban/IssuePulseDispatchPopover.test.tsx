@@ -256,10 +256,10 @@ describe('IssuePulseDispatchPopover, PulseGuardMenu & StatusBar Pulse Badges (Tr
 
       expect(screen.getByTestId('issue-pulse-dispatch-trigger')).toHaveAttribute(
         'aria-label',
-        '派发工单脉冲'
+        '派发工单自动化'
       );
       await user.click(screen.getByTestId('issue-pulse-dispatch-trigger'));
-      expect(screen.getByText('工单脉冲派发')).toBeInTheDocument();
+      expect(screen.getByText('工单自动化派发')).toBeInTheDocument();
       expect(screen.getByRole('tab', { name: '单次派发' })).toBeInTheDocument();
 
       await act(async () => {
@@ -268,9 +268,9 @@ describe('IssuePulseDispatchPopover, PulseGuardMenu & StatusBar Pulse Badges (Tr
 
       expect(screen.getByTestId('issue-pulse-dispatch-trigger')).toHaveAttribute(
         'aria-label',
-        'Dispatch Issue Pulse'
+        'Dispatch Issue Automation'
       );
-      expect(screen.getByText('Issue Pulse Dispatch')).toBeInTheDocument();
+      expect(screen.getByText('Issue Automation Dispatch')).toBeInTheDocument();
       expect(
         screen.getByRole('tab', { name: 'One-Shot Ticket' })
       ).toBeInTheDocument();

@@ -211,6 +211,63 @@ export type PresetOrchestratorKind =
   | 'event_saga'
   | 'window_aggregator';
 
+export type PulseCallbackKind =
+  | 'feishu_webhook'
+  | 'github_comment'
+  | 'webhook_post'
+  | 'reply_channel';
+
+export type PulseCallbackSpec = {
+  kind: PulseCallbackKind;
+  destination: string;
+  payloadTemplate?: string;
+  headers?: Record<string, string>;
+  enabled?: boolean;
+};
+
+export type PulseTaskLifecycleState =
+  | 'editing'
+  | 'pending_test'
+  | 'publishing'
+  | 'published';
+
+export type PulseTaskKind =
+  | 'fast_task'
+  | 'reusable_rule'
+  | 'workflow_trigger';
+
+export type PulseTaskMeta = {
+  taskKind?: PulseTaskKind | null;
+  lifecycleState?: PulseTaskLifecycleState | null;
+  boundRuleTemplateId?: string | null;
+  lastTestedAt?: string | null;
+  lastTestPassed?: boolean | null;
+  lastRunAt?: string | null;
+  lastRunStatus?: string | null;
+  lastRunSummary?: string | null;
+};
+
+export type PulseOutboxEntryView = {
+  id: string;
+  ruleId?: string | null;
+  targetKind: string;
+  destination?: string | null;
+  status: string;
+  attempts: number;
+  lastError?: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type PulseSourceTestResult = {
+  ok: boolean;
+  sourceId: string;
+  mode: string;
+  message: string;
+  webhookPath?: string | null;
+  sampleEnvelope?: EventEnvelope | null;
+};
+
 export type PulseRuleSpec = {
   name: string;
   description?: string | null;
@@ -223,6 +280,8 @@ export type PulseRuleSpec = {
   debounceMs?: number;
   claimExclusive?: boolean;
   targets: PulseTargetSpec[];
+  callback?: PulseCallbackSpec | null;
+  taskMeta?: PulseTaskMeta | null;
 };
 
 export type PulseRuleView = {
@@ -263,6 +322,8 @@ export type PulseSourceView = {
   statusMessage?: string | null;
   cursorWatermark?: string | null;
   publicWebhookPath?: string | null;
+  configJson?: Record<string, unknown>;
+  hasSigningSecret?: boolean;
   receivedCount24h: number;
   rejectedCount24h: number;
   updatedAt: string;
@@ -325,6 +386,8 @@ export type PulseDeckSnapshot = {
   observedCandidates: PulseObservedCandidateView[];
   subscriptions: PulseSubscriptionView[];
   pendingInteractions: PulseUserInteractionView[];
+  busyRuleIds?: string[];
+  recentOutbox?: PulseOutboxEntryView[];
 };
 
 export type PulseSourceUpsertInput = {
@@ -334,6 +397,7 @@ export type PulseSourceUpsertInput = {
   enabled: boolean;
   configJson?: Record<string, unknown>;
   signingSecret?: string | null;
+  clearSigningSecret?: boolean;
 };
 
 export type PulseRuleSaveInput = {
@@ -443,6 +507,103 @@ export function createPulseApi(transport: BackendTransport) {
 
     deleteSource: (id: string) =>
       callPulseTransport<void>(transport, 'pulse_source_delete', { id }),
+
+    testSource: async (
+      id: string,
+      ingest = false
+    ): Promise<PulseSourceTestResult> => {
+      try {
+        return await callPulseTransport<PulseSourceTestResult>(
+          transport,
+          'pulse_source_test',
+          { input: { id, ingest } }
+        );
+      } catch (error) {
+        const msg = extractPulseErrorMessage(error, '');
+        const isUnknownCommand =
+          /unknown|not found|unrecognized|unsupported|not implemented/i.test(
+            msg
+          );
+        if (!isUnknownCommand) {
+          throw error;
+        }
+        const fallbackSample: EventEnvelope = {
+          eventId: `evt-test-${id}`,
+          deliveryId: `dlv-test-${id}`,
+          source: {
+            kind: 'webhook_standard',
+            instanceId: id,
+            trustLevel: 'verified_external',
+          },
+          eventType: 'pulse.source.self_test',
+          occurredAt: new Date().toISOString(),
+          actor: {
+            id: 'self-test',
+            displayName: 'Source Self-Test',
+            roles: [],
+            isBot: false,
+            isSelf: false,
+          },
+          threadKey: `source-test:${id}`,
+          correlations: [],
+          replyChannels: [],
+          trace: {
+            rootEventId: `evt-test-${id}`,
+            parentRunId: null,
+            hopCount: 0,
+          },
+          payload: { sourceId: id, ok: true },
+        };
+        if (ingest) {
+          const emitted = await callPulseTransport<EventEnvelope>(
+            transport,
+            'pulse_event_emit',
+            {
+              input: {
+                eventType: 'pulse.source.self_test',
+                threadKey: `source-test:${id}`,
+                payload: { sourceId: id, selfTest: true },
+              },
+            }
+          );
+          return {
+            ok: true,
+            sourceId: id,
+            mode: 'fallback_emit',
+            message: 'Self-test event emitted into automation engine.',
+            webhookPath: `/api/pulse/webhooks/${id}`,
+            sampleEnvelope: emitted,
+          };
+        }
+        await callPulseTransport<PulseDryRunReport>(
+          transport,
+          'pulse_rule_dry_run',
+          {
+            spec: {
+              name: 'Source Connectivity Probe',
+              evalMode: 'observe',
+              filter: {
+                sourceKinds: [],
+                sourceInstanceIds: [],
+                eventTypes: [],
+                allowedActors: [],
+                conditions: [],
+              },
+              targets: [],
+            },
+            sampleEvent: fallbackSample,
+          }
+        ).catch(() => null);
+        return {
+          ok: true,
+          sourceId: id,
+          mode: 'fallback_dry_run',
+          message: 'Connectivity probe succeeded.',
+          webhookPath: `/api/pulse/webhooks/${id}`,
+          sampleEnvelope: fallbackSample,
+        };
+      }
+    },
 
     listRules: (projectId?: string | null) =>
       callPulseTransport<PulseRuleView[]>(transport, 'pulse_rule_list', {

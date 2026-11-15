@@ -28,8 +28,18 @@ export function consumePendingWorkflowStudioOpen(): PendingWorkflowStudioOpenDet
   return pending;
 }
 
+export function stashPendingWorkflowStudioOpen(
+  detail: PendingWorkflowStudioOpenDetail | null
+): void {
+  if (typeof window === 'undefined') {
+    return;
+  }
+  const win = window as PulseWindowState;
+  win.__VIBEX_PENDING_WORKFLOW_STUDIO_OPEN__ = detail;
+}
+
 function activateKanbanBuiltinView(
-  viewId: 'builtin:pulse' | 'builtin:workflows',
+  viewId: 'builtin:pulse',
   explicitProjectId?: string | null
 ) {
   const layoutState = useLayoutStore.getState();
@@ -84,8 +94,8 @@ export function requestOpenPulseDeck(
 }
 
 /**
- * Stores pending Workflow Studio target metadata and opens `builtin:workflows`
- * in Kanban, automatically switching from Workspace to Kanban when needed.
+ * Stores pending Workflow Studio target metadata and opens `builtin:pulse`
+ * in Kanban so Automation Tasks mounts its embedded Workflow Studio sub-view.
  */
 export function requestOpenWorkflowStudio(
   detail?: PendingWorkflowStudioOpenDetail
@@ -93,19 +103,19 @@ export function requestOpenWorkflowStudio(
   if (typeof window === 'undefined') {
     return false;
   }
-  const win = window as PulseWindowState;
-  win.__VIBEX_PENDING_WORKFLOW_STUDIO_OPEN__ = detail ?? null;
+  const normalizedDetail: PendingWorkflowStudioOpenDetail = detail ?? {};
+  stashPendingWorkflowStudioOpen(normalizedDetail);
   const event = new CustomEvent<PendingWorkflowStudioOpenDetail>(
     OPEN_WORKFLOW_STUDIO_EVENT,
     {
       bubbles: true,
       cancelable: true,
-      detail: detail ?? {},
+      detail: normalizedDetail,
     }
   );
   const cancelled = !window.dispatchEvent(event);
   if (!cancelled) {
-    activateKanbanBuiltinView('builtin:workflows');
+    activateKanbanBuiltinView('builtin:pulse');
     window.requestAnimationFrame(() => {
       window.dispatchEvent(
         new CustomEvent<PendingWorkflowStudioOpenDetail>(
@@ -113,7 +123,7 @@ export function requestOpenWorkflowStudio(
           {
             bubbles: true,
             cancelable: true,
-            detail: detail ?? {},
+            detail: normalizedDetail,
           }
         )
       );

@@ -174,26 +174,26 @@ describe('Collaboration Pulse UI (Track F5 / R4)', () => {
         />
       );
 
-      expect(screen.getByText('脉冲规则提案')).toBeInTheDocument();
+      expect(screen.getByText('自动化规则提案')).toBeInTheDocument();
       expect(screen.getByLabelText('规则名称')).toBeInTheDocument();
       expect(screen.getByTestId('pulse-group-dispatch-summary')).toHaveTextContent(
         '席位：@QA'
       );
       expect(screen.getByTestId('pulse-save-rule-btn')).toHaveTextContent(
-        '保存脉冲规则'
+        '保存自动化规则'
       );
 
       await act(async () => {
         await i18n.changeLanguage('en');
       });
 
-      expect(screen.getByText('Pulse Rule Proposal')).toBeInTheDocument();
+      expect(screen.getByText('Automation Rule Proposal')).toBeInTheDocument();
       expect(screen.getByLabelText('Rule Name')).toBeInTheDocument();
       expect(screen.getByTestId('pulse-group-dispatch-summary')).toHaveTextContent(
         'Seat: @QA'
       );
       expect(screen.getByTestId('pulse-save-rule-btn')).toHaveTextContent(
-        'Save Pulse Rule'
+        'Save Automation Rule'
       );
     } finally {
       await act(async () => {

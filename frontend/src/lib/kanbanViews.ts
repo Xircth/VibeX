@@ -1,7 +1,6 @@
 export const BUILTIN_KANBAN_VIEW_IDS = [
   'builtin:usage',
   'builtin:pulse',
-  'builtin:workflows',
 ] as const;
 
 export type BuiltinKanbanViewId = (typeof BUILTIN_KANBAN_VIEW_IDS)[number];
@@ -30,12 +29,6 @@ export const BUILTIN_KANBAN_VIEWS: KanbanViewDescriptor[] = [
     hidesBottomDock: true,
     builtin: true,
   },
-  {
-    id: 'builtin:workflows',
-    titleKey: 'kanbanViews.workflows',
-    hidesBottomDock: true,
-    builtin: true,
-  },
 ];
 
 export const DEFAULT_KANBAN_VIEW_ID: BuiltinKanbanViewId = 'builtin:usage';
@@ -45,10 +38,12 @@ export function migrateKanbanViewId(
   _boardStyle?: string | null
 ): string {
   if (typeof panelView === 'string') {
+    if (panelView === 'builtin:workflows') {
+      return 'builtin:pulse';
+    }
     if (
       panelView === 'builtin:usage' ||
       panelView === 'builtin:pulse' ||
-      panelView === 'builtin:workflows' ||
       panelView.startsWith('plugin:')
     ) {
       return panelView;
@@ -62,8 +57,7 @@ export function kanbanViewHidesSessionSlot(viewId: string): boolean {
     viewId === 'builtin:canvas' ||
     viewId === 'builtin:usage' ||
     viewId === 'builtin:repos' ||
-    viewId === 'builtin:pulse' ||
-    viewId === 'builtin:workflows'
+    viewId === 'builtin:pulse'
   );
 }
 

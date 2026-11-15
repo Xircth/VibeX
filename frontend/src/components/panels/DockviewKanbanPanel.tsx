@@ -55,12 +55,6 @@ const LazyPulseDeckView = lazy(() =>
   }))
 );
 
-const LazyWorkflowStudioDockPanel = lazy(() =>
-  import('@/features/workflow/WorkflowStudioDockPanel').then((module) => ({
-    default: module.WorkflowStudioDockPanel,
-  }))
-);
-
 const KANBAN_CAROUSEL_TRANSITION_MS = 320;
 
 function isActiveVisibleSurface(element: HTMLElement | null): boolean {
@@ -121,7 +115,7 @@ export function KanbanBoard() {
       if (!isActiveVisibleSurface(rootPanelRef.current)) {
         return;
       }
-      setActiveViewId('builtin:workflows');
+      setActiveViewId('builtin:pulse');
       event.preventDefault();
     };
     window.addEventListener(OPEN_PULSE_DECK_EVENT, handleOpenPulseDeck);
@@ -367,13 +361,6 @@ function KanbanRegisteredView({
     return (
       <Suspense fallback={null}>
         <LazyPulseDeckView projectId={projectId} className="h-full w-full" />
-      </Suspense>
-    );
-  }
-  if (view.id === 'builtin:workflows') {
-    return (
-      <Suspense fallback={null}>
-        <LazyWorkflowStudioDockPanel />
       </Suspense>
     );
   }

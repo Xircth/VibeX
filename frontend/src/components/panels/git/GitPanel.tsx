@@ -48,6 +48,7 @@ import { usePanelActions } from '@/hooks/usePanelActions';
 import { useGitDiffNavigationStore } from '@/stores/useGitDiffNavigationStore';
 import { useAppContextMenu } from '@/components/context-menu';
 import { attemptsApi, projectsApi } from '@/lib/api';
+import { toast } from '@/components/ui/toast';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Select,
@@ -195,8 +196,14 @@ export function GitPanel() {
   } = useGitStatus({ workspaceId, repoId });
   const displayedBranchName = workspace?.branch || branchName;
 
-  const { stageFile, unstageFile, revertFile, stageAll, revertAll } =
-    useGitActions({ workspaceId, repoId, onSuccess: refreshStatus });
+  const {
+    stageFile,
+    unstageFile,
+    revertFile,
+    stageAll,
+    revertAll,
+    error: actionError,
+  } = useGitActions({ workspaceId, repoId, onSuccess: refreshStatus });
 
   const shouldPreloadDiffs =
     mode === 'diff' &&
@@ -239,6 +246,19 @@ export function GitPanel() {
     repoId,
     enabled: mode === 'branches',
   });
+
+  const handleCheckoutBranch = useCallback(
+    async (name: string) => {
+      await gitBranches.checkoutBranch(name);
+      refreshStatus();
+      if (workspaceId) {
+        void queryClient.invalidateQueries({
+          queryKey: ['branchStatus', workspaceId],
+        });
+      }
+    },
+    [gitBranches, queryClient, refreshStatus, workspaceId]
+  );
 
   const gitHub = useGitHubData({
     repoId,
@@ -472,6 +492,13 @@ export function GitPanel() {
                     queryKey: ['branchStatus', workspaceId],
                   });
                   refreshStatus();
+                } catch (error) {
+                  console.error('Failed to continue conflicts:', error);
+                  toast.error(
+                    error instanceof Error
+                      ? error.message
+                      : 'Failed to continue conflict resolution'
+                  );
                 } finally {
                   setConflictBusy(null);
                 }
@@ -481,6 +508,13 @@ export function GitPanel() {
                 try {
                   await abortConflicts();
                   refreshStatus();
+                } catch (error) {
+                  console.error('Failed to abort conflicts:', error);
+                  toast.error(
+                    error instanceof Error
+                      ? error.message
+                      : 'Failed to abort conflict resolution'
+                  );
                 } finally {
                   setConflictBusy(null);
                 }
@@ -499,7 +533,7 @@ export function GitPanel() {
             commitLoading={commitLoading}
             pushLoading={pushLoading}
             commitError={commitError}
-            operationError={operationError}
+            operationError={operationError ?? actionError}
             commitsAhead={
               gitLog.ahead || conflictStatus?.remote_commits_ahead || 0
             }
@@ -556,7 +590,7 @@ export function GitPanel() {
           remotes={gitBranches.remotes}
           isLoading={gitBranches.isLoading}
           error={gitBranches.error}
-          onCheckout={gitBranches.checkoutBranch}
+          onCheckout={handleCheckoutBranch}
           onCreate={gitBranches.createBranch}
           onDelete={gitBranches.deleteBranch}
           onRefresh={gitBranches.refresh}

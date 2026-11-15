@@ -770,5 +770,53 @@ describe('SessionCanvasView', () => {
       height: DETAIL_CARD_HEIGHT,
     });
   });
+
+  it('syncs sibling SessionCanvasView instances and does not overwrite edits when a stale instance unmounts', () => {
+    const kanbanApi: { current: SessionCanvasApi | null } = { current: null };
+    const workspaceApi: { current: SessionCanvasApi | null } = { current: null };
+    const kanban = renderCanvas(
+      <SessionCanvasView
+        projectId="p1"
+        sessions={[session('s1', new Date().toISOString())]}
+        sessionsReady
+        listWidth={280}
+        list={<div>kanban-list</div>}
+        registerWorkspaceController={false}
+        onApiReady={(next) => {
+          kanbanApi.current = next;
+        }}
+      />
+    );
+    const workspace = renderCanvas(
+      <SessionCanvasView
+        projectId="p1"
+        sessions={[session('s1', new Date().toISOString())]}
+        sessionsReady
+        listWidth={280}
+        list={<div>workspace-list</div>}
+        onApiReady={(next) => {
+          workspaceApi.current = next;
+        }}
+      />
+    );
+
+    act(() => {
+      workspaceApi.current?.addSession('s1');
+    });
+
+    expect(kanbanApi.current?.presentSessionIds().has('s1')).toBe(true);
+
+    // Unmount the hidden Kanban instance (simulating KeepAliveSurface expiry)
+    kanban.unmount();
+
+    const storedAfterUnmount = JSON.parse(
+      window.localStorage.getItem('vibex:kanban-canvas:p1') ?? '{}'
+    ) as { nodes?: Array<{ sessionId?: string }> };
+    expect(
+      storedAfterUnmount.nodes?.some((node) => node.sessionId === 's1')
+    ).toBe(true);
+
+    workspace.unmount();
+  });
 });
 

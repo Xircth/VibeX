@@ -32,6 +32,10 @@ vi.mock('@/components/dialogs/shared/ConfirmDialog', () => ({
   ConfirmDialog: { show: vi.fn() },
 }));
 
+vi.mock('@/utils/clipboard', () => ({
+  writeTextToClipboard: vi.fn(async () => true),
+}));
+
 const idleStatus = {
   enabled: false,
   saved: [],
@@ -328,6 +332,57 @@ describe('HostTunnelPanel', () => {
     expect(screen.getByTestId('tunnel-usage-badge')).toHaveAttribute(
       'data-state',
       'in-use'
+    );
+  });
+
+  it('activates polling after generating a setup command and finishes cleanly when connected', async () => {
+    const user = userEvent.setup();
+    const onReachabilityChange = vi.fn();
+    const { toast } = await import('@/components/ui/toast');
+
+    render(
+      <HostTunnelPanel
+        serviceRunning
+        onReachabilityChange={onReachabilityChange}
+      />
+    );
+
+    await user.click(await screen.findByRole('button', { name: '新建云节点' }));
+    await user.type(
+      screen.getByPlaceholderText('203.0.113.10'),
+      '203.0.113.10'
+    );
+    await user.click(screen.getByRole('button', { name: '生成命令' }));
+
+    await waitFor(() =>
+      expect(hostTunnelApi.startCreate).toHaveBeenCalledWith('203.0.113.10')
+    );
+
+    hostTunnelApi.get.mockResolvedValueOnce({
+      enabled: true,
+      saved: [
+        {
+          id: 'vps-1',
+          name: '203.0.113.10',
+          origin: 'https://203.0.113.10:17891',
+          host: '203.0.113.10',
+          port: 17891,
+          kind: 'existing',
+          created_at: '2026-11-12T00:00:00Z',
+        },
+      ],
+      active_id: 'vps-1',
+      pending: null,
+      relay_state: 'idle',
+      last_error: null,
+    });
+
+    await waitFor(
+      () => {
+        expect(onReachabilityChange).toHaveBeenCalled();
+        expect(toast.success).toHaveBeenCalled();
+      },
+      { timeout: 3500 }
     );
   });
 });

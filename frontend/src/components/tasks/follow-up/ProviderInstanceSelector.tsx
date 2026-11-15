@@ -35,10 +35,7 @@ export function ProviderInstanceSelector({
   return (
     <div
       data-testid="provider-instance-selector"
-      className={cn(
-        'inline-flex items-center gap-1.5 rounded-md border border-border bg-background/80 px-2 py-0.5 text-xs',
-        className
-      )}
+      className={cn('inline-flex items-center gap-1.5 text-xs', className)}
     >
       {activeInstance ? (
         <AgentTypeIcon
@@ -59,7 +56,7 @@ export function ProviderInstanceSelector({
             onSelectInstance(next);
           }
         }}
-        className="h-6 max-w-[220px] truncate bg-transparent text-xs font-medium text-foreground outline-none disabled:opacity-50"
+        className="raised-control h-7 max-w-[220px] truncate px-2 text-xs font-medium outline-none disabled:opacity-50"
       >
         {instances.map((instance) => (
           <option key={instance.instanceId} value={instance.instanceId}>

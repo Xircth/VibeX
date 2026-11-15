@@ -106,6 +106,7 @@ impl ConversationExecutionPort for ConversationSessionExecutionPort {
                 queued_input_claim: None,
                 operation_id: request.operation_id,
                 collaboration_origin: None,
+                provider_instance_id: request.provider_instance_id,
             })
             .await
             .map(|(turn, _)| turn)

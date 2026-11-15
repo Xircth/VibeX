@@ -1017,7 +1017,11 @@ export function FirstRunExperience({
             active={step === 'history'}
             onBack={() => setStep('configure')}
             onFinish={async (ids) => {
-              setImportedProjectIds(ids);
+              setImportedProjectIds((current) =>
+                ids.length > 0
+                  ? Array.from(new Set([...current, ...ids]))
+                  : current
+              );
               setStep('projects');
             }}
           />

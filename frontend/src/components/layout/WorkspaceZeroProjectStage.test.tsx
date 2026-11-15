@@ -3,6 +3,7 @@ import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { BackendTransportProvider } from '@/lib/transport';
 import { useWindowProjectsStore } from '@/stores/useWindowProjectsStore';
 import { WorkspaceZeroProjectStage } from './WorkspaceZeroProjectStage';
 
@@ -143,5 +144,27 @@ describe('WorkspaceZeroProjectStage', () => {
       'proj-dropped',
       '/local-projects/proj-dropped/sessions'
     );
+  });
+
+  it('does not attach Tauri drag-and-drop listener or promise folder drop in WebUI mode', () => {
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    render(
+      <BackendTransportProvider
+        transport={{ environment: 'web', call: vi.fn() }}
+      >
+        <QueryClientProvider client={queryClient}>
+          <MemoryRouter>
+            <WorkspaceZeroProjectStage />
+          </MemoryRouter>
+        </QueryClientProvider>
+      </BackendTransportProvider>
+    );
+
+    expect(dragDropListeners).toHaveLength(0);
+    expect(
+      screen.queryByText(/支持将本地项目文件夹直接拖入窗口打开|Drag and drop/)
+    ).not.toBeInTheDocument();
   });
 });

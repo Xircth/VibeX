@@ -479,4 +479,132 @@ describe('agentQuestionModel', () => {
       '「没法建群和建分组」时界面发生了什么？',
     ]);
   });
+
+  it('preserves recommended badges when mergeQuestionRequestWithToolUse fills choices or enriches plain options', () => {
+    const schemaRequest: ConversationQuestionRequest = {
+      question_id: 'elicitation-rec',
+      prompt: 'Choose DB',
+      options: [],
+      schema: {
+        type: 'object',
+        properties: {
+          db: { type: 'string', title: 'Database' },
+        },
+      },
+    };
+    const use: ToolUseBlock = {
+      type: 'tool_use',
+      tool_use_id: 'call-rec-1',
+      tool_name: 'ask_user_question',
+      input_preview: JSON.stringify({
+        questions: [
+          {
+            id: 'db',
+            header: 'Database',
+            question: 'Which database?',
+            options: [
+              { label: '(Recommended) Postgres', description: 'Primary store' },
+              { label: 'SQLite', description: 'Embedded' },
+            ],
+          },
+        ],
+      }),
+    };
+
+    const mergedSchema = mergeQuestionRequestWithToolUse(schemaRequest, use);
+    const schemaTabs = questionTabsFromRequest(mergedSchema);
+    expect(schemaTabs[0]?.choices[0]).toMatchObject({
+      label: 'Postgres',
+      recommended: true,
+    });
+
+    const plainRequest: ConversationQuestionRequest = {
+      question_id: 'elicitation-plain',
+      prompt: 'Which database?',
+      options: ['(Recommended) Postgres', 'SQLite'],
+      schema: null,
+    };
+    const mergedPlain = mergeQuestionRequestWithToolUse(plainRequest, use);
+    const plainTabs = questionTabsFromRequest(mergedPlain);
+    expect(plainTabs[0]?.choices[0]).toMatchObject({
+      label: 'Postgres',
+      description: 'Primary store',
+      recommended: true,
+    });
+  });
+
+  it('supports Antigravity interaction options with ids and recalls boolean/number and customFieldName answers', () => {
+    const interactionRequest: ConversationQuestionRequest = {
+      question_id: 'interaction_1',
+      prompt: '选择风格',
+      options: [],
+      schema: {
+        type: 'object',
+        'x-vibex-questions': [
+          {
+            id: 'interaction_1',
+            question: '选择风格',
+            options: [
+              { id: 'opt-dark', label: '(Recommended) 极夜风', description: '' },
+              { id: 'opt-light', label: '浅色风', description: '' },
+            ],
+          },
+        ],
+      },
+    };
+    const interactionTabs = questionTabsFromRequest(interactionRequest);
+    expect(interactionTabs[0]?.choices[0]).toMatchObject({
+      value: 'opt-dark',
+      label: '极夜风',
+      recommended: true,
+    });
+    expect(
+      responseContent(interactionRequest, interactionTabs, {
+        interaction_1: {
+          selected: ['opt-dark'],
+          customActive: false,
+          customText: '',
+        },
+      })
+    ).toEqual({
+      answers: [
+        {
+          questionId: 'interaction_1',
+          labels: ['极夜风 (Recommended)'],
+        },
+      ],
+    });
+
+    const typedRequest: ConversationQuestionRequest = {
+      question_id: 'acp-typed-1',
+      prompt: 'Configure limits',
+      options: [],
+      schema: {
+        type: 'object',
+        properties: {
+          confirm: { type: 'boolean', title: 'Confirm' },
+          retries: { type: 'integer', title: 'Retries' },
+        },
+      },
+    };
+    const typedTabs = questionTabsFromRequest(typedRequest);
+    expect(
+      answerStateFromResponse(typedTabs, {
+        answer: '',
+        content: { confirm: true, retries: 3 },
+      })
+    ).toEqual({
+      confirm: { selected: [true], customActive: false, customText: '' },
+      retries: { selected: [], customActive: true, customText: '3' },
+    });
+    expect(
+      responseContent(typedRequest, typedTabs, {
+        confirm: { selected: [true], customActive: false, customText: '' },
+        retries: { selected: [], customActive: true, customText: 'not-a-num' },
+      })
+    ).toEqual({
+      confirm: true,
+      retries: 'not-a-num',
+    });
+  });
 });

@@ -578,6 +578,63 @@ impl ConversationAgentEventRecorder {
         streaming_updated_conversations: &mut std::collections::BTreeSet<Uuid>,
         batch: &mut RecordedConversationBatch,
     ) -> Result<(), RuntimeEventRecordError> {
+        let terminal = is_terminal_conversation_event(&mapped.event);
+        if let Some(context) = &self.conversation_context {
+            match &mapped.event {
+                ConversationEvent::PermissionRequested { request } => {
+                    let mut states = context.runtime_states.lock().await;
+                    states
+                        .entry(mapped.conversation_id)
+                        .or_default()
+                        .pending_permission_id = Some(request.permission_id.clone());
+                }
+                ConversationEvent::PermissionResponded { permission_id, .. } => {
+                    let mut states = context.runtime_states.lock().await;
+                    if let Some(state) = states.get_mut(&mapped.conversation_id)
+                        && state.pending_permission_id.as_deref() == Some(permission_id.as_str())
+                    {
+                        state.pending_permission_id = None;
+                    }
+                }
+                ConversationEvent::QuestionRequested { request } => {
+                    let mut states = context.runtime_states.lock().await;
+                    states
+                        .entry(mapped.conversation_id)
+                        .or_default()
+                        .pending_question_id = Some(request.question_id.clone());
+                }
+                ConversationEvent::QuestionResponded { question_id, .. } => {
+                    let mut states = context.runtime_states.lock().await;
+                    if let Some(state) = states.get_mut(&mapped.conversation_id)
+                        && state.pending_question_id.as_deref() == Some(question_id.as_str())
+                    {
+                        state.pending_question_id = None;
+                    }
+                }
+                ConversationEvent::TurnBlocked {
+                    reason: agents::conversation::TurnBlockedReason::Authentication { .. },
+                } => {
+                    let mut states = context.runtime_states.lock().await;
+                    if let Some(state) = states.get_mut(&mapped.conversation_id) {
+                        state.turn_in_flight = false;
+                        state.active_turn_id = None;
+                        state.active_prompt_id = None;
+                        state.pending_permission_id = None;
+                        state.pending_question_id = None;
+                        state.recovery_status = Some("auth_required".to_string());
+                    }
+                }
+                _ if terminal => {
+                    let mut states = context.runtime_states.lock().await;
+                    if let Some(state) = states.get_mut(&mapped.conversation_id) {
+                        state.pending_permission_id = None;
+                        state.pending_question_id = None;
+                    }
+                }
+                _ => {}
+            }
+        }
+
         match &mapped.event {
             ConversationEvent::QuestionRequested { request } => {
                 let delivery_ctx = self.delivery_context();
@@ -628,7 +685,6 @@ impl ConversationAgentEventRecorder {
             _ => {}
         }
 
-        let terminal = is_terminal_conversation_event(&mapped.event);
         if terminal && let Some(turn_id) = mapped.turn_id {
             crate::handoff::settle(&self.pool, turn_id).await?;
             let (status, stop_reason, error_message) = match &mapped.event {

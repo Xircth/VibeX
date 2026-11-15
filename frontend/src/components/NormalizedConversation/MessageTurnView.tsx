@@ -307,6 +307,9 @@ function renderItem(
 }
 
 function prefersReducedMotion(): boolean {
+  if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') {
+    return false;
+  }
   return window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 }
 
@@ -637,12 +640,17 @@ export const MessageTurnView = memo(function MessageTurnView({
 }) {
   const { t } = useTranslation(['conversation', 'common', 'app']);
   const turnInProgress = phase === 'streaming' || phase === 'optimistic';
+  const needsLiveDurationTick =
+    turn.role === 'assistant' &&
+    turnInProgress &&
+    collapseProcess &&
+    (!slice || slice.kind === 'process-fold');
   const [nowMs, setNowMs] = useState(() => Date.now());
   useEffect(() => {
-    if (!turnInProgress) return;
+    if (!needsLiveDurationTick) return;
     const id = window.setInterval(() => setNowMs(Date.now()), 1000);
     return () => window.clearInterval(id);
-  }, [turnInProgress]);
+  }, [needsLiveDurationTick]);
   const { config } = useOptionalUserSystem() ?? {};
   const hideThinking = resolveHideModelThinking(config);
   const [editing, setEditing] = useState(false);
@@ -858,7 +866,7 @@ export const MessageTurnView = memo(function MessageTurnView({
         <CollapsedProcessGroup
           expansionKey={`${turn.id}:${slice.startIndex}`}
           durationMs={foldDurationMs(foldedItems)}
-          working={turnInProgress}
+          working={turnInProgress && !hasTurnError}
         >
           {() => null}
         </CollapsedProcessGroup>
@@ -922,7 +930,7 @@ export const MessageTurnView = memo(function MessageTurnView({
               key={`${turn.id}-fold-${segment.startIndex}`}
               expansionKey={`${turn.id}:${segment.startIndex}`}
               durationMs={foldDurationMs(segment.items)}
-              working={turnInProgress}
+              working={turnInProgress && !hasTurnError}
             >
               {(expanded) => renderUnits(segment.items, expanded)}
             </CollapsedProcessGroup>

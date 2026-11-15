@@ -368,12 +368,20 @@ export function normalizeConversationRowsSinceResult(
       const opRec = candidate as Record<string, unknown>;
       if (opRec.op === 'upsert' && opRec.row && typeof opRec.row === 'object') {
         ops.push({ op: 'upsert', row: opRec.row as TimelineRow });
-      } else if (opRec.op === 'delete' && typeof opRec.row_id === 'string') {
-        ops.push({
-          op: 'delete',
-          row_id: opRec.row_id,
-          revision: parseBigIntSequence(opRec.revision, lastSequence),
-        });
+      } else if (opRec.op === 'delete') {
+        const rowId =
+          typeof opRec.row_id === 'string'
+            ? opRec.row_id
+            : typeof opRec.rowId === 'string'
+              ? opRec.rowId
+              : null;
+        if (rowId) {
+          ops.push({
+            op: 'delete',
+            row_id: rowId,
+            revision: parseBigIntSequence(opRec.revision, lastSequence),
+          });
+        }
       }
     }
   }

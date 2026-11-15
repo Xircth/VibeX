@@ -88,6 +88,20 @@ impl ConversationHost for DefaultConversationHost {
         resolve_agent_runtime_launch_settings(pool, agent_id).await
     }
 
+    async fn launch_settings_with_provider_instance(
+        &self,
+        pool: &SqlitePool,
+        agent_id: &AgentId,
+        provider_instance_id: Option<&str>,
+    ) -> Result<AgentRuntimeLaunchSettings, ConversationServiceError> {
+        resolve_agent_runtime_launch_settings_for_provider_instance(
+            pool,
+            agent_id,
+            provider_instance_id,
+        )
+        .await
+    }
+
     fn product_mcp_server_names(&self) -> Vec<String> {
         self.product_mcp_server_names
             .as_ref()
@@ -251,13 +265,33 @@ pub async fn resolve_agent_runtime_launch_settings(
     pool: &SqlitePool,
     agent_id: &AgentId,
 ) -> Result<AgentRuntimeLaunchSettings, ConversationServiceError> {
-    resolve_agent_runtime_launch_settings_with_resolver(pool, agent_id, &SecretResolver::new())
-        .await
+    resolve_agent_runtime_launch_settings_with_resolver(
+        pool,
+        agent_id,
+        None,
+        &SecretResolver::new(),
+    )
+    .await
+}
+
+pub async fn resolve_agent_runtime_launch_settings_for_provider_instance(
+    pool: &SqlitePool,
+    agent_id: &AgentId,
+    provider_instance_id: Option<&str>,
+) -> Result<AgentRuntimeLaunchSettings, ConversationServiceError> {
+    resolve_agent_runtime_launch_settings_with_resolver(
+        pool,
+        agent_id,
+        provider_instance_id,
+        &SecretResolver::new(),
+    )
+    .await
 }
 
 pub(crate) async fn resolve_agent_runtime_launch_settings_with_resolver(
     pool: &SqlitePool,
     agent_id: &AgentId,
+    provider_instance_id: Option<&str>,
     secret_resolver: &SecretResolver,
 ) -> Result<AgentRuntimeLaunchSettings, ConversationServiceError> {
     let row = sqlx::query(
@@ -291,6 +325,15 @@ pub(crate) async fn resolve_agent_runtime_launch_settings_with_resolver(
         .map(|value| serde_json::from_str::<HashMap<String, String>>(&value))
         .transpose()?
         .unwrap_or_default();
+    if let Some(instance_id) = provider_instance_id
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        env.insert(
+            "VIBEX_PROVIDER_INSTANCE_ID".to_string(),
+            instance_id.to_string(),
+        );
+    }
     let explicit_env_keys = env
         .keys()
         .cloned()

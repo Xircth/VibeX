@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use agents::{
     AgentContentBlock, AgentSessionId, EnsureAgentSessionInput, ResumeAgentSessionInput,
     conversation::ContinuationPolicy,
@@ -6,12 +8,43 @@ use db::models::{conversation::ConversationAgentBindingRecord, session::Session}
 use uuid::Uuid;
 
 use super::{ConversationSessionService, ConversationStartTurnInput, PreparedTurnPrompt};
-use crate::{ConversationServiceError, continuation::select_history};
+use crate::{
+    ConversationServiceError,
+    handoff::{DeterministicHandoffService, HandoffError},
+};
 
-/// Continuation key: agent identity fingerprint for resume matching.
-/// Same agent + same normalized working directory = same key.
-pub fn continuation_key(agent_id: &str, working_dir: &str) -> String {
-    format!("{agent_id}|{working_dir}")
+fn map_handoff_error_to_service(error: HandoffError) -> ConversationServiceError {
+    match error {
+        HandoffError::ConversationNotFound(id) => {
+            ConversationServiceError::NotFound(format!("Conversation {id} not found"))
+        }
+        HandoffError::InvalidTokenBudget | HandoffError::InvalidTargetEngine(_) => {
+            ConversationServiceError::BadRequest(error.to_string())
+        }
+        HandoffError::RestrictedOwner => ConversationServiceError::SessionUnavailable {
+            code: "continuation_not_allowed",
+            message: error.to_string(),
+        },
+        HandoffError::ActiveTurnInProgress | HandoffError::WorkspaceRootMissing(_) => {
+            ConversationServiceError::Conflict(error.to_string())
+        }
+        HandoffError::Database(err) => ConversationServiceError::Internal(err.to_string()),
+    }
+}
+
+/// Continuation key: agent + optional provider instance + working directory fingerprint for resume matching.
+pub fn continuation_key(
+    agent_id: &str,
+    working_dir: &str,
+    provider_instance_id: Option<&str>,
+) -> String {
+    match provider_instance_id
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        Some(instance_id) => format!("{agent_id}|{instance_id}|{working_dir}"),
+        None => format!("{agent_id}|{working_dir}"),
+    }
 }
 
 impl ConversationSessionService {
@@ -28,8 +61,20 @@ impl ConversationSessionService {
         let source =
             ConversationAgentBindingRecord::active_for_conversation(pool, input.conversation_id)
                 .await?;
+        let requested_instance = input
+            .provider_instance_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty());
+        let target_key = continuation_key(
+            input.agent_id.as_str(),
+            &prepared.working_dir,
+            requested_instance,
+        );
         let switching = if let Some(binding) = source.as_ref() {
             binding.agent_id != input.agent_id
+                || (requested_instance.is_some()
+                    && binding.continuation_key.as_deref() != Some(target_key.as_str()))
         } else if let Some(latest) =
             ConversationAgentBindingRecord::latest_for_conversation(pool, input.conversation_id)
                 .await?
@@ -57,7 +102,6 @@ impl ConversationSessionService {
         let fresh = input.continuation_policy == Some(ContinuationPolicy::Fresh);
 
         // Stage C: look for a resumable binding with matching continuation key.
-        let target_key = continuation_key(input.agent_id.as_str(), &prepared.working_dir);
         let resume_candidate = if switching && !fresh {
             ConversationAgentBindingRecord::resume_head_for_key(
                 pool,
@@ -105,26 +149,22 @@ impl ConversationSessionService {
             let selection = if input.continuation_policy == Some(ContinuationPolicy::Portable) {
                 let _ = crate::ensure_legacy_jsonl_migrated_on_pool(pool, input.conversation_id)
                     .await?;
-                let current_id = turn_id.to_string();
-                let current_prefix = format!("{turn_id}:");
-                let turns: Vec<_> =
-                    crate::ConversationProjector::project_turns_summary(pool, input.conversation_id)
-                        .await?
-                        .into_iter()
-                        .filter(|t| t.id != current_id && !t.id.starts_with(&current_prefix))
-                        .collect();
                 let current_bytes = serde_json::to_vec(&prepared.agent_blocks)
                     .map_err(|e| ConversationServiceError::Internal(e.to_string()))?
                     .len();
-                let budget = (64 * 1024usize).min((128 * 1024usize).saturating_sub(current_bytes));
-                let selection = select_history(&turns, budget);
-                if selection.prompt.len() > budget {
-                    return Err(ConversationServiceError::SessionUnavailable {
-                        code: "handoff_budget_exceeded",
-                        message: "Current input leaves no space for history context".into(),
-                    });
-                }
-                Some(selection)
+                let byte_budget =
+                    (64 * 1024usize).min((128 * 1024usize).saturating_sub(current_bytes));
+                DeterministicHandoffService::build_execution_handoff(
+                    pool,
+                    input.conversation_id,
+                    input.agent_id.as_str(),
+                    turn_id,
+                    &[],
+                    &HashSet::new(),
+                    byte_budget,
+                )
+                .await
+                .map_err(map_handoff_error_to_service)?
             } else {
                 None
             };
@@ -137,7 +177,15 @@ impl ConversationSessionService {
             )
             .await?;
 
-            let settings = self.ctx.host.launch_settings(pool, &input.agent_id).await?;
+            let settings = self
+                .ctx
+                .host
+                .launch_settings_with_provider_instance(
+                    pool,
+                    &input.agent_id,
+                    requested_instance,
+                )
+                .await?;
             let mut preferences = self
                 .resolved_session_control_preferences(pool, &input.agent_id, None)
                 .await;
@@ -146,7 +194,7 @@ impl ConversationSessionService {
                 preferences.config.retain(|old| old.key != value.key);
                 preferences.config.push(value.clone());
             }
-            let candidate = match self
+            let candidate = self
                 .ctx
                 .agent_runtime
                 .prepare_session(EnsureAgentSessionInput {
@@ -161,13 +209,7 @@ impl ConversationSessionService {
                     env: settings.env,
                     preferences,
                 })
-                .await
-            {
-                Ok(c) => c,
-                Err(e) => {
-                    return Err(ConversationServiceError::Internal(e.to_string()));
-                }
-            };
+                .await?;
             let lock = self.turn_lock(input.conversation_id).await;
             let _guard = lock.lock().await;
             let in_flight = self
@@ -185,6 +227,7 @@ impl ConversationSessionService {
                 &prepared.working_dir,
                 &candidate.session.acp_session_id,
                 candidate.session.connection_id,
+                requested_instance,
             )
             .await?;
             self.ctx
@@ -238,40 +281,22 @@ impl ConversationSessionService {
                 let delivered_ids = crate::handoff::delivered_item_ids(pool, resume.id).await?;
                 let _ = crate::ensure_legacy_jsonl_migrated_on_pool(pool, input.conversation_id)
                     .await?;
-                let current_id = turn_id.to_string();
-                let current_prefix = format!("{turn_id}:");
-                let all_turns =
-                    crate::ConversationProjector::project_turns_summary(pool, input.conversation_id)
-                        .await?;
-                let unknown_turns: Vec<_> = all_turns
-                    .iter()
-                    .filter(|t| {
-                        t.id != current_id
-                            && !t.id.starts_with(&current_prefix)
-                            && !known_prefixes.iter().any(|prefix| {
-                                t.id == prefix.trim_end_matches(':') || t.id.starts_with(prefix)
-                            })
-                            && !delivered_ids.contains(&t.id)
-                    })
-                    .cloned()
-                    .collect();
-                if unknown_turns.is_empty() {
-                    None
-                } else {
-                    let current_bytes = serde_json::to_vec(&prepared.agent_blocks)
-                        .map_err(|e| ConversationServiceError::Internal(e.to_string()))?
-                        .len();
-                    let budget =
-                        (64 * 1024usize).min((128 * 1024usize).saturating_sub(current_bytes));
-                    let selection = select_history(&unknown_turns, budget);
-                    if selection.prompt.len() > budget {
-                        return Err(ConversationServiceError::SessionUnavailable {
-                            code: "handoff_budget_exceeded",
-                            message: "Current input leaves no space for history context".into(),
-                        });
-                    }
-                    Some(selection)
-                }
+                let current_bytes = serde_json::to_vec(&prepared.agent_blocks)
+                    .map_err(|e| ConversationServiceError::Internal(e.to_string()))?
+                    .len();
+                let byte_budget =
+                    (64 * 1024usize).min((128 * 1024usize).saturating_sub(current_bytes));
+                DeterministicHandoffService::build_execution_handoff(
+                    pool,
+                    input.conversation_id,
+                    input.agent_id.as_str(),
+                    turn_id,
+                    &known_prefixes,
+                    &delivered_ids,
+                    byte_budget,
+                )
+                .await
+                .map_err(map_handoff_error_to_service)?
             } else {
                 None
             };
@@ -284,7 +309,15 @@ impl ConversationSessionService {
             )
             .await?;
 
-            let settings = self.ctx.host.launch_settings(pool, &input.agent_id).await?;
+            let settings = self
+                .ctx
+                .host
+                .launch_settings_with_provider_instance(
+                    pool,
+                    &input.agent_id,
+                    requested_instance,
+                )
+                .await?;
             let mut preferences = self
                 .resolved_session_control_preferences(pool, &input.agent_id, None)
                 .await;
@@ -309,8 +342,7 @@ impl ConversationSessionService {
                     env: settings.env,
                     preferences,
                 })
-                .await
-                .map_err(|e| ConversationServiceError::Internal(e.to_string()))?;
+                .await?;
             let lock = self.turn_lock(input.conversation_id).await;
             let _guard = lock.lock().await;
             if !self
@@ -353,9 +385,10 @@ impl ConversationSessionService {
                 );
             }
         } else {
-            self.ensure_session_controls_locked(
+            self.ensure_session_controls_locked_with_provider_instance(
                 input.conversation_id,
                 Some(prepared.working_dir.clone().into()),
+                requested_instance,
             )
             .await?;
         }

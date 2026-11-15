@@ -123,7 +123,6 @@ import {
   canvasWindowSlotIndex,
   displayedCanvasNodes,
   flowNodeBox,
-  openWindowSessionIds,
   placedCanvasSessionIds,
   preferLiveKanbanSessions,
   removeCanvasNode,
@@ -149,16 +148,19 @@ import {
 } from '@/lib/workspaceStageStyle';
 import {
   CANVAS_BUNDLE_KEY,
+  CANVAS_WORKSPACE_UPDATED_EVENT,
   canvasDocumentStorageKey,
   createCanvasBoard,
   deleteCanvasBoard,
   flushCanvasDocumentPersist,
   getActiveCanvasEntry,
+  getCanvasWorkspaceRevision,
   loadCanvasWorkspace,
   renameCanvasBoard,
   saveCanvasWorkspace,
   selectCanvasBoard,
   updateWorkspaceActiveDocument,
+  type CanvasWorkspaceUpdatedDetail,
   type SessionCanvasDocument,
   type SessionCanvasViewport,
   type SessionCanvasWorkspace,
@@ -185,6 +187,7 @@ const NODE_TYPES = {
 
 const VIEWPORT_SAVE_DELAY_MS = 500;
 const ALIGN_TOLERANCE_PX = 6;
+let nextCanvasInstanceId = 0;
 
 export interface SessionCanvasApi {
   addOrFocus: (session: KanbanProjectSessionRecord) => void;
@@ -431,6 +434,10 @@ function SessionCanvasFlow({
   const dockPosition = useCanvasDockPosition();
   const viewportPosition = useCanvasViewportPosition();
 
+  const instanceIdRef = useRef('');
+  if (!instanceIdRef.current) {
+    instanceIdRef.current = `canvas-instance-${++nextCanvasInstanceId}`;
+  }
   const [workspaceState, setWorkspaceState] = useState<SessionCanvasWorkspace>(
     () => loadCanvasWorkspace(projectId)
   );
@@ -441,10 +448,39 @@ function SessionCanvasFlow({
     [workspaceState]
   );
   const documentState = activeBoard.document;
+  const hasPendingDocumentSaveRef = useRef(false);
+  const pendingViewportDirtyRef = useRef(false);
+  const knownRevisionRef = useRef(getCanvasWorkspaceRevision(projectId));
+  const flowNodeCacheRef = useRef(new Map<string, Node>());
+  const zoomRef = useRef(documentState.viewport?.zoom ?? 1);
+  const pendingViewport = useRef<Viewport | null>(documentState.viewport);
+  const saveTimer = useRef<number | null>(null);
+  const documentRef = useRef(documentState);
+  documentRef.current = documentState;
+
+  const applyExternalWorkspace = useCallback(
+    (loaded: SessionCanvasWorkspace, revision: number) => {
+      if (saveTimer.current != null) {
+        window.clearTimeout(saveTimer.current);
+        saveTimer.current = null;
+      }
+      const nextDoc = getActiveCanvasEntry(loaded).document;
+      workspaceRef.current = loaded;
+      documentRef.current = nextDoc;
+      pendingViewport.current = nextDoc.viewport;
+      zoomRef.current = nextDoc.viewport?.zoom ?? 1;
+      hasPendingDocumentSaveRef.current = false;
+      pendingViewportDirtyRef.current = false;
+      knownRevisionRef.current = revision;
+      flowNodeCacheRef.current.clear();
+      setWorkspaceState(loaded);
+    },
+    []
+  );
 
   useEffect(() => {
     historyByCanvasRef.current.clear();
-    const reload = (event?: StorageEvent) => {
+    const reloadFromStorage = (event?: StorageEvent) => {
       if (
         event &&
         event.key !== null &&
@@ -453,15 +489,32 @@ function SessionCanvasFlow({
       ) {
         return;
       }
-      const loaded = loadCanvasWorkspace(projectId);
-      workspaceRef.current = loaded;
-      documentRef.current = getActiveCanvasEntry(loaded).document;
-      setWorkspaceState(loaded);
+      applyExternalWorkspace(
+        loadCanvasWorkspace(projectId),
+        getCanvasWorkspaceRevision(projectId)
+      );
     };
-    reload();
-    window.addEventListener('storage', reload);
-    return () => window.removeEventListener('storage', reload);
-  }, [projectId]);
+    const handleWorkspaceUpdated = (event: Event) => {
+      const detail = (event as CustomEvent<CanvasWorkspaceUpdatedDetail>).detail;
+      if (!detail || detail.projectId !== projectId) return;
+      if (detail.sourceInstanceId === instanceIdRef.current) return;
+      if (detail.revision <= knownRevisionRef.current) return;
+      applyExternalWorkspace(detail.workspace, detail.revision);
+    };
+    reloadFromStorage();
+    window.addEventListener('storage', reloadFromStorage);
+    window.addEventListener(
+      CANVAS_WORKSPACE_UPDATED_EVENT,
+      handleWorkspaceUpdated
+    );
+    return () => {
+      window.removeEventListener('storage', reloadFromStorage);
+      window.removeEventListener(
+        CANVAS_WORKSPACE_UPDATED_EVENT,
+        handleWorkspaceUpdated
+      );
+    };
+  }, [applyExternalWorkspace, projectId]);
   const [importMode, setImportMode] = useState<
     'recent' | 'project' | 'agent' | null
   >(null);
@@ -538,22 +591,15 @@ function SessionCanvasFlow({
     width: number;
     height: number;
   } | null>(null);
-  const flowNodeCacheRef = useRef(new Map<string, Node>());
-  const zoomRef = useRef(documentState.viewport?.zoom ?? 1);
-  const pendingViewport = useRef<Viewport | null>(documentState.viewport);
   const [heldSessionIds, setHeldSessionIds] = useState<ReadonlySet<string>>(
     () => new Set()
   );
   const liveIdsRef = useRef<ReadonlySet<string>>(new Set());
   const runningIdsRef = useRef<ReadonlySet<string>>(new Set());
   const reviewIdsRef = useRef<ReadonlySet<string>>(new Set());
-  const windowSessionIdsRef = useRef<readonly string[]>([]);
   const placedSessionIdsRef = useRef<readonly string[]>([]);
   const presentIdsKeyRef = useRef('');
   const windowIdsKeyRef = useRef('');
-  const saveTimer = useRef<number | null>(null);
-  const documentRef = useRef(documentState);
-  documentRef.current = documentState;
   const groupResizeOriginRef = useRef<
     (GroupResizeOrigin & { id: string }) | null
   >(null);
@@ -587,7 +633,19 @@ function SessionCanvasFlow({
       );
       workspaceRef.current = nextWorkspace;
       setWorkspaceState(nextWorkspace);
-      if (persistToDisk) saveCanvasWorkspace(projectId, nextWorkspace);
+      if (persistToDisk) {
+        if (saveTimer.current != null) {
+          window.clearTimeout(saveTimer.current);
+          saveTimer.current = null;
+        }
+        hasPendingDocumentSaveRef.current = false;
+        pendingViewportDirtyRef.current = false;
+        knownRevisionRef.current = saveCanvasWorkspace(projectId, nextWorkspace, {
+          sourceInstanceId: instanceIdRef.current,
+        });
+      } else {
+        hasPendingDocumentSaveRef.current = true;
+      }
     },
     [projectId]
   );
@@ -607,12 +665,13 @@ function SessionCanvasFlow({
         window.clearTimeout(saveTimer.current);
         saveTimer.current = null;
       }
-      const flushedCurrent = pendingViewport.current
-        ? updateWorkspaceActiveDocument(workspaceRef.current, {
-            ...documentRef.current,
-            viewport: pendingViewport.current,
-          })
-        : workspaceRef.current;
+      const flushedCurrent =
+        pendingViewportDirtyRef.current && pendingViewport.current
+          ? updateWorkspaceActiveDocument(workspaceRef.current, {
+              ...documentRef.current,
+              viewport: pendingViewport.current,
+            })
+          : workspaceRef.current;
       const nextWorkspace = transform(flushedCurrent);
       if (nextWorkspace === flushedCurrent) return;
 
@@ -645,8 +704,12 @@ function SessionCanvasFlow({
         });
       }
 
+      hasPendingDocumentSaveRef.current = false;
+      pendingViewportDirtyRef.current = false;
       setWorkspaceState(nextWorkspace);
-      saveCanvasWorkspace(projectId, nextWorkspace);
+      knownRevisionRef.current = saveCanvasWorkspace(projectId, nextWorkspace, {
+        sourceInstanceId: instanceIdRef.current,
+      });
     },
     [fitView, projectId, setViewport]
   );
@@ -692,11 +755,6 @@ function SessionCanvasFlow({
       ),
     [documentState.nodes, heldSessionIds, liveIds, sessionsReady]
   );
-  const windowSessionIds = reuseStringListIfEqual(
-    windowSessionIdsRef.current,
-    openWindowSessionIds(nodes)
-  );
-  windowSessionIdsRef.current = windowSessionIds;
   const allPlacedSessionIds = reuseStringListIfEqual(
     placedSessionIdsRef.current,
     placedCanvasSessionIds(nodes)
@@ -883,6 +941,7 @@ function SessionCanvasFlow({
     flowNodeCacheRef.current = nextCache;
     return result;
   }, [
+    allPlacedSessionIds,
     dragOverlay,
     draggedId,
     dropHint,
@@ -890,7 +949,6 @@ function SessionCanvasFlow({
     reviewSessionIds,
     runningSessionIds,
     selectedIds,
-    windowSessionIds,
   ]);
 
   const [hoveredLinkId, setHoveredLinkId] = useState<string | null>(null);
@@ -2341,11 +2399,12 @@ function SessionCanvasFlow({
     (_event: unknown, viewport: Viewport) => {
       surfaceRef.current?.removeAttribute('data-canvas-panning');
       pendingViewport.current = viewport;
+      pendingViewportDirtyRef.current = true;
       zoomRef.current = viewport.zoom;
       if (saveTimer.current != null) window.clearTimeout(saveTimer.current);
       saveTimer.current = window.setTimeout(() => {
         saveTimer.current = null;
-        if (!pendingViewport.current) return;
+        if (!pendingViewportDirtyRef.current || !pendingViewport.current) return;
         const next: SessionCanvasViewport = pendingViewport.current;
         persist({ ...documentRef.current, viewport: next });
       }, VIEWPORT_SAVE_DELAY_MS);
@@ -2356,15 +2415,36 @@ function SessionCanvasFlow({
   useEffect(
     () => () => {
       surfaceRef.current?.removeAttribute('data-canvas-panning');
-      if (saveTimer.current != null) window.clearTimeout(saveTimer.current);
-      const flushedWorkspace = updateWorkspaceActiveDocument(
-        workspaceRef.current,
-        {
-          ...documentRef.current,
-          viewport: pendingViewport.current ?? documentRef.current.viewport,
+      if (saveTimer.current != null) {
+        window.clearTimeout(saveTimer.current);
+        saveTimer.current = null;
+      }
+      if (
+        hasPendingDocumentSaveRef.current ||
+        pendingViewportDirtyRef.current
+      ) {
+        const latestRevision = getCanvasWorkspaceRevision(projectId);
+        if (latestRevision <= knownRevisionRef.current) {
+          const nextDocument =
+            pendingViewportDirtyRef.current && pendingViewport.current
+              ? {
+                  ...documentRef.current,
+                  viewport: pendingViewport.current,
+                }
+              : documentRef.current;
+          const flushedWorkspace = updateWorkspaceActiveDocument(
+            workspaceRef.current,
+            nextDocument
+          );
+          knownRevisionRef.current = saveCanvasWorkspace(
+            projectId,
+            flushedWorkspace,
+            { sourceInstanceId: instanceIdRef.current }
+          );
         }
-      );
-      saveCanvasWorkspace(projectId, flushedWorkspace);
+        hasPendingDocumentSaveRef.current = false;
+        pendingViewportDirtyRef.current = false;
+      }
       flushCanvasDocumentPersist();
     },
     [projectId]

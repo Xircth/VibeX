@@ -17,6 +17,7 @@ import { TextInput } from '@astryxdesign/core/TextInput';
 import type { GitLogEntry } from 'shared/types';
 import { toast } from '@/components/ui/toast';
 import { attemptsApi, repoApi } from '@/lib/api';
+import { writeTextToClipboard } from '@/utils/clipboard';
 import { GitContextMenu, type ContextMenuAction } from './GitContextMenu';
 import { useCommitDiffStore } from '@/stores/useCommitDiffStore';
 import { useOptionalPanelActionsContext } from '@/contexts/PanelActionsContext';
@@ -85,7 +86,13 @@ const LogEntry = memo(function LogEntry({
   const handleCopyClick = useCallback(
     (e: React.MouseEvent) => {
       e.stopPropagation();
-      navigator.clipboard.writeText(entry.sha);
+      void writeTextToClipboard(entry.sha).then((copied) => {
+        if (copied) {
+          toast.success('Copied commit SHA');
+        } else {
+          toast.error('Failed to copy commit SHA');
+        }
+      });
     },
     [entry.sha]
   );
@@ -282,8 +289,15 @@ export const GitLogView = memo(function GitLogView(props: GitLogViewProps) {
             : repoApi.getCommitDiffs(repoId, sha),
         ]);
         setCommitDiff(sha, detail, diffs);
-      } catch {
+      } catch (error) {
         setCommitDiffLoading(false);
+        console.error('Failed to load commit details:', error);
+        const detail = error instanceof Error ? error.message : String(error);
+        toast.error(
+          detail
+            ? `Failed to load commit details: ${detail}`
+            : 'Failed to load commit details'
+        );
       }
     },
     [
@@ -315,7 +329,7 @@ export const GitLogView = memo(function GitLogView(props: GitLogViewProps) {
     async (
       action: () => Promise<void>,
       messages?: { success?: string; error?: string }
-    ) => {
+    ): Promise<boolean> => {
       setActionLoading(true);
       try {
         await action();
@@ -323,9 +337,13 @@ export const GitLogView = memo(function GitLogView(props: GitLogViewProps) {
         if (messages?.success) {
           toast.success(messages.success);
         }
+        return true;
       } catch (error) {
         console.error('Git log action failed:', error);
-        toast.error(messages?.error ?? 'Git action failed');
+        const detail = error instanceof Error ? error.message : String(error);
+        const prefix = messages?.error ?? 'Git action failed';
+        toast.error(detail ? `${prefix}: ${detail}` : prefix);
+        return false;
       } finally {
         setActionLoading(false);
       }
@@ -342,13 +360,29 @@ export const GitLogView = memo(function GitLogView(props: GitLogViewProps) {
         label: 'Copy SHA',
         icon: <ClipboardCopy className="h-3 w-3" />,
         group: 'quick',
-        onClick: () => navigator.clipboard.writeText(entry.sha),
+        onClick: () => {
+          void writeTextToClipboard(entry.sha).then((copied) => {
+            if (copied) {
+              toast.success('Copied commit SHA');
+            } else {
+              toast.error('Failed to copy commit SHA');
+            }
+          });
+        },
       });
       actions.push({
         label: 'Copy Message',
         icon: <Copy className="h-3 w-3" />,
         group: 'quick',
-        onClick: () => navigator.clipboard.writeText(entry.summary),
+        onClick: () => {
+          void writeTextToClipboard(entry.summary).then((copied) => {
+            if (copied) {
+              toast.success('Copied commit message');
+            } else {
+              toast.error('Failed to copy commit message');
+            }
+          });
+        },
       });
 
       actions.push({
@@ -478,16 +512,23 @@ export const GitLogView = memo(function GitLogView(props: GitLogViewProps) {
   const handleCreateBranch = useCallback(async () => {
     const name = newBranchName.trim();
     if (!name || !workspaceId || !repoId) return;
-    await executeAction(() =>
-      attemptsApi.createBranchAtCommit(
-        workspaceId,
-        repoId,
-        name,
-        createBranchInput.sha
-      )
+    const ok = await executeAction(
+      () =>
+        attemptsApi.createBranchAtCommit(
+          workspaceId,
+          repoId,
+          name,
+          createBranchInput.sha
+        ),
+      {
+        success: `Created branch "${name}"`,
+        error: `Failed to create branch "${name}"`,
+      }
     );
-    setCreateBranchInput({ sha: '', show: false });
-    setNewBranchName('');
+    if (ok) {
+      setCreateBranchInput({ sha: '', show: false });
+      setNewBranchName('');
+    }
   }, [
     newBranchName,
     workspaceId,

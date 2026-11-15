@@ -600,7 +600,7 @@ fn auth_mode_scrubbed_env_keys(agent_id: &AgentId, mode: &str) -> &'static [&'st
             "GOOGLE_CLOUD_LOCATION",
         ],
         (id, "agent-platform") if AgentKind::Antigravity.matches_id(id) => &["GEMINI_API_KEY"],
-        ("grok", "subscription" | "custom" | "model_provider") => GROK_SCRUB_ENV,
+        ("grok", "subscription" | "model_provider") => GROK_SCRUB_ENV,
         ("cursor", "subscription") => built_in_auth_mode_policy(agent_id)
             .map(|policy| policy.subscription_scrub_env)
             .unwrap_or_default(),
@@ -2193,6 +2193,42 @@ mod tests {
         assert_eq!(
             auto_approve_mode_for_launch(&omp, &env),
             crate::permissions::AgentAutoApproveMode::Yolo
+        );
+    }
+
+    #[test]
+    fn grok_custom_auth_mode_preserves_xai_api_key_while_subscription_and_model_provider_scrub_it() {
+        let grok = AgentId::parse("grok").unwrap();
+
+        let mut custom_env = HashMap::from([
+            ("GROK_AUTH_MODE".to_string(), "custom".to_string()),
+            ("XAI_API_KEY".to_string(), "xai-custom-secret".to_string()),
+        ]);
+        apply_built_in_auth_mode_policy(&grok, &mut custom_env);
+        assert_eq!(
+            custom_env.get("XAI_API_KEY").map(String::as_str),
+            Some("xai-custom-secret"),
+            "custom mode must keep XAI_API_KEY"
+        );
+
+        let mut subscription_env = HashMap::from([
+            ("GROK_AUTH_MODE".to_string(), "subscription".to_string()),
+            ("XAI_API_KEY".to_string(), "xai-sub-secret".to_string()),
+        ]);
+        apply_built_in_auth_mode_policy(&grok, &mut subscription_env);
+        assert!(
+            !subscription_env.contains_key("XAI_API_KEY"),
+            "subscription mode must scrub XAI_API_KEY"
+        );
+
+        let mut provider_env = HashMap::from([
+            ("GROK_AUTH_MODE".to_string(), "model_provider".to_string()),
+            ("XAI_API_KEY".to_string(), "xai-provider-secret".to_string()),
+        ]);
+        apply_built_in_auth_mode_policy(&grok, &mut provider_env);
+        assert!(
+            !provider_env.contains_key("XAI_API_KEY"),
+            "model_provider mode must scrub XAI_API_KEY"
         );
     }
 }

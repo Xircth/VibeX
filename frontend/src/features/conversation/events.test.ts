@@ -2,7 +2,9 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   CONVERSATION_EVENTS_CHANNEL,
   conversationEventsChannel,
+  conversationRateLimitChannel,
   listenToConversationEvents,
+  listenToConversationRateLimitEvents,
 } from './events';
 
 const { backendListenMock } = vi.hoisted(() => ({
@@ -41,6 +43,22 @@ describe('listenToConversationEvents', () => {
 
     expect(backendListenMock).toHaveBeenCalledWith(
       conversationEventsChannel(conversationId),
+      handler
+    );
+  });
+
+  it('subscribes to the per-conversation rate-limit channel', async () => {
+    const unsubscribe = vi.fn();
+    backendListenMock.mockResolvedValue(unsubscribe);
+    const handler = vi.fn();
+    const conversationId = '11111111-1111-1111-1111-111111111111';
+
+    await expect(
+      listenToConversationRateLimitEvents(conversationId, handler)
+    ).resolves.toBe(unsubscribe);
+
+    expect(backendListenMock).toHaveBeenCalledWith(
+      conversationRateLimitChannel(conversationId),
       handler
     );
   });

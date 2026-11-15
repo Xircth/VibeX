@@ -202,11 +202,28 @@ impl ConversationSessionService {
                             Some(format!("turn:{turn_id}:auth_required")),
                         )
                         .await?;
+                    let _ = ConversationRecord::update_active_turn(
+                        pool,
+                        input.conversation_id,
+                        None,
+                    )
+                    .await;
                     self.update_runtime_state(input.conversation_id, |state| {
+                        state.turn_in_flight = false;
+                        state.active_turn_id = None;
+                        state.active_prompt_id = None;
+                        state.pending_permission_id = None;
+                        state.pending_question_id = None;
                         state.event_sequence = blocked.sequence;
                         state.recovery_status = Some("auth_required".to_string());
                     })
                     .await;
+                    spawn_turn_end_collaboration_cleanup(
+                        self.ctx.clone(),
+                        input.conversation_id,
+                        false,
+                        None,
+                    );
                     return Err(error);
                 }
                 let failed = self
@@ -289,6 +306,7 @@ impl ConversationSessionService {
                 queued_input_claim: None,
                 operation_id: None,
                 collaboration_origin: None,
+                provider_instance_id: None,
             },
             crate::commit_reminder::USER_ORIGIN,
         )

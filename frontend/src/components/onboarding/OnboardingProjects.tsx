@@ -33,8 +33,10 @@ import { CloneRepoDialog } from '@/components/dialogs/projects/CloneRepoDialog';
 import { projectsApi } from '@/lib/api/projects';
 import { orderImportedProjects } from '@/lib/importedProject';
 
+const EMPTY_PROJECT_IDS: readonly string[] = [];
+
 export function OnboardingProjects({
-  initialProjectIds = [],
+  initialProjectIds = EMPTY_PROJECT_IDS,
   active = true,
   onBack,
   onFinish,
@@ -56,7 +58,13 @@ export function OnboardingProjects({
   const [dialogOpen, setDialogOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const mounted = useRef(false);
-  const importedIds = useRef(new Set<string>(initialProjectIds));
+  const loadRequestRef = useRef(0);
+  const [importedIds, setImportedIds] = useState<Set<string>>(
+    () => new Set(initialProjectIds)
+  );
+  const initialProjectIdsRef = useRef(initialProjectIds);
+  initialProjectIdsRef.current = initialProjectIds;
+  const importedIdsKey = initialProjectIds.join('\0');
   const selectedProjects = useMemo(
     () =>
       new Set(
@@ -75,20 +83,60 @@ export function OnboardingProjects({
     return next;
   }, []);
 
+  const refreshProjects = useCallback(async () => {
+    const requestId = ++loadRequestRef.current;
+    if (mounted.current) setError(null);
+    try {
+      const next = await loadProjects();
+      if (mounted.current && loadRequestRef.current === requestId) {
+        setLoading(false);
+      }
+      return next;
+    } catch (cause) {
+      if (mounted.current && loadRequestRef.current === requestId) {
+        setError(errorSummary(cause));
+        setLoading(false);
+      }
+      return undefined;
+    }
+  }, [loadProjects]);
+
   useEffect(() => {
     mounted.current = true;
-    void loadProjects()
-      .catch((cause) => {
-        if (mounted.current)
-          setError(errorSummary(cause));
-      })
-      .finally(() => {
-        if (mounted.current) setLoading(false);
-      });
     return () => {
       mounted.current = false;
     };
-  }, [loadProjects]);
+  }, []);
+
+  useEffect(() => {
+    const incomingIds = initialProjectIdsRef.current;
+    if (incomingIds.length === 0) return;
+    setImportedIds((current) => {
+      let changed = false;
+      const next = new Set(current);
+      for (const id of incomingIds) {
+        if (!next.has(id)) {
+          next.add(id);
+          changed = true;
+        }
+      }
+      return changed ? next : current;
+    });
+    setDeselected((current) => {
+      let changed = false;
+      const next = new Set(current);
+      for (const id of incomingIds) {
+        if (next.delete(id)) changed = true;
+      }
+      return changed ? next : current;
+    });
+    void queryClient.invalidateQueries({ queryKey: ['projects'] });
+  }, [importedIdsKey, queryClient]);
+
+  useEffect(() => {
+    if (!active) return;
+    void refreshProjects();
+  }, [active, importedIdsKey, refreshProjects]);
 
   useEffect(() => {
     if (active) document.getElementById('onboarding-title')?.focus();
@@ -152,7 +200,7 @@ export function OnboardingProjects({
   };
 
   const importedProjects = projects.filter((project) =>
-    importedIds.current.has(project.id)
+    importedIds.has(project.id)
   );
 
   return (
@@ -221,7 +269,7 @@ export function OnboardingProjects({
                         : project.root_path}
                     </span>
                   </span>
-                  {importedIds.current.has(project.id) ? (
+                  {importedIds.has(project.id) ? (
                     <span className="onboarding-project-origin">
                       {t('onboarding.importedProjectBadge')}
                     </span>
@@ -234,11 +282,7 @@ export function OnboardingProjects({
         {!loading && !projects.length ? (
           <Button
             variant="outline"
-            onClick={() =>
-              void loadProjects().catch((cause) =>
-                setError(errorSummary(cause))
-              )
-            }
+            onClick={() => void refreshProjects()}
           >
             {t('onboarding.retry')}
           </Button>

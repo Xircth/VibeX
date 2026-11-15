@@ -28,6 +28,7 @@ import {
 } from '@/lib/api';
 import { getErrorMessage } from '@/lib/modals';
 import { cn } from '@/lib/utils';
+import { writeTextToClipboard } from '@/utils/clipboard';
 import '@/features/collaboration/collaboration.css';
 
 const EMPTY_STATUS: HostTunnelStatus = {
@@ -192,7 +193,12 @@ export function HostTunnelPanel({
     if (next.pending?.command) {
       setSetupCommand(next.pending.command);
     }
-    if (!next.enabled) setSetupCommand(null);
+    if (!next.enabled) {
+      setSetupCommand(null);
+      setPolling(false);
+    } else if (next.pending || next.relay_state === 'connecting') {
+      setPolling(true);
+    }
   }, []);
 
   const refresh = useCallback(async () => {
@@ -246,19 +252,37 @@ export function HostTunnelPanel({
 
   useEffect(() => {
     if (!polling) return;
+    let cancelled = false;
     const timer = window.setInterval(() => {
       void (async () => {
-        const next = await hostTunnelApi.get();
-        applyStatus(next);
-        if (!next.pending && next.active_id) {
+        try {
+          const next = await hostTunnelApi.get();
+          if (cancelled) return;
+          applyStatus(next);
+          if (
+            !next.enabled ||
+            (!next.pending && next.relay_state !== 'connecting')
+          ) {
+            setPolling(false);
+            if (next.enabled && !next.pending && next.active_id) {
+              setSetupCommand(null);
+              onReachabilityChange();
+              toast.success(t('webService.tunnelConnected'));
+            }
+          }
+        } catch (error) {
+          if (cancelled) return;
           setPolling(false);
-          setSetupCommand(null);
-          onReachabilityChange();
-          toast.success(t('webService.tunnelConnected'));
+          toast.error(
+            tunnelErrorMessage(error, t) || t('webService.tunnelCheckFailed')
+          );
         }
       })();
     }, 2000);
-    return () => window.clearInterval(timer);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
   }, [applyStatus, onReachabilityChange, polling, t]);
 
   const requireRunning = () => {
@@ -438,10 +462,14 @@ export function HostTunnelPanel({
   };
 
   const copyCommand = async (command: string) => {
-    await navigator.clipboard.writeText(command);
-    toast.success(
-      t('webService.copied', { label: t('webService.tunnelCommand') })
-    );
+    const copied = await writeTextToClipboard(command);
+    if (copied) {
+      toast.success(
+        t('webService.copied', { label: t('webService.tunnelCommand') })
+      );
+    } else {
+      toast.error(t('webService.copyFailed', { defaultValue: '复制失败' }));
+    }
   };
 
   const removeSaved = async (item: SavedHostTunnel) => {

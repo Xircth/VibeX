@@ -44,7 +44,9 @@ import type {
   AgentKind,
   AgentPermissionResponse,
   AgentSessionConfigOption,
+  AgentSessionConfigOverride,
   ConversationFileChange,
+  ConversationPermissionView,
   MessageTurn,
   PlanEntry,
   TaskWithAttemptStatus,
@@ -52,10 +54,17 @@ import type {
   TokenUsageInfo,
 } from 'shared/types';
 import type { WorkspaceWithSession } from '@/types/attempt';
+import type { PatchTypeWithKey } from '@/hooks/conversationEntries';
 import {
   MessageTurnView,
   type ContextCompactPresentation,
 } from '@/components/NormalizedConversation/MessageTurnView';
+import { planTurnBlocks } from '@/components/NormalizedConversation/messageTurnBlocks';
+import { toolBlockToNormalizedEntry } from '@/components/NormalizedConversation/messageTurnTool';
+import {
+  splitDisplayContentImages,
+  splitUserTurnContent,
+} from '@/components/NormalizedConversation/userMessageImages';
 import { TurnFileChangesCard } from '@/components/NormalizedConversation/TurnFileChangesCard';
 import { PermissionRequestCard } from '@/components/NormalizedConversation/conversation/PermissionRequestCard';
 import { QuestionRequestCard } from '@/components/NormalizedConversation/conversation/QuestionRequestCard';
@@ -66,7 +75,13 @@ import {
   findMatchingAskQuestionTool,
   hasMatchingAskQuestionTool,
 } from '@/components/NormalizedConversation/TurnActivity';
+import { isOrphanedQuestionResponseError } from '@/components/tasks/follow-up/AgentQuestionCard';
 import { mergeQuestionRequestWithToolUse } from '@/components/tasks/follow-up/agentQuestionModel';
+import {
+  getSessionComposerFileRefs,
+  getSessionComposerPluginActionInvocations,
+  serializeSessionComposerBackendMessage,
+} from '@/components/tasks/follow-up/sessionComposerStructuredTokens';
 import { ChildConversationViewer } from '@/components/NormalizedConversation/conversation/ChildConversationViewer';
 import {
   appendChildConversationStack,
@@ -551,25 +566,292 @@ export function mergeMissingTurnStats(
   };
 }
 
+function permissionDetailObject(
+  details: ConversationPermissionView['details']
+): Record<string, unknown> | null {
+  return details && typeof details === 'object' && !Array.isArray(details)
+    ? (details as Record<string, unknown>)
+    : null;
+}
+
+function readPermissionStringFromRecord(
+  record: Record<string, unknown> | null,
+  ...keys: string[]
+): string | null {
+  if (!record) return null;
+  for (const key of keys) {
+    const value = record[key];
+    if (typeof value === 'string' && value.trim()) {
+      return value.trim();
+    }
+  }
+  return null;
+}
+
+function readPermissionString(
+  permission: ConversationPermissionView,
+  ...keys: string[]
+): string | null {
+  const details = permissionDetailObject(permission.details);
+  const fields =
+    details?.fields &&
+    typeof details.fields === 'object' &&
+    !Array.isArray(details.fields)
+      ? (details.fields as Record<string, unknown>)
+      : null;
+  const topLevel = permission as unknown as Record<string, unknown>;
+  for (const source of [fields, details, topLevel]) {
+    const found = readPermissionStringFromRecord(source, ...keys);
+    if (found) return found;
+  }
+  return null;
+}
+
+export function timelineToPatchEntries(
+  timeline: ConversationTimelineTurn[],
+  sideRows: TimelineRow[],
+  pendingPermissions: ConversationPermissionView[]
+): PatchTypeWithKey[] {
+  const result: PatchTypeWithKey[] = [];
+  const pendingByToolId = new Map<string, ConversationPermissionView>();
+  for (const permission of pendingPermissions) {
+    const toolCallId = readPermissionString(
+      permission,
+      'toolCallId',
+      'tool_call_id',
+      'toolUseId',
+      'tool_use_id'
+    );
+    if (toolCallId) {
+      pendingByToolId.set(toolCallId, permission);
+    }
+  }
+  const matchedPermissionIds = new Set<string>();
+
+  for (const row of timeline) {
+    const executionProcessId = row.turn.id;
+    const timestamp = row.turn.timestamp ?? null;
+    if (row.turn.role === 'user') {
+      const { text } = splitUserTurnContent(row.turn.blocks);
+      result.push({
+        type: 'NORMALIZED_ENTRY',
+        patchKey: `${row.key}:user`,
+        executionProcessId,
+        content: {
+          timestamp,
+          entry_type: { type: 'user_message' },
+          content: text,
+        },
+      });
+      continue;
+    }
+
+    const planned = planTurnBlocks(row.turn.blocks);
+    planned.forEach((item, index) => {
+      if (item.kind === 'markdown') {
+        result.push({
+          type: 'NORMALIZED_ENTRY',
+          patchKey: `${row.key}:md:${index}`,
+          executionProcessId,
+          content: {
+            timestamp,
+            entry_type: { type: 'assistant_message' },
+            content: item.text,
+          },
+        });
+        return;
+      }
+      if (item.kind === 'tool' && item.use) {
+        const entry = toolBlockToNormalizedEntry(
+          item.use,
+          item.result,
+          timestamp
+        );
+        const pending = item.use.tool_use_id
+          ? pendingByToolId.get(item.use.tool_use_id)
+          : undefined;
+        if (pending && entry.entry_type.type === 'tool_use') {
+          matchedPermissionIds.add(pending.permission_id);
+          entry.entry_type = {
+            ...entry.entry_type,
+            status: {
+              status: 'pending_approval',
+              approval_id: pending.permission_id,
+              requested_at: timestamp ?? '',
+              timeout_at: '',
+            },
+          };
+        }
+        result.push({
+          type: 'NORMALIZED_ENTRY',
+          patchKey: `${row.key}:tool:${index}`,
+          executionProcessId,
+          content: entry,
+        });
+      }
+    });
+  }
+
+  for (const permission of pendingPermissions) {
+    if (matchedPermissionIds.has(permission.permission_id)) continue;
+    const toolName =
+      readPermissionString(permission, 'toolName', 'tool_name') ?? 'tool';
+    const label = permission.title?.trim() || toolName || 'Pending approval';
+    result.push({
+      type: 'NORMALIZED_ENTRY',
+      patchKey: `perm:${permission.permission_id}`,
+      executionProcessId: permission.permission_id,
+      content: {
+        timestamp: null,
+        entry_type: {
+          type: 'tool_use',
+          tool_name: toolName,
+          action_type: { action: 'other', description: label },
+          status: {
+            status: 'pending_approval',
+            approval_id: permission.permission_id,
+            requested_at: '',
+            timeout_at: '',
+          },
+        },
+        content: label,
+      },
+    });
+  }
+
+  for (const side of sideRows) {
+    if (side.row.kind !== 'turn_error') continue;
+    result.push({
+      type: 'NORMALIZED_ENTRY',
+      patchKey: `err:${side.row_id}`,
+      executionProcessId: side.row.error.turn_id ?? side.row_id,
+      content: {
+        timestamp: null,
+        entry_type: {
+          type: 'error_message',
+          error_type: { type: 'other' },
+        },
+        content: side.row.error.error.message,
+      },
+    });
+  }
+
+  return result;
+}
+
+export function buildResendTurnPayload({
+  turn,
+  replacementText,
+  sessionModes,
+  sessionConfigOptions,
+}: {
+  turn: MessageTurn;
+  replacementText?: string;
+  sessionModes: ConversationSessionModesState;
+  sessionConfigOptions: AgentSessionConfigOption[];
+}): {
+  text: string;
+  displayText: string;
+  images: string[];
+  fileRefs: ReturnType<typeof getSessionComposerFileRefs>;
+  workflowRefs: { pluginId: string; workflowId: string }[];
+  modeOverride: string | null;
+  configOverrides: AgentSessionConfigOverride[];
+} | null {
+  const parsedTurn = splitUserTurnContent(turn.blocks);
+  const imageSet = new Set<string>();
+  for (const attachment of [...parsedTurn.images, ...parsedTurn.files]) {
+    const ref = attachment.path || attachment.sourceUrl;
+    if (ref) imageSet.add(ref);
+  }
+
+  let displayText: string;
+  if (replacementText !== undefined) {
+    const parsedReplacement = splitDisplayContentImages(replacementText);
+    displayText = parsedReplacement.text;
+    for (const attachment of [
+      ...parsedReplacement.images,
+      ...parsedReplacement.files,
+    ]) {
+      const ref = attachment.path || attachment.sourceUrl;
+      if (ref) imageSet.add(ref);
+    }
+  } else {
+    displayText = parsedTurn.text;
+  }
+
+  const text = serializeSessionComposerBackendMessage(displayText).trim();
+  const images = Array.from(imageSet);
+  if (!text && !displayText.trim() && images.length === 0) {
+    return null;
+  }
+
+  const fileRefs = getSessionComposerFileRefs(displayText);
+  const workflowRefs = getSessionComposerPluginActionInvocations(
+    displayText
+  ).map((action) => ({
+    pluginId: action.pluginId,
+    workflowId: action.actionId,
+  }));
+  const modeOverride = sessionModes.current ?? null;
+  const configOverrides: AgentSessionConfigOverride[] =
+    sessionConfigOptions.flatMap((option) => {
+      if (typeof option.value === 'string' && option.value.trim()) {
+        return [{ key: option.key, value: option.value }];
+      }
+      if (
+        typeof option.value === 'number' ||
+        typeof option.value === 'boolean'
+      ) {
+        return [{ key: option.key, value: String(option.value) }];
+      }
+      return [];
+    });
+
+  return {
+    text,
+    displayText,
+    images,
+    fileRefs,
+    workflowRefs,
+    modeOverride,
+    configOverrides,
+  };
+}
+
 function InlineTimelineSideRow({
   entry,
+  timeline,
+  dismissedQuestionIds,
+  onDismissQuestion,
   onRespondQuestion,
   respondingQuestionId,
 }: {
   entry: TimelineRow;
+  timeline: ConversationTimelineTurn[];
+  dismissedQuestionIds: ReadonlySet<string>;
+  onDismissQuestion: (questionId: string) => void;
   onRespondQuestion: (
     questionId: string,
     response: AgentElicitationResponse
-  ) => void;
+  ) => void | Promise<unknown>;
   respondingQuestionId: string | null;
 }) {
   const row = entry.row;
   if (row.kind === 'question_request') {
+    if (
+      !row.response &&
+      dismissedQuestionIds.has(row.request.question_id)
+    ) {
+      return null;
+    }
+    const matchedUse = findMatchingAskQuestionTool(row.request, timeline);
     return (
       <QuestionRequestCard
-        request={row.request}
+        request={mergeQuestionRequestWithToolUse(row.request, matchedUse)}
         response={row.response ?? null}
         onRespond={onRespondQuestion}
+        onDismiss={onDismissQuestion}
         responding={respondingQuestionId === row.request.question_id}
       />
     );
@@ -861,28 +1143,53 @@ const AgentTimelineConversation = forwardRef<
   const [respondingQuestionId, setRespondingQuestionId] = useState<
     string | null
   >(null);
+  const [dismissedQuestionIds, setDismissedQuestionIds] = useState<Set<string>>(
+    () => new Set()
+  );
+  useEffect(() => {
+    setDismissedQuestionIds(new Set());
+  }, [sessionId]);
+  const handleDismissQuestion = useCallback((questionId: string) => {
+    setDismissedQuestionIds((prev) => {
+      if (prev.has(questionId)) return prev;
+      const next = new Set(prev);
+      next.add(questionId);
+      return next;
+    });
+  }, []);
   const handleRespondQuestion = useCallback(
-    (questionId: string, response: AgentElicitationResponse) => {
+    async (questionId: string, response: AgentElicitationResponse) => {
       setRespondingQuestionId(questionId);
-      void conversationRespondQuestion(questionId, response)
-        .catch((error: unknown) => toast.error(getErrorMessage(error)))
-        .finally(() =>
-          setRespondingQuestionId((current) =>
-            current === questionId ? null : current
-          )
+      try {
+        await conversationRespondQuestion(questionId, response);
+      } catch (error: unknown) {
+        toast.error(getErrorMessage(error));
+        if (
+          response.action === 'decline' &&
+          isOrphanedQuestionResponseError(error)
+        ) {
+          handleDismissQuestion(questionId);
+        }
+        throw error;
+      } finally {
+        setRespondingQuestionId((current) =>
+          current === questionId ? null : current
         );
+      }
     },
-    [conversationRespondQuestion]
+    [conversationRespondQuestion, handleDismissQuestion]
   );
   const pendingQuestionRow = useMemo(
     () =>
       sideRows
         .filter(
           (entry) =>
-            entry.row.kind === 'question_request' && !entry.row.response
+            entry.row.kind === 'question_request' &&
+            !entry.row.response &&
+            !dismissedQuestionIds.has(entry.row.request.question_id)
         )
         .at(-1),
-    [sideRows]
+    [dismissedQuestionIds, sideRows]
   );
   const composerQuestion = useMemo(() => {
     if (
@@ -1085,9 +1392,31 @@ const AgentTimelineConversation = forwardRef<
     ]
   );
 
-  // Feed the composer's context-usage ring (EntriesContext). The setter is
-  // stable, and useOptionalEntries no-ops outside a provider (e.g. logs panel).
+  // Unanswered permission requests dock at the bottom of the stream (above the
+  // composer) instead of scrolling away with the timeline; answered ones are
+  // already reflected by their tool calls, so they are not re-rendered.
+  const pendingPermissions = useMemo(
+    () =>
+      sideRows.flatMap((entry) =>
+        entry.row.kind === 'permission_request' &&
+        entry.row.request.status === 'pending'
+          ? [entry.row.request]
+          : []
+      ),
+    [sideRows]
+  );
+
+  // Feed the composer's context-usage ring and entries (EntriesContext). The
+  // setters are stable, and useOptionalEntries no-ops outside a provider.
   const entries = useOptionalEntries();
+  const setEntries = entries?.setEntries;
+  const composerEntries = useMemo(
+    () => timelineToPatchEntries(timeline, sideRows, pendingPermissions),
+    [pendingPermissions, sideRows, timeline]
+  );
+  useEffect(() => {
+    setEntries?.(composerEntries);
+  }, [composerEntries, setEntries]);
   const setTokenUsageInfo = entries?.setTokenUsageInfo;
   const composerTokenUsage = useMemo(
     () => latestTokenUsage(timeline),
@@ -1364,7 +1693,11 @@ const AgentTimelineConversation = forwardRef<
     () => (findOpen ? findInConversationTimeline(timeline, findQuery) : []),
     [findOpen, findQuery, timeline]
   );
-  const currentFindMatch = findMatches[findMatchIndex] ?? null;
+  const safeFindMatchIndex =
+    findMatches.length > 0
+      ? Math.min(findMatchIndex, findMatches.length - 1)
+      : 0;
+  const currentFindMatch = findMatches[safeFindMatchIndex] ?? null;
 
   const detachFromBottom = useCallback(() => {
     cancelVirtualizerFollowScroll(rowVirtualizer);
@@ -1444,8 +1777,9 @@ const AgentTimelineConversation = forwardRef<
     (direction: 1 | -1) => {
       if (findMatches.length === 0) return;
       setFindMatchIndex((current) => {
+        const clamped = Math.min(current, findMatches.length - 1);
         const next =
-          (current + direction + findMatches.length) % findMatches.length;
+          (clamped + direction + findMatches.length) % findMatches.length;
         queueMicrotask(() => scrollToFindMatch(next));
         return next;
       });
@@ -1662,6 +1996,7 @@ const AgentTimelineConversation = forwardRef<
   }, [scrollToIndex, sessionId, timelineItems]);
 
   useEffect(() => {
+    const pulseTimers: number[] = [];
     const applyJumpDetail = (detail: ConversationScrollToQuoteDetail) => {
       if (
         detail.conversationId &&
@@ -1718,7 +2053,7 @@ const AgentTimelineConversation = forwardRef<
         }
       };
       runPulse();
-      window.setTimeout(runPulse, 140);
+      pulseTimers.push(window.setTimeout(runPulse, 140));
     };
 
     if (timelineItems.length > 0) {
@@ -1736,6 +2071,7 @@ const AgentTimelineConversation = forwardRef<
     };
     window.addEventListener(CONVERSATION_SCROLL_TO_QUOTE_EVENT, onJumpToQuote);
     return () => {
+      pulseTimers.forEach((timerId) => window.clearTimeout(timerId));
       window.removeEventListener(
         CONVERSATION_SCROLL_TO_QUOTE_EVENT,
         onJumpToQuote
@@ -2168,20 +2504,6 @@ const AgentTimelineConversation = forwardRef<
     return map;
   }, [conversation.currentTurnId, sideRows, timeline]);
 
-  // Unanswered permission requests dock at the bottom of the stream (above the
-  // composer) instead of scrolling away with the timeline; answered ones are
-  // already reflected by their tool calls, so they are not re-rendered.
-  const pendingPermissions = useMemo(
-    () =>
-      sideRows.flatMap((entry) =>
-        entry.row.kind === 'permission_request' &&
-        entry.row.request.status === 'pending'
-          ? [entry.row.request]
-          : []
-      ),
-    [sideRows]
-  );
-
   const handleUndoTurnChanges = useCallback(
     async (turnId: string) => {
       const session = attempt.session;
@@ -2214,12 +2536,13 @@ const AgentTimelineConversation = forwardRef<
     ): Promise<boolean> => {
       const session = attempt.session;
       if (!session?.executor) return false;
-      const text =
-        replacementText ??
-        turn.blocks
-          .flatMap((block) => (block.type === 'text' ? [block.text] : []))
-          .join('\n\n');
-      if (!text) return false;
+      const resendPayload = buildResendTurnPayload({
+        turn,
+        replacementText,
+        sessionModes: conversationSessionModes,
+        sessionConfigOptions: conversationSessionConfigOptions,
+      });
+      if (!resendPayload) return false;
 
       let rollbackFiles: ConversationFileChange[] = [];
       let previewUnavailable = false;
@@ -2302,7 +2625,7 @@ const AgentTimelineConversation = forwardRef<
             getActiveExecutorProfile(),
             session.executor as AgentKind
           ),
-          text,
+          ...resendPayload,
         });
         return true;
       } catch (error) {
@@ -2314,6 +2637,8 @@ const AgentTimelineConversation = forwardRef<
       attempt.id,
       attempt.session,
       conversationResetAndReload,
+      conversationSessionConfigOptions,
+      conversationSessionModes,
       getActiveExecutorProfile,
       t,
     ]
@@ -2531,7 +2856,7 @@ const AgentTimelineConversation = forwardRef<
       {findOpen ? (
         <ConversationFindBar
           query={findQuery}
-          current={findMatches.length === 0 ? 0 : findMatchIndex + 1}
+          current={findMatches.length === 0 ? 0 : safeFindMatchIndex + 1}
           total={findMatches.length}
           workspaceId={attempt.id}
           currentConversationId={sessionId}
@@ -2802,6 +3127,9 @@ const AgentTimelineConversation = forwardRef<
                               {item.kind === 'side' ? (
                                 <InlineTimelineSideRow
                                   entry={item.row}
+                                  timeline={timeline}
+                                  dismissedQuestionIds={dismissedQuestionIds}
+                                  onDismissQuestion={handleDismissQuestion}
                                   onRespondQuestion={handleRespondQuestion}
                                   respondingQuestionId={respondingQuestionId}
                                 />

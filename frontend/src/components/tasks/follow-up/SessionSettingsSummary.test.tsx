@@ -474,7 +474,7 @@ describe('SessionSettingsSummary', () => {
     expect(updatedTrigger).not.toHaveTextContent('全新上下文');
   });
 
-  it('renders a borderless summary trigger and keeps Agent switching enabled even when persona metadata is present', async () => {
+  it('renders a raised summary trigger and keeps Agent switching enabled even when persona metadata is present', async () => {
     const user = userEvent.setup();
     const onChangeExecutorProfile = vi.fn();
 
@@ -524,9 +524,9 @@ describe('SessionSettingsSummary', () => {
     );
 
     const trigger = screen.getByTestId('session-settings-summary');
-    expect(trigger).not.toHaveClass('raised-control');
-    expect(trigger).not.toHaveAttribute('data-raised-selector');
-    expect(trigger).toHaveClass('border-0');
+    expect(trigger).toHaveClass('raised-control');
+    expect(trigger).toHaveAttribute('data-raised-selector');
+    expect(trigger).not.toHaveClass('rounded-full');
 
     await user.click(trigger);
 
@@ -540,5 +540,31 @@ describe('SessionSettingsSummary', () => {
       executor: 'codex',
       variant: null,
     });
+  });
+
+  it('stays mounted when the only advertised control is an off boolean toggle', async () => {
+    const user = userEvent.setup();
+    const onSelectConfigOption = vi.fn();
+
+    render(
+      <SessionSettingsSummary
+        options={[
+          {
+            key: 'fast_mode',
+            label: 'Fast',
+            value: false,
+          },
+        ]}
+        pending={{}}
+        onSelectConfigOption={onSelectConfigOption}
+      />
+    );
+
+    const trigger = screen.getByTestId('session-settings-summary');
+    expect(trigger).toBeInTheDocument();
+
+    await user.click(trigger);
+    await user.click(screen.getByText('Fast'));
+    expect(onSelectConfigOption).toHaveBeenCalledWith('fast_mode', 'true');
   });
 });

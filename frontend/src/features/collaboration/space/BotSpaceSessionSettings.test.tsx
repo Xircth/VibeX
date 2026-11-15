@@ -1,9 +1,10 @@
 import { createRef } from 'react';
-import { fireEvent, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { SelectableAgent } from '@/features/agents/useSelectableAgents';
+import { SESSION_AGENT_SWITCHED_EVENT } from '@/lib/sessionQueryCache';
 import { renderWithQueryClient as render } from '@/test/QueryClientHarness';
 
 import type { CollaborationSpaceRuntime } from './CollaborationSpaceRuntime';
@@ -288,13 +289,12 @@ describe('ComposerDock BotSpace session settings', () => {
     ]);
   });
 
-  it('shows borderless session settings left of microphone and send in BotSpace and supports adjusting config and switching Agent', async () => {
+  it('shows raised session settings left of microphone and send in BotSpace and supports adjusting config and switching Agent', async () => {
     const user = userEvent.setup();
     renderComposerDock();
 
     const trigger = await screen.findByTestId('session-settings-summary');
-    expect(trigger).toHaveClass('border-0');
-    expect(trigger).not.toHaveClass('raised-control');
+    expect(trigger).toHaveClass('raised-control');
     await waitFor(() => {
       expect(trigger).toHaveTextContent('Sonnet 4');
     });
@@ -343,5 +343,209 @@ describe('ComposerDock BotSpace session settings', () => {
         targetEngine: 'codex',
       });
     });
+  });
+
+  it('preserves reconciled model and other persisted config_values when changing mode or another option', async () => {
+    const user = userEvent.setup();
+    collaborationCallMock.mockImplementation(
+      async (_cap: string, method: string) => {
+        if (method === 'member.config.get') {
+          return {
+            memberId: 'mem-a',
+            config: {
+              agent_id: 'claude_code',
+              mode_id: 'plan',
+              config_values: {
+                model: 'sonnet-4',
+                reasoning_effort: 'high',
+                saved_flag: 'keep-me',
+              },
+              persona_prompt: '你是架构师小A',
+            },
+          };
+        }
+        return {};
+      }
+    );
+
+    loadCatalogMock.mockResolvedValue({
+      agent_id: 'claude_code',
+      current_mode: 'plan',
+      modes: [
+        { id: 'plan', label: 'Plan' },
+        { id: 'bypass', label: 'Bypass' },
+      ],
+      config_options: [
+        {
+          key: 'model',
+          label: 'Model',
+          category: 'model',
+          value: 'sonnet-4',
+          choices: [
+            { value: 'sonnet-4', label: 'Sonnet 4' },
+            { value: 'opus-4', label: 'Opus 4' },
+          ],
+        },
+        {
+          key: 'reasoning_effort',
+          label: 'Reasoning',
+          category: 'thought_level',
+          value: 'low',
+          choices: [
+            { value: 'low', label: 'Low' },
+            { value: 'high', label: 'High' },
+          ],
+        },
+      ],
+    });
+
+    renderComposerDock();
+
+    const trigger = await screen.findByTestId('session-settings-summary');
+    await waitFor(() => {
+      expect(trigger).toHaveTextContent('Sonnet 4');
+    });
+
+    await user.click(trigger);
+    await user.click(screen.getByText('会话模式'));
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Bypass' }));
+
+    await waitFor(() => {
+      expect(collaborationCallMock).toHaveBeenCalledWith(
+        'collaboration',
+        'member.config.update',
+        {
+          memberId: 'mem-a',
+          modeId: 'bypass',
+          configValues: {
+            model: 'sonnet-4',
+            reasoning_effort: 'high',
+            saved_flag: 'keep-me',
+          },
+          personaPrompt: '你是架构师小A',
+        }
+      );
+    });
+  });
+
+  it('never overwrites personaPrompt with empty string when member.config.get fails', async () => {
+    const user = userEvent.setup();
+    collaborationCallMock.mockImplementation(
+      async (_cap: string, method: string) => {
+        if (method === 'member.config.get') {
+          throw new Error('backend unavailable');
+        }
+        return {};
+      }
+    );
+
+    renderComposerDock();
+
+    const trigger = await screen.findByTestId('session-settings-summary');
+    await waitFor(() => {
+      expect(trigger).toHaveTextContent('Sonnet 4');
+    });
+
+    await user.click(trigger);
+    await user.click(screen.getByText('Model'));
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Opus 4' }));
+
+    await waitFor(() => {
+      expect(setSessionConfigOptionMock).toHaveBeenCalledWith({
+        conversationId: 'conv-bot-1',
+        key: 'model',
+        value: 'opus-4',
+      });
+    });
+
+    const updateCalls = collaborationCallMock.mock.calls.filter(
+      (call) => call[1] === 'member.config.update'
+    );
+    expect(updateCalls).toHaveLength(0);
+  });
+
+  it('clears old mode/config on first agent switch event and ignores stale pre-switch loadMemberConfig', async () => {
+    let getCount = 0;
+    loadCatalogMock.mockImplementation(async (agentId: string) => ({
+      agent_id: agentId,
+      current_mode: agentId === 'codex' ? 'agent' : 'plan',
+      modes:
+        agentId === 'codex'
+          ? [
+              { id: 'agent', label: 'Agent' },
+              { id: 'read-only', label: 'Read-only' },
+            ]
+          : [
+              { id: 'plan', label: 'Plan' },
+              { id: 'bypass', label: 'Bypass' },
+            ],
+      config_options: [
+        {
+          key: 'model',
+          label: 'Model',
+          category: 'model',
+          value: agentId === 'codex' ? 'gpt-5-codex' : 'sonnet-4',
+          choices:
+            agentId === 'codex'
+              ? [
+                  { value: 'gpt-5-codex', label: 'GPT-5 Codex' },
+                  { value: 'gpt-5-mini', label: 'GPT-5 Mini' },
+                ]
+              : [
+                  { value: 'sonnet-4', label: 'Sonnet 4' },
+                  { value: 'opus-4', label: 'Opus 4' },
+                ],
+        },
+      ],
+    }));
+
+    collaborationCallMock.mockImplementation(
+      async (_cap: string, method: string) => {
+        if (method === 'member.config.get') {
+          getCount += 1;
+          // Both initial mount and the race immediately at SESSION_AGENT_SWITCHED_EVENT
+          // return the pre-switch agent config (before confirmEngineHandoff finishes).
+          return {
+            memberId: 'mem-a',
+            config: {
+              agent_id: 'claude_code',
+              mode_id: 'plan',
+              config_values: { model: 'opus-4' },
+              persona_prompt: '你是架构师小A',
+            },
+          };
+        }
+        return {};
+      }
+    );
+
+    renderComposerDock();
+
+    const trigger = await screen.findByTestId('session-settings-summary');
+    await waitFor(() => {
+      expect(trigger).toHaveTextContent('Opus 4');
+    });
+    expect(trigger).toHaveAttribute('aria-label', '本次会话: Plan · Opus 4');
+
+    // First switch event arrives while switchedAgentId was still null
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent(SESSION_AGENT_SWITCHED_EVENT, {
+          detail: {
+            sessionId: 'conv-bot-1',
+            agentId: 'codex',
+            executor: 'CODEX',
+          },
+        })
+      );
+    });
+
+    await waitFor(() => {
+      expect(getCount).toBeGreaterThanOrEqual(2);
+      expect(trigger).toHaveTextContent('GPT-5 Codex');
+    });
+    // Must stay on Codex's mode/model and not revert to Claude's Plan / Opus 4
+    expect(trigger).toHaveAttribute('aria-label', '本次会话: Agent · GPT-5 Codex');
+    expect(trigger).not.toHaveTextContent('Opus 4');
   });
 });

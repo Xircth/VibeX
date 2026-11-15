@@ -723,9 +723,26 @@ impl ConversationStateApplier {
                     ConversationTurnRecord::mark_running(&mut *conn, turn_id).await?;
                 }
             }
-            ConversationEvent::TurnBlocked { .. } => {
+            ConversationEvent::TurnBlocked { reason } => {
                 if let Some(turn_id) = record.turn_id {
                     ConversationTurnRecord::mark_blocked(&mut *conn, turn_id).await?;
+                    if matches!(
+                        reason,
+                        agents::conversation::TurnBlockedReason::Authentication { .. }
+                    ) {
+                        ConversationRecord::clear_active_turn_if_on_connection(
+                            &mut *conn,
+                            record.conversation_id,
+                            turn_id,
+                        )
+                        .await?;
+                        crate::workbench_status::release_unreviewed_in_flight_view_on_connection(
+                            conn,
+                            record.conversation_id,
+                            turn_id,
+                        )
+                        .await?;
+                    }
                 }
             }
             ConversationEvent::TurnCompleted { stop_reason } => {

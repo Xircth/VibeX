@@ -26,6 +26,8 @@ interface ActionBarProps {
   effectiveExecutorProfile: ExecutorProfileId | null;
   onChangeExecutorProfile: (profile: ExecutorProfileId | null) => void;
   showProfileControls?: boolean;
+  selectedProviderInstanceId?: string | null;
+  onSelectProviderInstance?: (instanceId: string) => void;
   /** Agent-advertised session modes for the composer's mode picker. */
   sessionModes?: ConversationSessionModesState;
   /** The user's pending mode selection for the next turn. */
@@ -75,6 +77,8 @@ export const ActionBar = memo(function ActionBar({
   effectiveExecutorProfile,
   onChangeExecutorProfile,
   showProfileControls = true,
+  selectedProviderInstanceId,
+  onSelectProviderInstance,
   sessionModes,
   selectedMode = null,
   onSelectMode,
@@ -197,6 +201,8 @@ export const ActionBar = memo(function ActionBar({
         <ComposerProviderInstanceSlot
           agentId={currentAgentId}
           disabled={!isEditable}
+          selectedInstanceId={selectedProviderInstanceId}
+          onSelectInstance={onSelectProviderInstance}
         />
       ) : null}
 

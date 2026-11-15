@@ -313,7 +313,17 @@ impl AgentConnectionRunner {
         handle: &EngineHandle,
         session_id: AgentSessionId,
     ) -> AgentSessionControlsSnapshot {
-        let models = driver.list_models(handle).await.unwrap_or_default();
+        let models = match driver.list_models(handle).await {
+            Ok(models) => models,
+            Err(error) => {
+                tracing::warn!(
+                    session_id = %session_id.0,
+                    %error,
+                    "failed to list native engine models while seeding session controls"
+                );
+                Vec::new()
+            }
+        };
         let yolo = *self.auto_approve_mode.lock().await == AgentAutoApproveMode::Yolo;
         let engine_caps = driver.capabilities();
         let mut modes = build_mode_state(&engine_caps.modes, yolo);
@@ -376,12 +386,8 @@ impl AgentConnectionRunner {
             entry.mode_uses_set_mode = mode_uses_set_mode;
             entry.session_model_ids = model_ids;
             entry.last_model_id = last_model_id;
-            if entry.available_commands.is_none() {
-                entry.available_commands = Some(commands);
-            }
-            for (k, v) in asserted {
-                entry.asserted_config_values.insert(k, v);
-            }
+            entry.available_commands = Some(commands);
+            entry.asserted_config_values = asserted;
         }
 
         let snapshot = self.session_controls_snapshot(session_id).await;
@@ -414,6 +420,9 @@ impl AgentConnectionRunner {
                     acp::schema::v1::SessionModeId::new(normalized.clone());
             }
             update_select_option_value(&mut entry.config_options, "mode", &normalized, false);
+            entry
+                .asserted_config_values
+                .insert("mode".to_string(), normalized.clone());
         }
         self.emit(
             Some(session_id),
@@ -423,6 +432,12 @@ impl AgentConnectionRunner {
             },
         );
         let snapshot = self.session_controls_snapshot(session_id).await;
+        {
+            let mut caps = self.capabilities.write().await;
+            caps.modes = snapshot.modes.clone();
+            caps.current_mode = snapshot.current_mode.clone();
+            caps.config_options = snapshot.config_options.clone();
+        }
         self.emit(
             Some(session_id),
             None,
@@ -467,6 +482,12 @@ impl AgentConnectionRunner {
             AgentEvent::ConfigChanged { key, value },
         );
         let snapshot = self.session_controls_snapshot(session_id).await;
+        {
+            let mut caps = self.capabilities.write().await;
+            caps.modes = snapshot.modes.clone();
+            caps.current_mode = snapshot.current_mode.clone();
+            caps.config_options = snapshot.config_options.clone();
+        }
         self.emit(
             Some(session_id),
             None,

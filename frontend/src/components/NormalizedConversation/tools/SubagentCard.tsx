@@ -117,7 +117,7 @@ export function SubagentCard({
                 ) : null}
                 <span className="flex min-w-0 flex-1 items-center justify-center">
                   {durationLabel ? (
-                    <span className="text-[11px] font-normal text-muted-foreground">
+                    <span className="text-[11px] font-normal tabular-nums text-muted-foreground">
                       {durationLabel}
                     </span>
                   ) : null}
@@ -189,7 +189,7 @@ export function SubagentCard({
           ) : null}
 
           {stats.length > 0 || contextLabel ? (
-            <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
+            <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs tabular-nums text-muted-foreground">
               {stats.length > 0 ? <p>{stats.join(' · ')}</p> : null}
               {model.contextUsagePct != null && contextLabel ? (
                 <ContextUsageRing

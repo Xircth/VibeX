@@ -1,4 +1,12 @@
-import { useCallback, useContext, useEffect, useMemo, useState } from 'react';
+import {
+  useCallback,
+  useContext,
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import { QueryClientContext } from '@tanstack/react-query';
 import type { ExecutorProfileId } from 'shared/types';
 import { toast } from '@/components/ui/toast';
@@ -16,6 +24,15 @@ import { syncSessionAgentInCaches } from '@/lib/sessionQueryCache';
 import { EngineHandoffDialog } from './EngineHandoffDialog';
 import { ProviderInstanceSelector } from './ProviderInstanceSelector';
 
+export const PROVIDER_INSTANCES_CHANGED_EVENT =
+  'vibex:provider-instances-changed';
+
+type ProviderInstancesChangedDetail = {
+  agentKey: string;
+  instanceId: string;
+  sourceId: string;
+};
+
 function isUnavailableHandoffPreviewError(error: unknown): boolean {
   if (isUnimplementedConversationCommandError(error)) {
     return true;
@@ -27,38 +44,146 @@ function isUnavailableHandoffPreviewError(error: unknown): boolean {
 export function ComposerProviderInstanceSlot({
   agentId,
   disabled = false,
+  selectedInstanceId,
+  onSelectInstance,
 }: {
   agentId: string | null;
   disabled?: boolean;
+  selectedInstanceId?: string | null;
+  onSelectInstance?: (instanceId: string) => void;
 }) {
+  const queryClient = useContext(QueryClientContext);
+  const slotId = useId();
   const [allInstances, setAllInstances] = useState<ProviderInstanceConfig[]>([]);
   const [selectedByAgent, setSelectedByAgent] = useState<Record<string, string>>(
     {}
   );
+  const onSelectInstanceRef = useRef(onSelectInstance);
+  onSelectInstanceRef.current = onSelectInstance;
+  const lastNotifiedRef = useRef<{ agentKey: string; instanceId: string } | null>(
+    null
+  );
+  const prevSelectedPropRef = useRef<string | null | undefined>(
+    selectedInstanceId
+  );
+  const selectSeqRef = useRef(0);
+
+  const agentKey = agentId ? normalizeAgentGroupKey(agentId) : null;
+  const agentKeyRef = useRef(agentKey);
+  agentKeyRef.current = agentKey;
 
   useEffect(() => {
     if (!agentId) return;
     let active = true;
-    void providerInstancesApi
-      .list()
-      .then((rows) => {
-        if (active) setAllInstances(rows);
-      })
-      .catch(() => {
-        if (active) setAllInstances([]);
-      });
+    const loadInstances = () => {
+      void providerInstancesApi
+        .list()
+        .then((rows) => {
+          if (active) setAllInstances(rows);
+        })
+        .catch(() => {
+          if (active) setAllInstances([]);
+        });
+    };
+
+    loadInstances();
+
+    const onInstancesChanged = (event: Event) => {
+      const detail = (
+        event as CustomEvent<ProviderInstancesChangedDetail | undefined>
+      ).detail;
+      if (!detail || detail.sourceId === slotId) return;
+      setSelectedByAgent((prev) => ({
+        ...prev,
+        [detail.agentKey]: detail.instanceId,
+      }));
+      setAllInstances((prev) =>
+        prev.map((item) =>
+          normalizeAgentGroupKey(item.agentId) === detail.agentKey
+            ? { ...item, isDefault: item.instanceId === detail.instanceId }
+            : item
+        )
+      );
+      if (agentKeyRef.current === detail.agentKey) {
+        lastNotifiedRef.current = {
+          agentKey: detail.agentKey,
+          instanceId: detail.instanceId,
+        };
+        onSelectInstanceRef.current?.(detail.instanceId);
+      }
+      loadInstances();
+    };
+
+    if (typeof window !== 'undefined') {
+      window.addEventListener(
+        PROVIDER_INSTANCES_CHANGED_EVENT,
+        onInstancesChanged
+      );
+    }
     return () => {
       active = false;
+      if (typeof window !== 'undefined') {
+        window.removeEventListener(
+          PROVIDER_INSTANCES_CHANGED_EVENT,
+          onInstancesChanged
+        );
+      }
     };
-  }, [agentId]);
+  }, [agentId, slotId]);
 
-  const agentKey = agentId ? normalizeAgentGroupKey(agentId) : null;
   const instances = useMemo(() => {
     if (!agentKey) return [];
     return allInstances.filter(
       (item) => normalizeAgentGroupKey(item.agentId) === agentKey
     );
   }, [agentKey, allInstances]);
+
+  const effectiveSelectedId = useMemo(() => {
+    if (!agentKey || instances.length === 0) return null;
+    if (
+      selectedInstanceId &&
+      instances.some((item) => item.instanceId === selectedInstanceId)
+    ) {
+      return selectedInstanceId;
+    }
+    const localSelected = selectedByAgent[agentKey];
+    if (
+      localSelected &&
+      instances.some((item) => item.instanceId === localSelected)
+    ) {
+      return localSelected;
+    }
+    return (
+      instances.find((item) => item.isDefault)?.instanceId ??
+      instances[0]?.instanceId ??
+      null
+    );
+  }, [agentKey, instances, selectedByAgent, selectedInstanceId]);
+
+  useEffect(() => {
+    const prevProp = prevSelectedPropRef.current;
+    prevSelectedPropRef.current = selectedInstanceId;
+    if (prevProp != null && selectedInstanceId == null) {
+      lastNotifiedRef.current = null;
+    }
+
+    if (!agentKey || !effectiveSelectedId) return;
+    if (selectedInstanceId === effectiveSelectedId) {
+      lastNotifiedRef.current = {
+        agentKey,
+        instanceId: effectiveSelectedId,
+      };
+      return;
+    }
+    if (
+      lastNotifiedRef.current?.agentKey === agentKey &&
+      lastNotifiedRef.current?.instanceId === effectiveSelectedId
+    ) {
+      return;
+    }
+    lastNotifiedRef.current = { agentKey, instanceId: effectiveSelectedId };
+    onSelectInstanceRef.current?.(effectiveSelectedId);
+  }, [agentKey, effectiveSelectedId, selectedInstanceId]);
 
   if (!agentKey || instances.length === 0) {
     return null;
@@ -67,13 +192,68 @@ export function ComposerProviderInstanceSlot({
   return (
     <ProviderInstanceSelector
       instances={instances}
-      selectedInstanceId={selectedByAgent[agentKey] ?? null}
+      selectedInstanceId={effectiveSelectedId}
       disabled={disabled}
       onSelectInstance={(next) => {
+        const previousId = effectiveSelectedId;
+        const previousSelectedMap = selectedByAgent;
+        const previousInstances = allInstances;
+        const seq = ++selectSeqRef.current;
+
+        lastNotifiedRef.current = { agentKey, instanceId: next.instanceId };
         setSelectedByAgent((prev) => ({
           ...prev,
           [agentKey]: next.instanceId,
         }));
+        setAllInstances((prev) =>
+          prev.map((item) =>
+            normalizeAgentGroupKey(item.agentId) === agentKey
+              ? { ...item, isDefault: item.instanceId === next.instanceId }
+              : item
+          )
+        );
+        onSelectInstance?.(next.instanceId);
+
+        void providerInstancesApi
+          .setDefault(agentKey, next.instanceId)
+          .then(() => {
+            if (seq !== selectSeqRef.current) return;
+            if (queryClient) {
+              void queryClient.invalidateQueries({
+                queryKey: ['providerInstances'],
+              });
+            }
+            if (typeof window !== 'undefined') {
+              window.dispatchEvent(
+                new CustomEvent<ProviderInstancesChangedDetail>(
+                  PROVIDER_INSTANCES_CHANGED_EVENT,
+                  {
+                    detail: {
+                      agentKey,
+                      instanceId: next.instanceId,
+                      sourceId: slotId,
+                    },
+                  }
+                )
+              );
+            }
+          })
+          .catch((error: unknown) => {
+            if (isUnavailableHandoffPreviewError(error)) {
+              return;
+            }
+            if (seq === selectSeqRef.current) {
+              setSelectedByAgent(previousSelectedMap);
+              setAllInstances(previousInstances);
+              lastNotifiedRef.current = previousId
+                ? { agentKey, instanceId: previousId }
+                : null;
+              if (previousId) {
+                onSelectInstanceRef.current?.(previousId);
+              }
+            }
+            toast.error(error instanceof Error ? error.message : String(error));
+          });
       }}
     />
   );
@@ -104,6 +284,7 @@ export function useComposerEngineHandoff({
     preview: ConversationEngineHandoffPreview;
   } | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const emptySwitchSeqRef = useRef(0);
 
   const handleChangeExecutorProfile = useCallback(
     (nextProfile: ExecutorProfileId | null) => {
@@ -120,6 +301,15 @@ export function useComposerEngineHandoff({
       }
 
       if (!hasExistingTurns) {
+        const previousExecutor = currentExecutor ?? null;
+        const previousProfile: ExecutorProfileId | null = previousExecutor
+          ? {
+              executor: previousExecutor as ExecutorProfileId['executor'],
+              variant: null,
+            }
+          : null;
+        const switchSeq = ++emptySwitchSeqRef.current;
+
         syncSessionAgentInCaches(queryClient, sessionId, nextProfile.executor);
         onApplyExecutorProfile(nextProfile);
         void conversationApi
@@ -128,11 +318,22 @@ export function useComposerEngineHandoff({
             targetEngine: nextProfile.executor,
           })
           .catch((error: unknown) => {
-            if (!isUnavailableHandoffPreviewError(error)) {
-              toast.error(
-                error instanceof Error ? error.message : String(error)
-              );
+            if (isUnavailableHandoffPreviewError(error)) {
+              return;
             }
+            if (switchSeq === emptySwitchSeqRef.current) {
+              if (previousExecutor) {
+                syncSessionAgentInCaches(
+                  queryClient,
+                  sessionId,
+                  previousExecutor
+                );
+              }
+              onApplyExecutorProfile(previousProfile);
+            }
+            toast.error(
+              error instanceof Error ? error.message : String(error)
+            );
           });
         return;
       }

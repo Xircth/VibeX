@@ -101,4 +101,65 @@ describe('RateLimitRecoveryBanner', () => {
     });
     expect(onCancelWait).toHaveBeenCalledWith('conv-rate-1');
   });
+
+  it('rolls back optimistic changes and shows toast error when update or cancel fails', async () => {
+    const { toast } = await import('@/components/ui/toast');
+    const toastErrorSpy = vi
+      .spyOn(toast, 'error')
+      .mockImplementation(() => 'err-toast');
+    const onUpdateAutoResume = vi
+      .fn()
+      .mockRejectedValue(new Error('Update failed'));
+    const onCancelWait = vi.fn().mockRejectedValue(new Error('Cancel failed'));
+
+    try {
+      render(
+        <RateLimitRecoveryBanner
+          conversationId="conv-rate-err"
+          rateLimit={{
+            isRateLimited: true,
+            engine: 'Codex',
+            limitedAt: '2026-06-01T12:00:00.000Z',
+            resetAt: '2026-06-01T12:12:34.000Z',
+            autoResume: true,
+          }}
+          onUpdateAutoResume={onUpdateAutoResume}
+          onCancelWait={onCancelWait}
+        />
+      );
+
+      const switchEl = screen.getByTestId('rate-limit-auto-resume-switch');
+      expect(switchEl).toHaveAttribute('data-state', 'checked');
+
+      await act(async () => {
+        fireEvent.click(switchEl);
+      });
+      expect(switchEl).toHaveAttribute('data-state', 'checked');
+      expect(toastErrorSpy).toHaveBeenCalledWith('Update failed');
+
+      fireEvent.click(screen.getByTestId('rate-limit-edit-prompt-toggle'));
+      const promptInput = screen.getByTestId(
+        'rate-limit-prompt-input'
+      ) as HTMLInputElement;
+      fireEvent.change(promptInput, {
+        target: { value: 'Unsaved custom prompt' },
+      });
+
+      await act(async () => {
+        fireEvent.click(screen.getByTestId('rate-limit-save-prompt-btn'));
+      });
+      expect(screen.getByTestId('rate-limit-prompt-editor')).toBeInTheDocument();
+      expect(
+        (screen.getByTestId('rate-limit-prompt-input') as HTMLInputElement).value
+      ).toBe('Unsaved custom prompt');
+      expect(toastErrorSpy).toHaveBeenCalledTimes(2);
+
+      await act(async () => {
+        fireEvent.click(screen.getByTestId('rate-limit-cancel-btn'));
+      });
+      expect(toastErrorSpy).toHaveBeenCalledWith('Cancel failed');
+    } finally {
+      toastErrorSpy.mockRestore();
+    }
+  });
 });

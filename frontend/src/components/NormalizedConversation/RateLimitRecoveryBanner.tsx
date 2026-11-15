@@ -4,7 +4,9 @@ import { useTranslation } from 'react-i18next';
 import { formatCountdownTimer } from '@/components/tasks/follow-up/MessageQueueIndicator';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
+import { toast } from '@/components/ui/toast';
 import { conversationApi } from '@/features/conversation/conversationApi';
+import { getErrorMessage } from '@/lib/modals';
 import { cn } from '@/lib/utils';
 
 export const DEFAULT_CONTINUATION_PROMPT = 'Continue where you left off.';
@@ -93,7 +95,15 @@ export function RateLimitRecoveryBanner({
   }, [isRateLimited, rateLimit?.resetAt]);
 
   const persistAutoResumeState = useCallback(
-    async (nextAutoResume: boolean, nextPrompt: string) => {
+    async (
+      nextAutoResume: boolean,
+      nextPrompt: string,
+      rollback: {
+        autoResume: boolean;
+        promptDraft: string;
+        promptExpanded?: boolean;
+      }
+    ) => {
       const normalizedPrompt =
         nextPrompt.trim() || DEFAULT_CONTINUATION_PROMPT;
       setIsUpdating(true);
@@ -111,6 +121,13 @@ export function RateLimitRecoveryBanner({
             continuationPrompt: normalizedPrompt,
           });
         }
+      } catch (error) {
+        setAutoResume(rollback.autoResume);
+        setPromptDraft(rollback.promptDraft);
+        if (rollback.promptExpanded !== undefined) {
+          setPromptExpanded(rollback.promptExpanded);
+        }
+        toast.error(getErrorMessage(error));
       } finally {
         setIsUpdating(false);
       }
@@ -120,17 +137,26 @@ export function RateLimitRecoveryBanner({
 
   const handleToggleAutoResume = useCallback(
     (checked: boolean) => {
+      const previousAutoResume = autoResume;
       setAutoResume(checked);
-      void persistAutoResumeState(checked, promptDraft);
+      void persistAutoResumeState(checked, promptDraft, {
+        autoResume: previousAutoResume,
+        promptDraft,
+      });
     },
-    [persistAutoResumeState, promptDraft]
+    [autoResume, persistAutoResumeState, promptDraft]
   );
 
   const handleSaveContinuationPrompt = useCallback(() => {
+    const previousDraft = promptDraft;
     const normalized = promptDraft.trim() || DEFAULT_CONTINUATION_PROMPT;
     setPromptDraft(normalized);
     setPromptExpanded(false);
-    void persistAutoResumeState(autoResume, normalized);
+    void persistAutoResumeState(autoResume, normalized, {
+      autoResume,
+      promptDraft: previousDraft,
+      promptExpanded: true,
+    });
   }, [autoResume, persistAutoResumeState, promptDraft]);
 
   const handleCancelWait = useCallback(async () => {
@@ -141,6 +167,8 @@ export function RateLimitRecoveryBanner({
       } else {
         await conversationApi.cancelRateLimitWait({ conversationId });
       }
+    } catch (error) {
+      toast.error(getErrorMessage(error));
     } finally {
       setIsUpdating(false);
     }

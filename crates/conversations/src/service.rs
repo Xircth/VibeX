@@ -227,6 +227,24 @@ pub trait ConversationHost: Send + Sync {
         agent_id: &agents::AgentId,
     ) -> Result<AgentRuntimeLaunchSettings, ConversationServiceError>;
 
+    async fn launch_settings_with_provider_instance(
+        &self,
+        pool: &SqlitePool,
+        agent_id: &agents::AgentId,
+        provider_instance_id: Option<&str>,
+    ) -> Result<AgentRuntimeLaunchSettings, ConversationServiceError> {
+        let mut settings = self.launch_settings(pool, agent_id).await?;
+        if let Some(instance_id) = provider_instance_id
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        {
+            settings
+                .env
+                .insert("VIBEX_PROVIDER_INSTANCE_ID".to_string(), instance_id.to_string());
+        }
+        Ok(settings)
+    }
+
     /// Product MCP identities Host will deliver on this session new/resume/rebind.
     fn product_mcp_server_names(&self) -> Vec<String> {
         Vec::new()
@@ -370,6 +388,8 @@ pub struct ConversationStartTurnInput {
     pub operation_id: Option<Uuid>,
     /// Present when this turn was delivered from a collaboration space.
     pub collaboration_origin: Option<agents::CollaborationSpaceOrigin>,
+    /// Selected provider instance (`provider_instances.instance_id`) for multi-instance routing.
+    pub provider_instance_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -614,6 +634,30 @@ async fn append_and_publish_conversation_event(
     Ok(record)
 }
 
+pub(crate) async fn turn_is_auth_blocked(
+    pool: &SqlitePool,
+    turn_id: Uuid,
+) -> Result<bool, sqlx::Error> {
+    let normalized_json: Option<String> = sqlx::query_scalar(
+        r#"SELECT normalized_json
+           FROM conversation_events
+           WHERE turn_id = ? AND event_kind = 'turn_blocked'
+           ORDER BY sequence DESC
+           LIMIT 1"#,
+    )
+    .bind(turn_id)
+    .fetch_optional(pool)
+    .await?;
+    Ok(normalized_json.is_some_and(|raw| {
+        matches!(
+            serde_json::from_str::<ConversationEvent>(&raw),
+            Ok(ConversationEvent::TurnBlocked {
+                reason: agents::conversation::TurnBlockedReason::Authentication { .. },
+            })
+        )
+    }))
+}
+
 async fn ensure_conversation_has_no_in_flight_turn(
     pool: &SqlitePool,
     conversation: &ConversationRecord,
@@ -626,6 +670,9 @@ async fn ensure_conversation_has_no_in_flight_turn(
     };
 
     if is_in_flight_turn_status(&active_turn.status) {
+        if active_turn.status == "blocked" && turn_is_auth_blocked(pool, active_turn_id).await? {
+            return Ok(());
+        }
         return Err(ConversationServiceError::Conflict(format!(
             "Conversation {} already has an active turn",
             conversation.id

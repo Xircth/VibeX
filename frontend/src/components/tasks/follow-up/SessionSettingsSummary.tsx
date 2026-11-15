@@ -379,10 +379,15 @@ export function SessionSettingsSummary({
       : []),
   ];
 
+  const hasSessionControls =
+    (Boolean(onSelectMode) && presentableModes.length > 0) ||
+    configRows.length > 0;
+
   if (
     !showPersonaOnly &&
     !showAgentRail &&
     !continuation &&
+    !hasSessionControls &&
     summary.length === 0 &&
     !resolvedAgentId
   ) {
@@ -425,14 +430,15 @@ export function SessionSettingsSummary({
   const summaryText =
     summary.length > 0
       ? summary.map((item) => item.label).join(' · ')
-      : selectedAgentLabel;
+      : resolvedAgentId
+        ? selectedAgentLabel
+        : '';
   const triggerLabel =
     showPersonaOnly && persona
       ? persona.name
-      : `${t('sessionSettings.title')}: ${summaryText}`;
-  const hasSessionControls =
-    (Boolean(onSelectMode) && presentableModes.length > 0) ||
-    configRows.length > 0;
+      : summaryText
+        ? `${t('sessionSettings.title')}: ${summaryText}`
+        : t('sessionSettings.title');
   const sessionControlRows = (
     <>
       {onSelectMode && presentableModes.length > 0 ? (
@@ -476,12 +482,13 @@ export function SessionSettingsSummary({
         <button
           type="button"
           data-testid="session-settings-summary"
+          data-raised-selector
           disabled={disabled}
           aria-label={triggerLabel}
           title={triggerLabel}
           className={cn(
-            'group inline-flex h-7 min-w-0 max-w-[min(29rem,calc(100vw-14rem))] items-center gap-1.5 rounded-md border-0 bg-transparent px-2 text-xs font-medium tracking-[-0.01em] text-foreground transition-colors',
-            'hover:bg-muted/60 data-[state=open]:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50',
+            'raised-control group inline-flex h-7 min-w-0 max-w-[min(29rem,calc(100vw-14rem))] items-center gap-1.5',
+            'px-2.5 text-xs font-medium tracking-[-0.01em]',
             'active:scale-[0.98]'
           )}
         >

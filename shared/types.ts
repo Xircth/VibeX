@@ -2182,7 +2182,11 @@ continuationPolicy?: ContinuationPolicy, expectedBindingRevision?: bigint, agent
  * `display_text`, and this origin labels the sender for group member
  * sessions.
  */
-collaborationOrigin?: CollaborationSpaceOrigin | null, };
+collaborationOrigin?: CollaborationSpaceOrigin | null,
+/**
+ * Selected provider instance (`provider_instances.instance_id`) for multi-instance routing.
+ */
+providerInstanceId?: string, };
 
 export type ConversationInputStatus = "queued" | "scheduled" | "claimed" | "dispatched" | "cancelled";
 

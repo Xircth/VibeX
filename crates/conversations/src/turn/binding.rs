@@ -28,6 +28,7 @@ impl ConversationSessionService {
         working_dir: &str,
         native_id: &str,
         connection_id: agents::AgentConnectionId,
+        provider_instance_id: Option<&str>,
     ) -> Result<(), ConversationServiceError> {
         let pool = &self.ctx.deployment.db().pool;
         let result: Result<(), sqlx::Error> = async {
@@ -48,7 +49,11 @@ impl ConversationSessionService {
             return Err(error.into());
         }
         // Always set continuation key and resume head for the active binding.
-        let key = super::continuation::continuation_key(agent_id.as_str(), working_dir);
+        let key = super::continuation::continuation_key(
+            agent_id.as_str(),
+            working_dir,
+            provider_instance_id,
+        );
         sqlx::query("UPDATE conversation_agent_bindings SET is_resume_head = 0 WHERE conversation_id = ? AND continuation_key = ?")
             .bind(conversation_id).bind(&key).execute(pool).await?;
         let _ = sqlx::query("UPDATE conversation_agent_bindings SET continuation_key = ?, is_resume_head = 1 WHERE id = (SELECT active_agent_binding_id FROM sessions WHERE id = ?)")
@@ -151,10 +156,17 @@ impl ConversationSessionService {
             .await
             .unwrap_or_default()
             .into_iter()
-            .filter_map(|record| {
-                serde_json::from_str(&record.value_json)
-                    .ok()
-                    .map(|value| (record.option_id, value))
+            .filter_map(|record| match serde_json::from_str(&record.value_json) {
+                Ok(value) => Some((record.option_id, value)),
+                Err(error) => {
+                    tracing::warn!(
+                        agent_id = %agent_id,
+                        option_id = %record.option_id,
+                        %error,
+                        "invalid session default value_json; ignoring"
+                    );
+                    None
+                }
             })
             .collect::<Vec<_>>();
         session_control_preferences(binding, &agent_defaults)
@@ -321,6 +333,20 @@ impl ConversationSessionService {
         conversation_id: Uuid,
         working_dir_override: Option<PathBuf>,
     ) -> Result<AgentSessionControlsSnapshot, ConversationServiceError> {
+        self.ensure_session_controls_locked_with_provider_instance(
+            conversation_id,
+            working_dir_override,
+            None,
+        )
+        .await
+    }
+
+    pub(super) async fn ensure_session_controls_locked_with_provider_instance(
+        &self,
+        conversation_id: Uuid,
+        working_dir_override: Option<PathBuf>,
+        provider_instance_id: Option<&str>,
+    ) -> Result<AgentSessionControlsSnapshot, ConversationServiceError> {
         self.interrupt_orphaned_turn(conversation_id).await?;
         let runtime_session_id = AgentSessionId(conversation_id);
 
@@ -389,6 +415,7 @@ impl ConversationSessionService {
                     "",
                     &bound_acp_session_id,
                     connection_id,
+                    provider_instance_id,
                 )
                 .await?;
                 self.ctx
@@ -443,8 +470,17 @@ impl ConversationSessionService {
                     .ok()
                     .flatten();
                     fallback_json
-                        .and_then(|raw| {
-                            serde_json::from_str::<AgentSessionControlsSnapshot>(&raw).ok()
+                        .and_then(|raw| match serde_json::from_str::<AgentSessionControlsSnapshot>(&raw) {
+                            Ok(snapshot) => Some(snapshot),
+                            Err(error) => {
+                                tracing::warn!(
+                                    %conversation_id,
+                                    agent_id = %agent_id,
+                                    %error,
+                                    "invalid cached capability catalog controls_json; ignoring"
+                                );
+                                None
+                            }
                         })
                         .unwrap_or_default()
                 }
@@ -475,13 +511,21 @@ impl ConversationSessionService {
             if member_prefers_linked_agent {
                 agent_id = linked_agent;
                 persisted_session.agent_id = Some(agent_id.clone());
-                let _ = Session::update_agent_metadata(
+                if let Err(error) = Session::update_agent_metadata(
                     pool,
                     conversation_id,
                     Some(&ext),
                     Some(&agent_id),
                 )
-                .await;
+                .await
+                {
+                    tracing::warn!(
+                        %conversation_id,
+                        agent_id = %agent_id,
+                        %error,
+                        "failed to update session agent metadata for linked agent"
+                    );
+                }
             } else {
                 crate::flush_conversation_persistence(conversation_id).await;
                 self.ctx
@@ -489,7 +533,7 @@ impl ConversationSessionService {
                     .flush_conversation(conversation_id)
                     .await;
                 persisted_session.external_session_id = None;
-                let _ = sqlx::query(
+                if let Err(error) = sqlx::query(
                     r#"UPDATE sessions
                        SET external_session_id = NULL,
                            updated_at = datetime('now', 'subsec')
@@ -497,7 +541,14 @@ impl ConversationSessionService {
                 )
                 .bind(conversation_id)
                 .execute(pool)
-                .await;
+                .await
+                {
+                    tracing::warn!(
+                        %conversation_id,
+                        %error,
+                        "failed to clear stale external_session_id during agent switch"
+                    );
+                }
             }
         }
         let execution_workspace_id = crate::isolated_workspace::execution_workspace_id(
@@ -551,7 +602,11 @@ impl ConversationSessionService {
             &repos,
             &working_dir,
         );
-        let launch_settings = self.ctx.host.launch_settings(pool, &agent_id).await?;
+        let launch_settings = self
+            .ctx
+            .host
+            .launch_settings_with_provider_instance(pool, &agent_id, provider_instance_id)
+            .await?;
         let latest_binding =
             ConversationAgentBindingRecord::active_for_conversation(pool, conversation_id)
                 .await?
@@ -742,6 +797,7 @@ impl ConversationSessionService {
             &working_dir,
             &runtime_snapshot.acp_session_id,
             runtime_snapshot.connection_id,
+            provider_instance_id,
         )
         .await?;
         self.ctx
@@ -964,8 +1020,16 @@ async fn linked_agent_for_external_session(
     .await
     .ok()?;
     for raw in raw_rows {
-        let Ok(value) = serde_json::from_str::<serde_json::Value>(&raw) else {
-            continue;
+        let value = match serde_json::from_str::<serde_json::Value>(&raw) {
+            Ok(value) => value,
+            Err(error) => {
+                tracing::warn!(
+                    %conversation_id,
+                    %error,
+                    "invalid agent_binding_ready raw_json; ignoring"
+                );
+                continue;
+            }
         };
         if value
             .get("acp_session_id")
@@ -1157,10 +1221,22 @@ pub(super) fn binding_config_selection(
 ) -> Vec<AgentSessionConfigOverride> {
     binding
         .and_then(|binding| {
-            serde_json::from_str::<serde_json::Map<String, serde_json::Value>>(
-                &binding.config_selection_json,
-            )
-            .ok()
+            let trimmed = binding.config_selection_json.trim();
+            if trimmed.is_empty() {
+                return None;
+            }
+            match serde_json::from_str::<serde_json::Map<String, serde_json::Value>>(trimmed) {
+                Ok(map) => Some(map),
+                Err(error) => {
+                    tracing::warn!(
+                        binding_id = %binding.id,
+                        conversation_id = %binding.conversation_id,
+                        %error,
+                        "invalid config_selection_json on conversation binding; ignoring"
+                    );
+                    None
+                }
+            }
         })
         .map(|selection| {
             selection

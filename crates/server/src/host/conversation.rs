@@ -917,7 +917,9 @@ pub async fn load_conversation_detail(
     let persona = conversations::collaboration::conversation_persona(pool, id)
         .await
         .map_err(internal_error)?;
-    let latest_handoff_seq = latest_agent_handoff_sequence(pool, id).await?;
+    let latest_handoff_seq = conversations::latest_agent_handoff_sequence(pool, id)
+        .await
+        .map_err(internal_error)?;
     let (session_modes, session_config_options) = load_conversation_session_controls(
         pool,
         id,
@@ -1172,24 +1174,6 @@ async fn load_conversation_session_controls(
     Ok((session_modes, session_config_options))
 }
 
-async fn latest_agent_handoff_sequence(
-    pool: &SqlitePool,
-    conversation_id: Uuid,
-) -> Result<i64, ApplicationError> {
-    let seq: Option<i64> = sqlx::query_scalar(
-        r#"SELECT MAX(sequence)
-           FROM conversation_events
-           WHERE conversation_id = ?
-             AND event_kind = 'raw_diagnostic_recorded'
-             AND normalized_json LIKE '%"agent_handoff"%'"#,
-    )
-    .bind(conversation_id)
-    .fetch_optional(pool)
-    .await
-    .map_err(internal_error)?
-    .flatten();
-    Ok(seq.unwrap_or(0))
-}
 
 async fn latest_event<T>(
     pool: &SqlitePool,

@@ -1,8 +1,9 @@
-import { fireEvent, render, screen, within } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { SelectableAgent } from '@/features/agents/useSelectableAgents';
+import { providerInstancesApi } from '@/lib/providerInstancesApi';
 import { ActionBar } from './ActionBar';
 
 const mockSlotState = vi.hoisted(() => ({
@@ -127,7 +128,7 @@ describe('ActionBar', () => {
       '语音输入',
       '发送',
     ]);
-    expect(screen.getByTestId('session-settings-summary')).not.toHaveClass(
+    expect(screen.getByTestId('session-settings-summary')).toHaveClass(
       'raised-control'
     );
   });
@@ -207,5 +208,60 @@ describe('ActionBar', () => {
     expect(
       screen.getByRole('button', { name: '\u505c\u6b62' })
     ).toBeInTheDocument();
+  });
+
+  it('forwards selectedProviderInstanceId and onSelectProviderInstance to ComposerProviderInstanceSlot', async () => {
+    const listSpy = vi.spyOn(providerInstancesApi, 'list').mockResolvedValue([
+      {
+        instanceId: 'claude-work',
+        agentId: 'claude-code',
+        displayName: 'Work',
+        authMode: { mode: 'OfficialOAuth' },
+        isDefault: true,
+        hasActiveSessions: false,
+      },
+      {
+        instanceId: 'claude-personal',
+        agentId: 'claude-code',
+        displayName: 'Personal',
+        authMode: { mode: 'ApiKey' },
+        isDefault: false,
+        hasActiveSessions: false,
+      },
+    ]);
+    const setDefaultSpy = vi
+      .spyOn(providerInstancesApi, 'setDefault')
+      .mockResolvedValue(undefined);
+    const onSelectProviderInstance = vi.fn();
+
+    try {
+      renderActionBar({
+        showProfileControls: true,
+        effectiveExecutorProfile: {
+          executor: 'claude_code',
+          variant: null,
+        },
+        selectedProviderInstanceId: 'claude-personal',
+        onSelectProviderInstance,
+      });
+
+      const select = (await screen.findByTestId(
+        'provider-instance-select'
+      )) as HTMLSelectElement;
+      expect(select.value).toBe('claude-personal');
+
+      fireEvent.change(select, { target: { value: 'claude-work' } });
+
+      expect(onSelectProviderInstance).toHaveBeenCalledWith('claude-work');
+      await waitFor(() => {
+        expect(setDefaultSpy).toHaveBeenCalledWith(
+          'claude-code',
+          'claude-work'
+        );
+      });
+    } finally {
+      listSpy.mockRestore();
+      setDefaultSpy.mockRestore();
+    }
   });
 });

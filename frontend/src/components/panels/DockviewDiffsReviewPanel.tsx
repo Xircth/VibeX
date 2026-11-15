@@ -28,6 +28,8 @@ import { useCommitDiffStore } from '@/stores/useCommitDiffStore';
 import { useGitDiffNavigationStore } from '@/stores/useGitDiffNavigationStore';
 import type { Diff, DiffChangeKind } from 'shared/types';
 import { useAppContextMenu } from '@/components/context-menu';
+import { toast } from '@/components/ui/toast';
+import { writeTextToClipboard } from '@/utils/clipboard';
 import { writeClipboardViaBridge } from '@/vscode/bridge';
 import i18n from '@/i18n';
 
@@ -504,9 +506,21 @@ function DockviewDiffsReviewPanel() {
                   <Hash className="h-3 w-3" />
                   <button
                     className="font-mono text-foreground/80 hover:text-foreground transition-colors"
-                    onClick={() =>
-                      navigator.clipboard.writeText(commitInfo.sha)
-                    }
+                    onClick={() => {
+                      void writeTextToClipboard(commitInfo.sha).then(
+                        (copied) => {
+                          if (copied) {
+                            toast.success(t('common:contextMenu.copied'));
+                          } else {
+                            toast.error(
+                              t('common:contextMenu.copyFailed', {
+                                error: 'Clipboard unavailable',
+                              })
+                            );
+                          }
+                        }
+                      );
+                    }}
                     title={i18n.t('panels:ui.diffsReview.copyFullSha')}
                   >
                     {commitInfo.sha.slice(0, 12)}

@@ -1019,6 +1019,11 @@ fn parse_delayed_payload(
         .and_then(serde_json::Value::as_str)
         .and_then(|v| Uuid::parse_str(v).ok())
         .unwrap_or_else(Uuid::nil);
+    let provider_instance_id = val
+        .get("provider_instance_id")
+        .or_else(|| val.get("providerInstanceId"))
+        .and_then(serde_json::Value::as_str)
+        .map(str::to_string);
     Ok(ConversationInputPayload {
         continuation_policy: None,
         expected_binding_revision: None,
@@ -1034,6 +1039,7 @@ fn parse_delayed_payload(
         file_refs: Vec::new(),
         internal_prompt_contributions: Vec::new(),
         collaboration_origin: None,
+        provider_instance_id,
     })
 }
 

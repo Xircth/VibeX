@@ -199,6 +199,7 @@ impl ConversationSessionService {
                     }),
                     operation_id: None,
                     collaboration_origin: payload.collaboration_origin,
+                    provider_instance_id: payload.provider_instance_id,
                 },
                 crate::commit_reminder::LOCAL_USER_ORIGIN,
             )
@@ -294,6 +295,7 @@ pub(super) fn start_turn_input_payload(
         file_refs: input.file_refs.clone(),
         internal_prompt_contributions: input.internal_prompt_contributions.clone(),
         collaboration_origin: input.collaboration_origin.clone(),
+        provider_instance_id: input.provider_instance_id.clone(),
     })
 }
 

@@ -438,6 +438,7 @@ async fn start_turn_is_launched_through_the_injected_execution_port() {
                 operation_id: None,
                 continuation_policy: None,
                 expected_binding_revision: None,
+                provider_instance_id: None,
             },
         )
         .await

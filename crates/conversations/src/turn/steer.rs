@@ -285,11 +285,22 @@ impl ConversationSessionService {
             .agent_runtime
             .session_controls_snapshot(runtime_session_id)
             .await;
-        let native_steering_negotiated = controls
-            .as_ref()
-            .ok()
-            .and_then(|controls| controls.capabilities.as_ref())
-            .is_some_and(|capabilities| capabilities.steering);
+        let native_steering_negotiated = match &controls {
+            Ok(controls) => controls
+                .capabilities
+                .as_ref()
+                .is_some_and(|capabilities| capabilities.steering),
+            Err(error) => {
+                tracing::warn!(
+                    conversation_id = %input.conversation_id,
+                    %steering_id,
+                    expected_turn_id = %input.expected_turn_id,
+                    %error,
+                    "failed to query session controls before steering"
+                );
+                false
+            }
+        };
 
         if connection_id.is_none()
             || prompt_id.is_none()
@@ -360,18 +371,17 @@ impl ConversationSessionService {
                         .unwrap_or_else(|| "Agent found no running Turn".to_string()),
                 },
                 agents::AgentSteerOutcome::StartedNewTurn => {
-                    let _ = self
-                        .append_event(
-                            input.conversation_id,
-                            Some(input.expected_turn_id),
-                            "runtime",
-                            ConversationEvent::DeliveryChannelLatched {
-                                from: agents::conversation::DeliveryChannel::Native,
-                                to: agents::conversation::DeliveryChannel::None,
-                            },
-                            None,
-                        )
-                        .await;
+                    self.append_event(
+                        input.conversation_id,
+                        Some(input.expected_turn_id),
+                        "runtime",
+                        ConversationEvent::DeliveryChannelLatched {
+                            from: agents::conversation::DeliveryChannel::Native,
+                            to: agents::conversation::DeliveryChannel::None,
+                        },
+                        None,
+                    )
+                    .await?;
                     SteeringSettlement::Unknown {
                         message: "Agent started a new Turn despite promptRequired fallback policy"
                             .to_string(),
@@ -394,9 +404,18 @@ impl ConversationSessionService {
                 code: "turn_conflict",
                 message: "The expected Turn is no longer active".to_string(),
             },
-            Err(error) => SteeringSettlement::Unknown {
-                message: error.to_string(),
-            },
+            Err(error) => {
+                tracing::warn!(
+                    conversation_id = %input.conversation_id,
+                    %steering_id,
+                    expected_turn_id = %input.expected_turn_id,
+                    %error,
+                    "native in-flight steering failed; settling steering as unknown"
+                );
+                SteeringSettlement::Unknown {
+                    message: error.to_string(),
+                }
+            }
         };
         self.settle_steering(
             input.conversation_id,
@@ -452,6 +471,7 @@ impl ConversationSessionService {
                         file_refs: Vec::new(),
                         internal_prompt_contributions: Vec::new(),
                         collaboration_origin: None,
+                        provider_instance_id: None,
                     },
                     principal: input.principal.clone(),
                 })
@@ -492,8 +512,7 @@ impl ConversationSessionService {
             tokio::time::sleep(INTERRUPT_RESTART_POLL_INTERVAL).await;
         }
 
-        let mut restarted_turn_id = None;
-        if previous_turn_settled {
+        let settlement = if previous_turn_settled {
             if let Err(error) = self.dispatch_next_queued_input(input.conversation_id).await {
                 tracing::warn!(
                     conversation_id = %input.conversation_id,
@@ -502,9 +521,13 @@ impl ConversationSessionService {
                     "interrupt_restart dispatch failed; steered input remains at queue front"
                 );
             }
-            loop {
-                let maybe_view = inputs.find(input.conversation_id, target_input_id).await.ok();
-                restarted_turn_id = maybe_view.as_ref().and_then(|view| view.turn_id);
+            let restarted_turn_id = loop {
+                let maybe_view = match inputs.find(input.conversation_id, target_input_id).await {
+                    Ok(view) => Some(view),
+                    Err(crate::ConversationInputControlError::NotFound(_)) => None,
+                    Err(error) => return Err(error.into()),
+                };
+                let restarted_turn_id = maybe_view.as_ref().and_then(|view| view.turn_id);
                 let still_launching = match &maybe_view {
                     Some(view) if view.status == crate::ConversationInputStatus::Claimed => true,
                     Some(view) => match view.turn_id {
@@ -515,21 +538,45 @@ impl ConversationSessionService {
                     },
                     None => false,
                 };
-                if !still_launching || tokio::time::Instant::now() >= deadline {
-                    break;
+                if !still_launching {
+                    break restarted_turn_id;
+                }
+                if tokio::time::Instant::now() >= deadline {
+                    tracing::warn!(
+                        conversation_id = %input.conversation_id,
+                        %steering_id,
+                        %target_input_id,
+                        ?restarted_turn_id,
+                        "interrupt_restart timed out waiting for restarted turn to launch"
+                    );
+                    break restarted_turn_id;
                 }
                 tokio::time::sleep(INTERRUPT_RESTART_POLL_INTERVAL).await;
+            };
+            SteeringSettlement::Accepted {
+                delivery_mode: agents::ConversationSteeringDeliveryMode::InterruptRestart,
+                restarted_turn_id,
             }
-        }
+        } else {
+            tracing::warn!(
+                conversation_id = %input.conversation_id,
+                %steering_id,
+                expected_turn_id = %input.expected_turn_id,
+                "interrupt_restart timed out waiting for previous turn to settle"
+            );
+            SteeringSettlement::Unknown {
+                message: format!(
+                    "Timed out waiting for turn {} to settle before restarting",
+                    input.expected_turn_id
+                ),
+            }
+        };
 
         self.settle_steering(
             input.conversation_id,
             steering_id,
             input.expected_turn_id,
-            SteeringSettlement::Accepted {
-                delivery_mode: agents::ConversationSteeringDeliveryMode::InterruptRestart,
-                restarted_turn_id,
-            },
+            settlement,
         )
         .await
     }
@@ -631,6 +678,12 @@ impl ConversationSessionService {
             )),
         )
         .await?;
+        self.update_runtime_state(conversation_id, |state| {
+            if state.pending_permission_id.as_deref() == Some(permission_id.as_str()) {
+                state.pending_permission_id = None;
+            }
+        })
+        .await;
         let decision = match &response {
             AgentPermissionResponse::Selected {
                 option_id, persist, ..
@@ -647,13 +700,21 @@ impl ConversationSessionService {
         };
         let delivery_ctx =
             crate::ScopedConversationControl::new(self.ctx.clone()).delivery_context();
-        let _ = crate::collaboration_cards::resolve_approval_card_if_pending(
+        if let Err(error) = crate::collaboration_cards::resolve_approval_card_if_pending(
             &self.ctx.deployment.db().pool,
             &permission_id,
             decision,
             &delivery_ctx,
         )
-        .await;
+        .await
+        {
+            tracing::warn!(
+                %conversation_id,
+                permission_id = %permission_id,
+                error = %error.message,
+                "failed to settle collab IM card after permission response"
+            );
+        }
         Ok(())
     }
 
@@ -709,6 +770,12 @@ impl ConversationSessionService {
             )),
         )
         .await?;
+        self.update_runtime_state(conversation_id, |state| {
+            if state.pending_question_id.as_deref() == Some(question_id.as_str()) {
+                state.pending_question_id = None;
+            }
+        })
+        .await;
         let delivery_ctx =
             crate::ScopedConversationControl::new(self.ctx.clone()).delivery_context();
         if let Err(error) = crate::collaboration_cards::resolve_elicitation_question_card(

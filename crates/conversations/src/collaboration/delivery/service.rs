@@ -273,6 +273,7 @@ pub(crate) async fn deliver_text(
                 file_refs: Vec::new(),
                 internal_prompt_contributions: Vec::new(),
                 collaboration_origin,
+                provider_instance_id: None,
             },
             principal,
         })

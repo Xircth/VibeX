@@ -65,6 +65,7 @@ type Args = {
   modeOverride?: string | null;
   /** Pending agent-advertised config overrides (model / permission …) for this turn. */
   configOverrides?: AgentSessionConfigOverride[];
+  providerInstanceId?: string | null;
   clearComments: () => void;
   onBeforeSend?: () => void;
   onSendFailure?: (message: string) => void;
@@ -89,6 +90,7 @@ export function useFollowUpSend({
   executorProfileId,
   modeOverride,
   configOverrides,
+  providerInstanceId,
   clearComments,
   onBeforeSend,
   onSendFailure,
@@ -229,6 +231,7 @@ export function useFollowUpSend({
             images,
             modeOverride,
             configOverrides,
+            providerInstanceId,
             workflowRefs: pluginActions.map((action) => ({
               pluginId: action.pluginId,
               workflowId: action.actionId,
@@ -297,6 +300,7 @@ export function useFollowUpSend({
       executorProfileId,
       modeOverride,
       configOverrides,
+      providerInstanceId,
       clearComments,
       onBeforeSend,
       onSendFailure,

@@ -54,6 +54,11 @@ pub const HOST_EVENT_CHANNELS: &[HostEventChannel] = &[
         required_scope: "conversation.read",
     },
     HostEventChannel {
+        prefix: "conversation-rate-limit",
+        durability: EventDurability::BestEffort,
+        required_scope: "conversation.read",
+    },
+    HostEventChannel {
         prefix: "workspace-sessions-changed",
         durability: EventDurability::Invalidation,
         required_scope: "conversation.read",
@@ -629,6 +634,7 @@ mod tests {
             "terminal-output:aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
             "terminal-exit:aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
             "conversation-runtime-event:aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+            "conversation-rate-limit:aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
             "plugin-notify-toast",
         ] {
             assert!(

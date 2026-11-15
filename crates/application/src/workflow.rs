@@ -481,6 +481,7 @@ impl WorkflowAgentDispatcher {
                     file_refs: Vec::new(),
                     internal_prompt_contributions: Vec::new(),
                     collaboration_origin: None,
+                    provider_instance_id: None,
                 },
                 principal: serde_json::json!({
                     "id": "workflow-dispatcher",

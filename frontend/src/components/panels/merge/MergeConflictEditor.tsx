@@ -22,7 +22,11 @@ import type {
   ConflictFileDetail,
   MergePanelParams,
 } from '@/types/mergeConflict';
-import { applyConflictHunk, type HunkChoice } from './applyConflictHunk';
+import {
+  applyConflictHunk,
+  getResolvedHunkIndices,
+  type HunkChoice,
+} from './applyConflictHunk';
 import { useAppContextMenu } from '@/components/context-menu';
 import { writeClipboardViaBridge } from '@/vscode/bridge';
 import { useTranslation } from 'react-i18next';
@@ -76,6 +80,7 @@ export function MergeConflictEditor({
   const [savedResult, setSavedResult] = useState('');
   const [saving, setSaving] = useState(false);
   const [writeError, setWriteError] = useState<string | null>(null);
+  const [resolvedOrder, setResolvedOrder] = useState<number[]>([]);
   const seededPath = useRef<string | null>(null);
   const resultEditorRef = useRef<monacoEditor.IStandaloneCodeEditor | null>(
     null
@@ -110,6 +115,7 @@ export function MergeConflictEditor({
     seededPath.current = seedKey;
     setResult(query.data.result);
     setSavedResult(query.data.result);
+    setResolvedOrder([]);
   }, [seedKey, query.data]);
 
   const dirty = result !== savedResult;
@@ -144,6 +150,14 @@ export function MergeConflictEditor({
     [detail]
   );
 
+  const resolvedHunks = useMemo(
+    () =>
+      detail
+        ? getResolvedHunkIndices(result, detail.hunks, resolvedOrder)
+        : new Set<number>(),
+    [detail, resolvedOrder, result]
+  );
+
   const takeWhole = (side: 'ours' | 'theirs') => {
     const source = side === 'ours' ? ours : theirs;
     if (source.missing) return;
@@ -152,13 +166,18 @@ export function MergeConflictEditor({
       return;
     }
     setResult(source.value);
+    setResolvedOrder(detail ? detail.hunks.map((h) => h.index) : []);
   };
 
   const takeHunk = (index: number, choice: HunkChoice) => {
-    if (!detail) return;
+    if (!detail || resolvedHunks.has(index)) return;
     setResult((current) =>
-      applyConflictHunk(current, detail.hunks, index, choice)
+      applyConflictHunk(current, detail.hunks, index, choice, resolvedHunks)
     );
+    setResolvedOrder((prev) => [
+      ...prev.filter((item) => resolvedHunks.has(item) && item !== index),
+      index,
+    ]);
   };
 
   const save = async () => {
@@ -333,38 +352,52 @@ export function MergeConflictEditor({
       </div>
       {detail.hunks.length > 0 ? (
         <div className="flex shrink-0 flex-wrap gap-1.5 border-t border-border/40 px-3 py-1.5">
-          {detail.hunks.map((hunk) => (
-            <div
-              key={hunk.index}
-              className="flex items-center gap-1 text-[11px]"
-            >
-              <span className="text-muted-foreground">#{hunk.index + 1}</span>
-              <Button
-                size="sm"
-                variant="ghost"
-                className="h-6 px-1.5"
-                onClick={() => takeHunk(hunk.index, 'ours')}
+          {detail.hunks.map((hunk) => {
+            const isResolved = resolvedHunks.has(hunk.index);
+            return (
+              <div
+                key={hunk.index}
+                className="flex items-center gap-1 text-[11px]"
               >
-                {i18n.t('panels:ui.merge.ours')}
-              </Button>
-              <Button
-                size="sm"
-                variant="ghost"
-                className="h-6 px-1.5"
-                onClick={() => takeHunk(hunk.index, 'theirs')}
-              >
-                {i18n.t('panels:ui.merge.theirs')}
-              </Button>
-              <Button
-                size="sm"
-                variant="ghost"
-                className="h-6 px-1.5"
-                onClick={() => takeHunk(hunk.index, 'both')}
-              >
-                Both
-              </Button>
-            </div>
-          ))}
+                <span
+                  className={
+                    isResolved
+                      ? 'tabular-nums text-muted-foreground/50 line-through'
+                      : 'tabular-nums text-muted-foreground'
+                  }
+                >
+                  #{hunk.index + 1}
+                </span>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="h-6 px-1.5"
+                  disabled={isResolved}
+                  onClick={() => takeHunk(hunk.index, 'ours')}
+                >
+                  {i18n.t('panels:ui.merge.ours')}
+                </Button>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="h-6 px-1.5"
+                  disabled={isResolved}
+                  onClick={() => takeHunk(hunk.index, 'theirs')}
+                >
+                  {i18n.t('panels:ui.merge.theirs')}
+                </Button>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="h-6 px-1.5"
+                  disabled={isResolved}
+                  onClick={() => takeHunk(hunk.index, 'both')}
+                >
+                  Both
+                </Button>
+              </div>
+            );
+          })}
         </div>
       ) : null}
       <div className="min-h-0 flex-[1.1] border-t border-border/40">

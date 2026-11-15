@@ -5,7 +5,11 @@ import '../workflowStudio.css';
 import { cn } from '@/lib/utils';
 
 import { DraggableMiniMap } from './DraggableMiniMap';
-import type { StudioNode, WorkflowStudioProps } from './types';
+import type {
+  StudioNode,
+  StudioWorkflowDefinition,
+  WorkflowStudioProps,
+} from './types';
 import { useWorkflowStudio } from './useWorkflowStudio';
 import { WorkflowStudioContextMenu } from './WorkflowStudioContextMenu';
 import { WorkflowStudioInspector } from './WorkflowStudioInspector';
@@ -13,7 +17,9 @@ import { WorkflowStudioToolbar } from './WorkflowStudioToolbar';
 import { WorkflowStudioWorkspacePanel } from './WorkflowStudioWorkspacePanel';
 import { nodeTypes } from './WorkflowStepNode';
 
-export function WorkflowStudio(props: WorkflowStudioProps) {
+export function WorkflowStudio<
+  TDef extends StudioWorkflowDefinition = StudioWorkflowDefinition,
+>(props: WorkflowStudioProps<TDef>) {
   const studio = useWorkflowStudio(props);
   const {
     className,

@@ -1,32 +1,40 @@
+import { useMemo } from 'react';
 import { Check, CirclePlay, Trash2 } from 'lucide-react';
-import type { JsonValue, WorkflowStep } from 'shared/types';
+import type { JsonValue } from 'shared/types';
 
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { cn } from '@/lib/utils';
 
+import type { StudioInspectorTier, StudioWorkflowStep } from './types';
 import type { WorkflowStudioView } from './useWorkflowStudio';
-import { WorkflowStudioInspectorAgent } from './WorkflowStudioInspectorAgent';
+import { WorkflowStudioInspectorAdvanced } from './WorkflowStudioInspectorAdvanced';
+import { WorkflowStudioInspectorJson } from './WorkflowStudioInspectorJson';
+import { WorkflowStudioInspectorVisual } from './WorkflowStudioInspectorVisual';
+import { validateStudioStepExhaustively } from './workflowValidation';
+
+function canSaveStudioStep(step: StudioWorkflowStep): boolean {
+  return validateStudioStepExhaustively(step).length === 0;
+}
 
 export function WorkflowStudioInspectorInfo({
   selectedStep,
   studio,
 }: {
-  selectedStep: WorkflowStep;
+  selectedStep: StudioWorkflowStep;
   studio: WorkflowStudioView;
 }) {
   const {
     t,
     selectedSuccessors,
     onDefinitionChange,
-    updateStep,
-    updateJson,
     definition,
-    latest,
     jsonError,
     selectedStepSaved,
     setUnsavedStepIds,
     setInspectorTab,
+    inspectorTier,
+    setInspectorTier,
     onTestNode,
     selectedRun,
     onAcceptCandidate,
@@ -41,152 +49,107 @@ export function WorkflowStudioInspectorInfo({
     removeSelected,
   } = studio;
 
+  const stepIssues = useMemo(() => {
+    const ids = new Set(definition.steps.map((item) => item.id));
+    return validateStudioStepExhaustively(selectedStep, ids);
+  }, [definition.steps, selectedStep]);
+
+  const isSessionTestable =
+    selectedStep.kind === 'agent' || selectedStep.kind === 'session';
+
   return (
     <div className="space-y-4">
-      <div className="grid grid-cols-2 gap-3">
-        {[
-          {
-            label: t('studio.predecessors'),
-            values: selectedStep.dependsOn,
-          },
-          {
-            label: t('studio.successors'),
-            values: selectedSuccessors,
-          },
-        ].map((relation) => (
-          <div key={relation.label} className="space-y-1.5">
-            <Label>{relation.label}</Label>
-            <div className="flex min-h-8 flex-wrap items-center gap-1 rounded-lg bg-muted/55 px-2 py-1.5">
-              {relation.values.length === 0 ? (
-                <span className="text-[11px] text-muted-foreground">
-                  {t('studio.none')}
-                </span>
-              ) : (
-                relation.values.map((value) => (
-                  <span
-                    key={value}
-                    className="rounded-full bg-card px-2 py-0.5 font-mono text-[10px] shadow-sm"
-                  >
-                    {value}
-                  </span>
-                ))
-              )}
-            </div>
-          </div>
+      <div
+        role="tablist"
+        aria-label="Inspector Mode"
+        className="flex items-center rounded-lg border border-border bg-muted/65 p-0.5"
+      >
+        {(
+          [
+            { id: 'visual', label: 'Visual' },
+            { id: 'advanced', label: 'Advanced' },
+            { id: 'json', label: 'JSON' },
+          ] as const satisfies ReadonlyArray<{
+            id: StudioInspectorTier;
+            label: string;
+          }>
+        ).map((tier) => (
+          <button
+            key={tier.id}
+            type="button"
+            role="tab"
+            aria-selected={inspectorTier === tier.id}
+            data-testid={`inspector-tier-${tier.id}`}
+            onClick={() => setInspectorTier(tier.id)}
+            className={cn(
+              'flex !h-7 flex-1 items-center justify-center gap-1.5 rounded-md px-2.5 text-xs font-medium transition-colors',
+              inspectorTier === tier.id
+                ? 'bg-card text-foreground shadow-sm'
+                : 'text-muted-foreground hover:text-foreground'
+            )}
+          >
+            <span>{tier.label}</span>
+            {tier.id === 'json' && stepIssues.length > 0 ? (
+              <span className="rounded-full bg-destructive/15 px-1.5 py-0.5 text-2xs font-semibold tabular-nums text-destructive">
+                {stepIssues.length}
+              </span>
+            ) : null}
+          </button>
         ))}
       </div>
-      {selectedStep.kind === 'notify' ? (
-        <>
-          <div className="space-y-1.5">
-            <Label htmlFor="workflow-notify-title">{t('studio.title')}</Label>
-            <Input
-              id="workflow-notify-title"
-              value={selectedStep.title}
-              disabled={!onDefinitionChange}
-              onChange={(event) =>
-                updateStep(selectedStep.id, (step) => ({
-                  ...step,
-                  title: event.target.value,
-                }))
-              }
-            />
-          </div>
-          <div className="space-y-1.5">
-            <Label>{t('studio.notifyRecords')}</Label>
-            <div className="space-y-2">
-              {definition.steps
-                .filter((step) => selectedStep.dependsOn.includes(step.id))
-                .map((step) => {
-                  const stepRun = latest.get(step.id);
-                  return (
-                    <details
-                      key={step.id}
-                      className="rounded-lg border bg-muted/20"
-                      open
+
+      {inspectorTier !== 'json' ? (
+        <div className="grid grid-cols-2 gap-3">
+          {[
+            {
+              label: t('studio.predecessors'),
+              values: selectedStep.dependsOn,
+            },
+            {
+              label: t('studio.successors'),
+              values: selectedSuccessors,
+            },
+          ].map((relation) => (
+            <div key={relation.label} className="space-y-1.5">
+              <Label>{relation.label}</Label>
+              <div className="flex min-h-8 flex-wrap items-center gap-1 rounded-lg bg-muted/55 px-2 py-1.5">
+                {relation.values.length === 0 ? (
+                  <span className="text-[11px] text-muted-foreground">
+                    {t('studio.none')}
+                  </span>
+                ) : (
+                  relation.values.map((value) => (
+                    <span
+                      key={value}
+                      className="rounded-full bg-card px-2 py-0.5 font-mono text-[10px] shadow-sm"
                     >
-                      <summary className="cursor-pointer px-3 py-2 text-xs font-medium">
-                        {t('studio.notifyRecord', {
-                          step: step.id,
-                          time: stepRun?.completedAt
-                            ? new Date(stepRun.completedAt).toLocaleString()
-                            : t('studio.standby'),
-                        })}
-                      </summary>
-                      <pre className="max-h-40 overflow-auto border-t p-3 text-[11px] leading-5">
-                        {stepRun?.candidateOutputJson ??
-                          stepRun?.outputJson ??
-                          t('studio.noPreviewResult')}
-                      </pre>
-                    </details>
-                  );
-                })}
+                      {value}
+                    </span>
+                  ))
+                )}
+              </div>
             </div>
-          </div>
-        </>
-      ) : selectedStep.kind === 'agent' ? (
-        <WorkflowStudioInspectorAgent
+          ))}
+        </div>
+      ) : null}
+
+      {inspectorTier === 'visual' ? (
+        <WorkflowStudioInspectorVisual
+          selectedStep={selectedStep}
+          studio={studio}
+        />
+      ) : inspectorTier === 'advanced' ? (
+        <WorkflowStudioInspectorAdvanced
           selectedStep={selectedStep}
           studio={studio}
         />
       ) : (
-        <>
-          <div className="space-y-1.5">
-            <Label htmlFor="workflow-approval-title">{t('studio.title')}</Label>
-            <Input
-              id="workflow-approval-title"
-              value={selectedStep.title}
-              disabled={!onDefinitionChange}
-              onChange={(event) =>
-                updateStep(selectedStep.id, (step) => ({
-                  ...step,
-                  title: event.target.value,
-                }))
-              }
-            />
-          </div>
-          <div className="space-y-1.5">
-            <Label htmlFor="workflow-approver-scope">
-              {t('studio.approverScope')}
-            </Label>
-            <Input
-              id="workflow-approver-scope"
-              value={selectedStep.approverScope}
-              disabled={!onDefinitionChange}
-              onChange={(event) =>
-                updateStep(selectedStep.id, (step) => ({
-                  ...step,
-                  approverScope: event.target.value,
-                }))
-              }
-            />
-          </div>
-          <div className="space-y-1.5">
-            <Label htmlFor="workflow-decision-schema">
-              {t('studio.decisionSchema')}
-            </Label>
-            <textarea
-              id="workflow-decision-schema"
-              key={`${selectedStep.id}-decision-schema`}
-              defaultValue={JSON.stringify(
-                selectedStep.decisionSchema,
-                null,
-                2
-              )}
-              disabled={!onDefinitionChange}
-              onBlur={(event) =>
-                updateJson(event.target.value, (decisionSchema) => {
-                  if (decisionSchema)
-                    updateStep(selectedStep.id, (step) => ({
-                      ...step,
-                      decisionSchema,
-                    }));
-                })
-              }
-              className="min-h-28 w-full resize-y rounded-md border bg-background px-3 py-2 font-mono text-[11px] leading-5 outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-70"
-            />
-          </div>
-        </>
+        <WorkflowStudioInspectorJson
+          selectedStep={selectedStep}
+          studio={studio}
+        />
       )}
+
       {jsonError ? (
         <p role="alert" className="text-xs text-destructive">
           {jsonError}
@@ -196,12 +159,7 @@ export function WorkflowStudioInspectorInfo({
         <div className="grid grid-cols-2 gap-2 pt-3">
           <Button
             variant="outline"
-            disabled={
-              selectedStepSaved ||
-              (selectedStep.kind === 'agent'
-                ? !selectedStep.prompt.trim()
-                : !selectedStep.title.trim())
-            }
+            disabled={selectedStepSaved || !canSaveStudioStep(selectedStep)}
             onClick={() =>
               setUnsavedStepIds((current) => {
                 const next = new Set(current);
@@ -213,7 +171,7 @@ export function WorkflowStudioInspectorInfo({
             <Check className="mr-1.5 size-3.5" />
             {t('studio.saveNode')}
           </Button>
-          {selectedStep.kind === 'agent' ? (
+          {isSessionTestable ? (
             <Button
               disabled={!selectedStepSaved || !onTestNode}
               onClick={() => {
@@ -237,7 +195,9 @@ export function WorkflowStudioInspectorInfo({
           <Check className="mr-1.5 size-3.5" /> {t('studio.acceptCandidate')}
         </Button>
       ) : null}
-      {selectedStep.kind === 'approval' &&
+      {(selectedStep.kind === 'approval' ||
+        (selectedStep.kind === 'user_gate' &&
+          selectedStep.interactionKind === 'approval')) &&
       selectedRun?.status === 'waiting_approval' ? (
         <div className="space-y-2 rounded-lg border border-warning/35 bg-warning/[0.06] p-3">
           <Label htmlFor="workflow-approval-decision">
@@ -270,8 +230,7 @@ export function WorkflowStudioInspectorInfo({
           </Button>
         </div>
       ) : null}
-      {selectedRun?.status === 'needs_review' &&
-      selectedStep.kind === 'agent' ? (
+      {selectedRun?.status === 'needs_review' && isSessionTestable ? (
         <div className="grid grid-cols-3 gap-2 rounded-lg border border-warning/35 bg-warning/[0.06] p-3">
           <Button
             size="sm"
@@ -312,7 +271,7 @@ export function WorkflowStudioInspectorInfo({
           </Button>
         </div>
       ) : null}
-      {run && !onDefinitionChange && selectedStep.kind === 'agent' ? (
+      {run && !onDefinitionChange && isSessionTestable ? (
         <div className="grid grid-cols-2 gap-2">
           <Button
             variant="outline"

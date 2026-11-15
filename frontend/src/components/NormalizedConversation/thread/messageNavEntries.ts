@@ -11,6 +11,7 @@ export type ConversationMessageNavEntry = {
   key: string;
   index: number;
   ordinal: number;
+  role?: 'user' | 'assistant';
   preview: string;
   additions: number;
   deletions: number;

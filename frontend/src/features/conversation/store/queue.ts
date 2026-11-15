@@ -9,8 +9,6 @@ import {
   getSessionComposerStructuredTokens,
   serializeSessionComposerBackendMessage,
 } from '@/components/tasks/follow-up/sessionComposerStructuredTokens';
-import { plausibleTurnStartMs } from '@/components/conversation-thread/turnClock';
-import { mergeReportedTurnUsage } from '../reportedTurnUsage';
 import type {
   ConversationStoreEntry,
   ConversationTimelineTurn,
@@ -130,221 +128,6 @@ export function isLateSettledAssistantAppend(
   );
 }
 
-export function isLiveTurnConvergedInWindow(
-  turnKey: string,
-  windowRows: TimelineRow[],
-  liveRows: TimelineRow[],
-  liveText: Record<string, LiveTextOverlay>
-): boolean {
-  const turnRows = liveRows.filter(
-    (row) => messageTurnPairKey(row.row_id) === turnKey
-  );
-  const liveUser = turnRows.find(
-    (row) =>
-      row.row.kind === 'message_turn' &&
-      row.row.turn.role === 'user' &&
-      !row.row_id.includes(':steer:')
-  );
-  const liveAssistants = turnRows.filter(
-    (row) =>
-      row.row.kind === 'message_turn' && row.row.turn.role === 'assistant'
-  );
-  const overlay = liveText[`${turnKey}:assistant`];
-
-  // Find the matching round in `windowRows` (searching from the tail).
-  let matchedUserIndex = -1;
-  if (liveUser && liveUser.row.kind === 'message_turn') {
-    const targetPrompt = userTurnText(liveUser.row.turn);
-    for (let index = windowRows.length - 1; index >= 0; index -= 1) {
-      const candidate = windowRows[index];
-      if (
-        !candidate ||
-        candidate.row.kind !== 'message_turn' ||
-        candidate.row.turn.role !== 'user' ||
-        candidate.row_id.includes(':steer:')
-      ) {
-        continue;
-      }
-      const candidateKey = nonAcpTurnKey(candidate.row_id);
-      if (
-        candidateKey !== null &&
-        !turnKey.startsWith('acp-') &&
-        candidateKey !== turnKey
-      ) {
-        continue;
-      }
-      if (
-        candidate.row_id === liveUser.row_id ||
-        promptsMatch(userTurnText(candidate.row.turn), targetPrompt)
-      ) {
-        matchedUserIndex = index;
-        break;
-      }
-    }
-    if (matchedUserIndex < 0) return false;
-    const matchedUser = windowRows[matchedUserIndex];
-    // A later send can repeat the finished prompt and, briefly, its answer.
-    // The file stamp and the live stamp of one send stay within the skew;
-    // a stamp past that is a new turn and must not be dropped.
-    if (livePromptStartsAfterWindowUser(liveUser, matchedUser)) return false;
-  } else {
-    for (let index = windowRows.length - 1; index >= 0; index -= 1) {
-      const candidate = windowRows[index];
-      if (
-        candidate &&
-        candidate.row.kind === 'message_turn' &&
-        candidate.row.turn.role === 'user' &&
-        !candidate.row_id.includes(':steer:')
-      ) {
-        const candidateKey = nonAcpTurnKey(candidate.row_id);
-        if (
-          candidateKey !== null &&
-          !turnKey.startsWith('acp-') &&
-          candidateKey !== turnKey
-        ) {
-          continue;
-        }
-        matchedUserIndex = index;
-        break;
-      }
-    }
-    if (matchedUserIndex < 0) return false;
-  }
-
-  // Collect the window rows in this round (from `matchedUserIndex` up to the next non-steer user turn).
-  const roundRows: TimelineRow[] = [];
-  for (let index = matchedUserIndex; index < windowRows.length; index += 1) {
-    const row = windowRows[index];
-    if (!row) continue;
-    if (
-      index > matchedUserIndex &&
-      row.row.kind === 'message_turn' &&
-      row.row.turn.role === 'user' &&
-      !row.row_id.includes(':steer:')
-    ) {
-      break;
-    }
-    roundRows.push(row);
-  }
-
-  // An open streaming round in the window is not yet converged.
-  if (
-    roundRows.some(
-      (row) => row.row.kind === 'message_turn' && row.row.phase === 'streaming'
-    )
-  ) {
-    return false;
-  }
-
-  const windowAssistants = roundRows.filter(
-    (row) =>
-      row.row.kind === 'message_turn' && row.row.turn.role === 'assistant'
-  );
-
-  const hasLiveAssistantExpectation =
-    liveAssistants.length > 0 ||
-    Boolean(
-      overlay && (overlay.text.length > 0 || overlay.reasoning.length > 0)
-    );
-
-  if (hasLiveAssistantExpectation) {
-    if (windowAssistants.length === 0) return false;
-    const windowBlocks = windowAssistants.flatMap((row) =>
-      row.row.kind === 'message_turn' ? row.row.turn.blocks : []
-    );
-    const liveBaseBlocks = liveAssistants.flatMap((row) =>
-      row.row.kind === 'message_turn' ? row.row.turn.blocks : []
-    );
-    const expectedBlocks = overlay
-      ? overlayLiveText(liveBaseBlocks, overlay)
-      : liveBaseBlocks;
-    if (
-      expectedBlocks.length === 0 &&
-      liveAssistants.some(
-        (row) =>
-          row.row.kind === 'message_turn' &&
-          !TERMINAL_ROW_PHASES.has(row.row.phase)
-      )
-    ) {
-      return false;
-    }
-    return windowBlocksCoverLiveBlocks(windowBlocks, expectedBlocks);
-  }
-
-  // Only a user row exists in liveRows. If it was still streaming and the window
-  // round has no assistant yet, keep the live user only while it is streaming.
-  if (
-    liveUser &&
-    liveUser.row.kind === 'message_turn' &&
-    liveUser.row.phase === 'streaming' &&
-    windowAssistants.length === 0
-  ) {
-    return false;
-  }
-
-  return true;
-}
-
-/** File prompt time and the live user event can disagree by a moment. */
-const SAME_TURN_STAMP_SKEW_MS = 2_000;
-
-function livePromptStartsAfterWindowUser(
-  liveUser: TimelineRow | undefined,
-  windowUser: TimelineRow | undefined
-): boolean {
-  if (
-    !liveUser ||
-    liveUser.row.kind !== 'message_turn' ||
-    !windowUser ||
-    windowUser.row.kind !== 'message_turn'
-  ) {
-    return false;
-  }
-  const liveMs = plausibleTurnStartMs(liveUser.row.turn.timestamp);
-  const windowMs = plausibleTurnStartMs(windowUser.row.turn.timestamp);
-  if (liveMs === null || windowMs === null) return false;
-  return liveMs > windowMs + SAME_TURN_STAMP_SKEW_MS;
-}
-
-export function windowBlocksCoverLiveBlocks(
-  windowBlocks: ContentBlock[],
-  liveBlocks: ContentBlock[]
-): boolean {
-  const windowText = windowBlocks
-    .flatMap((block) => (block.type === 'text' ? [block.text] : []))
-    .join('')
-    .trim();
-  const liveText = liveBlocks
-    .flatMap((block) => (block.type === 'text' ? [block.text] : []))
-    .join('')
-    .trim();
-  if (liveText.length > 0 && !windowText.includes(liveText)) {
-    return false;
-  }
-  const windowThinking = windowBlocks
-    .flatMap((block) => (block.type === 'thinking' ? [block.text] : []))
-    .join('')
-    .trim();
-  const liveThinking = liveBlocks
-    .flatMap((block) => (block.type === 'thinking' ? [block.text] : []))
-    .join('')
-    .trim();
-  if (liveThinking.length > 0 && !windowThinking.includes(liveThinking)) {
-    return false;
-  }
-  if (
-    liveBlocks.some((block) => block.type === 'plan') &&
-    !windowBlocks.some((block) => block.type === 'plan')
-  ) {
-    return false;
-  }
-  const windowToolIds = new Set(toolUseIdsOf(windowBlocks));
-  for (const toolId of toolUseIdsOf(liveBlocks)) {
-    if (!windowToolIds.has(toolId)) return false;
-  }
-  return true;
-}
-
 const STANDALONE_RESOURCE_LINK_PATTERN = /\[[^\]]*\]\(<file:\/\/[^>\n]+>\)/g;
 
 export function normalizePromptMatchText(text: string): string {
@@ -373,479 +156,55 @@ export function promptsMatch(left: string, right: string): boolean {
   );
 }
 
-type MessageRound = {
-  userRow: TimelineRow | null;
-  assistantRows: TimelineRow[];
-  rows: TimelineRow[];
-  isStreamingOrOpen: boolean;
-};
-
-function isRoundStartUser(row: TimelineRow): boolean {
-  return (
-    row.row.kind === 'message_turn' &&
-    row.row.turn.role === 'user' &&
-    !row.row_id.includes(':steer:')
-  );
-}
-
 const ABORTED_USER_ROW_PHASES = new Set(['failed', 'cancelled', 'interrupted']);
 
-function isStreamingOrOpenRound(
-  userRow: TimelineRow | null,
-  assistantRows: TimelineRow[],
-  isTailRound = true
-): boolean {
-  if (
-    userRow?.row.kind === 'message_turn' &&
-    ABORTED_USER_ROW_PHASES.has(userRow.row.phase)
-  ) {
-    return false;
-  }
-  return (
-    (userRow?.row.kind === 'message_turn' &&
-      userRow.row.phase === 'streaming') ||
-    (isTailRound && assistantRows.length === 0) ||
-    assistantRows.some(
-      (row) => row.row.kind === 'message_turn' && row.row.phase === 'streaming'
-    )
-  );
-}
-
-function partitionMessageRounds(rows: TimelineRow[]): {
-  prefix: TimelineRow[];
-  rounds: MessageRound[];
-} {
-  const firstMessageIndex = rows.findIndex(
-    (row) => row.row.kind === 'message_turn'
-  );
-  if (firstMessageIndex < 0) {
-    return { prefix: rows, rounds: [] };
-  }
-
-  const prefix = rows.slice(0, firstMessageIndex);
-  const rounds: MessageRound[] = [];
-  let start = firstMessageIndex;
-  const first = rows[start]!;
-  let userRow: TimelineRow | null = isRoundStartUser(first) ? first : null;
-  let assistantRows: TimelineRow[] =
-    first.row.kind === 'message_turn' && first.row.turn.role === 'assistant'
-      ? [first]
-      : [];
-
-  const flush = (end: number, isTailRound: boolean) => {
-    const slice = rows.slice(start, end);
-    if (slice.length === 0) return;
-    rounds.push({
-      userRow,
-      assistantRows,
-      rows: slice,
-      isStreamingOrOpen: isStreamingOrOpenRound(
-        userRow,
-        assistantRows,
-        isTailRound
-      ),
-    });
-  };
-
-  for (let index = firstMessageIndex + 1; index < rows.length; index += 1) {
-    const row = rows[index]!;
-    if (isRoundStartUser(row)) {
-      flush(index, false);
-      start = index;
-      userRow = row;
-      assistantRows = [];
-      continue;
-    }
-    if (row.row.kind === 'message_turn' && row.row.turn.role === 'assistant') {
-      assistantRows.push(row);
-    }
-  }
-  flush(rows.length, true);
-  return { prefix, rounds: splitTrailingOrphanAssistant(rounds) };
-}
-
-function splitTrailingOrphanAssistant(rounds: MessageRound[]): MessageRound[] {
-  if (rounds.length === 0) return rounds;
-  const last = rounds[rounds.length - 1]!;
-  const messages = last.rows.filter((row) => row.row.kind === 'message_turn');
-  const lastMessage = messages[messages.length - 1];
-  const previousMessage = messages[messages.length - 2];
-  if (
-    !lastMessage ||
-    lastMessage.row.kind !== 'message_turn' ||
-    lastMessage.row.turn.role !== 'assistant' ||
-    lastMessage.row.phase !== 'streaming'
-  ) {
-    return rounds;
-  }
-  if (
-    previousMessage &&
-    previousMessage.row.kind === 'message_turn' &&
-    previousMessage.row.turn.role === 'user'
-  ) {
-    return rounds;
-  }
-  const orphanIndex = last.rows.lastIndexOf(lastMessage);
-  if (orphanIndex <= 0) return rounds;
-  const keptRows = last.rows.slice(0, orphanIndex);
-  const orphanRows = last.rows.slice(orphanIndex);
-  const keptAssistants = last.assistantRows.filter(
-    (row) => row.row_id !== lastMessage.row_id
-  );
-  const kept: MessageRound = {
-    userRow: last.userRow,
-    assistantRows: keptAssistants,
-    rows: keptRows,
-    isStreamingOrOpen: isStreamingOrOpenRound(
-      last.userRow,
-      keptAssistants,
-      false
-    ),
-  };
-  const orphan: MessageRound = {
-    userRow: null,
-    assistantRows: [lastMessage],
-    rows: orphanRows,
-    isStreamingOrOpen: true,
-  };
-  return [...rounds.slice(0, -1), kept, orphan];
-}
-
-function roundAssistantBlocks(round: MessageRound): ContentBlock[] {
-  return round.assistantRows.flatMap((row) =>
-    row.row.kind === 'message_turn' ? row.row.turn.blocks : []
-  );
-}
-
-function liveBlocksExtendWindowBlocks(
-  windowBlocks: ContentBlock[],
-  liveBlocks: ContentBlock[]
-): boolean {
-  if (windowBlocks.length === 0) return false;
-  const windowText = windowBlocks
-    .flatMap((block) => (block.type === 'text' ? [block.text] : []))
-    .join('')
-    .trim();
-  const liveText = liveBlocks
-    .flatMap((block) => (block.type === 'text' ? [block.text] : []))
-    .join('')
-    .trim();
-  const windowThinking = windowBlocks
-    .flatMap((block) => (block.type === 'thinking' ? [block.text] : []))
-    .join('')
-    .trim();
-  const liveThinking = liveBlocks
-    .flatMap((block) => (block.type === 'thinking' ? [block.text] : []))
-    .join('')
-    .trim();
-  if (liveText.length === 0 && liveThinking.length === 0) return false;
-  const textExtends =
-    windowText.length === 0
-      ? liveText.length > 0 || windowThinking.length > 0
-      : liveText.startsWith(windowText);
-  const thinkingExtends =
-    windowThinking.length === 0 || liveThinking.startsWith(windowThinking);
-  return textExtends && thinkingExtends;
-}
-
-function nonAcpTurnKey(rowId: string): string | null {
-  const key = messageTurnPairKey(rowId);
-  return key && !key.startsWith('acp-') ? key : null;
-}
-
-function roundsAlign(
-  windowRound: MessageRound,
-  liveRound: MessageRound,
-  isTailWindowRound = true
-): boolean {
-  const windowTurnKey = nonAcpTurnKey(
-    (windowRound.userRow ?? windowRound.assistantRows[0])?.row_id ?? ''
-  );
-  const liveTurnKey = nonAcpTurnKey(
-    (liveRound.userRow ?? liveRound.assistantRows[0])?.row_id ?? ''
-  );
-  if (windowTurnKey !== null && liveTurnKey !== null) {
-    return windowTurnKey === liveTurnKey;
-  }
-
-  const firstLiveUser = liveRound.userRow;
-  const firstLiveAssistant = liveRound.assistantRows[0] ?? null;
-
-  if (
-    isTailWindowRound &&
-    windowRound.userRow === null &&
-    windowRound.isStreamingOrOpen &&
-    Boolean(firstLiveUser || firstLiveAssistant)
-  ) {
-    return true;
-  }
-  if (
-    isTailWindowRound &&
-    windowRound.userRow !== null &&
-    windowRound.isStreamingOrOpen &&
-    !firstLiveUser &&
-    Boolean(firstLiveAssistant)
-  ) {
-    return true;
-  }
-  if (
-    !windowRound.userRow ||
-    !firstLiveUser ||
-    windowRound.userRow.row.kind !== 'message_turn' ||
-    firstLiveUser.row.kind !== 'message_turn'
-  ) {
-    return false;
-  }
-  if (
-    !promptsMatch(
-      userTurnText(windowRound.userRow.row.turn),
-      userTurnText(firstLiveUser.row.turn)
-    )
-  ) {
-    return false;
-  }
-  if (livePromptStartsAfterWindowUser(firstLiveUser, windowRound.userRow)) {
-    return false;
-  }
-
-  if (windowRound.isStreamingOrOpen) return true;
-
-  const liveHasTerminalPhase = liveRound.rows.some(
-    (row) =>
-      row.row.kind === 'message_turn' && TERMINAL_ROW_PHASES.has(row.row.phase)
-  );
-  const windowAssistantBlocks = roundAssistantBlocks(windowRound);
-  const liveAssistantBlocks = roundAssistantBlocks(liveRound);
-  if (
-    liveHasTerminalPhase &&
-    windowBlocksCoverLiveBlocks(windowAssistantBlocks, liveAssistantBlocks)
-  ) {
-    return true;
-  }
-
-  const liveStillStreaming = liveRound.rows.some(
-    (row) => row.row.kind === 'message_turn' && row.row.phase === 'streaming'
-  );
-  return (
-    liveStillStreaming &&
-    liveBlocksExtendWindowBlocks(windowAssistantBlocks, liveAssistantBlocks)
-  );
-}
-
-function seedWindowAssistantIntoLive(
-  liveRows: TimelineRow[],
-  liveUser: TimelineRow,
-  windowAssistant: TimelineRow,
-  liveText: Record<string, LiveTextOverlay>
-): TimelineRow[] {
-  if (windowAssistant.row.kind !== 'message_turn') return liveRows;
-  const hasLiveAssistant = liveRows.some(
-    (row) =>
-      row.row.kind === 'message_turn' && row.row.turn.role === 'assistant'
-  );
-  if (hasLiveAssistant) return liveRows;
-  const turnKey = messageTurnPairKey(liveUser.row_id);
-  const assistantId = turnKey ? `${turnKey}:assistant` : null;
-  if (!assistantId) return liveRows;
-  const overlay = liveText[assistantId];
-  const blocks = overlay
-    ? overlayLiveText(windowAssistant.row.turn.blocks, overlay)
-    : windowAssistant.row.turn.blocks;
-  return insertTimelineRow(liveRows, {
-    row_id: assistantId,
-    revision: overlay ? overlay.revision : windowAssistant.revision,
-    row: {
-      kind: 'message_turn',
-      phase:
-        liveUser.row.kind === 'message_turn' &&
-        TERMINAL_ROW_PHASES.has(liveUser.row.phase)
-          ? liveUser.row.phase
-          : 'streaming',
-      turn: {
-        ...windowAssistant.row.turn,
-        id: assistantId,
-        blocks,
-      },
-    },
-  });
-}
-
-function spliceLiveRoundIntoWindow(
-  windowRound: MessageRound,
-  liveRound: MessageRound,
-  liveText: Record<string, LiveTextOverlay>
-): TimelineRow[] {
-  let liveRows = liveRound.rows.slice();
-  const firstLiveAssistant = liveRound.assistantRows[0];
-  const windowAssistantBlocks = roundAssistantBlocks(windowRound);
-
-  if (windowAssistantBlocks.length > 0 && firstLiveAssistant) {
-    liveRows = liveRows.map((row) => {
-      if (
-        row.row_id !== firstLiveAssistant.row_id ||
-        row.row.kind !== 'message_turn'
-      ) {
-        return row;
-      }
-      const windowAssistantTurn =
-        windowRound.assistantRows[0]?.row.kind === 'message_turn'
-          ? {
-              ...windowRound.assistantRows[0]!.row.turn,
-              blocks: windowAssistantBlocks,
-            }
-          : row.row.turn;
-      return {
-        ...row,
-        row: {
-          ...row.row,
-          turn: mergeAssistantTurnData(windowAssistantTurn, row.row.turn),
-        },
-      };
-    });
-  }
-
-  const alignsOrphanLiveAssistant =
-    windowRound.userRow !== null &&
-    windowRound.isStreamingOrOpen &&
-    !liveRound.userRow &&
-    Boolean(firstLiveAssistant);
-
-  if (alignsOrphanLiveAssistant && windowRound.userRow) {
-    const suppressedIds = new Set(
-      windowRound.assistantRows.map((row) => row.row_id)
-    );
-    const kept = windowRound.rows.filter(
-      (row) => !suppressedIds.has(row.row_id)
-    );
-    return [...kept, ...liveRows];
-  }
-
-  if (
-    liveRound.userRow &&
-    liveRound.assistantRows.length === 0 &&
-    windowRound.assistantRows.length > 0
-  ) {
-    liveRows = seedWindowAssistantIntoLive(
-      liveRows,
-      liveRound.userRow,
-      windowRound.assistantRows[0]!,
-      liveText
-    );
-  }
-
-  const windowSideRows = windowRound.rows.filter(
-    (row) => row.row.kind !== 'message_turn'
-  );
-  return [...liveRows, ...windowSideRows];
-}
-
-function liveRoundTurnKey(round: MessageRound): string | null {
-  return messageTurnPairKey(
-    (round.userRow ?? round.assistantRows[0])?.row_id ?? ''
-  );
-}
-
 /**
- * Render `windowRows` first, then splice each live message round into the
- * matching window round so `acp-N` and `{turn}:*` for the same turn never
- * appear together. Unmatched live rounds append after the window.
+ * Single-authority row combination: `windowRows` and `liveRows` share canonical
+ * SQLite `row_id`s (`{turn_id}:user`, `{turn_id}:assistant`, `{turn_id}:steer:*`,
+ * and side rows). Matching `row_id`s update in-place monotonically by `revision`;
+ * newer unmatched live rows insert beside same-turn siblings or append at the tail.
  */
 export function combineWindowAndLiveRows(
   conversationId: string,
   windowRows: TimelineRow[],
   liveRows: TimelineRow[],
-  liveText: Record<string, LiveTextOverlay>
+  _liveText?: Record<string, LiveTextOverlay>
 ): TimelineRow[] {
   if (liveRows.length === 0) {
     return windowRows;
   }
 
-  // Replace any exact `row_id` matches in `windowRows` (e.g. unit tests that
-  // seeded `{turn}:*` rows via `load_success` and then updated them via `row_ops`).
   const baseRowId = (id: string) => id.split('|')[0] ?? id;
   const liveByRowId = new Map(
     liveRows.map((row) => [baseRowId(row.row_id), row])
   );
   const replacedIds = new Set<string>();
-  const effectiveWindow = windowRows.map((row) => {
+  let combined = windowRows.map((row) => {
     const baseId = baseRowId(row.row_id);
     const replacement = liveByRowId.get(baseId);
     if (!replacement) return row;
     replacedIds.add(baseId);
-    if (row.row_id.includes('|') && !replacement.row_id.includes('|')) {
-      return toBigInt(replacement.revision) > toBigInt(row.revision)
-        ? { ...replacement, row_id: row.row_id }
-        : row;
-    }
-    return replacement;
-  });
-  const remainingLive = liveRows.filter(
-    (row) => !replacedIds.has(baseRowId(row.row_id))
-  );
-  if (remainingLive.length === 0) {
-    return dropSeededInitialPrompt(conversationId, effectiveWindow);
-  }
-
-  const windowParts = partitionMessageRounds(effectiveWindow);
-  const liveParts = partitionMessageRounds(remainingLive);
-  const consumedLive = new Set<number>();
-  for (const [index, liveRound] of liveParts.rounds.entries()) {
-    const turnKey = liveRoundTurnKey(liveRound);
+    const isTerminalUpgrade =
+      replacement.row.kind === 'message_turn' &&
+      TERMINAL_ROW_PHASES.has(replacement.row.phase) &&
+      row.row.kind === 'message_turn' &&
+      !TERMINAL_ROW_PHASES.has(row.row.phase);
     if (
-      turnKey &&
-      isLiveTurnConvergedInWindow(
-        turnKey,
-        effectiveWindow,
-        remainingLive,
-        liveText
-      )
+      toBigInt(replacement.revision) < toBigInt(row.revision) &&
+      !isTerminalUpgrade
     ) {
-      consumedLive.add(index);
+      return row;
     }
-  }
+    const merged = preserveStructuredUserText(row, replacement);
+    if (row.row_id.includes('|') && !merged.row_id.includes('|')) {
+      return { ...merged, row_id: row.row_id };
+    }
+    return merged;
+  });
 
-  // Match each unconsumed live round against window rounds searching from the
-  // tail (most recent round first) so repeated prompts never hijack an older
-  // historical round.
-  const alignedLiveByWindowIndex = new Map<number, number>();
-  for (const [liveIndex, liveRound] of liveParts.rounds.entries()) {
-    if (consumedLive.has(liveIndex)) continue;
-    for (
-      let windowIndex = windowParts.rounds.length - 1;
-      windowIndex >= 0;
-      windowIndex -= 1
-    ) {
-      if (alignedLiveByWindowIndex.has(windowIndex)) continue;
-      const windowRound = windowParts.rounds[windowIndex]!;
-      const isTailWindowRound = windowIndex === windowParts.rounds.length - 1;
-      if (roundsAlign(windowRound, liveRound, isTailWindowRound)) {
-        alignedLiveByWindowIndex.set(windowIndex, liveIndex);
-        consumedLive.add(liveIndex);
-        break;
-      }
-    }
-  }
-
-  const combined: TimelineRow[] = [...windowParts.prefix];
-  for (const [windowIndex, windowRound] of windowParts.rounds.entries()) {
-    const liveIndex = alignedLiveByWindowIndex.get(windowIndex);
-    if (liveIndex === undefined) {
-      combined.push(...windowRound.rows);
-      continue;
-    }
-    combined.push(
-      ...spliceLiveRoundIntoWindow(
-        windowRound,
-        liveParts.rounds[liveIndex]!,
-        liveText
-      )
-    );
-  }
-  combined.push(...liveParts.prefix);
-  for (const [index, liveRound] of liveParts.rounds.entries()) {
-    if (!consumedLive.has(index)) {
-      combined.push(...liveRound.rows);
-    }
+  for (const liveRow of liveRows) {
+    if (replacedIds.has(baseRowId(liveRow.row_id))) continue;
+    combined = insertTimelineRow(combined, liveRow);
   }
 
   return dropSeededInitialPrompt(conversationId, combined);
@@ -855,32 +214,6 @@ const CLIENT_ASSISTANT_ID = /:assistant(?::\d+)?$/;
 
 function isClientAssistantId(id: string): boolean {
   return CLIENT_ASSISTANT_ID.test(id);
-}
-
-function toolUseIdsOf(blocks: ContentBlock[]): string[] {
-  return blocks.flatMap((block) =>
-    block.type === 'tool_use' && block.tool_use_id ? [block.tool_use_id] : []
-  );
-}
-
-function mergeAssistantTurnData(
-  fileTurn: MessageTurn,
-  clientTurn: MessageTurn
-): MessageTurn {
-  const timestamp =
-    plausibleTurnStartMs(fileTurn.timestamp) !== null
-      ? fileTurn.timestamp
-      : plausibleTurnStartMs(clientTurn.timestamp) !== null
-        ? clientTurn.timestamp
-        : fileTurn.timestamp || clientTurn.timestamp;
-  return {
-    ...clientTurn,
-    timestamp,
-    blocks: mergeAssistantBlocks(fileTurn.blocks, clientTurn.blocks),
-    usage: mergeReportedTurnUsage(fileTurn.usage, clientTurn.usage),
-    duration_ms: clientTurn.duration_ms ?? fileTurn.duration_ms,
-    model: clientTurn.model ?? fileTurn.model,
-  };
 }
 
 function isStructuredBlock(block: ContentBlock): boolean {
@@ -966,20 +299,13 @@ export function mergeAssistantBlocks(
     }
   }
 
-  if (windowBlocksCoverLiveBlocks(fileBlocks, clientBlocks)) {
-    return mergePatchedBlocks(
+  if (!fileHasStructured && clientHasStructured) {
+    const firstStructuredIdx = clientBlocks.findIndex(isStructuredBlock);
+    const prefix = mergeAssistantBlocks(
       fileBlocks,
-      clientBlocks.filter(isStructuredBlock)
+      clientBlocks.slice(0, firstStructuredIdx)
     );
-  }
-
-  if (windowBlocksCoverLiveBlocks(clientBlocks, fileBlocks)) {
-    return clientBlocks;
-  }
-
-  const firstClientBlock = clientBlocks[0];
-  if (firstClientBlock && isStructuredBlock(firstClientBlock)) {
-    return mergeBlockSequence(fileBlocks.slice(), clientBlocks);
+    return mergeBlockSequence(prefix, clientBlocks.slice(firstStructuredIdx));
   }
 
   return mergeBlockSequence(fileBlocks, clientBlocks);
@@ -1091,21 +417,27 @@ function mergeOverlayText(existing: string, overlay: string): string {
 
 export function reconcileOptimisticTurns(
   optimisticTurns: MessageTurn[],
-  timeline: ConversationTimeline
+  timeline: ConversationTimeline,
+  baselineUserRowIds?: Readonly<Record<string, readonly string[]>>
 ): MessageTurn[] {
-  return reconcileOptimisticTurnsAgainstRows(optimisticTurns, timeline.rows)
-    .optimisticTurns;
+  return reconcileOptimisticTurnsAgainstRows(
+    optimisticTurns,
+    timeline.rows,
+    baselineUserRowIds
+  ).optimisticTurns;
 }
 
 export function reconcileOptimisticTurnsAgainstRows(
   optimisticTurns: MessageTurn[],
-  rows: TimelineRow[]
+  rows: TimelineRow[],
+  baselineUserRowIds?: Readonly<Record<string, readonly string[]>>
 ): { rows: TimelineRow[]; optimisticTurns: MessageTurn[] } {
   let remainingTurns = optimisticTurns;
   const reconciledRows = [...rows].reverse().map((row) => {
     const reconciled = reconcileOptimisticTurnAgainstUserRow(
       remainingTurns,
-      row
+      row,
+      baselineUserRowIds
     );
     remainingTurns = reconciled.optimisticTurns;
     return reconciled.row;
@@ -1116,20 +448,20 @@ export function reconcileOptimisticTurnsAgainstRows(
   };
 }
 
-function optimisticStartsAfterUserRow(
-  optimisticTurn: MessageTurn,
-  userRow: TimelineRow
+function isBaselineUserRowForOptimisticTurn(
+  turnId: string,
+  rowId: string,
+  baselineUserRowIds?: Readonly<Record<string, readonly string[]>>
 ): boolean {
-  if (userRow.row.kind !== 'message_turn') return false;
-  const optimisticMs = plausibleTurnStartMs(optimisticTurn.timestamp);
-  const rowMs = plausibleTurnStartMs(userRow.row.turn.timestamp);
-  if (optimisticMs === null || rowMs === null) return false;
-  return optimisticMs > rowMs + SAME_TURN_STAMP_SKEW_MS;
+  const baseline = baselineUserRowIds?.[turnId];
+  if (!baseline || baseline.length === 0) return false;
+  return baseline.includes(rowId);
 }
 
 export function reconcileOptimisticTurnAgainstUserRow(
   optimisticTurns: MessageTurn[],
-  row: TimelineRow
+  row: TimelineRow,
+  baselineUserRowIds?: Readonly<Record<string, readonly string[]>>
 ): { row: TimelineRow; optimisticTurns: MessageTurn[] } {
   if (
     row.row.kind !== 'message_turn' ||
@@ -1142,8 +474,11 @@ export function reconcileOptimisticTurnAgainstUserRow(
   const authoritativeText = userTurnText(row.row.turn);
   let optimisticIndex = optimisticTurns.findIndex(
     (turn) =>
-      !optimisticStartsAfterUserRow(turn, row) &&
-      userTurnText(turn) === authoritativeText
+      !isBaselineUserRowForOptimisticTurn(
+        turn.id,
+        row.row_id,
+        baselineUserRowIds
+      ) && userTurnText(turn) === authoritativeText
   );
 
   if (optimisticIndex < 0) {
@@ -1151,7 +486,11 @@ export function reconcileOptimisticTurnAgainstUserRow(
       normalizePromptMatchText(authoritativeText);
     optimisticIndex = optimisticTurns.findIndex(
       (turn) =>
-        !optimisticStartsAfterUserRow(turn, row) &&
+        !isBaselineUserRowForOptimisticTurn(
+          turn.id,
+          row.row_id,
+          baselineUserRowIds
+        ) &&
         normalizePromptMatchText(userTurnText(turn)) ===
           authoritativeBackendText
     );
@@ -1159,7 +498,7 @@ export function reconcileOptimisticTurnAgainstUserRow(
 
   if (optimisticIndex < 0) return { row, optimisticTurns };
 
-  const optimisticTurn = optimisticTurns[optimisticIndex];
+  const optimisticTurn = optimisticTurns[optimisticIndex]!;
   const optimisticTextBlocks = optimisticTurn.blocks.filter(
     (block) => block.type === 'text'
   );
@@ -1399,9 +738,9 @@ export function withPendingAssistantTurns(
 export function messageTurnPairKey(id: string): string | null {
   if (id.endsWith(':user')) return id.slice(0, -':user'.length);
   const assistant = /^(.*):assistant(?::\d+)?$/.exec(id);
-  if (assistant) return assistant[1];
+  if (assistant) return assistant[1]!;
   const steer = /^(.*):steer:/.exec(id);
-  if (steer) return steer[1];
+  if (steer) return steer[1]!;
   return null;
 }
 
@@ -1546,8 +885,8 @@ export function insertTimelineRow(
     }
   }
   if (!foundSibling && ABORTED_USER_ROW_PHASES.has(incoming.row.phase)) {
-    const incomingStartMs = plausibleTurnStartMs(incoming.row.turn.timestamp);
-    if (incomingStartMs !== null) {
+    const incomingRevision = toBigInt(incoming.revision);
+    if (incomingRevision > 0n) {
       let tailStreamingStart = rows.length;
       while (tailStreamingStart > 0) {
         const candidate = rows[tailStreamingStart - 1]!;
@@ -1569,13 +908,7 @@ export function insertTimelineRow(
         }
         const candidateKey = messageTurnPairKey(candidate.row_id);
         if (!candidateKey || candidateKey === key) continue;
-        const candidateStartMs = plausibleTurnStartMs(
-          candidate.row.turn.timestamp
-        );
-        if (
-          candidateStartMs !== null &&
-          candidateStartMs > incomingStartMs + SAME_TURN_STAMP_SKEW_MS
-        ) {
+        if (incomingRevision < toBigInt(candidate.revision)) {
           insertAt = index;
           break;
         }
@@ -1596,4 +929,68 @@ export function rebuildRowIndex(
 
 export function toBigInt(value: bigint | number | string): bigint {
   return typeof value === 'bigint' ? value : BigInt(value);
+}
+
+export function preserveStructuredUserTextFromLiveRows(
+  windowRows: TimelineRow[],
+  liveRows: TimelineRow[]
+): TimelineRow[] {
+  if (windowRows.length === 0 || liveRows.length === 0) return windowRows;
+  const liveUsers = liveRows.filter((row) => {
+    if (row.row.kind !== 'message_turn' || row.row.turn.role !== 'user') {
+      return false;
+    }
+    const text = userTurnText(row.row.turn);
+    return (
+      hasPotentialStructuredToken(text) &&
+      getSessionComposerStructuredTokens(text).length > 0
+    );
+  });
+  if (liveUsers.length === 0) return windowRows;
+  return windowRows.map((row) => {
+    if (row.row.kind !== 'message_turn' || row.row.turn.role !== 'user') {
+      return row;
+    }
+    const windowTurn = row.row.turn;
+    const match =
+      liveUsers.find((live) => live.row_id === row.row_id) ??
+      liveUsers.find(
+        (live) =>
+          live.row.kind === 'message_turn' &&
+          promptsMatch(userTurnText(live.row.turn), userTurnText(windowTurn))
+      );
+    return match ? preserveStructuredUserText(match, row) : row;
+  });
+}
+
+export function pruneConvergedLiveState(
+  windowRows: TimelineRow[],
+  liveRows: TimelineRow[],
+  liveText: Record<string, LiveTextOverlay>
+): {
+  liveRows: TimelineRow[];
+  liveText: Record<string, LiveTextOverlay>;
+} {
+  if (liveRows.length === 0) {
+    return { liveRows, liveText };
+  }
+  const baseRowId = (id: string) => id.split('|')[0] ?? id;
+  const windowByBaseId = new Map<string, TimelineRow>();
+  for (const row of windowRows) {
+    windowByBaseId.set(baseRowId(row.row_id), row);
+  }
+  const nextLiveRows = liveRows.filter((row) => {
+    const winRow = windowByBaseId.get(baseRowId(row.row_id));
+    if (!winRow) return true;
+    const rowTerminal =
+      row.row.kind === 'message_turn' && TERMINAL_ROW_PHASES.has(row.row.phase);
+    const winNonTerminal =
+      winRow.row.kind === 'message_turn' &&
+      !TERMINAL_ROW_PHASES.has(winRow.row.phase);
+    if (rowTerminal && winNonTerminal) {
+      return true;
+    }
+    return toBigInt(row.revision) > toBigInt(winRow.revision);
+  });
+  return { liveRows: nextLiveRows, liveText };
 }

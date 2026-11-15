@@ -7,6 +7,7 @@ export type {
   ConversationTimelineItem,
   ConversationTimelineTurn,
   LiveTextOverlay,
+  ResettableConversationRowOpBatch,
 } from './turnLifecycle';
 export {
   conversationStoreReducer,

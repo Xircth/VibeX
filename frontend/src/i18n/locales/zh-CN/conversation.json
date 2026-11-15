@@ -31,8 +31,19 @@
   },
   "find": {
     "placeholder": "在会话中查找",
+    "globalPlaceholder": "搜索全部会话（支持 \"精确词组\" prefix* 词1 词2）",
+    "expandGlobal": "搜索全部会话",
+    "collapseGlobal": "仅当前会话",
     "matches": "{{current}} / {{total}}",
     "none": "无匹配",
+    "searching": "搜索中…",
+    "sourceTitle": "标题",
+    "sourceBody": "正文",
+    "sourceBoth": "标题与正文",
+    "turnBadge": "第 {{ordinal}} 轮",
+    "pageLabel": "第 {{page}} 页",
+    "prevPage": "上一页",
+    "nextPage": "下一页",
     "previous": "上一处",
     "next": "下一处",
     "close": "关闭查找"
@@ -600,5 +611,36 @@
     "retry": "手动重试",
     "copyFailed": "无法复制错误",
     "copyError": "复制错误"
+  },
+  "steering": {
+    "native": "纠偏",
+    "interruptRestart": "中断并立即发送"
+  },
+  "sideChat": {
+    "title": "旁路问答",
+    "openShortcutHint": "旁路问答 (Ctrl+Shift+S)",
+    "contextBadge": "已携带最近 {{count}} 轮上下文",
+    "contextEmpty": "暂无主线程上下文",
+    "emptyPrompt": "临时提问与验证，不会写入主线程历史。",
+    "inputPlaceholder": "在旁路问答中输入问题…",
+    "send": "发送",
+    "stop": "停止",
+    "discard": "即走关闭",
+    "mergeBack": "注回主线程",
+    "mergeBackPrefix": "[旁路问答结论]",
+    "questionLabel": "提问",
+    "answerLabel": "结论",
+    "toolRunning": "执行中",
+    "toolCompleted": "已完成",
+    "toolFailed": "失败"
+  },
+  "rateLimit": {
+    "bannerTitle": "{{engine}} 额度已用完，将在 {{countdown}} 后自动继续",
+    "bannerPausedTitle": "{{engine}} 额度已用完，将在 {{countdown}} 后重置",
+    "autoResume": "自动续跑",
+    "cancelWait": "立即取消",
+    "editPrompt": "编辑继续指令",
+    "savePrompt": "保存",
+    "promptPlaceholder": "Continue where you left off."
   }
 }

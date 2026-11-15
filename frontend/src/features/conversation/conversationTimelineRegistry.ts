@@ -4,6 +4,7 @@ import type {
   AgentPermissionResponse,
   AgentSessionConfigOption,
   AsyncTaskRecord,
+  ConversationRowOp,
   ConversationRowOpBatch,
   ConversationSessionGoal,
   DeliveryChannel,
@@ -30,6 +31,7 @@ import {
   type ConversationStoreState,
   type ConversationTimelineItem,
   type ConversationTimelineTurn,
+  type ResettableConversationRowOpBatch,
 } from './conversationStore';
 import type { TimelineRow } from 'shared/types';
 
@@ -45,6 +47,11 @@ export const STREAM_FLUSH_MAX_MS = 96;
 export const STREAM_FLUSH_CHARS_PER_FRAME = 16 * 1024;
 export const STREAM_FLUSH_BLOCK_CHARS = 128;
 const STREAM_QUEUE_CAP = 256;
+const SMALL_SEQUENCE_GAP_MAX = 256n;
+
+function isResetBatch(batch: ResettableConversationRowOpBatch): boolean {
+  return batch.reset === true;
+}
 
 export function streamFlushDelayMs(liveRunChars: number): number {
   const frames = Math.max(
@@ -54,7 +61,10 @@ export function streamFlushDelayMs(liveRunChars: number): number {
   return Math.min(STREAM_FLUSH_MAX_MS, STREAM_FLUSH_FRAME_MS * frames);
 }
 
-export function isPureAppendBatch(batch: ConversationRowOpBatch): boolean {
+export function isPureAppendBatch(
+  batch: ResettableConversationRowOpBatch
+): boolean {
+  if (isResetBatch(batch)) return false;
   if (batch.ops.length === 0) return false;
   if (
     batch.session_modes != null ||
@@ -117,7 +127,7 @@ export function liveConversationChars(
 type Controller = {
   stopped: boolean;
   loadEpoch: number;
-  pendingBatches: ConversationRowOpBatch[];
+  pendingBatches: ResettableConversationRowOpBatch[];
   flushFrame: number | null;
   flushTimer: number | null;
   bindTimer: number | null;
@@ -451,6 +461,50 @@ function areSessionFactsEqual(
   );
 }
 
+export function syncConversationSelectedAgent(
+  conversationId: string | null | undefined,
+  nextAgentId: string | null | undefined
+): void {
+  const id = conversationId?.trim();
+  const normalized = nextAgentId?.trim();
+  if (!id || !normalized) return;
+  const entry = state.byConversationId[id];
+  if (!entry?.detail) return;
+  const prevKey = (entry.detail.summary.agent_id ?? '')
+    .trim()
+    .toLowerCase()
+    .replace(/[-_\s]+/g, '');
+  const nextKey = normalized.toLowerCase().replace(/[-_\s]+/g, '');
+  const changed = prevKey !== nextKey;
+  if (!changed && entry.detail.summary.agent_id === normalized) return;
+  state = {
+    ...state,
+    byConversationId: {
+      ...state.byConversationId,
+      [id]: {
+        ...entry,
+        detail: {
+          ...entry.detail,
+          summary: {
+            ...entry.detail.summary,
+            agent_id: normalized,
+            ...(changed ? { model: null } : {}),
+          },
+        },
+        ...(changed
+          ? {
+              sessionModes: EMPTY_SESSION_MODES,
+              sessionConfigOptions: EMPTY_CONFIG_OPTIONS,
+            }
+          : {}),
+      },
+    },
+  };
+  viewCache.delete(id);
+  factsCache.delete(id);
+  notify(id);
+}
+
 /** Stable snapshot for the session-details panel. Does not retain or refresh. */
 export function getConversationSessionFacts(
   conversationId: string | null
@@ -518,7 +572,9 @@ function parkInactiveConversation(conversationId: string): void {
         liveRows: [],
         liveText: {},
         optimisticTurns: [],
+        optimisticBaselineUserRowIds: {},
         lastSequence: 0n,
+        loadedLastSequence: 0n,
         loading: false,
         gap: { kind: 'none' },
       },
@@ -689,6 +745,7 @@ function startController(conversationId: string, slot: Slot): void {
       current.bindGeneration = (current.bindGeneration ?? 0) + 1;
       current.connectionStatus = 'ready';
       current.bindReady = true;
+      if (current.controller) void loadDetail(conversationId, current.controller);
       notify(conversationId);
       startKeepalive(conversationId, current);
       return;
@@ -774,18 +831,15 @@ function prefixHashOf(
 
 function loadDetail(
   conversationId: string,
-  controller: Controller
+  controller: Controller,
+  options?: { forceReplaceWindow?: boolean }
 ): Promise<void> {
   const epoch = ++controller.loadEpoch;
   const loaded = state.byConversationId[conversationId];
-  const fromIndexRaw =
-    loaded?.olderCursor != null ? Number(loaded.olderCursor) : Number.NaN;
-  const fromIndex = loaded?.loadedToStart
-    ? 0
-    : Number.isFinite(fromIndexRaw) && fromIndexRaw > 0
-      ? fromIndexRaw
-      : undefined;
-  const storedHash = loaded?.prefixHash ?? null;
+  const forceReplaceWindow = Boolean(options?.forceReplaceWindow);
+  const fromIndex =
+    !forceReplaceWindow && loaded?.loadedToStart ? 0 : undefined;
+  const storedHash = forceReplaceWindow ? null : (loaded?.prefixHash ?? null);
   dispatch({ type: 'load_start', conversationId });
   const requested = conversationApi.detail(
     conversationId,
@@ -818,7 +872,12 @@ function loadDetail(
         if (controller.stopped || controller.loadEpoch !== epoch) return;
         if (tail) resolved = tail;
       }
-      dispatch({ type: 'load_success', conversationId, detail: resolved });
+      dispatch({
+        type: 'load_success',
+        conversationId,
+        detail: resolved,
+        forceReplaceWindow,
+      });
       ensureLive(conversationId, controller);
       scheduleBind(conversationId, controller);
     })
@@ -855,10 +914,10 @@ function flushPendingBatches(
   const batches = controller.pendingBatches;
   if (batches.length === 0) return;
   controller.pendingBatches = [];
-  let shouldReloadWindow = false;
+  let shouldResetResync = false;
   for (const pending of batches) {
-    if (hasTerminalTurnOp(pending)) {
-      shouldReloadWindow = true;
+    if (isResetBatch(pending)) {
+      shouldResetResync = true;
     }
     state = conversationStoreReducer(state, {
       type: 'row_ops',
@@ -867,19 +926,20 @@ function flushPendingBatches(
     watchGap(conversationId, controller);
   }
   notify(conversationId);
-  if (shouldReloadWindow && !controller.stopped) {
-    void loadDetail(conversationId, controller);
+  if (shouldResetResync && !controller.stopped) {
+    void loadDetail(conversationId, controller, { forceReplaceWindow: true });
   }
 }
 
 function ensureLive(conversationId: string, controller: Controller): void {
   if (controller.liveStarted || controller.stopped) return;
   controller.liveStarted = true;
-  void listenToConversationEvents((batch) => {
+  void listenToConversationEvents((rawBatch) => {
+    const batch = rawBatch as ResettableConversationRowOpBatch;
     if (controller.stopped || batch.conversation_id !== conversationId) return;
     controller.pendingBatches.push(batch);
     const allPureAppend = controller.pendingBatches.every(isPureAppendBatch);
-    if (!allPureAppend || hasTerminalTurnOp(batch)) {
+    if (!allPureAppend || hasTerminalTurnOp(batch) || isResetBatch(batch)) {
       if (controller.flushTimer != null) {
         flushPendingBatches(conversationId, controller);
         return;
@@ -1039,6 +1099,156 @@ function startKeepalive(conversationId: string, slot: Slot): void {
   );
 }
 
+function toBigIntSeq(value: unknown, fallback: bigint): bigint {
+  if (typeof value === 'bigint') return value;
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return BigInt(Math.trunc(value));
+  }
+  if (typeof value === 'string' && value.trim().length > 0) {
+    try {
+      return BigInt(value.trim());
+    } catch {
+      return fallback;
+    }
+  }
+  return fallback;
+}
+
+function normalizeGapPage(
+  raw: unknown,
+  afterSequence: bigint
+): { lastSequence: bigint; reset: boolean; ops: ConversationRowOp[] } {
+  const rec =
+    raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : {};
+  const lastSequence = toBigIntSeq(
+    rec.lastSequence ?? rec.last_sequence,
+    afterSequence
+  );
+  const reset = Boolean(rec.reset);
+  const ops: ConversationRowOp[] = [];
+  if (Array.isArray(rec.ops)) {
+    for (const op of rec.ops) {
+      if (op && typeof op === 'object' && 'op' in op) {
+        ops.push(op as ConversationRowOp);
+      }
+    }
+  }
+  if (Array.isArray(rec.rows)) {
+    for (const candidate of rec.rows) {
+      if (!candidate || typeof candidate !== 'object') continue;
+      const rowRec = candidate as Record<string, unknown>;
+      const rowId =
+        typeof rowRec.row_id === 'string'
+          ? rowRec.row_id
+          : typeof rowRec.rowId === 'string'
+            ? rowRec.rowId
+            : null;
+      if (!rowId) continue;
+      if (
+        rowRec.deleted === true ||
+        rowRec.is_deleted === true ||
+        rowRec.tombstone === true
+      ) {
+        ops.push({
+          op: 'delete',
+          row_id: rowId,
+          revision: toBigIntSeq(rowRec.revision, lastSequence),
+        });
+      } else if (rowRec.row && typeof rowRec.row === 'object') {
+        ops.push({ op: 'upsert', row: candidate as TimelineRow });
+      }
+    }
+  }
+  for (const list of [rec.tombstones, rec.deleted_rows, rec.deletedRows]) {
+    if (!Array.isArray(list)) continue;
+    for (const item of list) {
+      if (typeof item === 'string') {
+        ops.push({ op: 'delete', row_id: item, revision: lastSequence });
+      } else if (item && typeof item === 'object') {
+        const itemRec = item as Record<string, unknown>;
+        const rowId =
+          typeof itemRec.row_id === 'string'
+            ? itemRec.row_id
+            : typeof itemRec.rowId === 'string'
+              ? itemRec.rowId
+              : null;
+        if (rowId) {
+          ops.push({
+            op: 'delete',
+            row_id: rowId,
+            revision: toBigIntSeq(itemRec.revision, lastSequence),
+          });
+        }
+      }
+    }
+  }
+  const deletedRowIds = rec.deleted_row_ids ?? rec.deletedRowIds;
+  if (Array.isArray(deletedRowIds)) {
+    for (const rowId of deletedRowIds) {
+      if (typeof rowId === 'string' && rowId.length > 0) {
+        ops.push({ op: 'delete', row_id: rowId, revision: lastSequence });
+      }
+    }
+  }
+  return { lastSequence, reset, ops };
+}
+
+function isUnimplementedGapError(error: unknown): boolean {
+  const message = getInvokeErrorMessage(error) ?? String(error ?? '');
+  return /unknown command|not found|unimplemented|not implemented|404/i.test(
+    message
+  );
+}
+
+async function backfillSmallGap(
+  conversationId: string,
+  controller: Controller,
+  afterSequence: bigint
+): Promise<void> {
+  const epoch = controller.loadEpoch;
+  const api = conversationApi as typeof conversationApi & {
+    rowsSince?: typeof conversationApi.rowsSince;
+    eventsSince?: typeof conversationApi.eventsSince;
+  };
+  try {
+    let normalized: {
+      lastSequence: bigint;
+      reset: boolean;
+      ops: ConversationRowOp[];
+    };
+    if (typeof api.rowsSince === 'function') {
+      const res = await api.rowsSince({ conversationId, afterSequence });
+      normalized = normalizeGapPage(res, afterSequence);
+    } else if (typeof api.eventsSince === 'function') {
+      const res = await api.eventsSince({ conversationId, afterSequence });
+      normalized = normalizeGapPage(res, afterSequence);
+    } else {
+      await loadDetail(conversationId, controller);
+      return;
+    }
+    if (controller.stopped || controller.loadEpoch !== epoch) return;
+    if (normalized.reset) {
+      await loadDetail(conversationId, controller, {
+        forceReplaceWindow: true,
+      });
+      return;
+    }
+    dispatch({
+      type: 'apply_gap_rows',
+      conversationId,
+      ops: normalized.ops,
+      lastSequence: normalized.lastSequence,
+    });
+  } catch (error: unknown) {
+    if (controller.stopped || controller.loadEpoch !== epoch) return;
+    if (isUnimplementedGapError(error)) {
+      await loadDetail(conversationId, controller);
+      return;
+    }
+    report(conversationId, error);
+  }
+}
+
 function watchGap(conversationId: string, controller: Controller): void {
   if (controller.stopped) return;
   const gap = state.byConversationId[conversationId]?.gap;
@@ -1048,7 +1258,12 @@ function watchGap(conversationId: string, controller: Controller): void {
   }
   if (controller.gapFetchedFor === gap.expectedSequence) return;
   controller.gapFetchedFor = gap.expectedSequence;
-  void loadDetail(conversationId, controller);
+  const gapSize = gap.receivedSequence - gap.expectedSequence;
+  if (gapSize > SMALL_SEQUENCE_GAP_MAX) {
+    void loadDetail(conversationId, controller, { forceReplaceWindow: true });
+    return;
+  }
+  void backfillSmallGap(conversationId, controller, gap.expectedSequence - 1n);
 }
 
 function report(conversationId: string, error: unknown): void {
@@ -1135,24 +1350,21 @@ async function loadOlder(conversationId: string): Promise<void> {
     try {
       const page = await conversationApi.timelinePage({
         conversationId,
-        cursor: String(pageWindow.start),
+        cursor: pageWindow.cursor,
         limit: pageWindow.limit,
       });
       if (controller.stopped || slots.get(conversationId)?.refs === 0) return;
-      const reportedStart =
-        page.cursor != null && page.cursor !== ''
-          ? Number(page.cursor)
-          : pageWindow.start;
-      const start = Number.isFinite(reportedStart)
-        ? reportedStart
-        : pageWindow.start;
+      const nextCursor =
+        page.next_cursor != null && page.next_cursor.trim().length > 0
+          ? page.next_cursor
+          : null;
       dispatch({
         type: 'upsert_rows',
         conversationId,
         rows: page.rows,
         lastSequence:
           state.byConversationId[conversationId]?.lastSequence ?? 0n,
-        olderCursor: start > 0 ? String(start) : null,
+        olderCursor: nextCursor,
         protectLoaded: true,
       });
     } finally {

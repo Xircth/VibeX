@@ -1118,8 +1118,8 @@ describe('conversationStore (row-op dumb container)', () => {
   it('shows one assistant while the live reply and the open transcript tail match', () => {
     const answer = 'The complete answer';
     const detail = emptyDetail([
-      fileTurn('acp-1', 'user', 'hi', 1_700_000_000_000n, 'streaming'),
-      fileTurn('acp-2', 'assistant', answer, 1_700_000_000_100n, 'streaming'),
+      fileTurn('t1:user', 'user', 'hi', 3n, 'streaming'),
+      fileTurn('t1:assistant', 'assistant', answer, 4n, 'streaming'),
     ]);
     detail.timeline.last_sequence = 4n;
     detail.in_flight_user_turn_id = 't1';
@@ -1141,7 +1141,7 @@ describe('conversationStore (row-op dumb container)', () => {
             delta: answer,
           },
         ],
-        5n
+        6n
       ),
     });
 
@@ -1204,7 +1204,7 @@ describe('conversationStore (row-op dumb container)', () => {
             row: assistantRow(
               't1',
               [{ type: 'text', text: answer }],
-              6n,
+              7n,
               'settled'
             ),
           },
@@ -1213,10 +1213,10 @@ describe('conversationStore (row-op dumb container)', () => {
       ),
     });
     const detail = emptyDetail([
-      fileTurn('acp-1', 'user', 'hi', 1_700_000_000_000n, 'streaming'),
-      fileTurn('acp-2', 'assistant', answer, 1_700_000_000_100n, 'streaming'),
+      fileTurn('t1:user', 'user', 'hi', 4n, 'streaming'),
+      fileTurn('t1:assistant', 'assistant', answer, 5n, 'streaming'),
     ]);
-    detail.timeline.last_sequence = 6n;
+    detail.timeline.last_sequence = 5n;
     detail.in_flight_user_turn_id = 't1';
     state = conversationStoreReducer(state, {
       type: 'load_success',
@@ -1448,10 +1448,10 @@ describe('conversationStore (row-op dumb container)', () => {
       ),
     });
     const detail = emptyDetail([
-      userRow('acp-1', 'first', 1n),
-      assistantRow('acp-2', [{ type: 'text', text: 'done' }], 2n),
+      userRow('t1', 'first', 1n),
+      assistantRow('t1', [{ type: 'text', text: 'done' }], 2n),
       assistantRow(
-        'acp-3',
+        't2',
         [{ type: 'text', text: 'working' }],
         3n,
         'streaming'
@@ -2533,14 +2533,8 @@ describe('conversationStore (row-op dumb container)', () => {
     });
 
     const midTurnDetail = emptyDetail([
-      fileTurn('acp-1', 'user', 'inspect repo', 1_700_000_000_000n, 'settled'),
-      fileTurn(
-        'acp-2',
-        'assistant',
-        'Checking files',
-        1_700_000_000_200n,
-        'streaming'
-      ),
+      fileTurn('t1:user', 'user', 'inspect repo', 1n, 'settled'),
+      fileTurn('t1:assistant', 'assistant', 'Checking files', 1n, 'streaming'),
     ]);
     midTurnDetail.timeline.last_sequence = 1n;
     midTurnDetail.in_flight_user_turn_id = 't1';
@@ -2556,13 +2550,6 @@ describe('conversationStore (row-op dumb container)', () => {
         (item) => item.kind === 'message' && item.item.turn.role === 'assistant'
       );
       expect(assistantItems).toHaveLength(1);
-      const ids = items.flatMap((item) =>
-        item.kind === 'message' ? [item.item.turn.id] : []
-      );
-      expect(
-        ids.some((id) => id === 'acp-2') &&
-          ids.some((id) => id === 't1:assistant')
-      ).toBe(false);
     };
 
     assertSingleCurrentAssistant(state);
@@ -2579,7 +2566,7 @@ describe('conversationStore (row-op dumb container)', () => {
             delta: ' now.',
           },
         ],
-        1n
+        3n
       ),
     });
 
@@ -2619,7 +2606,7 @@ describe('conversationStore (row-op dumb container)', () => {
             delta: 'All done.',
           },
         ],
-        1n
+        5n
       ),
     });
 
@@ -2686,16 +2673,10 @@ describe('conversationStore (row-op dumb container)', () => {
     // If a stale load_success arrives with hasActiveTurn === false (in_flight_user_turn_id = null)
     // BEFORE the window contains the completed turn, liveRows must NOT be cleared.
     const prematureIdleDetail = emptyDetail([
-      fileTurn('acp-1', 'user', 'inspect repo', 1_700_000_000_000n, 'settled'),
-      fileTurn(
-        'acp-2',
-        'assistant',
-        'Checking files',
-        1_700_000_000_200n,
-        'streaming'
-      ),
+      fileTurn('t1:user', 'user', 'inspect repo', 1n, 'settled'),
+      fileTurn('t1:assistant', 'assistant', 'Checking files', 2n, 'streaming'),
     ]);
-    prematureIdleDetail.timeline.last_sequence = 6n;
+    prematureIdleDetail.timeline.last_sequence = 5n;
     prematureIdleDetail.in_flight_user_turn_id = null;
     state = conversationStoreReducer(state, {
       type: 'load_success',
@@ -2705,14 +2686,14 @@ describe('conversationStore (row-op dumb container)', () => {
     assertSingleCurrentAssistant(state);
     expect(entryOf(state).liveRows.length).toBeGreaterThan(0);
 
-    // Once the JSONL window includes the settled turn, load_success atomically replaces windowRows
-    // and clears converged liveRows and liveText.
+    // Once the SQLite window includes the settled turn at revision 6n, load_success atomically
+    // replaces windowRows and clears converged liveRows and liveText.
     const settledWindowDetail = emptyDetail([
-      fileTurn('acp-1', 'user', 'inspect repo', 1_700_000_000_000n, 'settled'),
-      timelineRow('acp-2', 1_700_000_000_500n, {
+      fileTurn('t1:user', 'user', 'inspect repo', 6n, 'settled'),
+      timelineRow('t1:assistant', 6n, {
         kind: 'message_turn',
         phase: 'settled',
-        turn: messageTurn('acp-2', 'assistant', [
+        turn: messageTurn('t1:assistant', 'assistant', [
           { type: 'text', text: 'Checking files now.' },
           {
             type: 'tool_use',
@@ -2770,17 +2751,20 @@ describe('conversationStore (row-op dumb container)', () => {
             delta: 'Switched to step 2.',
           },
         ],
-        2n
+        4n
       ),
     });
 
-    // Mid-stream loadDetail returns windowRows containing acp-0 (user), acp-1 (settled pre-steer assistant),
-    // acp-2:steer:2 (steer user), and acp-3 (streaming post-steer assistant).
     const midSteerWindow = emptyDetail([
-      fileTurn('acp-0', 'user', 'initial task', 1n, 'settled'),
-      fileTurn('acp-1', 'assistant', 'Working on step 1. ', 2n, 'settled'),
-      fileTurn('acp-2:steer:2', 'user', 'switch to step 2', 3n, 'streaming'),
-      fileTurn('acp-3', 'assistant', 'Switched to step 2.', 4n, 'streaming'),
+      fileTurn('t1:user', 'user', 'initial task', 1n, 'settled'),
+      fileTurn('t1:steer:s1', 'user', 'switch to step 2', 2n, 'streaming'),
+      fileTurn(
+        't1:assistant',
+        'assistant',
+        'Working on step 1. Switched to step 2.',
+        2n,
+        'streaming'
+      ),
     ]);
     midSteerWindow.timeline.last_sequence = 2n;
     midSteerWindow.in_flight_user_turn_id = 't1';
@@ -2790,22 +2774,25 @@ describe('conversationStore (row-op dumb container)', () => {
       detail: midSteerWindow,
     });
 
-    // The entire open round in windowRows (including acp-0, acp-1, acp-2:steer:2, acp-3)
-    // is suppressed while liveRows owns the active round.
     const midItems = selectConversationTimelineItems(state, CONVERSATION_ID);
     const midTurnIds = midItems.flatMap((item) =>
       item.kind === 'message' ? [item.item.turn.id] : []
     );
     expect(midTurnIds).toEqual(['t1:user', 't1:steer:s1', 't1:assistant']);
 
-    // Once the turn settles in the window, liveRows converges and is cleared cleanly.
+    // Once the turn settles in the SQLite window at >= live revision, liveRows converges and clears.
     const settledSteerWindow = emptyDetail([
-      fileTurn('acp-0', 'user', 'initial task', 1n, 'settled'),
-      fileTurn('acp-1', 'assistant', 'Working on step 1. ', 2n, 'settled'),
-      fileTurn('acp-2:steer:2', 'user', 'switch to step 2', 3n, 'settled'),
-      fileTurn('acp-3', 'assistant', 'Switched to step 2.', 4n, 'settled'),
+      fileTurn('t1:user', 'user', 'initial task', 1n, 'settled'),
+      fileTurn('t1:steer:s1', 'user', 'switch to step 2', 3n, 'settled'),
+      fileTurn(
+        't1:assistant',
+        'assistant',
+        'Working on step 1. Switched to step 2.',
+        4n,
+        'settled'
+      ),
     ]);
-    settledSteerWindow.timeline.last_sequence = 3n;
+    settledSteerWindow.timeline.last_sequence = 4n;
     settledSteerWindow.in_flight_user_turn_id = null;
     state = conversationStoreReducer(state, {
       type: 'load_success',
@@ -2821,7 +2808,7 @@ describe('conversationStore (row-op dumb container)', () => {
       settledItems.flatMap((item) =>
         item.kind === 'message' ? [item.item.turn.id] : []
       )
-    ).toEqual(['acp-0', 'acp-1', 'acp-2:steer:2', 'acp-3']);
+    ).toEqual(['t1:user', 't1:steer:s1', 't1:assistant']);
   });
 
   it('preserves entry.rows reference across pure append_text streaming deltas on an active live row', () => {
@@ -3060,10 +3047,10 @@ describe('conversationStore (row-op dumb container)', () => {
     });
 
     const laterWindow = emptyDetail([
-      fileTurn('acp-1', 'user', 'turn-B', 1n, 'settled'),
-      fileTurn('acp-2', 'assistant', 'answer-B', 2n, 'settled'),
-      fileTurn('acp-3', 'user', 'turn-C', 3n, 'settled'),
-      fileTurn('acp-4', 'assistant', 'answer-C', 4n, 'settled'),
+      fileTurn('tB:user', 'user', 'turn-B', 1n, 'settled'),
+      fileTurn('tB:assistant', 'assistant', 'answer-B', 2n, 'streaming'),
+      fileTurn('tC:user', 'user', 'turn-C', 3n, 'settled'),
+      fileTurn('tC:assistant', 'assistant', 'answer-C', 4n, 'settled'),
     ]);
     laterWindow.timeline.last_sequence = 4n;
     state = conversationStoreReducer(state, {
@@ -3264,8 +3251,8 @@ describe('conversationStore (row-op dumb container)', () => {
 
   it('keeps a stopped turn before a newly dispatched queued turn when a late cancelled upsert arrives', () => {
     const detail = emptyDetail([
-      fileTurn('acp-0', 'user', '请你启动开发服务', 1n, 'settled'),
-      fileTurn('acp-1', 'assistant', '正在启动服务…', 2n, 'settled'),
+      fileTurn('t1:user', 'user', '请你启动开发服务', 1n, 'settled'),
+      fileTurn('t1:assistant', 'assistant', '正在启动服务…', 2n, 'settled'),
     ]);
     detail.timeline.last_sequence = 4n;
     detail.in_flight_user_turn_id = 't2';
@@ -3420,11 +3407,11 @@ describe('conversationStore (row-op dumb container)', () => {
 
     // Mid-turn window refresh arrives with only the intro text and tool_use.
     const partialWindow = emptyDetail([
-      fileTurn('acp-0', 'user', '帮我配置项目', 1n, 'streaming'),
-      timelineRow('acp-1', 2n, {
+      fileTurn('t1:user', 'user', '帮我配置项目', 1n, 'streaming'),
+      timelineRow('t1:assistant', 2n, {
         kind: 'message_turn',
         phase: 'streaming',
-        turn: messageTurn('acp-1', 'assistant', [
+        turn: messageTurn('t1:assistant', 'assistant', [
           { type: 'text', text: '我先确认一下你的偏好：' },
           {
             type: 'tool_use',
@@ -3456,6 +3443,118 @@ describe('conversationStore (row-op dumb container)', () => {
       'tool_result',
       'text',
     ]);
+  });
+
+  it('drops stale row_ops whose revision is at or below loadedLastSequence', () => {
+    const detail = emptyDetail([
+      fileTurn('t1:user', 'user', 'prompt', 9n, 'settled'),
+      fileTurn('t1:assistant', 'assistant', 'authoritative', 10n, 'settled'),
+    ]);
+    detail.timeline.last_sequence = 10n;
+    let state = conversationStoreReducer(emptyConversationStoreState, {
+      type: 'load_success',
+      conversationId: CONVERSATION_ID,
+      detail,
+    });
+    expect(entryOf(state).loadedLastSequence).toBe(10n);
+
+    state = conversationStoreReducer(state, {
+      type: 'row_ops',
+      batch: batch(
+        [
+          {
+            op: 'upsert',
+            row: fileTurn(
+              't0:user',
+              'user',
+              'evicted-stale-row',
+              8n,
+              'settled'
+            ),
+          },
+          {
+            op: 'append_text',
+            row_id: 't2:assistant',
+            revision: 10n,
+            stream: 'text',
+            delta: 'stale-delta',
+          },
+          {
+            op: 'upsert',
+            row: streamingUser('t2', 'fresh-prompt', 11n),
+          },
+        ],
+        11n
+      ),
+    });
+
+    const ids = timelineTurnsForEntry(entryOf(state)).map((row) => row.turn.id);
+    expect(ids).toEqual(['t1:user', 't1:assistant', 't2:user', 't2:assistant']);
+    expect(entryOf(state).liveText).toEqual({});
+  });
+
+  it('applies incremental gap upserts and delete tombstones via apply_gap_rows', () => {
+    const detail = emptyDetail([
+      fileTurn('t1:user', 'user', 'keep', 1n, 'settled'),
+      fileTurn('t2:user', 'user', 'to-delete', 2n, 'settled'),
+    ]);
+    detail.timeline.last_sequence = 2n;
+    let state = conversationStoreReducer(emptyConversationStoreState, {
+      type: 'load_success',
+      conversationId: CONVERSATION_ID,
+      detail,
+    });
+
+    state = conversationStoreReducer(state, {
+      type: 'apply_gap_rows',
+      conversationId: CONVERSATION_ID,
+      ops: [
+        { op: 'delete', row_id: 't2:user', revision: 4n },
+        {
+          op: 'upsert',
+          row: fileTurn('t3:user', 'user', 'backfilled', 5n, 'settled'),
+        },
+      ],
+      lastSequence: 5n,
+    });
+
+    expect(entryOf(state).lastSequence).toBe(5n);
+    expect(
+      timelineTurnsForEntry(entryOf(state)).map((row) => row.turn.id)
+    ).toEqual(['t1:user', 't3:user']);
+  });
+
+  it('clears stale window and live state when a row_ops batch carries reset: true', () => {
+    let state = loaded([
+      fileTurn('t1:user', 'user', 'keep-after-truncate', 1n, 'settled'),
+      fileTurn('t2:user', 'user', 'truncated-turn', 5n, 'settled'),
+    ]);
+    state = conversationStoreReducer(state, {
+      type: 'row_ops',
+      batch: {
+        ...batch(
+          [
+            {
+              op: 'upsert',
+              row: fileTurn(
+                't1:user',
+                'user',
+                'keep-after-truncate',
+                1n,
+                'settled'
+              ),
+            },
+          ],
+          1n
+        ),
+        reset: true,
+      },
+    });
+
+    expect(entryOf(state).lastSequence).toBe(1n);
+    expect(
+      timelineTurnsForEntry(entryOf(state)).map((row) => row.turn.id)
+    ).toEqual(['t1:user']);
   });
 });
 

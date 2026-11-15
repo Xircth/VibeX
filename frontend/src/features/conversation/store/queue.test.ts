@@ -8,8 +8,8 @@ import type {
 } from 'shared/types';
 import {
   combineWindowAndLiveRows,
-  isLiveTurnConvergedInWindow,
   normalizePromptMatchText,
+  preserveStructuredUserText,
   promptsMatch,
   userTurnText,
 } from './queue';
@@ -43,7 +43,10 @@ function messageTurn(
   };
 }
 
-function emptyDetail(rows: TimelineRow[] = []): DbConversationDetail {
+function emptyDetail(
+  rows: TimelineRow[] = [],
+  lastSequence?: bigint
+): DbConversationDetail {
   return {
     summary: {
       id: CONVERSATION_ID,
@@ -67,7 +70,7 @@ function emptyDetail(rows: TimelineRow[] = []): DbConversationDetail {
     timeline: {
       conversation_id: CONVERSATION_ID,
       projection_version: 2,
-      last_sequence: rows.length ? 10n : 0n,
+      last_sequence: lastSequence ?? (rows.length ? 10n : 0n),
       rows,
       truncated_from_start: false,
     },
@@ -79,13 +82,14 @@ function emptyDetail(rows: TimelineRow[] = []): DbConversationDetail {
   };
 }
 
-describe('skill + @file turn convergence (Issue #71)', () => {
+describe('skill + @file structured token preservation & single-authority convergence (Issue #71)', () => {
   const structuredDisplayPrompt =
     '[/:cy-cover-designer](/cy-cover-designer) [@:xxx.srt](xxx.srt)';
+  const normalizedPlainPrompt = '/cy-cover-designer xxx.srt';
   const resourceLinkBlock = '[xxx.srt](<file:///C:/project/xxx.srt>)';
 
-  it('matches windowUser with standalone resource_link block against liveUser', () => {
-    const windowUser = messageTurn('acp-0', 'user', [
+  it('matches user turns with standalone resource_link block against normalized live user text', () => {
+    const windowUser = messageTurn('turn-1:user', 'user', [
       { type: 'text', text: structuredDisplayPrompt },
       { type: 'text', text: resourceLinkBlock },
     ]);
@@ -101,46 +105,70 @@ describe('skill + @file turn convergence (Issue #71)', () => {
     );
   });
 
-  it('converges and aligns windowUser and liveUser without duplicating the skill turn at the bottom', () => {
+  it('preserves structured slash/skill tokens across normalized backend user-row upserts', () => {
+    const existing = timelineRow('turn-1:user', 1n, {
+      kind: 'message_turn',
+      phase: 'streaming',
+      turn: messageTurn('turn-1:user', 'user', [
+        { type: 'text', text: structuredDisplayPrompt },
+      ]),
+    });
+    const incoming = timelineRow('turn-1:user', 2n, {
+      kind: 'message_turn',
+      phase: 'settled',
+      turn: messageTurn('turn-1:user', 'user', [
+        { type: 'text', text: normalizedPlainPrompt },
+      ]),
+    });
+
+    const preserved = preserveStructuredUserText(existing, incoming);
+    expect(preserved.revision).toBe(2n);
+    expect(preserved.row.kind).toBe('message_turn');
+    if (preserved.row.kind === 'message_turn') {
+      expect(preserved.row.phase).toBe('settled');
+      expect(preserved.row.turn.blocks).toEqual([
+        { type: 'text', text: structuredDisplayPrompt },
+      ]);
+    }
+  });
+
+  it('converges canonical SQLite windowRows and liveRows by row_id + revision without duplicating turns', () => {
     const windowRows: TimelineRow[] = [
-      timelineRow('acp-0', 1n, {
-        kind: 'message_turn',
-        phase: 'persisted',
-        turn: messageTurn(
-          'acp-0',
-          'user',
-          [
-            { type: 'text', text: structuredDisplayPrompt },
-            { type: 'text', text: resourceLinkBlock },
-          ],
-          '2026-07-03T00:00:00.000Z'
-        ),
-      }),
-      timelineRow('acp-1', 2n, {
+      timelineRow('turn-1:user', 1n, {
         kind: 'message_turn',
         phase: 'settled',
         turn: messageTurn(
-          'acp-1',
+          'turn-1:user',
+          'user',
+          [{ type: 'text', text: normalizedPlainPrompt }],
+          '2026-07-03T00:00:00.000Z'
+        ),
+      }),
+      timelineRow('turn-1:assistant', 2n, {
+        kind: 'message_turn',
+        phase: 'settled',
+        turn: messageTurn(
+          'turn-1:assistant',
           'assistant',
           [{ type: 'text', text: 'Here are the 3 cover options.' }],
           '2026-07-03T00:00:05.000Z'
         ),
       }),
-      timelineRow('acp-2', 3n, {
+      timelineRow('turn-2:user', 3n, {
         kind: 'message_turn',
-        phase: 'persisted',
+        phase: 'settled',
         turn: messageTurn(
-          'acp-2',
+          'turn-2:user',
           'user',
           [{ type: 'text', text: 'Option B' }],
           '2026-07-03T00:01:00.000Z'
         ),
       }),
-      timelineRow('acp-3', 4n, {
+      timelineRow('turn-2:assistant', 4n, {
         kind: 'message_turn',
         phase: 'settled',
         turn: messageTurn(
-          'acp-3',
+          'turn-2:assistant',
           'assistant',
           [{ type: 'text', text: 'Generated Option B cover.' }],
           '2026-07-03T00:01:10.000Z'
@@ -171,10 +199,6 @@ describe('skill + @file turn convergence (Issue #71)', () => {
       }),
     ];
 
-    expect(
-      isLiveTurnConvergedInWindow('turn-1', windowRows, liveRows, {})
-    ).toBe(true);
-
     const combined = combineWindowAndLiveRows(
       CONVERSATION_ID,
       windowRows,
@@ -182,13 +206,13 @@ describe('skill + @file turn convergence (Issue #71)', () => {
       {}
     );
     expect(combined.map((row) => row.row_id)).toEqual([
-      'acp-0',
-      'acp-1',
-      'acp-2',
-      'acp-3',
+      'turn-1:user',
+      'turn-1:assistant',
+      'turn-2:user',
+      'turn-2:assistant',
     ]);
 
-    // Verify load_success prunes Turn 1 from liveRows via pruneConvergedLiveState
+    // Verify load_success prunes converged Turn 1 from liveRows while preserving structured user text
     let state = conversationStoreReducer(emptyConversationStoreState, {
       type: 'row_ops',
       batch: {
@@ -206,28 +230,33 @@ describe('skill + @file turn convergence (Issue #71)', () => {
     state = conversationStoreReducer(state, {
       type: 'load_success',
       conversationId: CONVERSATION_ID,
-      detail: emptyDetail(windowRows),
+      detail: emptyDetail(windowRows, 4n),
     });
 
     const entry = state.byConversationId[CONVERSATION_ID]!;
     expect(entry.liveRows).toEqual([]);
     expect(entry.rows.map((row) => row.row_id)).toEqual([
-      'acp-0',
-      'acp-1',
-      'acp-2',
-      'acp-3',
+      'turn-1:user',
+      'turn-1:assistant',
+      'turn-2:user',
+      'turn-2:assistant',
     ]);
+    const firstRow = entry.rows[0];
+    expect(firstRow?.row.kind).toBe('message_turn');
+    if (firstRow?.row.kind === 'message_turn') {
+      expect(firstRow.row.turn.blocks).toEqual([
+        { type: 'text', text: structuredDisplayPrompt },
+      ]);
+    }
   });
 });
 
 describe('turn chronological ordering regressions (new turn never placed before earlier turns)', () => {
   it('never inserts a newly sent turn before an earlier turn when timestamps have sub-second skew or whole-second truncation', () => {
-    // Turn 1 had a client-synthesized millisecond timestamp (10:00:05.650Z),
-    // while Turn 2 arrives from the backend with whole-second precision (10:00:05.000Z).
     let state = conversationStoreReducer(emptyConversationStoreState, {
       type: 'load_success',
       conversationId: CONVERSATION_ID,
-      detail: emptyDetail([]),
+      detail: emptyDetail([], 0n),
     });
 
     state = conversationStoreReducer(state, {
@@ -316,35 +345,32 @@ describe('turn chronological ordering regressions (new turn never placed before 
   });
 
   it('never splices a new turn into an earlier unanswered/interrupted user round in windowRows', () => {
-    // Turn 1 (acp-0) had no assistant reply (e.g. cancelled/interrupted earlier),
-    // followed by Turn 2 (acp-1, acp-2). Now Turn 3 starts and its assistant row
-    // arrives before its user row (or with the same prompt text).
     const windowRows: TimelineRow[] = [
-      timelineRow('acp-0', 1n, {
+      timelineRow('turn-1:user', 1n, {
         kind: 'message_turn',
-        phase: 'settled',
+        phase: 'interrupted',
         turn: messageTurn(
-          'acp-0',
+          'turn-1:user',
           'user',
           [{ type: 'text', text: '继续' }],
           '2026-07-03T10:00:00.000Z'
         ),
       }),
-      timelineRow('acp-1', 2n, {
+      timelineRow('turn-2:user', 2n, {
         kind: 'message_turn',
         phase: 'settled',
         turn: messageTurn(
-          'acp-1',
+          'turn-2:user',
           'user',
           [{ type: 'text', text: 'Explain the bug' }],
           '2026-07-03T10:01:00.000Z'
         ),
       }),
-      timelineRow('acp-2', 3n, {
+      timelineRow('turn-2:assistant', 3n, {
         kind: 'message_turn',
         phase: 'settled',
         turn: messageTurn(
-          'acp-2',
+          'turn-2:assistant',
           'assistant',
           [{ type: 'text', text: 'Here is the explanation.' }],
           '2026-07-03T10:01:05.000Z'
@@ -352,7 +378,6 @@ describe('turn chronological ordering regressions (new turn never placed before 
       }),
     ];
 
-    // Case A: Turn 3's streaming assistant arrives before Turn 3's user row
     const orphanLiveAssistant: TimelineRow[] = [
       timelineRow('turn-3:assistant', 4n, {
         kind: 'message_turn',
@@ -373,18 +398,22 @@ describe('turn chronological ordering regressions (new turn never placed before 
       {}
     );
     expect(combinedOrphan.map((row) => row.row_id)).toEqual([
-      'acp-0',
-      'acp-1',
-      'acp-2',
+      'turn-1:user',
+      'turn-2:user',
+      'turn-2:assistant',
       'turn-3:assistant',
     ]);
 
-    // Case B: Turn 3 has the same prompt text '继续' as Turn 1 (acp-0), even if timestamps are missing
     const repeatedPromptLive: TimelineRow[] = [
       timelineRow('turn-3:user', 4n, {
         kind: 'message_turn',
         phase: 'streaming',
-        turn: messageTurn('turn-3:user', 'user', [{ type: 'text', text: '继续' }], ''),
+        turn: messageTurn(
+          'turn-3:user',
+          'user',
+          [{ type: 'text', text: '继续' }],
+          ''
+        ),
       }),
       timelineRow('turn-3:assistant', 5n, {
         kind: 'message_turn',
@@ -405,17 +434,15 @@ describe('turn chronological ordering regressions (new turn never placed before 
       {}
     );
     expect(combinedRepeated.map((row) => row.row_id)).toEqual([
-      'acp-0',
-      'acp-1',
-      'acp-2',
+      'turn-1:user',
+      'turn-2:user',
+      'turn-2:assistant',
       'turn-3:user',
       'turn-3:assistant',
     ]);
   });
 
   it('never splices a new optimistic user turn in front of an earlier orphan assistant in history', () => {
-    // Window starts with a settled orphan assistant from a paged boundary (`turn-0:assistant`),
-    // followed by a completed Turn 1 (`turn-1:user`, `turn-1:assistant`).
     const windowRows: TimelineRow[] = [
       timelineRow('turn-0:assistant', 1n, {
         kind: 'message_turn',
@@ -452,7 +479,7 @@ describe('turn chronological ordering regressions (new turn never placed before 
     let state = conversationStoreReducer(emptyConversationStoreState, {
       type: 'load_success',
       conversationId: CONVERSATION_ID,
-      detail: emptyDetail(windowRows),
+      detail: emptyDetail(windowRows, 3n),
     });
 
     state = conversationStoreReducer(state, {
@@ -467,7 +494,6 @@ describe('turn chronological ordering regressions (new turn never placed before 
     });
 
     const entry = state.byConversationId[CONVERSATION_ID]!;
-    // Verify via timelineTurnsForEntry that optimistic-turn-2 is at the tail after turn-1:assistant
     const turns = timelineTurnsForEntry(entry);
     expect(turns.map((item) => item.turn.id)).toEqual([
       'turn-0:assistant',
@@ -477,26 +503,26 @@ describe('turn chronological ordering regressions (new turn never placed before 
     ]);
   });
 
-  it('preserves a newly sent optimistic turn with repeated text when a stale window reload only contains the earlier turn', () => {
+  it('preserves a newly sent optimistic turn with repeated text even with 0ms timestamp delta when a stale window reload only contains the earlier turn', () => {
     const earlierWindowRows: TimelineRow[] = [
-      timelineRow('acp-0', 1n, {
+      timelineRow('turn-1:user', 1n, {
         kind: 'message_turn',
         phase: 'settled',
         turn: messageTurn(
-          'acp-0',
+          'turn-1:user',
           'user',
           [{ type: 'text', text: '继续' }],
           '2026-07-03T10:00:00.000Z'
         ),
       }),
-      timelineRow('acp-1', 2n, {
+      timelineRow('turn-1:assistant', 2n, {
         kind: 'message_turn',
         phase: 'settled',
         turn: messageTurn(
-          'acp-1',
+          'turn-1:assistant',
           'assistant',
           [{ type: 'text', text: 'Turn 1 reply' }],
-          '2026-07-03T10:00:05.000Z'
+          '2026-07-03T10:00:00.000Z'
         ),
       }),
     ];
@@ -504,10 +530,10 @@ describe('turn chronological ordering regressions (new turn never placed before 
     let state = conversationStoreReducer(emptyConversationStoreState, {
       type: 'load_success',
       conversationId: CONVERSATION_ID,
-      detail: emptyDetail(earlierWindowRows),
+      detail: emptyDetail(earlierWindowRows, 2n),
     });
 
-    // User sends a new turn with the same text '继续' 1 minute later
+    // User immediately sends a new turn with the exact same text and identical timestamp (0ms delta)
     state = conversationStoreReducer(state, {
       type: 'optimistic_turn',
       conversationId: CONVERSATION_ID,
@@ -515,19 +541,18 @@ describe('turn chronological ordering regressions (new turn never placed before 
         'optimistic-2',
         'user',
         [{ type: 'text', text: '继续' }],
-        '2026-07-03T10:01:00.000Z'
+        '2026-07-03T10:00:00.000Z'
       ),
     });
 
-    // A background load_success arrives before Turn 2 is written to the transcript file
+    // A background load_success arrives before Turn 2 is projected
     state = conversationStoreReducer(state, {
       type: 'load_success',
       conversationId: CONVERSATION_ID,
-      detail: emptyDetail(earlierWindowRows),
+      detail: emptyDetail(earlierWindowRows, 2n),
     });
 
     const entry = state.byConversationId[CONVERSATION_ID]!;
     expect(entry.optimisticTurns.map((t) => t.id)).toEqual(['optimistic-2']);
   });
 });
-

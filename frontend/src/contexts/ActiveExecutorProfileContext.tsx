@@ -1,32 +1,61 @@
 import {
   createContext,
+  useCallback,
   useContext,
   useMemo,
   useRef,
+  useSyncExternalStore,
   type ReactNode,
 } from 'react';
-import type { ExecutorProfileId } from 'shared/types';
+import type { AgentKind, ExecutorProfileId } from 'shared/types';
+
+export type PendingAgentHandoff = {
+  sessionId: string;
+  fromAgent: AgentKind | string;
+  toAgent: AgentKind | string;
+  fromModelLabel: string | null;
+  toModelLabel: string | null;
+  continuationPolicy: 'portable' | 'fresh';
+};
+
+function isSamePendingHandoff(
+  left: PendingAgentHandoff | null,
+  right: PendingAgentHandoff | null
+): boolean {
+  if (left === right) return true;
+  if (!left || !right) return false;
+  return (
+    left.sessionId === right.sessionId &&
+    left.fromAgent === right.fromAgent &&
+    left.toAgent === right.toAgent &&
+    left.fromModelLabel === right.fromModelLabel &&
+    left.toModelLabel === right.toModelLabel &&
+    left.continuationPolicy === right.continuationPolicy
+  );
+}
 
 /**
  * Bridges the composer's *effective* executor profile (the model/variant/reasoning
  * selection shown in the message input box) to sibling surfaces that re-send turns
- * — chiefly the conversation timeline's reset-to-here retry.
+ * — chiefly the conversation timeline's reset-to-here retry — plus a lightweight
+ * external-store channel for pending cross-agent handoff previews at the tail of
+ * the message stream.
  *
- * Without this bridge the retry handler can only see `session.executor` (a bare
- * agent key with no variant/model), so it falls back to the agent's DEFAULT
- * profile and silently overrides the user's choice (e.g. Codex resends land on
- * `gpt-5.3-codex` even after the user picked GPT-5.5). Publishing the composer's
- * selection keeps the create form, the input box, and every actual turn (initial,
- * follow-up, and resend) sourced from the same profile.
- *
- * Ref-backed on purpose: the value is read lazily inside the retry callback, so a
- * model switch must NOT re-render the (heavy, virtualized) conversation list.
+ * Ref-backed on purpose: neither a model switch nor an agent switch re-renders the
+ * (heavy, virtualized) conversation list; only leaf subscribers opt in via
+ * `usePendingAgentHandoff`.
  */
 type ActiveExecutorProfileContextValue = {
   /** Latest profile selected in the composer, or null when none is published. */
   getActiveExecutorProfile: () => ExecutorProfileId | null;
   /** Publish the composer's effective profile for sibling surfaces to read. */
   setActiveExecutorProfile: (profile: ExecutorProfileId | null) => void;
+  /** Read the current pending cross-agent handoff state, if any. */
+  getPendingAgentHandoff: () => PendingAgentHandoff | null;
+  /** Publish or clear a pending cross-agent handoff preview. */
+  setPendingAgentHandoff: (handoff: PendingAgentHandoff | null) => void;
+  /** Subscribe to pending cross-agent handoff changes. */
+  subscribePendingAgentHandoff: (listener: () => void) => () => void;
 };
 
 const ActiveExecutorProfileContext =
@@ -38,11 +67,29 @@ export function ActiveExecutorProfileProvider({
   children: ReactNode;
 }) {
   const profileRef = useRef<ExecutorProfileId | null>(null);
+  const handoffRef = useRef<PendingAgentHandoff | null>(null);
+  const handoffListenersRef = useRef(new Set<() => void>());
   const value = useMemo<ActiveExecutorProfileContextValue>(
     () => ({
       getActiveExecutorProfile: () => profileRef.current,
       setActiveExecutorProfile: (profile) => {
         profileRef.current = profile;
+      },
+      getPendingAgentHandoff: () => handoffRef.current,
+      setPendingAgentHandoff: (handoff) => {
+        if (isSamePendingHandoff(handoffRef.current, handoff)) {
+          return;
+        }
+        handoffRef.current = handoff;
+        for (const listener of handoffListenersRef.current) {
+          listener();
+        }
+      },
+      subscribePendingAgentHandoff: (listener) => {
+        handoffListenersRef.current.add(listener);
+        return () => {
+          handoffListenersRef.current.delete(listener);
+        };
       },
     }),
     []
@@ -55,9 +102,14 @@ export function ActiveExecutorProfileProvider({
   );
 }
 
+const NOOP_SUBSCRIBE = () => () => {};
+
 const NOOP_VALUE: ActiveExecutorProfileContextValue = {
   getActiveExecutorProfile: () => null,
   setActiveExecutorProfile: () => {},
+  getPendingAgentHandoff: () => null,
+  setPendingAgentHandoff: () => {},
+  subscribePendingAgentHandoff: NOOP_SUBSCRIBE,
 };
 
 /**
@@ -67,6 +119,24 @@ const NOOP_VALUE: ActiveExecutorProfileContextValue = {
  */
 export function useActiveExecutorProfile(): ActiveExecutorProfileContextValue {
   return useContext(ActiveExecutorProfileContext) ?? NOOP_VALUE;
+}
+
+export function usePendingAgentHandoff(
+  sessionId: string | null | undefined
+): PendingAgentHandoff | null {
+  const { getPendingAgentHandoff, subscribePendingAgentHandoff } =
+    useActiveExecutorProfile();
+  const getSnapshot = useCallback(() => {
+    if (!sessionId) return null;
+    const current = getPendingAgentHandoff();
+    return current?.sessionId === sessionId ? current : null;
+  }, [getPendingAgentHandoff, sessionId]);
+
+  return useSyncExternalStore(
+    subscribePendingAgentHandoff,
+    getSnapshot,
+    getSnapshot
+  );
 }
 
 /**

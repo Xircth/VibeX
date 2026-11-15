@@ -81,6 +81,18 @@ export class TauriTransport implements BackendTransport {
     args: Record<string, unknown>,
     onMessage: (message: unknown) => void
   ): Promise<T> {
+    if (APPLICATION_COMMANDS.has(command)) {
+      const result = await this.call(command, args);
+      if (result && typeof result === 'object' && 'events' in result) {
+        const events = (result as { events?: unknown }).events;
+        if (Array.isArray(events)) {
+          for (const event of events) {
+            onMessage(event);
+          }
+        }
+      }
+      return result as T;
+    }
     const [{ Channel }, { tauriInvoke }] = await Promise.all([
       import('@tauri-apps/api/core'),
       import('@/lib/tauriApi'),

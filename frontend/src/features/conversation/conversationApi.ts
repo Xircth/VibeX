@@ -15,6 +15,7 @@ import type {
   AgentSessionConfigOverride,
   AgentSessionControlsSnapshot,
   AgentId,
+  ConversationRowOp,
   ConversationRowPage,
   ConversationBundlePayload,
   ConversationExportResult,
@@ -34,6 +35,7 @@ import type {
   DbConversationSummary,
   ExecutorProfileId,
   GoalControlReceipt,
+  TimelineRow,
 } from 'shared/types';
 
 export type { ConversationWorkflowRef };
@@ -73,9 +75,19 @@ export type ConversationEventsSinceRequest = {
   limit?: number;
 };
 
+export type ConversationRowsSinceResult = {
+  conversationId: string;
+  afterSequence: bigint;
+  lastSequence: bigint;
+  reset: boolean;
+  ops: ConversationRowOp[];
+};
+
 export type ConversationTimelinePageRequest = {
   conversationId: string;
   cursor?: string | null;
+  beforeSortIndex?: number | null;
+  start?: number | null;
   limit?: number;
 };
 
@@ -132,6 +144,309 @@ export type ConversationImportRequest = {
   workspaceId: string;
   bundle: ConversationBundlePayload;
 };
+
+export type RollbackSafetyReport =
+  | { status: 'safe'; engineSupportsRevert: boolean }
+  | { status: 'degraded'; reason: string }
+  | { status: 'unsafe'; reason: string };
+
+export type ConversationRateLimitAutoResumeRequest = {
+  conversationId: string;
+  autoResume: boolean;
+  continuationPrompt?: string;
+};
+
+export type ConversationRateLimitCancelWaitRequest = {
+  conversationId: string;
+};
+
+export type ConversationEngineHandoffRequest = {
+  conversationId: string;
+  targetEngine: string;
+  tokenBudget?: number;
+};
+
+export type ConversationEngineHandoffPackedItem = {
+  id: string;
+  role: string;
+  content: string;
+  sortIndex?: number;
+  createdAt?: string;
+};
+
+export type ConversationEngineHandoffPreview = {
+  sourceEngine: string;
+  targetEngine: string;
+  packedMessages: ConversationEngineHandoffPackedItem[];
+  omittedIds: string[];
+  totalTokens: number;
+  tokenBudget: number;
+  handoffPromptText?: string;
+};
+
+export type ConversationMatchSource = 'title' | 'body' | 'both';
+
+export type ConversationGlobalSearchHit = {
+  conversation_id: string;
+  workspace_id: string;
+  title: string | null;
+  snippet: string;
+  matchSource?: ConversationMatchSource;
+  rank?: number;
+  matchedRowId?: string | null;
+  matchedTurnOrdinal?: number | null;
+};
+
+export function normalizeConversationGlobalSearchHit(
+  raw: unknown
+): ConversationGlobalSearchHit {
+  const rec = (raw && typeof raw === 'object' ? raw : {}) as Record<
+    string,
+    unknown
+  >;
+  const rawSource = String(
+    rec.matchSource ?? rec.match_source ?? ''
+  ).toLowerCase();
+  const matchSource: ConversationMatchSource | undefined =
+    rawSource === 'title'
+      ? 'title'
+      : rawSource === 'body'
+        ? 'body'
+        : rawSource === 'both'
+          ? 'both'
+          : undefined;
+  const rawOrdinal = rec.matchedTurnOrdinal ?? rec.matched_turn_ordinal;
+  const parsedOrdinal =
+    typeof rawOrdinal === 'number' && Number.isFinite(rawOrdinal)
+      ? rawOrdinal
+      : null;
+
+  return {
+    conversation_id: String(rec.conversation_id ?? rec.conversationId ?? ''),
+    workspace_id: String(rec.workspace_id ?? rec.workspaceId ?? ''),
+    title: typeof rec.title === 'string' ? rec.title : null,
+    snippet: typeof rec.snippet === 'string' ? rec.snippet : '',
+    matchSource,
+    rank:
+      typeof rec.rank === 'number' && Number.isFinite(rec.rank)
+        ? rec.rank
+        : undefined,
+    matchedRowId:
+      typeof rec.matchedRowId === 'string'
+        ? rec.matchedRowId
+        : typeof rec.matched_row_id === 'string'
+          ? rec.matched_row_id
+          : null,
+    matchedTurnOrdinal: parsedOrdinal,
+  };
+}
+
+export function normalizeRollbackSafetyReport(
+  raw: unknown
+): RollbackSafetyReport {
+  if (!raw || typeof raw !== 'object') {
+    return { status: 'safe', engineSupportsRevert: true };
+  }
+  const record = raw as Record<string, unknown>;
+  const tag = String(record.status ?? record.kind ?? '').toLowerCase();
+  if (tag === 'unsafe') {
+    return {
+      status: 'unsafe',
+      reason: typeof record.reason === 'string' ? record.reason : '',
+    };
+  }
+  if (tag === 'degraded') {
+    return {
+      status: 'degraded',
+      reason: typeof record.reason === 'string' ? record.reason : '',
+    };
+  }
+  if (tag === 'safe') {
+    const supports =
+      typeof record.engineSupportsRevert === 'boolean'
+        ? record.engineSupportsRevert
+        : typeof record.engine_supports_revert === 'boolean'
+          ? record.engine_supports_revert
+          : true;
+    return { status: 'safe', engineSupportsRevert: supports };
+  }
+  if ('Unsafe' in record && record.Unsafe && typeof record.Unsafe === 'object') {
+    const inner = record.Unsafe as Record<string, unknown>;
+    return {
+      status: 'unsafe',
+      reason: typeof inner.reason === 'string' ? inner.reason : '',
+    };
+  }
+  if (
+    'Degraded' in record &&
+    record.Degraded &&
+    typeof record.Degraded === 'object'
+  ) {
+    const inner = record.Degraded as Record<string, unknown>;
+    return {
+      status: 'degraded',
+      reason: typeof inner.reason === 'string' ? inner.reason : '',
+    };
+  }
+  if ('Safe' in record && record.Safe && typeof record.Safe === 'object') {
+    const inner = record.Safe as Record<string, unknown>;
+    const supports =
+      typeof inner.engineSupportsRevert === 'boolean'
+        ? inner.engineSupportsRevert
+        : typeof inner.engine_supports_revert === 'boolean'
+          ? inner.engine_supports_revert
+          : true;
+    return { status: 'safe', engineSupportsRevert: supports };
+  }
+  return { status: 'safe', engineSupportsRevert: true };
+}
+
+export function isUnimplementedConversationCommandError(
+  error: unknown
+): boolean {
+  const message =
+    error instanceof Error
+      ? error.message
+      : typeof error === 'string'
+        ? error
+        : error && typeof error === 'object' && 'message' in error
+          ? String((error as { message?: unknown }).message ?? '')
+          : '';
+  return /404|not\s*found|unknown\s+command|unimplemented|not\s+implemented/i.test(
+    message
+  );
+}
+
+function parseBigIntSequence(value: unknown, fallback = 0n): bigint {
+  if (typeof value === 'bigint') return value;
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return BigInt(Math.trunc(value));
+  }
+  if (typeof value === 'string' && value.trim().length > 0) {
+    try {
+      return BigInt(value.trim());
+    } catch {
+      return fallback;
+    }
+  }
+  return fallback;
+}
+
+export function normalizeConversationRowsSinceResult(
+  raw: unknown,
+  fallbackConversationId: string,
+  fallbackAfterSequence: bigint | number
+): ConversationRowsSinceResult {
+  const afterSeq = parseBigIntSequence(fallbackAfterSequence, 0n);
+  if (!raw || typeof raw !== 'object') {
+    return {
+      conversationId: fallbackConversationId,
+      afterSequence: afterSeq,
+      lastSequence: afterSeq,
+      reset: false,
+      ops: [],
+    };
+  }
+  const rec = raw as Record<string, unknown>;
+  const conversationId = String(
+    rec.conversation_id ?? rec.conversationId ?? fallbackConversationId
+  );
+  const afterSequence = parseBigIntSequence(
+    rec.after_sequence ?? rec.afterSequence,
+    afterSeq
+  );
+  const lastSequence = parseBigIntSequence(
+    rec.last_sequence ?? rec.lastSequence,
+    afterSequence
+  );
+  const reset = rec.reset === true;
+  const ops: ConversationRowOp[] = [];
+
+  if (Array.isArray(rec.ops)) {
+    for (const candidate of rec.ops) {
+      if (!candidate || typeof candidate !== 'object') continue;
+      const opRec = candidate as Record<string, unknown>;
+      if (opRec.op === 'upsert' && opRec.row && typeof opRec.row === 'object') {
+        ops.push({ op: 'upsert', row: opRec.row as TimelineRow });
+      } else if (opRec.op === 'delete' && typeof opRec.row_id === 'string') {
+        ops.push({
+          op: 'delete',
+          row_id: opRec.row_id,
+          revision: parseBigIntSequence(opRec.revision, lastSequence),
+        });
+      }
+    }
+  }
+
+  if (Array.isArray(rec.rows)) {
+    for (const candidate of rec.rows) {
+      if (!candidate || typeof candidate !== 'object') continue;
+      const rowRec = candidate as Record<string, unknown>;
+      const rowId =
+        typeof rowRec.row_id === 'string'
+          ? rowRec.row_id
+          : typeof rowRec.rowId === 'string'
+            ? rowRec.rowId
+            : null;
+      if (!rowId) continue;
+      if (
+        rowRec.deleted === true ||
+        rowRec.is_deleted === true ||
+        rowRec.tombstone === true
+      ) {
+        ops.push({
+          op: 'delete',
+          row_id: rowId,
+          revision: parseBigIntSequence(rowRec.revision, lastSequence),
+        });
+      } else if (rowRec.row && typeof rowRec.row === 'object') {
+        ops.push({ op: 'upsert', row: candidate as TimelineRow });
+      }
+    }
+  }
+
+  const tombstoneArrays = [rec.tombstones, rec.deleted_rows, rec.deletedRows];
+  for (const list of tombstoneArrays) {
+    if (!Array.isArray(list)) continue;
+    for (const entry of list) {
+      if (typeof entry === 'string') {
+        ops.push({ op: 'delete', row_id: entry, revision: lastSequence });
+      } else if (entry && typeof entry === 'object') {
+        const entryRec = entry as Record<string, unknown>;
+        const rowId =
+          typeof entryRec.row_id === 'string'
+            ? entryRec.row_id
+            : typeof entryRec.rowId === 'string'
+              ? entryRec.rowId
+              : null;
+        if (rowId) {
+          ops.push({
+            op: 'delete',
+            row_id: rowId,
+            revision: parseBigIntSequence(entryRec.revision, lastSequence),
+          });
+        }
+      }
+    }
+  }
+
+  const deletedRowIds = rec.deleted_row_ids ?? rec.deletedRowIds;
+  if (Array.isArray(deletedRowIds)) {
+    for (const rowId of deletedRowIds) {
+      if (typeof rowId === 'string' && rowId.length > 0) {
+        ops.push({ op: 'delete', row_id: rowId, revision: lastSequence });
+      }
+    }
+  }
+
+  return {
+    conversationId,
+    afterSequence,
+    lastSequence,
+    reset,
+    ops,
+  };
+}
 
 const serializeSequenceForIpc = (sequence: bigint | number): number => {
   if (typeof sequence === 'number') {
@@ -414,6 +729,9 @@ export function createConversationApi(transport: BackendTransport) {
         expectedTurnId: string;
         text: string;
         images?: string[];
+        promotedInputId?: string;
+        expectedRevision?: number;
+        allowInterruptRestart?: boolean;
       },
       operationId?: string
     ): Promise<ConversationSteeringReceipt> =>
@@ -477,6 +795,37 @@ export function createConversationApi(transport: BackendTransport) {
           afterSequence: serializeSequenceForIpc(request.afterSequence),
         },
       }),
+
+    rowsSince: async (
+      request: ConversationEventsSinceRequest
+    ): Promise<ConversationRowsSinceResult> => {
+      const serialized = {
+        ...request,
+        afterSequence: serializeSequenceForIpc(request.afterSequence),
+      };
+      try {
+        const raw = await call<unknown>('conversation_rows_since', {
+          request: serialized,
+        });
+        return normalizeConversationRowsSinceResult(
+          raw,
+          request.conversationId,
+          request.afterSequence
+        );
+      } catch (error) {
+        if (!isUnimplementedConversationCommandError(error)) {
+          throw error;
+        }
+        const fallback = await call<unknown>('conversation_events_since', {
+          request: serialized,
+        });
+        return normalizeConversationRowsSinceResult(
+          fallback,
+          request.conversationId,
+          request.afterSequence
+        );
+      }
+    },
 
     timelinePage: (
       request: ConversationTimelinePageRequest
@@ -556,6 +905,42 @@ export function createConversationApi(transport: BackendTransport) {
     ): Promise<ConversationFileChangeSummary> =>
       call('conversation_checkpoint_file_changes_preview', { request }),
 
+    checkRollbackSafety: async (
+      request: ConversationCheckpointPreviewRequest
+    ): Promise<RollbackSafetyReport> => {
+      try {
+        const raw = await call<unknown>('conversation_check_rollback_safety', {
+          request,
+        });
+        return normalizeRollbackSafetyReport(raw);
+      } catch (error) {
+        if (isUnimplementedConversationCommandError(error)) {
+          return { status: 'safe', engineSupportsRevert: true };
+        }
+        throw error;
+      }
+    },
+
+    updateRateLimitAutoResume: (
+      request: ConversationRateLimitAutoResumeRequest
+    ): Promise<void> =>
+      call('conversation_rate_limit_update_auto_resume', { request }),
+
+    cancelRateLimitWait: (
+      request: ConversationRateLimitCancelWaitRequest
+    ): Promise<void> =>
+      call('conversation_rate_limit_cancel_wait', { request }),
+
+    previewEngineHandoff: (
+      request: ConversationEngineHandoffRequest
+    ): Promise<ConversationEngineHandoffPreview> =>
+      call('conversation_preview_engine_handoff', { request }),
+
+    confirmEngineHandoff: (
+      request: ConversationEngineHandoffRequest
+    ): Promise<void> =>
+      call('conversation_confirm_engine_handoff', { request }),
+
     close: (request: ConversationCloseRequest): Promise<void> =>
       call('conversation_close', { request }),
 
@@ -580,6 +965,23 @@ export function createConversationApi(transport: BackendTransport) {
         workspaceId: workspaceId ?? null,
         limit: limit ?? null,
       }),
+
+    searchConversations: async (request: {
+      query: string;
+      workspaceId?: string | null;
+      limit?: number;
+      offset?: number;
+    }): Promise<ConversationGlobalSearchHit[]> => {
+      const rows = await call<unknown[]>('conversation_search', {
+        query: request.query,
+        workspaceId: request.workspaceId ?? null,
+        limit: request.limit ?? 20,
+        offset: request.offset ?? 0,
+      });
+      return Array.isArray(rows)
+        ? rows.map(normalizeConversationGlobalSearchHit)
+        : [];
+    },
 
     import: (
       request: ConversationImportRequest

@@ -31,8 +31,19 @@
   },
   "find": {
     "placeholder": "Find in conversation",
+    "globalPlaceholder": "Search all conversations (\"exact phrase\", prefix*, term1 term2)",
+    "expandGlobal": "Search all conversations",
+    "collapseGlobal": "Current conversation only",
     "matches": "{{current}} of {{total}}",
     "none": "No matches",
+    "searching": "Searching…",
+    "sourceTitle": "Title",
+    "sourceBody": "Body",
+    "sourceBoth": "Title & Body",
+    "turnBadge": "Turn #{{ordinal}}",
+    "pageLabel": "Page {{page}}",
+    "prevPage": "Previous page",
+    "nextPage": "Next page",
     "previous": "Previous match",
     "next": "Next match",
     "close": "Close find"
@@ -600,5 +611,36 @@
     "retry": "Retry manually",
     "copyFailed": "Could not copy error",
     "copyError": "Copy error"
+  },
+  "steering": {
+    "native": "Steer",
+    "interruptRestart": "Interrupt and send now"
+  },
+  "sideChat": {
+    "title": "Side Chat",
+    "openShortcutHint": "Side Chat (Ctrl+Shift+S)",
+    "contextBadge": "Context: last {{count}} turns",
+    "contextEmpty": "No main-thread context yet",
+    "emptyPrompt": "Ask a quick side question without writing to main-thread history.",
+    "inputPlaceholder": "Ask in Side Chat…",
+    "send": "Send",
+    "stop": "Stop",
+    "discard": "Discard & close",
+    "mergeBack": "Merge back",
+    "mergeBackPrefix": "[Side Chat Conclusion]",
+    "questionLabel": "Question",
+    "answerLabel": "Conclusion",
+    "toolRunning": "Running",
+    "toolCompleted": "Done",
+    "toolFailed": "Failed"
+  },
+  "rateLimit": {
+    "bannerTitle": "{{engine}} usage limit reached — resuming in {{countdown}}",
+    "bannerPausedTitle": "{{engine}} usage limit reached — resets in {{countdown}}",
+    "autoResume": "Auto-resume",
+    "cancelWait": "Cancel now",
+    "editPrompt": "Edit continuation prompt",
+    "savePrompt": "Save",
+    "promptPlaceholder": "Continue where you left off."
   }
 }

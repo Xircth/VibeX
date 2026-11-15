@@ -8,16 +8,39 @@ import {
   type ShikiTokenLines,
 } from '@/utils/shikiHighlighter';
 
+export type CodeBlockHighlightState = 'deferred' | 'highlighted' | 'plain';
+
 type CodeBlockProps = {
   className?: string;
   value: string;
   isStreaming?: boolean;
+  deferHighlight?: boolean;
 };
 
 export function extractLanguageTag(className?: string): string | null {
   if (!className) return null;
   const match = className.match(/language-([\w-]+)/i);
   return match ? match[1] : null;
+}
+
+function hasHighlightedTokens(tokens: ShikiTokenLines): boolean {
+  return tokens.some((line) =>
+    line.some(
+      (token) =>
+        Boolean(token.variants.light?.color) ||
+        Boolean(token.variants.dark?.color) ||
+        token.variants.light?.fontStyle !== undefined ||
+        token.variants.dark?.fontStyle !== undefined
+    )
+  );
+}
+
+function resolveHighlightState(
+  deferHighlight: boolean,
+  tokens: ShikiTokenLines
+): CodeBlockHighlightState {
+  if (deferHighlight) return 'deferred';
+  return hasHighlightedTokens(tokens) ? 'highlighted' : 'plain';
 }
 
 function TokenizedCode({ tokens }: { tokens: ShikiTokenLines }) {
@@ -43,14 +66,22 @@ function TokenizedCode({ tokens }: { tokens: ShikiTokenLines }) {
 export const CompactCodeBlock = memo(function CompactCodeBlock({
   className,
   value,
+  deferHighlight = false,
 }: CodeBlockProps) {
   const language = normalizeShikiLanguage(extractLanguageTag(className));
-  const tokens = useShikiTokens(value, language);
+  const tokens = useShikiTokens(
+    deferHighlight ? '' : value,
+    deferHighlight ? 'text' : language
+  );
+  const highlightState = resolveHighlightState(deferHighlight, tokens);
 
   return (
-    <pre className="conv-md-codeblock-single">
+    <pre
+      className="conv-md-codeblock-single"
+      data-highlight-state={highlightState}
+    >
       <code className={className}>
-        <TokenizedCode tokens={tokens} />
+        {deferHighlight ? value : <TokenizedCode tokens={tokens} />}
       </code>
     </pre>
   );
@@ -60,14 +91,20 @@ export const CodeBlock = memo(function CodeBlock({
   className,
   value,
   isStreaming = false,
+  deferHighlight = false,
 }: CodeBlockProps) {
   const [copied, triggerCopied] = useTemporaryFlag(1200);
   const languageTag = extractLanguageTag(className);
   const language = normalizeShikiLanguage(languageTag);
-  const tokens = useShikiTokens(value, language, {
-    incremental: isStreaming,
-  });
+  const tokens = useShikiTokens(
+    deferHighlight ? '' : value,
+    deferHighlight ? 'text' : language,
+    {
+      incremental: isStreaming && !deferHighlight,
+    }
+  );
   const languageLabel = languageTag?.trim() || 'text';
+  const highlightState = resolveHighlightState(deferHighlight, tokens);
 
   const handleCopy = useCallback(async () => {
     try {
@@ -79,7 +116,7 @@ export const CodeBlock = memo(function CodeBlock({
   }, [triggerCopied, value]);
 
   return (
-    <div className="conv-md-codeblock">
+    <div className="conv-md-codeblock" data-highlight-state={highlightState}>
       <div className="conv-md-codeblock-header">
         <span className="conv-md-codeblock-language">{languageLabel}</span>
         <button
@@ -100,7 +137,7 @@ export const CodeBlock = memo(function CodeBlock({
       </div>
       <pre>
         <code className={className}>
-          <TokenizedCode tokens={tokens} />
+          {deferHighlight ? value : <TokenizedCode tokens={tokens} />}
         </code>
       </pre>
     </div>

@@ -463,3 +463,91 @@
 .conv-user-toggle-icon.is-expanded {
   transform: rotate(180deg);
 }
+
+/* Quote source anchor jump highlight pulse */
+@keyframes conv-quote-anchor-pulse-kf {
+  0% {
+    background-color: hsl(var(--primary) / 0.16);
+    box-shadow: 0 0 0 1px hsl(var(--primary) / 0.35);
+  }
+  70% {
+    background-color: hsl(var(--primary) / 0.08);
+    box-shadow: 0 0 0 1px hsl(var(--primary) / 0.18);
+  }
+  100% {
+    background-color: transparent;
+    box-shadow: 0 0 0 0 transparent;
+  }
+}
+
+.conv-quote-anchor-pulse {
+  border-radius: var(--radius);
+  animation: conv-quote-anchor-pulse-kf 1.4s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+/* Continuous 60fps press-and-drag scrubbing on message nav rail */
+.conv-message-nav-rail.is-scrubbing {
+  overflow: visible;
+  cursor: ns-resize;
+}
+
+.conv-message-nav-rail.is-scrubbing .conv-message-nav-tick {
+  cursor: ns-resize;
+}
+
+.conv-message-nav-tick.is-scrubbed::after {
+  width: 19.6px;
+  height: 3px;
+  background: hsl(var(--primary));
+}
+
+.conv-message-nav-scrub-preview {
+  position: absolute;
+  top: 0;
+  right: calc(100% + 8px);
+  z-index: 60;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: min(280px, calc(100vw - 64px));
+  padding: 5px 10px;
+  border-radius: var(--radius);
+  border: 1px solid hsl(var(--border) / 0.7);
+  background: var(--surface-card-strong, hsl(var(--popover)));
+  color: var(--conv-text-primary, hsl(var(--popover-foreground)));
+  font-size: 12px;
+  line-height: 16px;
+  white-space: nowrap;
+  will-change: transform;
+}
+
+.conv-message-nav-scrub-ordinal {
+  flex-shrink: 0;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: hsl(var(--primary));
+}
+
+.conv-message-nav-scrub-role {
+  flex-shrink: 0;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: hsl(var(--muted));
+  color: hsl(var(--muted-foreground));
+  font-size: 10px;
+  line-height: 14px;
+  font-weight: 500;
+}
+
+.conv-message-nav-scrub-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .conv-quote-anchor-pulse {
+    animation: none;
+    background-color: hsl(var(--primary) / 0.12);
+  }
+}

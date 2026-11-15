@@ -21,6 +21,7 @@ export type TurnStatsProps = {
   forkDisabled?: boolean;
   forkDisabledReason?: 'busy' | 'unnamed';
   live?: boolean;
+  hideStatus?: boolean;
   statusLabel?: string;
   className?: string;
 };
@@ -90,6 +91,7 @@ export function TurnStats({
   forkDisabled = false,
   forkDisabledReason = 'busy',
   live = false,
+  hideStatus = false,
   statusLabel,
   className,
 }: TurnStatsProps) {
@@ -102,7 +104,11 @@ export function TurnStats({
   const completedAtText = formatCompletionTime(stats?.completedAt);
   const stopReasonText = stats?.stopReason?.trim() || null;
   const hasStats = Boolean(
-    live || tokenText || elapsedText || completedAtText || stopReasonText
+    (live && !hideStatus) ||
+      tokenText ||
+      elapsedText ||
+      completedAtText ||
+      stopReasonText
   );
 
   const handleCopy = useCallback(async () => {
@@ -174,7 +180,7 @@ export function TurnStats({
           ) : null}
         </div>
         <div className="conv-turn-stats-items">
-          {live ? (
+          {live && !hideStatus ? (
             <StatItem
               icon={Gauge}
               label={t('turnStats.statusLabel')}

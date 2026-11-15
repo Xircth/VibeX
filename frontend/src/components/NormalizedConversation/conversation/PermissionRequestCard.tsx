@@ -74,6 +74,9 @@ export function PermissionRequestCard({
       kind: 'selected',
       option_id: option.id,
       ...(persist ? { persist: true } : {}),
+      ...(typeof request.revision === 'number' && request.revision > 0
+        ? { expected_revision: request.revision }
+        : {}),
     });
   const respondWithScope = (scope: PermissionAllowScope) => {
     const option = resolvePermissionAllowOption(options, scope);
@@ -219,20 +222,30 @@ type ParsedDetail = {
   body: React.ReactNode | null;
 };
 
-/** ACP tool-call shape behind a permission request (camelCase from ACP serde). */
+/** ACP or Native tool-call shape behind a permission request. */
 type ToolDetail = {
   kind?: string | null;
+  toolName?: string | null;
+  tool_name?: string | null;
   title?: string | null;
+  reason?: string | null;
+  decisionReason?: string | null;
   content?: unknown[] | null;
   locations?: { path?: string }[] | null;
   rawInput?: unknown;
+  input?: unknown;
   _meta?: Record<string, unknown> | null;
   fields?: {
     kind?: string | null;
+    toolName?: string | null;
+    tool_name?: string | null;
     title?: string | null;
+    reason?: string | null;
+    decisionReason?: string | null;
     content?: unknown[] | null;
     locations?: { path?: string }[] | null;
     rawInput?: unknown;
+    input?: unknown;
     _meta?: Record<string, unknown> | null;
   } | null;
 };
@@ -253,13 +266,72 @@ function pickNonEmptyString(
   return trimmed.length > 0 ? trimmed : null;
 }
 
+function inferPermissionKind(
+  declaredKind: string | null,
+  toolName: string | null,
+  effectiveInput: unknown
+): string | null {
+  const trimmedKind = declaredKind?.trim() ?? '';
+  if (trimmedKind && trimmedKind.toLowerCase() !== 'other') {
+    return trimmedKind;
+  }
+  const canonical = (toolName ?? '')
+    .replace(/[\s._-]/g, '')
+    .toLowerCase();
+  if (
+    canonical === 'bash' ||
+    canonical === 'commandexecution' ||
+    canonical === 'shell' ||
+    canonical === 'execcommand' ||
+    canonical === 'executecommand'
+  ) {
+    return 'execute';
+  }
+  if (
+    canonical === 'edit' ||
+    canonical === 'write' ||
+    canonical === 'multiedit' ||
+    canonical === 'filechange' ||
+    canonical === 'applypatch' ||
+    canonical === 'notebookedit'
+  ) {
+    return 'edit';
+  }
+  if (
+    canonical === 'read' ||
+    canonical === 'readfile' ||
+    canonical === 'glob' ||
+    canonical === 'grep'
+  ) {
+    return 'read';
+  }
+  if (canonical === 'webfetch' || canonical === 'websearch') {
+    return 'web';
+  }
+  const inputObj = asObject(effectiveInput);
+  if (inputObj) {
+    if (
+      Array.isArray(inputObj.changes) ||
+      'old_string' in inputObj ||
+      'new_string' in inputObj ||
+      'diff' in inputObj
+    ) {
+      return 'edit';
+    }
+    if ('command' in inputObj || 'cmd' in inputObj) {
+      return 'execute';
+    }
+  }
+  return trimmedKind || null;
+}
+
 function extractShellCommandLabel(
   rawInput: unknown,
   command: string | null
 ): string | null {
   const obj = asObject(rawInput);
   if (!obj) return null;
-  for (const key of ['description', 'title', 'summary']) {
+  for (const key of ['description', 'title', 'summary', 'reason']) {
     const label = pickNonEmptyString(obj, key);
     if (label && label !== command) {
       return label;
@@ -280,6 +352,7 @@ function extractShellCommandLabel(
 function resolvePermissionHeadings(
   record: ToolDetail | null,
   fields: NonNullable<ToolDetail['fields']> | null,
+  effectiveInput: unknown,
   requestTitle: string | null | undefined,
   command: string | null
 ): { heading: string | null; subtitle: string | null } {
@@ -296,12 +369,14 @@ function resolvePermissionHeadings(
 
   const metaHeading =
     metaHeadingRaw !== null && command !== null && metaHeadingRaw === command
-      ? extractShellCommandLabel(fields?.rawInput, command)
+      ? extractShellCommandLabel(effectiveInput, command)
       : metaHeadingRaw;
 
   const toolCallTitle =
     pickNonEmptyString(fields as Record<string, unknown> | null, 'title') ??
-    pickNonEmptyString(record as Record<string, unknown> | null, 'title');
+    pickNonEmptyString(record as Record<string, unknown> | null, 'title') ??
+    pickNonEmptyString(fields as Record<string, unknown> | null, 'reason') ??
+    pickNonEmptyString(record as Record<string, unknown> | null, 'reason');
   const trimmedRequestTitle =
     typeof requestTitle === 'string' && requestTitle.trim().length > 0
       ? requestTitle.trim()
@@ -319,7 +394,7 @@ function resolvePermissionHeadings(
     fallbackCandidate !== null &&
     command !== null &&
     fallbackCandidate === command
-      ? extractShellCommandLabel(fields?.rawInput, command)
+      ? extractShellCommandLabel(effectiveInput, command)
       : fallbackCandidate;
 
   return {
@@ -328,26 +403,150 @@ function resolvePermissionHeadings(
   };
 }
 
+type ExtractedInputDiff = {
+  path: string;
+  oldText?: string;
+  newText?: string;
+  unifiedDiff?: string;
+};
+
+function extractInputDiffs(rawInput: unknown): ExtractedInputDiff[] {
+  const input = asObject(rawInput);
+  if (!input) return [];
+
+  if (Array.isArray(input.changes)) {
+    const out: ExtractedInputDiff[] = [];
+    for (const item of input.changes) {
+      const change = asObject(item);
+      if (!change) continue;
+      const path =
+        pickNonEmptyString(change, 'path') ??
+        pickNonEmptyString(change, 'file_path') ??
+        pickNonEmptyString(change, 'filePath') ??
+        '(file)';
+      const unifiedDiff =
+        pickNonEmptyString(change, 'diff') ??
+        pickNonEmptyString(change, 'patch') ??
+        pickNonEmptyString(change, 'unified_diff');
+      const oldText =
+        typeof change.oldText === 'string'
+          ? change.oldText
+          : typeof change.old_string === 'string'
+            ? change.old_string
+            : undefined;
+      const newText =
+        typeof change.newText === 'string'
+          ? change.newText
+          : typeof change.new_string === 'string'
+            ? change.new_string
+            : typeof change.content === 'string'
+              ? change.content
+              : undefined;
+      if (unifiedDiff) {
+        out.push({ path, unifiedDiff });
+      } else if (oldText !== undefined || newText !== undefined) {
+        out.push({ path, oldText: oldText ?? '', newText: newText ?? '' });
+      }
+    }
+    if (out.length > 0) return out;
+  }
+
+  const filePath =
+    pickNonEmptyString(input, 'file_path') ??
+    pickNonEmptyString(input, 'filePath') ??
+    pickNonEmptyString(input, 'path') ??
+    pickNonEmptyString(input, 'target_file');
+  if (!filePath) return [];
+
+  const unifiedDiff =
+    pickNonEmptyString(input, 'diff') ??
+    pickNonEmptyString(input, 'patch') ??
+    pickNonEmptyString(input, 'unified_diff');
+  if (unifiedDiff) {
+    return [{ path: filePath, unifiedDiff }];
+  }
+
+  const oldText =
+    typeof input.old_string === 'string'
+      ? input.old_string
+      : typeof input.oldText === 'string'
+        ? input.oldText
+        : undefined;
+  const newText =
+    typeof input.new_string === 'string'
+      ? input.new_string
+      : typeof input.newText === 'string'
+        ? input.newText
+        : typeof input.content === 'string'
+          ? input.content
+          : undefined;
+  if (oldText !== undefined || newText !== undefined) {
+    return [
+      {
+        path: filePath,
+        oldText: oldText ?? '',
+        newText: newText ?? '',
+      },
+    ];
+  }
+
+  return [];
+}
+
 /** Faithfully render whatever the agent actually sent — never fabricate. */
 function parseToolDetail(
   details: unknown,
   requestTitle?: string | null
 ): ParsedDetail {
   if (!details || typeof details !== 'object') {
-    const trimmed =
+    const trimmedTitle =
       typeof requestTitle === 'string' && requestTitle.trim().length > 0
         ? requestTitle.trim()
         : null;
-    return { kind: null, heading: null, subtitle: trimmed, body: null };
+    const reasonText =
+      typeof details === 'string' && details.trim().length > 0
+        ? details.trim()
+        : null;
+    return {
+      kind: inferPermissionKind(null, trimmedTitle, null),
+      heading: null,
+      subtitle: trimmedTitle,
+      body: reasonText ? (
+        <pre className="overflow-x-auto whitespace-pre-wrap rounded-md bg-muted/40 px-2.5 py-1.5 font-mono text-xs text-foreground">
+          {reasonText}
+        </pre>
+      ) : null,
+    };
   }
   const record = details as ToolDetail;
   const fields =
     record.fields && typeof record.fields === 'object' ? record.fields : record;
-  const kind = typeof fields?.kind === 'string' ? fields.kind : null;
-  const command = extractCommand(fields?.rawInput);
+  const effectiveInput =
+    fields?.rawInput ??
+    fields?.input ??
+    record.rawInput ??
+    record.input ??
+    fields;
+  const declaredKind =
+    typeof fields?.kind === 'string'
+      ? fields.kind
+      : typeof record.kind === 'string'
+        ? record.kind
+        : null;
+  const toolName =
+    pickNonEmptyString(fields as Record<string, unknown> | null, 'toolName') ??
+    pickNonEmptyString(fields as Record<string, unknown> | null, 'tool_name') ??
+    pickNonEmptyString(record as Record<string, unknown> | null, 'toolName') ??
+    pickNonEmptyString(record as Record<string, unknown> | null, 'tool_name') ??
+    (typeof requestTitle === 'string' && requestTitle.trim().length > 0
+      ? requestTitle.trim()
+      : null);
+  const kind = inferPermissionKind(declaredKind, toolName, effectiveInput);
+  const command = extractCommand(effectiveInput);
   const { heading, subtitle } = resolvePermissionHeadings(
     record,
     fields,
+    effectiveInput,
     requestTitle,
     command
   );
@@ -381,7 +580,24 @@ function parseToolDetail(
     }
   });
 
-  // 2) Command preview from rawInput when no content block surfaced one.
+  // 2) Native input diff previews (`input.changes` or `input.{file_path, old_string, new_string}`)
+  // when no ACP `content` diff block was attached.
+  if (blocks.length === 0) {
+    const inputDiffs = extractInputDiffs(effectiveInput);
+    inputDiffs.forEach((item, index) => {
+      blocks.push(
+        <DiffPreview
+          key={`input-diff-${index}`}
+          path={item.path}
+          oldText={item.oldText ?? ''}
+          newText={item.newText ?? ''}
+          unifiedDiff={item.unifiedDiff}
+        />
+      );
+    });
+  }
+
+  // 3) Command preview from rawInput/input when no content block surfaced one.
   if (blocks.length === 0 && command) {
     blocks.push(
       <div key="command" className="rounded-md bg-muted/40 px-2.5 py-1.5">
@@ -392,7 +608,7 @@ function parseToolDetail(
     );
   }
 
-  // 3) File locations.
+  // 4) File locations.
   const locations = Array.isArray(fields?.locations) ? fields!.locations! : [];
   const paths = locations
     .map((loc) => loc?.path)
@@ -433,10 +649,20 @@ function extractText(block: Record<string, unknown>): string | null {
 function extractCommand(rawInput: unknown): string | null {
   if (!rawInput || typeof rawInput !== 'object') return null;
   const input = rawInput as Record<string, unknown>;
-  for (const key of ['command', 'cmd', 'script']) {
+  for (const key of [
+    'command',
+    'cmd',
+    'script',
+    'commandLine',
+    'command_line',
+    'parsedCmd',
+  ]) {
     const value = input[key];
     if (typeof value === 'string' && value.trim()) return value;
-    if (Array.isArray(value)) return value.join(' ');
+    if (Array.isArray(value)) {
+      const parts = value.filter((v): v is string => typeof v === 'string');
+      if (parts.length > 0) return parts.join(' ');
+    }
   }
   return null;
 }
@@ -445,14 +671,16 @@ function DiffPreview({
   path,
   oldText,
   newText,
+  unifiedDiff,
 }: {
   path: string;
   oldText: string;
   newText: string;
+  unifiedDiff?: string;
 }) {
   const { t } = useTranslation(['conversation', 'common']);
-  const [open, setOpen] = useState(false);
-  const isNew = !oldText;
+  const [open, setOpen] = useState(Boolean(unifiedDiff));
+  const isNew = !unifiedDiff && !oldText;
   return (
     <div className="rounded-md bg-muted/30">
       <button
@@ -476,22 +704,30 @@ function DiffPreview({
       </button>
       {open ? (
         <div className="space-y-1 px-2.5 pb-2">
-          {!isNew ? (
-            <DiffPane
-              label={t('permissionRequestCard.before')}
-              text={oldText}
-              tone="del"
-            />
-          ) : null}
-          <DiffPane
-            label={
-              isNew
-                ? t('permissionRequestCard.content')
-                : t('permissionRequestCard.after')
-            }
-            text={newText}
-            tone="add"
-          />
+          {unifiedDiff ? (
+            <pre className="max-h-64 overflow-auto whitespace-pre-wrap rounded border border-border/60 bg-muted/40 px-2 py-1 font-mono text-[11px] text-foreground">
+              {unifiedDiff}
+            </pre>
+          ) : (
+            <>
+              {!isNew ? (
+                <DiffPane
+                  label={t('permissionRequestCard.before')}
+                  text={oldText}
+                  tone="del"
+                />
+              ) : null}
+              <DiffPane
+                label={
+                  isNew
+                    ? t('permissionRequestCard.content')
+                    : t('permissionRequestCard.after')
+                }
+                text={newText}
+                tone="add"
+              />
+            </>
+          )}
         </div>
       ) : null}
     </div>

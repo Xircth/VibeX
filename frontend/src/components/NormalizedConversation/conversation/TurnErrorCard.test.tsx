@@ -269,4 +269,35 @@ describe('TurnErrorCard', () => {
         ?.querySelector('.composer-status-icon')
     ).toBeNull();
   });
+
+  it('offers manual retry alongside reload for retryable errors and omits it on non-retryable ones', async () => {
+    const onRetry = vi.fn().mockResolvedValue(undefined);
+    const { rerender } = render(
+      <TurnErrorCard
+        error={err({ kind: 'service_error', code: 'internal_error' })}
+        onReload={vi.fn()}
+        onRetry={onRetry}
+        placement="composer"
+      />
+    );
+
+    const retryButton = screen.getByRole('button', { name: '手动重试' });
+    fireEvent.click(retryButton);
+    expect(onRetry).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(retryButton).not.toBeDisabled());
+    expect(
+      screen.getByRole('button', { name: /重新加载会话/ })
+    ).toBeInTheDocument();
+
+    rerender(
+      <TurnErrorCard
+        error={err({ kind: 'rejected', code: 'invalid_params' })}
+        onReload={vi.fn()}
+        onRebind={vi.fn()}
+        onRetry={onRetry}
+        placement="composer"
+      />
+    );
+    expect(screen.queryByRole('button', { name: '手动重试' })).toBeNull();
+  });
 });

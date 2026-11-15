@@ -454,4 +454,170 @@ describe('toolBlockToNormalizedEntry', () => {
       },
     });
   });
+
+  it('maps Codex fileChange single and multi-file changes to file_edit with unified diffs and fileEdits', () => {
+    const entry = toolBlockToNormalizedEntry(
+      use('fileChange', {
+        changes: [
+          {
+            path: 'src/a.ts',
+            kind: 'update',
+            diff: '@@ -1 +1,2 @@\n-const a = 1;\n+const a = 2;\n+export { a };',
+          },
+          {
+            path: 'src/legacy.ts',
+            kind: 'delete',
+            diff: '@@ -1,2 +0,0 @@\n-old1\n-old2',
+          },
+        ],
+      }),
+      result('applied'),
+      null
+    );
+
+    expect(entry.entry_type).toMatchObject({
+      action_type: {
+        action: 'file_edit',
+        path: 'src/a.ts',
+      },
+    });
+    expect(entry.fileEdits).toHaveLength(2);
+    expect(entry.fileEdits?.[0]).toMatchObject({
+      path: 'src/a.ts',
+      changes: [
+        {
+          action: 'edit',
+          has_line_numbers: true,
+        },
+      ],
+    });
+    const firstChange = entry.fileEdits?.[0]?.changes[0];
+    if (firstChange?.action === 'edit') {
+      expect(firstChange.unified_diff).toContain('+const a = 2;');
+      expect(firstChange.unified_diff).toContain('+export { a };');
+    }
+    expect(entry.fileEdits?.[1]).toEqual({
+      path: 'src/legacy.ts',
+      changes: [{ action: 'delete' }],
+    });
+  });
+
+  it('extracts aggregatedOutput for Codex commandExecution and suppresses empty JSON envelopes', () => {
+    const withOutput = toolBlockToNormalizedEntry(
+      use('commandExecution', { command: 'cargo test -p conversations' }),
+      result(
+        JSON.stringify({
+          aggregatedOutput: 'test result: ok. 42 passed\n',
+          exitCode: 0,
+        })
+      ),
+      null
+    );
+    expect(withOutput.entry_type).toMatchObject({
+      action_type: {
+        action: 'command_run',
+        command: 'cargo test -p conversations',
+        result: {
+          output: 'test result: ok. 42 passed\n',
+          exit_status: { type: 'exit_code', code: 0 },
+        },
+      },
+    });
+
+    const silentEnvelope = toolBlockToNormalizedEntry(
+      use('commandExecution', { command: 'mkdir -p dist' }),
+      result(JSON.stringify({ aggregatedOutput: '', exitCode: 0 })),
+      null
+    );
+    expect(silentEnvelope.entry_type).toMatchObject({
+      action_type: {
+        action: 'command_run',
+        command: 'mkdir -p dist',
+        result: {
+          output: null,
+          exit_status: { type: 'exit_code', code: 0 },
+        },
+      },
+    });
+  });
+
+  it('unwraps Codex mcpToolCall envelopes for MCP metadata, ask_user_question, and delegation tools', () => {
+    const mcpEntry = toolBlockToNormalizedEntry(
+      use('mcpToolCall', {
+        server: 'vibex-workflow-mcp',
+        tool: 'run_step',
+        arguments: { stepId: 'lint' },
+      }),
+      result(
+        JSON.stringify({
+          result: { content: [{ type: 'text', text: 'Step lint passed' }] },
+        })
+      ),
+      null
+    );
+    expect(mcpEntry.toolMeta).toEqual({
+      mcp: {
+        server: 'vibex-workflow-mcp',
+        tool: 'run_step',
+      },
+    });
+    expect(mcpEntry.entry_type).toMatchObject({
+      tool_name: 'run_step',
+    });
+
+    const askEntry = toolBlockToNormalizedEntry(
+      use('mcpToolCall', {
+        server: 'vibex-delegation-mcp',
+        tool: 'ask_user_question',
+        arguments: {
+          questions: [
+            {
+              question: 'Which engine?',
+              options: [{ label: 'Native' }, { label: 'ACP' }],
+            },
+          ],
+        },
+      }),
+      null,
+      null
+    );
+    expect(askEntry.entry_type).toMatchObject({
+      tool_name: 'ask_user_question',
+    });
+    expect(askEntry.toolArguments).toMatchObject({
+      questions: [{ question: 'Which engine?' }],
+    });
+  });
+
+  it('maps Codex webSearch and collabAgentToolCall cleanly', () => {
+    const searchEntry = toolBlockToNormalizedEntry(
+      use('webSearch', {
+        query: 'rust tokio mpsc channel',
+        action: { queries: ['rust tokio mpsc channel'] },
+      }),
+      result('found 5 results'),
+      null
+    );
+    expect(searchEntry.entry_type).toMatchObject({
+      action_type: {
+        action: 'search',
+        query: 'rust tokio mpsc channel',
+      },
+    });
+
+    const collabEntry = toolBlockToNormalizedEntry(
+      use('collabAgentToolCall', {
+        tool: 'spawnAgent',
+        prompt: 'Audit timeline rendering',
+      }),
+      null,
+      null
+    );
+    expect(collabEntry.entry_type).toMatchObject({
+      action_type: {
+        action: 'task_create',
+        description: 'Audit timeline rendering',
+      },
+    });
+  });
 });

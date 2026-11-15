@@ -5,12 +5,11 @@ export const TIMELINE_OLDER_PAGE_SIZE = 120;
 
 export function nextOlderTimelinePage(
   olderCursor: string | null | undefined
-): { start: number; limit: number } | null {
-  if (olderCursor == null || olderCursor === '') return null;
-  const end = Number(olderCursor);
-  if (!Number.isFinite(end) || end <= 0) return null;
-  const start = Math.max(0, end - TIMELINE_OLDER_PAGE_SIZE);
-  return { start, limit: end - start };
+): { cursor: string; limit: number } | null {
+  if (olderCursor == null) return null;
+  const cursor = olderCursor.trim();
+  if (cursor.length === 0) return null;
+  return { cursor, limit: TIMELINE_OLDER_PAGE_SIZE };
 }
 
 /**
@@ -22,16 +21,13 @@ export function preferLoadedOlderCursor(
   incoming: string | null | undefined,
   hasLoadedRows: boolean
 ): string | null {
-  const loadedCursor = loaded ?? null;
-  const incomingCursor = incoming ?? null;
+  const loadedCursor =
+    loaded != null && loaded.trim().length > 0 ? loaded : null;
+  const incomingCursor =
+    incoming != null && incoming.trim().length > 0 ? incoming : null;
   if (!hasLoadedRows) return incomingCursor;
   if (loadedCursor == null) return null;
-  if (incomingCursor == null) return loadedCursor;
-  const loadedIndex = Number(loadedCursor);
-  const incomingIndex = Number(incomingCursor);
-  if (!Number.isFinite(loadedIndex)) return incomingCursor;
-  if (!Number.isFinite(incomingIndex)) return loadedCursor;
-  return String(Math.min(loadedIndex, incomingIndex));
+  return loadedCursor;
 }
 
 function revisionOf(row: TimelineRow): bigint {
@@ -57,10 +53,7 @@ export function mergeOpenTimelineRows(
     const row = incoming[index]!;
     const previous = byId.get(row.row_id);
     if (previous) {
-      if (
-        row.row_id.startsWith('acp-') ||
-        revisionOf(row) >= revisionOf(previous)
-      ) {
+      if (revisionOf(row) >= revisionOf(previous)) {
         byId.set(row.row_id, row);
       }
       continue;

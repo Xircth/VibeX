@@ -16,6 +16,7 @@ import type {
   TokenUsageInfo,
 } from 'shared/types';
 import type { ConversationSessionModesState } from '@/features/conversation/conversationStore';
+import type { ComposerSteeringTarget } from '@/components/tasks/follow-up/sessionComposerSteering';
 
 const EMPTY_SESSION_MODES: ConversationSessionModesState = {
   current: null,
@@ -35,6 +36,9 @@ interface EntriesContextType {
   setConversationPlanEntries: (entries: PlanEntry[]) => void;
   setConversationTurnInFlight: (inFlight: boolean) => void;
   setConversationSteeringTurnId: (turnId: string | null) => void;
+  setConversationSteeringTarget: (
+    target: ComposerSteeringTarget | null
+  ) => void;
   setConversationDeliveryChannel: (channel: DeliveryChannel) => void;
   setUserMessageHistory: (messages: string[]) => void;
   reset: () => void;
@@ -44,6 +48,7 @@ interface EntriesContextType {
   conversationPlanEntries: PlanEntry[];
   conversationTurnInFlight: boolean;
   conversationSteeringTurnId: string | null;
+  conversationSteeringTarget: ComposerSteeringTarget | null;
   conversationDeliveryChannel: DeliveryChannel;
   userMessageHistory: string[];
 }
@@ -56,6 +61,7 @@ type EntriesRuntimeValue = {
   conversationPlanEntries: PlanEntry[];
   conversationTurnInFlight: boolean;
   conversationSteeringTurnId: string | null;
+  conversationSteeringTarget: ComposerSteeringTarget | null;
   conversationDeliveryChannel: DeliveryChannel;
   userMessageHistory: string[];
 };
@@ -68,6 +74,7 @@ const EMPTY_RUNTIME_VALUE: EntriesRuntimeValue = {
   conversationPlanEntries: EMPTY_CONVERSATION_PLAN_ENTRIES,
   conversationTurnInFlight: false,
   conversationSteeringTurnId: null,
+  conversationSteeringTarget: null,
   conversationDeliveryChannel: 'none',
   userMessageHistory: EMPTY_USER_MESSAGE_HISTORY,
 };
@@ -380,6 +387,32 @@ export const EntriesProvider = ({
     [runtimeKey]
   );
 
+  const setConversationSteeringTarget = useCallback(
+    (conversationSteeringTarget: ComposerSteeringTarget | null) => {
+      const current = localValueRef.current.conversationSteeringTarget;
+      if (
+        current?.turnId === conversationSteeringTarget?.turnId &&
+        current?.mode === conversationSteeringTarget?.mode &&
+        Boolean(current) === Boolean(conversationSteeringTarget)
+      ) {
+        return;
+      }
+      const nextValue = {
+        ...localValueRef.current,
+        conversationSteeringTarget,
+      };
+      localValueRef.current = nextValue;
+
+      if (runtimeKey) {
+        writeRuntimeValue(runtimeKey, nextValue);
+        return;
+      }
+
+      setLocalValue(nextValue);
+    },
+    [runtimeKey]
+  );
+
   const setConversationDeliveryChannel = useCallback(
     (conversationDeliveryChannel: DeliveryChannel) => {
       if (
@@ -452,6 +485,7 @@ export const EntriesProvider = ({
       setConversationPlanEntries,
       setConversationTurnInFlight,
       setConversationSteeringTurnId,
+      setConversationSteeringTarget,
       setConversationDeliveryChannel,
       setUserMessageHistory,
       reset,
@@ -461,6 +495,7 @@ export const EntriesProvider = ({
       conversationPlanEntries: localValue.conversationPlanEntries,
       conversationTurnInFlight: localValue.conversationTurnInFlight,
       conversationSteeringTurnId: localValue.conversationSteeringTurnId,
+      conversationSteeringTarget: localValue.conversationSteeringTarget,
       conversationDeliveryChannel: localValue.conversationDeliveryChannel,
       userMessageHistory: localValue.userMessageHistory,
     }),
@@ -474,6 +509,7 @@ export const EntriesProvider = ({
       setConversationPlanEntries,
       setConversationTurnInFlight,
       setConversationSteeringTurnId,
+      setConversationSteeringTarget,
       setConversationDeliveryChannel,
       setUserMessageHistory,
     ]

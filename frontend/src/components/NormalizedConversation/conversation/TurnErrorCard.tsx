@@ -1,6 +1,13 @@
 import { useState } from 'react';
 import { Badge } from '@astryxdesign/core/Badge';
-import { Ban, RefreshCw, ShieldAlert, TriangleAlert, X } from 'lucide-react';
+import {
+  Ban,
+  RefreshCw,
+  RotateCcw,
+  ShieldAlert,
+  TriangleAlert,
+  X,
+} from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import type { TFunction } from 'i18next';
 import type {
@@ -25,6 +32,7 @@ export function TurnErrorCard({
   error,
   onReload,
   onRebind,
+  onRetry,
   onDismiss,
   dismissLabel,
   placement = 'timeline',
@@ -32,16 +40,20 @@ export function TurnErrorCard({
   error: ConversationError;
   onReload?: () => void | Promise<unknown>;
   onRebind?: () => void | Promise<unknown>;
+  onRetry?: () => void | Promise<unknown>;
   onDismiss?: () => void;
   dismissLabel?: string;
   placement?: 'timeline' | 'composer';
 }) {
   const { t } = useTranslation(['conversation', 'common']);
   const [reloading, setReloading] = useState(false);
+  const [retrying, setRetrying] = useState(false);
   const view = describeError(error, t);
   const showRebind = view.tone === 'error' && view.canRebind && onRebind;
   const showReload =
     view.tone === 'error' && !showRebind && view.canReload && onReload;
+  const showRetry =
+    view.tone === 'error' && !showRebind && view.canReload && Boolean(onRetry);
 
   const handleReload = () => {
     const action = showRebind ? onRebind : onReload;
@@ -49,6 +61,14 @@ export function TurnErrorCard({
     setReloading(true);
     void Promise.resolve(action()).finally(() => setReloading(false));
   };
+
+  const handleRetry = () => {
+    if (!onRetry) return;
+    setRetrying(true);
+    void Promise.resolve(onRetry()).finally(() => setRetrying(false));
+  };
+
+  const busy = reloading || retrying;
 
   if (placement === 'composer') {
     return (
@@ -70,13 +90,26 @@ export function TurnErrorCard({
               }
             />
           </div>
-          {showRebind || showReload || onDismiss ? (
+          {showRetry || showRebind || showReload || onDismiss ? (
             <div className="composer-status-action-slot">
+              {showRetry ? (
+                <button
+                  type="button"
+                  className="composer-status-action"
+                  disabled={busy}
+                  onClick={handleRetry}
+                >
+                  <RotateCcw
+                    className={cn('h-3.5 w-3.5', retrying && 'animate-spin')}
+                  />
+                  {t('runtime.retry')}
+                </button>
+              ) : null}
               {showRebind || showReload ? (
                 <button
                   type="button"
                   className="composer-status-action"
-                  disabled={reloading}
+                  disabled={busy}
                   onClick={handleReload}
                 >
                   <RefreshCw
@@ -135,25 +168,44 @@ export function TurnErrorCard({
             </div>
           ) : null}
           <PlanUsageAside usage={error.plan_usage} />
-          {showRebind || showReload ? (
-            <div className="mt-2">
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                disabled={reloading}
-                onClick={handleReload}
-              >
-                <RefreshCw
-                  className={cn(
-                    'mr-1 h-3.5 w-3.5',
-                    reloading && 'animate-spin'
-                  )}
-                />
-                {showRebind
-                  ? t('turnErrorCard.rebindSession')
-                  : t('turnErrorCard.reloadSession')}
-              </Button>
+          {showRetry || showRebind || showReload ? (
+            <div className="mt-2 flex flex-wrap items-center gap-2">
+              {showRetry ? (
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  disabled={busy}
+                  onClick={handleRetry}
+                >
+                  <RotateCcw
+                    className={cn(
+                      'mr-1 h-3.5 w-3.5',
+                      retrying && 'animate-spin'
+                    )}
+                  />
+                  {t('runtime.retry')}
+                </Button>
+              ) : null}
+              {showRebind || showReload ? (
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  disabled={busy}
+                  onClick={handleReload}
+                >
+                  <RefreshCw
+                    className={cn(
+                      'mr-1 h-3.5 w-3.5',
+                      reloading && 'animate-spin'
+                    )}
+                  />
+                  {showRebind
+                    ? t('turnErrorCard.rebindSession')
+                    : t('turnErrorCard.reloadSession')}
+                </Button>
+              ) : null}
             </div>
           ) : null}
         </div>

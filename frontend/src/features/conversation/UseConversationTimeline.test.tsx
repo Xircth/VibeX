@@ -432,7 +432,7 @@ describe('useConversationTimeline', () => {
         ...detail().timeline,
         last_sequence: 80n,
         truncated_from_start: true,
-        older_cursor: String(TIMELINE_OLDER_PAGE_SIZE * 2),
+        older_cursor: 'cursor-seq-40-row-mid',
         rows: [assistantRow('t-tail', 'latest', 80n)],
       },
     });
@@ -454,7 +454,7 @@ describe('useConversationTimeline', () => {
     await waitFor(() => expect(timelinePageMock).toHaveBeenCalledTimes(1));
     expect(timelinePageMock).toHaveBeenCalledWith({
       conversationId: CONVERSATION_ID,
-      cursor: String(TIMELINE_OLDER_PAGE_SIZE),
+      cursor: 'cursor-seq-40-row-mid',
       limit: TIMELINE_OLDER_PAGE_SIZE,
     });
 
@@ -462,8 +462,8 @@ describe('useConversationTimeline', () => {
       resolveFirst({
         conversation_id: CONVERSATION_ID,
         projection_version: 2,
-        cursor: String(TIMELINE_OLDER_PAGE_SIZE),
-        next_cursor: String(TIMELINE_OLDER_PAGE_SIZE),
+        cursor: 'cursor-seq-40-row-mid',
+        next_cursor: 'cursor-seq-1-row-early',
         rows: [userRow('t-mid', 'earlier', 40n)],
       });
       await firstPage;
@@ -485,12 +485,17 @@ describe('useConversationTimeline', () => {
       secondPage = result.current.loadOlder();
     });
     await waitFor(() => expect(timelinePageMock).toHaveBeenCalledTimes(2));
+    expect(timelinePageMock).toHaveBeenNthCalledWith(2, {
+      conversationId: CONVERSATION_ID,
+      cursor: 'cursor-seq-1-row-early',
+      limit: TIMELINE_OLDER_PAGE_SIZE,
+    });
 
     await act(async () => {
       resolveSecond({
         conversation_id: CONVERSATION_ID,
         projection_version: 2,
-        cursor: '0',
+        cursor: 'cursor-seq-1-row-early',
         next_cursor: null,
         rows: [userRow('t-early', 'first', 1n)],
       });
@@ -1206,24 +1211,23 @@ describe('useConversationTimeline', () => {
     expect(result.current.timeline).toHaveLength(0);
   });
 
-  it('reloads the file window when a live batch skips sequences', async () => {
+  it('backfills small gaps incrementally with tombstones and falls back to detail on 404', async () => {
     const opened = {
       ...detail(),
       timeline: {
         ...detail().timeline,
         last_sequence: 1n,
-        rows: [userRow('t1', 'q', 1n)],
+        rows: [userRow('t1', 'q', 1n), userRow('t-stale', 'remove-me', 1n)],
       },
     };
-    const reloaded = {
-      ...detail(),
-      timeline: {
-        ...detail().timeline,
-        last_sequence: 6n,
-        rows: [userRow('t1', 'q', 1n), assistantRow('t1', 'hello', 6n)],
-      },
-    };
-    detailMock.mockResolvedValueOnce(opened).mockResolvedValue(reloaded);
+    detailMock.mockResolvedValue(opened);
+    eventsSinceMock.mockResolvedValueOnce({
+      conversation_id: CONVERSATION_ID,
+      after_sequence: 1n,
+      last_sequence: 6n,
+      rows: [assistantRow('t1', 'hello', 6n)],
+      deleted_row_ids: ['t-stale:user'],
+    });
 
     const { result } = renderHook(() =>
       useConversationTimeline(CONVERSATION_ID)
@@ -1250,8 +1254,103 @@ describe('useConversationTimeline', () => {
       flushFrames();
     });
 
+    await waitFor(() =>
+      expect(eventsSinceMock).toHaveBeenCalledWith({
+        conversationId: CONVERSATION_ID,
+        afterSequence: 1n,
+      })
+    );
+    expect(detailMock).toHaveBeenCalledTimes(1);
+    await waitFor(() =>
+      expect(result.current.timeline.map((row) => row.turn.id)).toEqual([
+        't1:user',
+        't1:assistant',
+      ])
+    );
+
+    // Terminal settled upsert must NOT trigger loadDetail reload
+    act(() => {
+      listeners[0]?.(
+        batch([{ op: 'upsert', row: assistantRow('t1', 'hello done', 7n) }], 7n)
+      );
+      flushFrames();
+    });
+    expect(detailMock).toHaveBeenCalledTimes(1);
+
+    // Next small gap where gap RPC returns 404 falls back cleanly to loadDetail
+    eventsSinceMock.mockRejectedValueOnce(
+      new Error('404: unknown command conversation_rows_since')
+    );
+    act(() => {
+      listeners[0]?.(
+        batch([{ op: 'upsert', row: userRow('t2', 'after-404', 12n) }], 12n)
+      );
+      flushFrames();
+    });
+    await waitFor(() => expect(detailMock).toHaveBeenCalledTimes(2));
+  });
+
+  it('reloads the detail window on large sequence gaps (> 256) and reset: true batches', async () => {
+    const opened = {
+      ...detail(),
+      timeline: {
+        ...detail().timeline,
+        last_sequence: 1n,
+        rows: [userRow('t1', 'q', 1n), userRow('t2', 'truncated', 2n)],
+      },
+    };
+    const reloadedAfterLargeGap = {
+      ...detail(),
+      timeline: {
+        ...detail().timeline,
+        last_sequence: 300n,
+        rows: [userRow('t1', 'q', 1n), assistantRow('t1', 'jumped', 300n)],
+      },
+    };
+    const reloadedAfterReset = {
+      ...detail(),
+      timeline: {
+        ...detail().timeline,
+        last_sequence: 1n,
+        rows: [userRow('t1', 'q', 1n)],
+      },
+    };
+    detailMock
+      .mockResolvedValueOnce(opened)
+      .mockResolvedValueOnce(reloadedAfterLargeGap)
+      .mockResolvedValueOnce(reloadedAfterReset);
+
+    const { result } = renderHook(() =>
+      useConversationTimeline(CONVERSATION_ID)
+    );
+
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    await waitFor(() => expect(listeners).toHaveLength(1));
+
+    // Gap of 298 (> 256) triggers full detail reload instead of eventsSince
+    act(() => {
+      listeners[0]?.(
+        batch([{ op: 'upsert', row: assistantRow('t1', 'jumped', 300n) }], 300n)
+      );
+      flushFrames();
+    });
     await waitFor(() => expect(detailMock).toHaveBeenCalledTimes(2));
     expect(eventsSinceMock).not.toHaveBeenCalled();
+
+    // reset: true batch triggers forceReplaceWindow reload and drops truncated rows
+    act(() => {
+      listeners[0]?.({
+        ...batch([{ op: 'upsert', row: userRow('t1', 'q', 1n) }], 1n),
+        reset: true,
+      } as ConversationRowOpBatch);
+      flushFrames();
+    });
+    await waitFor(() => expect(detailMock).toHaveBeenCalledTimes(3));
+    await waitFor(() =>
+      expect(result.current.timeline.map((row) => row.turn.id)).toEqual([
+        't1:user',
+      ])
+    );
   });
 
   it('accumulates streamed text deltas into one assistant bubble', async () => {

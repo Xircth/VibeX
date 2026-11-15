@@ -50,6 +50,9 @@ import {
 import {
   decodeFenceInfoLanguage,
   encodeFenceInfoLanguages,
+  fenceInfoLanguage,
+  isMathFenceLanguage,
+  splitFencedCodeSegments,
 } from '@/lib/conversation-rendering/markdownFences';
 import {
   preprocessForBlockSplit,
@@ -243,7 +246,50 @@ type MarkdownComponentContext = {
   taskId?: string;
   workspacePath?: string | null;
   isStreaming?: boolean;
+  deferCodeHighlight?: boolean;
 };
+
+function analyzeStreamingFenceState(value: string): {
+  hasCodeFence: boolean;
+  hasUnclosedFence: boolean;
+} {
+  if (!value.includes('```') && !value.includes('~~~')) {
+    return { hasCodeFence: false, hasUnclosedFence: false };
+  }
+  const segments = splitFencedCodeSegments(value);
+  let hasCodeFence = false;
+  let hasUnclosedFence = false;
+  for (const segment of segments) {
+    if (segment.kind === 'openFence') {
+      hasCodeFence = true;
+      hasUnclosedFence = true;
+    } else if (segment.kind === 'closedFence') {
+      hasCodeFence = true;
+    }
+  }
+  return { hasCodeFence, hasUnclosedFence };
+}
+
+function neutralizeUnclosedMathFence(value: string): string {
+  const segments = splitFencedCodeSegments(value);
+  const last = segments[segments.length - 1];
+  if (!last || last.kind !== 'openFence') {
+    return value;
+  }
+  if (!isMathFenceLanguage(fenceInfoLanguage(last.text))) {
+    return value;
+  }
+  const rewrittenOpen = last.text.replace(
+    /^(\s*)(`{3,}|~{3,})([^\n\r]*)/,
+    '$1$2text'
+  );
+  return (
+    segments
+      .slice(0, -1)
+      .map((segment) => segment.text)
+      .join('') + rewrittenOpen
+  );
+}
 
 function MarkdownCodeSwitch({
   code,
@@ -252,6 +298,7 @@ function MarkdownCodeSwitch({
   taskId,
   workspacePath,
   isStreaming,
+  deferCodeHighlight,
 }: MarkdownComponentContext & { code: string; language?: string }) {
   const renderers = useMarkdownRenderers();
   const language = decodeFenceInfoLanguage(rawLanguage);
@@ -278,7 +325,8 @@ function MarkdownCodeSwitch({
       </PluginBoundary>
     );
   }
-  if (language?.toLowerCase() === 'mermaid') {
+  const deferHighlight = Boolean(deferCodeHighlight);
+  if (!deferHighlight && language?.toLowerCase() === 'mermaid') {
     return <MermaidDiagram value={code} />;
   }
   if (isHtmlPreviewLanguage(language)) {
@@ -292,12 +340,23 @@ function MarkdownCodeSwitch({
   }
   const className =
     language && language !== 'plaintext' ? `language-${language}` : undefined;
-  const isSingleLine = !code.includes('\n');
+  const isSingleLine = !deferHighlight && !code.includes('\n');
   if (isSingleLine) {
-    return <CompactCodeBlock className={className} value={code} />;
+    return (
+      <CompactCodeBlock
+        className={className}
+        value={code}
+        deferHighlight={deferHighlight}
+      />
+    );
   }
   return (
-    <CodeBlock className={className} value={code} isStreaming={isStreaming} />
+    <CodeBlock
+      className={className}
+      value={code}
+      isStreaming={Boolean(isStreaming && deferHighlight)}
+      deferHighlight={deferHighlight}
+    />
   );
 }
 
@@ -306,6 +365,7 @@ function createMarkdownComponents({
   taskId,
   workspacePath,
   isStreaming,
+  deferCodeHighlight,
 }: MarkdownComponentContext): MarkdownProps['components'] {
   return {
     code: ({ code, language }) => (
@@ -316,6 +376,7 @@ function createMarkdownComponents({
         taskId={taskId}
         workspacePath={workspacePath}
         isStreaming={isStreaming}
+        deferCodeHighlight={deferCodeHighlight}
       />
     ),
     inlineCode: ({ children }) => {
@@ -599,6 +660,7 @@ export const AstryxMarkdown = memo(function AstryxMarkdown({
         taskId,
         workspacePath,
         isStreaming: false,
+        deferCodeHighlight: false,
       }),
     [taskAttemptId, taskId, workspacePath]
   );
@@ -611,6 +673,21 @@ export const AstryxMarkdown = memo(function AstryxMarkdown({
             taskId,
             workspacePath,
             isStreaming: true,
+            deferCodeHighlight: false,
+          })
+        : settledComponents,
+    [isStreaming, settledComponents, taskAttemptId, taskId, workspacePath]
+  );
+
+  const deferredStreamingComponents = useMemo<MarkdownProps['components']>(
+    () =>
+      isStreaming
+        ? createMarkdownComponents({
+            taskAttemptId,
+            taskId,
+            workspacePath,
+            isStreaming: true,
+            deferCodeHighlight: true,
           })
         : settledComponents,
     [isStreaming, settledComponents, taskAttemptId, taskId, workspacePath]
@@ -651,29 +728,46 @@ export const AstryxMarkdown = memo(function AstryxMarkdown({
         continue;
       }
 
+      const fenceState = isStreaming
+        ? analyzeStreamingFenceState(block.text)
+        : { hasCodeFence: false, hasUnclosedFence: false };
+      const activeBlockText = fenceState.hasUnclosedFence
+        ? neutralizeUnclosedMathFence(block.text)
+        : block.text;
+
       elements.push(
-        compileMarkdownBlockElement(block.text, {
+        compileMarkdownBlockElement(activeBlockText, {
           softBreaks,
           rawHtml,
           workspacePath,
           enableMemberMentions: memberMentionCtx.enableMemberMentions,
           knownNicknames: memberMentionCtx.knownNicknames,
-          isStreaming: Boolean(isStreaming),
-          components: activeComponents,
+          isStreaming: Boolean(isStreaming) && !fenceState.hasCodeFence,
+          components: fenceState.hasUnclosedFence
+            ? deferredStreamingComponents
+            : activeComponents,
         })
       );
     }
 
     if (tagAppendix) {
+      const appendixFenceState = isStreaming
+        ? analyzeStreamingFenceState(tagAppendix)
+        : { hasCodeFence: false, hasUnclosedFence: false };
+      const appendixText = appendixFenceState.hasUnclosedFence
+        ? neutralizeUnclosedMathFence(tagAppendix)
+        : tagAppendix;
       elements.push(
-        compileMarkdownBlockElement(tagAppendix, {
+        compileMarkdownBlockElement(appendixText, {
           softBreaks,
           rawHtml,
           workspacePath,
           enableMemberMentions: memberMentionCtx.enableMemberMentions,
           knownNicknames: memberMentionCtx.knownNicknames,
-          isStreaming: Boolean(isStreaming),
-          components: activeComponents,
+          isStreaming: Boolean(isStreaming) && !appendixFenceState.hasCodeFence,
+          components: appendixFenceState.hasUnclosedFence
+            ? deferredStreamingComponents
+            : activeComponents,
         })
       );
     }
@@ -681,6 +775,7 @@ export const AstryxMarkdown = memo(function AstryxMarkdown({
     return elements;
   }, [
     activeComponents,
+    deferredStreamingComponents,
     isStreaming,
     memberMentionCtx.enableMemberMentions,
     memberMentionCtx.knownNicknames,

@@ -34,12 +34,6 @@ pub use self::codec::encode_turns;
 
 const TAIL_TURNS_DEFAULT: usize = 120;
 
-/// Every VibeX conversation streams its live turn deltas into its canonical
-/// `acp-transcripts/<agent_dir>/<conversation_id>.jsonl` file.
-pub fn uses_acp_transcript(_kind: Option<AgentKind>) -> bool {
-    true
-}
-
 /// Content that lives in the transcript file. These events are not inserted
 /// into `conversation_events`; the live projector folds them in memory.
 pub fn is_transcript_delta(event: &ConversationEvent) -> bool {
@@ -1003,58 +997,6 @@ async fn exclude_unprompted_pending(
         })
     });
     Ok(())
-}
-
-/// A reserved input that never reached a runtime still belongs to product history.
-/// Stable Turn IDs make recovery safe after file publication but before settlement.
-#[allow(dead_code)]
-pub(crate) async fn preserve_unprompted_input(
-    pool: &SqlitePool,
-    conversation: Uuid,
-    turn_id: Uuid,
-) -> Result<(), sqlx::Error> {
-    let Some(turn) = ConversationTurnRecord::find_by_id(pool, turn_id).await? else {
-        return Ok(());
-    };
-    if turn.prompt_id.is_some() {
-        return Ok(());
-    }
-    let expected = format!("{turn_id}:user");
-    let existing = load_all_turns(pool, conversation)
-        .await?
-        .unwrap_or_default();
-    if existing.iter().any(|item| item.id.ends_with(&expected)) {
-        // Projection fallback is not yet file authority.
-        if !db::models::conversation_transcript::ConversationTranscriptSegment::list(
-            pool,
-            conversation,
-        )
-        .await?
-        .is_empty()
-        {
-            return Ok(());
-        }
-    }
-    let projected = message_turns(&ConversationProjector::project(pool, conversation).await?);
-    let Some(item) = projected.into_iter().find(|item| item.id == expected) else {
-        return Ok(());
-    };
-    preserve_transcript_before_detach(pool, conversation).await?;
-    let existing =
-        crate::transcript_segments::read_in(pool, &vibex_acp_transcripts_root(), conversation)
-            .await?
-            .unwrap_or_default();
-    if existing.iter().any(|item| item.id.ends_with(&expected)) {
-        return Ok(());
-    }
-    crate::transcript_segments::import_snapshot_in(
-        pool,
-        &vibex_acp_transcripts_root(),
-        conversation,
-        "session",
-        &[item],
-    )
-    .await
 }
 
 /// Bind a concrete runtime connection to the only product-history writer target.

@@ -920,17 +920,14 @@ fn session_stats_from_turns(turns: &[&MessageTurn]) -> Option<SessionStats> {
 
 /// A stored event as seen by the read side: either a known domain event, or an
 /// `Unknown` wrapper for an event this build can't parse (e.g. one written by a
-/// newer app version ? see [`event_version`](ConversationEventRecord::event_version)).
+/// newer app version — see [`event_version`](ConversationEventRecord::event_version)).
 #[allow(clippy::large_enum_variant)]
 pub(super) enum ParsedEvent {
     Known(ConversationEvent),
     /// The `normalized_json` did not match any known variant. `kind` is the event's
-    /// `"kind"` discriminant (falling back to the stored `event_kind` column), and
-    /// `raw` is the original payload so nothing is lost.
+    /// `"kind"` discriminant (falling back to the stored `event_kind` column).
     Unknown {
         kind: String,
-        #[allow(dead_code)]
-        raw: serde_json::Value,
     },
 }
 pub(super) fn conversation_input_event_id(event: &ConversationInputEvent) -> Uuid {
@@ -949,14 +946,15 @@ pub(super) fn conversation_event_from_record(record: &ConversationEventRecord) -
     match serde_json::from_str::<ConversationEvent>(&record.normalized_json) {
         Ok(event) => ParsedEvent::Known(event),
         Err(_) => {
-            let raw = serde_json::from_str::<serde_json::Value>(&record.normalized_json)
-                .unwrap_or_default();
-            let kind = raw
-                .get("kind")
-                .and_then(serde_json::Value::as_str)
-                .map(str::to_owned)
+            let kind = serde_json::from_str::<serde_json::Value>(&record.normalized_json)
+                .ok()
+                .and_then(|raw| {
+                    raw.get("kind")
+                        .and_then(serde_json::Value::as_str)
+                        .map(str::to_owned)
+                })
                 .unwrap_or_else(|| record.event_kind.clone());
-            ParsedEvent::Unknown { kind, raw }
+            ParsedEvent::Unknown { kind }
         }
     }
 }

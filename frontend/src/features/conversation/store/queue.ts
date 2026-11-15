@@ -20,31 +20,45 @@ export function mergePatchedBlocks(
   incoming: ContentBlock[]
 ): ContentBlock[] {
   const next = existing.slice();
+  const indexById = new Map<string, number>();
+  let planIndex = -1;
+  for (let i = 0; i < next.length; i++) {
+    const b = next[i];
+    if (!b) continue;
+    if (b.type === 'tool_use' && b.tool_use_id) {
+      indexById.set(`tool_use:${b.tool_use_id}`, i);
+    } else if (b.type === 'tool_result' && b.tool_use_id) {
+      indexById.set(`tool_result:${b.tool_use_id}`, i);
+    } else if (b.type === 'plan') {
+      planIndex = i;
+    }
+  }
   for (const block of incoming) {
-    if (block.type === 'tool_use') {
-      const id = block.tool_use_id;
-      const match = next.findIndex(
-        (candidate) =>
-          candidate.type === 'tool_use' &&
-          Boolean(id) &&
-          candidate.tool_use_id === id
-      );
-      if (match >= 0) next[match] = block;
-      else next.push(block);
-    } else if (block.type === 'tool_result') {
-      const id = block.tool_use_id;
-      const match = next.findIndex(
-        (candidate) =>
-          candidate.type === 'tool_result' &&
-          Boolean(id) &&
-          candidate.tool_use_id === id
-      );
-      if (match >= 0) next[match] = block;
-      else next.push(block);
+    if (block.type === 'tool_use' && block.tool_use_id) {
+      const key = `tool_use:${block.tool_use_id}`;
+      const match = indexById.get(key);
+      if (match !== undefined) {
+        next[match] = block;
+      } else {
+        indexById.set(key, next.length);
+        next.push(block);
+      }
+    } else if (block.type === 'tool_result' && block.tool_use_id) {
+      const key = `tool_result:${block.tool_use_id}`;
+      const match = indexById.get(key);
+      if (match !== undefined) {
+        next[match] = block;
+      } else {
+        indexById.set(key, next.length);
+        next.push(block);
+      }
     } else if (block.type === 'plan') {
-      const match = next.findIndex((candidate) => candidate.type === 'plan');
-      if (match >= 0) next[match] = block;
-      else next.push(block);
+      if (planIndex >= 0) {
+        next[planIndex] = block;
+      } else {
+        planIndex = next.length;
+        next.push(block);
+      }
     } else {
       next.push(block);
     }

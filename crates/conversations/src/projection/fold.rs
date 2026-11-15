@@ -27,7 +27,7 @@ impl ProjectionFold {
         self.last_sequence = self.last_sequence.max(record.sequence);
         let event = match conversation_event_from_record(record) {
             ParsedEvent::Known(event) => event,
-            ParsedEvent::Unknown { kind, .. } => {
+            ParsedEvent::Unknown { kind } => {
                 return self.apply_unknown_event_notice(record, &kind);
             }
         };

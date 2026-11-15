@@ -559,7 +559,7 @@ export function AutomationRulesTab({
                 aria-label={t('pulseFilter.selectSampleAria')}
                 value={selectedSampleId}
                 onChange={(e) => setSelectedSampleId(e.target.value)}
-                className="h-7 rounded-md border border-border bg-background px-2 text-2xs text-foreground"
+                className="raised-control h-7 rounded-md px-2 text-2xs text-foreground"
               >
                 {sampleOptions.map((sample) => (
                   <option key={sample.eventId} value={sample.eventId}>

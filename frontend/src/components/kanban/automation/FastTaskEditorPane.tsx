@@ -479,7 +479,7 @@ export function FastTaskEditorPane({
                     },
                   });
                 }}
-                className="h-8 w-full rounded-md border border-border bg-[var(--surface-control)] px-2.5 text-xs text-foreground"
+                className="raised-control h-8 w-full rounded-md px-2.5 text-xs text-foreground"
               >
                 <option value="">
                   {t('pulseDeck.workbench.editor.event.anySourceOfKind')}
@@ -606,7 +606,7 @@ export function FastTaskEditorPane({
                     onSpecChange({ ...draftSpec, temporal: null });
                   }
                 }}
-                className="h-8 w-full rounded-md border border-border bg-[var(--surface-control)] px-2.5 text-xs text-foreground"
+                className="raised-control h-8 w-full rounded-md px-2.5 text-xs text-foreground"
               >
                 <option value="none">
                   {t('pulseDeck.workbench.editor.event.scheduleNone')}
@@ -780,7 +780,7 @@ export function FastTaskEditorPane({
                       });
                     }
                   }}
-                  className="h-8 w-full rounded-md border border-border bg-[var(--surface-control)] px-2.5 text-xs text-foreground"
+                  className="raised-control h-8 w-full rounded-md px-2.5 text-xs text-foreground"
                 >
                   <option value="">
                     {t(

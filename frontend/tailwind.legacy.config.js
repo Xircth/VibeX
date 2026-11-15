@@ -1,3 +1,12 @@
+const fs = require('fs');
+const postcss = require('postcss');
+const plugin = require('tailwindcss/plugin');
+
+const preflightCss = fs.readFileSync(
+  require.resolve('tailwindcss/lib/css/preflight.css'),
+  'utf8'
+);
+
 const statusText = (status) =>
   `color-mix(in srgb, var(--status-${status}-text) calc(<alpha-value> * 100%), transparent)`;
 
@@ -5,6 +14,9 @@ const statusText = (status) =>
 module.exports = {
   darkMode: ['class'],
   important: '.legacy-design',
+  corePlugins: {
+    preflight: false,
+  },
   content: [
     './pages/**/*.{ts,tsx}',
     './components/**/*.{ts,tsx}',
@@ -179,5 +191,16 @@ module.exports = {
       },
     },
   },
-  plugins: [require('tailwindcss-animate')],
+  plugins: [
+    plugin(({ addBase }) => {
+      const root = postcss.parse(preflightCss);
+      const resetLayer = postcss.atRule({
+        name: 'layer',
+        params: 'reset',
+        nodes: root.nodes,
+      });
+      addBase(resetLayer);
+    }),
+    require('tailwindcss-animate'),
+  ],
 };

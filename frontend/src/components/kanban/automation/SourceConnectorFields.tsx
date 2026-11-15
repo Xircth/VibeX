@@ -132,7 +132,7 @@ export function SourceConnectorFields({
                 onChange={(e) =>
                   onGithubPollSecondsChange(Number(e.target.value) || 60)
                 }
-                className="h-8 w-full rounded-md border border-border bg-[var(--surface-control)] px-2.5 text-xs tabular-nums text-foreground"
+                className="raised-control h-8 w-full rounded-md px-2.5 text-xs tabular-nums text-foreground"
               >
                 <option value={30}>30s</option>
                 <option value={60}>60s</option>

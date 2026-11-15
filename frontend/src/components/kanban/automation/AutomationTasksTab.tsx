@@ -332,6 +332,9 @@ export function AutomationTasksTab(props: AutomationTasksTabProps) {
           config={powerSearchConfig}
           filters={powerSearchFilters}
           onChange={(next) => setPowerSearchFilters(next)}
+          label={t('pulseDeck.workbench.tasks.searchPlaceholder')}
+          isLabelHidden
+          hasClear
           placeholder={t('pulseDeck.workbench.tasks.searchPlaceholder')}
           resultCount={t('pulseDeck.workbench.tasks.resultCount', {
             count: filteredTasks.length,
@@ -377,9 +380,15 @@ export function AutomationTasksTab(props: AutomationTasksTabProps) {
   );
 
   const masterPane = (
-    <div data-testid="automation-tasks-list" className="min-h-0 flex-1">
+    <div
+      data-testid="automation-tasks-list"
+      className="flex h-full min-h-0 flex-1 flex-col"
+    >
       {filteredTasks.length === 0 ? (
-        <div data-testid="automation-tasks-empty" className="p-8">
+        <div
+          data-testid="automation-tasks-empty"
+          className="flex flex-1 items-center justify-center p-8"
+        >
           <EmptyState
             icon={<Icon icon={Zap} size="lg" color="secondary" />}
             title={t('pulseDeck.workbench.tasks.emptyTitle')}

@@ -206,7 +206,7 @@ export function FastTaskTargetEditor({
               onChange={(e) =>
                 setTarget({ ...currentTarget, agentId: e.target.value })
               }
-              className="h-8 w-full rounded-md border border-border bg-[var(--surface-control)] px-2.5 text-xs text-foreground"
+              className="raised-control h-8 w-full rounded-md px-2.5 text-xs text-foreground"
             >
               {agentChoices.map((agent) => (
                 <option key={agent.value} value={agent.value}>
@@ -230,7 +230,7 @@ export function FastTaskTargetEditor({
                     .value as PulseWorkspaceIsolation,
                 })
               }
-              className="h-8 w-full rounded-md border border-border bg-[var(--surface-control)] px-2.5 text-xs text-foreground"
+              className="raised-control h-8 w-full rounded-md px-2.5 text-xs text-foreground"
             >
               <option value="isolated_worktree">
                 {t('pulseDeck.workbench.editor.target.isolationWorktree')}
@@ -257,7 +257,7 @@ export function FastTaskTargetEditor({
                   mode: e.target.value as SessionTargetMode,
                 })
               }
-              className="h-8 w-full rounded-md border border-border bg-[var(--surface-control)] px-2.5 text-xs text-foreground"
+              className="raised-control h-8 w-full rounded-md px-2.5 text-xs text-foreground"
             >
               <option value="thread_keyed">
                 {t('pulseDeck.workbench.editor.target.sessionThreadKeyed')}
@@ -289,7 +289,7 @@ export function FastTaskTargetEditor({
                 onChange={(e) =>
                   setTarget({ ...currentTarget, memberId: e.target.value })
                 }
-                className="h-8 rounded-md border border-border bg-[var(--surface-control)] px-2 text-xs text-foreground"
+                className="raised-control h-8 rounded-md px-2 text-xs text-foreground"
               >
                 <option value="triage-bot">
                   {t('pulseDeck.workbench.editor.target.botPresetTriage')}
@@ -325,7 +325,7 @@ export function FastTaskTargetEditor({
                   mailboxPolicy: e.target.value as BotMailboxPolicy,
                 })
               }
-              className="h-8 w-full rounded-md border border-border bg-[var(--surface-control)] px-2.5 text-xs text-foreground"
+              className="raised-control h-8 w-full rounded-md px-2.5 text-xs text-foreground"
             >
               <option value="fifo_serial">
                 {t('pulseDeck.workbench.editor.target.mailboxSerial')}
@@ -372,7 +372,7 @@ export function FastTaskTargetEditor({
                         },
                 })
               }
-              className="h-8 w-full rounded-md border border-border bg-[var(--surface-control)] px-2.5 text-xs text-foreground"
+              className="raised-control h-8 w-full rounded-md px-2.5 text-xs text-foreground"
             >
               <option value="moderator_triage">
                 {t('pulseDeck.workbench.editor.target.groupModerator')}
@@ -421,7 +421,7 @@ export function FastTaskTargetEditor({
                   interactionKind: e.target.value as UserInteractionKind,
                 })
               }
-              className="h-8 w-full rounded-md border border-border bg-[var(--surface-control)] px-2.5 text-xs text-foreground"
+              className="raised-control h-8 w-full rounded-md px-2.5 text-xs text-foreground"
             >
               <option value="approval">
                 {t('pulseDeck.workbench.editor.target.userApproval')}

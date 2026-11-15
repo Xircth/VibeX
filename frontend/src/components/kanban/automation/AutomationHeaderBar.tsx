@@ -137,7 +137,7 @@ export function AutomationHeaderBar({
 
   return (
     <LayoutHeader hasDivider padding={4}>
-      <VStack gap={3}>
+      <VStack gap={4}>
         <HStack gap={3} vAlign="center">
           <HStack gap={2} vAlign="center">
             <Heading level={2}>{t('pulseDeck.title')}</Heading>
@@ -152,6 +152,11 @@ export function AutomationHeaderBar({
               </Text>
             </HStack>
           </HStack>
+
+          <span
+            aria-hidden="true"
+            className="mx-1 h-4 w-px shrink-0 bg-border/70"
+          />
 
           <StackItem size="fill">
             <TabList

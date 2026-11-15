@@ -21,7 +21,7 @@ import type { AutomationTaskStatus } from './automationModels';
 export const groupHeaderCell: CSSProperties = {
   cursor: 'pointer',
   backgroundColor: 'var(--color-background-muted)',
-  padding: 'var(--spacing-2) var(--spacing-4)',
+  padding: 'var(--spacing-3) var(--spacing-4)',
 };
 
 export const selectedTableRowStyle: CSSProperties = {
@@ -121,9 +121,9 @@ export function AutomationSplitFrame({
   header,
   master,
   detail,
-  defaultDetailSize = 440,
-  minDetailSize = 340,
-  maxDetailSize = 640,
+  defaultDetailSize = 500,
+  minDetailSize = 380,
+  maxDetailSize = 680,
   panelLabel,
   testId,
 }: {

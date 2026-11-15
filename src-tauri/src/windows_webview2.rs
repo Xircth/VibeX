@@ -77,11 +77,17 @@ pub fn should_apply_medium_integrity_sacl(
     })
 }
 
+pub const DEV_APP_IDENTIFIER_ENV: &str = "VIBEX_DEV_APP_IDENTIFIER";
+
+pub fn is_dev_webview2_identifier(identifier: &str) -> bool {
+    identifier == "com.vibex.app.dev" || identifier.starts_with("com.vibex.app.dev.")
+}
+
 /// WebView2 user-data folder identifier for this executable.
 ///
-/// `pnpm run dev` uses `com.vibex.app.dev`; the installed product uses
-/// `com.vibex.app`. The two must stay distinct so a running install cannot
-/// busy-lock a debug restart.
+/// `pnpm run dev` uses `com.vibex.app.dev` (or `com.vibex.app.dev.<worktree>`);
+/// the installed product uses `com.vibex.app`. The two must stay distinct so a
+/// running install or sibling worktree cannot busy-lock a debug restart.
 pub fn webview2_identifier_for_executable(exe: &std::path::Path) -> &'static str {
     let text = exe
         .to_string_lossy()
@@ -94,15 +100,34 @@ pub fn webview2_identifier_for_executable(exe: &std::path::Path) -> &'static str
     }
 }
 
+pub fn resolve_webview2_identifier_for_executable(
+    exe: &std::path::Path,
+    env_override: Option<&str>,
+) -> String {
+    let base = webview2_identifier_for_executable(exe);
+    if base == "com.vibex.app.dev"
+        && let Some(raw) = env_override.map(str::trim).filter(|raw| !raw.is_empty())
+        && is_dev_webview2_identifier(raw)
+        && raw
+            .chars()
+            .all(|ch| ch.is_ascii_alphanumeric() || ch == '.' || ch == '-')
+    {
+        return raw.to_string();
+    }
+    base.to_string()
+}
+
 /// PowerShell `-like` pattern for leftover `msedgewebview2.exe` command lines.
 ///
 /// `com.vibex.app` is a prefix of `com.vibex.app.dev`, so the product pattern
 /// matches the `EBWebView` path segment instead of the identifier alone.
-pub fn webview2_command_line_like_pattern(identifier: &str) -> &'static str {
+pub fn webview2_command_line_like_pattern(identifier: &str) -> String {
     if identifier == "com.vibex.app.dev" {
-        "*com.vibex.app.dev*"
+        "*com.vibex.app.dev*".to_string()
+    } else if identifier.starts_with("com.vibex.app.dev.") {
+        format!("*\\{identifier}\\EBWebView*")
     } else {
-        "*\\com.vibex.app\\EBWebView*"
+        "*\\com.vibex.app\\EBWebView*".to_string()
     }
 }
 
@@ -311,7 +336,7 @@ pub(crate) fn build_reclaim_orphaned_webview2_script(
     let like = webview2_command_line_like_pattern(identifier);
     let exe_literal = format!("'{}'", exe.to_string_lossy().replace('\'', "''"));
     let parent_pid = sandbox_parent_pid.unwrap_or(0);
-    let force_kill_predecessor = if identifier == "com.vibex.app.dev" {
+    let force_kill_predecessor = if is_dev_webview2_identifier(identifier) {
         "$true"
     } else {
         "$false"
@@ -333,11 +358,12 @@ mod win32_desktop {
     };
 
     use super::{
-        INTERACTIVE_DESKTOP_RELAUNCHED_ENV, SANDBOX_PARENT_PID_ENV,
+        DEV_APP_IDENTIFIER_ENV, INTERACTIVE_DESKTOP_RELAUNCHED_ENV, SANDBOX_PARENT_PID_ENV,
         build_reclaim_orphaned_webview2_script, debug_webview2_environment_dir,
-        remove_stale_debug_run_user_data, remove_stale_webview2_user_data,
+        is_dev_webview2_identifier, remove_stale_debug_run_user_data,
+        remove_stale_webview2_user_data, resolve_webview2_identifier_for_executable,
         should_apply_medium_integrity_sacl, should_relaunch_on_interactive_desktop,
-        webview2_identifier_for_executable, webview2_user_data_dir, webview2_user_data_is_locked,
+        webview2_user_data_dir, webview2_user_data_is_locked,
     };
 
     const PREVIOUS_EXE_WAIT: Duration = Duration::from_secs(3);
@@ -346,7 +372,7 @@ mod win32_desktop {
         if user_data.is_some_and(webview2_user_data_is_locked) {
             return true;
         }
-        if identifier == "com.vibex.app.dev"
+        if is_dev_webview2_identifier(identifier)
             && webview2_user_data_is_locked(&debug_webview2_environment_dir())
         {
             return true;
@@ -365,18 +391,19 @@ mod win32_desktop {
         let Ok(exe) = std::env::current_exe() else {
             return;
         };
-        let identifier = webview2_identifier_for_executable(&exe);
+        let env_override = std::env::var(DEV_APP_IDENTIFIER_ENV).ok();
+        let identifier = resolve_webview2_identifier_for_executable(&exe, env_override.as_deref());
         let self_pid = std::process::id();
-        let user_data = webview2_user_data_dir(identifier);
+        let user_data = webview2_user_data_dir(&identifier);
 
-        if webview2_identity_needs_reclaim(identifier, user_data.as_deref()) {
+        if webview2_identity_needs_reclaim(&identifier, user_data.as_deref()) {
             let sandbox_parent_pid = std::env::var(SANDBOX_PARENT_PID_ENV)
                 .ok()
                 .and_then(|raw| raw.trim().parse::<u32>().ok());
             let wait_ms = PREVIOUS_EXE_WAIT.as_millis();
             let script = build_reclaim_orphaned_webview2_script(
                 &exe,
-                identifier,
+                &identifier,
                 self_pid,
                 sandbox_parent_pid,
                 wait_ms,
@@ -404,7 +431,7 @@ mod win32_desktop {
             .name("wv2-stale-cleanup".to_string())
             .spawn(move || {
                 remove_stale_webview2_user_data(&user_data);
-                if identifier == "com.vibex.app.dev" {
+                if is_dev_webview2_identifier(&identifier) {
                     remove_stale_debug_run_user_data(
                         &utils::assets::asset_dir().join("webview-profiles"),
                         self_pid,

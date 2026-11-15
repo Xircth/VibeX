@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 const { spawn, spawnSync } = require('child_process');
+const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 const { withNativeBuildEnv } = require('./cargo-path');
@@ -22,13 +23,45 @@ const DESKTOP_DEV_IDENTITY = {
   productName: 'VibeX Dev',
 };
 
-function applyDesktopDevIdentity(config) {
+function resolveDesktopDevIdentity(workspaceRoot = process.cwd()) {
+  const dotGitPath = path.join(workspaceRoot, '.git');
+  let isLinkedWorktree = false;
+  try {
+    isLinkedWorktree = fs.statSync(dotGitPath).isFile();
+  } catch {
+    isLinkedWorktree = false;
+  }
+  if (!isLinkedWorktree) {
+    return DESKTOP_DEV_IDENTITY;
+  }
+
+  let canonicalRoot = path.resolve(workspaceRoot);
+  try {
+    canonicalRoot = fs.realpathSync(workspaceRoot);
+  } catch {
+    // Keep path.resolve fallback if realpath fails on transient junctions.
+  }
+  const normalized = canonicalRoot.replace(/\\/g, '/').toLowerCase();
+  const suffix = crypto
+    .createHash('sha256')
+    .update(normalized)
+    .digest('hex')
+    .slice(0, 8);
+
+  return {
+    deepLinkScheme: `${DESKTOP_DEV_IDENTITY.deepLinkScheme}-${suffix}`,
+    identifier: `${DESKTOP_DEV_IDENTITY.identifier}.${suffix}`,
+    productName: DESKTOP_DEV_IDENTITY.productName,
+  };
+}
+
+function applyDesktopDevIdentity(config, identity = DESKTOP_DEV_IDENTITY) {
   const next = JSON.parse(JSON.stringify(config));
-  next.identifier = DESKTOP_DEV_IDENTITY.identifier;
-  next.productName = DESKTOP_DEV_IDENTITY.productName;
+  next.identifier = identity.identifier;
+  next.productName = identity.productName;
   for (const window of next.app?.windows ?? []) {
     if (window.title === 'VibeX') {
-      window.title = DESKTOP_DEV_IDENTITY.productName;
+      window.title = identity.productName;
     }
   }
   // Skip config-created `main`. Tauri would give it
@@ -42,7 +75,7 @@ function applyDesktopDevIdentity(config) {
   }
   const desktop = next.plugins?.['deep-link']?.desktop;
   if (desktop) {
-    desktop.schemes = [DESKTOP_DEV_IDENTITY.deepLinkScheme];
+    desktop.schemes = [identity.deepLinkScheme];
   }
   return next;
 }
@@ -59,7 +92,11 @@ function runCommand(command, args, options = {}) {
   return spawn(command, args, options);
 }
 
-function createCargoLeanDevEnv(ports, baseEnv = process.env) {
+function createCargoLeanDevEnv(
+  ports,
+  baseEnv = process.env,
+  identity = DESKTOP_DEV_IDENTITY
+) {
   const env = applyLocalEnvFile(LOCAL_ENV_FILE, baseEnv);
   return applySidecarDevEnv(
     withNativeBuildEnv({
@@ -69,6 +106,8 @@ function createCargoLeanDevEnv(ports, baseEnv = process.env) {
       BACKEND_PORT: String(ports.backend),
       SQLX_OFFLINE: env.SQLX_OFFLINE || 'true',
       SQLX_OFFLINE_DIR: env.SQLX_OFFLINE_DIR || SQLX_OFFLINE_DIR,
+      VIBEX_DEV_APP_IDENTIFIER:
+        env.VIBEX_DEV_APP_IDENTIFIER || identity.identifier,
     }),
     { repo: WORKSPACE_ROOT }
   );
@@ -177,11 +216,17 @@ function clearRelocatedCargoBuildCache() {
   }
 }
 
-function windowsStaleDesktopCleanupScript() {
+function windowsStaleDesktopCleanupScript(
+  identifier = DESKTOP_DEV_IDENTITY.identifier
+) {
   // One line: multiline -Command scripts are truncated or ignored by
   // CreateProcess, which left a running debug exe locking vibex.exe.
   // WebView2 children are listed as Microsoft Edge WebView2, not VibeX, and
-  // they keep %LOCALAPPDATA%\com.vibex.app.dev busy (HRESULT 0x800700AA).
+  // they keep %LOCALAPPDATA%\<identifier>\EBWebView busy (HRESULT 0x800700AA).
+  // Match `\<identifier>\EBWebView` so a main-repo `com.vibex.app.dev` cleanup
+  // never kills a linked worktree's `com.vibex.app.dev.<hash>` WebView2 or vice versa.
+  const safeIdentifier = String(identifier).replace(/'/g, "''");
+  const webview2Pattern = `*\\${safeIdentifier}\\EBWebView*`;
   return (
     "$target = [System.IO.Path]::GetFullPath($env:VIBEX_STALE_EXE_PATH); " +
     "Get-CimInstance Win32_Process -Filter \"Name = 'vibex.exe'\" | " +
@@ -189,19 +234,22 @@ function windowsStaleDesktopCleanupScript() {
     'ForEach-Object { taskkill.exe /F /PID $_.ProcessId /T | Out-Null; ' +
     'Wait-Process -Id $_.ProcessId -Timeout 8 -ErrorAction SilentlyContinue }; ' +
     "Get-CimInstance Win32_Process -Filter \"Name = 'msedgewebview2.exe'\" | " +
-    "Where-Object { $_.CommandLine -and $_.CommandLine -like '*com.vibex.app.dev*' } | " +
+    `Where-Object { $_.CommandLine -and $_.CommandLine -like '${webview2Pattern}' } | ` +
     'ForEach-Object { taskkill.exe /F /PID $_.ProcessId /T | Out-Null; ' +
     'Wait-Process -Id $_.ProcessId -Timeout 8 -ErrorAction SilentlyContinue }; ' +
     'Start-Sleep -Milliseconds 400'
   );
 }
 
-function webview2DevUserDataDir(env = process.env) {
+function webview2DevUserDataDir(
+  env = process.env,
+  identifier = DESKTOP_DEV_IDENTITY.identifier
+) {
   const root = env.LOCALAPPDATA;
   if (!root) {
     return null;
   }
-  return path.join(root, DESKTOP_DEV_IDENTITY.identifier);
+  return path.join(root, identifier);
 }
 
 function removeStaleWebView2UserData(dir) {
@@ -260,19 +308,24 @@ function relocateStaleWebView2UserData(dir, now = Date.now()) {
   return null;
 }
 
-function terminateStaleDesktopProcess() {
+function terminateStaleDesktopProcess(
+  workspaceRoot = process.cwd(),
+  identity = resolveDesktopDevIdentity(workspaceRoot)
+) {
   if (process.platform !== 'win32') {
     return;
   }
 
   const executablePath = path.join(
-    process.cwd(),
+    workspaceRoot,
     'target',
     'debug',
     'vibex.exe'
   );
 
-  const powershellScript = windowsStaleDesktopCleanupScript();
+  const powershellScript = windowsStaleDesktopCleanupScript(
+    identity.identifier
+  );
 
   const result = spawnSync(
     'powershell.exe',
@@ -301,7 +354,9 @@ function terminateStaleDesktopProcess() {
   }
 
   waitUntilDebugExeWritable(executablePath);
-  relocateStaleWebView2UserData(webview2DevUserDataDir());
+  relocateStaleWebView2UserData(
+    webview2DevUserDataDir(process.env, identity.identifier)
+  );
 }
 
 function waitUntilDebugExeWritable(executablePath) {
@@ -335,18 +390,23 @@ function waitUntilDebugExeWritable(executablePath) {
   process.exit(1);
 }
 
-function writeGeneratedTauriDevConfig(ports) {
+function writeGeneratedTauriDevConfig(
+  ports,
+  workspaceRoot = process.cwd(),
+  identity = resolveDesktopDevIdentity(workspaceRoot)
+) {
   const baseConfigPath = path.join(
-    process.cwd(),
+    workspaceRoot,
     'src-tauri',
     'tauri.conf.json'
   );
   const generatedConfigPath = path.join(
-    process.cwd(),
+    workspaceRoot,
     GENERATED_TAURI_DEV_CONFIG
   );
   const config = applyDesktopDevIdentity(
-    JSON.parse(fs.readFileSync(baseConfigPath, 'utf8'))
+    JSON.parse(fs.readFileSync(baseConfigPath, 'utf8')),
+    identity
   );
 
   config.build = {
@@ -374,12 +434,13 @@ function describeTauriDevExit(code, signal, ports) {
 
 async function runTauriDesktopDev() {
   const ports = await getPorts();
-  writeGeneratedTauriDevConfig(ports);
+  const identity = resolveDesktopDevIdentity(WORKSPACE_ROOT);
+  writeGeneratedTauriDevConfig(ports, WORKSPACE_ROOT, identity);
 
-  const env = createCargoLeanDevEnv(ports);
+  const env = createCargoLeanDevEnv(ports, process.env, identity);
   clearRelocatedCargoBuildCache();
   clearIncrementalCacheIfDisabled(env);
-  terminateStaleDesktopProcess();
+  terminateStaleDesktopProcess(WORKSPACE_ROOT, identity);
   rebuildHostSidecars({ repo: WORKSPACE_ROOT, env });
   const sidecarWatch = watchHostSidecars({
     repo: WORKSPACE_ROOT,
@@ -430,6 +491,7 @@ module.exports = {
   createCargoLeanDevEnv,
   DESKTOP_DEV_IDENTITY,
   relocateStaleWebView2UserData,
+  resolveDesktopDevIdentity,
   webview2DevUserDataDir,
   windowsStaleDesktopCleanupScript,
 };

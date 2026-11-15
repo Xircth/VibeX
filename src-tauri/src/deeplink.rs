@@ -61,7 +61,10 @@ pub fn take_pending_model_router_import() -> Option<PendingModelRouterImport> {
 }
 
 pub fn is_vibex_scheme(scheme: &str) -> bool {
-    scheme.eq_ignore_ascii_case("vibex") || scheme.eq_ignore_ascii_case("vibex-dev")
+    let normalized = scheme.to_ascii_lowercase();
+    normalized == "vibex"
+        || normalized == "vibex-dev"
+        || normalized.starts_with("vibex-dev-")
 }
 
 pub fn parse_model_router_import(url: &url::Url) -> Option<(String, Option<String>)> {

@@ -11,6 +11,7 @@ const {
   createCargoLeanDevEnv,
   DESKTOP_DEV_IDENTITY,
   relocateStaleWebView2UserData,
+  resolveDesktopDevIdentity,
   webview2DevUserDataDir,
   windowsStaleDesktopCleanupScript,
 } = require('./run-tauri-dev-desktop');
@@ -92,6 +93,47 @@ test('desktop dev uses a distinct app identity from the installed product', () =
   ]);
   assert.notEqual(generated.identifier, product.identifier);
   assert.equal(product.identifier, 'com.vibex.app');
+});
+
+test('linked Git worktrees receive deterministic isolated dev identities', () => {
+  const sandbox = fs.mkdtempSync(path.join(os.tmpdir(), 'vibex-wt-id-'));
+  const mainRepo = path.join(sandbox, 'main-repo');
+  const worktreeA = path.join(sandbox, 'wt-a');
+  const worktreeB = path.join(sandbox, 'wt-b');
+
+  fs.mkdirSync(path.join(mainRepo, '.git'), { recursive: true });
+  fs.mkdirSync(worktreeA, { recursive: true });
+  fs.mkdirSync(worktreeB, { recursive: true });
+  fs.writeFileSync(
+    path.join(worktreeA, '.git'),
+    'gitdir: C:/repo/.git/worktrees/wt-a\n'
+  );
+  fs.writeFileSync(
+    path.join(worktreeB, '.git'),
+    'gitdir: C:/repo/.git/worktrees/wt-b\n'
+  );
+
+  const mainIdentity = resolveDesktopDevIdentity(mainRepo);
+  const identityA = resolveDesktopDevIdentity(worktreeA);
+  const identityB = resolveDesktopDevIdentity(worktreeB);
+
+  assert.deepEqual(mainIdentity, DESKTOP_DEV_IDENTITY);
+  assert.match(identityA.identifier, /^com\.vibex\.app\.dev\.[0-9a-f]{8}$/);
+  assert.match(identityA.deepLinkScheme, /^vibex-dev-[0-9a-f]{8}$/);
+  assert.notEqual(identityA.identifier, mainIdentity.identifier);
+  assert.notEqual(identityA.identifier, identityB.identifier);
+
+  const cleanupMain = windowsStaleDesktopCleanupScript(mainIdentity.identifier);
+  const cleanupA = windowsStaleDesktopCleanupScript(identityA.identifier);
+  assert.match(cleanupMain, /\\com\.vibex\.app\.dev\\EBWebView/);
+  assert.match(
+    cleanupA,
+    new RegExp(
+      `\\\\${identityA.identifier.replace(/\./g, '\\.')}\\\\EBWebView`
+    )
+  );
+
+  fs.rmSync(sandbox, { recursive: true, force: true });
 });
 
 test('desktop dev cleanup reaps WebView2 processes that hold the dev user-data folder', () => {

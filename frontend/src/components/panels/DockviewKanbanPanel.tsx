@@ -6,6 +6,8 @@ import {
   useLayoutEffect,
   useRef,
   useState,
+  type ComponentType,
+  type LazyExoticComponent,
   type ReactNode,
 } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -43,13 +45,59 @@ import {
   OPEN_WORKFLOW_STUDIO_EVENT,
 } from '@/components/kanban/pulseDeckEvents';
 
-const LazyKanbanUsageDashboard = lazy(() =>
+type LazyDefaultModule<P> = {
+  default: ComponentType<P>;
+};
+
+function loadKanbanModuleWithRetry<P>(
+  loader: () => Promise<LazyDefaultModule<P>>,
+  retryDelayMs = 250
+): Promise<LazyDefaultModule<P>> {
+  return loader().catch(() =>
+    new Promise<LazyDefaultModule<P>>((resolve, reject) => {
+      window.setTimeout(() => {
+        loader().then(resolve, reject);
+      }, retryDelayMs);
+    })
+  );
+}
+
+function createRetryableLazyComponent<P extends object>(
+  loader: () => Promise<LazyDefaultModule<P>>
+) {
+  let cached: LazyExoticComponent<ComponentType<P>> | null = null;
+  const getComponent = () => {
+    if (!cached) {
+      const next = lazy(() =>
+        loadKanbanModuleWithRetry(loader).catch((error) => {
+          if (cached === next) {
+            cached = null;
+          }
+          throw error;
+        })
+      );
+      cached = next;
+    }
+    return cached;
+  };
+  const reset = () => {
+    cached = null;
+  };
+  return { getComponent, reset };
+}
+
+const lazyKanbanUsageDashboardEntry = createRetryableLazyComponent<
+  Record<string, never>
+>(() =>
   import('@/components/kanban/KanbanUsageDashboard').then((module) => ({
     default: module.KanbanUsageDashboard,
   }))
 );
 
-const LazyPulseDeckView = lazy(() =>
+const lazyPulseDeckViewEntry = createRetryableLazyComponent<{
+  projectId?: string | null;
+  className?: string;
+}>(() =>
   import('@/components/kanban/PulseDeckView').then((module) => ({
     default: module.PulseDeckView,
   }))
@@ -302,12 +350,16 @@ export function KanbanBoard() {
 
 class KanbanViewErrorBoundary extends Component<
   { children: ReactNode },
-  { failed: boolean }
+  { failed: boolean; retryKey: number }
 > {
-  state = { failed: false };
+  state = { failed: false, retryKey: 0 };
 
   static getDerivedStateFromError() {
     return { failed: true };
+  }
+
+  componentDidCatch(error: Error) {
+    console.error('[KanbanViewErrorBoundary] Failed to load view:', error);
   }
 
   render() {
@@ -315,11 +367,18 @@ class KanbanViewErrorBoundary extends Component<
       return (
         <PluginSurfacePlaceholder
           reason="failed"
-          onRecover={() => this.setState({ failed: false })}
+          onRecover={() => {
+            lazyKanbanUsageDashboardEntry.reset();
+            lazyPulseDeckViewEntry.reset();
+            this.setState((current) => ({
+              failed: false,
+              retryKey: current.retryKey + 1,
+            }));
+          }}
         />
       );
     }
-    return this.props.children;
+    return <div key={this.state.retryKey} className="h-full w-full">{this.props.children}</div>;
   }
 }
 
@@ -351,6 +410,7 @@ function KanbanRegisteredView({
     return <KanbanSessionHub presentation="canvas" zoneOrder={zoneOrder} />;
   }
   if (view.id === 'builtin:usage') {
+    const LazyKanbanUsageDashboard = lazyKanbanUsageDashboardEntry.getComponent();
     return (
       <Suspense fallback={null}>
         <LazyKanbanUsageDashboard />
@@ -358,6 +418,7 @@ function KanbanRegisteredView({
     );
   }
   if (view.id === 'builtin:pulse') {
+    const LazyPulseDeckView = lazyPulseDeckViewEntry.getComponent();
     return (
       <Suspense fallback={null}>
         <LazyPulseDeckView projectId={projectId} className="h-full w-full" />

@@ -399,7 +399,7 @@ describe('Dual-Primitive WorkflowStudio & 3-Tier Inspector', () => {
 });
 
 describe('WorkspaceTabAddMenu Workflow Studio quick entry', () => {
-  it('exposes Workflow Studio under Features and opens vibex.workflow-creator', () => {
+  it('exposes Workflow Studio under Features without hardcoding an official plugin ID', () => {
     const props = {
       api: { setActive: vi.fn() },
       group: {
@@ -423,11 +423,9 @@ describe('WorkspaceTabAddMenu Workflow Studio quick entry', () => {
     expect(item).toBeVisible();
     fireEvent.click(item);
 
-    expect(openPluginPanel).toHaveBeenCalledWith(
-      expect.objectContaining({
-        pluginId: 'vibex.workflow-creator',
-        contributionId: 'workflow-studio',
-      })
+    expect(openOrFocusPanel).toHaveBeenCalledWith(
+      'workflow-studio',
+      expect.any(String)
     );
   });
 });

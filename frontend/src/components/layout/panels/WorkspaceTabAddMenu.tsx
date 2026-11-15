@@ -105,9 +105,7 @@ export function WorkspaceTabAddMenu({
 
   const openWorkflowStudio = () => {
     const matchedPluginPanel = pluginPanels.find(
-      (item) =>
-        item.pluginId === 'vibex.workflow-creator' ||
-        item.id === 'workflow-studio'
+      (item) => item.id === 'workflow-studio'
     );
     if (matchedPluginPanel) {
       const metadata = contributionMetadata(matchedPluginPanel);
@@ -123,13 +121,21 @@ export function WorkspaceTabAddMenu({
       return;
     }
 
-    if (typeof openPluginPanel === 'function') {
+    const matchedSdkPanel = sdkPanels.find((panel) => {
+      const pluginId = panel.pluginId ?? 'plugin';
+      const rawId = panel.id.startsWith(`${pluginId}:`)
+        ? panel.id.slice(pluginId.length + 1)
+        : panel.id;
+      return rawId === 'workflow-studio';
+    });
+    if (matchedSdkPanel) {
+      const pluginId = matchedSdkPanel.pluginId ?? 'plugin';
       openPluginPanel({
-        title: workflowStudioLabel,
-        pluginId: 'vibex.workflow-creator',
+        title: matchedSdkPanel.title || workflowStudioLabel,
+        pluginId,
         contributionId: 'workflow-studio',
-        icon: 'git-branch',
-        multiInstance: false,
+        icon: matchedSdkPanel.icon ?? 'git-branch',
+        multiInstance: matchedSdkPanel.multiInstance !== false,
         instance: 'focus',
       });
       return;
@@ -137,13 +143,13 @@ export function WorkspaceTabAddMenu({
 
     openOrFocusPanel(
       (PANEL_IDS as Record<string, string>).WORKFLOW_STUDIO ??
-        'vibex.workflow-creator:workflow-studio',
+        'workflow-studio',
       workflowStudioLabel
     );
   };
 
   const combinedPluginItems = useMemo(() => {
-    const seen = new Set<string>(['vibex.workflow-creator:workflow-studio']);
+    const seen = new Set<string>();
     const items: Array<{
       key: string;
       label: string;
@@ -152,6 +158,7 @@ export function WorkspaceTabAddMenu({
     }> = [];
 
     for (const item of pluginPanels) {
+      if (item.id === 'workflow-studio') continue;
       const metadata = contributionMetadata(item);
       const icon = typeof metadata.icon === 'string' ? metadata.icon : null;
       const key = `${item.pluginId}:${item.id}`;
@@ -218,6 +225,7 @@ export function WorkspaceTabAddMenu({
       const rawId = panel.id.startsWith(`${pluginId}:`)
         ? panel.id.slice(pluginId.length + 1)
         : panel.id;
+      if (rawId === 'workflow-studio') continue;
       const key = `${pluginId}:${rawId}`;
       if (seen.has(key)) continue;
       seen.add(key);

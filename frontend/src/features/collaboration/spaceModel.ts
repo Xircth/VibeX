@@ -647,6 +647,7 @@ export type SpaceMember = {
   direct_thread_id?: string | null;
   private_thread_id?: string | null;
   private_conversation_id?: string | null;
+  agent?: string | null;
   /** Whether this bot is the workspace Supervisor (主管/总管). */
   is_supervisor?: boolean;
 };
@@ -1962,6 +1963,7 @@ export function sidebarMemberToSpaceMember(member: SidebarMember): SpaceMember {
     ...(identityId ? { identity_member_id: identityId } : {}),
     nickname: member.name,
     conversation_id: member.conversation_id ?? undefined,
+    ...(member.agent ? { agent: member.agent } : {}),
     ...(typeof member.is_supervisor === 'boolean'
       ? { is_supervisor: member.is_supervisor }
       : {}),

@@ -396,4 +396,87 @@ describe('Collaboration canvas integration', () => {
       { x: 520, y: 340 }
     );
   });
+
+  it('renders New Assistant and New Group as a global Zone B modal in Free Tabs mode without pre-opening Dockview panels, and enforces mutual exclusion with New Session', async () => {
+    const user = userEvent.setup();
+    // Switch from Canvas mode to Free Tabs mode by unregistering canvas host & controller
+    unregisterController?.();
+    unregisterController = null;
+    act(() => unregisterCreationHost?.());
+    unregisterCreationHost = null;
+
+    const stageHost = document.createElement('div');
+    stageHost.setAttribute('data-testid', 'workspace-stage-creation-overlay');
+    document.body.appendChild(stageHost);
+    const { registerWorkspaceStageCreationHost } = await import(
+      '@/components/layout/workspaceStageCreationHost'
+    );
+    const {
+      DISMISS_COLLABORATION_CREATE_OVERLAY_EVENT,
+      DISMISS_CREATE_SESSION_OVERLAY_EVENT,
+    } = await import('@/lib/requestCreateSession');
+    const unregisterStageHost = registerWorkspaceStageCreationHost(stageHost);
+
+    const dismissSessionSpy = vi.fn();
+    window.addEventListener(
+      DISMISS_CREATE_SESSION_OVERLAY_EVENT,
+      dismissSessionSpy
+    );
+
+    try {
+      render(
+        <HotkeysProvider>
+          <TooltipProvider>
+            <CollaborationSpaceProvider workspaceId="ws-1">
+              <WorkspaceBotsDockPanel />
+              <CollaborationSpaceLayout hideSpacesPane />
+            </CollaborationSpaceProvider>
+          </TooltipProvider>
+        </HotkeysProvider>
+      );
+
+      await user.click(
+        (await screen.findAllByRole('button', { name: '创建' }))[0]!
+      );
+      await user.click(
+        await screen.findByRole('menuitem', { name: '创建群聊' })
+      );
+
+      await waitFor(() =>
+        expect(screen.getAllByRole('dialog')).toHaveLength(1)
+      );
+      const groupDialog = screen.getByRole('dialog');
+      expect(stageHost).toContainElement(groupDialog);
+      expect(groupDialog.closest('.is-stage-modal')).not.toBeNull();
+      expect(dismissSessionSpy).toHaveBeenCalledTimes(1);
+
+      // Mutual exclusion: opening New Session dismisses the collaboration creation overlay
+      act(() => {
+        window.dispatchEvent(
+          new CustomEvent(DISMISS_COLLABORATION_CREATE_OVERLAY_EVENT)
+        );
+      });
+      await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+
+      // New Assistant also portals into the Free Tabs Zone B global stage overlay
+      await user.click(screen.getAllByRole('button', { name: '创建' })[0]!);
+      await user.click(
+        await screen.findByRole('menuitem', { name: '创建助手' })
+      );
+      await waitFor(() =>
+        expect(screen.getAllByRole('dialog')).toHaveLength(1)
+      );
+      const assistantDialog = screen.getByRole('dialog');
+      expect(stageHost).toContainElement(assistantDialog);
+      expect(assistantDialog.closest('.is-stage-modal')).not.toBeNull();
+      expect(dismissSessionSpy).toHaveBeenCalledTimes(2);
+    } finally {
+      window.removeEventListener(
+        DISMISS_CREATE_SESSION_OVERLAY_EVENT,
+        dismissSessionSpy
+      );
+      act(() => unregisterStageHost());
+      stageHost.remove();
+    }
+  });
 });

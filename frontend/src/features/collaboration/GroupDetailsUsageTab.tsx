@@ -6,6 +6,10 @@ import {
   useConversationSessionFacts,
   useConversationTimeline,
 } from '@/features/conversation/useConversationTimeline';
+import {
+  SESSION_AGENT_SWITCHED_EVENT,
+  type SessionAgentSwitchedDetail,
+} from '@/lib/sessionQueryCache';
 import { cn } from '@/lib/utils';
 import { collaborationCall } from './collaborationApi';
 import {
@@ -90,7 +94,15 @@ function GroupMemberUsageCard({
     shouldRetainTimeline ? conversationId : null,
     { active: shouldRetainTimeline }
   );
-  const facts = useConversationSessionFacts(conversationId);
+  const rawFacts = useConversationSessionFacts(conversationId);
+  const memberAgentId = String(member.agent ?? '').trim() || null;
+  const facts = useMemo(
+    () =>
+      rawFacts.agentId || !memberAgentId
+        ? rawFacts
+        : { ...rawFacts, agentId: memberAgentId },
+    [memberAgentId, rawFacts]
+  );
   const model = useMemo(
     () =>
       buildSessionDetails({
@@ -111,7 +123,9 @@ function GroupMemberUsageCard({
   );
   const usage = model.kind === 'ready' ? model.usage : null;
   const agentId =
-    (model.kind === 'ready' ? model.agentId : null) || facts.agentId;
+    (model.kind === 'ready' ? model.agentId : null) ||
+    facts.agentId ||
+    memberAgentId;
   const agentName = agentId ? getAgentName(agentId) : null;
 
   useEffect(() => {
@@ -218,6 +232,31 @@ export function GroupDetailsUsageTab({
       active = false;
     };
   }, [spaceId]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const handleSwitched = (event: Event) => {
+      const detail = (event as CustomEvent<SessionAgentSwitchedDetail>).detail;
+      if (!detail?.sessionId || !detail.agentId) return;
+      setMembers((prev) =>
+        prev.some(
+          (member) =>
+            String(member.conversation_id ?? '').trim() === detail.sessionId &&
+            member.agent !== detail.agentId
+        )
+          ? prev.map((member) =>
+              String(member.conversation_id ?? '').trim() === detail.sessionId
+                ? { ...member, agent: detail.agentId }
+                : member
+            )
+          : prev
+      );
+    };
+    window.addEventListener(SESSION_AGENT_SWITCHED_EVENT, handleSwitched);
+    return () => {
+      window.removeEventListener(SESSION_AGENT_SWITCHED_EVENT, handleSwitched);
+    };
+  }, []);
 
   const onSnapshot = useCallback((snapshot: MemberUsageSnapshot) => {
     setSnapshots((prev) => {

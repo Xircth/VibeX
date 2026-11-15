@@ -75,31 +75,67 @@ export function AssistantDetailsCustomizeTab({
     let active = true;
     setLoading(true);
     setError('');
-    void collaborationCall<{
-      config?: Record<string, unknown> | null;
-    }>('collaboration', 'member.config.get', { memberId })
-      .then((page) => {
-        if (!active) return;
-        const config = page.config ?? null;
-        setAgentId(configField(config, 'agent_id', 'agentId'));
-        setModeId(configField(config, 'mode_id', 'modeId'));
-        setConfigValues(
-          stringRecord(config?.config_values ?? config?.configValues)
-        );
-        setPersonaPrompt(
-          configField(config, 'persona_prompt', 'personaPrompt')
-        );
-      })
-      .catch((cause: unknown) => {
-        if (active) setError(surfaceErrorCopy(cause));
-      })
-      .finally(() => {
-        if (active) setLoading(false);
+    const loadConfig = (resetLoading: boolean) => {
+      if (resetLoading) setLoading(true);
+      void collaborationCall<{
+        config?: Record<string, unknown> | null;
+      }>('collaboration', 'member.config.get', { memberId })
+        .then((page) => {
+          if (!active) return;
+          const config = page.config ?? null;
+          const nextAgent = configField(config, 'agent_id', 'agentId');
+          if (nextAgent) setAgentId(nextAgent);
+          setModeId(configField(config, 'mode_id', 'modeId'));
+          setConfigValues(
+            stringRecord(config?.config_values ?? config?.configValues)
+          );
+          setPersonaPrompt(
+            configField(config, 'persona_prompt', 'personaPrompt')
+          );
+        })
+        .catch((cause: unknown) => {
+          if (active && resetLoading) setError(surfaceErrorCopy(cause));
+        })
+        .finally(() => {
+          if (active && resetLoading) setLoading(false);
+        });
+    };
+
+    loadConfig(true);
+
+    const onAgentSwitched = (event: Event) => {
+      const detail = (
+        event as CustomEvent<{ sessionId?: string; agentId?: string }>
+      ).detail;
+      if (
+        !detail?.agentId ||
+        !conversationId ||
+        detail.sessionId !== conversationId
+      ) {
+        return;
+      }
+      setAgentId((prev) => {
+        if (
+          prev.trim().toLowerCase().replace(/[-_\s]+/g, '') !==
+          detail.agentId!.trim().toLowerCase().replace(/[-_\s]+/g, '')
+        ) {
+          setModeId('');
+          setConfigValues({});
+        }
+        return detail.agentId!;
       });
+      loadConfig(false);
+    };
+
+    window.addEventListener('vibex:session-agent-switched', onAgentSwitched);
     return () => {
       active = false;
+      window.removeEventListener(
+        'vibex:session-agent-switched',
+        onAgentSwitched
+      );
     };
-  }, [memberId]);
+  }, [conversationId, memberId]);
 
   const save = async () => {
     const trimmed = name.trim();

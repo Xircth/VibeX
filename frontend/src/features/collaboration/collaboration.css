@@ -177,6 +177,12 @@
   -webkit-backdrop-filter: blur(16px) !important;
 }
 
+.collaboration-thread-overlay.is-canvas-panel {
+  background: transparent !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
 /* Opaque Dialog Rule: the dialog itself is always the solid dialog surface. */
 .collaboration-thread-overlay .dialog-surface {
   background: var(--surface-dialog) !important;
@@ -769,6 +775,22 @@
   padding-top: 0.75rem;
   -webkit-mask-image: none;
   mask-image: none;
+}
+
+.collaboration-thread-content {
+  display: flex;
+  flex: 0 0 auto;
+  flex-direction: column;
+  gap: 0.75rem;
+  width: 100%;
+  max-width: var(--conv-thread-max-width, 48rem);
+  min-width: 0;
+  margin-right: auto;
+  margin-left: clamp(
+    0px,
+    calc((100% - var(--conv-thread-max-width, 48rem)) / 2 + 0.875rem),
+    max(0px, calc(100% - var(--conv-thread-max-width, 48rem)))
+  );
 }
 
 .collaboration-message {
@@ -1538,14 +1560,29 @@
 }
 
 .collaboration-error {
-  margin: 0;
+  width: 100%;
+  max-width: calc(var(--conv-thread-max-width, 48rem) + 1.5rem);
+  margin: 0 auto;
   padding: 0 0.75rem 0.5rem;
+  box-sizing: border-box;
   color: hsl(var(--destructive));
   font-size: 0.875rem;
 }
 
 .collaboration-composer-wrap {
   flex-shrink: 0;
+  width: 100%;
+  min-width: 0;
+}
+
+.collaboration-composer-queue {
+  padding: 0 0.75rem;
+}
+
+.collaboration-composer-queue-inner {
+  width: 100%;
+  max-width: var(--conv-thread-max-width, 48rem);
+  margin: 0 auto;
 }
 
 .collaboration-shell .workspace-session-row-main,

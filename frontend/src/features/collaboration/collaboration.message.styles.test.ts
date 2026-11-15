@@ -420,5 +420,23 @@ describe('collaboration assistant list and message cluster chrome', () => {
     expect(message['content-visibility']).toBeUndefined();
     expect(message['contain-intrinsic-size']).toBeUndefined();
   });
+
+  it('caps the space message stream column and composer queue to the shared conversation reading width', () => {
+    const threadContent = declarationsFor('.collaboration-thread-content');
+    expect(threadContent.flex?.value).toBe('0 0 auto');
+    expect(threadContent.width?.value).toBe('100%');
+    expect(threadContent['max-width']?.value).toBe(
+      'var(--conv-thread-max-width, 48rem)'
+    );
+
+    const composerQueueInner = declarationsFor(
+      '.collaboration-composer-queue-inner'
+    );
+    expect(composerQueueInner.width?.value).toBe('100%');
+    expect(composerQueueInner['max-width']?.value).toBe(
+      'var(--conv-thread-max-width, 48rem)'
+    );
+    expect(composerQueueInner.margin?.value).toBe('0 auto');
+  });
 });
 

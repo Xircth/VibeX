@@ -1,4 +1,6 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
+import type { Session } from 'shared/types';
 
 import { SessionDetailsView } from '@/components/panels/session-details/SessionDetailsView';
 import { SessionQuota } from '@/components/panels/session-details/SessionQuota';
@@ -9,15 +11,55 @@ import {
   useConversationTimeline,
 } from '@/features/conversation/useConversationTimeline';
 import { requestConversationScrollToTurn } from '@/lib/conversationScroll';
+import {
+  SESSION_AGENT_SWITCHED_EVENT,
+  type SessionAgentSwitchedDetail,
+} from '@/lib/sessionQueryCache';
 
 export function AssistantDetailsSessionTab({
   conversationId,
+  fallbackAgentId,
 }: {
   conversationId: string | null | undefined;
+  fallbackAgentId?: string | null;
 }) {
   const sessionId = conversationId?.trim() || null;
+  const queryClient = useQueryClient();
+  const [switchedAgentId, setSwitchedAgentId] = useState<string | null>(null);
   const conversation = useConversationTimeline(sessionId);
-  const facts = useConversationSessionFacts(sessionId);
+  const rawFacts = useConversationSessionFacts(sessionId);
+
+  useEffect(() => {
+    setSwitchedAgentId(null);
+    if (!sessionId || typeof window === 'undefined') return;
+    const handleSwitched = (event: Event) => {
+      const detail = (event as CustomEvent<SessionAgentSwitchedDetail>).detail;
+      if (detail?.sessionId === sessionId && detail.agentId) {
+        setSwitchedAgentId(detail.agentId);
+      }
+    };
+    window.addEventListener(SESSION_AGENT_SWITCHED_EVENT, handleSwitched);
+    return () => {
+      window.removeEventListener(SESSION_AGENT_SWITCHED_EVENT, handleSwitched);
+    };
+  }, [sessionId]);
+
+  const cachedSession = sessionId
+    ? queryClient.getQueryData<Session | null>(['session', sessionId])
+    : null;
+  const resolvedFallbackAgentId =
+    switchedAgentId ||
+    fallbackAgentId?.trim() ||
+    cachedSession?.agent_id ||
+    cachedSession?.executor ||
+    null;
+  const facts = useMemo(
+    () =>
+      rawFacts.agentId || !resolvedFallbackAgentId
+        ? rawFacts
+        : { ...rawFacts, agentId: resolvedFallbackAgentId },
+    [rawFacts, resolvedFallbackAgentId]
+  );
   const panelActions = useOptionalPanelActionsContext();
   const [quotaActive, setQuotaActive] = useState(false);
 

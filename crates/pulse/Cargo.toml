@@ -17,8 +17,6 @@ sha2 = "0.10"
 sqlx = { version = "0.8.6", features = ["runtime-tokio", "sqlite", "chrono", "uuid"] }
 subtle = "2.6"
 thiserror = { workspace = true }
+tokio = { workspace = true }
 tracing = { workspace = true }
 uuid = { workspace = true }
-
-[dev-dependencies]
-tokio = { workspace = true }

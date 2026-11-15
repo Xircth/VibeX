@@ -166,21 +166,25 @@ pub fn render_template(template: &str, envelope: &EventEnvelope) -> String {
 
 fn resolve_template_token(key: &str, envelope: &EventEnvelope, envelope_value: &Value) -> String {
     match key {
-        "event.id" | "eventId" => return envelope.event_id.clone(),
-        "delivery.id" | "deliveryId" => return envelope.delivery_id.clone(),
-        "event.type" | "eventType" => return envelope.event_type.clone(),
+        "event.id" | "event.eventId" | "eventId" => return envelope.event_id.clone(),
+        "delivery.id" | "event.deliveryId" | "deliveryId" => return envelope.delivery_id.clone(),
+        "event.type" | "event.eventType" | "eventType" => return envelope.event_type.clone(),
         "occurredAt" | "event.occurredAt" => return envelope.occurred_at.clone(),
-        "actor.id" => return envelope.actor.id.clone(),
-        "actor.displayName" => {
+        "actor.id" | "event.actor.id" => return envelope.actor.id.clone(),
+        "actor.displayName" | "event.actor.displayName" => {
             return envelope
                 .actor
                 .display_name
                 .clone()
                 .unwrap_or_else(|| envelope.actor.id.clone());
         }
-        "threadKey" | "thread.key" => return envelope.thread_key.clone().unwrap_or_default(),
-        "source.instanceId" => return envelope.source.instance_id.clone(),
-        "source.kind" => {
+        "threadKey" | "thread.key" | "event.threadKey" => {
+            return envelope.thread_key.clone().unwrap_or_default();
+        }
+        "source.instanceId" | "event.source.instanceId" => {
+            return envelope.source.instance_id.clone();
+        }
+        "source.kind" | "event.source.kind" => {
             return serde_json::to_value(envelope.source.kind)
                 .ok()
                 .and_then(|v| v.as_str().map(str::to_string))
@@ -192,7 +196,11 @@ fn resolve_template_token(key: &str, envelope: &EventEnvelope, envelope_value: &
     let pointer = if key.starts_with('/') {
         key.to_string()
     } else {
-        let stripped = key.strip_prefix("payload.").unwrap_or(key);
+        let stripped = key
+            .strip_prefix("event.payload.")
+            .or_else(|| key.strip_prefix("payload."))
+            .or_else(|| key.strip_prefix("event."))
+            .unwrap_or(key);
         format!("/{}", stripped.replace('.', "/"))
     };
 

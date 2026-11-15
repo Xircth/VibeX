@@ -1,5 +1,5 @@
-//! `/api/pulse/*` Axum HTTP router (public webhook intake + `@vibex/pulse-sdk` REST endpoints)
-//! and platform webhook signature/normalization helpers.
+//! `/api/pulse/*` Axum HTTP router (public webhook intake, Bearer/HMAC SDK emit,
+//! and full REST parity endpoints) plus platform webhook signature/normalization helpers.
 
 use std::{collections::BTreeMap, sync::Arc};
 
@@ -10,11 +10,11 @@ use application::{ApplicationError, ConversationRepository, Principal};
 use axum::{
     Json, Router,
     body::Bytes,
-    extract::{DefaultBodyLimit, Extension, Path, State},
-    http::{HeaderMap, StatusCode},
+    extract::{DefaultBodyLimit, Extension, Path, Query, State},
+    http::{HeaderMap, StatusCode, header},
     middleware,
     response::{IntoResponse, Response},
-    routing::{get, post},
+    routing::{delete, get, post},
 };
 use base64::Engine as _;
 use chrono::Utc;
@@ -23,25 +23,58 @@ use pulse::{
     MAX_WEBHOOK_PAYLOAD_BYTES, StandardWebhookHeaders, verify_standard_webhook,
 };
 use remote_protocol::{ErrorCode, ErrorEnvelope, OperationId};
+use serde::Deserialize;
 use serde_json::{Value, json};
 use uuid::Uuid;
 
 use crate::{AuthenticatedCredential, runtime::ServerState};
+
+#[derive(Debug, Default, Deserialize)]
+struct PulseProjectQuery {
+    #[serde(default, alias = "project_id")]
+    #[serde(rename = "projectId")]
+    project_id: Option<String>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+struct PulseEventsQuery {
+    #[serde(default)]
+    limit: Option<u32>,
+}
 
 pub(crate) fn pulse_router<R>(state: Arc<ServerState<R>>) -> Router<Arc<ServerState<R>>>
 where
     R: ConversationRepository + Send + Sync + 'static,
 {
     let protected = Router::new()
-        .route("/events/emit", post(handle_emit_event::<R>))
-        .route("/schemas", post(handle_define_schema::<R>))
-        .route("/sources", get(handle_list_sources::<R>))
-        .route("/rules", post(handle_save_rule::<R>))
+        .route("/deck", get(handle_deck_snapshot::<R>))
+        .route(
+            "/schemas",
+            get(handle_list_schemas::<R>).post(handle_define_schema::<R>),
+        )
+        .route(
+            "/sources",
+            get(handle_list_sources::<R>).post(handle_upsert_source::<R>),
+        )
+        .route("/sources/{id}", delete(handle_delete_source::<R>))
+        .route(
+            "/rules",
+            get(handle_list_rules::<R>).post(handle_save_rule::<R>),
+        )
         .route("/rules/dry-run", post(handle_dry_run_rule::<R>))
+        .route("/rules/{id}/mode", post(handle_set_rule_mode::<R>))
+        .route("/rules/{id}/enabled", post(handle_set_rule_enabled::<R>))
+        .route("/rules/{id}", delete(handle_delete_rule::<R>))
+        .route("/events", get(handle_list_events::<R>))
         .route("/subscriptions", post(handle_subscribe_thread::<R>))
+        .route("/subscriptions/{id}", delete(handle_unsubscribe_thread::<R>))
         .route(
             "/candidates/{candidate_id}/promote",
             post(handle_promote_candidate::<R>),
+        )
+        .route(
+            "/interactions/{id}/resolve",
+            post(handle_resolve_interaction::<R>),
         )
         .route_layer(middleware::from_fn_with_state(
             state,
@@ -52,6 +85,11 @@ where
         .route(
             "/webhooks/{source_id}",
             post(handle_public_webhook::<R>)
+                .layer(DefaultBodyLimit::max(MAX_WEBHOOK_PAYLOAD_BYTES * 2)),
+        )
+        .route(
+            "/events/emit",
+            post(handle_emit_event::<R>)
                 .layer(DefaultBodyLimit::max(MAX_WEBHOOK_PAYLOAD_BYTES * 2)),
         )
         .merge(protected)
@@ -67,24 +105,10 @@ where
     R: ConversationRepository + Send + Sync + 'static,
 {
     if raw_body.len() > MAX_WEBHOOK_PAYLOAD_BYTES {
-        return (
-            StatusCode::PAYLOAD_TOO_LARGE,
-            Json(ErrorEnvelope::new(
-                ErrorCode::BadRequest,
-                format!("webhook payload exceeds {MAX_WEBHOOK_PAYLOAD_BYTES} bytes"),
-                false,
-                OperationId::new(),
-            )),
-        )
-            .into_response();
+        return payload_too_large_response();
     }
 
-    let mut header_map = BTreeMap::new();
-    for (name, val) in &headers {
-        if let Ok(text) = val.to_str() {
-            header_map.insert(name.as_str().to_ascii_lowercase(), text.to_string());
-        }
-    }
+    let header_map = header_map_to_lowercase(&headers);
     let raw_body_base64 = base64::engine::general_purpose::STANDARD.encode(&raw_body);
     let webhook_principal =
         Principal::remote("pulse-webhook-intake", [String::from("automation.write")]);
@@ -107,6 +131,66 @@ where
     }
 }
 
+/// Supports authentication either via standard `Authorization: Bearer <token>` OR via
+/// Standard Webhooks HMAC (`webhook-signature` + `webhook-id` + `webhook-timestamp`)
+/// signed with an enabled `pulse_sources.signing_secret`.
+async fn handle_emit_event<R>(
+    State(state): State<Arc<ServerState<R>>>,
+    headers: HeaderMap,
+    raw_body: Bytes,
+) -> Response
+where
+    R: ConversationRepository + Send + Sync + 'static,
+{
+    if raw_body.len() > MAX_WEBHOOK_PAYLOAD_BYTES {
+        return payload_too_large_response();
+    }
+
+    if let Some(token) = extract_bearer_header(&headers) {
+        let credential = match state.auth.authenticate(&token).await {
+            Ok(Some(cred)) => cred,
+            _ => return unauthorized_response("invalid or missing bearer token"),
+        };
+        let body: Value = match serde_json::from_slice(&raw_body) {
+            Ok(parsed) => parsed,
+            Err(err) => return bad_request_response(&format!("invalid JSON body: {err}")),
+        };
+        return run_protected_pulse_command(&state, &credential, "pulse_event_emit", body).await;
+    }
+
+    if headers.contains_key("webhook-signature") {
+        let body: Value = match serde_json::from_slice(&raw_body) {
+            Ok(parsed) => parsed,
+            Err(err) => return bad_request_response(&format!("invalid JSON body: {err}")),
+        };
+        let header_map = header_map_to_lowercase(&headers);
+        let raw_body_base64 = base64::engine::general_purpose::STANDARD.encode(&raw_body);
+        let hmac_principal =
+            Principal::remote("pulse-sdk-hmac", [String::from("automation.write")]);
+        return match state
+            .commands
+            .execute_name(
+                &hmac_principal,
+                "pulse_event_emit",
+                OperationId::new(),
+                json!({
+                    "body": body,
+                    "__hmacVerification": {
+                        "headers": header_map,
+                        "rawBodyBase64": raw_body_base64,
+                    },
+                }),
+            )
+            .await
+        {
+            Ok(resp) => Json(resp.data).into_response(),
+            Err(error) => crate::runtime::application_error_response(error),
+        };
+    }
+
+    unauthorized_response("invalid or missing bearer token")
+}
+
 async fn run_protected_pulse_command<R>(
     state: &ServerState<R>,
     credential: &AuthenticatedCredential,
@@ -126,15 +210,31 @@ where
     }
 }
 
-async fn handle_emit_event<R>(
+async fn handle_deck_snapshot<R>(
     State(state): State<Arc<ServerState<R>>>,
     Extension(credential): Extension<AuthenticatedCredential>,
-    Json(body): Json<Value>,
+    Query(query): Query<PulseProjectQuery>,
 ) -> Response
 where
     R: ConversationRepository + Send + Sync + 'static,
 {
-    run_protected_pulse_command(&state, &credential, "pulse_event_emit", body).await
+    run_protected_pulse_command(
+        &state,
+        &credential,
+        "pulse_deck_snapshot",
+        json!({ "projectId": query.project_id }),
+    )
+    .await
+}
+
+async fn handle_list_schemas<R>(
+    State(state): State<Arc<ServerState<R>>>,
+    Extension(credential): Extension<AuthenticatedCredential>,
+) -> Response
+where
+    R: ConversationRepository + Send + Sync + 'static,
+{
+    run_protected_pulse_command(&state, &credential, "pulse_event_schema_list", json!({})).await
 }
 
 async fn handle_define_schema<R>(
@@ -156,6 +256,51 @@ where
     R: ConversationRepository + Send + Sync + 'static,
 {
     run_protected_pulse_command(&state, &credential, "pulse_source_list", json!({})).await
+}
+
+async fn handle_upsert_source<R>(
+    State(state): State<Arc<ServerState<R>>>,
+    Extension(credential): Extension<AuthenticatedCredential>,
+    Json(body): Json<Value>,
+) -> Response
+where
+    R: ConversationRepository + Send + Sync + 'static,
+{
+    run_protected_pulse_command(&state, &credential, "pulse_source_upsert", body).await
+}
+
+async fn handle_delete_source<R>(
+    State(state): State<Arc<ServerState<R>>>,
+    Extension(credential): Extension<AuthenticatedCredential>,
+    Path(id): Path<String>,
+) -> Response
+where
+    R: ConversationRepository + Send + Sync + 'static,
+{
+    run_protected_pulse_command(
+        &state,
+        &credential,
+        "pulse_source_delete",
+        json!({ "id": id }),
+    )
+    .await
+}
+
+async fn handle_list_rules<R>(
+    State(state): State<Arc<ServerState<R>>>,
+    Extension(credential): Extension<AuthenticatedCredential>,
+    Query(query): Query<PulseProjectQuery>,
+) -> Response
+where
+    R: ConversationRepository + Send + Sync + 'static,
+{
+    run_protected_pulse_command(
+        &state,
+        &credential,
+        "pulse_rule_list",
+        json!({ "projectId": query.project_id }),
+    )
+    .await
 }
 
 async fn handle_save_rule<R>(
@@ -180,6 +325,66 @@ where
     run_protected_pulse_command(&state, &credential, "pulse_rule_dry_run", body).await
 }
 
+async fn handle_set_rule_mode<R>(
+    State(state): State<Arc<ServerState<R>>>,
+    Extension(credential): Extension<AuthenticatedCredential>,
+    Path(id): Path<String>,
+    Json(mut body): Json<Value>,
+) -> Response
+where
+    R: ConversationRepository + Send + Sync + 'static,
+{
+    merge_path_id(&mut body, "id", id);
+    run_protected_pulse_command(&state, &credential, "pulse_rule_set_mode", body).await
+}
+
+async fn handle_set_rule_enabled<R>(
+    State(state): State<Arc<ServerState<R>>>,
+    Extension(credential): Extension<AuthenticatedCredential>,
+    Path(id): Path<String>,
+    Json(mut body): Json<Value>,
+) -> Response
+where
+    R: ConversationRepository + Send + Sync + 'static,
+{
+    merge_path_id(&mut body, "id", id);
+    run_protected_pulse_command(&state, &credential, "pulse_rule_set_enabled", body).await
+}
+
+async fn handle_delete_rule<R>(
+    State(state): State<Arc<ServerState<R>>>,
+    Extension(credential): Extension<AuthenticatedCredential>,
+    Path(id): Path<String>,
+) -> Response
+where
+    R: ConversationRepository + Send + Sync + 'static,
+{
+    run_protected_pulse_command(
+        &state,
+        &credential,
+        "pulse_rule_delete",
+        json!({ "id": id }),
+    )
+    .await
+}
+
+async fn handle_list_events<R>(
+    State(state): State<Arc<ServerState<R>>>,
+    Extension(credential): Extension<AuthenticatedCredential>,
+    Query(query): Query<PulseEventsQuery>,
+) -> Response
+where
+    R: ConversationRepository + Send + Sync + 'static,
+{
+    run_protected_pulse_command(
+        &state,
+        &credential,
+        "pulse_captured_events",
+        json!({ "limit": query.limit.unwrap_or(25) }),
+    )
+    .await
+}
+
 async fn handle_subscribe_thread<R>(
     State(state): State<Arc<ServerState<R>>>,
     Extension(credential): Extension<AuthenticatedCredential>,
@@ -189,6 +394,23 @@ where
     R: ConversationRepository + Send + Sync + 'static,
 {
     run_protected_pulse_command(&state, &credential, "pulse_thread_subscribe", body).await
+}
+
+async fn handle_unsubscribe_thread<R>(
+    State(state): State<Arc<ServerState<R>>>,
+    Extension(credential): Extension<AuthenticatedCredential>,
+    Path(id): Path<String>,
+) -> Response
+where
+    R: ConversationRepository + Send + Sync + 'static,
+{
+    run_protected_pulse_command(
+        &state,
+        &credential,
+        "pulse_thread_unsubscribe",
+        json!({ "subscriptionId": id }),
+    )
+    .await
 }
 
 async fn handle_promote_candidate<R>(
@@ -206,6 +428,86 @@ where
         json!({ "candidateId": candidate_id }),
     )
     .await
+}
+
+async fn handle_resolve_interaction<R>(
+    State(state): State<Arc<ServerState<R>>>,
+    Extension(credential): Extension<AuthenticatedCredential>,
+    Path(id): Path<String>,
+    Json(mut body): Json<Value>,
+) -> Response
+where
+    R: ConversationRepository + Send + Sync + 'static,
+{
+    merge_path_id(&mut body, "interactionId", id);
+    run_protected_pulse_command(&state, &credential, "pulse_interaction_resolve", body).await
+}
+
+fn merge_path_id(body: &mut Value, field: &str, id: String) {
+    if let Some(obj) = body.as_object_mut() {
+        obj.insert(field.to_string(), Value::String(id));
+    } else {
+        *body = json!({ field: id });
+    }
+}
+
+fn header_map_to_lowercase(headers: &HeaderMap) -> BTreeMap<String, String> {
+    let mut map = BTreeMap::new();
+    for (name, val) in headers {
+        if let Ok(text) = val.to_str() {
+            map.insert(name.as_str().to_ascii_lowercase(), text.to_string());
+        }
+    }
+    map
+}
+
+fn extract_bearer_header(headers: &HeaderMap) -> Option<String> {
+    let raw = headers.get(header::AUTHORIZATION)?.to_str().ok()?.trim();
+    let (scheme, rest) = raw.split_once(char::is_whitespace)?;
+    if !scheme.eq_ignore_ascii_case("bearer") {
+        return None;
+    }
+    let token = rest.trim();
+    (!token.is_empty()).then(|| token.to_string())
+}
+
+fn payload_too_large_response() -> Response {
+    (
+        StatusCode::PAYLOAD_TOO_LARGE,
+        Json(ErrorEnvelope::new(
+            ErrorCode::BadRequest,
+            format!("webhook payload exceeds {MAX_WEBHOOK_PAYLOAD_BYTES} bytes"),
+            false,
+            OperationId::new(),
+        )),
+    )
+        .into_response()
+}
+
+fn unauthorized_response(message: &str) -> Response {
+    (
+        StatusCode::UNAUTHORIZED,
+        Json(ErrorEnvelope::new(
+            ErrorCode::Unauthorized,
+            message,
+            false,
+            OperationId::new(),
+        )),
+    )
+        .into_response()
+}
+
+fn bad_request_response(message: &str) -> Response {
+    (
+        StatusCode::BAD_REQUEST,
+        Json(ErrorEnvelope::new(
+            ErrorCode::BadRequest,
+            message,
+            false,
+            OperationId::new(),
+        )),
+    )
+        .into_response()
 }
 
 pub(crate) fn lowercase_headers(headers: &BTreeMap<String, String>) -> BTreeMap<String, String> {

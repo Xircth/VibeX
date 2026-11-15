@@ -1,20 +1,56 @@
 //! SQLite persistence and atomic queue operations for the Pulse event engine.
 
+#[path = "pulse_rows.rs"]
+mod pulse_rows;
+
+use std::sync::LazyLock;
+
 use api_types::pulse::{
     ApprovalOptionSpec, BotConversationScope, BotMailboxPolicy, EventEnvelope, EventSourceKind,
     MandateOrigin, PulseEvalMode, PulseEventSchemaView, PulseObservedCandidateView, PulseRuleSpec,
     PulseRuleView, PulseSourceView, PulseSubscriptionView, PulseUserInteractionView,
     UserInteractionKind, UserInteractionSeverity,
 };
-use serde::{Serialize, de::DeserializeOwned};
-use sqlx::{FromRow, SqlitePool};
+use pulse_rows::*;
+use sqlx::SqlitePool;
 
 const PULSE_MIGRATION_SQL: &str =
     include_str!("../../migrations/20261116000000_pulse_event_engine.sql");
 
-/// Applies the Pulse SQLite schema idempotently (`CREATE TABLE/INDEX IF NOT EXISTS`).
+static PULSE_SCHEMA_DDL_LOCK: LazyLock<tokio::sync::Mutex<()>> =
+    LazyLock::new(|| tokio::sync::Mutex::new(()));
+
+static PULSE_OUTBOX_WAKE: LazyLock<tokio::sync::Notify> = LazyLock::new(tokio::sync::Notify::new);
+
+/// Shared wakeup handle notified whenever a new row is inserted into `pulse_outbox`.
+pub fn pulse_outbox_wake() -> &'static tokio::sync::Notify {
+    &PULSE_OUTBOX_WAKE
+}
+
+/// Wakes any background outbox delivery worker waiting on `pulse_outbox_wake()`.
+pub fn notify_pulse_outbox() {
+    PULSE_OUTBOX_WAKE.notify_waiters();
+}
+
+/// Applies the Pulse SQLite schema once per database, avoiding repeated multi-statement DDL locks.
 pub async fn ensure_pulse_schema(pool: &SqlitePool) -> Result<(), sqlx::Error> {
-    sqlx::raw_sql(PULSE_MIGRATION_SQL).execute(pool).await?;
+    let initialized: Option<i64> = sqlx::query_scalar(
+        "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'pulse_event_schemas' LIMIT 1",
+    )
+    .fetch_optional(pool)
+    .await?;
+    if initialized.is_some() {
+        return Ok(());
+    }
+    let _guard = PULSE_SCHEMA_DDL_LOCK.lock().await;
+    let recheck: Option<i64> = sqlx::query_scalar(
+        "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'pulse_event_schemas' LIMIT 1",
+    )
+    .fetch_optional(pool)
+    .await?;
+    if recheck.is_none() {
+        sqlx::raw_sql(PULSE_MIGRATION_SQL).execute(pool).await?;
+    }
     Ok(())
 }
 
@@ -121,137 +157,6 @@ pub struct PulseOutboxRecord {
     pub created_at: String,
     pub updated_at: String,
 }
-
-#[derive(FromRow)]
-struct SourceRow {
-    id: String,
-    kind: String,
-    title: String,
-    enabled: bool,
-    healthy: bool,
-    status_message: Option<String>,
-    cursor_watermark: Option<String>,
-    public_webhook_path: Option<String>,
-    config_json: String,
-    signing_secret: Option<String>,
-    received_count_24h: i64,
-    rejected_count_24h: i64,
-    created_at: String,
-    updated_at: String,
-}
-
-#[derive(FromRow)]
-struct RuleRow {
-    id: String,
-    revision: i64,
-    enabled: bool,
-    draft_only: bool,
-    mandate_origin: String,
-    spec_json: String,
-    webhook_route_id: Option<String>,
-    next_fire_at: Option<String>,
-    matched_count: i64,
-    observed_count: i64,
-    created_at: String,
-    updated_at: String,
-}
-
-#[derive(FromRow)]
-struct SubscriptionRow {
-    id: String,
-    thread_key: String,
-    subscriber_kind: String,
-    subscriber_id: String,
-    active: bool,
-    created_at: String,
-}
-
-#[derive(FromRow)]
-struct ObservedCandidateRow {
-    id: String,
-    rule_id: String,
-    rule_name: String,
-    event_id: String,
-    event_type: String,
-    source_kind: String,
-    thread_key: Option<String>,
-    summary: String,
-    envelope_json: String,
-    occurred_at: String,
-    promoted: bool,
-}
-
-#[derive(FromRow)]
-struct BotMailboxRow {
-    id: String,
-    member_id: String,
-    conversation_scope: String,
-    mailbox_policy: String,
-    thread_key: Option<String>,
-    event_id: String,
-    prompt_text: String,
-    status: String,
-    created_at: String,
-    claimed_at: Option<String>,
-}
-
-#[derive(FromRow)]
-struct UserInteractionRow {
-    id: String,
-    rule_id: Option<String>,
-    workflow_run_id: Option<String>,
-    step_id: Option<String>,
-    kind: String,
-    severity: String,
-    title: String,
-    body: String,
-    approval_options_json: String,
-    form_schema_json: Option<String>,
-    resolution_json: Option<String>,
-    status: String,
-    sla_deadline_at: Option<String>,
-    created_at: String,
-    resolved_at: Option<String>,
-}
-
-#[derive(FromRow)]
-struct OutboxRow {
-    id: String,
-    dedupe_key: String,
-    target_kind: String,
-    payload_json: String,
-    status: String,
-    attempts: i64,
-    next_attempt_at: String,
-    last_error: Option<String>,
-    created_at: String,
-    updated_at: String,
-}
-
-#[derive(FromRow)]
-struct EventSchemaRow {
-    event_type: String,
-    summary: String,
-    json_schema: String,
-    built_in: bool,
-    updated_at: String,
-}
-
-const SOURCE_COLUMNS: &str = "id,kind,title,enabled,healthy,status_message,cursor_watermark,\
-    public_webhook_path,config_json,signing_secret,received_count_24h,rejected_count_24h,\
-    created_at,updated_at";
-const RULE_COLUMNS: &str = "id,revision,enabled,draft_only,mandate_origin,spec_json,\
-    webhook_route_id,next_fire_at,matched_count,observed_count,created_at,updated_at";
-const SUBSCRIPTION_COLUMNS: &str = "id,thread_key,subscriber_kind,subscriber_id,active,created_at";
-const CANDIDATE_COLUMNS: &str = "id,rule_id,rule_name,event_id,event_type,source_kind,thread_key,\
-    summary,envelope_json,occurred_at,promoted";
-const MAILBOX_COLUMNS: &str = "id,member_id,conversation_scope,mailbox_policy,thread_key,event_id,\
-    prompt_text,status,created_at,claimed_at";
-const INTERACTION_COLUMNS: &str = "id,rule_id,workflow_run_id,step_id,kind,severity,title,body,\
-    approval_options_json,form_schema_json,resolution_json,status,sla_deadline_at,\
-    created_at,resolved_at";
-const OUTBOX_COLUMNS: &str = "id,dedupe_key,target_kind,payload_json,status,attempts,\
-    next_attempt_at,last_error,created_at,updated_at";
 
 impl SqlitePulseStore {
     pub fn new(pool: SqlitePool) -> Self {
@@ -759,11 +664,29 @@ impl SqlitePulseStore {
         Ok(rows.into_iter().map(parse_subscription_row).collect())
     }
 
+    pub async fn bind_session_thread_subscription(
+        &self,
+        thread_key: &str,
+        session_id: &str,
+        now: &str,
+    ) -> Result<PulseSubscriptionView, sqlx::Error> {
+        sqlx::query(
+            "DELETE FROM pulse_thread_subscriptions
+             WHERE thread_key = ? AND subscriber_kind = 'session' AND subscriber_id LIKE 'session:%'",
+        )
+        .bind(thread_key)
+        .execute(&self.pool)
+        .await?;
+        let sub_id = format!("sub-session-{thread_key}-{session_id}");
+        self.subscribe_thread(&sub_id, thread_key, "session", session_id, now)
+            .await
+    }
+
     pub async fn list_active_subscriptions(
         &self,
     ) -> Result<Vec<PulseSubscriptionView>, sqlx::Error> {
         let sql = format!(
-            "SELECT {SUBSCRIPTION_COLUMNS} FROM pulse_thread_subscriptions WHERE active = 1 ORDER BY created_at DESC, id ASC"
+            "SELECT {SUBSCRIPTION_COLUMNS} FROM pulse_thread_subscriptions WHERE active = 1 ORDER BY created_at DESC, id ASC LIMIT 200"
         );
         let rows = sqlx::query_as::<_, SubscriptionRow>(&sql)
             .fetch_all(&self.pool)
@@ -905,6 +828,72 @@ impl SqlitePulseStore {
             .fetch_one(&self.pool)
             .await?;
         parse_mailbox_row(row)
+    }
+
+    /// Idempotent mailbox insert (`INSERT OR IGNORE`) used by workflow `Bot` steps so retries reuse the same row.
+    pub async fn enqueue_bot_turn(
+        &self,
+        item: &PulseBotMailboxItem,
+    ) -> Result<PulseBotMailboxItem, sqlx::Error> {
+        let scope_str = encode_enum_str(&item.conversation_scope)?;
+        let policy_str = encode_enum_str(&item.mailbox_policy)?;
+
+        sqlx::query(
+            "INSERT OR IGNORE INTO pulse_bot_mailbox (
+                id, member_id, conversation_scope, mailbox_policy, thread_key,
+                event_id, prompt_text, status, created_at, claimed_at
+             ) VALUES (?, ?, ?, ?, ?, ?, ?, 'queued', ?, NULL)",
+        )
+        .bind(&item.id)
+        .bind(&item.member_id)
+        .bind(scope_str)
+        .bind(policy_str)
+        .bind(&item.thread_key)
+        .bind(&item.event_id)
+        .bind(&item.prompt_text)
+        .bind(&item.created_at)
+        .execute(&self.pool)
+        .await?;
+
+        let sql = format!("SELECT {MAILBOX_COLUMNS} FROM pulse_bot_mailbox WHERE id = ?");
+        let row = sqlx::query_as::<_, BotMailboxRow>(&sql)
+            .bind(&item.id)
+            .fetch_one(&self.pool)
+            .await?;
+        parse_mailbox_row(row)
+    }
+
+    pub async fn peek_next_bot_turn(
+        &self,
+        member_id: &str,
+    ) -> Result<Option<PulseBotMailboxItem>, sqlx::Error> {
+        let sql = format!(
+            "SELECT {MAILBOX_COLUMNS} FROM pulse_bot_mailbox
+             WHERE member_id = ? AND status = 'queued'
+             ORDER BY created_at ASC, rowid ASC LIMIT 1"
+        );
+        sqlx::query_as::<_, BotMailboxRow>(&sql)
+            .bind(member_id)
+            .fetch_optional(&self.pool)
+            .await?
+            .map(parse_mailbox_row)
+            .transpose()
+    }
+
+    pub async fn list_queued_bot_member_ids(&self) -> Result<Vec<String>, sqlx::Error> {
+        sqlx::query_scalar(
+            "SELECT DISTINCT member_id FROM pulse_bot_mailbox WHERE status = 'queued' ORDER BY member_id ASC",
+        )
+        .fetch_all(&self.pool)
+        .await
+    }
+
+    pub async fn list_claimed_bot_member_ids(&self) -> Result<Vec<String>, sqlx::Error> {
+        sqlx::query_scalar(
+            "SELECT DISTINCT member_id FROM pulse_bot_mailbox WHERE status = 'claimed' ORDER BY member_id ASC",
+        )
+        .fetch_all(&self.pool)
+        .await
     }
 
     /// Single-flight FIFO claim & batch coalesce per `member_id`.
@@ -1156,7 +1145,7 @@ impl SqlitePulseStore {
     ) -> Result<Vec<PulseUserInteractionView>, sqlx::Error> {
         let sql = format!(
             "SELECT {INTERACTION_COLUMNS} FROM pulse_user_interactions
-             WHERE status = 'pending' ORDER BY created_at DESC, id ASC"
+             WHERE status = 'pending' ORDER BY created_at DESC, id ASC LIMIT 200"
         );
         sqlx::query_as::<_, UserInteractionRow>(&sql)
             .fetch_all(&self.pool)
@@ -1193,7 +1182,11 @@ impl SqlitePulseStore {
             .bind(now)
             .execute(&self.pool)
             .await?;
-        Ok(res.rows_affected() == 1)
+        let inserted = res.rows_affected() == 1;
+        if inserted {
+            notify_pulse_outbox();
+        }
+        Ok(inserted)
     }
 
     pub async fn claim_due_outbox(
@@ -1322,164 +1315,4 @@ impl SqlitePulseStore {
         let count: i64 = sqlx::query_scalar(sql).fetch_one(&self.pool).await?;
         Ok(u32::try_from(count.max(0)).unwrap_or(u32::MAX))
     }
-}
-
-fn encode_enum_str<T: Serialize>(value: &T) -> Result<String, sqlx::Error> {
-    match serde_json::to_value(value).map_err(protocol_error)? {
-        serde_json::Value::String(s) => Ok(s),
-        other => Err(sqlx::Error::Protocol(format!(
-            "expected string-encoded enum, got {other}"
-        ))),
-    }
-}
-
-fn decode_enum_str<T: DeserializeOwned>(raw: &str) -> Result<T, sqlx::Error> {
-    serde_json::from_value(serde_json::Value::String(raw.to_string())).map_err(protocol_error)
-}
-
-fn decode_json<T: DeserializeOwned>(raw: &str) -> Result<T, sqlx::Error> {
-    serde_json::from_str(raw).map_err(protocol_error)
-}
-
-fn decode_json_opt<T: DeserializeOwned>(raw: Option<&str>) -> Result<Option<T>, sqlx::Error> {
-    raw.map(serde_json::from_str)
-        .transpose()
-        .map_err(protocol_error)
-}
-
-fn parse_source_row(row: SourceRow) -> Result<PulseSourceRecord, sqlx::Error> {
-    Ok(PulseSourceRecord {
-        view: PulseSourceView {
-            id: row.id,
-            kind: decode_enum_str(&row.kind)?,
-            title: row.title,
-            enabled: row.enabled,
-            healthy: row.healthy,
-            status_message: row.status_message,
-            cursor_watermark: row.cursor_watermark,
-            public_webhook_path: row.public_webhook_path,
-            received_count_24h: u64::try_from(row.received_count_24h.max(0)).unwrap_or(0),
-            rejected_count_24h: u64::try_from(row.rejected_count_24h.max(0)).unwrap_or(0),
-            updated_at: row.updated_at,
-        },
-        config_json: decode_json(&row.config_json)?,
-        signing_secret: row.signing_secret,
-        created_at: row.created_at,
-    })
-}
-
-fn parse_rule_row(row: RuleRow) -> Result<PulseRuleView, sqlx::Error> {
-    Ok(PulseRuleView {
-        id: row.id,
-        revision: u32::try_from(row.revision.max(1)).unwrap_or(u32::MAX),
-        enabled: row.enabled,
-        draft_only: row.draft_only,
-        mandate_origin: decode_enum_str(&row.mandate_origin)?,
-        spec: decode_json(&row.spec_json)?,
-        webhook_route_id: row.webhook_route_id,
-        next_fire_at: row.next_fire_at,
-        matched_count: u64::try_from(row.matched_count.max(0)).unwrap_or(0),
-        observed_count: u64::try_from(row.observed_count.max(0)).unwrap_or(0),
-        created_at: row.created_at,
-        updated_at: row.updated_at,
-    })
-}
-
-fn parse_subscription_row(row: SubscriptionRow) -> PulseSubscriptionView {
-    PulseSubscriptionView {
-        id: row.id,
-        thread_key: row.thread_key,
-        subscriber_kind: row.subscriber_kind,
-        subscriber_id: row.subscriber_id,
-        active: row.active,
-        created_at: row.created_at,
-    }
-}
-
-fn parse_candidate_row(
-    row: ObservedCandidateRow,
-) -> Result<PulseObservedCandidateRecord, sqlx::Error> {
-    Ok(PulseObservedCandidateRecord {
-        view: PulseObservedCandidateView {
-            id: row.id,
-            rule_id: row.rule_id,
-            rule_name: row.rule_name,
-            event_id: row.event_id,
-            event_type: row.event_type,
-            source_kind: decode_enum_str(&row.source_kind)?,
-            thread_key: row.thread_key,
-            summary: row.summary,
-            occurred_at: row.occurred_at,
-            promoted: row.promoted,
-        },
-        envelope: decode_json(&row.envelope_json)?,
-    })
-}
-
-fn parse_mailbox_row(row: BotMailboxRow) -> Result<PulseBotMailboxItem, sqlx::Error> {
-    Ok(PulseBotMailboxItem {
-        id: row.id,
-        member_id: row.member_id,
-        conversation_scope: decode_enum_str(&row.conversation_scope)?,
-        mailbox_policy: decode_enum_str(&row.mailbox_policy)?,
-        thread_key: row.thread_key,
-        event_id: row.event_id,
-        prompt_text: row.prompt_text,
-        status: row.status,
-        created_at: row.created_at,
-        claimed_at: row.claimed_at,
-    })
-}
-
-fn parse_interaction_row(
-    row: UserInteractionRow,
-) -> Result<PulseUserInteractionRecord, sqlx::Error> {
-    Ok(PulseUserInteractionRecord {
-        view: PulseUserInteractionView {
-            id: row.id,
-            rule_id: row.rule_id,
-            workflow_run_id: row.workflow_run_id,
-            step_id: row.step_id,
-            kind: decode_enum_str(&row.kind)?,
-            severity: decode_enum_str(&row.severity)?,
-            title: row.title,
-            body: row.body,
-            approval_options: decode_json(&row.approval_options_json)?,
-            form_schema: decode_json_opt(row.form_schema_json.as_deref())?,
-            status: row.status,
-            created_at: row.created_at,
-            resolved_at: row.resolved_at,
-        },
-        resolution: decode_json_opt(row.resolution_json.as_deref())?,
-        sla_deadline_at: row.sla_deadline_at,
-    })
-}
-
-fn parse_outbox_row(row: OutboxRow) -> Result<PulseOutboxRecord, sqlx::Error> {
-    Ok(PulseOutboxRecord {
-        id: row.id,
-        dedupe_key: row.dedupe_key,
-        target_kind: row.target_kind,
-        payload: decode_json(&row.payload_json)?,
-        status: row.status,
-        attempts: u32::try_from(row.attempts.max(0)).unwrap_or(u32::MAX),
-        next_attempt_at: row.next_attempt_at,
-        last_error: row.last_error,
-        created_at: row.created_at,
-        updated_at: row.updated_at,
-    })
-}
-
-fn parse_event_schema_row(row: EventSchemaRow) -> Result<PulseEventSchemaView, sqlx::Error> {
-    Ok(PulseEventSchemaView {
-        event_type: row.event_type,
-        summary: row.summary,
-        json_schema: decode_json(&row.json_schema)?,
-        built_in: row.built_in,
-        updated_at: row.updated_at,
-    })
-}
-
-fn protocol_error(error: impl std::fmt::Display) -> sqlx::Error {
-    sqlx::Error::Protocol(error.to_string())
 }

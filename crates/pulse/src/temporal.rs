@@ -274,6 +274,11 @@ impl InactivitySlaTracker {
             .get(&(rule_id.to_string(), thread_key.to_string()))
     }
 
+    /// Disarms and removes all tracked SLA deadlines belonging to `rule_id`.
+    pub fn disarm_rule(&mut self, rule_id: &str) {
+        self.deadlines.retain(|(r, _), _| r != rule_id);
+    }
+
     /// Observes an incoming `EventEnvelope` against all enabled `InactivitySla` rules:
     /// - Ignores `time.sla.expired` self-emissions so SLA expirations do not re-arm themselves.
     /// - If `expected_event_types` contains `envelope.event_type`, disarms the pending SLA timer.
@@ -284,6 +289,19 @@ impl InactivitySlaTracker {
         envelope: &EventEnvelope,
         now: DateTime<Utc>,
     ) {
+        let active_sla_rules: std::collections::BTreeSet<&str> = rules
+            .iter()
+            .filter(|r| {
+                r.enabled
+                    && !r.draft_only
+                    && r.spec.eval_mode != PulseEvalMode::Off
+                    && matches!(r.spec.temporal, Some(PulseTemporalSpec::InactivitySla { .. }))
+            })
+            .map(|r| r.id.as_str())
+            .collect();
+        self.deadlines
+            .retain(|(rule_id, _), _| active_sla_rules.contains(rule_id.as_str()));
+
         if envelope.source.kind == EventSourceKind::TimeSla
             || envelope.event_type == "time.sla.expired"
         {

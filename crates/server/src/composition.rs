@@ -511,9 +511,18 @@ impl HeadlessServer {
             application::WorkflowAgentDispatcher::new(conversation_context.clone());
         let workflow_dispatch_task = tokio::spawn(async move {
             loop {
+                let woken = workflows::workflow_wake().notified();
+                tokio::pin!(woken);
+                woken.as_mut().enable();
+
                 match workflow_dispatcher.tick().await {
                     Ok(true) => continue,
-                    Ok(false) => tokio::time::sleep(std::time::Duration::from_secs(2)).await,
+                    Ok(false) => {
+                        tokio::select! {
+                            _ = &mut woken => {}
+                            _ = tokio::time::sleep(std::time::Duration::from_secs(2)) => {}
+                        }
+                    }
                     Err(error) => {
                         tracing::warn!(%error, "workflow dispatcher tick failed");
                         tokio::time::sleep(std::time::Duration::from_secs(1)).await;

@@ -16,12 +16,15 @@ impl WorkflowStore {
     pub async fn waiting_event_steps(&self) -> Result<Vec<WaitingWorkflowStep>, WorkflowError> {
         let mut conn = self.pool.acquire().await?;
         let rows = sqlx::query(
-            "SELECT step.run_id, run.workspace_id, run.definition_version_id, run.input_json,
+            "SELECT step.run_id, run.workspace_id, run.input_json,
+                    wdv.normalized_json,
                     step.step_id, step.attempt, step.resolved_input_json,
                     step.execution_evidence_json
              FROM workflow_step_runs step
              JOIN workflow_runs run ON run.id = step.run_id
+             JOIN workflow_definition_versions wdv ON wdv.id = run.definition_version_id
              WHERE step.status = 'waiting_approval'
+               AND json_extract(step.execution_evidence_json, '$.primitive') = 'wait_for_event'
                AND run.status = 'waiting'
                AND run.control_state = 'active'
                AND step.attempt = (
@@ -38,15 +41,14 @@ impl WorkflowStore {
         for row in rows {
             let run_id: Uuid = row.try_get("run_id")?;
             let workspace_id: Uuid = row.try_get("workspace_id")?;
-            let version_id: Uuid = row.try_get("definition_version_id")?;
             let input_json: String = row.try_get("input_json")?;
+            let normalized_json: String = row.try_get("normalized_json")?;
             let step_id: String = row.try_get("step_id")?;
             let attempt: i64 = row.try_get("attempt")?;
             let resolved_input_json: Option<String> = row.try_get("resolved_input_json")?;
             let evidence_json: Option<String> = row.try_get("execution_evidence_json")?;
 
-            let version = version_on_connection(&mut conn, version_id).await?;
-            let definition = version.definition()?;
+            let definition: crate::WorkflowDefinition = serde_json::from_str(&normalized_json)?;
             let Some(definition_step) = definition.steps.iter().find(|s| s.id == step_id) else {
                 continue;
             };
@@ -201,7 +203,8 @@ impl WorkflowStore {
                      waiting_interaction = 0,
                      completed_at = ?,
                      updated_at = datetime('now', 'subsec')
-                 WHERE run_id = ? AND step_id = ? AND attempt = ?",
+                 WHERE run_id = ? AND step_id = ? AND attempt = ?
+",
             )
             .bind(serde_json::to_string(&envelope_json_value)?)
             .bind(Utc::now())
@@ -267,6 +270,7 @@ impl WorkflowStore {
             due
         };
 
+        let now_iso = now.to_rfc3339();
         let mut expired_runs = Vec::with_capacity(candidates.len());
         for (run_id, step_id) in candidates {
             let updated = self
@@ -277,6 +281,23 @@ impl WorkflowStore {
                     &format!("suspended step `{step_id}` exceeded configured SLA timeout"),
                 )
                 .await?;
+            let has_table: Option<i64> = sqlx::query_scalar(
+                "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'pulse_user_interactions' LIMIT 1",
+            )
+            .fetch_optional(&self.pool)
+            .await?;
+            if has_table.is_some() {
+                let _ = sqlx::query(
+                    "UPDATE pulse_user_interactions
+                     SET status = 'expired', resolved_at = ?
+                     WHERE workflow_run_id = ? AND step_id = ? AND status = 'pending'",
+                )
+                .bind(&now_iso)
+                .bind(run_id.to_string())
+                .bind(&step_id)
+                .execute(&self.pool)
+                .await;
+            }
             expired_runs.push(updated);
         }
         Ok(expired_runs)

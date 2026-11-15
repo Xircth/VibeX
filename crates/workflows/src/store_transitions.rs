@@ -785,19 +785,39 @@ impl WorkflowStore {
                 },
             )
             .await?;
+            let decision_str = serde_json::to_string(decision)?;
+            let now_dt = Utc::now();
             sqlx::query(
                 "UPDATE workflow_step_runs SET status = 'completed', output_json = ?,
                         waiting_interaction = 0,
                         completed_at = ?, updated_at = datetime('now', 'subsec')
                  WHERE run_id = ? AND step_id = ? AND attempt = ?",
             )
-            .bind(serde_json::to_string(decision)?)
-            .bind(Utc::now())
+            .bind(&decision_str)
+            .bind(now_dt)
             .bind(run_id)
             .bind(step_id)
             .bind(attempt)
             .execute(&mut *conn)
             .await?;
+            let has_interactions_table: Option<i64> = sqlx::query_scalar(
+                "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'pulse_user_interactions' LIMIT 1",
+            )
+            .fetch_optional(&mut *conn)
+            .await?;
+            if has_interactions_table.is_some() {
+                sqlx::query(
+                    "UPDATE pulse_user_interactions
+                     SET status = 'resolved', resolution_json = ?, resolved_at = ?
+                     WHERE workflow_run_id = ? AND step_id = ? AND status = 'pending'",
+                )
+                .bind(&decision_str)
+                .bind(now_dt.to_rfc3339())
+                .bind(run_id.to_string())
+                .bind(step_id)
+                .execute(&mut *conn)
+                .await?;
+            }
             append_event(
                 &mut conn,
                 run_id,
@@ -900,6 +920,22 @@ impl WorkflowStore {
                 .bind(run_id)
                 .execute(&mut *conn)
                 .await?;
+            let has_interactions_table: Option<i64> = sqlx::query_scalar(
+                "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'pulse_user_interactions' LIMIT 1",
+            )
+            .fetch_optional(&mut *conn)
+            .await?;
+            if has_interactions_table.is_some() {
+                sqlx::query(
+                    "UPDATE pulse_user_interactions
+                     SET status = 'expired', resolved_at = ?
+                     WHERE workflow_run_id = ? AND status = 'pending'",
+                )
+                .bind(Utc::now().to_rfc3339())
+                .bind(run_id.to_string())
+                .execute(&mut *conn)
+                .await?;
+            }
             append_event(
                 &mut conn,
                 run_id,

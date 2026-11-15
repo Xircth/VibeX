@@ -142,15 +142,18 @@ impl ChainRateBreaker {
             .unwrap_or_else(|poisoned| poisoned.into_inner());
         let cutoff = now - self.window;
 
-        let queue = guard.entry(thread_key.to_string()).or_default();
-        while let Some(&oldest) = queue.front() {
-            if oldest <= cutoff {
-                queue.pop_front();
-            } else {
-                break;
+        guard.retain(|_, queue| {
+            while let Some(&oldest) = queue.front() {
+                if oldest <= cutoff {
+                    queue.pop_front();
+                } else {
+                    break;
+                }
             }
-        }
+            !queue.is_empty()
+        });
 
+        let queue = guard.entry(thread_key.to_string()).or_default();
         if queue.len() >= self.max_triggers {
             return RateBreakerDecision::Tripped {
                 count_in_window: queue.len() + 1,
@@ -162,6 +165,13 @@ impl ChainRateBreaker {
         RateBreakerDecision::Allowed {
             count_in_window: queue.len(),
         }
+    }
+
+    pub fn active_bucket_count(&self) -> usize {
+        self.buckets
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .len()
     }
 
     pub fn reset_thread(&self, thread_key: &str) {

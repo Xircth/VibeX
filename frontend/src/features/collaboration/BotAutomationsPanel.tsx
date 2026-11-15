@@ -1,6 +1,17 @@
-import { useCallback, useEffect, useState } from 'react';
-import { CalendarClock, Plus, Trash2, Zap } from 'lucide-react';
+import { useMemo, useState } from 'react';
+import {
+  AlertTriangle,
+  CalendarClock,
+  Plus,
+  RefreshCw,
+  Trash2,
+  Zap,
+} from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import {
+  formatPulseErrorMessage,
+  usePulseDeckSnapshot,
+} from '@/hooks/usePulseDeckSnapshot';
 import {
   pulseApi,
   type BotMailboxPolicy,
@@ -26,46 +37,55 @@ export function BotAutomationsPanel({
   botName: string;
   workspaceId?: string | null;
 }) {
-  const [rules, setRules] = useState<PulseRuleView[]>([]);
-  const [loading, setLoading] = useState(true);
+  const {
+    snapshot,
+    isLoading,
+    error: queryError,
+    refetch,
+    setSnapshotData,
+    invalidateSnapshot,
+  } = usePulseDeckSnapshot(null, { enabled: Boolean(memberId) });
+
   const [creatingKind, setCreatingKind] = useState<'event' | 'schedule' | null>(
     null
   );
+  const [actionError, setActionError] = useState<string | null>(null);
 
-  const loadRules = useCallback(async () => {
-    if (!memberId) {
-      setRules([]);
-      setLoading(false);
-      return;
-    }
-    setLoading(true);
-    try {
-      const allRules = await pulseApi.listRules();
-      const bound = allRules.filter((rule) =>
-        rule.spec.targets.some(
-          (target) => target.kind === 'bot' && target.memberId === memberId
-        )
-      );
-      setRules(bound);
-    } catch {
-      setRules([]);
-    } finally {
-      setLoading(false);
-    }
-  }, [memberId]);
+  const rules = useMemo<PulseRuleView[]>(() => {
+    if (!memberId) return [];
+    const allRules = snapshot?.rules ?? [];
+    return allRules.filter((rule) =>
+      rule.spec.targets.some(
+        (target) => target.kind === 'bot' && target.memberId === memberId
+      )
+    );
+  }, [memberId, snapshot?.rules]);
 
-  useEffect(() => {
-    void loadRules();
-  }, [loadRules]);
+  const errorMessage =
+    actionError ??
+    (queryError
+      ? formatPulseErrorMessage(queryError, 'Failed to load bot triggers.')
+      : null);
 
   const handleModeChange = async (rule: PulseRuleView, mode: PulseEvalMode) => {
+    setActionError(null);
     try {
       const updated = await pulseApi.setRuleMode(rule.id, mode);
-      setRules((prev) =>
-        prev.map((item) => (item.id === rule.id ? updated : item))
+      setSnapshotData((prev) =>
+        prev
+          ? {
+              ...prev,
+              rules: prev.rules.map((item) =>
+                item.id === rule.id ? updated : item
+              ),
+            }
+          : prev
       );
-    } catch {
-      // Ignore best-effort toggle failure
+      void invalidateSnapshot();
+    } catch (err) {
+      setActionError(
+        formatPulseErrorMessage(err, 'Failed to update trigger mode.')
+      );
     }
   };
 
@@ -73,6 +93,7 @@ export function BotAutomationsPanel({
     rule: PulseRuleView,
     mailboxPolicy: BotMailboxPolicy
   ) => {
+    setActionError(null);
     try {
       const nextSpec = {
         ...rule.spec,
@@ -87,20 +108,41 @@ export function BotAutomationsPanel({
         enabled: rule.enabled,
         spec: nextSpec,
       });
-      setRules((prev) =>
-        prev.map((item) => (item.id === rule.id ? updated : item))
+      setSnapshotData((prev) =>
+        prev
+          ? {
+              ...prev,
+              rules: prev.rules.map((item) =>
+                item.id === rule.id ? updated : item
+              ),
+            }
+          : prev
       );
-    } catch {
-      // Ignore best-effort update failure
+      void invalidateSnapshot();
+    } catch (err) {
+      setActionError(
+        formatPulseErrorMessage(err, 'Failed to update mailbox policy.')
+      );
     }
   };
 
   const handleDelete = async (ruleId: string) => {
+    setActionError(null);
     try {
       await pulseApi.deleteRule(ruleId);
-      setRules((prev) => prev.filter((item) => item.id !== ruleId));
-    } catch {
-      // Ignore best-effort delete failure
+      setSnapshotData((prev) =>
+        prev
+          ? {
+              ...prev,
+              rules: prev.rules.filter((item) => item.id !== ruleId),
+            }
+          : prev
+      );
+      void invalidateSnapshot();
+    } catch (err) {
+      setActionError(
+        formatPulseErrorMessage(err, 'Failed to delete bot trigger.')
+      );
     }
   };
 
@@ -144,6 +186,32 @@ export function BotAutomationsPanel({
         </div>
       </div>
 
+      {errorMessage ? (
+        <div
+          role="alert"
+          data-testid="bot-automations-error"
+          className="flex items-center justify-between gap-2 rounded-md border border-destructive/30 bg-destructive/10 px-2.5 py-1.5 text-[11px] text-destructive"
+        >
+          <span className="inline-flex min-w-0 items-center gap-1.5">
+            <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+            <span className="truncate">{errorMessage}</span>
+          </span>
+          <Button
+            type="button"
+            size="xs"
+            variant="ghost"
+            data-testid="bot-automations-retry"
+            onClick={() => {
+              setActionError(null);
+              void refetch();
+            }}
+            icon={<RefreshCw className="h-3 w-3" />}
+          >
+            Retry
+          </Button>
+        </div>
+      ) : null}
+
       {creatingKind ? (
         <PulseRuleProposalCard
           initialSpec={buildBotPulseProposalSpec({
@@ -156,16 +224,24 @@ export function BotAutomationsPanel({
           contextLabel={`Bot: ${botName}`}
           onSaved={(saved) => {
             setCreatingKind(null);
-            setRules((prev) => [
-              saved,
-              ...prev.filter((item) => item.id !== saved.id),
-            ]);
+            setSnapshotData((prev) =>
+              prev
+                ? {
+                    ...prev,
+                    rules: [
+                      saved,
+                      ...prev.rules.filter((item) => item.id !== saved.id),
+                    ],
+                  }
+                : prev
+            );
+            void invalidateSnapshot();
           }}
           onCancel={() => setCreatingKind(null)}
         />
       ) : null}
 
-      {loading ? (
+      {isLoading && !snapshot ? (
         <p className="py-2 text-muted-foreground">Loading triggers…</p>
       ) : rules.length === 0 ? (
         <p

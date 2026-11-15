@@ -126,6 +126,16 @@ export function PulseRuleProposalCard({
       });
     }
 
+    let skippedPrimaryContains = false;
+    for (const condition of spec.filter.conditions) {
+      if (condition.op === 'not_bot_actor') continue;
+      if (condition.op === 'contains' && !skippedPrimaryContains) {
+        skippedPrimaryContains = true;
+        continue;
+      }
+      baseConditions.push(condition);
+    }
+
     return {
       ...spec,
       filter: {
@@ -693,7 +703,7 @@ export function PulseRuleProposalCard({
 
         {savedRule ? (
           <p
-            className="inline-flex items-center gap-1 text-[11px] text-success"
+            className="inline-flex items-center gap-1.5 rounded-md border border-success/25 bg-success/[0.06] px-2.5 py-1 text-[11px] text-success"
             data-testid="pulse-rule-saved-banner"
           >
             <CheckCircle2 className="h-3.5 w-3.5" />

@@ -2,32 +2,28 @@ import { useEffect, useMemo, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import {
-  Check,
   CircleAlert,
   Eye,
   Inbox,
   MessageCircleQuestion,
   ShieldQuestion,
-  X,
   XCircle,
-  Zap,
   ZapOff,
   type LucideIcon,
 } from 'lucide-react';
 import { AttentionItemKind, type AttentionItem } from 'shared/types';
-import { Button } from '@/components/ui/button';
 import {
   Popover,
   PopoverContent,
   PopoverTrigger,
 } from '@/components/ui/popover';
-import { attentionApi } from '@/lib/api/attention';
 import {
-  pulseApi,
-  type ApprovalOptionSpec,
-  type PulseUserInteractionView,
-} from '@/lib/api/pulse';
+  PulseInteractionCard,
+  type PulseInteractionLabels,
+} from '@/components/kanban/pulseInteractionForm';
+import { attentionApi } from '@/lib/api/attention';
 import { useOpenProjectSession } from '@/hooks/useOpenProjectSession';
+import { usePulseDeckSnapshot } from '@/hooks/usePulseDeckSnapshot';
 import { backendListen } from '@/lib/backendTransport';
 import { cn } from '@/lib/utils';
 
@@ -98,228 +94,29 @@ function useRelativeTime() {
   return (timestampMs: number | null) => {
     if (timestampMs === null) return null;
     const diffMs = Date.now() - timestampMs;
-    if (diffMs < 60_000) return t('attentionInbox.justNow');
+    if (diffMs < 60_000) {
+      return t('attentionInbox.justNow', { defaultValue: 'just now' });
+    }
     const minutes = Math.floor(diffMs / 60_000);
-    if (minutes < 60) return t('attentionInbox.minutesAgo', { count: minutes });
+    if (minutes < 60) {
+      return t('attentionInbox.minutesAgo', {
+        count: minutes,
+        defaultValue: `${minutes} min ago`,
+      });
+    }
     const hours = Math.floor(minutes / 60);
-    if (hours < 24) return t('attentionInbox.hoursAgo', { count: hours });
-    return t('attentionInbox.daysAgo', { count: Math.floor(hours / 24) });
-  };
-}
-
-function extractFormFields(
-  formSchema?: Record<string, unknown> | null
-): Array<{ key: string; label: string }> {
-  if (!formSchema || typeof formSchema !== 'object') {
-    return [{ key: 'response', label: 'Response' }];
-  }
-  const properties = formSchema.properties;
-  if (!properties || typeof properties !== 'object') {
-    return [{ key: 'response', label: 'Response' }];
-  }
-  const entries = Object.entries(properties as Record<string, unknown>);
-  if (entries.length === 0) {
-    return [{ key: 'response', label: 'Response' }];
-  }
-  return entries.map(([key, schema]) => {
-    const label =
-      schema &&
-      typeof schema === 'object' &&
-      typeof (schema as { title?: unknown }).title === 'string'
-        ? ((schema as { title: string }).title || key)
-        : key;
-    return { key, label };
-  });
-}
-
-function PulseInteractionRow({
-  interaction,
-  onResolved,
-}: {
-  interaction: PulseUserInteractionView;
-  onResolved: (id: string) => void;
-}) {
-  const [note, setNote] = useState('');
-  const [formValues, setFormValues] = useState<Record<string, string>>({});
-  const [resolving, setResolving] = useState(false);
-  const [errorMsg, setErrorMsg] = useState<string | null>(null);
-
-  const formFields = useMemo(
-    () =>
-      interaction.kind === 'ask_form'
-        ? extractFormFields(interaction.formSchema)
-        : [],
-    [interaction.formSchema, interaction.kind]
-  );
-
-  const approvalOptions: ApprovalOptionSpec[] =
-    interaction.approvalOptions.length > 0
-      ? interaction.approvalOptions
-      : [
-          { id: 'approve', label: 'Approve' },
-          { id: 'reject', label: 'Reject', destructive: true },
-        ];
-
-  const handleResolveOption = async (option: ApprovalOptionSpec) => {
-    if (option.requireNote && !note.trim()) {
-      setErrorMsg('Note is required for this decision.');
-      return;
-    }
-    setResolving(true);
-    setErrorMsg(null);
-    try {
-      await pulseApi.resolveUserInteraction({
-        interactionId: interaction.id,
-        optionId: option.id,
-        note: note.trim() || null,
-        formValues: null,
+    if (hours < 24) {
+      return t('attentionInbox.hoursAgo', {
+        count: hours,
+        defaultValue: `${hours} h ago`,
       });
-      onResolved(interaction.id);
-    } catch (err) {
-      setErrorMsg(
-        err instanceof Error ? err.message : 'Failed to submit decision.'
-      );
-    } finally {
-      setResolving(false);
     }
+    const days = Math.floor(hours / 24);
+    return t('attentionInbox.daysAgo', {
+      count: days,
+      defaultValue: `${days} d ago`,
+    });
   };
-
-  const handleSubmitForm = async () => {
-    setResolving(true);
-    setErrorMsg(null);
-    try {
-      await pulseApi.resolveUserInteraction({
-        interactionId: interaction.id,
-        optionId: 'submit',
-        note: note.trim() || null,
-        formValues,
-      });
-      onResolved(interaction.id);
-    } catch (err) {
-      setErrorMsg(
-        err instanceof Error ? err.message : 'Failed to submit form.'
-      );
-    } finally {
-      setResolving(false);
-    }
-  };
-
-  return (
-    <div
-      data-testid={`pulse-interaction-${interaction.id}`}
-      className="mb-1.5 rounded-md border border-border bg-muted/40 p-2 text-xs"
-    >
-      <div className="flex items-start justify-between gap-2">
-        <div className="flex items-center gap-1.5 font-medium text-foreground">
-          <Zap
-            className={cn(
-              'h-3.5 w-3.5 shrink-0',
-              interaction.severity === 'urgent'
-                ? 'text-destructive'
-                : interaction.severity === 'warning'
-                  ? 'text-warning'
-                  : 'text-primary'
-            )}
-          />
-          <span className="truncate">{interaction.title}</span>
-        </div>
-        <span className="shrink-0 rounded border border-border bg-background px-1.5 py-0.5 text-[10px] uppercase text-muted-foreground">
-          {interaction.kind.replace('_', ' ')}
-        </span>
-      </div>
-
-      {interaction.body ? (
-        <p className="mt-1 text-xs text-muted-foreground">{interaction.body}</p>
-      ) : null}
-
-      {interaction.kind === 'ask_form' ? (
-        <div className="mt-2 space-y-1.5">
-          {formFields.map((field) => (
-            <input
-              key={field.key}
-              type="text"
-              aria-label={field.label}
-              placeholder={field.label}
-              value={formValues[field.key] ?? ''}
-              onChange={(event) =>
-                setFormValues((prev) => ({
-                  ...prev,
-                  [field.key]: event.target.value,
-                }))
-              }
-              className="h-7 w-full rounded border border-border bg-background px-2 text-xs text-foreground focus:outline-none"
-            />
-          ))}
-          <Button
-            type="button"
-            size="xs"
-            disabled={resolving}
-            className="h-6 w-full text-[11px]"
-            data-testid={`pulse-interaction-submit-${interaction.id}`}
-            onClick={() => void handleSubmitForm()}
-          >
-            Submit
-          </Button>
-        </div>
-      ) : interaction.kind === 'approval' ? (
-        <div className="mt-2 space-y-1.5">
-          <input
-            type="text"
-            aria-label="Decision note"
-            placeholder="Optional note…"
-            value={note}
-            onChange={(event) => setNote(event.target.value)}
-            className="h-6 w-full rounded border border-border bg-background px-2 text-[11px] text-foreground focus:outline-none"
-          />
-          <div className="flex flex-wrap items-center gap-1.5">
-            {approvalOptions.map((option) => (
-              <Button
-                key={option.id}
-                type="button"
-                size="xs"
-                variant={option.destructive ? 'destructive' : 'default'}
-                disabled={resolving}
-                data-testid={`pulse-approval-${interaction.id}-${option.id}`}
-                className="h-6 gap-1 px-2 text-[11px]"
-                onClick={() => void handleResolveOption(option)}
-              >
-                {option.destructive ? (
-                  <X className="h-3 w-3" />
-                ) : (
-                  <Check className="h-3 w-3" />
-                )}
-                <span>{option.label}</span>
-              </Button>
-            ))}
-          </div>
-        </div>
-      ) : (
-        <div className="mt-2 flex justify-end">
-          <Button
-            type="button"
-            size="xs"
-            variant="outline"
-            disabled={resolving}
-            className="h-6 px-2 text-[11px]"
-            onClick={() =>
-              void handleResolveOption({
-                id: 'acknowledge',
-                label: 'Acknowledge',
-              })
-            }
-          >
-            Acknowledge
-          </Button>
-        </div>
-      )}
-
-      {errorMsg ? (
-        <div role="alert" className="mt-1 text-[11px] text-destructive">
-          {errorMsg}
-        </div>
-      ) : null}
-    </div>
-  );
 }
 
 function AttentionItemRow({
@@ -334,7 +131,9 @@ function AttentionItemRow({
   const presentation = KIND_PRESENTATION[item.kind];
   const Icon = presentation.icon;
   const title =
-    item.sessionName ?? item.agentType ?? t('attentionInbox.unnamedSession');
+    item.sessionName ??
+    item.agentType ??
+    t('attentionInbox.unnamedSession', { defaultValue: 'Untitled session' });
 
   return (
     <button
@@ -385,7 +184,7 @@ function AttentionItemRow({
 
 /**
  * Cross-project "needs me" inbox (status bar): inline Pulse user approvals &
- * ask-forms first, then pending permissions/questions, failed/interrupted
+ * typed ask-forms first, then pending permissions/questions, failed/interrupted
  * turns, and sessions waiting for review.
  */
 export function AttentionInboxBadge() {
@@ -406,13 +205,31 @@ export function AttentionInboxBadge() {
     meta: { suppressGlobalError: true },
   });
 
-  const { data: pulseSnapshot } = useQuery({
-    queryKey: ['pulse-deck-snapshot'],
-    queryFn: () => pulseApi.deckSnapshot().catch(() => null),
-    refetchInterval: POLL_MS,
-    refetchOnWindowFocus: true,
-    meta: { suppressGlobalError: true },
-  });
+  const { snapshot: pulseSnapshot, invalidateSnapshot } =
+    usePulseDeckSnapshot();
+
+  useEffect(() => {
+    const pendingList = pulseSnapshot?.pendingInteractions;
+    if (!pendingList) return;
+    const activePendingIds = new Set(
+      pendingList
+        .filter((item) => !item.resolvedAt && item.status !== 'resolved')
+        .map((item) => item.id)
+    );
+    setResolvedPulseIds((prev) => {
+      if (prev.size === 0) return prev;
+      let changed = false;
+      const next = new Set<string>();
+      prev.forEach((id) => {
+        if (activePendingIds.has(id)) {
+          next.add(id);
+        } else {
+          changed = true;
+        }
+      });
+      return changed ? next : prev;
+    });
+  }, [pulseSnapshot?.pendingInteractions]);
 
   useEffect(() => {
     let unlisten: (() => void) | undefined;
@@ -470,6 +287,30 @@ export function AttentionInboxBadge() {
     [pulseSnapshot?.pendingInteractions, resolvedPulseIds]
   );
 
+  const pulseLabels = useMemo<PulseInteractionLabels>(
+    () => ({
+      approve: t('attentionInbox.pulseApprove', { defaultValue: 'Approve' }),
+      reject: t('attentionInbox.pulseReject', { defaultValue: 'Reject' }),
+      acknowledge: t('attentionInbox.pulseAcknowledge', {
+        defaultValue: 'Acknowledge',
+      }),
+      submit: t('attentionInbox.pulseSubmit', { defaultValue: 'Submit' }),
+      decisionNoteAria: t('attentionInbox.pulseDecisionNote', {
+        defaultValue: 'Decision note',
+      }),
+      decisionNotePlaceholder: t('attentionInbox.pulseOptionalNote', {
+        defaultValue: 'Optional note…',
+      }),
+      noteRequiredError: t('attentionInbox.pulseNoteRequired', {
+        defaultValue: 'Note is required for this decision.',
+      }),
+      selectPlaceholder: t('attentionInbox.pulseSelectPlaceholder', {
+        defaultValue: 'Select…',
+      }),
+    }),
+    [t]
+  );
+
   const serverItems = data?.items ?? [];
   const items = [
     ...overlay.filter(
@@ -501,7 +342,7 @@ export function AttentionInboxBadge() {
       next.add(id);
       return next;
     });
-    void queryClient.invalidateQueries({ queryKey: ['pulse-deck-snapshot'] });
+    void invalidateSnapshot();
   };
 
   return (
@@ -509,7 +350,9 @@ export function AttentionInboxBadge() {
       <PopoverTrigger asChild>
         <button
           type="button"
-          title={t('attentionInbox.title')}
+          title={t('attentionInbox.title', {
+            defaultValue: 'Needs your attention',
+          })}
           data-testid="attention-inbox-trigger"
           className={cn(
             'inline-flex items-center gap-1 rounded-full px-1.5 text-[10px] tabular-nums transition-colors hover:opacity-80',
@@ -532,25 +375,34 @@ export function AttentionInboxBadge() {
       >
         <div className="mb-1 flex items-center justify-between px-2 pt-1">
           <span className="text-xs font-semibold text-foreground">
-            {t('attentionInbox.title')}
+            {t('attentionInbox.title', {
+              defaultValue: 'Needs your attention',
+            })}
           </span>
           {blockingCount > 0 ? (
             <span className="text-[10px] text-warning tabular-nums">
-              {t('attentionInbox.blockingCount', { count: blockingCount })}
+              {t('attentionInbox.blockingCount', {
+                count: blockingCount,
+                defaultValue: `${blockingCount} blocking an agent`,
+              })}
             </span>
           ) : null}
         </div>
         {totalCount === 0 ? (
           <div className="px-2 py-4 text-center text-xs text-muted-foreground">
-            {t('attentionInbox.empty')}
+            {t('attentionInbox.empty', {
+              defaultValue: 'Nothing needs your attention right now',
+            })}
           </div>
         ) : (
           <div className="max-h-80 overflow-y-auto">
             {pendingPulseInteractions.map((interaction) => (
-              <PulseInteractionRow
+              <PulseInteractionCard
                 key={`pulse:${interaction.id}`}
                 interaction={interaction}
                 onResolved={handlePulseResolved}
+                labels={pulseLabels}
+                className="mb-1.5"
               />
             ))}
             {items.map((item) => (

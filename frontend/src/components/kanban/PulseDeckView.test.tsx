@@ -2,6 +2,9 @@ import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { pulseApi, type PulseDeckSnapshot } from '@/lib/api/pulse';
+import { shouldShowKanbanMonitor } from '@/lib/kanbanZoneVisibility';
+import { BoundHostTransport } from '@/lib/transport/boundHostTransport';
+import type { RemoteDesktopTransport } from '@/lib/transport/remoteDesktopTransport';
 import { PulseDeckView } from './PulseDeckView';
 
 vi.mock('@/lib/api/pulse', () => ({
@@ -11,10 +14,20 @@ vi.mock('@/lib/api/pulse', () => ({
     promoteObservedCandidate: vi.fn(),
     dryRunRule: vi.fn(),
     setRuleMode: vi.fn(),
+    setRuleEnabled: vi.fn(),
+    resolveUserInteraction: vi.fn(),
     subscribeThread: vi.fn(),
     unsubscribeThread: vi.fn(),
   },
 }));
+
+vi.mock('@/lib/backendTransport', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/backendTransport')>();
+  return {
+    ...actual,
+    backendListen: vi.fn().mockResolvedValue(() => undefined),
+  };
+});
 
 function makeSnapshot(): PulseDeckSnapshot {
   return {
@@ -57,7 +70,7 @@ function makeSnapshot(): PulseDeckSnapshot {
             {
               kind: 'session',
               mode: 'ephemeral_fresh',
-              agentId: 'CLAUDE_CODE',
+              agentId: 'claude-code',
               workspaceIsolation: 'isolated_worktree',
               promptTemplate: 'Investigate {{payload.summary}}',
             },
@@ -97,13 +110,19 @@ function makeSnapshot(): PulseDeckSnapshot {
   };
 }
 
-describe('PulseDeckView (Track F5 Kanban Stage)', () => {
+describe('PulseDeckView (Track F5 / R4 Kanban Stage)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(pulseApi.deckSnapshot).mockResolvedValue(makeSnapshot());
   });
 
-  it('renders source health watermarks, inspects dry-run, promotes Observe candidates, toggles modes, and binds threads', async () => {
+  it('keeps the Kanban monitor zone visible whenever Pulse Deck is open even with 0 monitored sessions', () => {
+    expect(shouldShowKanbanMonitor(true, 0, false)).toBe(false);
+    expect(shouldShowKanbanMonitor(true, 0, true)).toBe(true);
+    expect(shouldShowKanbanMonitor(false, 0, true)).toBe(true);
+  });
+
+  it('renders inline source status strip, switch accessibility, dry-run, Observe promotion, and workflow thread subscriptions', async () => {
     const user = userEvent.setup();
     vi.mocked(pulseApi.promoteObservedCandidate).mockResolvedValue(undefined);
     vi.mocked(pulseApi.dryRunRule).mockResolvedValue({
@@ -120,11 +139,15 @@ describe('PulseDeckView (Track F5 Kanban Stage)', () => {
         evalMode: 'auto',
       },
     });
+    vi.mocked(pulseApi.setRuleEnabled).mockResolvedValue({
+      ...makeSnapshot().rules[0]!,
+      enabled: false,
+    });
     vi.mocked(pulseApi.subscribeThread).mockResolvedValue({
       id: 'sub-2',
       threadKey: 'github:vibex/core#12',
-      subscriberKind: 'bot',
-      subscriberId: 'bot-triage',
+      subscriberKind: 'workflow',
+      subscriberId: 'wf-release',
       active: true,
       createdAt: '2026-11-15T00:10:00Z',
     });
@@ -138,6 +161,16 @@ describe('PulseDeckView (Track F5 Kanban Stage)', () => {
     expect(screen.getByTestId('pulse-source-watermark-src-gh')).toHaveTextContent(
       'wm:ev_1092'
     );
+
+    // Accessible per-rule switch role + aria-checked + unique aria-label
+    const ruleSwitch = screen.getByRole('switch', {
+      name: 'Enable rule Observe Jira Bugs',
+    });
+    expect(ruleSwitch).toHaveAttribute('aria-checked', 'true');
+    await user.click(ruleSwitch);
+    await waitFor(() => {
+      expect(pulseApi.setRuleEnabled).toHaveBeenCalledWith('rule-1', false);
+    });
 
     // Inspect Dry-Run on observed candidate
     await user.click(screen.getByTestId('pulse-candidate-inspect-cand-1'));
@@ -157,20 +190,20 @@ describe('PulseDeckView (Track F5 Kanban Stage)', () => {
       expect(pulseApi.setRuleMode).toHaveBeenCalledWith('rule-1', 'auto');
     });
 
-    // Bind external thread subscription
+    // Bind external thread subscription to workflow target
     await user.type(
       screen.getByLabelText('Subscription Thread Key'),
       'github:vibex/core#12'
     );
-    await user.click(screen.getByTestId('deck-sub-kind-bot'));
-    await user.type(screen.getByLabelText('Subscriber ID'), 'bot-triage');
+    await user.click(screen.getByTestId('deck-sub-kind-workflow'));
+    await user.type(screen.getByLabelText('Subscriber ID'), 'wf-release');
     await user.click(screen.getByTestId('pulse-deck-subscribe-btn'));
 
     await waitFor(() => {
       expect(pulseApi.subscribeThread).toHaveBeenCalledWith(
         'github:vibex/core#12',
-        'bot',
-        'bot-triage'
+        'workflow',
+        'wf-release'
       );
     });
 
@@ -179,5 +212,125 @@ describe('PulseDeckView (Track F5 Kanban Stage)', () => {
     await waitFor(() => {
       expect(pulseApi.unsubscribeThread).toHaveBeenCalledWith('sub-1');
     });
+  });
+
+  it('renders Pending Interactions & Approvals with typed ask_form coercion and notify acknowledgment', async () => {
+    const user = userEvent.setup();
+    const snapshot = makeSnapshot();
+    snapshot.pendingInteractions = [
+      {
+        id: 'ix-form-1',
+        kind: 'ask_form',
+        severity: 'warning',
+        title: 'Release rollout parameters',
+        body: 'Specify canary traffic percentage and dry-run toggle',
+        approvalOptions: [],
+        formSchema: {
+          type: 'object',
+          required: ['canaryPercent', 'environment'],
+          properties: {
+            canaryPercent: {
+              type: 'integer',
+              title: 'Canary %',
+              description: 'Percentage of traffic',
+            },
+            dryRun: {
+              type: 'boolean',
+              title: 'Dry Run Only',
+              default: true,
+            },
+            environment: {
+              type: 'string',
+              title: 'Environment',
+              enum: ['staging', 'production'],
+            },
+          },
+        },
+        status: 'pending',
+        createdAt: '2026-11-15T00:00:00Z',
+      },
+      {
+        id: 'ix-notify-1',
+        kind: 'notify',
+        severity: 'info',
+        title: 'Nightly SLA digest ready',
+        body: '3 issues triaged overnight',
+        approvalOptions: [],
+        status: 'pending',
+        createdAt: '2026-11-15T00:01:00Z',
+      },
+    ];
+    vi.mocked(pulseApi.deckSnapshot).mockResolvedValue(snapshot);
+    vi.mocked(pulseApi.resolveUserInteraction).mockImplementation(
+      async ({ interactionId }) => ({
+        id: interactionId,
+        kind: 'notify',
+        severity: 'info',
+        title: 'Resolved',
+        body: '',
+        approvalOptions: [],
+        status: 'resolved',
+        createdAt: '2026-11-15T00:00:00Z',
+        resolvedAt: '2026-11-15T00:02:00Z',
+      })
+    );
+
+    render(<PulseDeckView projectId="proj-1" />);
+
+    expect(
+      await screen.findByText('Release rollout parameters')
+    ).toBeInTheDocument();
+    expect(
+      screen.getByTestId('pulse-deck-interactions-section')
+    ).toBeInTheDocument();
+
+    const pctInput = await screen.findByLabelText('Canary %');
+    await user.type(pctInput, '25');
+
+    const envSelect = screen.getByLabelText('Environment');
+    await user.selectOptions(envSelect, 'production');
+
+    await user.click(screen.getByTestId('pulse-interaction-submit-ix-form-1'));
+
+    await waitFor(() => {
+      expect(pulseApi.resolveUserInteraction).toHaveBeenCalledWith({
+        interactionId: 'ix-form-1',
+        optionId: 'submit',
+        note: null,
+        formValues: {
+          canaryPercent: 25,
+          dryRun: true,
+          environment: 'production',
+        },
+      });
+    });
+
+    await user.click(screen.getByTestId('pulse-acknowledge-ix-notify-1'));
+    await waitFor(() => {
+      expect(pulseApi.resolveUserInteraction).toHaveBeenCalledWith({
+        interactionId: 'ix-notify-1',
+        optionId: 'acknowledge',
+        note: null,
+        formValues: null,
+      });
+    });
+  });
+
+  it('forwards vibex://pulse-deck-changed push invalidations from the bound remote host', async () => {
+    const remoteUnlisten = vi.fn();
+    const remote = {
+      call: vi.fn(),
+      listen: vi.fn(async () => remoteUnlisten),
+    } as unknown as RemoteDesktopTransport;
+    const transport = new BoundHostTransport(remote);
+    const handler = vi.fn();
+
+    const dispose = await transport.listen('vibex://pulse-deck-changed', handler);
+    expect(remote.listen).toHaveBeenCalledWith(
+      'vibex://pulse-deck-changed',
+      handler
+    );
+    dispose();
+    expect(remoteUnlisten).toHaveBeenCalledOnce();
   });
 });

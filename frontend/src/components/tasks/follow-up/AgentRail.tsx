@@ -16,6 +16,7 @@ import {
 import { cn } from '@/lib/utils';
 import { isEnabledInstalledAgent } from '@/features/agents/operationalAgent';
 import type { SelectableAgent } from '@/features/agents/useSelectableAgents';
+import { canonicalSessionAgentId } from '@/lib/sessionQueryCache';
 import { getDefaultProfileForExecutor } from '@/utils/executor';
 
 export function unavailableAgentStatusKey(
@@ -71,6 +72,9 @@ export function AgentRail({
   );
 
   const selectedAgent = effectiveExecutorProfile?.executor ?? null;
+  const canonicalSelectedAgent = selectedAgent
+    ? canonicalSessionAgentId(selectedAgent)
+    : null;
 
   useEffect(() => {
     activeButtonRef.current?.scrollIntoView?.({ block: 'nearest' });
@@ -86,7 +90,11 @@ export function AgentRail({
         aria-label={t('agentRail.label')}
       >
         {agents.map((agent) => {
-          const isActive = selectedAgent === agent.agentId;
+          const isActive =
+            selectedAgent === agent.agentId ||
+            (canonicalSelectedAgent !== null &&
+              canonicalSelectedAgent ===
+                canonicalSessionAgentId(agent.agentId));
           const clickable = agent.runnable && !disabled;
           const unavailableLabel = !agent.runnable
             ? t(unavailableAgentStatusKey(agent.lifecycle))

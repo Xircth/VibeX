@@ -374,8 +374,8 @@
     --shadow-surface:
       0 1px 2px hsl(220 36% 8% / 0.05), 0 10px 30px hsl(220 36% 8% / 0.06);
     --shadow-composer:
-      0 -4px 12px hsl(220 36% 8% / 0.045), 0 5px 14px hsl(220 36% 8% / 0.06),
-      0 0 0 1px hsl(220 36% 8% / 0.025), inset 0 1px 0 hsl(0 0% 100% / 0.08);
+      0 3px 4px -3px hsl(220 36% 8% / 0.08),
+      0 8px 12px -6px hsl(220 36% 8% / 0.09);
     --shadow-sidebar:
       0 1px 2px hsl(220 36% 8% / 0.04), 0 8px 24px hsl(220 36% 8% / 0.05);
     --shadow-inset: inset 0 1px 0 hsl(0 0% 100% / 0.08);
@@ -533,8 +533,8 @@
       0 1px 1px hsl(210 40% 2% / 0.35), 0 2px 4px hsl(210 40% 2% / 0.4);
     --shadow-surface: 0 1px 0 hsl(210 30% 80% / 0.08);
     --shadow-composer:
-      0 -8px 28px hsl(210 40% 2% / 0.4), 0 8px 20px hsl(210 40% 2% / 0.28),
-      inset 0 1px 0 var(--highlight-edge);
+      0 3px 4px -3px hsl(210 40% 2% / 0.42),
+      0 8px 14px -7px hsl(210 40% 2% / 0.38);
     --shadow-sidebar:
       0 8px 28px hsl(210 40% 2% / 0.45), inset 0 1px 0 var(--highlight-edge);
     --shadow-inset: inset 0 1px 0 hsl(210 30% 80% / 0.08);
@@ -7898,10 +7898,6 @@ html.dark {
       opacity: 1;
       pointer-events: auto;
     }
-  }
-
-  .composer-topbar {
-    color: var(--text-muted);
   }
 
   .composer-control {

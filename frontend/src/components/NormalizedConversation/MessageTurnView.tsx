@@ -606,6 +606,7 @@ export const MessageTurnView = memo(function MessageTurnView({
   showInterruptedNotice = true,
   contextCompact,
   hasTurnError = false,
+  suppressStreamingStatus = false,
   delegations = [],
   onOpenChild,
   questions = [],
@@ -629,6 +630,7 @@ export const MessageTurnView = memo(function MessageTurnView({
   showInterruptedNotice?: boolean;
   contextCompact?: ContextCompactPresentation | null;
   hasTurnError?: boolean;
+  suppressStreamingStatus?: boolean;
   delegations?: ConversationDelegationView[];
   onOpenChild?: (childConversationId: string) => void;
   questions?: TimelineQuestion[];
@@ -840,7 +842,7 @@ export const MessageTurnView = memo(function MessageTurnView({
 
   const showStreamingStatus = shouldShowAssistantStreamingStatus({
     phase,
-    hasTurnError,
+    hasTurnError: hasTurnError || suppressStreamingStatus,
   });
   if (slice?.kind === 'process-fold') {
     const foldedItems =
@@ -863,10 +865,18 @@ export const MessageTurnView = memo(function MessageTurnView({
       </div>
     );
   }
-  if (
-    slice?.kind === 'status' ||
-    (showStreamingStatus && items.length === 0 && !slice)
-  ) {
+  if (slice?.kind === 'status') {
+    if (!showStreamingStatus) return null;
+    return (
+      <div
+        className="conv-entry-item conv-assistant-msg conv-msg-hover group px-4 py-2 text-sm"
+        data-message-id={turn.id}
+      >
+        <AssistantStreamingStatus hasContent={false} />
+      </div>
+    );
+  }
+  if (showStreamingStatus && items.length === 0 && !slice) {
     return (
       <div
         className="conv-entry-item conv-assistant-msg conv-msg-hover group px-4 py-2 text-sm"

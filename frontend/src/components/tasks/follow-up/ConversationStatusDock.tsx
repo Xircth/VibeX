@@ -45,7 +45,10 @@ export function ConversationStatusDock({
       notice.kind === 'turn-error' ||
       Boolean(
         notice.kind === 'session-notice' &&
-          (notice.onReload || notice.onRebind || notice.onNewConversation)
+          (notice.notice.connection_status ||
+            notice.onReload ||
+            notice.onRebind ||
+            notice.onNewConversation)
       )
   );
 
@@ -163,6 +166,7 @@ export function ConversationStatusDock({
               <AgentRuntimeStatus
                 key={notice.id}
                 notice={notice.notice}
+                titleOverride={notice.titleOverride}
                 onReconnect={notice.onReload}
                 onCancel={notice.onCancel}
                 onRetry={notice.onRetry}

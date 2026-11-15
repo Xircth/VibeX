@@ -120,7 +120,6 @@ vi.mock('@/components/kanban/KanbanSessionConversationView', async () => {
           data-hide-persona={String(Boolean(chrome.hidePersonaHostNotes))}
         >
           {String(props.sessionId ?? '')}
-          {chrome.composerIdentity}
         </div>
       );
     },
@@ -379,15 +378,13 @@ describe('CollaborationSpacePage', () => {
       1
     );
     expect(screen.queryByText(/个成员在活跃/)).toBeNull();
-    expect(screen.getByTestId('composer-current-space')).toHaveTextContent(
+    expect(screen.getByTestId('collaboration-composer')).toHaveAttribute(
+      'data-space-name',
       '设计'
     );
-    const statsBadge = screen.getByTestId('composer-space-stats');
-    expect(statsBadge).toHaveTextContent(/^2$/);
-    expect(statsBadge.querySelector('svg')).toBeNull();
-    fireEvent.mouseEnter(statsBadge);
-    expect(await screen.findByText('空间助手')).toBeTruthy();
-    fireEvent.mouseLeave(statsBadge);
+    expect(screen.queryByTestId('composer-current-space')).toBeNull();
+    expect(screen.queryByTestId('composer-space-stats')).toBeNull();
+    expect(document.querySelector('.composer-topbar')).toBeNull();
 
     // Top horizontal member bar is shown and can be collapsed/expanded
     expect(screen.getByTestId('collaboration-top-member-bar')).toBeTruthy();
@@ -1264,7 +1261,8 @@ describe('CollaborationSpacePage', () => {
 
     await user.click(within(spacesPane).getByRole('button', { name: '研发' }));
     await waitFor(() => {
-      expect(screen.getByTestId('composer-current-space')).toHaveTextContent(
+      expect(screen.getByTestId('collaboration-composer')).toHaveAttribute(
+        'data-space-name',
         '研发'
       );
     });
@@ -1272,7 +1270,8 @@ describe('CollaborationSpacePage', () => {
 
     await user.click(within(spacesPane).getByRole('button', { name: '设计' }));
     await waitFor(() => {
-      expect(screen.getByTestId('composer-current-space')).toHaveTextContent(
+      expect(screen.getByTestId('collaboration-composer')).toHaveAttribute(
+        'data-space-name',
         '设计'
       );
     });
@@ -1282,7 +1281,7 @@ describe('CollaborationSpacePage', () => {
   it('keeps composer draft when unmounting and remounting the page (switching pages)', async () => {
     const user = userEvent.setup();
     const firstMount = renderPage('workspace-1');
-    await screen.findByTestId('composer-current-space');
+    await screen.findByTestId('collaboration-composer');
     const editor = getComposerEditor();
     await user.click(editor);
     await user.type(editor, 'draft-across-page-switch');
@@ -1291,7 +1290,7 @@ describe('CollaborationSpacePage', () => {
     firstMount.unmount();
 
     renderPage('workspace-1');
-    await screen.findByTestId('composer-current-space');
+    await screen.findByTestId('collaboration-composer');
     await waitFor(() => {
       expect(getComposerEditor()).toHaveTextContent('draft-across-page-switch');
     });
@@ -1372,7 +1371,8 @@ describe('CollaborationSpacePage', () => {
 
     render(<ProjectSwitchHost />);
     await waitFor(() => {
-      expect(screen.getByTestId('composer-current-space')).toHaveTextContent(
+      expect(screen.getByTestId('collaboration-composer')).toHaveAttribute(
+        'data-space-name',
         '项目一空间'
       );
     });
@@ -1385,7 +1385,8 @@ describe('CollaborationSpacePage', () => {
       setActiveWorkspaceId?.('workspace-2');
     });
     await waitFor(() => {
-      expect(screen.getByTestId('composer-current-space')).toHaveTextContent(
+      expect(screen.getByTestId('collaboration-composer')).toHaveAttribute(
+        'data-space-name',
         '项目二空间'
       );
     });
@@ -1395,7 +1396,8 @@ describe('CollaborationSpacePage', () => {
       setActiveWorkspaceId?.('workspace-1');
     });
     await waitFor(() => {
-      expect(screen.getByTestId('composer-current-space')).toHaveTextContent(
+      expect(screen.getByTestId('collaboration-composer')).toHaveAttribute(
+        'data-space-name',
         '项目一空间'
       );
     });
@@ -1505,7 +1507,8 @@ describe('CollaborationSpacePage', () => {
 
     await user.click(within(spacesPane).getByRole('button', { name: '研发' }));
     await waitFor(() => {
-      expect(screen.getByTestId('composer-current-space')).toHaveTextContent(
+      expect(screen.getByTestId('collaboration-composer')).toHaveAttribute(
+        'data-space-name',
         '研发'
       );
     });
@@ -1515,7 +1518,8 @@ describe('CollaborationSpacePage', () => {
 
     await user.click(within(spacesPane).getByRole('button', { name: '设计' }));
     await waitFor(() => {
-      expect(screen.getByTestId('composer-current-space')).toHaveTextContent(
+      expect(screen.getByTestId('collaboration-composer')).toHaveAttribute(
+        'data-space-name',
         '设计'
       );
     });
@@ -4177,8 +4181,8 @@ describe('CollaborationSpacePage', () => {
     expect(groupSession).toHaveTextContent('m1:s1');
     expect(groupSession).toHaveAttribute('data-hide-persona', 'true');
     expect(
-      within(groupSession).getByTestId('composer-member-identity')
-    ).toHaveTextContent('小A');
+      within(groupSession).queryByTestId('composer-member-identity')
+    ).toBeNull();
 
     await user.click(
       await screen.findByRole('button', { name: '预览 小B 会话' })
@@ -4193,8 +4197,8 @@ describe('CollaborationSpacePage', () => {
     const nextSession = await screen.findByTestId('session-preview');
     expect(nextSession).toHaveTextContent('m2:s1');
     expect(
-      within(nextSession).getByTestId('composer-member-identity')
-    ).toHaveTextContent('小B');
+      within(nextSession).queryByTestId('composer-member-identity')
+    ).toBeNull();
   });
 
   it('opens the private-chat bot session and assistant details tabs', async () => {
@@ -4296,8 +4300,8 @@ describe('CollaborationSpacePage', () => {
     expect(dmSession).toHaveTextContent('conv-dm-a');
     expect(dmSession).toHaveAttribute('data-hide-persona', 'true');
     expect(
-      within(dmSession).getByTestId('composer-member-identity')
-    ).toHaveTextContent('小A');
+      within(dmSession).queryByTestId('composer-member-identity')
+    ).toBeNull();
 
     await user.click(screen.getByRole('button', { name: '助手详情' }));
     const panel = await screen.findByTestId(
@@ -4698,7 +4702,8 @@ describe('CollaborationSpacePage', () => {
     fireEvent.contextMenu(avatar);
     fireEvent.click(screen.getByRole('menuitem', { name: '进入私聊' }));
     await waitFor(() => {
-      expect(screen.getByTestId('composer-current-space')).toHaveTextContent(
+      expect(screen.getByTestId('collaboration-composer')).toHaveAttribute(
+        'data-space-name',
         '小A'
       );
     });
@@ -4909,7 +4914,8 @@ describe('CollaborationSpacePage', () => {
 
     renderPage();
     await screen.findByText('你好');
-    expect(screen.getByTestId('composer-current-space')).toHaveTextContent(
+    expect(screen.getByTestId('collaboration-composer')).toHaveAttribute(
+      'data-space-name',
       '设计'
     );
 
@@ -4922,7 +4928,8 @@ describe('CollaborationSpacePage', () => {
         )
       ).toBe(true);
     });
-    expect(screen.getByTestId('composer-current-space')).toHaveTextContent(
+    expect(screen.getByTestId('collaboration-composer')).toHaveAttribute(
+      'data-space-name',
       '小A'
     );
 
@@ -4940,7 +4947,8 @@ describe('CollaborationSpacePage', () => {
     });
 
     // The page must remain in BotSpace 小A and not jump to GroupSpace 设计
-    expect(screen.getByTestId('composer-current-space')).toHaveTextContent(
+    expect(screen.getByTestId('collaboration-composer')).toHaveAttribute(
+      'data-space-name',
       '小A'
     );
     expect(

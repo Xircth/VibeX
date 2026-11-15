@@ -17,7 +17,6 @@ import { cn } from '@/lib/utils';
 import { useReview } from '@/contexts/ReviewProvider';
 import { useEntries } from '@/contexts/EntriesContext';
 import { useConversationStatus } from '@/contexts/ConversationStatusContext';
-import { useSessionSurfaceChrome } from '@/contexts/SessionSurfaceChromeContext';
 import { useHotkeysContext } from 'react-hotkeys-hook';
 import { useUserSystem } from '@/components/ConfigProvider';
 import { useAttemptBranch } from '@/hooks/useAttemptBranch';
@@ -45,7 +44,6 @@ import {
   sessionControlsQueryKey,
   sessionControlsSchemaQueryKey,
 } from '@/features/agents/sessionControlsQuery';
-import { useGitStatus } from '@/hooks/git';
 
 import type { Session, Workspace } from 'shared/types';
 import { buildPromptEnhancementContext } from '@/lib/promptEnhancement';
@@ -53,7 +51,6 @@ import type { UseWorkspaceSessionsResult } from '@/hooks/useWorkspaceSessions';
 import { useWorktree } from '@/contexts/WorktreeContext';
 import { useParams } from 'react-router-dom';
 
-import { SessionComposerTopbar } from './follow-up/SessionComposerTopbar';
 import { ReviewCommentsPreview } from './follow-up/ReviewCommentsPreview';
 import { MessageQueueIndicator } from './follow-up/MessageQueueIndicator';
 import { ActionBar } from './follow-up/ActionBar';
@@ -93,11 +90,7 @@ import {
   revokeComposerImagePreviewUrl,
   type SessionComposerImageAttachment,
 } from './follow-up/sessionComposerImages';
-import {
-  getChangedFileCount,
-  getSummaryRepoId,
-  shouldShowChangedFileSummary,
-} from './follow-up/sessionComposerGitSummary';
+import { getSummaryRepoId } from './follow-up/sessionComposerGitSummary';
 import {
   buildComposerConflictInstructions,
   getConflictActionState,
@@ -106,7 +99,6 @@ import {
 import {
   getComposerSessionId,
   getComposerScratchTargetId,
-  getComposerTopbarVisibility,
   getComposerWorkspaceId,
 } from './follow-up/sessionComposerSession';
 import {
@@ -240,15 +232,6 @@ export function TaskFollowUpSection({
     }
     previousSessionIdRef.current = sessionId;
   }, [sessionId]);
-  const persona = useMemo(() => {
-    if (!storedPersona) return null;
-    return {
-      name: storedPersona.name,
-      teamName: storedPersona.team_name?.trim() || undefined,
-      summary: storedPersona.summary?.trim() || undefined,
-      agentName: storedPersona.agent_name,
-    };
-  }, [storedPersona]);
   const liveCommands = useConversationAvailableCommands(sessionId);
   const { profiles, config } = useUserSystem();
 
@@ -284,7 +267,6 @@ export function TaskFollowUpSection({
 
   const {
     entries,
-    tokenUsageInfo,
     sessionModes,
     sessionConfigOptions,
     conversationTurnInFlight,
@@ -359,25 +341,6 @@ export function TaskFollowUpSection({
     () => getSummaryRepoId(selectedRepoId, repos),
     [repos, selectedRepoId]
   );
-  const {
-    stagedFiles: summaryStagedFiles,
-    unstagedFiles: summaryUnstagedFiles,
-    totalAdditions: added,
-    totalDeletions: deleted,
-  } = useGitStatus({
-    workspaceId: workspaceId ?? null,
-    repoId: summaryRepoId,
-    pollMode: 'background',
-  });
-  const fileCount = useMemo(
-    () =>
-      getChangedFileCount({
-        stagedFiles: summaryStagedFiles,
-        unstagedFiles: summaryUnstagedFiles,
-      }),
-    [summaryStagedFiles, summaryUnstagedFiles]
-  );
-  const showChangedFileSummary = shouldShowChangedFileSummary(fileCount);
 
   const reviewMarkdown = useMemo(
     () => generateReviewMarkdown(),
@@ -678,8 +641,7 @@ export function TaskFollowUpSection({
       sessionId &&
       isChangingAgent &&
       resolvedSessionExecutor &&
-      targetExecutor &&
-      !persona
+      targetExecutor
     ) {
       setPendingAgentHandoff({
         sessionId,
@@ -697,7 +659,6 @@ export function TaskFollowUpSection({
     fromModelLabel,
     isChangingAgent,
     isNewSessionMode,
-    persona,
     resolvedSessionExecutor,
     sessionId,
     setPendingAgentHandoff,
@@ -1066,16 +1027,6 @@ export function TaskFollowUpSection({
     isAttemptRunning: isComposerExecutionRunning,
     isEditable,
   });
-  const { composerIdentity } = useSessionSurfaceChrome();
-  const showTopbar = getComposerTopbarVisibility({
-    hasTokenUsageInfo: Boolean(tokenUsageInfo),
-    hasCodexGoalState: false,
-    showChangedFileSummary,
-    hasExecutorProfile: Boolean(
-      effectiveExecutorProfile?.executor || resolvedSessionExecutor
-    ),
-    hasComposerIdentity: Boolean(composerIdentity),
-  });
 
   const { handleComposerSubmit } = useSessionComposerSubmitActions({
     localMessage,
@@ -1256,13 +1207,13 @@ export function TaskFollowUpSection({
 
   const continuationConfig = useMemo(
     () =>
-      sessionId && entries.length > 0 && !persona && !composerIdentity
+      sessionId && entries.length > 0
         ? {
             policy: continuationPolicy,
             onChange: setContinuationPolicy,
           }
         : null,
-    [composerIdentity, continuationPolicy, entries.length, persona, sessionId]
+    [continuationPolicy, entries.length, sessionId]
   );
 
   const hasDraft = Boolean(localMessage?.trim());
@@ -1393,19 +1344,6 @@ export function TaskFollowUpSection({
           }}
           onBlur={handleComposerBlur}
         >
-          {/* Top bar */}
-          {showTopbar && (
-            <SessionComposerTopbar
-              executorProfile={effectiveExecutorProfile}
-              sessionExecutor={resolvedSessionExecutor}
-              composerIdentity={composerIdentity}
-              showChangedFileSummary={showChangedFileSummary}
-              changedFileCount={fileCount}
-              added={added}
-              deleted={deleted}
-              tokenUsageInfo={tokenUsageInfo}
-            />
-          )}
           <LiveFeedbackNotes
             notes={liveFeedbackNotes}
             conversationId={sessionId}
@@ -1440,7 +1378,6 @@ export function TaskFollowUpSection({
             profiles={profiles}
             effectiveExecutorProfile={effectiveExecutorProfile}
             onChangeExecutorProfile={engineHandoff.handleChangeExecutorProfile}
-            showProfileControls={!persona && !composerIdentity}
             sessionModes={displaySessionModes}
             selectedMode={selectedMode}
             onSelectMode={handleSelectMode}
@@ -1449,7 +1386,6 @@ export function TaskFollowUpSection({
             onSelectConfigOption={handleSelectConfigOption}
             sessionControlsLoading={catalogQuery.isLoading}
             continuation={continuationConfig}
-            persona={persona}
             isEditable={isEditable}
             isAttemptRunning={isComposerExecutionRunning}
             compactContextEnabled={config?.compact_context_enabled ?? false}

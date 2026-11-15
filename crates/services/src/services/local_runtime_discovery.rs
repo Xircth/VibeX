@@ -92,6 +92,27 @@ pub async fn discover_built_in_local_runtimes(
             runtime
                 .replace_acp_adapter(profile.agent_id.clone(), acp_adapter.clone())
                 .await;
+            if super::native_engine_adopt::is_native_engine_profile(&profile.agent_id)
+                && let Some(ref evidence) = local_runtime
+                && evidence
+                    .version
+                    .as_deref()
+                    .is_some_and(|version| !version.trim().is_empty())
+                && let Err(error) = super::native_engine_adopt::adopt_native_engine_if_needed(
+                    &pool,
+                    &profile.agent_id,
+                    &evidence.path,
+                    evidence.version.as_deref(),
+                    None,
+                )
+                .await
+            {
+                tracing::debug!(
+                    agent_id = %profile.agent_id,
+                    %error,
+                    "skipping native engine adoption during startup discovery"
+                );
+            }
             let desktop_client = discover_desktop_client(profile.agent_id.as_str(), &desktop_roots)
                 .map(|path| LocalRuntimeEvidence {
                     path,

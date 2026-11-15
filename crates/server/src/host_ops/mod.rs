@@ -495,13 +495,18 @@ impl ServerApplicationDomains {
             DomainCommand::TerminalSnapshot => self.snapshot_terminal(args).await,
             DomainCommand::AgentManagementDetail => {
                 let args: AgentIdArgs = parse(args)?;
-                let views =
+                let mut views =
                     services::services::agent_management::AgentManagementApplicationService::new(
                         self.pool.clone(),
                     )
                     .list()
                     .await
                     .map_err(internal_error)?;
+                services::services::agent_management_runtime::overlay_local_runtime_evidence(
+                    &self.agent_management_runtime,
+                    &mut views,
+                )
+                .await;
                 let view = views
                     .into_iter()
                     .find(|view| view.agent_id.as_str() == args.agent_id)
@@ -527,13 +532,54 @@ impl ServerApplicationDomains {
                         args.agent_id
                     )));
                 }
-                let views =
+                if args.enabled
+                    && let Ok(agent_id) = AgentId::parse(&args.agent_id)
+                    && services::services::native_engine_adopt::is_native_engine_profile(&agent_id)
+                {
+                    let cached = self
+                        .agent_management_runtime
+                        .local_runtime(&agent_id)
+                        .await
+                        .filter(|evidence| evidence.path.is_file());
+                    let candidate = match cached {
+                        Some(evidence) if evidence.version.as_deref().is_some_and(|v| !v.trim().is_empty()) => {
+                            Some((evidence.path, evidence.version))
+                        }
+                        _ => match crate::host::management::discover_profile_acp(&agent_id).await {
+                            Some(path) => {
+                                let version = crate::host::management::probe_first_output_line(
+                                    &path,
+                                    &["--version"],
+                                )
+                                .await;
+                                Some((path, version))
+                            }
+                            None => None,
+                        },
+                    };
+                    if let Some((path, version)) = candidate {
+                        let _ = services::services::native_engine_adopt::adopt_native_engine_if_needed(
+                            &self.pool,
+                            &agent_id,
+                            &path,
+                            version.as_deref(),
+                            None,
+                        )
+                        .await;
+                    }
+                }
+                let mut views =
                     services::services::agent_management::AgentManagementApplicationService::new(
                         self.pool.clone(),
                     )
                     .list()
                     .await
                     .map_err(internal_error)?;
+                services::services::agent_management_runtime::overlay_local_runtime_evidence(
+                    &self.agent_management_runtime,
+                    &mut views,
+                )
+                .await;
                 let view = views
                     .into_iter()
                     .find(|view| view.agent_id.as_str() == args.agent_id)
@@ -549,14 +595,19 @@ impl ServerApplicationDomains {
                     )
                     .refresh_component_integrity()
                     .await;
-                serialize(
+                let mut views =
                     services::services::agent_management::AgentManagementApplicationService::new(
                         self.pool.clone(),
                     )
                     .list()
                     .await
-                    .map_err(internal_error)?,
+                    .map_err(internal_error)?;
+                services::services::agent_management_runtime::overlay_local_runtime_evidence(
+                    &self.agent_management_runtime,
+                    &mut views,
                 )
+                .await;
+                serialize(views)
             }
             other => Err(ApplicationError::not_found(format!(
                 "command `{}` is not registered",

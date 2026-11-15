@@ -1015,12 +1015,19 @@ const AgentTimelineConversation = forwardRef<
       ),
     [sideRows]
   );
+  const hasUserMessage = useMemo(
+    () => timeline.some((turn) => turn.turn.role === 'user'),
+    [timeline]
+  );
   const streamingAssistantRow = useMemo(
     () =>
       timeline.find(
         (turn) => turn.turn.role === 'assistant' && turn.phase === 'streaming'
       ) ?? null,
     [timeline]
+  );
+  const hasStreamingAssistantContent = Boolean(
+    streamingAssistantRow && streamingAssistantRow.turn.blocks.length > 0
   );
   const hasRunningTool = useMemo(
     () =>
@@ -1048,8 +1055,10 @@ const AgentTimelineConversation = forwardRef<
         latestTurnError,
         hasLatestTurnErrorRow: Boolean(latestTurnErrorRow),
         hasLatestInterruptedRow: Boolean(latestInterruptedRow),
+        hasUserMessage,
         isTurnInFlight,
         hasStreamingAssistantRow: Boolean(streamingAssistantRow),
+        hasStreamingAssistantContent,
         hasInteraction: Boolean(pendingQuestionRow) || hasPendingPermission,
         hasRunningTool,
         currentTurnId: streamingAssistantRow
@@ -1062,6 +1071,8 @@ const AgentTimelineConversation = forwardRef<
       conversation.currentTurnId,
       hasPendingPermission,
       hasRunningTool,
+      hasStreamingAssistantContent,
+      hasUserMessage,
       isTurnInFlight,
       latestInterruptedRow,
       latestTurnError,
@@ -1979,6 +1990,14 @@ const AgentTimelineConversation = forwardRef<
         row.key === lastAssistantKey
           ? mergeMissingTurnStats(settled, liveStats)
           : settled;
+      if (
+        row.phase === 'streaming' &&
+        row.turn.blocks.length === 0 &&
+        inlineRuntimePresentation.placement === 'stream' &&
+        inlineRuntimePresentation.status != null
+      ) {
+        return null;
+      }
       return row.phase === 'streaming' &&
         !inlineRuntimePresentation.isConnectionRecovering ? (
         <LiveTurnStats
@@ -1987,7 +2006,7 @@ const AgentTimelineConversation = forwardRef<
             (runtimeStatus.connection && !runtimeStatus.connection.bound) ||
             (conversation.connecting && !runtimeStatus.connection?.bound)
               ? t(
-                  `runtime.connection.${
+                  `conversation:runtime.connection.${
                     runtimeStatus.connection
                       ? runtimeStatus.connection.status === 'ready'
                         ? 'binding'
@@ -1996,7 +2015,7 @@ const AgentTimelineConversation = forwardRef<
                   }`
                 )
               : t(
-                  `runtime.request.${requestStatusKey({
+                  `conversation:runtime.request.${requestStatusKey({
                     request: runtimeStatus.request,
                     currentTurnId: vibexTurnId,
                     connection: runtimeStatus.connection,
@@ -2028,11 +2047,14 @@ const AgentTimelineConversation = forwardRef<
       );
     },
     [
+      conversation.connecting,
       detachFromBottom,
       forkSupported,
       handleForkFromTurn,
       hasPendingPermission,
       inlineRuntimePresentation.isConnectionRecovering,
+      inlineRuntimePresentation.placement,
+      inlineRuntimePresentation.status,
       inlineRuntimePresentation.suppressLiveTurnStatsStatus,
       runtimeStatus.connection,
       runtimeStatus.request,
@@ -2400,13 +2422,35 @@ const AgentTimelineConversation = forwardRef<
     if (latestSessionNoticeRow?.row_id !== autoPermissionNoticeRow?.row_id) {
       pushSessionNotice(latestSessionNoticeRow);
     }
+    if (
+      inlineRuntimePresentation.placement === 'composer' &&
+      inlineRuntimePresentation.status
+    ) {
+      const runtimeItem = inlineRuntimePresentation.status;
+      notices.push({
+        id: `runtime:${runtimeItem.kind}`,
+        kind: 'session-notice' as const,
+        notice: runtimeItem.notice,
+        titleOverride: runtimeItem.titleOverride,
+        onCancel: runtimeItem.canCancel
+          ? handleCancelRuntimeRequest
+          : undefined,
+        onReload: runtimeItem.canReconnect
+          ? conversationReconnectAndReload
+          : undefined,
+        onRetry: runtimeItem.canRetry ? handleRetryLatestTurn : undefined,
+      });
+    }
     return notices;
   }, [
     autoPermissionNoticeRow,
     conversationReconnectAndReload,
     conversationRebindSession,
+    handleCancelRuntimeRequest,
     handleRetry,
     handleRetryLatestTurn,
+    inlineRuntimePresentation.placement,
+    inlineRuntimePresentation.status,
     latestInterruptedRow,
     latestSessionNoticeRow,
     latestTurnError,
@@ -2717,6 +2761,9 @@ const AgentTimelineConversation = forwardRef<
                             virtualEntries,
                             virtualRow.index
                           );
+                          const suppressStatusRowPadding =
+                            entry.slice?.kind === 'status' &&
+                            inlineRuntimePresentation.suppressAssistantStreamingStatus;
                           return (
                             <div
                               key={virtualRow.key}
@@ -2735,7 +2782,11 @@ const AgentTimelineConversation = forwardRef<
                               }
                               className={cn(
                                 'conv-turn-row absolute left-0 top-0 w-full',
-                                foldEdge === 'tail' ? 'is-fold-tail' : 'pb-3',
+                                foldEdge === 'tail'
+                                  ? 'is-fold-tail'
+                                  : suppressStatusRowPadding
+                                    ? undefined
+                                    : 'pb-3',
                                 foldEdge === 'after' && 'is-after-fold',
                                 activeNavEntry?.index === globalTimelineIndex &&
                                   'conv-message-nav-target-active',
@@ -2798,6 +2849,9 @@ const AgentTimelineConversation = forwardRef<
                                     ) ||
                                     inlineRuntimePresentation.isConnectionRecovering
                                   }
+                                  suppressStreamingStatus={
+                                    inlineRuntimePresentation.suppressAssistantStreamingStatus
+                                  }
                                   slice={entry.slice}
                                   isLastSlice={entry.isLast}
                                 />
@@ -2833,7 +2887,8 @@ const AgentTimelineConversation = forwardRef<
                         })}
                       </div>
                     </TimelineImagePanel>
-                    {inlineRuntimePresentation.status ? (
+                    {inlineRuntimePresentation.placement === 'stream' &&
+                    inlineRuntimePresentation.status ? (
                       <InlineStreamRuntimeRow
                         status={inlineRuntimePresentation.status}
                         onReveal={scrollTailOverlayIntoView}

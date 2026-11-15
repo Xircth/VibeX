@@ -16,6 +16,7 @@ import {
   DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import { canonicalSessionAgentId } from '@/lib/sessionQueryCache';
 import { cn } from '@/lib/utils';
 import { EffortSlider } from '@/components/tasks/effort-slider/EffortSlider';
 import { AgentRail, type AgentRailProps } from './AgentRail';
@@ -187,6 +188,7 @@ export function SessionSettingsSummary({
   persona = null,
   disabled = false,
   dropdownSide = 'top',
+  dropdownAlign = 'start',
   agentIcon = null,
   agentIconLight = null,
   agentIconDark = null,
@@ -204,6 +206,7 @@ export function SessionSettingsSummary({
   persona?: SessionPersona | null;
   disabled?: boolean;
   dropdownSide?: 'top' | 'bottom';
+  dropdownAlign?: 'start' | 'center' | 'end';
   agentIcon?: string | null;
   agentIconLight?: string | null;
   agentIconDark?: string | null;
@@ -304,23 +307,25 @@ export function SessionSettingsSummary({
 
   const showAgentRail = useMemo(
     () =>
-      !persona &&
       Boolean(agentRail?.profiles) &&
       (agentRail?.selectableAgents.some(isEnabledInstalledAgent) ?? false),
-    [agentRail?.profiles, agentRail?.selectableAgents, persona]
+    [agentRail?.profiles, agentRail?.selectableAgents]
   );
+  const showPersonaOnly = Boolean(persona) && !showAgentRail;
 
   const railSelectedAgentId =
     agentRail?.effectiveExecutorProfile?.executor ?? null;
-  const railSelectedAgent = useMemo(
-    () =>
-      railSelectedAgentId
-        ? (agentRail?.selectableAgents.find(
-            (agent) => agent.agentId === railSelectedAgentId
-          ) ?? null)
-        : null,
-    [agentRail?.selectableAgents, railSelectedAgentId]
-  );
+  const railSelectedAgent = useMemo(() => {
+    if (!railSelectedAgentId) return null;
+    const canonicalTarget = canonicalSessionAgentId(railSelectedAgentId);
+    return (
+      agentRail?.selectableAgents.find(
+        (agent) =>
+          agent.agentId === railSelectedAgentId ||
+          canonicalSessionAgentId(agent.agentId) === canonicalTarget
+      ) ?? null
+    );
+  }, [agentRail?.selectableAgents, railSelectedAgentId]);
   const resolvedAgentId = agentIcon ?? railSelectedAgentId;
   const resolvedIconLight =
     agentIconLight ?? railSelectedAgent?.iconLight ?? null;
@@ -374,7 +379,13 @@ export function SessionSettingsSummary({
       : []),
   ];
 
-  if (!persona && !showAgentRail && !continuation && summary.length === 0) {
+  if (
+    !showPersonaOnly &&
+    !showAgentRail &&
+    !continuation &&
+    summary.length === 0 &&
+    !resolvedAgentId
+  ) {
     return null;
   }
 
@@ -415,9 +426,10 @@ export function SessionSettingsSummary({
     summary.length > 0
       ? summary.map((item) => item.label).join(' · ')
       : selectedAgentLabel;
-  const triggerLabel = persona
-    ? persona.name
-    : `${t('sessionSettings.title')}: ${summaryText}`;
+  const triggerLabel =
+    showPersonaOnly && persona
+      ? persona.name
+      : `${t('sessionSettings.title')}: ${summaryText}`;
   const hasSessionControls =
     (Boolean(onSelectMode) && presentableModes.length > 0) ||
     configRows.length > 0;
@@ -464,13 +476,12 @@ export function SessionSettingsSummary({
         <button
           type="button"
           data-testid="session-settings-summary"
-          data-raised-selector
           disabled={disabled}
           aria-label={triggerLabel}
           title={triggerLabel}
           className={cn(
-            'raised-control group inline-flex h-7 min-w-0 max-w-[min(29rem,calc(100vw-14rem))] items-center gap-1.5',
-            'px-2.5 text-xs font-medium tracking-[-0.01em]',
+            'group inline-flex h-7 min-w-0 max-w-[min(29rem,calc(100vw-14rem))] items-center gap-1.5 rounded-md border-0 bg-transparent px-2 text-xs font-medium tracking-[-0.01em] text-foreground transition-colors',
+            'hover:bg-muted/60 data-[state=open]:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50',
             'active:scale-[0.98]'
           )}
         >
@@ -484,7 +495,7 @@ export function SessionSettingsSummary({
             />
           ) : null}
           <span className="truncate">
-            {persona
+            {showPersonaOnly && persona
               ? persona.name
               : visibleSummary.length > 0
                 ? visibleSummary.map((item, index) => (
@@ -508,7 +519,7 @@ export function SessionSettingsSummary({
       </DropdownMenuTrigger>
       <DropdownMenuContent
         side={dropdownSide}
-        align="start"
+        align={dropdownAlign}
         sideOffset={8}
         className={cn(
           showAgentRail
@@ -516,7 +527,7 @@ export function SessionSettingsSummary({
             : 'w-[min(22rem,calc(100vw-2rem))]'
         )}
       >
-        {persona ? (
+        {showPersonaOnly && persona ? (
           <>
             <PersonaFact
               label={t('sessionSettings.personaName')}

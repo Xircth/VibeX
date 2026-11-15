@@ -87,7 +87,9 @@ import { backendListen } from '@/lib/backendTransport';
 import { requestComposerTokenInsert } from '@/lib/composerInsert';
 import { writeClipboardViaBridge } from '@/vscode/bridge';
 import {
+  SESSION_AGENT_SWITCHED_EVENT,
   WORKSPACE_SESSIONS_CHANGED_EVENT,
+  type SessionAgentSwitchedDetail,
   type WorkspaceSessionsChangedPayload,
 } from '@/lib/sessionQueryCache';
 import { AGENT_EVENTS_CHANNEL } from '@/features/agents/events';
@@ -409,8 +411,6 @@ export function useCollaborationSpaceRuntime(
   const [isAtThreadBottom, setIsAtThreadBottom] = useState(true);
   const [activeNavIndex, setActiveNavIndex] = useState<number | null>(null);
   const [topMemberBarExpanded, setTopMemberBarExpanded] = useState(true);
-  const [composerMembersMenuOpen, setComposerMembersMenuOpen] = useState(false);
-  const composerMembersCloseTimeoutRef = useRef<number | null>(null);
 
   const [session, sessionDispatch] = useReducer(
     spaceSessionReducer,
@@ -1935,6 +1935,47 @@ export function useCollaborationSpaceRuntime(
       window.clearInterval(intervalId);
     };
   }, [loadConversations, refreshSidebar, workspace]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const onSessionAgentSwitched = (event: Event) => {
+      const detail = (event as CustomEvent<SessionAgentSwitchedDetail>).detail;
+      const switchedSessionId = String(detail?.sessionId ?? '').trim();
+      const switchedAgentId = String(detail?.agentId ?? '').trim();
+      if (!switchedSessionId || !switchedAgentId) return;
+      setConversations((current) => {
+        let changed = false;
+        const next = current.map((conv) => {
+          if (conv.conversation_id !== switchedSessionId) return conv;
+          if (conv.agent_id === switchedAgentId) return conv;
+          changed = true;
+          return { ...conv, agent_id: switchedAgentId };
+        });
+        return changed ? next : current;
+      });
+      setDraftMemberMetaByConvId((current) => {
+        const existing = current[switchedSessionId];
+        if (!existing || existing.agentId === switchedAgentId) return current;
+        return {
+          ...current,
+          [switchedSessionId]: {
+            ...existing,
+            agentId: switchedAgentId,
+          },
+        };
+      });
+    };
+    window.addEventListener(
+      SESSION_AGENT_SWITCHED_EVENT,
+      onSessionAgentSwitched
+    );
+    return () => {
+      window.removeEventListener(
+        SESSION_AGENT_SWITCHED_EVENT,
+        onSessionAgentSwitched
+      );
+    };
+  }, [setConversations, setDraftMemberMetaByConvId]);
 
   useEffect(() => {
     const onMembersChanged = (event: Event) => {
@@ -5912,33 +5953,6 @@ export function useCollaborationSpaceRuntime(
       )
     : undefined;
 
-  const clearComposerMembersCloseTimeout = useCallback(() => {
-    if (composerMembersCloseTimeoutRef.current !== null) {
-      window.clearTimeout(composerMembersCloseTimeoutRef.current);
-      composerMembersCloseTimeoutRef.current = null;
-    }
-  }, []);
-
-  const openComposerMembersMenu = useCallback(() => {
-    clearComposerMembersCloseTimeout();
-    setComposerMembersMenuOpen(true);
-  }, [clearComposerMembersCloseTimeout]);
-
-  const scheduleCloseComposerMembersMenu = useCallback(() => {
-    clearComposerMembersCloseTimeout();
-    composerMembersCloseTimeoutRef.current = window.setTimeout(() => {
-      setComposerMembersMenuOpen(false);
-      composerMembersCloseTimeoutRef.current = null;
-    }, 140);
-  }, [clearComposerMembersCloseTimeout]);
-
-  useEffect(
-    () => () => {
-      clearComposerMembersCloseTimeout();
-    },
-    [clearComposerMembersCloseTimeout]
-  );
-
   const unassignedMembers = useMemo(() => {
     if (!unassignedId) return EMPTY_MEMBERS;
     const assignedKeys = new Set<string>();
@@ -8602,6 +8616,8 @@ export function useCollaborationSpaceRuntime(
   const stableToggleContactSection = useStableCallback(toggleContactSection);
 
   return {
+    activeBotConversationId,
+    activeBotTimeline,
     activeChatRoster,
     activeDirect,
     activeDirectThreadId,
@@ -8626,7 +8642,6 @@ export function useCollaborationSpaceRuntime(
     chatList,
     chatListRef,
     chooseConversationLabel,
-    clearComposerMembersCloseTimeout,
     clearDelayedMemberCloseTimeout,
     closeAllOverlays,
     collaborationArrangement,
@@ -8634,8 +8649,6 @@ export function useCollaborationSpaceRuntime(
     composerContainerRef,
     composerDraftsRef,
     composerFileInputRef,
-    composerMembersCloseTimeoutRef,
-    composerMembersMenuOpen,
     confirmBatchDelete: stableConfirmBatchDelete,
     consumeSessionFocus,
     contactChrome,
@@ -8763,7 +8776,6 @@ export function useCollaborationSpaceRuntime(
     newMemberSessionId,
     newMemberSource,
     openAssistantDetailsTab: stableOpenAssistantDetailsTab,
-    openComposerMembersMenu,
     openContactMenu: stableOpenContactMenu,
     openCreateMemberDialog,
     openCreateMemberDialogRef,
@@ -8844,7 +8856,6 @@ export function useCollaborationSpaceRuntime(
     roleSelectOptions,
     roles,
     runInCollaborationEditorGroup,
-    scheduleCloseComposerMembersMenu,
     scheduleCloseDelayedMemberPopover,
     scheduledMessages,
     scrollToMessage: stableScrollToMessage,
@@ -8875,7 +8886,6 @@ export function useCollaborationSpaceRuntime(
     setAgents,
     setAttachedImages,
     setCollapsedSections,
-    setComposerMembersMenuOpen,
     setContactChrome,
     setContactGroups,
     setContactMenu,

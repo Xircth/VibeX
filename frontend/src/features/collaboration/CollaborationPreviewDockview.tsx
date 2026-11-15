@@ -161,8 +161,7 @@ export function previewMemberKey(spaceId: string, member: SpaceMember): string {
 export function CollaborationMemberSessionDockviewPanel(
   props: IDockviewPanelProps<MemberSessionPanelParams>
 ) {
-  const { workspaceId, conversationId, memberName, memberAvatar } =
-    props.params;
+  const { workspaceId, conversationId } = props.params;
   const sessionPreviewProps = useMemo(
     () => ({
       workspaceId,
@@ -180,23 +179,8 @@ export function CollaborationMemberSessionDockviewPanel(
   const surfaceChrome = useMemo(
     () => ({
       hidePersonaHostNotes: true,
-      composerIdentity: memberName ? (
-        <div
-          className="flex min-w-0 items-center gap-1.5 text-xs font-medium text-foreground"
-          data-testid="composer-member-identity"
-        >
-          {memberAvatar ? (
-            <MemberBotAvatar
-              config={memberAvatar}
-              animated={false}
-              className="h-3.5 w-3.5 shrink-0"
-            />
-          ) : null}
-          <span className="truncate">{memberName}</span>
-        </div>
-      ) : undefined,
     }),
-    [memberAvatar, memberName]
+    []
   );
 
   return (

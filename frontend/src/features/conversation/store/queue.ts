@@ -415,29 +415,98 @@ function mergeOverlayText(existing: string, overlay: string): string {
   return existing + overlay;
 }
 
+export function isSeededInitialPromptRowId(
+  rowId: string,
+  conversationId?: string
+): boolean {
+  return Boolean(conversationId && rowId === `${conversationId}:user`);
+}
+
+function imageUriBasename(uri: string | null | undefined): string | null {
+  if (!uri) return null;
+  const clean = uri.split(/[?#]/)[0]?.trim() ?? '';
+  if (!clean) return null;
+  const name = clean.split(/[\\/]/).pop()?.trim().toLowerCase() ?? '';
+  return name || null;
+}
+
+function turnImageSignature(turn: MessageTurn): {
+  count: number;
+  basenames: string[];
+} {
+  const imageBlocks = turn.blocks.filter(
+    (block): block is Extract<ContentBlock, { type: 'image' }> =>
+      block.type === 'image'
+  );
+  const basenames = imageBlocks
+    .map((block) => imageUriBasename(block.uri))
+    .filter((name): name is string => Boolean(name));
+  return {
+    count: imageBlocks.length,
+    basenames,
+  };
+}
+
+function findMatchingImageOnlyOptimisticTurnIndex(
+  optimisticTurns: MessageTurn[],
+  candidateIndices: number[],
+  authoritativeTurn: MessageTurn
+): number {
+  const authSig = turnImageSignature(authoritativeTurn);
+  if (authSig.count > 0) {
+    if (authSig.basenames.length > 0) {
+      const exactBasenameIndex = candidateIndices.find((idx) => {
+        const optSig = turnImageSignature(optimisticTurns[idx]!);
+        return (
+          optSig.count === authSig.count &&
+          optSig.basenames.length === authSig.basenames.length &&
+          optSig.basenames.every((name, pos) => name === authSig.basenames[pos])
+        );
+      });
+      if (exactBasenameIndex !== undefined) return exactBasenameIndex;
+    }
+
+    const countCompatibleIndex = candidateIndices.find((idx) => {
+      const optSig = turnImageSignature(optimisticTurns[idx]!);
+      if (optSig.count !== authSig.count) return false;
+      return authSig.basenames.length === 0 || optSig.basenames.length === 0;
+    });
+    return countCompatibleIndex ?? -1;
+  }
+
+  const noImageIndex = candidateIndices.find(
+    (idx) => turnImageSignature(optimisticTurns[idx]!).count === 0
+  );
+  return noImageIndex ?? candidateIndices[0] ?? -1;
+}
+
 export function reconcileOptimisticTurns(
   optimisticTurns: MessageTurn[],
   timeline: ConversationTimeline,
-  baselineUserRowIds?: Readonly<Record<string, readonly string[]>>
+  baselineUserRowIds?: Readonly<Record<string, readonly string[]>>,
+  conversationId?: string
 ): MessageTurn[] {
   return reconcileOptimisticTurnsAgainstRows(
     optimisticTurns,
     timeline.rows,
-    baselineUserRowIds
+    baselineUserRowIds,
+    conversationId
   ).optimisticTurns;
 }
 
 export function reconcileOptimisticTurnsAgainstRows(
   optimisticTurns: MessageTurn[],
   rows: TimelineRow[],
-  baselineUserRowIds?: Readonly<Record<string, readonly string[]>>
+  baselineUserRowIds?: Readonly<Record<string, readonly string[]>>,
+  conversationId?: string
 ): { rows: TimelineRow[]; optimisticTurns: MessageTurn[] } {
   let remainingTurns = optimisticTurns;
   const reconciledRows = [...rows].reverse().map((row) => {
     const reconciled = reconcileOptimisticTurnAgainstUserRow(
       remainingTurns,
       row,
-      baselineUserRowIds
+      baselineUserRowIds,
+      conversationId
     );
     remainingTurns = reconciled.optimisticTurns;
     return reconciled.row;
@@ -461,39 +530,66 @@ function isBaselineUserRowForOptimisticTurn(
 export function reconcileOptimisticTurnAgainstUserRow(
   optimisticTurns: MessageTurn[],
   row: TimelineRow,
-  baselineUserRowIds?: Readonly<Record<string, readonly string[]>>
+  baselineUserRowIds?: Readonly<Record<string, readonly string[]>>,
+  conversationId?: string
 ): { row: TimelineRow; optimisticTurns: MessageTurn[] } {
   if (
     row.row.kind !== 'message_turn' ||
     row.row.turn.role !== 'user' ||
-    optimisticTurns.length === 0
+    optimisticTurns.length === 0 ||
+    isSeededInitialPromptRowId(row.row_id, conversationId)
   ) {
     return { row, optimisticTurns };
   }
 
   const authoritativeText = userTurnText(row.row.turn);
-  let optimisticIndex = optimisticTurns.findIndex(
-    (turn) =>
-      !isBaselineUserRowForOptimisticTurn(
-        turn.id,
-        row.row_id,
-        baselineUserRowIds
-      ) && userTurnText(turn) === authoritativeText
-  );
+  let optimisticIndex = -1;
 
-  if (optimisticIndex < 0) {
-    const authoritativeBackendText =
-      normalizePromptMatchText(authoritativeText);
+  if (authoritativeText === '') {
+    const emptyTextCandidates: number[] = [];
+    optimisticTurns.forEach((turn, idx) => {
+      if (
+        !isBaselineUserRowForOptimisticTurn(
+          turn.id,
+          row.row_id,
+          baselineUserRowIds
+        ) &&
+        userTurnText(turn) === ''
+      ) {
+        emptyTextCandidates.push(idx);
+      }
+    });
+    if (emptyTextCandidates.length > 0) {
+      optimisticIndex = findMatchingImageOnlyOptimisticTurnIndex(
+        optimisticTurns,
+        emptyTextCandidates,
+        row.row.turn
+      );
+    }
+  } else {
     optimisticIndex = optimisticTurns.findIndex(
       (turn) =>
         !isBaselineUserRowForOptimisticTurn(
           turn.id,
           row.row_id,
           baselineUserRowIds
-        ) &&
-        normalizePromptMatchText(userTurnText(turn)) ===
-          authoritativeBackendText
+        ) && userTurnText(turn) === authoritativeText
     );
+
+    if (optimisticIndex < 0) {
+      const authoritativeBackendText =
+        normalizePromptMatchText(authoritativeText);
+      optimisticIndex = optimisticTurns.findIndex(
+        (turn) =>
+          !isBaselineUserRowForOptimisticTurn(
+            turn.id,
+            row.row_id,
+            baselineUserRowIds
+          ) &&
+          normalizePromptMatchText(userTurnText(turn)) ===
+            authoritativeBackendText
+      );
+    }
   }
 
   if (optimisticIndex < 0) return { row, optimisticTurns };
@@ -502,16 +598,23 @@ export function reconcileOptimisticTurnAgainstUserRow(
   const optimisticTextBlocks = optimisticTurn.blocks.filter(
     (block) => block.type === 'text'
   );
+  const optimisticNonTextBlocks = optimisticTurn.blocks.filter(
+    (block) => block.type !== 'text'
+  );
   const authoritativeNonTextBlocks = row.row.turn.blocks.filter(
     (block) => block.type !== 'text'
   );
+  const mergedNonTextBlocks =
+    authoritativeNonTextBlocks.length > 0
+      ? authoritativeNonTextBlocks
+      : optimisticNonTextBlocks;
   const reconciledRow: TimelineRow = {
     ...row,
     row: {
       ...row.row,
       turn: {
         ...row.row.turn,
-        blocks: [...optimisticTextBlocks, ...authoritativeNonTextBlocks],
+        blocks: [...optimisticTextBlocks, ...mergedNonTextBlocks],
       },
     },
   };
@@ -526,7 +629,8 @@ export function reconcileOptimisticTurnAgainstUserRow(
 
 export function settleIdleOpenTail(
   rows: TimelineRow[],
-  turnInFlight: boolean
+  turnInFlight: boolean,
+  conversationId?: string
 ): TimelineRow[] {
   if (rows.length === 0 || !turnInFlight) return rows;
   const lastIndex = rows.length - 1;
@@ -535,7 +639,7 @@ export function settleIdleOpenTail(
     last &&
     last.row.kind === 'message_turn' &&
     last.row.turn.role === 'user' &&
-    !isLiveProjectorRowId(last.row_id) &&
+    !isLiveProjectorRowId(last.row_id, conversationId) &&
     last.row.phase !== 'streaming'
   ) {
     const next = rows.slice();
@@ -548,7 +652,11 @@ export function settleIdleOpenTail(
   return rows;
 }
 
-export function isLiveProjectorRowId(rowId: string): boolean {
+export function isLiveProjectorRowId(
+  rowId: string,
+  conversationId?: string
+): boolean {
+  if (isSeededInitialPromptRowId(rowId, conversationId)) return false;
   return (
     rowId.endsWith(':user') ||
     /:assistant(?::\d+)?$/.test(rowId) ||
@@ -559,12 +667,14 @@ export function isLiveProjectorRowId(rowId: string): boolean {
 /**
  * The first open of a new session can project `initial_prompt` as
  * `{conversationId}:user` before the live user row arrives. Drop that seed
- * once another user row carries the same text. Two real prompts that happen
- * to match stay, because neither uses the conversation id as its row id.
+ * once another user row or optimistic turn carries the same prompt. Two real
+ * prompts that happen to match stay, because neither uses the conversation id
+ * as its row id.
  */
 export function dropSeededInitialPrompt(
   conversationId: string,
-  rows: TimelineRow[]
+  rows: TimelineRow[],
+  optimisticTurns?: readonly MessageTurn[]
 ): TimelineRow[] {
   const seedId = `${conversationId}:user`;
   const seed = rows.find((row) => row.row_id === seedId);
@@ -576,14 +686,19 @@ export function dropSeededInitialPrompt(
     return rows;
   }
   const seedText = userTurnText(seed.row.turn);
-  const duplicated = rows.some(
+  const duplicatedInRows = rows.some(
     (row) =>
       row.row_id !== seedId &&
       row.row.kind === 'message_turn' &&
       row.row.turn.role === 'user' &&
       promptsMatch(userTurnText(row.row.turn), seedText)
   );
-  if (!duplicated) return rows;
+  const duplicatedInOptimistic =
+    optimisticTurns?.some((turn) => {
+      const optText = userTurnText(turn);
+      return seedText === '' ? optText === '' : promptsMatch(optText, seedText);
+    }) ?? false;
+  if (!duplicatedInRows && !duplicatedInOptimistic) return rows;
   return rows.filter((row) => row.row_id !== seedId);
 }
 
@@ -618,7 +733,11 @@ export function dedupeTurns(
  */
 export function withPendingAssistantTurns(
   entry: ConversationStoreEntry,
-  turns: ConversationTimelineTurn[]
+  turns: ConversationTimelineTurn[],
+  activeTurnFallback?: {
+    activeTurnId: string | null;
+    activeStartedAt: string | null;
+  }
 ): ConversationTimelineTurn[] {
   const result = [...turns];
   const assistantIds = new Set(
@@ -650,8 +769,29 @@ export function withPendingAssistantTurns(
         userTurn = lastRow;
       }
     }
+    if (!userTurn) {
+      if (
+        (!entry.loadedToStart ||
+          Boolean(entry.detail?.timeline.truncated_from_start)) &&
+        activeTurnFallback?.activeTurnId &&
+        messageTurnPairKey(rowId) === activeTurnFallback.activeTurnId
+      ) {
+        result.push({
+          key: `conversation-${rowId}`,
+          phase: 'streaming',
+          revision: overlay.revision,
+          turn: {
+            id: rowId,
+            role: 'assistant',
+            blocks: overlayLiveText([], overlay),
+            timestamp: activeTurnFallback.activeStartedAt ?? '',
+          },
+        });
+        assistantIds.add(rowId);
+      }
+      continue;
+    }
     if (
-      !userTurn ||
       userTurn.phase === 'settled' ||
       userTurn.phase === 'failed' ||
       userTurn.phase === 'cancelled' ||

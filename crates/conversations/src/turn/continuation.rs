@@ -66,7 +66,10 @@ impl ConversationSessionService {
             )
             .await?
             .filter(|b| {
-                b.resume_allowed && b.acp_session_id.as_deref().is_some_and(|id| !id.is_empty())
+                b.resume_allowed
+                    && b.acp_session_id.as_deref().is_some_and(|id| {
+                        !id.is_empty() && !agents::is_placeholder_acp_session_id(id)
+                    })
             })
         } else {
             None
@@ -146,7 +149,7 @@ impl ConversationSessionService {
                 preferences.config.retain(|old| old.key != value.key);
                 preferences.config.push(value.clone());
             }
-            let candidate = match self
+            let candidate = self
                 .ctx
                 .agent_runtime
                 .prepare_session(EnsureAgentSessionInput {
@@ -162,12 +165,7 @@ impl ConversationSessionService {
                     preferences,
                 })
                 .await
-            {
-                Ok(c) => c,
-                Err(e) => {
-                    return Err(ConversationServiceError::Internal(e.to_string()));
-                }
-            };
+                .map_err(ConversationServiceError::from)?;
             let lock = self.turn_lock(input.conversation_id).await;
             let _guard = lock.lock().await;
             let in_flight = self
@@ -286,7 +284,7 @@ impl ConversationSessionService {
 
             let settings = self.ctx.host.launch_settings(pool, &input.agent_id).await?;
             let mut preferences = self
-                .resolved_session_control_preferences(pool, &input.agent_id, None)
+                .resolved_session_control_preferences(pool, &input.agent_id, Some(&resume))
                 .await;
             preferences.mode = input.mode_override.clone().or(preferences.mode);
             for value in &input.config_overrides {
@@ -294,7 +292,7 @@ impl ConversationSessionService {
                 preferences.config.push(value.clone());
             }
             let acp_session_id = resume.acp_session_id.clone().unwrap_or_default();
-            let (resumed_session, _recovery) = self
+            let (resumed_session, recovery) = self
                 .ctx
                 .agent_runtime
                 .resume_session(ResumeAgentSessionInput {
@@ -304,13 +302,14 @@ impl ConversationSessionService {
                     working_dir: prepared.working_dir.clone().into(),
                     additional_directories: prepared.additional_directories.clone(),
                     session_id: AgentSessionId(input.conversation_id),
-                    external_session_id: acp_session_id,
+                    external_session_id: acp_session_id.clone(),
                     auto_approve_mode: settings.auto_approve_mode,
                     env: settings.env,
                     preferences,
                 })
                 .await
-                .map_err(|e| ConversationServiceError::Internal(e.to_string()))?;
+                .map_err(ConversationServiceError::from)?;
+            let runtime_session_id = AgentSessionId(input.conversation_id);
             let lock = self.turn_lock(input.conversation_id).await;
             let _guard = lock.lock().await;
             if !self
@@ -322,17 +321,23 @@ impl ConversationSessionService {
                     "Turn was cancelled during Agent startup".into(),
                 ));
             }
-            // Re-activate the resumed binding and record its live connection_id.
+            // Re-activate the resumed binding and record its live connection_id + acp_session_id.
             let _ = sqlx::query(
-                "UPDATE conversation_agent_bindings SET connection_id = ? WHERE id = ?",
+                "UPDATE conversation_agent_bindings
+                 SET acp_session_id = ?,
+                     connection_id = ?,
+                     status = 'ready',
+                     updated_at = datetime('now', 'subsec')
+                 WHERE id = ?",
             )
+            .bind(&resumed_session.acp_session_id)
             .bind(resumed_session.connection_id.to_string())
             .bind(resume.id)
             .execute(pool)
             .await?;
             ConversationAgentBindingRecord::activate(pool, input.conversation_id, resume.id)
                 .await?;
-            let _resumed_binding = ConversationAgentBindingRecord::active_for_conversation(
+            let resumed_binding = ConversationAgentBindingRecord::active_for_conversation(
                 pool,
                 input.conversation_id,
             )
@@ -340,10 +345,55 @@ impl ConversationSessionService {
             .ok_or_else(|| {
                 ConversationServiceError::Internal("Resumed binding disappeared".into())
             })?;
+            self.replay_remembered_session_controls(
+                input.conversation_id,
+                runtime_session_id,
+                Some(&resumed_binding),
+            )
+            .await;
             self.ctx
                 .agent_runtime
-                .commit_prepared_session(AgentSessionId(input.conversation_id))
+                .commit_prepared_session(runtime_session_id)
                 .await;
+            let capabilities = self
+                .ctx
+                .agent_runtime
+                .session_controls_snapshot(runtime_session_id)
+                .await
+                .ok()
+                .and_then(|controls| controls.capabilities)
+                .or_else(|| {
+                    serde_json::from_str::<agents::conversation::AcpCapabilitySnapshot>(
+                        &resumed_binding.session_capabilities_json,
+                    )
+                    .ok()
+                })
+                .unwrap_or_default();
+            self.append_event(
+                input.conversation_id,
+                None,
+                "runtime",
+                agents::conversation::ConversationEvent::AgentBindingReady {
+                    acp_session_id: resumed_session.acp_session_id.clone(),
+                    capabilities,
+                },
+                None,
+            )
+            .await?;
+            if matches!(
+                recovery,
+                Some(agents::SessionRecoveryStrategy::CreatedNewSession)
+            ) {
+                let continues_from = (!acp_session_id.is_empty()
+                    && acp_session_id != resumed_session.acp_session_id)
+                    .then_some(acp_session_id);
+                self.record_agent_binding_recovered(
+                    input.conversation_id,
+                    agents::SessionRecoveryStrategy::CreatedNewSession,
+                    continues_from,
+                )
+                .await?;
+            }
             if let Some(selection) = selection {
                 prepared.agent_blocks.insert(
                     0,
@@ -353,6 +403,15 @@ impl ConversationSessionService {
                 );
             }
         } else {
+            if session.agent_id.as_ref() != Some(&input.agent_id) {
+                let _ = Session::update_agent_metadata(
+                    pool,
+                    input.conversation_id,
+                    session.external_session_id.as_deref(),
+                    Some(&input.agent_id),
+                )
+                .await;
+            }
             self.ensure_session_controls_locked(
                 input.conversation_id,
                 Some(prepared.working_dir.clone().into()),

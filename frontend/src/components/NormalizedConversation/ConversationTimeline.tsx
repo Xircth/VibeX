@@ -551,6 +551,9 @@ export function mergeMissingTurnStats(
   };
 }
 
+import { computeAnchoredTimelineStartIndex } from '@/features/conversation/timelinePaging';
+export { computeAnchoredTimelineStartIndex };
+
 function InlineTimelineSideRow({
   entry,
   onRespondQuestion,
@@ -695,6 +698,7 @@ const AgentTimelineConversation = forwardRef<
   const [activeIndex, setActiveIndex] = useState<number | null>(null);
   const isAtBottomRef = useRef(true);
   const openSettlePassesRef = useRef(CONVERSATION_OPEN_SETTLE_PASSES);
+  const [isFollowingTail, setIsFollowingTail] = useState(true);
   const followTailRef = useRef(true);
   const lastScrollTopRef = useRef(0);
   const programmaticScrollDepthRef = useRef(0);
@@ -705,6 +709,10 @@ const AgentTimelineConversation = forwardRef<
   const sessionId = attempt.session?.id ?? null;
   const sessionPinRef = useRef<string | null>(null);
   const pinnedSessionReadyRef = useRef<string | null>(null);
+  const anchoredTimelineStartRef = useRef<{
+    sessionId: string | null;
+    index: number | null;
+  }>({ sessionId: null, index: null });
   const previousPrependEpochRef = useRef(0);
   const previousTotalSizeRef = useRef(0);
   const pendingJumpTimelineIndexRef = useRef<{
@@ -810,10 +818,24 @@ const AgentTimelineConversation = forwardRef<
     visibleTailSession.sessionId === sessionId
       ? visibleTailSession.revealEpoch
       : 0;
-  const visibleTimelineStartIndex = Math.max(
-    0,
-    timelineItems.length - effectiveVisibleTailCount
-  );
+  const effectiveFollowTail =
+    anchoredTimelineStartRef.current.sessionId !== sessionId
+      ? true
+      : isFollowingTail && followTailRef.current;
+  const priorAnchoredStartIndex =
+    anchoredTimelineStartRef.current.sessionId === sessionId
+      ? anchoredTimelineStartRef.current.index
+      : null;
+  const visibleTimelineStartIndex = computeAnchoredTimelineStartIndex({
+    totalItems: timelineItems.length,
+    visibleTailCount: effectiveVisibleTailCount,
+    followTail: effectiveFollowTail,
+    anchoredStartIndex: priorAnchoredStartIndex,
+  });
+  anchoredTimelineStartRef.current = {
+    sessionId,
+    index: visibleTimelineStartIndex,
+  };
   const hasHiddenEarlierItems = visibleTimelineStartIndex > 0;
   const visibleTimelineItems = useMemo(
     () =>
@@ -1318,11 +1340,15 @@ const AgentTimelineConversation = forwardRef<
     if (hasHiddenEarlierItems) {
       setVisibleTailSession((current) => {
         const baseCount = current.sessionId === sessionId ? current.count : 24;
+        const currentlyVisibleCount = Math.max(
+          baseCount,
+          timelineItems.length - visibleTimelineStartIndex
+        );
         const baseEpoch =
           current.sessionId === sessionId ? current.revealEpoch : 0;
         return {
           sessionId,
-          count: Math.min(timelineItems.length, baseCount + 24),
+          count: Math.min(timelineItems.length, currentlyVisibleCount + 24),
           revealEpoch: baseEpoch + 1,
         };
       });
@@ -1343,6 +1369,7 @@ const AgentTimelineConversation = forwardRef<
     hasHiddenEarlierItems,
     sessionId,
     timelineItems.length,
+    visibleTimelineStartIndex,
   ]);
 
   const panelRef = useRef<HTMLDivElement | null>(null);
@@ -1365,6 +1392,7 @@ const AgentTimelineConversation = forwardRef<
       });
     }
     followTailRef.current = false;
+    setIsFollowingTail(false);
     openSettlePassesRef.current = 0;
     if (!isAtBottomRef.current) return;
     isAtBottomRef.current = false;
@@ -1451,6 +1479,7 @@ const AgentTimelineConversation = forwardRef<
     setFindOpen(false);
     setFindQuery('');
     setFindMatchIndex(0);
+    setIsFollowingTail(true);
     pendingJumpTimelineIndexRef.current = null;
   }, [sessionId]);
 
@@ -1536,6 +1565,7 @@ const AgentTimelineConversation = forwardRef<
   const scrollToBottom = useCallback(
     (behavior: ScrollBehavior) => {
       followTailRef.current = true;
+      setIsFollowingTail(true);
       openSettlePassesRef.current = 0;
       isAtBottomRef.current = true;
       onAtBottomChange?.(true);
@@ -1564,6 +1594,7 @@ const AgentTimelineConversation = forwardRef<
         detachFromBottom();
       } else if (intent === 'attach') {
         followTailRef.current = true;
+        setIsFollowingTail(true);
         isAtBottomRef.current = true;
         onAtBottomChange?.(true);
       }
@@ -1826,6 +1857,9 @@ const AgentTimelineConversation = forwardRef<
       nearBottom: isAtBottomRef.current,
     });
     followTailRef.current = decision.attached;
+    setIsFollowingTail((current) =>
+      current === decision.attached ? current : decision.attached
+    );
     openSettlePassesRef.current = decision.settlePassesRemaining;
     if (decision.action === 'release') {
       if (expansionChanged) {

@@ -86,8 +86,8 @@ impl ConversationTimelineRowRecord {
     }
 
     /// Insert a new row at the next free slot in `[lower_bound, upper_bound]`, or update
-    /// `(revision, row_json, deleted_sequence = NULL)` on conflict **without ever modifying
-    /// `sort_index`**.
+    /// `(revision, row_json, deleted_sequence = NULL)` on conflict while preserving `sort_index`
+    /// whenever it already resides in `[lower_bound, upper_bound]`.
     pub async fn upsert_row_on_conn(
         conn: &mut SqliteConnection,
         conversation_id: Uuid,
@@ -106,7 +106,10 @@ impl ConversationTimelineRowRecord {
                    COALESCE(
                        (SELECT sort_index
                           FROM conversation_timeline_rows
-                         WHERE conversation_id = ?1 AND row_id = ?2),
+                         WHERE conversation_id = ?1
+                           AND row_id = ?2
+                           AND sort_index >= ?3
+                           AND sort_index <= ?4),
                        COALESCE(
                            (SELECT MAX(sort_index)
                               FROM conversation_timeline_rows
@@ -122,6 +125,7 @@ impl ConversationTimelineRowRecord {
                    NULL
                )
                ON CONFLICT(conversation_id, row_id) DO UPDATE SET
+                   sort_index = excluded.sort_index,
                    revision = excluded.revision,
                    row_json = excluded.row_json,
                    deleted_sequence = NULL
@@ -330,6 +334,29 @@ impl ConversationTimelineRowRecord {
         .await?;
         rows.reverse();
         Ok(rows)
+    }
+
+    /// Active session-level side rows (`sort_index < SORT_INDEX_SLOT_SPAN`) such as runtime
+    /// status banners and binding load-failure notices.
+    pub async fn list_slot_zero<'e, E>(
+        executor: E,
+        conversation_id: Uuid,
+    ) -> Result<Vec<Self>, sqlx::Error>
+    where
+        E: Executor<'e, Database = Sqlite>,
+    {
+        sqlx::query_as::<_, Self>(
+            r#"SELECT conversation_id, sort_index, row_id, revision, row_json, deleted_sequence
+               FROM conversation_timeline_rows
+               WHERE conversation_id = ?1
+                 AND sort_index < ?2
+                 AND deleted_sequence IS NULL
+               ORDER BY sort_index ASC"#,
+        )
+        .bind(conversation_id)
+        .bind(SORT_INDEX_SLOT_SPAN)
+        .fetch_all(executor)
+        .await
     }
 
     pub async fn list_changed_since<'e, E>(

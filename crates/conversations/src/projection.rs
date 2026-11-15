@@ -509,7 +509,10 @@ fn summarize_turn_metrics(
             segments.push(segment);
         }
     }
-    if !turn.assistant.blocks.is_empty() {
+    if !turn.assistant.blocks.is_empty()
+        || turn.assistant.usage.is_some()
+        || turn.assistant.duration_ms.is_some()
+    {
         segments.push(&turn.assistant);
     }
     let mut has_usage = false;
@@ -521,22 +524,27 @@ fn summarize_turn_metrics(
             agg.output_tokens += u.output_tokens;
             agg.cache_creation_input_tokens += u.cache_creation_input_tokens;
             agg.cache_read_input_tokens += u.cache_read_input_tokens;
+            if u.cost_amount.is_some() {
+                agg.cost_amount = u.cost_amount;
+            }
+            if u.cost_currency.is_some() {
+                agg.cost_currency = u.cost_currency.clone();
+            }
         }
     }
     if let Some(latest_max_seg) = segments.iter().rev().find(|s| {
         s.usage
             .as_ref()
-            .and_then(|u| u.context_window_max)
-            .is_some()
+            .is_some_and(|u| u.context_window_max.is_some() || u.context_used.is_some())
     }) && let Some(u) = latest_max_seg.usage.as_ref()
     {
         agg.context_window_max = u.context_window_max;
-        agg.context_used = Some(
+        agg.context_used = u.context_used.or(Some(
             u.input_tokens
                 + u.output_tokens
                 + u.cache_creation_input_tokens
                 + u.cache_read_input_tokens,
-        );
+        ));
     }
     let duration_sum: u64 = segments.iter().filter_map(|s| s.duration_ms).sum();
     let has_duration = segments.iter().any(|s| s.duration_ms.is_some());
@@ -592,11 +600,19 @@ impl Default for ProjectionSnapshotState {
 
 impl ProjectionFold {
     fn side_row_turn_id(&self, row: &TimelineRow) -> Option<Uuid> {
+        if let Some(turn_id) = self.side_row_turns.get(&row.row_id).copied() {
+            return Some(turn_id);
+        }
+        if let Some(turn_id_str) = row.row_id.strip_prefix("host-note:agent-handoff:after:")
+            && let Ok(turn_id) = Uuid::parse_str(turn_id_str)
+        {
+            return Some(turn_id);
+        }
         match &row.row {
             ConversationTimelineRow::SessionNotice { .. } => None,
             ConversationTimelineRow::TurnError { error } => error.turn_id,
             ConversationTimelineRow::FileChangeSummary { turn_id, .. } => *turn_id,
-            _ => self.side_row_turns.get(&row.row_id).copied(),
+            _ => None,
         }
     }
 
@@ -722,7 +738,10 @@ impl ProjectionFold {
                     turns.push(segment);
                 }
             }
-            if !turn.assistant.blocks.is_empty() {
+            if !turn.assistant.blocks.is_empty()
+                || turn.assistant.usage.is_some()
+                || turn.assistant.duration_ms.is_some()
+            {
                 turns.push(&turn.assistant);
             }
         }
@@ -896,10 +915,12 @@ fn session_stats_from_turns(turns: &[&MessageTurn]) -> Option<SessionStats> {
     let context_window = turns.iter().rev().find_map(|turn| {
         let usage = turn.usage.as_ref()?;
         let max = usage.context_window_max?;
-        let used = usage.input_tokens
-            + usage.output_tokens
-            + usage.cache_creation_input_tokens
-            + usage.cache_read_input_tokens;
+        let used = usage.context_used.unwrap_or(
+            usage.input_tokens
+                + usage.output_tokens
+                + usage.cache_creation_input_tokens
+                + usage.cache_read_input_tokens,
+        );
         Some((used, max))
     });
     (total_tokens > 0).then_some(SessionStats {

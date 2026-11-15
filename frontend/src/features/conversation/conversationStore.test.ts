@@ -3603,6 +3603,145 @@ describe('conversationStore (row-op dumb container)', () => {
     expect(entryOf(state).sessionConfigOptions).toEqual([]);
     expect(entryOf(state).availableCommands).toBeNull();
   });
+
+  it('does not apply append_text deltas or advance cursor on explicit previous_sequence forward gaps, preventing duplicate text after gap heal', () => {
+    let state = loaded([
+      userRow('t1', 'hello', 1n),
+      assistantRow('t1', [{ type: 'text', text: 'Hello ' }], 2n, 'streaming'),
+    ]);
+    state = conversationStoreReducer(state, {
+      type: 'load_success',
+      conversationId: CONVERSATION_ID,
+      detail: {
+        ...emptyDetail([
+          userRow('t1', 'hello', 1n),
+          assistantRow(
+            't1',
+            [{ type: 'text', text: 'Hello ' }],
+            2n,
+            'streaming'
+          ),
+        ]),
+        timeline: {
+          conversation_id: CONVERSATION_ID,
+          projection_version: 2,
+          last_sequence: 2n,
+          rows: [
+            userRow('t1', 'hello', 1n),
+            assistantRow(
+              't1',
+              [{ type: 'text', text: 'Hello ' }],
+              2n,
+              'streaming'
+            ),
+          ],
+          truncated_from_start: false,
+        },
+      },
+    });
+
+    // Sequences 3 ("foo") and 4 ("bar") were missed; sequence 5 ("baz") arrives with previous_sequence = 4n > 2n
+    state = conversationStoreReducer(state, {
+      type: 'row_ops',
+      batch: batch(
+        [
+          {
+            op: 'append_text',
+            row_id: 't1:assistant',
+            revision: 5n,
+            stream: 'text',
+            delta: 'baz',
+          },
+        ],
+        5n,
+        { previous_sequence: 4n }
+      ),
+    });
+
+    // Cursor remains at 2n, liveText is unpolluted, and gap is recorded for watchGap -> rowsSince(2n)
+    expect(entryOf(state).lastSequence).toBe(2n);
+    expect(entryOf(state).liveText['t1:assistant']).toBeUndefined();
+    expect(entryOf(state).gap).toEqual({
+      kind: 'gap',
+      expectedSequence: 3n,
+      receivedSequence: 5n,
+    });
+
+    // Backfill heals cleanly from sequence 2n -> 5n with authoritative "Hello foobarbaz"
+    state = conversationStoreReducer(state, {
+      type: 'apply_gap_rows',
+      conversationId: CONVERSATION_ID,
+      ops: [
+        {
+          op: 'upsert',
+          row: assistantRow(
+            't1',
+            [{ type: 'text', text: 'Hello foobarbaz' }],
+            5n,
+            'streaming'
+          ),
+        },
+      ],
+      lastSequence: 5n,
+    });
+
+    expect(entryOf(state).gap).toEqual({ kind: 'none' });
+    expect(entryOf(state).lastSequence).toBe(5n);
+    expect(assistantTexts(timelineTurnsForEntry(entryOf(state)))).toEqual([
+      'Hello foobarbaz',
+    ]);
+  });
+
+  it('falls back to detail.current_turn.started_at when {activeTurnId}:user has scrolled out of the 16-row tail window', async () => {
+    const { selectActiveTurnStartedAt } = await import('./store');
+    const startedAt = '2026-07-03T12:34:56.000Z';
+    const settledEarlierAssistant = assistantRow(
+      'turn-long-seg16',
+      [{ type: 'text', text: 'Segment 16' }],
+      18n,
+      'settled'
+    );
+    const detail = {
+      ...emptyDetail([settledEarlierAssistant]),
+      current_turn: {
+        id: 'turn-long',
+        conversation_id: CONVERSATION_ID,
+        status: 'running',
+        started_at: startedAt,
+      },
+    } as unknown as DbConversationDetail;
+    detail.timeline.last_sequence = 18n;
+    detail.timeline.truncated_from_start = true;
+    detail.timeline.older_cursor = 'cursor-before-seg16';
+
+    let state = conversationStoreReducer(emptyConversationStoreState, {
+      type: 'load_success',
+      conversationId: CONVERSATION_ID,
+      detail,
+    });
+    state = conversationStoreReducer(state, {
+      type: 'row_ops',
+      batch: batch(
+        [
+          {
+            op: 'append_text',
+            row_id: 'turn-long:assistant',
+            revision: 19n,
+            stream: 'text',
+            delta: 'Segment 17 streaming...',
+          },
+        ],
+        19n
+      ),
+    });
+    const entry = entryOf(state);
+    expect(selectActiveTurnStartedAt(entry)).toBe(startedAt);
+    const turns = timelineTurnsForEntry(entry);
+    const streamingAssistant = turns.find(
+      (row) => row.turn.id === 'turn-long:assistant'
+    );
+    expect(streamingAssistant?.turn.timestamp).toBe(startedAt);
+  });
 });
 
 function textOf(blocks: ContentBlock[]): string {

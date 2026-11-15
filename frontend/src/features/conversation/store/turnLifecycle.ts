@@ -223,12 +223,14 @@ export function conversationStoreReducer(
             : incomingRows;
         const droppedWindowSeed = dropSeededInitialPrompt(
           action.conversationId,
-          baseWindowRows
+          baseWindowRows,
+          entry.optimisticTurns
         );
         const reconciledWindow = reconcileOptimisticTurnsAgainstRows(
           entry.optimisticTurns,
           droppedWindowSeed,
-          entry.optimisticBaselineUserRowIds
+          entry.optimisticBaselineUserRowIds,
+          action.conversationId
         );
         const consumedOptimistic =
           reconciledWindow.optimisticTurns.length <
@@ -237,9 +239,11 @@ export function conversationStoreReducer(
           settleIdleOpenTail(
             dropSeededInitialPrompt(
               action.conversationId,
-              reconciledWindow.rows
+              reconciledWindow.rows,
+              reconciledWindow.optimisticTurns
             ),
-            Boolean(action.detail.in_flight_user_turn_id) || consumedOptimistic
+            Boolean(action.detail.in_flight_user_turn_id) || consumedOptimistic,
+            action.conversationId
           ),
           forceReplace ? [] : [...entry.windowRows, ...priorLiveRows]
         );
@@ -249,9 +253,18 @@ export function conversationStoreReducer(
           priorLiveRows,
           priorLiveText
         );
+        const nextOptimisticTurns = keepRealtimeRows
+          ? reconcileOptimisticTurns(
+              entry.optimisticTurns,
+              action.detail.timeline,
+              entry.optimisticBaselineUserRowIds,
+              action.conversationId
+            )
+          : reconciledWindow.optimisticTurns;
         const liveRows = dropSeededInitialPrompt(
           action.conversationId,
-          prunedLive.liveRows
+          prunedLive.liveRows,
+          nextOptimisticTurns
         );
         const liveText = retainStreamingLiveText(
           [...windowRows, ...liveRows],
@@ -263,14 +276,6 @@ export function conversationStoreReducer(
           liveRows,
           liveText
         );
-
-        const nextOptimisticTurns = keepRealtimeRows
-          ? reconcileOptimisticTurns(
-              entry.optimisticTurns,
-              action.detail.timeline,
-              entry.optimisticBaselineUserRowIds
-            )
-          : reconciledWindow.optimisticTurns;
         const optimisticBaselineUserRowIds = pruneOptimisticBaselines(
           entry.optimisticBaselineUserRowIds,
           nextOptimisticTurns
@@ -516,7 +521,8 @@ export function conversationStoreReducer(
           }
           windowRows = dropSeededInitialPrompt(
             action.conversationId,
-            windowRows
+            windowRows,
+            optimisticTurns
           );
         } else {
           const rowIndexById = new Map(
@@ -526,7 +532,8 @@ export function conversationStoreReducer(
             const reconciled = reconcileOptimisticTurnAgainstUserRow(
               optimisticTurns,
               row,
-              optimisticBaselineUserRowIds
+              optimisticBaselineUserRowIds,
+              action.conversationId
             );
             optimisticTurns = reconciled.optimisticTurns;
             const applied = upsertRow(
@@ -543,7 +550,11 @@ export function conversationStoreReducer(
             optimisticBaselineUserRowIds,
             optimisticTurns
           );
-          liveRows = dropSeededInitialPrompt(action.conversationId, liveRows);
+          liveRows = dropSeededInitialPrompt(
+            action.conversationId,
+            liveRows,
+            optimisticTurns
+          );
         }
         const rows = combineWindowAndLiveRows(
           action.conversationId,
@@ -591,15 +602,41 @@ export function conversationStoreReducer(
         };
       });
     case 'optimistic_turn':
-      return updateEntry(state, action.conversationId, (entry) => ({
-        ...entry,
-        optimisticTurns: [...entry.optimisticTurns, action.turn],
-        optimisticBaselineUserRowIds: {
-          ...entry.optimisticBaselineUserRowIds,
-          [action.turn.id]: collectUserRowIds(entry.windowRows, entry.liveRows),
-        },
-        promptSuggestion: null,
-      }));
+      return updateEntry(state, action.conversationId, (entry) => {
+        const optimisticTurns = [...entry.optimisticTurns, action.turn];
+        const windowRows = dropSeededInitialPrompt(
+          action.conversationId,
+          entry.windowRows,
+          optimisticTurns
+        );
+        const liveRows = dropSeededInitialPrompt(
+          action.conversationId,
+          entry.liveRows,
+          optimisticTurns
+        );
+        const rows =
+          windowRows === entry.windowRows && liveRows === entry.liveRows
+            ? entry.rows
+            : combineWindowAndLiveRows(
+                action.conversationId,
+                windowRows,
+                liveRows,
+                entry.liveText
+              );
+        return {
+          ...entry,
+          error: null,
+          windowRows,
+          liveRows,
+          rows,
+          optimisticTurns,
+          optimisticBaselineUserRowIds: {
+            ...entry.optimisticBaselineUserRowIds,
+            [action.turn.id]: collectUserRowIds(windowRows, liveRows),
+          },
+          promptSuggestion: null,
+        };
+      });
     case 'remove_optimistic_turn':
       return updateEntry(state, action.conversationId, (entry) => {
         const optimisticTurns = entry.optimisticTurns.filter(
@@ -675,12 +712,14 @@ function extendOptimisticBaselines(
 
 function applyOpsSequence(
   initial: {
+    conversationId?: string;
     windowRows: TimelineRow[];
     liveRows: TimelineRow[];
     liveText: Record<string, LiveTextOverlay>;
     currentTurnId: string | null;
     optimisticTurns: MessageTurn[];
     optimisticBaselineUserRowIds: Record<string, string[]>;
+    fallbackTurnStartedAt?: string | null;
   },
   ops: ConversationRowOp[],
   loadedWatermark: bigint
@@ -706,7 +745,8 @@ function applyOpsSequence(
       const reconciled = reconcileOptimisticTurnAgainstUserRow(
         optimisticTurns,
         op.row,
-        initial.optimisticBaselineUserRowIds
+        initial.optimisticBaselineUserRowIds,
+        initial.conversationId
       );
       optimisticTurns = reconciled.optimisticTurns;
       const applied = upsertRow(
@@ -720,7 +760,8 @@ function applyOpsSequence(
       liveText = applied.liveText;
       if (
         op.row.row.kind === 'message_turn' &&
-        op.row.row.turn.role === 'user'
+        op.row.row.turn.role === 'user' &&
+        op.row.row_id !== `${initial.conversationId}:user`
       ) {
         currentTurnId = turnIdOfRowId(op.row.row_id) ?? currentTurnId;
         sawUserTurnUpsert = true;
@@ -731,7 +772,9 @@ function applyOpsSequence(
         liveText,
         op,
         rowIndexById,
-        windowRows
+        windowRows,
+        initial.conversationId,
+        initial.fallbackTurnStartedAt
       );
       liveRows = applied.rows;
       liveText = applied.liveText;
@@ -772,14 +815,22 @@ function applyGapRows(
   ops: ConversationRowOp[],
   incomingLastSequence: bigint
 ): ConversationStoreEntry {
-  const applied = applyOpsSequence(entry, ops, 0n);
+  const applied = applyOpsSequence(
+    {
+      ...entry,
+      fallbackTurnStartedAt: extractCurrentTurnStartedAt(entry.detail),
+    },
+    ops,
+    0n
+  );
   const optimisticBaselineUserRowIds = pruneOptimisticBaselines(
     entry.optimisticBaselineUserRowIds,
     applied.optimisticTurns
   );
   const windowRows = dropSeededInitialPrompt(
     entry.conversationId,
-    applied.windowRows
+    applied.windowRows,
+    applied.optimisticTurns
   );
   const prunedLive = pruneConvergedLiveState(
     windowRows,
@@ -788,7 +839,8 @@ function applyGapRows(
   );
   const liveRows = dropSeededInitialPrompt(
     entry.conversationId,
-    prunedLive.liveRows
+    prunedLive.liveRows,
+    applied.optimisticTurns
   );
   const liveText = retainStreamingLiveText(
     [...windowRows, ...liveRows],
@@ -857,73 +909,21 @@ function applyDeleteTombstone(
   };
 }
 
-function applyRowOpBatch(
+function applyBatchMetadata(
   entry: ConversationStoreEntry,
-  batch: ResettableConversationRowOpBatch
-): ConversationStoreEntry {
-  const isReset = Boolean(batch.reset);
-  const applied = applyOpsSequence(
-    {
-      windowRows: isReset ? [] : entry.windowRows,
-      liveRows: isReset ? [] : entry.liveRows,
-      liveText: isReset ? {} : entry.liveText,
-      currentTurnId: isReset ? null : entry.currentTurnId,
-      optimisticTurns: entry.optimisticTurns,
-      optimisticBaselineUserRowIds: entry.optimisticBaselineUserRowIds,
-    },
-    batch.ops,
-    isReset ? 0n : entry.loadedLastSequence
-  );
-  let { windowRows, liveRows } = applied;
-  const { liveText, currentTurnId, optimisticTurns, sawUserTurnUpsert } =
-    applied;
-  const optimisticBaselineUserRowIds = pruneOptimisticBaselines(
-    entry.optimisticBaselineUserRowIds,
-    optimisticTurns
-  );
-
-  let rows: TimelineRow[];
-  if (
-    !isReset &&
-    windowRows === entry.windowRows &&
-    liveRows === entry.liveRows
-  ) {
-    rows = entry.rows;
-  } else {
-    liveRows = dropSeededInitialPrompt(entry.conversationId, liveRows);
-    windowRows = dropSeededInitialPrompt(entry.conversationId, windowRows);
-    rows = combineWindowAndLiveRows(
-      entry.conversationId,
-      windowRows,
-      liveRows,
-      liveText
-    );
-  }
-
-  const lastSequence = toBigInt(batch.last_sequence);
-  const gap: ConversationGapState = isReset
-    ? { kind: 'none' }
-    : detectSequenceGap(entry.lastSequence, batch);
+  batch: ResettableConversationRowOpBatch,
+  sawUserTurnUpsert: boolean
+): Pick<
+  ConversationStoreEntry,
+  | 'controlsAgentId'
+  | 'sessionModes'
+  | 'sessionConfigOptions'
+  | 'availableCommands'
+  | 'sessionGoal'
+  | 'asyncTasks'
+  | 'promptSuggestion'
+> {
   return {
-    ...entry,
-    windowRows,
-    liveRows,
-    rows,
-    liveText,
-    currentTurnId,
-    optimisticTurns,
-    optimisticBaselineUserRowIds,
-    lastSequence: isReset
-      ? lastSequence
-      : lastSequence > entry.lastSequence
-        ? lastSequence
-        : entry.lastSequence,
-    loadedLastSequence: isReset ? 0n : entry.loadedLastSequence,
-    olderCursor: isReset ? null : entry.olderCursor,
-    prefixHash: isReset ? null : entry.prefixHash,
-    userTurnsBeforeOffset: isReset ? 0 : entry.userTurnsBeforeOffset,
-    loadedToStart: isReset ? true : entry.loadedToStart,
-    gap,
     controlsAgentId:
       batch.session_modes != null || batch.session_config_options != null
         ? (normalizeAgentIdentity(
@@ -961,6 +961,109 @@ function applyRowOpBatch(
         : sawUserTurnUpsert
           ? null
           : entry.promptSuggestion,
+  };
+}
+
+function applyRowOpBatch(
+  entry: ConversationStoreEntry,
+  batch: ResettableConversationRowOpBatch
+): ConversationStoreEntry {
+  const isReset = Boolean(batch.reset);
+  const detectedGap: ConversationGapState = isReset
+    ? { kind: 'none' }
+    : detectSequenceGap(entry.lastSequence, batch);
+  const hasExplicitForwardGap =
+    !isReset &&
+    batch.previous_sequence != null &&
+    toBigInt(batch.previous_sequence) > entry.lastSequence;
+  if (hasExplicitForwardGap && detectedGap.kind === 'gap') {
+    const mergedGap: ConversationGapState =
+      entry.gap.kind === 'gap'
+        ? {
+            kind: 'gap',
+            expectedSequence: entry.gap.expectedSequence,
+            receivedSequence:
+              detectedGap.receivedSequence > entry.gap.receivedSequence
+                ? detectedGap.receivedSequence
+                : entry.gap.receivedSequence,
+          }
+        : detectedGap;
+    return {
+      ...entry,
+      gap: mergedGap,
+      ...applyBatchMetadata(entry, batch, false),
+    };
+  }
+  const applied = applyOpsSequence(
+    {
+      conversationId: entry.conversationId,
+      windowRows: isReset ? [] : entry.windowRows,
+      liveRows: isReset ? [] : entry.liveRows,
+      liveText: isReset ? {} : entry.liveText,
+      currentTurnId: isReset ? null : entry.currentTurnId,
+      optimisticTurns: entry.optimisticTurns,
+      optimisticBaselineUserRowIds: entry.optimisticBaselineUserRowIds,
+      fallbackTurnStartedAt: extractCurrentTurnStartedAt(entry.detail),
+    },
+    batch.ops,
+    isReset ? 0n : entry.loadedLastSequence
+  );
+  let { windowRows, liveRows } = applied;
+  const { liveText, currentTurnId, optimisticTurns, sawUserTurnUpsert } =
+    applied;
+  const optimisticBaselineUserRowIds = pruneOptimisticBaselines(
+    entry.optimisticBaselineUserRowIds,
+    optimisticTurns
+  );
+
+  let rows: TimelineRow[];
+  if (
+    !isReset &&
+    windowRows === entry.windowRows &&
+    liveRows === entry.liveRows
+  ) {
+    rows = entry.rows;
+  } else {
+    liveRows = dropSeededInitialPrompt(
+      entry.conversationId,
+      liveRows,
+      optimisticTurns
+    );
+    windowRows = dropSeededInitialPrompt(
+      entry.conversationId,
+      windowRows,
+      optimisticTurns
+    );
+    rows = combineWindowAndLiveRows(
+      entry.conversationId,
+      windowRows,
+      liveRows,
+      liveText
+    );
+  }
+
+  const lastSequence = toBigInt(batch.last_sequence);
+  return {
+    ...entry,
+    windowRows,
+    liveRows,
+    rows,
+    liveText,
+    currentTurnId,
+    optimisticTurns,
+    optimisticBaselineUserRowIds,
+    lastSequence: isReset
+      ? lastSequence
+      : lastSequence > entry.lastSequence
+        ? lastSequence
+        : entry.lastSequence,
+    loadedLastSequence: isReset ? 0n : entry.loadedLastSequence,
+    olderCursor: isReset ? null : entry.olderCursor,
+    prefixHash: isReset ? null : entry.prefixHash,
+    userTurnsBeforeOffset: isReset ? 0 : entry.userTurnsBeforeOffset,
+    loadedToStart: isReset ? true : entry.loadedToStart,
+    gap: detectedGap,
+    ...applyBatchMetadata(entry, batch, sawUserTurnUpsert),
   };
 }
 
@@ -1170,7 +1273,8 @@ function patchExistingMessageRow(
   op: Extract<ConversationRowOp, { op: 'patch_blocks' }>,
   overlay: LiveTextOverlay | undefined,
   revision: bigint,
-  allRows: TimelineRow[]
+  allRows: TimelineRow[],
+  fallbackStartedAt?: string | null
 ): { patched: TimelineRow; consumeOverlay: boolean } {
   const consumeOverlay = Boolean(
     overlay &&
@@ -1194,7 +1298,7 @@ function patchExistingMessageRow(
           timestamp:
             plausibleTurnStartMs(existing.row.turn.timestamp) !== null
               ? existing.row.turn.timestamp
-              : assistantStartTimestamp(allRows, op.row_id),
+              : assistantStartTimestamp(allRows, op.row_id, fallbackStartedAt),
           blocks: mergePatchedBlocks(baseBlocks, op.blocks),
           usage: mergeReportedTurnUsage(existing.row.turn.usage, op.usage),
         },
@@ -1208,7 +1312,9 @@ function applyPatchBlocks(
   liveText: Record<string, LiveTextOverlay>,
   op: Extract<ConversationRowOp, { op: 'patch_blocks' }>,
   rowIndexById: Map<string, number>,
-  windowRows?: TimelineRow[]
+  windowRows?: TimelineRow[],
+  conversationId?: string,
+  fallbackStartedAt?: string | null
 ): { rows: TimelineRow[]; liveText: Record<string, LiveTextOverlay> } {
   const revision = toBigInt(op.revision);
   const index = rowIndexById.get(op.row_id);
@@ -1227,7 +1333,8 @@ function applyPatchBlocks(
         op,
         overlay,
         revision,
-        allRows
+        allRows,
+        fallbackStartedAt
       );
       const nextRows = insertTimelineRow(rows, patched);
       rebuildRowIndex(nextRows, rowIndexById);
@@ -1242,7 +1349,7 @@ function applyPatchBlocks(
         ),
       };
     }
-    if (revision < maxLiveRowRevision(rows)) {
+    if (revision < maxLiveRowRevision(rows, conversationId)) {
       return { rows, liveText };
     }
     const consumeOverlay = Boolean(
@@ -1252,7 +1359,8 @@ function applyPatchBlocks(
       consumeOverlay && overlay ? overlayLiveText([], overlay) : [];
     const stub = stubAssistantRow(
       { ...op, blocks: mergePatchedBlocks(baseBlocks, op.blocks) },
-      allRows
+      allRows,
+      fallbackStartedAt
     );
     const nextRows = insertTimelineRow(rows, stub);
     rebuildRowIndex(nextRows, rowIndexById);
@@ -1282,7 +1390,8 @@ function applyPatchBlocks(
     op,
     overlay,
     revision,
-    allRows
+    allRows,
+    fallbackStartedAt
   );
   const nextRows = rows.slice();
   nextRows[index] = patched;
@@ -1324,9 +1433,61 @@ function willAppendNewPatchedBlock(
   return false;
 }
 
+export function extractCurrentTurnStartedAt(
+  detail: DbConversationDetail | null | undefined
+): string | null {
+  const turn = detail?.current_turn as
+    | {
+        started_at?: string | null;
+        created_at?: string | null;
+        startedAt?: string | null;
+        createdAt?: string | null;
+      }
+    | null
+    | undefined;
+  const candidate =
+    turn?.started_at ??
+    turn?.created_at ??
+    turn?.startedAt ??
+    turn?.createdAt ??
+    null;
+  return candidate && plausibleTurnStartMs(candidate) !== null
+    ? candidate
+    : null;
+}
+
+export function selectActiveTurnStartedAt(
+  entry: ConversationStoreEntry | null
+): string | null {
+  if (!entry) return null;
+  const activeTurnId =
+    entry.detail?.current_turn?.id ??
+    entry.detail?.in_flight_user_turn_id ??
+    entry.currentTurnId;
+  if (activeTurnId) {
+    const userId = `${activeTurnId}:user`;
+    for (let index = entry.rows.length - 1; index >= 0; index -= 1) {
+      const row = entry.rows[index];
+      if (
+        !row ||
+        row.row.kind !== 'message_turn' ||
+        row.row.turn.role !== 'user'
+      ) {
+        continue;
+      }
+      if (row.row_id !== userId && row.row.turn.id !== userId) continue;
+      if (plausibleTurnStartMs(row.row.turn.timestamp) !== null) {
+        return row.row.turn.timestamp;
+      }
+    }
+  }
+  return extractCurrentTurnStartedAt(entry.detail);
+}
+
 function assistantStartTimestamp(
   rows: TimelineRow[],
-  assistantRowId: string
+  assistantRowId: string,
+  fallbackStartedAt?: string | null
 ): string {
   const pair = messageTurnPairKey(assistantRowId);
   if (pair) {
@@ -1346,12 +1507,16 @@ function assistantStartTimestamp(
       }
     }
   }
+  if (fallbackStartedAt && plausibleTurnStartMs(fallbackStartedAt) !== null) {
+    return fallbackStartedAt;
+  }
   return new Date().toISOString();
 }
 
 function stubAssistantRow(
   op: Extract<ConversationRowOp, { op: 'patch_blocks' }>,
-  rows: TimelineRow[]
+  rows: TimelineRow[],
+  fallbackStartedAt?: string | null
 ): TimelineRow {
   return {
     row_id: op.row_id,
@@ -1363,7 +1528,7 @@ function stubAssistantRow(
         id: op.row_id,
         role: 'assistant',
         blocks: op.blocks,
-        timestamp: assistantStartTimestamp(rows, op.row_id),
+        timestamp: assistantStartTimestamp(rows, op.row_id, fallbackStartedAt),
         ...(op.usage ? { usage: op.usage } : {}),
       },
     },
@@ -1377,10 +1542,13 @@ function windowPrefixHash(detail: DbConversationDetail): string | null {
   return hash ?? null;
 }
 
-function maxLiveRowRevision(rows: TimelineRow[]): bigint {
+function maxLiveRowRevision(
+  rows: TimelineRow[],
+  conversationId?: string
+): bigint {
   let max = 0n;
   for (const row of rows) {
-    if (!isLiveProjectorRowId(row.row_id)) continue;
+    if (!isLiveProjectorRowId(row.row_id, conversationId)) continue;
     const revision = toBigInt(row.revision);
     if (revision > max) max = revision;
   }
@@ -1492,7 +1660,7 @@ function detectSequenceGap(
   batch: ConversationRowOpBatch
 ): ConversationGapState {
   const incomingLast = toBigInt(batch.last_sequence);
-  if (lastSequence <= 0n || incomingLast <= lastSequence) {
+  if (incomingLast <= lastSequence) {
     return { kind: 'none' };
   }
   if (batch.previous_sequence != null) {
@@ -1504,6 +1672,9 @@ function detectSequenceGap(
         receivedSequence: previousSequence + 1n,
       };
     }
+    return { kind: 'none' };
+  }
+  if (lastSequence <= 0n) {
     return { kind: 'none' };
   }
   const revisions = batch.ops.map(opRevision);

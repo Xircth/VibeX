@@ -169,4 +169,49 @@ describe('useSessionComposerSubmitActions', () => {
       )
     );
   });
+
+  it('surfaces queue/edit failures and restores the submitted draft and attachments instead of dropping user edits', async () => {
+    const onQueueError = vi.fn();
+    const onRestoreFailedQueueDraft = vi.fn();
+    const onAfterQueueCleanup = vi.fn();
+    const queueMessage = vi
+      .fn()
+      .mockRejectedValue(
+        new Error('StateConflict: queued input was already claimed')
+      );
+
+    const { result } = renderHook(() =>
+      useSessionComposerSubmitActions({
+        localMessage: 'edited message before claim',
+        conflictResolutionInstructions: null,
+        reviewMarkdown: '',
+        attachedImagePaths: ['vibe://attached-1'],
+        effectiveExecutorProfile: profile,
+        isAttemptRunning: true,
+        isQueued: true,
+        isEditingQueued: true,
+        clearStopping: vi.fn(),
+        cancelDebouncedSave: vi.fn(),
+        saveToScratch: vi.fn().mockResolvedValue(undefined),
+        queueMessage,
+        onAfterQueueCleanup,
+        onSubmitFollowUp: vi.fn(),
+        onQueueError,
+        onRestoreFailedQueueDraft,
+      })
+    );
+
+    await act(async () => {
+      await result.current.handleQueueMessage();
+    });
+
+    expect(onAfterQueueCleanup).not.toHaveBeenCalled();
+    expect(onRestoreFailedQueueDraft).toHaveBeenCalledWith(
+      'edited message before claim',
+      ['vibe://attached-1']
+    );
+    expect(onQueueError).toHaveBeenLastCalledWith(
+      'StateConflict: queued input was already claimed'
+    );
+  });
 });

@@ -249,6 +249,7 @@ impl TurnRouteFilter {
                 | EngineEvent::SubagentSpawned { session_id, .. }
                 | EngineEvent::SubagentUpdated { session_id, .. }
                 | EngineEvent::SubagentCompleted { session_id, .. }
+                | EngineEvent::HookEvent { session_id, .. }
                 | EngineEvent::PromptSteered { session_id, .. }
                 | EngineEvent::AutoCompactionChanged { session_id, .. }
                 | EngineEvent::TurnCompleted { session_id, .. }

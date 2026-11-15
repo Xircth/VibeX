@@ -478,8 +478,8 @@ impl CachedRowProjector {
     }
 
     /// Fold one durable event. `None` means this sequence was already consumed.
-    /// When in-memory deltas have passed the SQLite sequence, the event is
-    /// renumbered so the fold does not drop it.
+    /// Keeps `projector.last_sequence()` aligned with SQLite `record.sequence` so live
+    /// row revisions never drift above materialized SQLite revisions.
     pub fn apply_persisted(
         &mut self,
         record: &ConversationEventRecord,
@@ -500,21 +500,21 @@ impl CachedRowProjector {
         if is_turn_terminal_event_record(record) {
             self.has_unpersisted = false;
         }
+        self.projector.fold.last_sequence = record.sequence;
         let mut folded = record.clone();
-        if folded.sequence <= self.projector.last_sequence() {
-            folded.sequence = self.projector.last_sequence().saturating_add(1);
-        }
+        folded.sequence = record.sequence;
         Ok(Some(self.projector.apply(&folded)?))
     }
 
-    /// Fold one transcript delta. The database cursor stays put.
+    /// Fold one transcript delta without advancing `db_cursor` or inflating live row
+    /// revisions past the current SQLite sequence watermark.
     pub fn apply_unpersisted(
         &mut self,
         record: &ConversationEventRecord,
     ) -> Result<Vec<ConversationRowOp>, sqlx::Error> {
         self.sync_if_rebuilt(record.conversation_id);
         let mut folded = record.clone();
-        folded.sequence = self.projector.last_sequence().saturating_add(1);
+        folded.sequence = self.projector.last_sequence().max(self.db_cursor).max(1);
         self.has_unpersisted = true;
         self.projector.apply(&folded)
     }
@@ -759,7 +759,11 @@ pub(crate) async fn get_or_load_write_projector_on_conn(
                 last_used: std::time::Instant::now(),
             });
         }
+        let mut ordered_turns: Vec<(i64, Uuid)> =
+            turn_ordinals.iter().map(|(&id, &ord)| (ord, id)).collect();
+        ordered_turns.sort_by_key(|(ord, _)| *ord);
         let fold = ProjectionFold {
+            turn_order: ordered_turns.into_iter().map(|(_, id)| id).collect(),
             side_rows: snap_state.side_rows,
             side_row_turns: snap_state.side_row_turns,
             last_sequence: snap_state.last_sequence,

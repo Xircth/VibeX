@@ -67,13 +67,16 @@ fn commit_changes_prompt(changes: &UncommittedChanges) -> String {
 }
 
 pub fn is_complete_ai_reply(stop_reason: Option<&str>) -> bool {
-    normalized_stop_reason(stop_reason).as_deref() == Some("endturn")
+    matches!(
+        normalized_stop_reason(stop_reason).as_deref(),
+        Some("endturn" | "completed")
+    )
 }
 
 pub fn is_cancelled_stop_reason(stop_reason: Option<&str>) -> bool {
     matches!(
         normalized_stop_reason(stop_reason).as_deref(),
-        Some("cancelled" | "canceled")
+        Some("cancelled" | "canceled" | "interrupted")
     )
 }
 

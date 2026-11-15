@@ -728,7 +728,11 @@ export function createConversationApi(transport: BackendTransport) {
         conversationId: string;
         expectedTurnId: string;
         text: string;
+        displayText?: string;
         images?: string[];
+        fileRefs?: ConversationInputPayload['fileRefs'];
+        modeOverride?: ConversationInputPayload['modeOverride'];
+        configOverrides?: ConversationInputPayload['configOverrides'];
         promotedInputId?: string;
         expectedRevision?: number;
         allowInterruptRestart?: boolean;

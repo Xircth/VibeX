@@ -932,6 +932,7 @@ impl ConversationStateApplier {
                 crate::usage_accounting::apply_usage_updated(
                     &mut *conn,
                     record.conversation_id,
+                    record.turn_id,
                     record.sequence,
                     &usage,
                     record.created_at,

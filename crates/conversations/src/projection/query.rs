@@ -150,7 +150,7 @@ impl ProjectionFold {
         } else {
             None
         };
-        let rows = retained.into_iter().map(|(_, row)| row).collect();
+        let rows: Vec<TimelineRow> = retained.into_iter().map(|(_, row)| row).collect();
         let mut timeline = ConversationTimeline {
             conversation_id,
             projection_version: CONVERSATION_PROJECTION_VERSION,
@@ -218,7 +218,7 @@ impl ConversationProjector {
         } else {
             None
         };
-        let rows = retained.into_iter().map(|(_, row)| row).collect();
+        let rows: Vec<TimelineRow> = retained.into_iter().map(|(_, row)| row).collect();
         let effective_last_seq = snapshot.last_sequence.max(snapshot.last_allocated_sequence);
         let mut timeline = ConversationTimeline {
             conversation_id,

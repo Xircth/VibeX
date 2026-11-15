@@ -1356,3 +1356,126 @@ test('effectiveEnv does not inject ANTHROPIC_API_KEY when ANTHROPIC_AUTH_TOKEN i
     await fs.rm(tmpDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
   }
 });
+
+test('multi-step usage separates single-step contextUsed from result isTurnSummary and links task_started/task_notification to parentToolUseId', async () => {
+  const mockSdk = {
+    query() {
+      return (async function* () {
+        yield {
+          type: 'system',
+          subtype: 'init',
+          session_id: 'sess-usage-sub',
+          model: 'claude-sonnet-4-6',
+          tools: ['Agent'],
+        };
+        yield {
+          type: 'assistant',
+          session_id: 'sess-usage-sub',
+          uuid: 'msg-step-1',
+          usage: {
+            input_tokens: 2_000,
+            output_tokens: 300,
+            cache_read_input_tokens: 50_000,
+            cache_creation_input_tokens: 0,
+          },
+          message: {
+            content: [
+              {
+                type: 'tool_use',
+                id: 'toolu_agent_1',
+                name: 'Agent',
+                input: {
+                  subagent_type: 'Explore',
+                  description: 'Check runtime module',
+                },
+              },
+            ],
+          },
+        };
+        yield {
+          type: 'system',
+          subtype: 'task_started',
+          session_id: 'sess-usage-sub',
+          task_id: 'task-bg-99',
+          tool_use_id: 'toolu_agent_1',
+          description: 'Check runtime module',
+        };
+        yield {
+          type: 'system',
+          subtype: 'task_notification',
+          session_id: 'sess-usage-sub',
+          task_id: 'task-bg-99',
+          status: 'completed',
+          summary: 'Runtime checked cleanly',
+        };
+        yield {
+          type: 'stream_event',
+          session_id: 'sess-usage-sub',
+          event: {
+            type: 'message_delta',
+            usage: { output_tokens: 450 },
+          },
+        };
+        yield {
+          type: 'result',
+          subtype: 'success',
+          session_id: 'sess-usage-sub',
+          stop_reason: 'end_turn',
+          usage: {
+            input_tokens: 8_000,
+            output_tokens: 1_500,
+            cache_read_input_tokens: 260_000,
+            cache_creation_input_tokens: 0,
+          },
+          modelUsage: {
+            'claude-sonnet-4-6': { contextWindow: 200_000 },
+          },
+          result: 'Done.',
+        };
+      })();
+    },
+  };
+
+  const harness = createHarness({ sdkLoader: async () => mockSdk });
+  try {
+    await harness.request(1, 'initialize', {});
+    await harness.request(2, 'prompt/send', {
+      promptId: 'prompt-usage-sub',
+      text: 'Audit runtime',
+      waitForCompletion: true,
+    });
+
+    const events = harness.frames
+      .filter((f) => f.method === 'engine/event')
+      .map((f) => f.params);
+
+    const toolCallIdx = events.findIndex(
+      (e) => e.kind === 'tool_call' && e.toolUseId === 'toolu_agent_1'
+    );
+    const spawnIdx = events.findIndex(
+      (e) => e.kind === 'subagent/spawn' && e.parentToolUseId === 'toolu_agent_1'
+    );
+    assert.ok(toolCallIdx >= 0 && spawnIdx > toolCallIdx);
+
+    const completeEvt = events.find(
+      (e) => e.kind === 'subagent/complete' && e.subagentId === 'task-bg-99'
+    );
+    assert.ok(completeEvt);
+    assert.equal(completeEvt.parentToolUseId, 'toolu_agent_1');
+    assert.equal(completeEvt.summary, 'Runtime checked cleanly');
+
+    const usageEvents = events.filter((e) => e.kind === 'usage_updated');
+    assert.equal(usageEvents.length, 3);
+    assert.equal(usageEvents[0].usage.contextUsed, 52_300);
+    assert.equal(usageEvents[0].usage.isTurnSummary, false);
+    assert.equal(usageEvents[1].usage.contextUsed, null);
+    assert.equal(usageEvents[1].usage.outputTokens, 450);
+    assert.equal(usageEvents[1].usage.isTurnSummary, false);
+    assert.equal(usageEvents[2].usage.isTurnSummary, true);
+    assert.equal(usageEvents[2].usage.contextUsed, null);
+    assert.equal(usageEvents[2].usage.cacheReadInputTokens, 260_000);
+  } finally {
+    await harness.close();
+  }
+});
+

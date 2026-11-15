@@ -151,6 +151,11 @@ impl ConversationSessionService {
         let Some(turn_id) = turn_id else {
             return Ok(());
         };
+        crate::runtime_events::flush_conversation_persistence(conversation_id).await;
+        self.ctx
+            .event_publisher
+            .flush_conversation(conversation_id)
+            .await;
         let settled_here = {
             let turn_lock = self.turn_lock(conversation_id).await;
             let _turn_guard = turn_lock.lock().await;

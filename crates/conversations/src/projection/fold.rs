@@ -255,7 +255,19 @@ impl ProjectionFold {
                                 *input_preview = Some(cap_preview_bytes(raw.to_string()));
                             }
                             if let Some(metadata) = tool_call.metadata.clone() {
-                                *meta = Some(cap_json_value(metadata));
+                                let merged = match (meta.take(), metadata) {
+                                    (
+                                        Some(serde_json::Value::Object(mut existing_map)),
+                                        serde_json::Value::Object(incoming_map),
+                                    ) => {
+                                        for (k, v) in incoming_map {
+                                            existing_map.insert(k, v);
+                                        }
+                                        serde_json::Value::Object(existing_map)
+                                    }
+                                    (_, incoming) => incoming,
+                                };
+                                *meta = Some(cap_json_value(merged));
                             }
                             if !tool_call.images.is_empty() {
                                 *images = tool_call.images.iter().take(4).cloned().collect();
@@ -846,17 +858,21 @@ fn insert_mid_turn_user_slice(
 ) {
     if !turn.assistant.blocks.is_empty() {
         let mut closed = turn.assistant.clone();
+        let carry_usage = closed.usage.take();
         closed.completed_at = Some(record.created_at);
         turn.prefix_segments.push(closed);
         turn.prefix_segment_revisions.push(record.sequence);
         let next = turn.prefix_segments.len() + 1;
-        turn.assistant = new_message_turn(
+        let mut next_assistant = new_message_turn(
             format!("{}:assistant:{next}", turn.turn_id),
             TurnRole::Assistant,
             Vec::new(),
             record.created_at,
             None,
         );
+        next_assistant.usage = carry_usage;
+        turn.assistant = next_assistant;
+        turn.usage_announced = false;
         turn.trailing_raw_text.clear();
         turn.emitted_internal_count = 0;
     }

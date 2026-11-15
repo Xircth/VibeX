@@ -50,7 +50,7 @@ pub const COLLABORATION_RECEIPTS_CHANGED_EVENT: &str = "vibex://collaboration-re
 pub const HOST_EVENT_CHANNELS: &[HostEventChannel] = &[
     HostEventChannel {
         prefix: "conversation-events",
-        durability: EventDurability::Invalidation,
+        durability: EventDurability::BestEffort,
         required_scope: "conversation.read",
     },
     HostEventChannel {
@@ -175,7 +175,7 @@ pub const HOST_EVENT_CHANNELS: &[HostEventChannel] = &[
     },
     HostEventChannel {
         prefix: "agent-events",
-        durability: EventDurability::Invalidation,
+        durability: EventDurability::BestEffort,
         required_scope: "application.call",
     },
     HostEventChannel {
@@ -642,6 +642,14 @@ mod tests {
     fn durability_is_classified_from_the_catalog() {
         assert_eq!(
             HostEventBus::durability("conversation-events:abc"),
+            Some(EventDurability::BestEffort)
+        );
+        assert_eq!(
+            HostEventBus::durability("agent-events"),
+            Some(EventDurability::BestEffort)
+        );
+        assert_eq!(
+            HostEventBus::durability("workspace-sessions-changed"),
             Some(EventDurability::Invalidation)
         );
         assert_eq!(
@@ -678,6 +686,11 @@ mod tests {
     fn best_effort_attach_does_not_replay() {
         let bus = HostEventBus::new();
         bus.emit("logs://appended", "one");
+        bus.emit(
+            "conversation-events:00000000-0000-0000-0000-000000000001",
+            serde_json::json!({ "kind": "rowOps", "ops": [{ "op": "append_text" }] }),
+        );
+        bus.emit("agent-events", serde_json::json!({ "type": "delta" }));
         bus.emit("logs://appended", "two");
         let bootstrap = bus
             .attach_bootstrap(remote_protocol::SubscriptionId::new(), "logs://appended", 0)
@@ -686,6 +699,24 @@ mod tests {
         assert!(bootstrap.replay.is_empty());
         assert!(bootstrap.snapshot.is_none());
         assert!(bootstrap.high_water_mark >= 2);
+
+        let conv_bootstrap = bus
+            .attach_bootstrap(
+                remote_protocol::SubscriptionId::new(),
+                "conversation-events:00000000-0000-0000-0000-000000000001",
+                0,
+            )
+            .expect("attach conversation-events");
+        assert_eq!(conv_bootstrap.durability, EventDurability::BestEffort);
+        assert!(conv_bootstrap.replay.is_empty());
+        assert!(conv_bootstrap.snapshot.is_none());
+
+        let agent_bootstrap = bus
+            .attach_bootstrap(remote_protocol::SubscriptionId::new(), "agent-events", 0)
+            .expect("attach agent-events");
+        assert_eq!(agent_bootstrap.durability, EventDurability::BestEffort);
+        assert!(agent_bootstrap.replay.is_empty());
+        assert!(agent_bootstrap.snapshot.is_none());
     }
 
     #[test]

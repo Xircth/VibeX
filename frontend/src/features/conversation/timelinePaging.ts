@@ -76,3 +76,16 @@ export function mergeOpenTimelineRows(
     ...newer,
   ];
 }
+
+export function computeAnchoredTimelineStartIndex(input: {
+  totalItems: number;
+  visibleTailCount: number;
+  followTail: boolean;
+  anchoredStartIndex: number | null;
+}): number {
+  const unanchored = Math.max(0, input.totalItems - input.visibleTailCount);
+  if (input.followTail || input.anchoredStartIndex === null) {
+    return unanchored;
+  }
+  return Math.min(unanchored, Math.max(0, input.anchoredStartIndex));
+}

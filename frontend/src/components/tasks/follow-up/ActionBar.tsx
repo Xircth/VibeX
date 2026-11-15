@@ -65,8 +65,10 @@ interface ActionBarProps {
   hasDraft?: boolean;
   getDraftValue?: () => string;
   attachmentCount?: number;
+  attachmentPaths?: string[];
+  getAttachmentPaths?: () => string[];
   onStashDraft?: () => void;
-  onRestoreDraft?: (text: string) => void;
+  onRestoreDraft?: (text: string, images?: string[]) => void;
 }
 
 export const ActionBar = memo(function ActionBar({
@@ -110,6 +112,8 @@ export const ActionBar = memo(function ActionBar({
   hasDraft,
   getDraftValue,
   attachmentCount = 0,
+  attachmentPaths,
+  getAttachmentPaths,
   onStashDraft,
   onRestoreDraft,
 }: ActionBarProps) {
@@ -189,6 +193,8 @@ export const ActionBar = memo(function ActionBar({
           hasDraft={hasDraft}
           getDraftValue={getDraftValue}
           attachmentCount={attachmentCount}
+          attachmentPaths={attachmentPaths}
+          getAttachmentPaths={getAttachmentPaths}
           isEditable={isEditable}
           onStashDraft={onStashDraft}
           onRestoreDraft={onRestoreDraft}

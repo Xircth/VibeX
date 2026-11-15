@@ -111,3 +111,48 @@ describe('mergeOpenTimelineRows', () => {
     ]);
   });
 });
+
+describe('computeAnchoredTimelineStartIndex', () => {
+  it('freezes the top visible start index while scrolled away from bottom and snaps back when following tail', async () => {
+    const { computeAnchoredTimelineStartIndex } = await import(
+      './timelinePaging'
+    );
+
+    // Following tail: 40 total items, tail window 24 -> start index 16
+    const initial = computeAnchoredTimelineStartIndex({
+      totalItems: 40,
+      visibleTailCount: 24,
+      followTail: true,
+      anchoredStartIndex: null,
+    });
+    expect(initial).toBe(16);
+
+    // User scrolls up (!followTail) while 5 new streaming rows arrive at bottom -> stays anchored at 16!
+    const whileReadingHistory = computeAnchoredTimelineStartIndex({
+      totalItems: 45,
+      visibleTailCount: 24,
+      followTail: false,
+      anchoredStartIndex: initial,
+    });
+    expect(whileReadingHistory).toBe(16);
+
+    // User clicks/triggers loadEarlierTimeline (visibleTailCount grows to 48) -> ratchets downward to 0
+    const afterRevealEarlier = computeAnchoredTimelineStartIndex({
+      totalItems: 45,
+      visibleTailCount: 48,
+      followTail: false,
+      anchoredStartIndex: whileReadingHistory,
+    });
+    expect(afterRevealEarlier).toBe(0);
+
+    // User returns to bottom (followTail = true) with 60 items and tail count 24 -> snaps back to 36
+    expect(
+      computeAnchoredTimelineStartIndex({
+        totalItems: 60,
+        visibleTailCount: 24,
+        followTail: true,
+        anchoredStartIndex: 16,
+      })
+    ).toBe(36);
+  });
+});

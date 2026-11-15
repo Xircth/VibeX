@@ -246,6 +246,51 @@ describe('executeComposerSteer', () => {
     });
   });
 
+  it('forwards displayText, fileRefs, modeOverride, and configOverrides when steering a queued message', async () => {
+    const receipt = {
+      status: 'accepted',
+      deliveryMode: 'native',
+    } as unknown as ConversationSteeringReceipt;
+    const steer = vi.fn().mockResolvedValue(receipt);
+
+    await executeComposerSteer({
+      sessionId: 'conv-1',
+      previousDraft: '[@:App.tsx](src/App.tsx) focus here',
+      followUp: {
+        message: 'src/App.tsx focus here',
+        displayText: '[@:App.tsx](src/App.tsx) focus here',
+        images: [],
+        pluginActions: [],
+        fileRefs: [{ path: 'src/App.tsx' }],
+        modeOverride: 'plan',
+        configOverrides: [{ key: 'effort', value: 'high' }],
+      },
+      steeringTarget: { turnId: 'turn-1', mode: 'native' },
+      promotedInputId: 'input-9',
+      expectedRevision: 2,
+      steer,
+      submitFeedback: vi.fn(),
+      onAfterSuccess: vi.fn(),
+      onRestoreDraft: vi.fn(),
+      onError: vi.fn(),
+      onToastError: vi.fn(),
+      messages: MESSAGES,
+    });
+
+    expect(steer).toHaveBeenCalledWith({
+      conversationId: 'conv-1',
+      expectedTurnId: 'turn-1',
+      text: 'src/App.tsx focus here',
+      displayText: '[@:App.tsx](src/App.tsx) focus here',
+      images: [],
+      fileRefs: [{ path: 'src/App.tsx' }],
+      modeOverride: 'plan',
+      configOverrides: [{ key: 'effort', value: 'high' }],
+      promotedInputId: 'input-9',
+      expectedRevision: 2,
+    });
+  });
+
   it('falls back to non-atomic consumption when legacy backend receipt omits deliveryMode', async () => {
     const legacyReceipt = {
       status: 'accepted',

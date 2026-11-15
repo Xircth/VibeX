@@ -1159,6 +1159,7 @@ impl ServerApplicationDomains {
         )
         .await
         .map_err(internal_error)?;
+        let has_prepared_session = prepared_identity.is_some();
         if let Some((agent_id, prepared)) = prepared_identity {
             Session::update_agent_metadata(
                 &self.pool,
@@ -1171,6 +1172,50 @@ impl ServerApplicationDomains {
             session.external_session_id = Some(prepared.acp_session_id);
             session.agent_id = Some(agent_id);
         }
+        let overrides = creation_config_overrides(payload.config_overrides.as_ref());
+        if has_prepared_session {
+            let runtime_session_id = AgentSessionId(session_id);
+            if let Some(mode) = payload
+                .mode_override
+                .as_deref()
+                .map(str::trim)
+                .filter(|mode| !mode.is_empty())
+                && let Err(error) = self
+                    .conversations
+                    .agent_runtime
+                    .set_session_mode(runtime_session_id, mode.to_string())
+                    .await
+            {
+                tracing::warn!(
+                    session_id = %session.id,
+                    %mode,
+                    %error,
+                    "creation mode_override was rejected by prepared session"
+                );
+            }
+            for item in &overrides {
+                if item.key.trim().is_empty() || item.value.trim().is_empty() {
+                    continue;
+                }
+                if let Err(error) = self
+                    .conversations
+                    .agent_runtime
+                    .set_session_config_option(
+                        runtime_session_id,
+                        item.key.clone(),
+                        Value::String(item.value.clone()),
+                    )
+                    .await
+                {
+                    tracing::warn!(
+                        session_id = %session.id,
+                        option_id = %item.key,
+                        %error,
+                        "creation config_override was rejected by prepared session"
+                    );
+                }
+            }
+        }
         // The binding has to exist before this returns. The UI establishes the
         // ACP session as soon as the new conversation is shown, and that path
         // replays the binding rather than the agent's last-used Default.
@@ -1178,7 +1223,7 @@ impl ServerApplicationDomains {
             &self.pool,
             session.id,
             payload.mode_override.as_deref(),
-            creation_config_overrides(payload.config_overrides.as_ref()),
+            overrides,
         )
         .await;
         self.conversations

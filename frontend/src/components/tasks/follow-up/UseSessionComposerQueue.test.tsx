@@ -102,11 +102,12 @@ describe('useSessionComposerQueue', () => {
     }));
   });
 
-  it('hydrates waiting queued inputs and ignores claimed dispatch', async () => {
+  it('hydrates waiting queued and claimed inputs while ignoring terminal inputs', async () => {
     api.listInputs.mockResolvedValue([
       input('input-1', 1024n),
       input('input-2', 2048n, 'claimed'),
-      input('input-3', 3072n, 'cancelled'),
+      input('input-3', 3072n, 'dispatched'),
+      input('input-4', 4096n, 'cancelled'),
     ]);
     const { result } = renderHook(
       () =>
@@ -118,9 +119,10 @@ describe('useSessionComposerQueue', () => {
       { wrapper: wrapperFor(client()) }
     );
 
-    await waitFor(() => expect(result.current.queuedMessages).toHaveLength(1));
+    await waitFor(() => expect(result.current.queuedMessages).toHaveLength(2));
     expect(result.current.queuedMessages.map((message) => message.id)).toEqual([
       'input-1',
+      'input-2',
     ]);
     expect(api.listInputs).toHaveBeenCalledWith('session-1');
   });

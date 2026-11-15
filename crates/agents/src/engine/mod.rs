@@ -794,7 +794,11 @@ pub enum EngineEvent {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         cost_usd: Option<f64>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
+        context_used: Option<u64>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
         context_window: Option<u64>,
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        is_turn_summary: bool,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         model: Option<String>,
     },
@@ -810,12 +814,16 @@ pub enum EngineEvent {
         prompt_id: Option<String>,
         session_id: Option<String>,
         subagent_id: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        parent_tool_use_id: Option<String>,
         text_delta: String,
     },
     SubagentCompleted {
         prompt_id: Option<String>,
         session_id: Option<String>,
         subagent_id: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        parent_tool_use_id: Option<String>,
         status: String,
         summary: Option<String>,
     },

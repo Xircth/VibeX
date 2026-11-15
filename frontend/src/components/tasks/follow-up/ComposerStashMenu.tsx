@@ -33,9 +33,11 @@ export interface ComposerStashMenuProps {
   hasDraft?: boolean;
   getDraftValue?: () => string;
   attachmentCount?: number;
+  attachmentPaths?: string[];
+  getAttachmentPaths?: () => string[];
   isEditable?: boolean;
   onStashDraft: () => void;
-  onRestoreDraft: (text: string) => void;
+  onRestoreDraft: (text: string, images?: string[]) => void;
 }
 
 export const ComposerStashMenu = memo(function ComposerStashMenu({
@@ -44,6 +46,8 @@ export const ComposerStashMenu = memo(function ComposerStashMenu({
   hasDraft,
   getDraftValue,
   attachmentCount = 0,
+  attachmentPaths,
+  getAttachmentPaths,
   isEditable = true,
   onStashDraft,
   onRestoreDraft,
@@ -83,19 +87,44 @@ export const ComposerStashMenu = memo(function ComposerStashMenu({
     [draftValue, getDraftValue]
   );
 
+  const resolveAttachmentPaths = useCallback(
+    () =>
+      getAttachmentPaths
+        ? getAttachmentPaths()
+        : attachmentPaths
+          ? [...attachmentPaths]
+          : undefined,
+    [attachmentPaths, getAttachmentPaths]
+  );
+
+  const effectiveAttachmentCount =
+    attachmentPaths !== undefined ? attachmentPaths.length : attachmentCount;
+
   const canStash =
-    isEditable && (hasDraft ?? (draftValue?.trim().length ?? 0) > 0);
+    isEditable &&
+    ((hasDraft ?? (draftValue?.trim().length ?? 0) > 0) ||
+      effectiveAttachmentCount > 0);
 
   const handleStashCurrent = useCallback(() => {
     const currentDraft = resolveDraftValue();
-    if (!isEditable || !currentDraft.trim()) return;
+    const currentImages = resolveAttachmentPaths();
+    const count = currentImages ? currentImages.length : attachmentCount;
+    if (!isEditable || (!currentDraft.trim() && count === 0)) return;
     const next = pushComposerDraftStash(scopeId, {
       text: currentDraft,
-      attachmentCount,
+      attachmentCount: count,
+      images: currentImages,
     });
     setItems(next);
     onStashDraft();
-  }, [attachmentCount, isEditable, onStashDraft, resolveDraftValue, scopeId]);
+  }, [
+    attachmentCount,
+    isEditable,
+    onStashDraft,
+    resolveAttachmentPaths,
+    resolveDraftValue,
+    scopeId,
+  ]);
 
   const handleRestoreItem = useCallback(
     (id?: string) => {
@@ -104,20 +133,43 @@ export const ComposerStashMenu = memo(function ComposerStashMenu({
       if (!popped) return;
 
       const currentDraft = resolveDraftValue();
+      const currentImages = resolveAttachmentPaths();
+      const currentCount = currentImages
+        ? currentImages.length
+        : attachmentCount;
+      const hasCurrentContent =
+        Boolean(currentDraft.trim()) ||
+        Boolean(currentImages && currentImages.length > 0);
+      const poppedImages = popped.images ?? [];
+      const sameImages =
+        (currentImages?.length ?? 0) === poppedImages.length &&
+        (currentImages ?? []).every((img, idx) => img === poppedImages[idx]);
       let nextItems = remaining;
-      if (currentDraft.trim() && currentDraft !== popped.text) {
+      if (hasCurrentContent && (currentDraft !== popped.text || !sameImages)) {
         nextItems = pushComposerDraftStash(scopeId, {
           text: currentDraft,
-          attachmentCount,
+          attachmentCount: currentCount,
+          images: currentImages,
         });
       }
       setItems(nextItems);
-      onRestoreDraft(popped.text);
+      if (popped.images !== undefined) {
+        onRestoreDraft(popped.text, popped.images);
+      } else {
+        onRestoreDraft(popped.text);
+      }
       if (nextItems.length === 0) {
         setOpen(false);
       }
     },
-    [attachmentCount, isEditable, onRestoreDraft, resolveDraftValue, scopeId]
+    [
+      attachmentCount,
+      isEditable,
+      onRestoreDraft,
+      resolveAttachmentPaths,
+      resolveDraftValue,
+      scopeId,
+    ]
   );
 
   useEffect(() => {
@@ -132,7 +184,11 @@ export const ComposerStashMenu = memo(function ComposerStashMenu({
       ) {
         return;
       }
-      if (resolveDraftValue().trim()) {
+      const currentImages = resolveAttachmentPaths();
+      const hasActiveAttachments = currentImages
+        ? currentImages.length > 0
+        : effectiveAttachmentCount > 0;
+      if (resolveDraftValue().trim() || hasActiveAttachments) {
         event.preventDefault();
         handleStashCurrent();
       } else if (loadComposerDraftStash(scopeId).length > 0) {
@@ -143,9 +199,11 @@ export const ComposerStashMenu = memo(function ComposerStashMenu({
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [
+    effectiveAttachmentCount,
     handleRestoreItem,
     handleStashCurrent,
     isEditable,
+    resolveAttachmentPaths,
     resolveDraftValue,
     scopeId,
   ]);
@@ -246,7 +304,10 @@ export const ComposerStashMenu = memo(function ComposerStashMenu({
           role="list"
         >
           {items.map((item, index) => {
-            const preview = formatComposerStashPreview(item.text, 50);
+            const preview =
+              formatComposerStashPreview(item.text, 50) ||
+              item.images?.[0]?.split(/[\\/]/).pop() ||
+              t('composerStash.stashDraft');
             const relTime = formatComposerStashRelativeTime(
               item.createdAt,
               now,

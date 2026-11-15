@@ -14,7 +14,8 @@ import { conversationApi } from '@/features/conversation/conversationApi';
 export function useAttemptExecution(
   attemptId?: string,
   taskId?: string,
-  sessionId?: string | null
+  sessionId?: string | null,
+  isConversationTurnInFlight = false
 ) {
   const { isStopping, setIsStopping } = useTaskStopping(taskId || '');
   const { markStopToastSuppressed, clearStopToastSuppression } =
@@ -109,24 +110,21 @@ export function useAttemptExecution(
     setIsStopping(false);
   }, [setIsStopping]);
 
+  const isAttemptRunning =
+    isExecutionProcessRunning ||
+    isAgentPromptRunning ||
+    Boolean(isConversationTurnInFlight);
+
   useEffect(() => {
-    const isAttemptRunning = isExecutionProcessRunning || isAgentPromptRunning;
     if (isStopping && !isAttemptRunning) {
       setIsStopping(false);
     }
-  }, [
-    isAgentPromptRunning,
-    isExecutionProcessRunning,
-    isStopping,
-    setIsStopping,
-  ]);
+  }, [isAttemptRunning, isStopping, setIsStopping]);
 
   const isLoading =
     streamLoading || processDetailQueries.some((q) => q.isLoading);
   const isFetching =
     streamLoading || processDetailQueries.some((q) => q.isFetching);
-
-  const isAttemptRunning = isExecutionProcessRunning || isAgentPromptRunning;
 
   return {
     // Data

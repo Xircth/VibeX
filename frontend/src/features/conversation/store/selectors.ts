@@ -1,36 +1,70 @@
 import type { TimelineRow } from 'shared/types';
+import { plausibleTurnStartMs } from '@/components/conversation-thread/turnClock';
 import {
   alignStreamingAssistantWithUserPhase,
   dedupeTurns,
   isLiveProjectorRowId,
   liveOverlayForRow,
   mergeOptimisticUsersBeforeOrphanAssistants,
+  messageTurnPairKey,
   orderSameTurnUserBeforeAssistant,
   overlayLiveText,
   toBigInt,
   withPendingAssistantTurns,
 } from './queue';
 import { defaultInlineSideRow, sideRowsForEntry } from './permissions';
-import type {
-  ConversationStoreEntry,
-  ConversationStoreState,
-  ConversationTimelineItem,
-  ConversationTimelineTurn,
+import {
+  selectActiveTurnStartedAt,
+  type ConversationStoreEntry,
+  type ConversationStoreState,
+  type ConversationTimelineItem,
+  type ConversationTimelineTurn,
 } from './turnLifecycle';
 
 export function timelineTurnsForEntry(
   entry: ConversationStoreEntry | null
 ): ConversationTimelineTurn[] {
   if (!entry) return [];
+  const activeTurnId =
+    entry.detail?.current_turn?.id ??
+    entry.detail?.in_flight_user_turn_id ??
+    entry.currentTurnId;
+  const activeStartedAt = selectActiveTurnStartedAt(entry);
+  const activeStartedMs = activeStartedAt
+    ? plausibleTurnStartMs(activeStartedAt)
+    : null;
+  const hasActiveUserRow = activeTurnId
+    ? entry.rows.some(
+        (row) =>
+          row.row.kind === 'message_turn' &&
+          row.row.turn.role === 'user' &&
+          (row.row_id === `${activeTurnId}:user` ||
+            row.row.turn.id === `${activeTurnId}:user`)
+      )
+    : false;
   const persisted = entry.rows.flatMap((row) => {
     if (row.row.kind !== 'message_turn') return [];
     const overlay = liveOverlayForRow(row, entry.liveText);
-    const turn = overlay
+    let turn = overlay
       ? {
           ...row.row.turn,
           blocks: overlayLiveText(row.row.turn.blocks, overlay),
         }
       : row.row.turn;
+    if (
+      row.row.phase === 'streaming' &&
+      turn.role === 'assistant' &&
+      activeTurnId &&
+      !hasActiveUserRow &&
+      activeStartedAt &&
+      activeStartedMs !== null &&
+      messageTurnPairKey(row.row_id) === activeTurnId
+    ) {
+      const existingMs = plausibleTurnStartMs(turn.timestamp);
+      if (existingMs === null || activeStartedMs < existingMs) {
+        turn = { ...turn, timestamp: activeStartedAt };
+      }
+    }
     return [
       {
         key: `conversation-${row.row_id}`,
@@ -49,7 +83,7 @@ export function timelineTurnsForEntry(
     ];
   });
   const maxRowRevision = entry.rows.reduce((max, row) => {
-    if (!isLiveProjectorRowId(row.row_id)) return max;
+    if (!isLiveProjectorRowId(row.row_id, entry.conversationId)) return max;
     const revision = toBigInt(row.revision);
     return revision > max ? revision : max;
   }, entry.lastSequence);
@@ -67,7 +101,11 @@ export function timelineTurnsForEntry(
           dedupeTurns(persisted),
           optimistic
         )
-      )
+      ),
+      {
+        activeTurnId: activeTurnId ?? null,
+        activeStartedAt,
+      }
     )
   );
 }
@@ -117,7 +155,7 @@ export function timelineItemsForEntry(
 
   for (const message of messages) {
     const isEpochMillisMessage =
-      !isLiveProjectorRowId(message.item.turn.id) &&
+      !isLiveProjectorRowId(message.item.turn.id, entry?.conversationId) &&
       message.revision >= EPOCH_MILLIS_REVISION_FLOOR &&
       maxSideRevision < EPOCH_MILLIS_REVISION_FLOOR;
     const isOptimisticOrZeroTrailing =

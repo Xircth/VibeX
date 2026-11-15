@@ -1,4 +1,7 @@
-import type { ConversationSteeringReceipt } from 'shared/types';
+import type {
+  ConversationInputPayload,
+  ConversationSteeringReceipt,
+} from 'shared/types';
 import type { SessionComposerPluginActionInvocation } from './sessionComposerStructuredTokens';
 
 export type ComposerSteeringMode = 'native' | 'interrupt_restart';
@@ -42,8 +45,12 @@ export function getQueueSteerChannel(args: {
 
 export type ComposerSteerFollowUp = {
   message: string;
+  displayText?: string;
   images: string[];
   pluginActions: SessionComposerPluginActionInvocation[];
+  fileRefs?: ConversationInputPayload['fileRefs'];
+  modeOverride?: ConversationInputPayload['modeOverride'];
+  configOverrides?: ConversationInputPayload['configOverrides'];
 };
 
 export function resolveQueuePromoteSteeringTarget(args: {
@@ -109,7 +116,11 @@ export type ExecuteComposerSteerArgs = {
     conversationId: string;
     expectedTurnId: string;
     text: string;
+    displayText?: string;
     images: string[];
+    fileRefs?: ConversationInputPayload['fileRefs'];
+    modeOverride?: ConversationInputPayload['modeOverride'];
+    configOverrides?: ConversationInputPayload['configOverrides'];
     promotedInputId?: string;
     expectedRevision?: number;
     allowInterruptRestart?: boolean;
@@ -168,7 +179,19 @@ export async function executeComposerSteer({
         conversationId: sessionId,
         expectedTurnId: steeringTarget.turnId,
         text: followUp.message,
+        ...(followUp.displayText !== undefined
+          ? { displayText: followUp.displayText }
+          : {}),
         images: followUp.images,
+        ...(followUp.fileRefs && followUp.fileRefs.length > 0
+          ? { fileRefs: followUp.fileRefs }
+          : {}),
+        ...(followUp.modeOverride != null
+          ? { modeOverride: followUp.modeOverride }
+          : {}),
+        ...(followUp.configOverrides && followUp.configOverrides.length > 0
+          ? { configOverrides: followUp.configOverrides }
+          : {}),
         ...(promotedInputId ? { promotedInputId } : {}),
         ...(expectedRevision !== undefined ? { expectedRevision } : {}),
         ...(effectiveAllowInterruptRestart !== undefined

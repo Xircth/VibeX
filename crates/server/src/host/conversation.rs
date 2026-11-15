@@ -897,14 +897,6 @@ pub async fn load_conversation_detail(
         return Ok(None);
     };
     let _ = ensure_legacy_jsonl_migrated_on_pool(pool, id).await;
-    let open = ConversationProjector::project_open(pool, id, row_limit)
-        .await
-        .map_err(internal_error)?;
-    let usage_snapshot = ConversationUsageSnapshotRecord::find(pool, id)
-        .await
-        .map_err(internal_error)?;
-    let session_stats =
-        session_stats_with_usage_snapshot(open.session_stats, usage_snapshot.as_ref());
     let current_turn = current_turn_for_conversation(pool, id).await?;
     let in_flight_user_turn_id = current_turn.as_ref().and_then(|turn| {
         matches!(
@@ -913,6 +905,17 @@ pub async fn load_conversation_detail(
         )
         .then(|| turn.id.to_string())
     });
+    if in_flight_user_turn_id.is_some() {
+        conversations::runtime_events::flush_conversation_persistence(id).await;
+    }
+    let open = ConversationProjector::project_open(pool, id, row_limit)
+        .await
+        .map_err(internal_error)?;
+    let usage_snapshot = ConversationUsageSnapshotRecord::find(pool, id)
+        .await
+        .map_err(internal_error)?;
+    let session_stats =
+        session_stats_with_usage_snapshot(open.session_stats, usage_snapshot.as_ref());
     let active_binding = active_binding_for_conversation(pool, id).await?;
     let persona = conversations::collaboration::conversation_persona(pool, id)
         .await

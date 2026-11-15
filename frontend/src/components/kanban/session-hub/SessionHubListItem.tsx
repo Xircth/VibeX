@@ -37,6 +37,7 @@ import {
   SessionCardHoverCard,
   useSessionCardHoverDetails,
 } from './SessionCardHoverInfo';
+import { IssuePulseDispatchPopover } from '../IssuePulseDispatchPopover';
 import { buildSessionCardMenuItems } from './sessionCardMenu';
 import {
   INFO_TEXT_CLASS,
@@ -103,18 +104,17 @@ export function SessionHubListItem({
   const [isForking, setIsForking] = useState(false);
   const [draftName, setDraftName] = useState(session.fullName);
   const [isHovered, setIsHovered] = useState(false);
+  const [isPulsePopoverOpen, setIsPulsePopoverOpen] = useState(false);
   const [contextMenu, setContextMenu] = useState<{
     x: number;
     y: number;
   } | null>(null);
   const attention = sessionAttentionKind(session);
-  const showCanvasActions =
-    isCanvasMode &&
-    !isEditing &&
-    (Boolean(onArchiveSession) || showRenameControls);
+  const showCanvasActions = isCanvasMode && !isEditing;
   const showDefaultHoverActions =
     !isCanvasMode && !isKanbanBoardMode && !isDeleteMode && !isEditing;
-  const isHoverActionsVisible = isHovered || Boolean(contextMenu);
+  const isHoverActionsVisible =
+    isHovered || Boolean(contextMenu) || isPulsePopoverOpen;
   const showListAgent =
     !isCanvasMode && !isKanbanBoardMode && !isHoverActionsVisible && !isEditing;
   const agentBadge = (
@@ -273,8 +273,24 @@ export function SessionHubListItem({
       : undefined,
   });
 
+  const pulseDispatchAction = !onRestoreFromArchive ? (
+    <IssuePulseDispatchPopover
+      compactIconOnly
+      triggerClassName="session-hub-card-action"
+      triggerTestId={`session-card-pulse-dispatch-${session.id}`}
+      workspaceId={session.workspace.id}
+      sessionId={session.id}
+      sessionTitle={session.fullName}
+      branchName={session.branch}
+      agentId={agentKey}
+      onOpenChange={setIsPulsePopoverOpen}
+    />
+  ) : null;
+
   const canvasActionButtons = showCanvasActions ? (
     <div className="nodrag z-[1] flex shrink-0 items-center gap-0.5">
+      {pulseDispatchAction}
+
       {onArchiveSession ? (
         <Tooltip>
           <TooltipTrigger asChild>
@@ -326,6 +342,8 @@ export function SessionHubListItem({
           : 'pointer-events-none opacity-0 group-hover/session-card:pointer-events-auto group-hover/session-card:opacity-100'
       )}
     >
+      {pulseDispatchAction}
+
       <button
         type="button"
         aria-label={t('hubListItem.moreActions')}

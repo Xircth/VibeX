@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
+import { useOptionalWorktree } from '@/contexts/WorktreeContext';
 import { cn } from '@/lib/utils';
 
 import { collaborationCall } from './collaborationApi';
@@ -42,20 +43,24 @@ function configField(
 export function AssistantDetailsCustomizeTab({
   memberId,
   conversationId,
+  workspaceId: propWorkspaceId,
   initialName,
   initialAvatar,
   onSaved,
 }: {
   memberId: string;
   conversationId?: string | null;
+  workspaceId?: string | null;
   initialName: string;
   initialAvatar: MemberBotAvatarConfig;
   onSaved?: (next: { name: string; avatar: MemberBotAvatarConfig }) => void;
 }) {
+  const worktree = useOptionalWorktree();
   const [name, setName] = useState(initialName);
   const [avatar, setAvatar] = useState(initialAvatar);
   const [agentId, setAgentId] = useState('');
   const [modeId, setModeId] = useState('');
+  const [memberWorkspaceId, setMemberWorkspaceId] = useState('');
   const [configValues, setConfigValues] = useState<Record<string, string>>({});
   const [personaPrompt, setPersonaPrompt] = useState('');
   const [loading, setLoading] = useState(true);
@@ -84,6 +89,9 @@ export function AssistantDetailsCustomizeTab({
         const config = page.config ?? null;
         setAgentId(configField(config, 'agent_id', 'agentId'));
         setModeId(configField(config, 'mode_id', 'modeId'));
+        setMemberWorkspaceId(
+          configField(config, 'workspace_id', 'workspaceId')
+        );
         setConfigValues(
           stringRecord(config?.config_values ?? config?.configValues)
         );
@@ -136,6 +144,8 @@ export function AssistantDetailsCustomizeTab({
   };
 
   const agentName = agentId ? getAgentName(agentId) : '';
+  const effectiveWorkspaceId =
+    propWorkspaceId ?? worktree?.activeWorktreeId ?? (memberWorkspaceId || null);
   const [activeSection, setActiveSection] = useState<
     'customize' | 'automations'
   >('customize');
@@ -183,6 +193,7 @@ export function AssistantDetailsCustomizeTab({
         <BotAutomationsPanel
           memberId={memberId}
           botName={name.trim() || initialName}
+          workspaceId={effectiveWorkspaceId}
         />
       ) : (
         <form

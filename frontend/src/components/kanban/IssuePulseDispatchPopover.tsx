@@ -7,6 +7,7 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from '@/components/ui/popover';
+import { sessionsApi } from '@/lib/api/sessions';
 import {
   pulseApi,
   type EventEnvelope,
@@ -18,6 +19,12 @@ import {
 import { evaluatePulseRuleLocally } from '@/lib/pulseFilterEvaluator';
 import { cn } from '@/lib/utils';
 
+export interface CreatePulseTicketSessionParams {
+  prompt: string;
+  threadKey: string | null;
+  agentId: string;
+}
+
 export interface IssuePulseDispatchPopoverProps {
   projectId?: string | null;
   workspaceId?: string | null;
@@ -26,10 +33,26 @@ export interface IssuePulseDispatchPopoverProps {
   branchName?: string | null;
   agentId?: string | null;
   compactIconOnly?: boolean;
+  triggerClassName?: string;
+  triggerTestId?: string;
   isPulseDeckOpen?: boolean;
+  onOpenChange?: (open: boolean) => void;
+  onCreateTicketSession?: (
+    params: CreatePulseTicketSessionParams
+  ) => Promise<string | null>;
   onCreateFreshSession?: () => void;
   onOpenPulseDeck?: () => void;
   onDispatched?: () => void;
+}
+
+export function normalizePulseAgentId(raw?: string | null): string {
+  const trimmed = raw?.trim();
+  if (!trimmed) return 'claude-code';
+  return trimmed.toLowerCase().replace(/_/g, '-');
+}
+
+function toBackendExecutorName(agentId: string): string {
+  return agentId.trim().toUpperCase().replace(/-/g, '_') || 'CLAUDE_CODE';
 }
 
 type DispatchTab = 'one_shot' | 'automate_similar';
@@ -148,19 +171,29 @@ export function IssuePulseDispatchPopover({
   branchName = null,
   agentId = null,
   compactIconOnly = false,
+  triggerClassName,
+  triggerTestId = 'issue-pulse-dispatch-trigger',
   isPulseDeckOpen = false,
+  onOpenChange,
+  onCreateTicketSession,
   onCreateFreshSession,
   onOpenPulseDeck,
   onDispatched,
 }: IssuePulseDispatchPopoverProps) {
   const [open, setOpen] = useState(false);
+  const handlePopoverOpenChange = (nextOpen: boolean) => {
+    setOpen(nextOpen);
+    onOpenChange?.(nextOpen);
+  };
   const [tab, setTab] = useState<DispatchTab>('one_shot');
   const [targetKind, setTargetKind] = useState<DispatchTargetKind>('session');
   const [botMemberId, setBotMemberId] = useState('triage-bot');
   const [ticketPrompt, setTicketPrompt] = useState(
     () =>
       sessionTitle?.trim() ||
-      (branchName ? `Investigate and resolve ${branchName}` : 'Investigate incoming issue')
+      (branchName
+        ? `Investigate and resolve ${branchName}`
+        : 'Investigate incoming issue')
   );
   const [externalThreadKey, setExternalThreadKey] = useState(() =>
     branchName ? `github:${branchName}` : 'jira:PROJ-101'
@@ -185,9 +218,9 @@ export function IssuePulseDispatchPopover({
 
   const selectedSourceMeta =
     ISSUE_SOURCES.find((item) => item.kind === sourceKind) ?? ISSUE_SOURCES[0]!;
+  const resolvedAgent = normalizePulseAgentId(agentId);
 
   const candidateSpec = useMemo<PulseRuleSpec>(() => {
-    const resolvedAgent = agentId?.trim() || 'CLAUDE_CODE';
     const target: PulseTargetSpec =
       targetKind === 'session'
         ? {
@@ -198,7 +231,8 @@ export function IssuePulseDispatchPopover({
             projectId,
             subscribeThread,
             promptTemplate:
-              ticketPrompt.trim() || 'Triage issue {{threadKey}}: {{payload.title}}',
+              ticketPrompt.trim() ||
+              'Triage issue {{threadKey}}: {{payload.title}}',
           }
         : {
             kind: 'bot',
@@ -207,7 +241,8 @@ export function IssuePulseDispatchPopover({
             mailboxPolicy: 'fifo_serial',
             subscribeThread,
             promptTemplate:
-              ticketPrompt.trim() || 'Triage issue {{threadKey}}: {{payload.title}}',
+              ticketPrompt.trim() ||
+              'Triage issue {{threadKey}}: {{payload.title}}',
           };
 
     return {
@@ -239,13 +274,13 @@ export function IssuePulseDispatchPopover({
       targets: [target],
     };
   }, [
-    agentId,
     botMemberId,
     branchName,
     evalMode,
     filterPointer,
     filterValue,
     projectId,
+    resolvedAgent,
     ruleName,
     selectedSourceMeta.defaultEventType,
     sourceKind,
@@ -283,15 +318,71 @@ export function IssuePulseDispatchPopover({
   };
 
   const handleDispatchOneShot = async () => {
+    const trimmedPrompt = ticketPrompt.trim();
+    if (!trimmedPrompt) return;
+
     setSubmitting(true);
     setFeedback(null);
     setErrorMessage(null);
     try {
       const normalizedThread = externalThreadKey.trim();
-      const subscriberId =
-        targetKind === 'bot'
-          ? botMemberId.trim() || 'triage-bot'
-          : sessionId ?? workspaceId ?? projectId ?? 'fresh-session';
+      let resolvedSessionId: string | null = sessionId?.trim() || null;
+
+      if (targetKind === 'session') {
+        if (onCreateTicketSession) {
+          const createdId = await onCreateTicketSession({
+            prompt: trimmedPrompt,
+            threadKey: normalizedThread || null,
+            agentId: resolvedAgent,
+          });
+          if (createdId?.trim()) {
+            resolvedSessionId = createdId.trim();
+          }
+        } else if (!resolvedSessionId) {
+          const sessionName =
+            sessionTitle?.trim() || trimmedPrompt.slice(0, 60);
+          if (projectId) {
+            const created = await sessionsApi.createProject({
+              project_id: projectId,
+              workspace_id: workspaceId ?? null,
+              executor: toBackendExecutorName(resolvedAgent),
+              name: sessionName,
+              initial_prompt: trimmedPrompt,
+              create_workspace: !workspaceId,
+            });
+            resolvedSessionId = created?.id?.trim() || null;
+          } else if (workspaceId) {
+            const created = await sessionsApi.create({
+              workspace_id: workspaceId,
+              executor: toBackendExecutorName(resolvedAgent),
+              name: sessionName,
+              initial_prompt: trimmedPrompt,
+            });
+            resolvedSessionId = created?.id?.trim() || null;
+          } else {
+            await pulseApi.saveRule({
+              enabled: true,
+              spec: {
+                ...candidateSpec,
+                name: `One-Shot: ${trimmedPrompt.slice(0, 44)}`,
+                evalMode: 'auto',
+                filter: {
+                  sourceKinds: ['sdk_custom'],
+                  sourceInstanceIds: [],
+                  eventTypes: ['kanban.issue.dispatched'],
+                  allowedActors: [],
+                  conditions: [],
+                },
+              },
+            });
+          }
+          onCreateFreshSession?.();
+        } else {
+          onCreateFreshSession?.();
+        }
+      }
+
+      const botTargetId = botMemberId.trim() || 'triage-bot';
 
       await pulseApi.emitCustomEvent({
         eventType: 'kanban.issue.dispatched',
@@ -299,26 +390,27 @@ export function IssuePulseDispatchPopover({
         payload: {
           projectId,
           workspaceId,
-          sessionId,
+          sessionId: resolvedSessionId,
           branchName,
           targetKind,
-          botMemberId: targetKind === 'bot' ? subscriberId : null,
+          agentId: targetKind === 'session' ? resolvedAgent : null,
+          botMemberId: targetKind === 'bot' ? botTargetId : null,
           workspaceIsolation:
             targetKind === 'session' ? 'isolated_worktree' : null,
-          prompt: ticketPrompt.trim(),
+          prompt: trimmedPrompt,
         },
       });
 
       if (subscribeThread && normalizedThread) {
-        await pulseApi.subscribeThread(
-          normalizedThread,
-          targetKind === 'bot' ? 'bot' : 'session',
-          subscriberId
-        );
-      }
-
-      if (targetKind === 'session') {
-        onCreateFreshSession?.();
+        if (targetKind === 'bot') {
+          await pulseApi.subscribeThread(normalizedThread, 'bot', botTargetId);
+        } else if (resolvedSessionId) {
+          await pulseApi.subscribeThread(
+            normalizedThread,
+            'session',
+            resolvedSessionId
+          );
+        }
       }
 
       setFeedback(
@@ -363,20 +455,30 @@ export function IssuePulseDispatchPopover({
   };
 
   return (
-    <Popover open={open} onOpenChange={setOpen}>
+    <Popover open={open} onOpenChange={handlePopoverOpenChange}>
       <PopoverTrigger asChild>
         <Button
           type="button"
           variant="ghost"
           size={compactIconOnly ? 'icon' : 'xs'}
           className={cn(
-            compactIconOnly
-              ? 'session-hub-action-button h-7 w-7 p-0 shadow-none'
-              : 'h-7 gap-1 px-2 text-xs font-medium shadow-none',
+            triggerClassName ??
+              (compactIconOnly
+                ? 'session-hub-action-button h-7 w-7 p-0 shadow-none'
+                : 'h-7 gap-1 px-2 text-xs font-medium shadow-none'),
             isPulseDeckOpen && 'bg-muted text-foreground'
           )}
           aria-label="Dispatch Issue Pulse"
-          data-testid="issue-pulse-dispatch-trigger"
+          data-testid={triggerTestId}
+          onPointerDown={(event) => {
+            event.stopPropagation();
+          }}
+          onMouseDown={(event) => {
+            event.stopPropagation();
+          }}
+          onClick={(event) => {
+            event.stopPropagation();
+          }}
         >
           <Zap className="h-3.5 w-3.5 text-primary" />
           {compactIconOnly ? null : <span>Dispatch</span>}
@@ -386,6 +488,8 @@ export function IssuePulseDispatchPopover({
         align="start"
         className="w-[340px] space-y-3 border border-border bg-popover p-3 text-foreground shadow-md"
         data-testid="issue-pulse-dispatch-popover"
+        onPointerDown={(event) => event.stopPropagation()}
+        onClick={(event) => event.stopPropagation()}
       >
         <div className="flex items-center justify-between gap-2 border-b border-border pb-2">
           <div className="flex items-center gap-1.5 text-xs font-semibold">
@@ -400,7 +504,7 @@ export function IssuePulseDispatchPopover({
               className="h-6 gap-1 px-2 text-[11px]"
               data-testid="issue-pulse-open-deck-btn"
               onClick={() => {
-                setOpen(false);
+                handlePopoverOpenChange(false);
                 onOpenPulseDeck();
               }}
             >

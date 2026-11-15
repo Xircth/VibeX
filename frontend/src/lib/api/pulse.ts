@@ -297,10 +297,12 @@ export type PulseUserInteractionView = {
   resolvedAt?: string | null;
 };
 
+export type PulseSubscriberKind = 'session' | 'bot' | 'group' | 'workflow';
+
 export type PulseSubscriptionView = {
   id: string;
   threadKey: string;
-  subscriberKind: string;
+  subscriberKind: PulseSubscriberKind | (string & {});
   subscriberId: string;
   active: boolean;
   createdAt: string;
@@ -337,6 +339,9 @@ export type PulseSourceUpsertInput = {
 export type PulseRuleSaveInput = {
   id?: string | null;
   enabled?: boolean;
+  draftOnly?: boolean;
+  mandateOrigin?: MandateOrigin;
+  webhookRouteId?: string | null;
   spec: PulseRuleSpec;
 };
 
@@ -353,106 +358,187 @@ export type PulseResolveInteractionInput = {
   formValues?: Record<string, unknown> | null;
 };
 
+export const PULSE_REQUEST_TIMEOUT_MS = 15_000;
+
+export function extractPulseErrorMessage(
+  error: unknown,
+  fallback = 'Pulse request failed.'
+): string {
+  if (error instanceof Error && error.message.trim()) {
+    return error.message.trim();
+  }
+  if (typeof error === 'string' && error.trim()) {
+    return error.trim();
+  }
+  if (error && typeof error === 'object') {
+    const record = error as Record<string, unknown>;
+    if (typeof record.message === 'string' && record.message.trim()) {
+      return record.message.trim();
+    }
+    if (typeof record.error === 'string' && record.error.trim()) {
+      return record.error.trim();
+    }
+    if (
+      record.error &&
+      typeof record.error === 'object' &&
+      typeof (record.error as Record<string, unknown>).message === 'string'
+    ) {
+      const nested = (
+        (record.error as Record<string, unknown>).message as string
+      ).trim();
+      if (nested) return nested;
+    }
+  }
+  return fallback;
+}
+
+async function callPulseTransport<T>(
+  transport: BackendTransport,
+  command: string,
+  args?: Record<string, unknown>,
+  timeoutMs = PULSE_REQUEST_TIMEOUT_MS
+): Promise<T> {
+  let timeoutId: ReturnType<typeof setTimeout> | undefined;
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    timeoutId = setTimeout(() => {
+      reject(
+        new Error(
+          `Pulse request "${command}" timed out after ${Math.round(timeoutMs / 1000)}s.`
+        )
+      );
+    }, timeoutMs);
+  });
+
+  try {
+    const requestPromise =
+      args === undefined
+        ? transport.call(command)
+        : transport.call(command, args);
+    return (await Promise.race([requestPromise, timeoutPromise])) as T;
+  } catch (error) {
+    throw new Error(
+      extractPulseErrorMessage(error, `Pulse request "${command}" failed.`)
+    );
+  } finally {
+    if (timeoutId !== undefined) {
+      clearTimeout(timeoutId);
+    }
+  }
+}
+
 export function createPulseApi(transport: BackendTransport) {
   return {
     deckSnapshot: (projectId?: string | null) =>
-      transport.call('pulse_deck_snapshot', {
+      callPulseTransport<PulseDeckSnapshot>(transport, 'pulse_deck_snapshot', {
         projectId: projectId ?? null,
-      }) as Promise<PulseDeckSnapshot>,
+      }),
 
     listSources: () =>
-      transport.call('pulse_source_list') as Promise<PulseSourceView[]>,
+      callPulseTransport<PulseSourceView[]>(transport, 'pulse_source_list'),
 
     upsertSource: (input: PulseSourceUpsertInput) =>
-      transport.call('pulse_source_upsert', {
+      callPulseTransport<PulseSourceView>(transport, 'pulse_source_upsert', {
         input,
-      }) as Promise<PulseSourceView>,
+      }),
 
     deleteSource: (id: string) =>
-      transport.call('pulse_source_delete', { id }) as Promise<void>,
+      callPulseTransport<void>(transport, 'pulse_source_delete', { id }),
 
     listRules: (projectId?: string | null) =>
-      transport.call('pulse_rule_list', {
+      callPulseTransport<PulseRuleView[]>(transport, 'pulse_rule_list', {
         projectId: projectId ?? null,
-      }) as Promise<PulseRuleView[]>,
+      }),
 
     saveRule: (input: PulseRuleSaveInput) =>
-      transport.call('pulse_rule_save', {
+      callPulseTransport<PulseRuleView>(transport, 'pulse_rule_save', {
         input,
-      }) as Promise<PulseRuleView>,
+      }),
 
     setRuleMode: (id: string, evalMode: PulseEvalMode) =>
-      transport.call('pulse_rule_set_mode', {
+      callPulseTransport<PulseRuleView>(transport, 'pulse_rule_set_mode', {
         id,
         evalMode,
-      }) as Promise<PulseRuleView>,
+      }),
 
     setRuleEnabled: (id: string, enabled: boolean) =>
-      transport.call('pulse_rule_set_enabled', {
+      callPulseTransport<PulseRuleView>(transport, 'pulse_rule_set_enabled', {
         id,
         enabled,
-      }) as Promise<PulseRuleView>,
+      }),
 
     deleteRule: (id: string) =>
-      transport.call('pulse_rule_delete', { id }) as Promise<void>,
+      callPulseTransport<void>(transport, 'pulse_rule_delete', { id }),
 
     dryRunRule: (spec: PulseRuleSpec, sampleEvent: EventEnvelope) =>
-      transport.call('pulse_rule_dry_run', {
+      callPulseTransport<PulseDryRunReport>(transport, 'pulse_rule_dry_run', {
         spec,
         sampleEvent,
-      }) as Promise<PulseDryRunReport>,
+      }),
 
     emitCustomEvent: (input: PulseEmitCustomEventInput) =>
-      transport.call('pulse_event_emit', {
+      callPulseTransport<EventEnvelope>(transport, 'pulse_event_emit', {
         input,
-      }) as Promise<EventEnvelope>,
+      }),
 
     listCapturedEvents: (limit = 25) =>
-      transport.call('pulse_captured_events', {
+      callPulseTransport<EventEnvelope[]>(transport, 'pulse_captured_events', {
         limit,
-      }) as Promise<EventEnvelope[]>,
+      }),
 
     promoteObservedCandidate: (candidateId: string) =>
-      transport.call('pulse_candidate_promote', {
+      callPulseTransport<void>(transport, 'pulse_candidate_promote', {
         candidateId,
-      }) as Promise<void>,
+      }),
 
     resolveUserInteraction: (input: PulseResolveInteractionInput) =>
-      transport.call('pulse_interaction_resolve', {
-        input,
-      }) as Promise<PulseUserInteractionView>,
+      callPulseTransport<PulseUserInteractionView>(
+        transport,
+        'pulse_interaction_resolve',
+        {
+          input,
+        }
+      ),
 
     subscribeThread: (
       threadKey: string,
-      subscriberKind: 'session' | 'bot' | 'group',
+      subscriberKind: 'session' | 'bot' | 'group' | 'workflow',
       subscriberId: string
     ) =>
-      transport.call('pulse_thread_subscribe', {
-        threadKey,
-        subscriberKind,
-        subscriberId,
-      }) as Promise<PulseSubscriptionView>,
+      callPulseTransport<PulseSubscriptionView>(
+        transport,
+        'pulse_thread_subscribe',
+        {
+          threadKey,
+          subscriberKind,
+          subscriberId,
+        }
+      ),
 
     unsubscribeThread: (subscriptionId: string) =>
-      transport.call('pulse_thread_unsubscribe', {
+      callPulseTransport<void>(transport, 'pulse_thread_unsubscribe', {
         subscriptionId,
-      }) as Promise<void>,
+      }),
 
     listEventSchemas: () =>
-      transport.call('pulse_event_schema_list') as Promise<
-        PulseEventSchemaView[]
-      >,
+      callPulseTransport<PulseEventSchemaView[]>(
+        transport,
+        'pulse_event_schema_list'
+      ),
 
     defineEventSchema: (
       eventType: string,
       summary: string,
       jsonSchema: Record<string, unknown>
     ) =>
-      transport.call('pulse_event_schema_define', {
-        eventType,
-        summary,
-        jsonSchema,
-      }) as Promise<PulseEventSchemaView>,
+      callPulseTransport<PulseEventSchemaView>(
+        transport,
+        'pulse_event_schema_define',
+        {
+          eventType,
+          summary,
+          jsonSchema,
+        }
+      ),
   };
 }
 

@@ -3,10 +3,13 @@ import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { pulseApi } from '@/lib/api/pulse';
+import { pulseApi, type PulseDeckSnapshot } from '@/lib/api/pulse';
+import { sessionsApi } from '@/lib/api/sessions';
 import { attentionApi } from '@/lib/api/attention';
 import { automationApi } from '@/lib/api/automations';
+import { collaborationCall } from '@/features/collaboration/collaborationApi';
 import { IssuePulseDispatchPopover } from './IssuePulseDispatchPopover';
+import { OPEN_PULSE_DECK_EVENT } from './pulseDeckEvents';
 import { PulseGuardMenu } from '@/components/layout/BranchInfoHeader';
 import { AttentionInboxBadge } from '@/components/layout/AttentionInboxBadge';
 import { AutomationFailureBadge } from '@/components/layout/AutomationFailureBadge';
@@ -19,8 +22,24 @@ vi.mock('@/lib/api/pulse', () => ({
     unsubscribeThread: vi.fn(),
     saveRule: vi.fn(),
     setRuleEnabled: vi.fn(),
+    setRuleMode: vi.fn(),
+    promoteObservedCandidate: vi.fn(),
+    dryRunRule: vi.fn(),
+    upsertSource: vi.fn(),
     resolveUserInteraction: vi.fn(),
   },
+}));
+
+vi.mock('@/lib/api/sessions', () => ({
+  sessionsApi: {
+    createProject: vi.fn(),
+    create: vi.fn(),
+    getSummariesByWorkspace: vi.fn().mockResolvedValue([]),
+  },
+}));
+
+vi.mock('@/features/collaboration/collaborationApi', () => ({
+  collaborationCall: vi.fn().mockResolvedValue({ items: [] }),
 }));
 
 vi.mock('@/lib/api/attention', () => ({
@@ -40,11 +59,18 @@ vi.mock('@/hooks/useOpenProjectSession', () => ({
   useOpenProjectSession: () => vi.fn(),
 }));
 
+const pushListeners = new Map<string, () => void>();
+
 vi.mock('@/lib/backendTransport', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/lib/backendTransport')>();
   return {
     ...actual,
-    backendListen: vi.fn().mockResolvedValue(() => undefined),
+    backendListen: vi.fn(async (eventName: string, handler: () => void) => {
+      pushListeners.set(eventName, handler);
+      return () => {
+        pushListeners.delete(eventName);
+      };
+    }),
   };
 });
 
@@ -52,22 +78,34 @@ function renderWithProviders(ui: React.ReactElement) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
-  return render(
-    <MemoryRouter>
-      <QueryClientProvider client={queryClient}>{ui}</QueryClientProvider>
-    </MemoryRouter>
-  );
+  return {
+    queryClient,
+    ...render(
+      <MemoryRouter>
+        <QueryClientProvider client={queryClient}>{ui}</QueryClientProvider>
+      </MemoryRouter>
+    ),
+  };
 }
 
-describe('IssuePulseDispatchPopover, PulseGuardMenu & StatusBar Pulse Badges (Track F5)', () => {
+describe('IssuePulseDispatchPopover, PulseGuardMenu & StatusBar Pulse Badges (Track F5 / R4)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    pushListeners.clear();
   });
 
-  it('dispatches a one-shot ticket with external thread subscription and saves an Automate Similar rule', async () => {
+  it('spawns a real ticket session with initial_prompt, uses normalized claude-code agentId, and never subscribes literal fresh-session', async () => {
     const user = userEvent.setup();
-    const onCreateFreshSession = vi.fn();
 
+    vi.mocked(sessionsApi.createProject).mockResolvedValue({
+      id: 'sess-created-42',
+      workspace_id: 'ws-1',
+      executor: 'CLAUDE_CODE',
+      name: 'Investigate PROJ-500',
+      status: 'todo',
+      created_at: '2026-11-15T00:00:00Z',
+      updated_at: '2026-11-15T00:00:00Z',
+    } as never);
     vi.mocked(pulseApi.emitCustomEvent).mockResolvedValue({
       eventId: 'evt-1',
       deliveryId: 'dlv-1',
@@ -95,7 +133,7 @@ describe('IssuePulseDispatchPopover, PulseGuardMenu & StatusBar Pulse Badges (Tr
       id: 'sub-500',
       threadKey: 'jira:PROJ-500',
       subscriberKind: 'session',
-      subscriberId: 'sess-1',
+      subscriberId: 'sess-created-42',
       active: true,
       createdAt: '2026-11-15T00:00:00Z',
     });
@@ -116,10 +154,10 @@ describe('IssuePulseDispatchPopover, PulseGuardMenu & StatusBar Pulse Badges (Tr
       <IssuePulseDispatchPopover
         projectId="proj-1"
         workspaceId="ws-1"
-        sessionId="sess-1"
+        sessionId={null}
+        agentId="CLAUDE_CODE"
         sessionTitle="Fix payment webhook retry"
         branchName="fix/webhook-retry"
-        onCreateFreshSession={onCreateFreshSession}
       />
     );
 
@@ -132,16 +170,22 @@ describe('IssuePulseDispatchPopover, PulseGuardMenu & StatusBar Pulse Badges (Tr
     await user.click(screen.getByTestId('dispatch-one-shot-submit'));
 
     await waitFor(() => {
-      expect(pulseApi.emitCustomEvent).toHaveBeenCalledTimes(1);
+      expect(sessionsApi.createProject).toHaveBeenCalledWith(
+        expect.objectContaining({
+          project_id: 'proj-1',
+          workspace_id: 'ws-1',
+          executor: 'CLAUDE_CODE',
+          initial_prompt: 'Fix payment webhook retry',
+        })
+      );
       expect(pulseApi.subscribeThread).toHaveBeenCalledWith(
         'jira:PROJ-500',
         'session',
-        'sess-1'
+        'sess-created-42'
       );
     });
-    expect(onCreateFreshSession).toHaveBeenCalledTimes(1);
 
-    // Switch to Automate Similar tab and save rule
+    // Switch to Automate Similar tab and verify valid kebab-case claude-code agentId
     await user.click(screen.getByRole('tab', { name: 'Automate Similar' }));
     expect(screen.getByTestId('dispatch-dry-run-status')).toHaveTextContent(
       'Valid · Matched'
@@ -149,11 +193,22 @@ describe('IssuePulseDispatchPopover, PulseGuardMenu & StatusBar Pulse Badges (Tr
     await user.click(screen.getByTestId('dispatch-save-similar-rule'));
 
     await waitFor(() => {
-      expect(pulseApi.saveRule).toHaveBeenCalledTimes(1);
+      expect(pulseApi.saveRule).toHaveBeenCalledWith(
+        expect.objectContaining({
+          spec: expect.objectContaining({
+            targets: [
+              expect.objectContaining({
+                kind: 'session',
+                agentId: 'claude-code',
+              }),
+            ],
+          }),
+        })
+      );
     });
   });
 
-  it('toggles branch-scoped PR/CI Pulse guards in 1 click inside PulseGuardMenu', async () => {
+  it('toggles branch-scoped PR/CI Pulse guards with valid claude-code agent, dynamic Bot/Session fallback, and real subscriber target', async () => {
     const user = userEvent.setup();
     vi.mocked(pulseApi.deckSnapshot).mockResolvedValue({
       engineActive: true,
@@ -165,6 +220,7 @@ describe('IssuePulseDispatchPopover, PulseGuardMenu & StatusBar Pulse Badges (Tr
       subscriptions: [],
       pendingInteractions: [],
     });
+    vi.mocked(collaborationCall).mockResolvedValue({ items: [] });
     vi.mocked(pulseApi.saveRule).mockImplementation(async ({ spec }) => ({
       id: `saved-${spec.name}`,
       revision: 1,
@@ -181,7 +237,7 @@ describe('IssuePulseDispatchPopover, PulseGuardMenu & StatusBar Pulse Badges (Tr
       id: 'sub-pr',
       threadKey: 'github:VibeX#feature/pulse',
       subscriberKind: 'session',
-      subscriberId: 'ws-1',
+      subscriberId: 'sess-active-9',
       active: true,
       createdAt: '2026-11-15T00:00:00Z',
     });
@@ -191,6 +247,7 @@ describe('IssuePulseDispatchPopover, PulseGuardMenu & StatusBar Pulse Badges (Tr
         repoName="VibeX"
         branchName="feature/pulse"
         worktreeId="ws-1"
+        sessionId="sess-active-9"
       />
     );
 
@@ -198,7 +255,35 @@ describe('IssuePulseDispatchPopover, PulseGuardMenu & StatusBar Pulse Badges (Tr
     await user.click(screen.getByTestId('pulse-guard-ci-failure'));
 
     await waitFor(() => {
-      expect(pulseApi.saveRule).toHaveBeenCalledTimes(1);
+      expect(pulseApi.saveRule).toHaveBeenCalledWith(
+        expect.objectContaining({
+          spec: expect.objectContaining({
+            targets: [
+              expect.objectContaining({
+                kind: 'session',
+                agentId: 'claude-code',
+              }),
+            ],
+          }),
+        })
+      );
+    });
+
+    // With no collaboration bots configured, PR guard falls back to claude-code Fresh Session
+    await user.click(screen.getByTestId('pulse-guard-pr-comments'));
+    await waitFor(() => {
+      expect(pulseApi.saveRule).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          spec: expect.objectContaining({
+            targets: [
+              expect.objectContaining({
+                kind: 'session',
+                agentId: 'claude-code',
+              }),
+            ],
+          }),
+        })
+      );
     });
 
     await user.click(screen.getByTestId('pulse-guard-subscribe-pr'));
@@ -206,22 +291,23 @@ describe('IssuePulseDispatchPopover, PulseGuardMenu & StatusBar Pulse Badges (Tr
       expect(pulseApi.subscribeThread).toHaveBeenCalledWith(
         'github:VibeX#feature/pulse',
         'session',
-        'ws-1'
+        'sess-active-9'
       );
     });
   });
 
-  it('resolves pending Pulse approval and ask_form interactions inline in AttentionInboxBadge and surfaces Observe count in AutomationFailureBadge', async () => {
+  it('shares a single usePulseDeckSnapshot query across badges, prunes resolvedPulseIds, and dispatches vibex:open-pulse-deck on Observe click', async () => {
     const user = userEvent.setup();
     vi.mocked(attentionApi.list).mockResolvedValue({
       items: [],
       blockingCount: 0,
     });
     vi.mocked(automationApi.unseenFailures).mockResolvedValue(0);
-    vi.mocked(pulseApi.deckSnapshot).mockResolvedValue({
+
+    const initialSnapshot: PulseDeckSnapshot = {
       engineActive: true,
       activeTicketCount: 1,
-      pendingUserInteractionCount: 2,
+      pendingUserInteractionCount: 1,
       sources: [],
       rules: [],
       observedCandidates: [
@@ -254,7 +340,8 @@ describe('IssuePulseDispatchPopover, PulseGuardMenu & StatusBar Pulse Badges (Tr
           resolvedAt: null,
         },
       ],
-    });
+    };
+    vi.mocked(pulseApi.deckSnapshot).mockResolvedValue(initialSnapshot);
     vi.mocked(pulseApi.resolveUserInteraction).mockResolvedValue({
       id: 'ix-approval-1',
       kind: 'approval',
@@ -274,9 +361,17 @@ describe('IssuePulseDispatchPopover, PulseGuardMenu & StatusBar Pulse Badges (Tr
       </div>
     );
 
-    expect(
-      await screen.findByTestId('pulse-observe-status-badge')
-    ).toHaveTextContent('1');
+    const observeBadge = await screen.findByTestId('pulse-observe-status-badge');
+    expect(observeBadge).toHaveTextContent('1');
+    // Both badges share the exact same React Query snapshot key -> only 1 fetch!
+    expect(pulseApi.deckSnapshot).toHaveBeenCalledTimes(1);
+
+    // Clicking Observe badge dispatches vibex:open-pulse-deck event
+    const openPulseDeckSpy = vi.fn((event: Event) => event.preventDefault());
+    window.addEventListener(OPEN_PULSE_DECK_EVENT, openPulseDeckSpy);
+    await user.click(observeBadge);
+    expect(openPulseDeckSpy).toHaveBeenCalledTimes(1);
+    window.removeEventListener(OPEN_PULSE_DECK_EVENT, openPulseDeckSpy);
 
     const inboxTrigger = await screen.findByTestId('attention-inbox-trigger');
     expect(inboxTrigger).toHaveTextContent('1');
@@ -296,6 +391,22 @@ describe('IssuePulseDispatchPopover, PulseGuardMenu & StatusBar Pulse Badges (Tr
         note: null,
         formValues: null,
       });
+    });
+
+    // Push event vibex://pulse-deck-changed triggers real-time snapshot invalidation
+    vi.mocked(pulseApi.deckSnapshot).mockResolvedValue({
+      ...initialSnapshot,
+      pendingInteractions: [],
+      pendingUserInteractionCount: 0,
+    });
+    const pushHandler = pushListeners.get('vibex://pulse-deck-changed');
+    expect(pushHandler).toBeTypeOf('function');
+    pushHandler?.();
+
+    await waitFor(() => {
+      expect(
+        vi.mocked(pulseApi.deckSnapshot).mock.calls.length
+      ).toBeGreaterThanOrEqual(2);
     });
   });
 });

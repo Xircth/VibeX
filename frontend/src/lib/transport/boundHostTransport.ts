@@ -33,6 +33,7 @@ const HOST_PUSH_EVENT_PREFIXES = [
   'vibex://settings-file-changed',
   'vibex://collaboration-space-changed',
   'vibex://collaboration-receipts-changed',
+  'vibex://pulse-deck-changed',
   'theme-changed',
   'log-settings://changed',
   'logs://appended',

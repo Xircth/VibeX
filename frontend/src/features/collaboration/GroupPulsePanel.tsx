@@ -1,7 +1,19 @@
-import { useCallback, useEffect, useState } from 'react';
-import { Link2, Plus, Trash2, Unlink, Zap } from 'lucide-react';
+import { useMemo, useState } from 'react';
+import {
+  AlertTriangle,
+  Link2,
+  Plus,
+  RefreshCw,
+  Trash2,
+  Unlink,
+  Zap,
+} from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import {
+  formatPulseErrorMessage,
+  usePulseDeckSnapshot,
+} from '@/hooks/usePulseDeckSnapshot';
 import {
   pulseApi,
   type GroupDispatchMode,
@@ -36,71 +48,85 @@ export function GroupPulsePanel({
   leadMemberId?: string | null;
   roster?: readonly PulseRosterOption[];
 }) {
-  const [rules, setRules] = useState<PulseRuleView[]>([]);
-  const [subscriptions, setSubscriptions] = useState<PulseSubscriptionView[]>(
-    []
-  );
-  const [loading, setLoading] = useState(true);
+  const {
+    snapshot,
+    isLoading,
+    error: queryError,
+    refetch,
+    setSnapshotData,
+    invalidateSnapshot,
+  } = usePulseDeckSnapshot(null, { enabled: Boolean(spaceId) });
+
   const [newThreadKey, setNewThreadKey] = useState('');
   const [subscribing, setSubscribing] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
   const [draftDispatchMode, setDraftDispatchMode] =
     useState<GroupDispatchMode | null>(null);
 
-  const loadGroupPulse = useCallback(async () => {
-    if (!spaceId) {
-      setRules([]);
-      setSubscriptions([]);
-      setLoading(false);
-      return;
-    }
-    setLoading(true);
-    try {
-      const [snapshot, ruleList] = await Promise.all([
-        pulseApi.deckSnapshot().catch(() => null),
-        pulseApi.listRules().catch(() => [] as PulseRuleView[]),
-      ]);
-      const sourceRules = snapshot?.rules ?? ruleList;
-      setRules(
-        sourceRules.filter((rule) =>
-          rule.spec.targets.some(
-            (target) => target.kind === 'group' && target.spaceId === spaceId
-          )
-        )
-      );
-      setSubscriptions(
-        (snapshot?.subscriptions ?? []).filter(
-          (sub) =>
-            sub.subscriberKind === 'group' &&
-            sub.subscriberId === spaceId &&
-            sub.active
-        )
-      );
-    } finally {
-      setLoading(false);
-    }
-  }, [spaceId]);
+  const rules = useMemo<PulseRuleView[]>(() => {
+    if (!spaceId) return [];
+    return (snapshot?.rules ?? []).filter((rule) =>
+      rule.spec.targets.some(
+        (target) => target.kind === 'group' && target.spaceId === spaceId
+      )
+    );
+  }, [snapshot?.rules, spaceId]);
 
-  useEffect(() => {
-    void loadGroupPulse();
-  }, [loadGroupPulse]);
+  const subscriptions = useMemo<PulseSubscriptionView[]>(() => {
+    if (!spaceId) return [];
+    return (snapshot?.subscriptions ?? []).filter(
+      (sub) =>
+        sub.subscriberKind === 'group' &&
+        sub.subscriberId === spaceId &&
+        sub.active
+    );
+  }, [snapshot?.subscriptions, spaceId]);
+
+  const errorMessage =
+    actionError ??
+    (queryError
+      ? formatPulseErrorMessage(queryError, 'Failed to load group Pulse state.')
+      : null);
 
   const handleModeChange = async (rule: PulseRuleView, mode: PulseEvalMode) => {
+    setActionError(null);
     try {
       const updated = await pulseApi.setRuleMode(rule.id, mode);
-      setRules((prev) =>
-        prev.map((item) => (item.id === rule.id ? updated : item))
+      setSnapshotData((prev) =>
+        prev
+          ? {
+              ...prev,
+              rules: prev.rules.map((item) =>
+                item.id === rule.id ? updated : item
+              ),
+            }
+          : prev
       );
-    } catch {
-      // Best-effort toggle
+      void invalidateSnapshot();
+    } catch (err) {
+      setActionError(
+        formatPulseErrorMessage(err, 'Failed to update rule mode.')
+      );
     }
   };
 
   const handleDeleteRule = async (ruleId: string) => {
+    setActionError(null);
     try {
       await pulseApi.deleteRule(ruleId);
-      setRules((prev) => prev.filter((item) => item.id !== ruleId));
-    } catch {
-      // Best-effort delete
+      setSnapshotData((prev) =>
+        prev
+          ? {
+              ...prev,
+              rules: prev.rules.filter((item) => item.id !== ruleId),
+            }
+          : prev
+      );
+      void invalidateSnapshot();
+    } catch (err) {
+      setActionError(
+        formatPulseErrorMessage(err, 'Failed to delete group rule.')
+      );
     }
   };
 
@@ -108,28 +134,50 @@ export function GroupPulsePanel({
     const trimmed = newThreadKey.trim();
     if (!trimmed || subscribing) return;
     setSubscribing(true);
+    setActionError(null);
     try {
       const created = await pulseApi.subscribeThread(trimmed, 'group', spaceId);
-      setSubscriptions((prev) => [
-        created,
-        ...prev.filter((item) => item.id !== created.id),
-      ]);
+      setSnapshotData((prev) =>
+        prev
+          ? {
+              ...prev,
+              subscriptions: [
+                created,
+                ...prev.subscriptions.filter((item) => item.id !== created.id),
+              ],
+            }
+          : prev
+      );
       setNewThreadKey('');
-    } catch {
-      // Best-effort subscribe
+      void invalidateSnapshot();
+    } catch (err) {
+      setActionError(
+        formatPulseErrorMessage(err, 'Failed to subscribe thread.')
+      );
     } finally {
       setSubscribing(false);
     }
   };
 
   const handleUnsubscribe = async (subscriptionId: string) => {
+    setActionError(null);
     try {
       await pulseApi.unsubscribeThread(subscriptionId);
-      setSubscriptions((prev) =>
-        prev.filter((item) => item.id !== subscriptionId)
+      setSnapshotData((prev) =>
+        prev
+          ? {
+              ...prev,
+              subscriptions: prev.subscriptions.filter(
+                (item) => item.id !== subscriptionId
+              ),
+            }
+          : prev
       );
-    } catch {
-      // Best-effort unsubscribe
+      void invalidateSnapshot();
+    } catch (err) {
+      setActionError(
+        formatPulseErrorMessage(err, 'Failed to unsubscribe thread.')
+      );
     }
   };
 
@@ -195,6 +243,32 @@ export function GroupPulsePanel({
         ) : null}
       </div>
 
+      {errorMessage ? (
+        <div
+          role="alert"
+          data-testid="group-pulse-error"
+          className="flex items-center justify-between gap-2 rounded-md border border-destructive/30 bg-destructive/10 px-2.5 py-1.5 text-[11px] text-destructive"
+        >
+          <span className="inline-flex min-w-0 items-center gap-1.5">
+            <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+            <span className="truncate">{errorMessage}</span>
+          </span>
+          <Button
+            type="button"
+            size="xs"
+            variant="ghost"
+            data-testid="group-pulse-retry"
+            onClick={() => {
+              setActionError(null);
+              void refetch();
+            }}
+            icon={<RefreshCw className="h-3 w-3" />}
+          >
+            Retry
+          </Button>
+        </div>
+      ) : null}
+
       {draftDispatchMode ? (
         <PulseRuleProposalCard
           initialSpec={buildGroupPulseProposalSpec({
@@ -207,16 +281,24 @@ export function GroupPulsePanel({
           roster={roster}
           onSaved={(saved) => {
             setDraftDispatchMode(null);
-            setRules((prev) => [
-              saved,
-              ...prev.filter((item) => item.id !== saved.id),
-            ]);
+            setSnapshotData((prev) =>
+              prev
+                ? {
+                    ...prev,
+                    rules: [
+                      saved,
+                      ...prev.rules.filter((item) => item.id !== saved.id),
+                    ],
+                  }
+                : prev
+            );
+            void invalidateSnapshot();
           }}
           onCancel={() => setDraftDispatchMode(null)}
         />
       ) : null}
 
-      {loading ? (
+      {isLoading && !snapshot ? (
         <p className="py-1.5 text-muted-foreground">Loading group rules…</p>
       ) : rules.length === 0 ? (
         <p

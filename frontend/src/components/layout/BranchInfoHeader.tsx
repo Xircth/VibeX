@@ -31,15 +31,18 @@ import {
 } from '@/components/ui/tooltip';
 import { useOptionalWorktree } from '@/contexts/WorktreeContext';
 import { useOptionalKanbanSessionContext } from '@/contexts/KanbanSessionContext';
+import { collaborationCall } from '@/features/collaboration/collaborationApi';
+import { PULSE_DECK_SNAPSHOT_QUERY_ROOT } from '@/hooks/usePulseDeckSnapshot';
 import { useWorkspaceBranchStatus } from '@/hooks/useWorkspaceBranchStatus';
 import { useTaskAttempt } from '@/hooks/useTaskAttempt';
 import { useTask } from '@/hooks/useTask';
-import { attemptsApi } from '@/lib/api';
+import { attemptsApi, sessionsApi } from '@/lib/api';
 import type { RebaseResult } from '@/lib/api';
 import {
   pulseApi,
   type PulseRuleSpec,
   type PulseRuleView,
+  type PulseSubscriberKind,
   type PulseSubscriptionView,
 } from '@/lib/api/pulse';
 import type { RepoBranchStatus, TaskWithAttemptStatus } from 'shared/types';
@@ -100,6 +103,10 @@ export function BranchInfoHeader({
     worktree?.activeWorktreeId ??
     kanbanSession?.visibleRightSession?.workspaceId ??
     null;
+  const activeSessionId =
+    kanbanSession?.visibleRightSession?.sessionId ??
+    kanbanSession?.rightSession?.sessionId ??
+    null;
   const { data: branchStatus } = useWorkspaceBranchStatus(
     effectiveWorktreeId ?? undefined
   );
@@ -108,15 +115,68 @@ export function BranchInfoHeader({
     enabled: !!workspace?.task_id,
   });
 
-  if (
-    !effectiveWorktreeId ||
-    !branchStatus?.length ||
-    !workspace?.use_worktree
-  ) {
+  if (!effectiveWorktreeId || !branchStatus?.length || !workspace) {
     return null;
   }
 
   const repo = branchStatus[0];
+  const branchName = workspace.branch ?? 'HEAD';
+
+  if (!workspace.use_worktree) {
+    return (
+      <div
+        className="branch-info-header-host"
+        data-testid="branch-info-standard-checkout"
+      >
+        <div ref={glassStageRef} className="branch-info-glass-stage">
+          <HostGlass
+            className="branch-info-liquid-glass"
+            padding="0"
+            cornerRadius={12}
+            displacementScale={72}
+            blurAmount={0.04}
+            saturation={140}
+            aberrationIntensity={2}
+            elasticity={prefersReducedMotion ? 0 : 0.12}
+            mouseContainer={glassStageRef}
+            globalMousePos={
+              prefersReducedMotion ? STATIC_GLASS_POINTER : undefined
+            }
+            mouseOffset={
+              prefersReducedMotion ? STATIC_GLASS_POINTER : undefined
+            }
+            mode="prominent"
+            style={{
+              position: 'absolute',
+              top: '50%',
+              left: '50%',
+              width: '100%',
+              height: '100%',
+            }}
+          >
+            <div className="branch-info-toolbar">
+              <div className="branch-info-summary">
+                <GitBranch
+                  className="h-3.5 w-3.5 shrink-0 text-muted-foreground"
+                  aria-hidden="true"
+                />
+                <span className="branch-info-current-branch">{branchName}</span>
+              </div>
+              <div className="branch-info-actions">
+                <PulseGuardMenu
+                  repoName={repo.repo_name}
+                  branchName={branchName}
+                  worktreeId={effectiveWorktreeId}
+                  sessionId={activeSessionId}
+                />
+              </div>
+            </div>
+          </HostGlass>
+        </div>
+      </div>
+    );
+  }
+
   const gitActionsTask: TaskWithAttemptStatus | undefined = task
     ? {
         ...task,
@@ -175,15 +235,15 @@ export function BranchInfoHeader({
                       tabIndex={0}
                       aria-label={i18n.t(
                         'panels:ui.branch.currentBranchBranch',
-                        { branch: workspace?.branch ?? 'HEAD' }
+                        { branch: branchName }
                       )}
                     >
-                      {workspace?.branch ?? 'HEAD'}
+                      {branchName}
                     </span>
                   </TooltipTrigger>
                   <TooltipContent side="bottom">
                     {i18n.t('panels:ui.branch.currentBranchLabel', {
-                      branch: workspace?.branch ?? 'HEAD',
+                      branch: branchName,
                     })}
                   </TooltipContent>
                 </Tooltip>
@@ -209,8 +269,9 @@ export function BranchInfoHeader({
               <div className="branch-info-actions">
                 <PulseGuardMenu
                   repoName={repo.repo_name}
-                  branchName={workspace?.branch ?? 'HEAD'}
+                  branchName={branchName}
                   worktreeId={effectiveWorktreeId}
+                  sessionId={activeSessionId}
                 />
                 <GitActionsButton
                   worktreeId={effectiveWorktreeId}
@@ -251,7 +312,7 @@ function buildCiGuardSpec(
       {
         kind: 'session',
         mode: 'ephemeral_fresh',
-        agentId: 'CLAUDE_CODE',
+        agentId: 'claude-code',
         workspaceIsolation: 'isolated_worktree',
         subscribeThread: true,
         promptTemplate: `Diagnose CI failure on ${repoName}@${branchName}: {{payload.summary}}`,
@@ -263,11 +324,15 @@ function buildCiGuardSpec(
 function buildPrReviewGuardSpec(
   repoName: string,
   branchName: string,
-  worktreeId: string
+  worktreeId: string,
+  resolvedBotId: string | null
 ): PulseRuleSpec {
+  const promptTemplate = `Review PR comment on ${repoName}@${branchName}: {{payload.comment.body}}`;
   return {
     name: `PR Review Guard: ${repoName}@${branchName}`,
-    description: `Route PR review comments on ${branchName} to Bot`,
+    description: resolvedBotId
+      ? `Route PR review comments on ${branchName} to Bot`
+      : `Route PR review comments on ${branchName} to Fresh Session`,
     workspaceId: worktreeId,
     evalMode: 'auto',
     orchestrator: 'direct_reflex',
@@ -286,14 +351,23 @@ function buildPrReviewGuardSpec(
     },
     temporal: null,
     targets: [
-      {
-        kind: 'bot',
-        memberId: 'pr-review-bot',
-        conversationScope: 'per_thread_topic',
-        mailboxPolicy: 'fifo_serial',
-        subscribeThread: true,
-        promptTemplate: `Review PR comment on ${repoName}@${branchName}: {{payload.comment.body}}`,
-      },
+      resolvedBotId
+        ? {
+            kind: 'bot',
+            memberId: resolvedBotId,
+            conversationScope: 'per_thread_topic',
+            mailboxPolicy: 'fifo_serial',
+            subscribeThread: true,
+            promptTemplate,
+          }
+        : {
+            kind: 'session',
+            mode: 'ephemeral_fresh',
+            agentId: 'claude-code',
+            workspaceIsolation: 'isolated_worktree',
+            subscribeThread: true,
+            promptTemplate,
+          },
     ],
   };
 }
@@ -302,16 +376,23 @@ export function PulseGuardMenu({
   repoName,
   branchName,
   worktreeId,
+  sessionId = null,
 }: {
   repoName: string;
   branchName: string;
   worktreeId: string;
+  sessionId?: string | null;
 }) {
   const queryClient = useQueryClient();
   const [open, setOpen] = useState(false);
   const [rules, setRules] = useState<PulseRuleView[]>([]);
   const [subscriptions, setSubscriptions] = useState<PulseSubscriptionView[]>(
     []
+  );
+  const [resolvedBotId, setResolvedBotId] = useState<string | null>(null);
+  const [resolvedSpaceId, setResolvedSpaceId] = useState<string | null>(null);
+  const [discoveredSessionId, setDiscoveredSessionId] = useState<string | null>(
+    null
   );
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const [statusError, setStatusError] = useState<string | null>(null);
@@ -335,6 +416,7 @@ export function PulseGuardMenu({
   useEffect(() => {
     if (!open) return;
     let cancelled = false;
+
     pulseApi
       .deckSnapshot()
       .then((snapshot) => {
@@ -347,10 +429,53 @@ export function PulseGuardMenu({
       .catch(() => {
         // Best-effort snapshot load when menu opens.
       });
+
+    void Promise.all([
+      collaborationCall<{
+        items?: Array<{
+          kind?: string;
+          space_id?: string;
+          member?: {
+            member_id?: string | null;
+            identity_member_id?: string | null;
+          };
+        }>;
+      }>('collaboration', 'thread.listSidebar', { workspaceId: worktreeId })
+        .then((sidebar) => {
+          if (cancelled) return;
+          const items = Array.isArray(sidebar?.items) ? sidebar.items : [];
+          const dmBot = items.find(
+            (item) =>
+              item.kind === 'dm' &&
+              (item.member?.member_id || item.member?.identity_member_id)
+          );
+          const groupSpace = items.find(
+            (item) => item.kind === 'group' && item.space_id
+          );
+          const botId =
+            dmBot?.member?.member_id?.trim() ||
+            dmBot?.member?.identity_member_id?.trim() ||
+            null;
+          setResolvedBotId(botId);
+          setResolvedSpaceId(groupSpace?.space_id?.trim() || null);
+        })
+        .catch(() => null),
+      !sessionId
+        ? sessionsApi
+            .getSummariesByWorkspace(worktreeId)
+            .then((summaries) => {
+              if (cancelled || !Array.isArray(summaries)) return;
+              const firstId = summaries[0]?.id?.trim() || null;
+              setDiscoveredSessionId(firstId);
+            })
+            .catch(() => null)
+        : Promise.resolve(null),
+    ]);
+
     return () => {
       cancelled = true;
     };
-  }, [open]);
+  }, [open, sessionId, worktreeId]);
 
   const handleToggleRule = async (
     key: 'ci' | 'pr',
@@ -369,7 +494,7 @@ export function PulseGuardMenu({
         return current.map((item) => (item.id === updated.id ? updated : item));
       });
       void queryClient.invalidateQueries({
-        queryKey: ['pulse-deck-snapshot'],
+        queryKey: [PULSE_DECK_SNAPSHOT_QUERY_ROOT],
       });
     } catch (err) {
       setStatusError(
@@ -378,6 +503,23 @@ export function PulseGuardMenu({
     } finally {
       setBusyKey(null);
     }
+  };
+
+  const resolveSubscriptionTarget = (): {
+    kind: PulseSubscriberKind;
+    id: string;
+  } => {
+    const activeSid = sessionId?.trim() || discoveredSessionId?.trim();
+    if (activeSid) {
+      return { kind: 'session', id: activeSid };
+    }
+    if (resolvedBotId) {
+      return { kind: 'bot', id: resolvedBotId };
+    }
+    if (resolvedSpaceId) {
+      return { kind: 'group', id: resolvedSpaceId };
+    }
+    return { kind: 'group', id: `unassigned:${worktreeId}` };
   };
 
   const handleToggleThreadSubscription = async () => {
@@ -390,15 +532,16 @@ export function PulseGuardMenu({
           current.filter((item) => item.id !== prSub.id)
         );
       } else {
+        const target = resolveSubscriptionTarget();
         const created = await pulseApi.subscribeThread(
           prThreadKey,
-          'session',
-          worktreeId
+          target.kind,
+          target.id
         );
         setSubscriptions((current) => [...current, created]);
       }
       void queryClient.invalidateQueries({
-        queryKey: ['pulse-deck-snapshot'],
+        queryKey: [PULSE_DECK_SNAPSHOT_QUERY_ROOT],
       });
     } catch (err) {
       setStatusError(
@@ -479,12 +622,21 @@ export function PulseGuardMenu({
               void handleToggleRule(
                 'pr',
                 prRule,
-                buildPrReviewGuardSpec(repoName, branchName, worktreeId)
+                buildPrReviewGuardSpec(
+                  repoName,
+                  branchName,
+                  worktreeId,
+                  resolvedBotId
+                )
               )
             }
             className="flex w-full items-center justify-between gap-2 rounded-md border border-border bg-background px-2.5 py-1.5 text-left text-xs transition-colors hover:bg-muted"
           >
-            <span>Route PR review comments to Bot</span>
+            <span>
+              {resolvedBotId
+                ? 'Route PR review comments to Bot'
+                : 'Route PR review comments (Fresh Session)'}
+            </span>
             <span
               className={cn(
                 'inline-flex h-4 w-4 shrink-0 items-center justify-center rounded border',

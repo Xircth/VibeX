@@ -866,18 +866,30 @@ impl AgentConnectionManager {
             return Err(AgentError::ConnectionNotFound(connection_id.to_string()));
         };
 
+        let is_connecting = *connection.status.lock().await == AgentConnectionStatus::Connecting;
         // A closed command channel means the process task is already exiting;
-        // it is still safe and necessary to join it.
-        let _ = connection
-            .cmd_tx
-            .send(AgentConnectionCommand::Disconnect)
-            .await;
+        // it is still safe and necessary to join it. When still in startup
+        // handshake (`Connecting`), `cmd_rx` is not polled yet, so skip the
+        // join timeout and abort immediately so `ready_rx` wakes without delay.
+        if !is_connecting {
+            let _ = connection
+                .cmd_tx
+                .send(AgentConnectionCommand::Disconnect)
+                .await;
+        }
         let mut task = connection.task;
-        match tokio::time::timeout(DISCONNECT_JOIN_TIMEOUT, &mut task).await {
-            Ok(result) => result.map_err(|error| {
+        let join_result = if is_connecting {
+            None
+        } else {
+            tokio::time::timeout(DISCONNECT_JOIN_TIMEOUT, &mut task)
+                .await
+                .ok()
+        };
+        match join_result {
+            Some(result) => result.map_err(|error| {
                 AgentError::Runtime(format!("agent connection task failed: {error}"))
             }),
-            Err(_) => {
+            None => {
                 task.abort();
                 let _ = task.await;
                 let _ = connection.child_pid.lock().unwrap().take();
@@ -1093,6 +1105,9 @@ impl AgentConnectionManager {
                 if !connection.pending_permissions.lock().await.is_empty() {
                     continue;
                 }
+                if !connection.pending_elicitations.lock().await.is_empty() {
+                    continue;
+                }
 
                 // Evaluate official Claude Prompt Cache warm-preservation before
                 // deciding whether to evict an idle connection.
@@ -1158,13 +1173,34 @@ impl AgentConnectionManager {
                 if connection.last_activity.lock().await.elapsed() < timeout {
                     continue;
                 }
-                stale.push(*id);
+                stale.push((*id, connection.snapshot.clone()));
             }
         }
         let mut disconnected = 0;
-        for connection_id in stale {
+        for (connection_id, snapshot) in stale {
             if self.disconnect(connection_id).await.is_ok() {
                 disconnected += 1;
+                let event_now = Utc::now();
+                send_manager_event(
+                    &self.event_tx,
+                    AgentConnectionManagerEvent {
+                        connection_id,
+                        session_id: None,
+                        prompt_id: None,
+                        event: AgentEvent::ConnectionStatusChanged {
+                            snapshot: crate::state::AgentConnectionSnapshot {
+                                id: snapshot.connection_id,
+                                agent_id: snapshot.agent_id,
+                                workspace_id: snapshot.workspace_id,
+                                status: AgentConnectionStatus::Disconnected,
+                                working_dir: snapshot.working_dir.display().to_string(),
+                                status_message: None,
+                                created_at: event_now,
+                                updated_at: event_now,
+                            },
+                        },
+                    },
+                );
             }
         }
         disconnected

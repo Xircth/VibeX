@@ -164,6 +164,20 @@ fn env_with_conversation_id(
     env
 }
 
+fn launch_env_matches(
+    launch_env: &HashMap<String, String>,
+    input_env: &HashMap<String, String>,
+    session_id: AgentSessionId,
+) -> bool {
+    if launch_env.contains_key(CONVERSATION_ID_ENV) {
+        *launch_env == env_with_conversation_id(input_env.clone(), session_id)
+    } else {
+        let mut stripped = input_env.clone();
+        stripped.remove(CONVERSATION_ID_ENV);
+        *launch_env == stripped
+    }
+}
+
 pub fn runtime_event_channel() -> (
     Arc<dyn RuntimeEventSink>,
     mpsc::Receiver<AgentEventEnvelope>,
@@ -274,6 +288,7 @@ struct RuntimeConnectionLaunch {
 struct RuntimeConnection {
     snapshot: AgentConnectionSnapshot,
     launch: RuntimeConnectionLaunch,
+    config_stale: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -303,6 +318,7 @@ struct RuntimeState {
     sequence: i64,
     connections: HashMap<AgentConnectionId, RuntimeConnection>,
     sessions: HashMap<AgentSessionId, RuntimeSession>,
+    pending_session_connections: HashMap<AgentSessionId, AgentConnectionId>,
     prompts: HashMap<AgentPromptId, AgentPromptSnapshot>,
     prompt_blocks: HashMap<AgentPromptId, Vec<AgentContentBlock>>,
     prompt_display_blocks: HashMap<AgentPromptId, Vec<AgentContentBlock>>,
@@ -711,6 +727,11 @@ impl AgentRuntime {
         let _ = crate::engine::invalidate_engine_caches_for_agent(agent_id.as_str()).await;
         let reason = reason.into();
         let mut state = self.state.write().await;
+        for connection in state.connections.values_mut() {
+            if connection.snapshot.agent_id == *agent_id {
+                connection.config_stale = true;
+            }
+        }
         let sessions = state
             .sessions
             .iter()
@@ -736,6 +757,35 @@ impl AgentRuntime {
             );
         }
         sessions.len()
+    }
+
+    pub async fn session_connection_config_stale(&self, session_id: AgentSessionId) -> bool {
+        let state = self.state.read().await;
+        let Some(session) = state.sessions.get(&session_id) else {
+            return false;
+        };
+        state
+            .connections
+            .get(&session.snapshot.connection_id)
+            .is_some_and(|connection| connection.config_stale)
+    }
+
+    pub async fn has_active_sessions_for_agent(&self, agent_id: &AgentId) -> bool {
+        let state = self.state.read().await;
+        state.sessions.values().any(|session| {
+            state
+                .connections
+                .get(&session.snapshot.connection_id)
+                .is_some_and(|connection| {
+                    connection.snapshot.agent_id == *agent_id
+                        && matches!(
+                            connection.snapshot.status,
+                            AgentConnectionStatus::Ready
+                                | AgentConnectionStatus::Connecting
+                                | AgentConnectionStatus::Recovering
+                        )
+                })
+        })
     }
 
     /// Install the delegation companion injector so each new ACP session can
@@ -779,17 +829,69 @@ impl AgentRuntime {
             self.event_sink.as_ref(),
             &self.event_tx,
             input,
+            None,
+        )
+        .await
+    }
+
+    async fn connect_for_session(
+        &self,
+        session_id: AgentSessionId,
+        input: ConnectAgentInput,
+    ) -> AgentResult<AgentConnectionSnapshot> {
+        Self::establish_connection(
+            &self.state,
+            &self.connection_manager,
+            self.event_sink.as_ref(),
+            &self.event_tx,
+            input,
+            Some(session_id),
         )
         .await
     }
 
     async fn establish_connection(
-        state: &RwLock<RuntimeState>,
+        state: &Arc<RwLock<RuntimeState>>,
         connection_manager: &AgentConnectionManager,
         event_sink: &dyn RuntimeEventSink,
         event_tx: &broadcast::Sender<AgentEventEnvelope>,
         input: ConnectAgentInput,
+        for_session_id: Option<AgentSessionId>,
     ) -> AgentResult<AgentConnectionSnapshot> {
+        struct PendingSessionConnectionGuard {
+            state: Arc<RwLock<RuntimeState>>,
+            session_id: Option<AgentSessionId>,
+            connection_id: AgentConnectionId,
+            armed: bool,
+        }
+
+        impl Drop for PendingSessionConnectionGuard {
+            fn drop(&mut self) {
+                if !self.armed {
+                    return;
+                }
+                let Some(session_id) = self.session_id else {
+                    return;
+                };
+                let connection_id = self.connection_id;
+                if let Ok(mut guard) = self.state.try_write() {
+                    if guard.pending_session_connections.get(&session_id) == Some(&connection_id) {
+                        guard.pending_session_connections.remove(&session_id);
+                    }
+                } else if let Ok(handle) = tokio::runtime::Handle::try_current() {
+                    let state = Arc::clone(&self.state);
+                    handle.spawn(async move {
+                        let mut guard = state.write().await;
+                        if guard.pending_session_connections.get(&session_id)
+                            == Some(&connection_id)
+                        {
+                            guard.pending_session_connections.remove(&session_id);
+                        }
+                    });
+                }
+            }
+        }
+
         let now = Utc::now();
         let snapshot = AgentConnectionSnapshot {
             id: AgentConnectionId::new(),
@@ -812,8 +914,20 @@ impl AgentRuntime {
                     auto_approve_mode: input.auto_approve_mode,
                     env: input.env.clone(),
                 },
+                config_stale: false,
             },
         );
+        if let Some(session_id) = for_session_id {
+            state_guard
+                .pending_session_connections
+                .insert(session_id, snapshot.id);
+        }
+        let mut pending_guard = PendingSessionConnectionGuard {
+            state: Arc::clone(state),
+            session_id: for_session_id,
+            connection_id: snapshot.id,
+            armed: for_session_id.is_some(),
+        };
         Self::emit_with_parts_locked(
             &mut state_guard,
             event_sink,
@@ -839,6 +953,28 @@ impl AgentRuntime {
             })
             .await;
 
+        let cancelled_before_register = {
+            let state_guard = state.read().await;
+            state_guard
+                .connections
+                .get(&snapshot.id)
+                .is_none_or(|c| c.snapshot.status == AgentConnectionStatus::Disconnected)
+        };
+        if cancelled_before_register {
+            let mut state_guard = state.write().await;
+            if let Some(session_id) = for_session_id
+                && state_guard.pending_session_connections.get(&session_id) == Some(&snapshot.id)
+            {
+                state_guard.pending_session_connections.remove(&session_id);
+            }
+            pending_guard.armed = false;
+            drop(state_guard);
+            let _ = connection_manager.disconnect(snapshot.id).await;
+            return Err(AgentError::Runtime(
+                "agent connection disconnected before it became ready".to_string(),
+            ));
+        }
+
         // Block until the ACP handshake completes. `run_acp` signals readiness
         // after InitializeRequest succeeds; any spawn/handshake failure drops the
         // sender. Marking the connection Ready only after this guarantees the
@@ -855,7 +991,16 @@ impl AgentRuntime {
                 };
                 let message = error.to_string();
                 let mut state_guard = state.write().await;
-                if let Some(connection) = state_guard.connections.get_mut(&snapshot.id) {
+                if let Some(session_id) = for_session_id
+                    && state_guard.pending_session_connections.get(&session_id)
+                        == Some(&snapshot.id)
+                {
+                    state_guard.pending_session_connections.remove(&session_id);
+                }
+                pending_guard.armed = false;
+                if let Some(connection) = state_guard.connections.get_mut(&snapshot.id)
+                    && connection.snapshot.status != AgentConnectionStatus::Disconnected
+                {
                     connection.snapshot.status = AgentConnectionStatus::Failed;
                     connection.snapshot.status_message = Some(message);
                     connection.snapshot.updated_at = Utc::now();
@@ -876,29 +1021,41 @@ impl AgentRuntime {
         }
 
         let mut state_guard = state.write().await;
-        let ready_snapshot = if let Some(connection) = state_guard.connections.get_mut(&snapshot.id)
+        if let Some(session_id) = for_session_id
+            && state_guard.pending_session_connections.get(&session_id) == Some(&snapshot.id)
         {
-            connection.snapshot.status = AgentConnectionStatus::Ready;
-            connection.snapshot.updated_at = Utc::now();
-            Some(connection.snapshot.clone())
-        } else {
-            None
-        };
-        let returned_snapshot = ready_snapshot.clone().unwrap_or(snapshot);
-        if let Some(ready_snapshot) = ready_snapshot {
-            Self::emit_with_parts_locked(
-                &mut state_guard,
-                event_sink,
-                event_tx,
-                ready_snapshot.id,
-                None,
-                AgentEvent::ConnectionStatusChanged {
-                    snapshot: ready_snapshot,
-                },
-            );
+            state_guard.pending_session_connections.remove(&session_id);
         }
+        pending_guard.armed = false;
+        let Some(connection) = state_guard.connections.get_mut(&snapshot.id) else {
+            drop(state_guard);
+            let _ = connection_manager.disconnect(snapshot.id).await;
+            return Err(AgentError::Runtime(
+                "agent connection discarded before it became ready".to_string(),
+            ));
+        };
+        if connection.snapshot.status == AgentConnectionStatus::Disconnected {
+            drop(state_guard);
+            let _ = connection_manager.disconnect(snapshot.id).await;
+            return Err(AgentError::Runtime(
+                "agent connection disconnected before it became ready".to_string(),
+            ));
+        }
+        connection.snapshot.status = AgentConnectionStatus::Ready;
+        connection.snapshot.updated_at = Utc::now();
+        let ready_snapshot = connection.snapshot.clone();
+        Self::emit_with_parts_locked(
+            &mut state_guard,
+            event_sink,
+            event_tx,
+            ready_snapshot.id,
+            None,
+            AgentEvent::ConnectionStatusChanged {
+                snapshot: ready_snapshot.clone(),
+            },
+        );
 
-        Ok(returned_snapshot)
+        Ok(ready_snapshot)
     }
 
     pub async fn new_session(
@@ -934,6 +1091,7 @@ impl AgentRuntime {
             updated_at: now,
         };
 
+        state.pending_session_connections.remove(&snapshot.id);
         state.sessions.insert(
             snapshot.id,
             RuntimeSession {
@@ -1045,20 +1203,25 @@ impl AgentRuntime {
         // streams interleave on the same process. Always start a fresh connection
         // instead of adopting another conversation's (ADR-0069).
         let connection_id = self
-            .connect(ConnectAgentInput {
-                agent_id: input.agent_id,
-                launch_lock: input.launch_lock,
-                workspace_id: input.workspace_id,
-                working_dir: input.working_dir,
-                additional_directories: input.additional_directories,
-                auto_approve_mode: input.auto_approve_mode,
-                env: env_with_conversation_id(input.env, input.session_id),
-            })
+            .connect_for_session(
+                input.session_id,
+                ConnectAgentInput {
+                    agent_id: input.agent_id,
+                    launch_lock: input.launch_lock,
+                    workspace_id: input.workspace_id,
+                    working_dir: input.working_dir,
+                    additional_directories: input.additional_directories,
+                    auto_approve_mode: input.auto_approve_mode,
+                    env: env_with_conversation_id(input.env, input.session_id),
+                },
+            )
             .await?
             .id;
 
-        let rebound =
-            if let Some(existing) = self.state.write().await.sessions.get_mut(&input.session_id) {
+        let rebound = {
+            let mut state = self.state.write().await;
+            state.pending_session_connections.remove(&input.session_id);
+            if let Some(existing) = state.sessions.get_mut(&input.session_id) {
                 existing.snapshot.connection_id = connection_id;
                 existing.snapshot.acp_session_id = input.acp_session_id.clone();
                 existing.snapshot.status = AgentSessionStatus::Ready;
@@ -1066,7 +1229,8 @@ impl AgentRuntime {
                 Some(existing.snapshot.clone())
             } else {
                 None
-            };
+            }
+        };
         if let Some(previous_connection_id) = previous_connection_id
             && previous_connection_id != connection_id
         {
@@ -1912,6 +2076,7 @@ impl AgentRuntime {
             .sessions
             .get(&session_id)
             .map(|session| session.snapshot.connection_id)
+            .or_else(|| state.pending_session_connections.get(&session_id).copied())
     }
 
     pub async fn session_agent_id(&self, session_id: AgentSessionId) -> Option<AgentId> {
@@ -2034,14 +2199,19 @@ impl AgentRuntime {
             let Some(connection) = state.connections.get(&session.connection_id) else {
                 return false;
             };
-            if !matches!(
-                connection.snapshot.status,
-                AgentConnectionStatus::Ready
-                    | AgentConnectionStatus::Connecting
-                    | AgentConnectionStatus::Recovering
-            ) || connection.snapshot.agent_id != input.agent_id
+            if connection.config_stale
+                || !matches!(
+                    connection.snapshot.status,
+                    AgentConnectionStatus::Ready
+                        | AgentConnectionStatus::Connecting
+                        | AgentConnectionStatus::Recovering
+                )
+                || connection.snapshot.agent_id != input.agent_id
                 || connection.snapshot.workspace_id != input.workspace_id
                 || connection.snapshot.working_dir != input.working_dir.display().to_string()
+                || connection.launch.launch_lock != input.launch_lock
+                || connection.launch.auto_approve_mode != input.auto_approve_mode
+                || !launch_env_matches(&connection.launch.env, &input.env, input.session_id)
             {
                 return false;
             }
@@ -2058,7 +2228,15 @@ impl AgentRuntime {
         let Some(connection_id) = self.live_connection_id(session_id).await else {
             return false;
         };
-        self.connection_manager.has_connection(connection_id).await
+        if self.connection_manager.has_connection(connection_id).await {
+            return true;
+        }
+        let state = self.state.read().await;
+        state.pending_session_connections.get(&session_id) == Some(&connection_id)
+            && state
+                .connections
+                .get(&connection_id)
+                .is_some_and(|c| c.snapshot.status == AgentConnectionStatus::Connecting)
     }
 
     pub async fn cancel_prompt(&self, input: CancelAgentPromptInput) -> AgentResult<()> {
@@ -2278,9 +2456,23 @@ impl AgentRuntime {
         &self,
         connection_id: AgentConnectionId,
     ) -> AgentResult<AgentConnectionSnapshot> {
-        self.connection_manager.disconnect(connection_id).await?;
+        if let Err(err) = self.connection_manager.disconnect(connection_id).await {
+            let is_pending_connecting = self
+                .state
+                .read()
+                .await
+                .connections
+                .get(&connection_id)
+                .is_some_and(|c| c.snapshot.status == AgentConnectionStatus::Connecting);
+            if !is_pending_connecting {
+                return Err(err);
+            }
+        }
 
         let mut state = self.state.write().await;
+        state
+            .pending_session_connections
+            .retain(|_, cid| *cid != connection_id);
         let snapshot = state
             .connections
             .get_mut(&connection_id)
@@ -2307,9 +2499,21 @@ impl AgentRuntime {
     /// Reap a short-lived probe/discovery connection and remove it from the
     /// runtime active set instead of retaining a Disconnected history entry.
     pub async fn discard_connection(&self, connection_id: AgentConnectionId) -> AgentResult<()> {
-        self.connection_manager.disconnect(connection_id).await?;
+        let manager_result = self.connection_manager.disconnect(connection_id).await;
         let mut state = self.state.write().await;
+        let is_pending_connecting = state
+            .connections
+            .get(&connection_id)
+            .is_some_and(|c| c.snapshot.status == AgentConnectionStatus::Connecting);
+        if let Err(err) = manager_result
+            && !is_pending_connecting
+        {
+            return Err(err);
+        }
         state.connections.remove(&connection_id);
+        state
+            .pending_session_connections
+            .retain(|_, cid| *cid != connection_id);
         state
             .sessions
             .retain(|_, session| session.snapshot.connection_id != connection_id);
@@ -2388,8 +2592,19 @@ impl AgentRuntime {
     ) {
         match &manager_event.event {
             AgentEvent::ConnectionStatusChanged { snapshot } => {
+                if matches!(
+                    snapshot.status,
+                    AgentConnectionStatus::Disconnected | AgentConnectionStatus::Failed
+                ) {
+                    state
+                        .pending_session_connections
+                        .retain(|_, cid| *cid != snapshot.id);
+                }
                 if let Some(connection) = state.connections.get_mut(&snapshot.id) {
-                    connection.snapshot = snapshot.clone();
+                    let created_at = connection.snapshot.created_at;
+                    let mut updated = snapshot.clone();
+                    updated.created_at = created_at;
+                    connection.snapshot = updated;
                 }
             }
             AgentEvent::PromptFinished { finished } => {

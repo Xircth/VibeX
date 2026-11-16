@@ -1,8 +1,23 @@
-import { useEffect, useLayoutEffect, useMemo, useState } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
 import { Bot, X } from 'lucide-react';
+import { useVirtualizer } from '@tanstack/react-virtual';
 import { ConversationTimelineSkeleton } from '@/components/logs/ConversationTimelineSkeleton';
+import {
+  ESTIMATED_CONVERSATION_ROW_HEIGHT,
+  getVirtualRowTranslateY,
+  measureScrollMargin,
+  measureUnscaledBlockHeight,
+  observeUnscaledElementRect,
+} from '@/components/logs/VirtualizedList';
 import type {
   AgentElicitationResponse,
   AgentPermissionResponse,
@@ -18,7 +33,10 @@ import { QuestionRequestCard } from '@/components/NormalizedConversation/convers
 import { TurnErrorCard } from '@/components/NormalizedConversation/conversation/TurnErrorCard';
 import { ArtifactTimelineCard } from '@/components/NormalizedConversation/ArtifactTimelineCard';
 import { MessageTurnView } from '@/components/NormalizedConversation/MessageTurnView';
-import { hasMatchingAskQuestionTool } from '@/components/NormalizedConversation/TurnActivity';
+import {
+  collectAskQuestionToolUses,
+  findMatchingAskQuestionToolInUses,
+} from '@/components/NormalizedConversation/TurnActivity';
 import { SubagentLifecycleProvider } from '@/components/NormalizedConversation/tools/SubagentLifecycleContext';
 import { toast } from '@/components/ui/toast';
 import {
@@ -32,6 +50,13 @@ import { agentDisplayLabel } from './DelegationCard';
 import i18n from '@/i18n';
 
 const CONVERSATION_REGION_SELECTOR = '.right-panel-conversation-region';
+const CHILD_VIRTUALIZE_THRESHOLD = 24;
+const CHILD_VIRTUAL_OVERSCAN = 8;
+
+type ChildRenderRow =
+  | { kind: 'stream-message'; key: string; item: ConversationTimelineTurn }
+  | { kind: 'stream-side'; key: string; row: TimelineRow }
+  | { kind: 'leftover-side'; key: string; row: TimelineRow };
 
 export function ChildConversationViewer({
   conversationId,
@@ -58,6 +83,9 @@ export function ChildConversationViewer({
   const conversation = useConversationTimeline(conversationId);
   const [respondingId, setRespondingId] = useState<string | null>(null);
   const [host, setHost] = useState<HTMLElement | null>(null);
+  const scrollRef = useRef<HTMLDivElement | null>(null);
+  const listRef = useRef<HTMLDivElement | null>(null);
+  const [scrollMargin, setScrollMargin] = useState(0);
   const messages = conversation.timeline;
   const agentId = conversation.agentId ?? agentIdHint ?? null;
   const title = agentId ? agentDisplayLabel(agentId) : t('childViewer.title');
@@ -95,6 +123,113 @@ export function ChildConversationViewer({
       ),
     [conversation.sideRows]
   );
+  const askQuestionUses = useMemo(
+    () => collectAskQuestionToolUses(messages),
+    [messages]
+  );
+  const matchedAnsweredQuestionIds = useMemo(() => {
+    const matched = new Set<string>();
+    const checked = new Set<string>();
+    const checkRow = (row: TimelineRow) => {
+      if (row.row.kind !== 'question_request' || !row.row.response) return;
+      const questionId = row.row.request.question_id;
+      if (checked.has(questionId)) return;
+      checked.add(questionId);
+      if (
+        findMatchingAskQuestionToolInUses(row.row.request, askQuestionUses) !==
+        null
+      ) {
+        matched.add(questionId);
+      }
+    };
+    for (const entry of stream) {
+      if (entry.kind === 'side') checkRow(entry.row);
+    }
+    for (const row of leftoverSideRows) {
+      checkRow(row);
+    }
+    return matched;
+  }, [askQuestionUses, leftoverSideRows, stream]);
+
+  const turnsForProvider = useMemo(
+    () => messages.map((row) => row.turn),
+    [messages]
+  );
+
+  const renderRows = useMemo<ChildRenderRow[]>(() => {
+    const rows: ChildRenderRow[] = [];
+    for (const entry of stream) {
+      if (entry.kind === 'message') {
+        rows.push({
+          kind: 'stream-message',
+          key: entry.item.key,
+          item: entry.item,
+        });
+        continue;
+      }
+      if (
+        entry.row.row.kind === 'question_request' &&
+        entry.row.row.response &&
+        matchedAnsweredQuestionIds.has(entry.row.row.request.question_id)
+      ) {
+        continue;
+      }
+      rows.push({
+        kind: 'stream-side',
+        key: entry.row.row_id,
+        row: entry.row,
+      });
+    }
+    for (const entry of leftoverSideRows) {
+      if (entry.row.kind === 'permission_request') {
+        rows.push({ kind: 'leftover-side', key: entry.row_id, row: entry });
+      } else if (entry.row.kind === 'question_request') {
+        if (
+          entry.row.response &&
+          matchedAnsweredQuestionIds.has(entry.row.request.question_id)
+        ) {
+          continue;
+        }
+        rows.push({ kind: 'leftover-side', key: entry.row_id, row: entry });
+      } else if (entry.row.kind === 'turn_error') {
+        rows.push({ kind: 'leftover-side', key: entry.row_id, row: entry });
+      }
+    }
+    return rows;
+  }, [leftoverSideRows, matchedAnsweredQuestionIds, stream]);
+
+  const shouldVirtualize = renderRows.length > CHILD_VIRTUALIZE_THRESHOLD;
+  const rowVirtualizer = useVirtualizer<HTMLDivElement, HTMLDivElement>({
+    count: shouldVirtualize ? renderRows.length : 0,
+    getScrollElement: () => scrollRef.current,
+    estimateSize: () => ESTIMATED_CONVERSATION_ROW_HEIGHT,
+    getItemKey: (index) => renderRows[index]?.key ?? index,
+    overscan: CHILD_VIRTUAL_OVERSCAN,
+    scrollMargin,
+    observeElementRect: observeUnscaledElementRect,
+    measureElement: measureUnscaledBlockHeight,
+  });
+
+  useLayoutEffect(() => {
+    if (!shouldVirtualize) {
+      setScrollMargin(0);
+      return;
+    }
+    const container = scrollRef.current;
+    const list = listRef.current;
+    if (!container || !list) return;
+    const update = () => {
+      const next = measureScrollMargin(list, container);
+      setScrollMargin((current) =>
+        Math.abs(current - next) > 1 ? next : current
+      );
+    };
+    update();
+    const observer = new ResizeObserver(update);
+    observer.observe(container);
+    observer.observe(list);
+    return () => observer.disconnect();
+  }, [shouldVirtualize, renderRows.length]);
 
   useLayoutEffect(() => {
     const node = document.querySelector(CONVERSATION_REGION_SELECTOR);
@@ -111,29 +246,80 @@ export function ChildConversationViewer({
     return () => window.removeEventListener('keydown', onKeyDown, true);
   }, [onClose]);
 
-  const respondPermission = (
-    permissionId: string,
-    response: AgentPermissionResponse
-  ) => {
-    setRespondingId(permissionId);
-    void conversation
-      .respondPermission(permissionId, response)
-      .catch((error) =>
-        toast.error(error instanceof Error ? error.message : String(error))
-      )
-      .finally(() => setRespondingId(null));
-  };
-  const respondQuestion = (
-    questionId: string,
-    response: AgentElicitationResponse
-  ) => {
-    setRespondingId(questionId);
-    void conversation
-      .respondQuestion(questionId, response)
-      .catch((error) =>
-        toast.error(error instanceof Error ? error.message : String(error))
-      )
-      .finally(() => setRespondingId(null));
+  const respondPermission = useCallback(
+    (permissionId: string, response: AgentPermissionResponse) => {
+      setRespondingId(permissionId);
+      void conversation
+        .respondPermission(permissionId, response)
+        .catch((error) =>
+          toast.error(error instanceof Error ? error.message : String(error))
+        )
+        .finally(() => setRespondingId(null));
+    },
+    [conversation]
+  );
+  const respondQuestion = useCallback(
+    (questionId: string, response: AgentElicitationResponse) => {
+      setRespondingId(questionId);
+      void conversation
+        .respondQuestion(questionId, response)
+        .catch((error) =>
+          toast.error(error instanceof Error ? error.message : String(error))
+        )
+        .finally(() => setRespondingId(null));
+    },
+    [conversation]
+  );
+
+  const renderChildRow = (row: ChildRenderRow) => {
+    if (row.kind === 'stream-message') {
+      return (
+        <MessageTurnView
+          turn={row.item.turn}
+          phase={row.item.phase}
+          attempt={attempt}
+          task={task}
+          workspacePath={workspacePath}
+          collapseProcess={collapseAiMessages}
+          showInterruptedNotice={false}
+          delegations={delegations}
+          questions={timelineQuestions}
+          onOpenChild={onOpenChild}
+        />
+      );
+    }
+    if (row.kind === 'stream-side') {
+      return (
+        <ChildInlineSideRow
+          entry={row.row}
+          respondingId={respondingId}
+          onRespondQuestion={respondQuestion}
+        />
+      );
+    }
+    const entry = row.row;
+    if (entry.row.kind === 'permission_request') {
+      return (
+        <PermissionRequestCard
+          request={entry.row.request}
+          responding={respondingId === entry.row.request.permission_id}
+          onRespond={respondPermission}
+        />
+      );
+    }
+    if (entry.row.kind === 'question_request') {
+      return (
+        <ChildInlineSideRow
+          entry={entry}
+          respondingId={respondingId}
+          onRespondQuestion={respondQuestion}
+        />
+      );
+    }
+    if (entry.row.kind === 'turn_error') {
+      return <TurnErrorCard error={entry.row.error.error} />;
+    }
+    return null;
   };
 
   const overlay = (
@@ -175,7 +361,11 @@ export function ChildConversationViewer({
           data-testid="child-conversation-thread"
           className="mx-3 mb-3 min-h-0 flex-1 overflow-hidden rounded-xl bg-background"
         >
-          <div className="h-full overflow-y-auto px-2 py-3">
+          <div
+            ref={scrollRef}
+            data-panel="child-conversation-logs"
+            className="h-full overflow-y-auto px-2 py-3"
+          >
             {conversation.loading && messages.length === 0 ? (
               <ConversationTimelineSkeleton label={t('childViewer.loading')} />
             ) : stream.length === 0 && leftoverSideRows.length === 0 ? (
@@ -183,90 +373,42 @@ export function ChildConversationViewer({
                 {conversation.error ?? t('childViewer.empty')}
               </div>
             ) : (
-              <SubagentLifecycleProvider
-                turns={messages.map((row) => row.turn)}
-              >
+              <SubagentLifecycleProvider turns={turnsForProvider}>
                 <div className="conv-thread-shell relative mx-auto w-full">
                   <div className="conv-thread-content min-w-0 space-y-3">
-                    {stream.map((entry) => {
-                      if (entry.kind === 'message') {
-                        return (
-                          <MessageTurnView
-                            key={entry.item.key}
-                            turn={entry.item.turn}
-                            phase={entry.item.phase}
-                            attempt={attempt}
-                            task={task}
-                            workspacePath={workspacePath}
-                            collapseProcess={collapseAiMessages}
-                            showInterruptedNotice={false}
-                            delegations={delegations}
-                            questions={timelineQuestions}
-                            onOpenChild={onOpenChild}
-                          />
-                        );
-                      }
-                      if (
-                        entry.row.row.kind === 'question_request' &&
-                        entry.row.row.response &&
-                        hasMatchingAskQuestionTool(
-                          entry.row.row.request,
-                          messages
-                        )
-                      ) {
-                        return null;
-                      }
-                      return (
-                        <ChildInlineSideRow
-                          key={entry.row.row_id}
-                          entry={entry.row}
-                          respondingId={respondingId}
-                          onRespondQuestion={respondQuestion}
-                        />
-                      );
-                    })}
-                    {leftoverSideRows.map((entry) => {
-                      if (entry.row.kind === 'permission_request') {
-                        return (
-                          <PermissionRequestCard
-                            key={entry.row_id}
-                            request={entry.row.request}
-                            responding={
-                              respondingId === entry.row.request.permission_id
-                            }
-                            onRespond={respondPermission}
-                          />
-                        );
-                      }
-                      if (entry.row.kind === 'question_request') {
-                        if (
-                          entry.row.response &&
-                          hasMatchingAskQuestionTool(
-                            entry.row.request,
-                            messages
-                          )
-                        ) {
-                          return null;
-                        }
-                        return (
-                          <ChildInlineSideRow
-                            key={entry.row_id}
-                            entry={entry}
-                            respondingId={respondingId}
-                            onRespondQuestion={respondQuestion}
-                          />
-                        );
-                      }
-                      if (entry.row.kind === 'turn_error') {
-                        return (
-                          <TurnErrorCard
-                            key={entry.row_id}
-                            error={entry.row.error.error}
-                          />
-                        );
-                      }
-                      return null;
-                    })}
+                    {shouldVirtualize ? (
+                      <div
+                        ref={listRef}
+                        data-testid="child-conversation-virtual-list"
+                        className="relative w-full"
+                        style={{ height: `${rowVirtualizer.getTotalSize()}px` }}
+                      >
+                        {rowVirtualizer.getVirtualItems().map((virtualRow) => {
+                          const row = renderRows[virtualRow.index];
+                          if (!row) return null;
+                          return (
+                            <div
+                              key={virtualRow.key}
+                              ref={rowVirtualizer.measureElement}
+                              data-index={virtualRow.index}
+                              className="absolute left-0 top-0 w-full pb-3"
+                              style={{
+                                transform: getVirtualRowTranslateY(
+                                  virtualRow.start,
+                                  scrollMargin
+                                ),
+                              }}
+                            >
+                              {renderChildRow(row)}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    ) : (
+                      renderRows.map((row) => (
+                        <div key={row.key}>{renderChildRow(row)}</div>
+                      ))
+                    )}
                     {conversation.error ? (
                       <div
                         role="alert"

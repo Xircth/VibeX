@@ -13,6 +13,7 @@ export {
   conversationStoreReducer,
   emptyConversationStoreState,
   normalizeAgentIdentity,
+  selectActiveTurnStartedAt,
 } from './turnLifecycle';
 export type { ParsedAgentHandoffNotice } from './permissions';
 export {

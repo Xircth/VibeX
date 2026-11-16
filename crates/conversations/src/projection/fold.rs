@@ -73,8 +73,7 @@ impl ProjectionFold {
                     let turn = turns.get_mut(&turn_id).expect("turn exists");
                     let row_existed = !turn.assistant.blocks.is_empty();
                     turn.revision = record.sequence;
-                    turn.trailing_raw_text.clear();
-                    turn.emitted_internal_count = 0;
+                    turn.clear_trailing_raw_text();
                     let cleaned_block = match block {
                         ContentBlock::Text { text } => {
                             let extracted = agents::extract_and_strip_internal_messages(
@@ -255,7 +254,19 @@ impl ProjectionFold {
                                 *input_preview = Some(cap_preview_bytes(raw.to_string()));
                             }
                             if let Some(metadata) = tool_call.metadata.clone() {
-                                *meta = Some(cap_json_value(metadata));
+                                let merged = match (meta.take(), metadata) {
+                                    (
+                                        Some(serde_json::Value::Object(mut existing_map)),
+                                        serde_json::Value::Object(incoming_map),
+                                    ) => {
+                                        for (k, v) in incoming_map {
+                                            existing_map.insert(k, v);
+                                        }
+                                        serde_json::Value::Object(existing_map)
+                                    }
+                                    (_, incoming) => incoming,
+                                };
+                                *meta = Some(cap_json_value(merged));
                             }
                             if !tool_call.images.is_empty() {
                                 *images = tool_call.images.iter().take(4).cloned().collect();
@@ -534,7 +545,7 @@ impl ProjectionFold {
 }
 
 #[derive(Clone, Serialize, Deserialize)]
-pub(super) struct ProjectedTurn {
+pub(crate) struct ProjectedTurn {
     pub(super) turn_id: Uuid,
     pub(super) user: MessageTurn,
     pub(super) assistant: MessageTurn,
@@ -563,6 +574,8 @@ pub(super) struct ProjectedTurn {
     /// Count of internal messages already emitted for `trailing_raw_text`.
     #[serde(default)]
     pub(super) emitted_internal_count: usize,
+    #[serde(skip)]
+    pub(super) internal_scan_cursor: agents::conversation::InternalMessageScanCursor,
 }
 
 impl ProjectedTurn {
@@ -650,6 +663,7 @@ pub(super) fn ensure_turn(
             usage_announced: false,
             trailing_raw_text: String::new(),
             emitted_internal_count: 0,
+            internal_scan_cursor: Default::default(),
         },
     );
 }
@@ -709,6 +723,7 @@ fn finalize_trailing_raw_text(
         }
     }
     turn.emitted_internal_count = 0;
+    turn.internal_scan_cursor = Default::default();
 }
 
 fn settle_turn(
@@ -846,19 +861,22 @@ fn insert_mid_turn_user_slice(
 ) {
     if !turn.assistant.blocks.is_empty() {
         let mut closed = turn.assistant.clone();
+        let carry_usage = closed.usage.take();
         closed.completed_at = Some(record.created_at);
         turn.prefix_segments.push(closed);
         turn.prefix_segment_revisions.push(record.sequence);
         let next = turn.prefix_segments.len() + 1;
-        turn.assistant = new_message_turn(
+        let mut next_assistant = new_message_turn(
             format!("{}:assistant:{next}", turn.turn_id),
             TurnRole::Assistant,
             Vec::new(),
             record.created_at,
             None,
         );
-        turn.trailing_raw_text.clear();
-        turn.emitted_internal_count = 0;
+        next_assistant.usage = carry_usage;
+        turn.assistant = next_assistant;
+        turn.usage_announced = false;
+        turn.clear_trailing_raw_text();
     }
     if !blocks.is_empty() {
         turn.prefix_segments.push(new_message_turn(

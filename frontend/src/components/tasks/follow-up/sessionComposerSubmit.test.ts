@@ -249,7 +249,7 @@ describe('session composer submit helpers', () => {
         reviewMarkdown: '',
         imageCount: 0,
       })
-    ).toBe(false);
+    ).toBe(true);
   });
 
   it('applies compact eligibility gates', () => {

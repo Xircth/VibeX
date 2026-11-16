@@ -16,30 +16,46 @@
     fn unpersisted_delta_does_not_hide_the_next_database_event() {
         let conversation_id = Uuid::new_v4();
         let mut cached = CachedRowProjector::new(IncrementalRowProjector::at_sequence(4));
-        cached
-            .apply_unpersisted(&record_of(
-                conversation_id,
-                0,
-                ConversationEvent::AssistantTextDelta {
-                    text: "hi".into(),
-                    message_id: None,
-                },
-            ))
-            .expect("delta");
+        for chunk in ["hi", " ", "there"] {
+            cached
+                .apply_unpersisted(&record_of(
+                    conversation_id,
+                    0,
+                    ConversationEvent::AssistantTextDelta {
+                        text: chunk.into(),
+                        message_id: None,
+                    },
+                ))
+                .expect("delta");
+        }
         assert_eq!(cached.db_cursor, 4);
-        assert_eq!(cached.projector.last_sequence(), 5);
+        assert_eq!(
+            cached.projector.last_sequence(),
+            4,
+            "unpersisted deltas must not inflate projector sequence above db_cursor"
+        );
         assert!(cached.has_unpersisted());
 
-        cached
+        let ops = cached
             .apply_persisted(&record_of(
                 conversation_id,
                 5,
                 ConversationEvent::TurnCompleted { stop_reason: None },
             ))
-            .expect("completed");
+            .expect("completed")
+            .expect("persisted event applied");
         assert_eq!(cached.db_cursor, 5);
-        assert_eq!(cached.projector.last_sequence(), 6);
+        assert_eq!(cached.projector.last_sequence(), 5);
         assert!(!cached.has_unpersisted());
+        for op in ops {
+            if let ConversationRowOp::Upsert { row } = op {
+                assert!(
+                    row.revision <= 5,
+                    "persisted row revision {} must never drift above SQLite sequence 5",
+                    row.revision
+                );
+            }
+        }
     }
 
     #[test]

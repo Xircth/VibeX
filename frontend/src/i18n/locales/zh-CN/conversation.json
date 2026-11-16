@@ -365,7 +365,9 @@
     "matches_other": "{{count}} 处匹配",
     "openInPreview": "在预览中打开",
     "loadingDiff": "正在加载差异…",
-    "noHeadDiff": "与 HEAD 没有差异"
+    "noHeadDiff": "与 HEAD 没有差异",
+    "showAllLines": "展开全部 {{count}} 行",
+    "showFewerLines": "收起至前 {{count}} 行"
   },
   "timelineImage": {
     "show": "查看图片",

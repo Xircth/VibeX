@@ -56,16 +56,24 @@ impl ConversationSessionService {
         &self,
         input: ConversationSteerInput,
     ) -> Result<ConversationSteeringReceipt, ConversationServiceError> {
-        if input.text.trim().is_empty() && input.images.is_empty() {
+        if input.text.trim().is_empty()
+            && input.images.is_empty()
+            && input.file_refs.is_empty()
+            && input.promoted_input_id.is_none()
+        {
             return Err(ConversationServiceError::BadRequest(
-                "Steering input must include text or an image".to_string(),
+                "Steering input must include text, an image, or a file reference".to_string(),
             ));
         }
         let payload_digest = format!(
             "{:x}",
             Sha256::digest(serde_json::to_vec(&serde_json::json!({
                 "text": &input.text,
+                "displayText": &input.display_text,
                 "images": &input.images,
+                "fileRefs": &input.file_refs,
+                "modeOverride": &input.mode_override,
+                "configOverrides": &input.config_overrides,
             }))?)
         );
         let pool = &self.ctx.deployment.db().pool;
@@ -160,6 +168,12 @@ impl ConversationSessionService {
         }
 
         let mut promoted_requires_restart = false;
+        let mut effective_text = input.text.clone();
+        let mut effective_display_text = input.display_text.clone();
+        let mut effective_images = input.images.clone();
+        let mut effective_file_refs = input.file_refs.clone();
+        let mut effective_mode_override = input.mode_override.clone();
+        let mut effective_config_overrides = input.config_overrides.clone();
         if let Some(promoted_id) = input.promoted_input_id {
             let promoted_view = inputs.find(input.conversation_id, promoted_id).await?;
             if existing_requested_id.is_none() {
@@ -181,10 +195,37 @@ impl ConversationSessionService {
                     )));
                 }
             }
+            if effective_text.trim().is_empty() {
+                effective_text = promoted_view.payload.text.clone();
+            }
+            if effective_display_text.is_none() {
+                effective_display_text = promoted_view.payload.display_text.clone();
+            }
+            if effective_images.is_empty() {
+                effective_images = promoted_view.payload.images.clone();
+            }
+            if effective_file_refs.is_empty() {
+                effective_file_refs = promoted_view.payload.file_refs.clone();
+            }
+            if effective_mode_override.is_none() {
+                effective_mode_override = promoted_view.payload.mode_override.clone();
+            }
+            if effective_config_overrides.is_empty() {
+                effective_config_overrides = promoted_view.payload.config_overrides.clone();
+            }
             if !promoted_view.payload.workflow_refs.is_empty() {
                 promoted_requires_restart = true;
             }
         }
+        let effective_input = ConversationSteerInput {
+            text: effective_text,
+            display_text: effective_display_text,
+            images: effective_images,
+            file_refs: effective_file_refs,
+            mode_override: effective_mode_override,
+            config_overrides: effective_config_overrides,
+            ..input
+        };
 
         let execution_workspace_id = crate::isolated_workspace::execution_workspace_id(
             &self.ctx,
@@ -226,37 +267,46 @@ impl ConversationSessionService {
         let agent_blocks = self
             .ctx
             .host
-            .build_prompt_blocks(&working_dir, input.text.clone(), &input.images, &[])
+            .build_prompt_blocks(
+                &working_dir,
+                effective_input.text.clone(),
+                &effective_input.images,
+                &effective_input.file_refs,
+            )
             .await?;
-        let display_blocks = agent_blocks_with_display_text(&agent_blocks, &input.text);
+        let display_label = effective_input
+            .display_text
+            .as_deref()
+            .unwrap_or(&effective_input.text);
+        let display_blocks = agent_blocks_with_display_text(&agent_blocks, display_label);
         let visible_blocks =
-            conversation_input_blocks_with_display_text(&agent_blocks, &input.text, None);
+            conversation_input_blocks_with_display_text(&agent_blocks, display_label, None);
         let steering_id = existing_requested_id.unwrap_or_else(Uuid::new_v4);
         if existing_requested_id.is_none() {
             self.append_event(
-                input.conversation_id,
-                Some(input.expected_turn_id),
+                effective_input.conversation_id,
+                Some(effective_input.expected_turn_id),
                 "user",
                 ConversationEvent::ConversationSteering {
                     event: agents::ConversationSteeringEvent::Requested {
                         steering_id,
-                        operation_id: input.operation_id,
-                        expected_turn_id: input.expected_turn_id,
+                        operation_id: effective_input.operation_id,
+                        expected_turn_id: effective_input.expected_turn_id,
                         payload_digest,
                         blocks: visible_blocks,
-                        principal: input.principal.clone(),
+                        principal: effective_input.principal.clone(),
                     },
                 },
                 Some(format!(
                     "conversation-steering-operation:{}",
-                    input.operation_id
+                    effective_input.operation_id
                 )),
             )
             .await?;
         }
 
-        let runtime_session_id = AgentSessionId(input.conversation_id);
-        let runtime = self.runtime_snapshot(input.conversation_id).await;
+        let runtime_session_id = AgentSessionId(effective_input.conversation_id);
+        let runtime = self.runtime_snapshot(effective_input.conversation_id).await;
         let connection_id = runtime
             .connection_id
             .as_deref()
@@ -265,13 +315,13 @@ impl ConversationSessionService {
             .active_prompt_id
             .as_deref()
             .and_then(parse_agent_prompt_id);
-        let host_owns_turn = runtime.active_turn_id == Some(input.expected_turn_id);
+        let host_owns_turn = runtime.active_turn_id == Some(effective_input.expected_turn_id);
         if !host_owns_turn {
             return self
                 .settle_steering(
-                    input.conversation_id,
+                    effective_input.conversation_id,
                     steering_id,
-                    input.expected_turn_id,
+                    effective_input.expected_turn_id,
                     SteeringSettlement::Rejected {
                         code: "turn_not_live",
                         message: "The expected Turn is not live on this host".to_string(),
@@ -296,9 +346,9 @@ impl ConversationSessionService {
             || !native_steering_negotiated
             || promoted_requires_restart
         {
-            if input.allow_interrupt_restart {
+            if effective_input.allow_interrupt_restart {
                 return self
-                    .execute_interrupt_restart(&conversation, steering_id, &input)
+                    .execute_interrupt_restart(&conversation, steering_id, &effective_input)
                     .await;
             }
             let (code, message) = if connection_id.is_none() || prompt_id.is_none() {
@@ -314,9 +364,9 @@ impl ConversationSessionService {
             };
             return self
                 .settle_steering(
-                    input.conversation_id,
+                    effective_input.conversation_id,
                     steering_id,
-                    input.expected_turn_id,
+                    effective_input.expected_turn_id,
                     SteeringSettlement::Rejected { code, message },
                 )
                 .await;
@@ -338,13 +388,15 @@ impl ConversationSessionService {
         let settlement = match result {
             Ok(receipt) => match receipt.outcome {
                 agents::AgentSteerOutcome::Injected => {
-                    if let Some(promoted_id) = input.promoted_input_id {
+                    if let Some(promoted_id) = effective_input.promoted_input_id {
                         inputs
                             .consume_for_native_steer(
-                                input.conversation_id,
+                                effective_input.conversation_id,
                                 promoted_id,
-                                deterministic_steer_input_operation_id(input.operation_id),
-                                input.promoted_input_expected_revision,
+                                deterministic_steer_input_operation_id(
+                                    effective_input.operation_id,
+                                ),
+                                effective_input.promoted_input_expected_revision,
                             )
                             .await?;
                     }
@@ -362,8 +414,8 @@ impl ConversationSessionService {
                 agents::AgentSteerOutcome::StartedNewTurn => {
                     let _ = self
                         .append_event(
-                            input.conversation_id,
-                            Some(input.expected_turn_id),
+                            effective_input.conversation_id,
+                            Some(effective_input.expected_turn_id),
                             "runtime",
                             ConversationEvent::DeliveryChannelLatched {
                                 from: agents::conversation::DeliveryChannel::Native,
@@ -379,9 +431,9 @@ impl ConversationSessionService {
                 }
             },
             Err(agents::AgentError::SteeringUnsupported) => {
-                if input.allow_interrupt_restart {
+                if effective_input.allow_interrupt_restart {
                     return self
-                        .execute_interrupt_restart(&conversation, steering_id, &input)
+                        .execute_interrupt_restart(&conversation, steering_id, &effective_input)
                         .await;
                 }
                 SteeringSettlement::Rejected {
@@ -399,9 +451,9 @@ impl ConversationSessionService {
             },
         };
         self.settle_steering(
-            input.conversation_id,
+            effective_input.conversation_id,
             steering_id,
-            input.expected_turn_id,
+            effective_input.expected_turn_id,
             settlement,
         )
         .await
@@ -444,12 +496,12 @@ impl ConversationSessionService {
                         workspace_id: conversation.workspace_id,
                         executor_profile_id: None,
                         text: input.text.clone(),
-                        display_text: None,
+                        display_text: input.display_text.clone(),
                         images: input.images.clone(),
-                        mode_override: None,
-                        config_overrides: Vec::new(),
+                        mode_override: input.mode_override.clone(),
+                        config_overrides: input.config_overrides.clone(),
                         workflow_refs: Vec::new(),
-                        file_refs: Vec::new(),
+                        file_refs: input.file_refs.clone(),
                         internal_prompt_contributions: Vec::new(),
                         collaboration_origin: None,
                     },

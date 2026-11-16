@@ -280,13 +280,28 @@ export function extractNormalizedUsage(message, fallbackModel = null) {
     return null;
   }
 
+  const isTurnSummary = message.type === 'result';
+  const hasFullStepInput =
+    inputTokens !== undefined ||
+    cacheReadInputTokens !== undefined ||
+    cacheCreationInputTokens !== undefined;
+  const singleStepSum =
+    (inputTokens ?? 0) +
+    (outputTokens ?? 0) +
+    (cacheReadInputTokens ?? 0) +
+    (cacheCreationInputTokens ?? 0);
+  const contextUsed =
+    !isTurnSummary && hasFullStepInput && singleStepSum > 0 ? singleStepSum : null;
+
   return {
     inputTokens: inputTokens ?? null,
     outputTokens: outputTokens ?? null,
     cacheReadInputTokens: cacheReadInputTokens ?? null,
     cacheCreationInputTokens: cacheCreationInputTokens ?? null,
     totalCostUsd: totalCostUsd ?? null,
+    contextUsed,
     contextWindow: contextWindow ?? null,
+    isTurnSummary,
     model: model ?? null,
   };
 }
@@ -347,6 +362,8 @@ export function normalizeSdkEvent(
       usage &&
       (usage.inputTokens !== null ||
         usage.outputTokens !== null ||
+        usage.cacheReadInputTokens !== null ||
+        usage.cacheCreationInputTokens !== null ||
         usage.totalCostUsd !== null ||
         usage.contextWindow !== null)
     ) {
@@ -379,13 +396,18 @@ export function normalizeSdkEvent(
       readString(message.task_id ?? message.subagent_id ?? message.tool_use_id) ??
       parentToolUseId ??
       'subagent';
-    subagentRegistry.set(subagentId, { spawned: true });
+    const linkedToolUseId =
+      parentToolUseId ??
+      readString(message.tool_use_id ?? message.toolUseId) ??
+      subagentRegistry.get(subagentId)?.parentToolUseId ??
+      subagentId;
+    subagentRegistry.set(subagentId, { spawned: true, parentToolUseId: linkedToolUseId });
     events.push({
       kind: 'subagent/spawn',
       sessionId,
       promptId,
       subagentId,
-      parentToolUseId: parentToolUseId ?? subagentId,
+      parentToolUseId: linkedToolUseId,
       subagentType: readString(message.subagent_type ?? message.task_type) ?? null,
       description: readString(message.description) ?? null,
     });
@@ -397,13 +419,21 @@ export function normalizeSdkEvent(
       readString(message.task_id ?? message.subagent_id ?? message.tool_use_id) ??
       parentToolUseId ??
       'subagent';
+    const linkedToolUseId =
+      parentToolUseId ??
+      readString(message.tool_use_id ?? message.toolUseId) ??
+      subagentRegistry.get(subagentId)?.parentToolUseId ??
+      subagentId;
     subagentRegistry.delete(subagentId);
+    if (linkedToolUseId !== subagentId) {
+      subagentRegistry.delete(linkedToolUseId);
+    }
     events.push({
       kind: 'subagent/complete',
       sessionId,
       promptId,
       subagentId,
-      parentToolUseId: parentToolUseId ?? subagentId,
+      parentToolUseId: linkedToolUseId,
       status: readString(message.status) ?? 'completed',
       summary: readString(message.summary) ?? null,
     });
@@ -454,18 +484,6 @@ export function normalizeSdkEvent(
     if (block.type === 'tool_use') {
       const toolUseId = readString(block.id) ?? null;
       const toolName = readString(block.name) ?? 'unknown';
-      if (toolUseId && SUBAGENT_TOOL_NAMES.has(toolName) && !subagentRegistry.has(toolUseId)) {
-        subagentRegistry.set(toolUseId, { spawned: true, toolName });
-        events.push({
-          kind: 'subagent/spawn',
-          sessionId,
-          promptId,
-          subagentId: toolUseId,
-          parentToolUseId: toolUseId,
-          subagentType: readString(block.input?.subagent_type) ?? toolName,
-          description: readString(block.input?.description ?? block.input?.prompt) ?? null,
-        });
-      }
       if (toolName === 'TodoWrite' && !parentToolUseId) {
         const entries = extractTodoPlanEntries(block.input);
         if (entries) {
@@ -486,6 +504,22 @@ export function normalizeSdkEvent(
         toolName,
         input: block.input ?? {},
       });
+      if (toolUseId && SUBAGENT_TOOL_NAMES.has(toolName) && !subagentRegistry.has(toolUseId)) {
+        subagentRegistry.set(toolUseId, {
+          spawned: true,
+          toolName,
+          parentToolUseId: toolUseId,
+        });
+        events.push({
+          kind: 'subagent/spawn',
+          sessionId,
+          promptId,
+          subagentId: toolUseId,
+          parentToolUseId: toolUseId,
+          subagentType: readString(block.input?.subagent_type) ?? toolName,
+          description: readString(block.input?.description ?? block.input?.prompt) ?? null,
+        });
+      }
     } else if (block.type === 'tool_result') {
       const toolUseId = readString(block.tool_use_id) ?? null;
       if (toolUseId && subagentRegistry.has(toolUseId)) {

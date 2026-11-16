@@ -5,8 +5,10 @@ use agents::{
 use db::models::{conversation::ConversationAgentBindingRecord, session::Session};
 use uuid::Uuid;
 
+use std::collections::HashSet;
+
 use super::{ConversationSessionService, ConversationStartTurnInput, PreparedTurnPrompt};
-use crate::{ConversationServiceError, continuation::select_history};
+use crate::{ConversationServiceError, continuation::select_history_with_older_omitted};
 
 /// Continuation key: agent identity fingerprint for resume matching.
 /// Same agent + same normalized working directory = same key.
@@ -66,7 +68,10 @@ impl ConversationSessionService {
             )
             .await?
             .filter(|b| {
-                b.resume_allowed && b.acp_session_id.as_deref().is_some_and(|id| !id.is_empty())
+                b.resume_allowed
+                    && b.acp_session_id.as_deref().is_some_and(|id| {
+                        !id.is_empty() && !agents::is_placeholder_acp_session_id(id)
+                    })
             })
         } else {
             None
@@ -107,17 +112,26 @@ impl ConversationSessionService {
                     .await?;
                 let current_id = turn_id.to_string();
                 let current_prefix = format!("{turn_id}:");
-                let turns: Vec<_> =
-                    crate::ConversationProjector::project_turns_summary(pool, input.conversation_id)
-                        .await?
-                        .into_iter()
-                        .filter(|t| t.id != current_id && !t.id.starts_with(&current_prefix))
-                        .collect();
                 let current_bytes = serde_json::to_vec(&prepared.agent_blocks)
                     .map_err(|e| ConversationServiceError::Internal(e.to_string()))?
                     .len();
                 let budget = (64 * 1024usize).min((128 * 1024usize).saturating_sub(current_bytes));
-                let selection = select_history(&turns, budget);
+                let (tail_turns, older_ids) =
+                    crate::ConversationProjector::project_turns_summary_tail_within_bytes(
+                        pool,
+                        input.conversation_id,
+                        budget.saturating_mul(2),
+                    )
+                    .await?;
+                let turns: Vec<_> = tail_turns
+                    .into_iter()
+                    .filter(|t| t.id != current_id && !t.id.starts_with(&current_prefix))
+                    .collect();
+                let older_omitted: Vec<String> = older_ids
+                    .into_iter()
+                    .filter(|id| id != &current_id && !id.starts_with(&current_prefix))
+                    .collect();
+                let selection = select_history_with_older_omitted(&turns, older_omitted, budget);
                 if selection.prompt.len() > budget {
                     return Err(ConversationServiceError::SessionUnavailable {
                         code: "handoff_budget_exceeded",
@@ -146,7 +160,7 @@ impl ConversationSessionService {
                 preferences.config.retain(|old| old.key != value.key);
                 preferences.config.push(value.clone());
             }
-            let candidate = match self
+            let candidate = self
                 .ctx
                 .agent_runtime
                 .prepare_session(EnsureAgentSessionInput {
@@ -162,12 +176,7 @@ impl ConversationSessionService {
                     preferences,
                 })
                 .await
-            {
-                Ok(c) => c,
-                Err(e) => {
-                    return Err(ConversationServiceError::Internal(e.to_string()));
-                }
-            };
+                .map_err(ConversationServiceError::from)?;
             let lock = self.turn_lock(input.conversation_id).await;
             let _guard = lock.lock().await;
             let in_flight = self
@@ -240,30 +249,45 @@ impl ConversationSessionService {
                     .await?;
                 let current_id = turn_id.to_string();
                 let current_prefix = format!("{turn_id}:");
-                let all_turns =
-                    crate::ConversationProjector::project_turns_summary(pool, input.conversation_id)
-                        .await?;
-                let unknown_turns: Vec<_> = all_turns
+                let current_bytes = serde_json::to_vec(&prepared.agent_blocks)
+                    .map_err(|e| ConversationServiceError::Internal(e.to_string()))?
+                    .len();
+                let budget =
+                    (64 * 1024usize).min((128 * 1024usize).saturating_sub(current_bytes));
+                let known_exact: HashSet<String> = known_prefixes
                     .iter()
-                    .filter(|t| {
-                        t.id != current_id
-                            && !t.id.starts_with(&current_prefix)
-                            && !known_prefixes.iter().any(|prefix| {
-                                t.id == prefix.trim_end_matches(':') || t.id.starts_with(prefix)
-                            })
-                            && !delivered_ids.contains(&t.id)
-                    })
-                    .cloned()
+                    .map(|p| p.trim_end_matches(':').to_string())
                     .collect();
-                if unknown_turns.is_empty() {
+                let is_unknown = |id: &str| {
+                    id != current_id
+                        && !id.starts_with(&current_prefix)
+                        && !known_exact.contains(id)
+                        && !known_prefixes.iter().any(|prefix| id.starts_with(prefix))
+                        && !delivered_ids.contains(id)
+                };
+                let (tail_turns, older_ids) =
+                    crate::ConversationProjector::project_turns_summary_tail_within_bytes(
+                        pool,
+                        input.conversation_id,
+                        budget.saturating_mul(2),
+                    )
+                    .await?;
+                let unknown_turns: Vec<_> = tail_turns
+                    .into_iter()
+                    .filter(|t| is_unknown(&t.id))
+                    .collect();
+                let older_unknown_ids: Vec<String> = older_ids
+                    .into_iter()
+                    .filter(|id| is_unknown(id))
+                    .collect();
+                if unknown_turns.is_empty() && older_unknown_ids.is_empty() {
                     None
                 } else {
-                    let current_bytes = serde_json::to_vec(&prepared.agent_blocks)
-                        .map_err(|e| ConversationServiceError::Internal(e.to_string()))?
-                        .len();
-                    let budget =
-                        (64 * 1024usize).min((128 * 1024usize).saturating_sub(current_bytes));
-                    let selection = select_history(&unknown_turns, budget);
+                    let selection = select_history_with_older_omitted(
+                        &unknown_turns,
+                        older_unknown_ids,
+                        budget,
+                    );
                     if selection.prompt.len() > budget {
                         return Err(ConversationServiceError::SessionUnavailable {
                             code: "handoff_budget_exceeded",
@@ -286,7 +310,7 @@ impl ConversationSessionService {
 
             let settings = self.ctx.host.launch_settings(pool, &input.agent_id).await?;
             let mut preferences = self
-                .resolved_session_control_preferences(pool, &input.agent_id, None)
+                .resolved_session_control_preferences(pool, &input.agent_id, Some(&resume))
                 .await;
             preferences.mode = input.mode_override.clone().or(preferences.mode);
             for value in &input.config_overrides {
@@ -294,7 +318,7 @@ impl ConversationSessionService {
                 preferences.config.push(value.clone());
             }
             let acp_session_id = resume.acp_session_id.clone().unwrap_or_default();
-            let (resumed_session, _recovery) = self
+            let (resumed_session, recovery) = self
                 .ctx
                 .agent_runtime
                 .resume_session(ResumeAgentSessionInput {
@@ -304,13 +328,14 @@ impl ConversationSessionService {
                     working_dir: prepared.working_dir.clone().into(),
                     additional_directories: prepared.additional_directories.clone(),
                     session_id: AgentSessionId(input.conversation_id),
-                    external_session_id: acp_session_id,
+                    external_session_id: acp_session_id.clone(),
                     auto_approve_mode: settings.auto_approve_mode,
                     env: settings.env,
                     preferences,
                 })
                 .await
-                .map_err(|e| ConversationServiceError::Internal(e.to_string()))?;
+                .map_err(ConversationServiceError::from)?;
+            let runtime_session_id = AgentSessionId(input.conversation_id);
             let lock = self.turn_lock(input.conversation_id).await;
             let _guard = lock.lock().await;
             if !self
@@ -322,17 +347,23 @@ impl ConversationSessionService {
                     "Turn was cancelled during Agent startup".into(),
                 ));
             }
-            // Re-activate the resumed binding and record its live connection_id.
+            // Re-activate the resumed binding and record its live connection_id + acp_session_id.
             let _ = sqlx::query(
-                "UPDATE conversation_agent_bindings SET connection_id = ? WHERE id = ?",
+                "UPDATE conversation_agent_bindings
+                 SET acp_session_id = ?,
+                     connection_id = ?,
+                     status = 'ready',
+                     updated_at = datetime('now', 'subsec')
+                 WHERE id = ?",
             )
+            .bind(&resumed_session.acp_session_id)
             .bind(resumed_session.connection_id.to_string())
             .bind(resume.id)
             .execute(pool)
             .await?;
             ConversationAgentBindingRecord::activate(pool, input.conversation_id, resume.id)
                 .await?;
-            let _resumed_binding = ConversationAgentBindingRecord::active_for_conversation(
+            let resumed_binding = ConversationAgentBindingRecord::active_for_conversation(
                 pool,
                 input.conversation_id,
             )
@@ -340,10 +371,55 @@ impl ConversationSessionService {
             .ok_or_else(|| {
                 ConversationServiceError::Internal("Resumed binding disappeared".into())
             })?;
+            self.replay_remembered_session_controls(
+                input.conversation_id,
+                runtime_session_id,
+                Some(&resumed_binding),
+            )
+            .await;
             self.ctx
                 .agent_runtime
-                .commit_prepared_session(AgentSessionId(input.conversation_id))
+                .commit_prepared_session(runtime_session_id)
                 .await;
+            let capabilities = self
+                .ctx
+                .agent_runtime
+                .session_controls_snapshot(runtime_session_id)
+                .await
+                .ok()
+                .and_then(|controls| controls.capabilities)
+                .or_else(|| {
+                    serde_json::from_str::<agents::conversation::AcpCapabilitySnapshot>(
+                        &resumed_binding.session_capabilities_json,
+                    )
+                    .ok()
+                })
+                .unwrap_or_default();
+            self.append_event(
+                input.conversation_id,
+                None,
+                "runtime",
+                agents::conversation::ConversationEvent::AgentBindingReady {
+                    acp_session_id: resumed_session.acp_session_id.clone(),
+                    capabilities,
+                },
+                None,
+            )
+            .await?;
+            if matches!(
+                recovery,
+                Some(agents::SessionRecoveryStrategy::CreatedNewSession)
+            ) {
+                let continues_from = (!acp_session_id.is_empty()
+                    && acp_session_id != resumed_session.acp_session_id)
+                    .then_some(acp_session_id);
+                self.record_agent_binding_recovered(
+                    input.conversation_id,
+                    agents::SessionRecoveryStrategy::CreatedNewSession,
+                    continues_from,
+                )
+                .await?;
+            }
             if let Some(selection) = selection {
                 prepared.agent_blocks.insert(
                     0,
@@ -353,6 +429,15 @@ impl ConversationSessionService {
                 );
             }
         } else {
+            if session.agent_id.as_ref() != Some(&input.agent_id) {
+                let _ = Session::update_agent_metadata(
+                    pool,
+                    input.conversation_id,
+                    session.external_session_id.as_deref(),
+                    Some(&input.agent_id),
+                )
+                .await;
+            }
             self.ensure_session_controls_locked(
                 input.conversation_id,
                 Some(prepared.working_dir.clone().into()),

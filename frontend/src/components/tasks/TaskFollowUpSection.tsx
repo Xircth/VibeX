@@ -36,7 +36,6 @@ import {
 } from '@/features/conversation/conversationTimelineRegistry';
 import { sessionsApi } from '@/lib/api';
 import { listenToConversationEvents } from '@/features/conversation/events';
-import { listenToAgentEvents } from '@/features/agents/events';
 import {
   composerSessionControlDisplay,
   liveSessionControlsSnapshot,
@@ -67,13 +66,7 @@ import { RateLimitRecoveryBanner } from '@/components/NormalizedConversation/Rat
 import { SessionAsyncTaskBar } from '@/components/NormalizedConversation/conversation/SessionAsyncTaskBar';
 import { SessionGoalBar } from '@/components/NormalizedConversation/conversation/SessionGoalBar';
 import {
-  areConfigValuesEqual,
-  dropPendingConfigValueAfterRejection,
-  dropPendingModeAfterRejection,
-  reconcilePendingConfigValues,
-  reconcilePendingMode,
   sanitizeDependentConfigValues,
-  selectConfigOptionValue,
   visibleSessionConfigOptions,
 } from './follow-up/SessionConfigOptionSelectors';
 import {
@@ -133,7 +126,9 @@ import { useSessionComposerImageRemoval } from './follow-up/useSessionComposerIm
 import { useSessionComposerFocus } from './follow-up/useSessionComposerFocus';
 import type { QueuedMessage } from './follow-up/sessionComposerQueue';
 import {
+  useSessionComposerControlSync,
   useSessionComposerLocalState,
+  useSessionComposerPendingControls,
   useSessionComposerProfileSelection,
 } from './follow-up/useSessionComposerLocalState';
 import {
@@ -236,12 +231,28 @@ export function TaskFollowUpSection({
   const { profiles, config } = useUserSystem();
 
   const {
+    entries,
+    sessionModes,
+    sessionConfigOptions,
+    conversationTurnInFlight,
+    conversationSteeringTurnId,
+    conversationSteeringTarget,
+    conversationDeliveryChannel,
+    userMessageHistory,
+  } = useEntries();
+
+  const {
     isAttemptRunning,
     stopExecution,
     clearStopping,
     isStopping,
     processes,
-  } = useAttemptExecution(workspaceIdValue, taskId ?? undefined, sessionId);
+  } = useAttemptExecution(
+    workspaceIdValue,
+    taskId ?? undefined,
+    sessionId,
+    conversationTurnInFlight
+  );
 
   const { data: branchStatus, refetch: refetchBranchStatus } =
     useBranchStatus(workspaceIdValue);
@@ -265,16 +276,6 @@ export function TaskFollowUpSection({
 
   const { enableScope, disableScope } = useHotkeysContext();
 
-  const {
-    entries,
-    sessionModes,
-    sessionConfigOptions,
-    conversationTurnInFlight,
-    conversationSteeringTurnId,
-    conversationSteeringTarget,
-    conversationDeliveryChannel,
-    userMessageHistory,
-  } = useEntries();
   const isComposerExecutionRunning = isComposerExecutionActive({
     isAttemptRunning,
     isConversationTurnInFlight: conversationTurnInFlight,
@@ -454,18 +455,17 @@ export function TaskFollowUpSection({
     saveToScratch,
   });
 
-  // Pending, agent-advertised mode selection applied to the next turn. Reset
-  // when switching sessions so a picked mode never leaks across conversations.
-  // Declared before draft hydration so a create-form preset can seed them.
-  const [selectedMode, setSelectedMode] = useState<string | null>(null);
-  // Pending ACP config-option selections (model / permission / …), key → value.
-  const [selectedConfigValues, setSelectedConfigValues] = useState<
-    Record<string, string>
-  >({});
-  useEffect(() => {
-    setSelectedMode(null);
-    setSelectedConfigValues({});
-  }, [sessionId, targetExecutor, resolvedSessionExecutor]);
+  const {
+    selectedMode,
+    setSelectedMode,
+    selectedConfigValues,
+    setSelectedConfigValues,
+    markAutoCreatedSession,
+  } = useSessionComposerPendingControls({
+    sessionId,
+    targetExecutor,
+    resolvedSessionExecutor,
+  });
   useEffect(() => {
     setContinuationPolicy('portable');
   }, [sessionId]);
@@ -558,6 +558,7 @@ export function TaskFollowUpSection({
         executor: executorId,
       })
       .then((created) => {
+        markAutoCreatedSession(created.id, executorId);
         handleSelectSession(created.id);
         handleFollowUpSessionCreated({
           sessionId: created.id,
@@ -573,6 +574,7 @@ export function TaskFollowUpSection({
     handleFollowUpSessionCreated,
     handleSelectSession,
     isNewSessionMode,
+    markAutoCreatedSession,
     workspaceId,
   ]);
   const executor = targetExecutor ?? null;
@@ -671,95 +673,16 @@ export function TaskFollowUpSection({
     },
     [setPendingAgentHandoff]
   );
-  // A live `config_option_update` can replace an effort's choice set after a
-  // model change. Keep pending next-turn values aligned with that update, and
-  // only drop a selection once the live snapshot actually carries it.
-  useEffect(() => {
-    setSelectedConfigValues((previous) => {
-      const next = reconcilePendingConfigValues(
-        displaySessionConfigOptions,
-        previous
-      );
-      return areConfigValuesEqual(previous, next) ? previous : next;
+  const { handleSelectMode, handleSelectConfigOption } =
+    useSessionComposerControlSync({
+      sessionId,
+      isChangingAgent,
+      liveModeId,
+      displaySessionConfigOptions,
+      selectedConfigValues,
+      setSelectedMode,
+      setSelectedConfigValues,
     });
-  }, [displaySessionConfigOptions]);
-  useEffect(() => {
-    setSelectedMode((previous) => reconcilePendingMode(liveModeId, previous));
-  }, [liveModeId]);
-  useEffect(() => {
-    if (!sessionId) return;
-    let active = true;
-    let unlisten: (() => void) | undefined;
-    void listenToAgentEvents((envelope) => {
-      if (!active || envelope.session_id !== sessionId) return;
-      if (envelope.event.kind !== 'config_option_rejected') return;
-      const rejection = envelope.event;
-      setSelectedMode((previous) =>
-        dropPendingModeAfterRejection(rejection, previous)
-      );
-      setSelectedConfigValues((previous) =>
-        dropPendingConfigValueAfterRejection(rejection.config_id, previous)
-      );
-    }).then((unsubscribe) => {
-      if (!active) {
-        unsubscribe();
-        return;
-      }
-      unlisten = unsubscribe;
-    });
-    return () => {
-      active = false;
-      unlisten?.();
-    };
-  }, [sessionId]);
-  // Selecting a mode applies immediately via ACP `session/set_mode` when the
-  // session is idle; while a turn is streaming (or before the session exists)
-  // the backend rejects and the choice stays pending as a next-turn override.
-  const handleSelectMode = useCallback(
-    (modeId: string) => {
-      setSelectedMode(modeId);
-      if (!sessionId || isChangingAgent) return;
-      void conversationApi
-        .setSessionMode({ conversationId: sessionId, modeId })
-        .catch(() => {
-          // Keep the pending selection; it is sent as modeOverride next turn.
-        });
-    },
-    [sessionId, isChangingAgent]
-  );
-
-  // Same immediate-apply-or-defer contract for config options
-  // (`session/set_config_option`): applied now when idle, next turn otherwise.
-  const handleSelectConfigOption = useCallback(
-    (key: string, value: string) => {
-      // Resolve from the same snapshot rendered in the selector. In
-      // particular, reject effort until a model is actually known and clear a
-      // stale effort when switching models.
-      const nextValues = selectConfigOptionValue(
-        displaySessionConfigOptions,
-        selectedConfigValues,
-        key,
-        value
-      );
-      const accepted = nextValues[key] === value;
-      setSelectedConfigValues((previous) =>
-        selectConfigOptionValue(
-          displaySessionConfigOptions,
-          previous,
-          key,
-          value
-        )
-      );
-      if (!accepted) return;
-      if (!sessionId || isChangingAgent) return;
-      void conversationApi
-        .setSessionConfigOption({ conversationId: sessionId, key, value })
-        .catch(() => {
-          // Keep the pending selection; it is sent as a configOverride next turn.
-        });
-    },
-    [displaySessionConfigOptions, selectedConfigValues, sessionId, isChangingAgent]
-  );
 
   const pendingConfigOverrides = useMemo(
     () =>
@@ -896,10 +819,17 @@ export function TaskFollowUpSection({
   const handleSteerQueuedMessage = useCallback(
     async (queuedMessage: QueuedMessage) => {
       if (!sessionId || queuedMessage.status !== 'queued') return;
+      const { agentMessage, message: displayMsg } = queuedMessage.data;
       const followUp = {
-        message: queuedMessage.data.agentMessage ?? queuedMessage.data.message,
+        message: agentMessage ?? displayMsg,
+        ...(agentMessage !== undefined && agentMessage !== displayMsg
+          ? { displayText: displayMsg }
+          : {}),
         images: queuedMessage.data.images,
         pluginActions: queuedMessage.data.pluginActions,
+        fileRefs: queuedMessage.data.fileRefs,
+        modeOverride: queuedMessage.data.modeOverride,
+        configOverrides: queuedMessage.data.configOverrides,
       };
       const promoteTarget = resolveQueuePromoteSteeringTarget({
         queueSteerChannel,
@@ -992,7 +922,6 @@ export function TaskFollowUpSection({
         hasExecutor: !!effectiveExecutorProfile?.executor,
         isAwaitingNewSessionConfirmation,
         isNewSessionMode,
-        sessionBindReady,
         message: localMessage,
         conflictMarkdown: conflictResolutionInstructions,
         reviewMarkdown,
@@ -1003,7 +932,6 @@ export function TaskFollowUpSection({
       effectiveExecutorProfile?.executor,
       isAwaitingNewSessionConfirmation,
       isNewSessionMode,
-      sessionBindReady,
       localMessage,
       conflictResolutionInstructions,
       reviewMarkdown,
@@ -1028,6 +956,10 @@ export function TaskFollowUpSection({
     isEditable,
   });
 
+  const composerReplaceValueRef = useRef<((next: string) => void) | null>(null);
+  const localMessageRef = useRef(localMessage);
+  localMessageRef.current = localMessage;
+
   const { handleComposerSubmit } = useSessionComposerSubmitActions({
     localMessage,
     conflictResolutionInstructions,
@@ -1051,6 +983,18 @@ export function TaskFollowUpSection({
       });
     },
     onSubmitFollowUp,
+    onQueueError: setFollowUpError,
+    onRestoreFailedQueueDraft: (draftMessage, imagePaths) => {
+      if (!localMessageRef.current?.trim()) {
+        composerReplaceValueRef.current?.(draftMessage);
+        setLocalMessage(draftMessage);
+      }
+      if (imagePaths.length > 0) {
+        setAttachedImages((current) =>
+          current.length > 0 ? current : imagePaths.map(imageAttachmentFromPath)
+        );
+      }
+    },
   });
 
   const { handleEditorChange } = useSessionComposerEditorChange({
@@ -1060,7 +1004,6 @@ export function TaskFollowUpSection({
     setLocalMessage,
     setFollowUpMessage,
   });
-  const composerReplaceValueRef = useRef<((next: string) => void) | null>(null);
   const applyEnhancedPrompt = useCallback(
     (prompt: string) => {
       const replaceValue = composerReplaceValueRef.current;
@@ -1131,9 +1074,6 @@ export function TaskFollowUpSection({
     refetchAttemptBranch,
   });
 
-  const localMessageRef = useRef(localMessage);
-  localMessageRef.current = localMessage;
-
   const onSendFollowUpRef = useRef(onSendFollowUp);
   onSendFollowUpRef.current = onSendFollowUp;
 
@@ -1152,17 +1092,27 @@ export function TaskFollowUpSection({
     } else {
       handleEditorChange('');
     }
-  }, [handleEditorChange]);
+    setAttachedImages((prev) => {
+      const cleanup = clearComposerImageAttachments(prev);
+      cleanup.imagesToRevoke.forEach(revokeComposerImagePreviewUrl);
+      return cleanup.attachments;
+    });
+  }, [handleEditorChange, setAttachedImages]);
 
   const handleRestoreDraft = useCallback(
-    (restoredText: string) => {
+    (restoredText: string, restoredImages?: string[]) => {
       if (composerReplaceValueRef.current) {
         composerReplaceValueRef.current(restoredText);
       } else {
         handleEditorChange(restoredText);
       }
+      setAttachedImages((prev) => {
+        const cleanup = clearComposerImageAttachments(prev);
+        cleanup.imagesToRevoke.forEach(revokeComposerImagePreviewUrl);
+        return (restoredImages ?? []).map(imageAttachmentFromPath);
+      });
     },
-    [handleEditorChange]
+    [handleEditorChange, setAttachedImages]
   );
 
   const handleDismissPromptSuggestion = useCallback(() => {
@@ -1194,7 +1144,6 @@ export function TaskFollowUpSection({
     }),
     [
       composerWorkspacePath,
-      configuredBackendTransport,
       effectiveExecutorProfile,
       liveCommands.commands,
       liveCommands.loading,
@@ -1413,6 +1362,7 @@ export function TaskFollowUpSection({
             hasDraft={hasDraft}
             getDraftValue={getLatestDraftValue}
             attachmentCount={attachedImages.length}
+            attachmentPaths={attachedImagePaths}
             onStashDraft={handleStashDraft}
             onRestoreDraft={handleRestoreDraft}
           />

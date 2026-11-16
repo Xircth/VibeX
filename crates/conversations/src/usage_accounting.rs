@@ -34,6 +34,7 @@ static VENDOR_SYNC: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 pub async fn apply_usage_updated(
     conn: &mut SqliteConnection,
     conversation_id: Uuid,
+    turn_id: Option<Uuid>,
     sequence: i64,
     usage: &ConversationUsage,
     occurred_at: chrono::DateTime<chrono::Utc>,
@@ -46,8 +47,57 @@ pub async fn apply_usage_updated(
         return Ok(());
     }
 
-    let next = merge_usage_snapshot(existing, conversation_id, sequence, usage, occurred_at);
+    let prev_turn_usage = if let Some(tid) = turn_id
+        && has_provided_tokens(usage)
+    {
+        latest_prior_turn_token_usage(&mut *conn, conversation_id, tid, sequence).await?
+    } else {
+        None
+    };
+
+    let next = merge_usage_snapshot_with_prev(
+        existing,
+        conversation_id,
+        sequence,
+        usage,
+        prev_turn_usage.as_ref(),
+        occurred_at,
+    );
     ConversationUsageSnapshotRecord::upsert(conn, &next).await
+}
+
+async fn latest_prior_turn_token_usage(
+    conn: &mut SqliteConnection,
+    conversation_id: Uuid,
+    turn_id: Uuid,
+    before_sequence: i64,
+) -> Result<Option<ConversationUsage>, sqlx::Error> {
+    let prior_jsons: Vec<String> = sqlx::query_scalar(
+        r#"SELECT normalized_json
+           FROM conversation_events
+           WHERE conversation_id = ?
+             AND turn_id = ?
+             AND event_kind = 'usage_updated'
+             AND sequence < ?
+           ORDER BY sequence DESC"#,
+    )
+    .bind(conversation_id)
+    .bind(turn_id)
+    .bind(before_sequence)
+    .fetch_all(&mut *conn)
+    .await?;
+
+    Ok(prior_jsons
+        .into_iter()
+        .filter_map(|json| usage_from_normalized_json(&json))
+        .find(has_provided_tokens))
+}
+
+fn has_provided_tokens(usage: &ConversationUsage) -> bool {
+    usage.input_tokens > 0
+        || usage.output_tokens > 0
+        || usage.cache_creation_input_tokens > 0
+        || usage.cache_read_input_tokens > 0
 }
 
 pub async fn catch_up_usage_snapshots(pool: &SqlitePool) -> Result<(), sqlx::Error> {
@@ -60,6 +110,7 @@ pub async fn catch_up_usage_snapshots(pool: &SqlitePool) -> Result<(), sqlx::Err
         apply_usage_updated(
             &mut conn,
             row.conversation_id,
+            row.turn_id,
             row.sequence,
             &usage,
             row.created_at,
@@ -156,6 +207,7 @@ fn usage_from_normalized_json(normalized_json: &str) -> Option<ConversationUsage
     }
 }
 
+#[cfg(test)]
 fn merge_usage_snapshot(
     existing: Option<ConversationUsageSnapshotRecord>,
     conversation_id: Uuid,
@@ -163,37 +215,70 @@ fn merge_usage_snapshot(
     usage: &ConversationUsage,
     occurred_at: chrono::DateTime<chrono::Utc>,
 ) -> ConversationUsageSnapshotRecord {
-    let tokens_provided = usage.input_tokens > 0
-        || usage.output_tokens > 0
-        || usage.cache_creation_input_tokens > 0
-        || usage.cache_read_input_tokens > 0;
+    merge_usage_snapshot_with_prev(existing, conversation_id, sequence, usage, None, occurred_at)
+}
+
+fn merge_usage_snapshot_with_prev(
+    existing: Option<ConversationUsageSnapshotRecord>,
+    conversation_id: Uuid,
+    sequence: i64,
+    usage: &ConversationUsage,
+    prev_turn_usage: Option<&ConversationUsage>,
+    occurred_at: chrono::DateTime<chrono::Utc>,
+) -> ConversationUsageSnapshotRecord {
+    let tokens_provided = has_provided_tokens(usage);
 
     let (input, output, cache_write, cache_read, total) = if tokens_provided {
-        let delta_input = i64::try_from(usage.input_tokens).unwrap_or(i64::MAX);
-        let delta_output = i64::try_from(usage.output_tokens).unwrap_or(i64::MAX);
-        let delta_cache_write =
-            i64::try_from(usage.cache_creation_input_tokens).unwrap_or(i64::MAX);
-        let delta_cache_read = i64::try_from(usage.cache_read_input_tokens).unwrap_or(i64::MAX);
+        let prev_input = prev_turn_usage
+            .and_then(|u| i64::try_from(u.input_tokens).ok())
+            .unwrap_or(0);
+        let prev_output = prev_turn_usage
+            .and_then(|u| i64::try_from(u.output_tokens).ok())
+            .unwrap_or(0);
+        let prev_cache_write = prev_turn_usage
+            .and_then(|u| i64::try_from(u.cache_creation_input_tokens).ok())
+            .unwrap_or(0);
+        let prev_cache_read = prev_turn_usage
+            .and_then(|u| i64::try_from(u.cache_read_input_tokens).ok())
+            .unwrap_or(0);
+
+        let delta_input = i64::try_from(usage.input_tokens)
+            .unwrap_or(i64::MAX)
+            .saturating_sub(prev_input);
+        let delta_output = i64::try_from(usage.output_tokens)
+            .unwrap_or(i64::MAX)
+            .saturating_sub(prev_output);
+        let delta_cache_write = i64::try_from(usage.cache_creation_input_tokens)
+            .unwrap_or(i64::MAX)
+            .saturating_sub(prev_cache_write);
+        let delta_cache_read = i64::try_from(usage.cache_read_input_tokens)
+            .unwrap_or(i64::MAX)
+            .saturating_sub(prev_cache_read);
+
         let input = existing
             .as_ref()
             .and_then(|row| row.protocol_input_tokens)
             .unwrap_or(0)
-            .saturating_add(delta_input);
+            .saturating_add(delta_input)
+            .max(0);
         let output = existing
             .as_ref()
             .and_then(|row| row.protocol_output_tokens)
             .unwrap_or(0)
-            .saturating_add(delta_output);
+            .saturating_add(delta_output)
+            .max(0);
         let cache_write = existing
             .as_ref()
             .and_then(|row| row.protocol_cache_write_tokens)
             .unwrap_or(0)
-            .saturating_add(delta_cache_write);
+            .saturating_add(delta_cache_write)
+            .max(0);
         let cache_read = existing
             .as_ref()
             .and_then(|row| row.protocol_cache_read_tokens)
             .unwrap_or(0)
-            .saturating_add(delta_cache_read);
+            .saturating_add(delta_cache_read)
+            .max(0);
         (
             Some(input),
             Some(output),
@@ -1009,5 +1094,65 @@ mod vendor_sync_tests {
             .expect("session")
             .expect("exists");
         assert_eq!(session.model.as_deref(), Some("grok-4.6"));
+    }
+
+    #[tokio::test]
+    async fn multiple_cumulative_usage_events_in_same_turn_do_not_multiply_tokens() {
+        let pool = pool().await;
+        let conversation_id = Uuid::from_u128(44);
+        let turn1 = Uuid::from_u128(101);
+        let turn2 = Uuid::from_u128(102);
+        insert_session(&pool, conversation_id).await;
+
+        let insert_turn_usage = |seq: i64, turn_id: Uuid, input: u64, output: u64| {
+            let pool = pool.clone();
+            async move {
+                let event = ConversationEvent::UsageUpdated {
+                    usage: ConversationUsage {
+                        input_tokens: input,
+                        output_tokens: output,
+                        cache_creation_input_tokens: 0,
+                        cache_read_input_tokens: 0,
+                        context_used: Some(input + output),
+                        context_window_max: Some(200_000),
+                        cost_amount: None,
+                        cost_currency: None,
+                        model: Some("claude-sonnet-4-6".into()),
+                    },
+                };
+                let json = serde_json::to_string(&event).expect("json");
+                sqlx::query(
+                    r#"INSERT INTO conversation_events (
+                           id, conversation_id, turn_id, sequence, source, event_kind, event_version, normalized_json
+                       ) VALUES (?, ?, ?, ?, 'acp', 'usage_updated', 1, ?)"#,
+                )
+                .bind(Uuid::new_v4())
+                .bind(conversation_id)
+                .bind(turn_id)
+                .bind(seq)
+                .bind(json)
+                .execute(&pool)
+                .await
+                .expect("insert turn usage event");
+            }
+        };
+
+        // Turn 1 emits three cumulative streaming usage samples (100/10 -> 100/25 -> 100/40).
+        insert_turn_usage(1, turn1, 100, 10).await;
+        insert_turn_usage(2, turn1, 100, 25).await;
+        insert_turn_usage(3, turn1, 100, 40).await;
+        // Turn 2 emits two cumulative streaming usage samples (150/20 -> 150/50).
+        insert_turn_usage(4, turn2, 150, 20).await;
+        insert_turn_usage(5, turn2, 150, 50).await;
+
+        catch_up_usage_snapshots(&pool).await.expect("catch up");
+
+        let snapshot = ConversationUsageSnapshotRecord::find(&pool, conversation_id)
+            .await
+            .expect("find")
+            .expect("snapshot");
+        assert_eq!(snapshot.protocol_input_tokens, Some(250));
+        assert_eq!(snapshot.protocol_output_tokens, Some(90));
+        assert_eq!(snapshot.protocol_total_tokens, Some(340));
     }
 }

@@ -91,8 +91,8 @@ pub use projection::{
     decode_timeline_cursor, encode_timeline_cursor, ensure_legacy_jsonl_migrated,
     ensure_legacy_jsonl_migrated_on_pool, evict_least_recently_used_projectors,
     extend_coalesced_row_ops, register_acp_replay_history_probe,
-    register_internal_message_listener, spawn_legacy_jsonl_backfill_worker,
-    subscribe_internal_messages,
+    register_internal_message_listener, register_projection_repair_hook,
+    spawn_legacy_jsonl_backfill_worker, subscribe_internal_messages,
 };
 pub use relation::{
     ConversationChildSummaryView, ConversationRelationControl, ConversationRelationView,

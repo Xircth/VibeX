@@ -9,6 +9,7 @@ use agents::{
     },
 };
 use db::models::conversation_event::ConversationEventRecord;
+use uuid::Uuid;
 
 use super::{
     AGENT_BINDING_LOAD_FAILURE_NOTICE_ROW_ID, AGENT_BINDING_REBIND_NOTICE_ROW_ID,
@@ -63,6 +64,7 @@ impl ProjectionFold {
         event: ConversationEvent,
         deleted_rows: &mut Vec<ConversationRowOp>,
     ) {
+        let latest_turn_id = record.turn_id.or_else(|| self.turn_order.last().copied());
         let side_rows = &mut self.side_rows;
         let side_row_turns = &mut self.side_row_turns;
         let auto_permission_approvals = &mut self.auto_permission_approvals;
@@ -367,12 +369,16 @@ impl ProjectionFold {
                         ..Default::default()
                     },
                 };
+                side_row_turns.remove(AGENT_CONNECTION_RECOVERING_NOTICE_ROW_ID);
                 remove_side_row(
                     side_rows,
                     deleted_rows,
                     AGENT_CONNECTION_RECOVERING_NOTICE_ROW_ID,
                     record.sequence,
                 );
+                if let Some(tid) = latest_turn_id {
+                    side_row_turns.insert(AGENT_BINDING_LOAD_FAILURE_NOTICE_ROW_ID.into(), tid);
+                }
                 side_rows.retain(|row| row.row_id != AGENT_BINDING_LOAD_FAILURE_NOTICE_ROW_ID);
                 side_rows.push(TimelineRow {
                     row_id: AGENT_BINDING_LOAD_FAILURE_NOTICE_ROW_ID.into(),
@@ -381,12 +387,14 @@ impl ProjectionFold {
                 });
             }
             ConversationEvent::AgentBindingReady { .. } => {
+                side_row_turns.remove(AGENT_CONNECTION_RECOVERING_NOTICE_ROW_ID);
                 remove_side_row(
                     side_rows,
                     deleted_rows,
                     AGENT_CONNECTION_RECOVERING_NOTICE_ROW_ID,
                     record.sequence,
                 );
+                side_row_turns.remove(AGENT_SESSION_CONNECT_ERROR_NOTICE_ROW_ID);
                 remove_side_row(
                     side_rows,
                     deleted_rows,
@@ -397,6 +405,9 @@ impl ProjectionFold {
             ConversationEvent::AgentConnectionStatusChanged { status, bound, .. } => match status {
                 ConversationAgentConnectionStatus::Connecting
                 | ConversationAgentConnectionStatus::Recovering => {
+                    if let Some(tid) = latest_turn_id {
+                        side_row_turns.insert(AGENT_CONNECTION_RECOVERING_NOTICE_ROW_ID.into(), tid);
+                    }
                     upsert_stable_notice(
                         side_rows,
                         AGENT_CONNECTION_RECOVERING_NOTICE_ROW_ID,
@@ -413,12 +424,14 @@ impl ProjectionFold {
                     if !bound {
                         return;
                     }
+                    side_row_turns.remove(AGENT_CONNECTION_RECOVERING_NOTICE_ROW_ID);
                     remove_side_row(
                         side_rows,
                         deleted_rows,
                         AGENT_CONNECTION_RECOVERING_NOTICE_ROW_ID,
                         record.sequence,
                     );
+                    side_row_turns.remove(AGENT_SESSION_CONNECT_ERROR_NOTICE_ROW_ID);
                     remove_side_row(
                         side_rows,
                         deleted_rows,
@@ -428,6 +441,7 @@ impl ProjectionFold {
                 }
                 ConversationAgentConnectionStatus::Error
                 | ConversationAgentConnectionStatus::Closed => {
+                    side_row_turns.remove(AGENT_CONNECTION_RECOVERING_NOTICE_ROW_ID);
                     remove_side_row(
                         side_rows,
                         deleted_rows,
@@ -440,12 +454,14 @@ impl ProjectionFold {
                 strategy,
                 continues_from,
             } => {
+                side_row_turns.remove(AGENT_CONNECTION_RECOVERING_NOTICE_ROW_ID);
                 remove_side_row(
                     side_rows,
                     deleted_rows,
                     AGENT_CONNECTION_RECOVERING_NOTICE_ROW_ID,
                     record.sequence,
                 );
+                side_row_turns.remove(AGENT_SESSION_CONNECT_ERROR_NOTICE_ROW_ID);
                 remove_side_row(
                     side_rows,
                     deleted_rows,
@@ -454,6 +470,7 @@ impl ProjectionFold {
                 );
                 match strategy {
                     SessionRecoveryStrategy::Loaded | SessionRecoveryStrategy::Resumed => {
+                        side_row_turns.remove(AGENT_BINDING_LOAD_FAILURE_NOTICE_ROW_ID);
                         if let Some(index) = side_rows
                             .iter()
                             .position(|row| row.row_id == AGENT_BINDING_LOAD_FAILURE_NOTICE_ROW_ID)
@@ -467,6 +484,10 @@ impl ProjectionFold {
                     }
                     SessionRecoveryStrategy::Rebound
                     | SessionRecoveryStrategy::CreatedNewSession => {
+                        side_row_turns.remove(AGENT_BINDING_LOAD_FAILURE_NOTICE_ROW_ID);
+                        if let Some(tid) = latest_turn_id {
+                            side_row_turns.insert(AGENT_BINDING_REBIND_NOTICE_ROW_ID.into(), tid);
+                        }
                         side_rows.retain(|row| {
                             row.row_id != AGENT_BINDING_LOAD_FAILURE_NOTICE_ROW_ID
                                 && row.row_id != AGENT_BINDING_REBIND_NOTICE_ROW_ID
@@ -499,12 +520,16 @@ impl ProjectionFold {
                 }
             }
             ConversationEvent::AgentBindingRecoveryFailed { reason } => {
+                side_row_turns.remove(AGENT_CONNECTION_RECOVERING_NOTICE_ROW_ID);
                 remove_side_row(
                     side_rows,
                     deleted_rows,
                     AGENT_CONNECTION_RECOVERING_NOTICE_ROW_ID,
                     record.sequence,
                 );
+                if let Some(tid) = latest_turn_id {
+                    side_row_turns.insert(AGENT_SESSION_CONNECT_ERROR_NOTICE_ROW_ID.into(), tid);
+                }
                 upsert_stable_notice(
                     side_rows,
                     AGENT_SESSION_CONNECT_ERROR_NOTICE_ROW_ID,
@@ -538,9 +563,10 @@ impl ProjectionFold {
                 {
                     match action {
                         AgentHandoffRowAction::Upsert { row_id, notice } => {
-                            upsert_stable_notice(side_rows, &row_id, record.sequence, notice);
+                            upsert_stable_notice(side_rows, &row_id, record.sequence, *notice);
                         }
                         AgentHandoffRowAction::Remove { row_id } => {
+                            side_row_turns.remove(&row_id);
                             remove_side_row(
                                 side_rows,
                                 deleted_rows,
@@ -563,6 +589,9 @@ impl ProjectionFold {
                         .and_then(serde_json::Value::as_str)
                         == Some(agents::SESSION_RECONNECT_PROGRESS_KIND)
                 {
+                    if let Some(tid) = latest_turn_id {
+                        side_row_turns.insert(AGENT_CONNECTION_RECOVERING_NOTICE_ROW_ID.into(), tid);
+                    }
                     let (attempt, max) = reconnect_attempt_from_payload(payload.as_ref());
                     upsert_stable_notice(
                         side_rows,
@@ -582,6 +611,9 @@ impl ProjectionFold {
                         .and_then(serde_json::Value::as_str)
                         == Some(agents::SESSION_CONNECT_ERROR_KIND)
                 {
+                    if let Some(tid) = latest_turn_id {
+                        side_row_turns.insert(AGENT_SESSION_CONNECT_ERROR_NOTICE_ROW_ID.into(), tid);
+                    }
                     let message = payload
                         .as_ref()
                         .and_then(|value| value.get("message"))
@@ -653,32 +685,30 @@ impl ProjectionFold {
 
     pub(super) fn timeline_rows(&self) -> Vec<TimelineRow> {
         let mut rows = Vec::with_capacity(self.turn_order.len() * 2 + self.side_rows.len());
-        rows.extend(
-            self.side_rows
-                .iter()
-                .filter(|row| self.side_row_turn_id(row).is_none())
-                .cloned(),
-        );
+        let turn_set: std::collections::HashSet<Uuid> = self.turn_order.iter().copied().collect();
+        let mut by_turn: std::collections::HashMap<Uuid, Vec<&TimelineRow>> =
+            std::collections::HashMap::new();
+        let mut orphan_side_rows = Vec::new();
+
+        for row in &self.side_rows {
+            match self.side_row_turn_id(row) {
+                None => rows.push(row.clone()),
+                Some(tid) if turn_set.contains(&tid) => {
+                    by_turn.entry(tid).or_default().push(row);
+                }
+                Some(_) => orphan_side_rows.push(row),
+            }
+        }
+
         for turn_id in &self.turn_order {
             if let Some(turn) = self.turns.get(turn_id) {
                 rows.extend(message_rows(turn));
             }
-            rows.extend(
-                self.side_rows
-                    .iter()
-                    .filter(|row| self.side_row_turn_id(row) == Some(*turn_id))
-                    .cloned(),
-            );
+            if let Some(turn_side_rows) = by_turn.remove(turn_id) {
+                rows.extend(turn_side_rows.into_iter().cloned());
+            }
         }
-        rows.extend(
-            self.side_rows
-                .iter()
-                .filter(|row| {
-                    self.side_row_turn_id(row)
-                        .is_some_and(|tid| !self.turn_order.contains(&tid))
-                })
-                .cloned(),
-        );
+        rows.extend(orphan_side_rows.into_iter().cloned());
         rows
     }
 }
@@ -846,7 +876,7 @@ pub(super) fn message_rows(turn: &ProjectedTurn) -> Vec<TimelineRow> {
 enum AgentHandoffRowAction {
     Upsert {
         row_id: String,
-        notice: ConversationSessionNotice,
+        notice: Box<ConversationSessionNotice>,
     },
     Remove {
         row_id: String,
@@ -923,14 +953,14 @@ fn agent_handoff_notice(
     });
     Some(AgentHandoffRowAction::Upsert {
         row_id: row_id.clone(),
-        notice: ConversationSessionNotice {
+        notice: Box::new(ConversationSessionNotice {
             title: "上下文接力".into(),
             message: Some(structured.to_string()),
             severity: "info".into(),
             announcement_id: Some(row_id),
             action: None,
             ..Default::default()
-        },
+        }),
     })
 }
 

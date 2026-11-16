@@ -159,4 +159,25 @@ describe('virtualRowFoldEdge', () => {
       entries.map((_, index) => virtualRowFoldEdge(entries, index))
     ).toEqual([null, null, 'tail', 'after']);
   });
+
+  it('preserves exact itemIndex across multi-segment folds using Map lookup', () => {
+    const items: TurnRenderItem[] = [
+      ...Array.from({ length: 40 }, (_, i) => tool(`t-${i}`)),
+      markdown('middle prose'),
+      ...Array.from({ length: 15 }, (_, i) => tool(`tail-${i}`)),
+      markdown('final prose'),
+    ];
+    const slices = assistantBlockSlices({
+      items,
+      isStreaming: false,
+      collapseProcess: true,
+      processExpanded: () => true,
+    });
+    const blockIndices = slices
+      .filter(
+        (s): s is Extract<typeof s, { kind: 'block' }> => s.kind === 'block'
+      )
+      .map((s) => s.itemIndex);
+    expect(blockIndices).toEqual(items.map((_, index) => index));
+  });
 });

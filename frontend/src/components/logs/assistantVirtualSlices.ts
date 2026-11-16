@@ -33,6 +33,9 @@ export function assistantBlockSlices(input: {
     return input.items.map((_, itemIndex) => ({ kind: 'block', itemIndex }));
   }
 
+  const itemIndexByRef = new Map<TurnRenderItem, number>(
+    input.items.map((item, idx) => [item, idx])
+  );
   const slices: AssistantBlockSlice[] = [];
   for (const segment of collapseTurnSegments(input.items, {
     isStreaming: input.isStreaming,
@@ -51,7 +54,7 @@ export function assistantBlockSlices(input: {
     }
     const inExpandedFold = segment.kind === 'fold';
     for (const item of segment.items) {
-      const itemIndex = input.items.indexOf(item);
+      const itemIndex = itemIndexByRef.get(item) ?? -1;
       if (itemIndex < 0) continue;
       slices.push(
         inExpandedFold

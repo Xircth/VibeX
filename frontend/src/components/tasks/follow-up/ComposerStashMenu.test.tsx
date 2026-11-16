@@ -9,8 +9,15 @@ vi.mock('@/contexts/WorkspaceOverlayContext', () => ({
   useRevealAfterOverlayReady: () => true,
 }));
 
-function StashHarness({ scopeId = 'ws-menu-test' }: { scopeId?: string }) {
+function StashHarness({
+  scopeId = 'ws-menu-test',
+  initialImages = [],
+}: {
+  scopeId?: string;
+  initialImages?: string[];
+}) {
   const [draft, setDraft] = useState('');
+  const [images, setImages] = useState<string[]>(initialImages);
   return (
     <div>
       <textarea
@@ -18,13 +25,28 @@ function StashHarness({ scopeId = 'ws-menu-test' }: { scopeId?: string }) {
         value={draft}
         onChange={(event) => setDraft(event.target.value)}
       />
+      <div data-testid="active-images">{images.join(',')}</div>
+      <button
+        type="button"
+        data-testid="attach-mock-image"
+        onClick={() => setImages((prev) => [...prev, '.vibe-images/pic.png'])}
+      >
+        Attach
+      </button>
       <ComposerStashMenu
         scopeId={scopeId}
         draftValue={draft}
-        attachmentCount={2}
+        attachmentCount={images.length}
+        attachmentPaths={images}
         isEditable={true}
-        onStashDraft={() => setDraft('')}
-        onRestoreDraft={(next) => setDraft(next)}
+        onStashDraft={() => {
+          setDraft('');
+          setImages([]);
+        }}
+        onRestoreDraft={(next, restoredImages) => {
+          setDraft(next);
+          setImages(restoredImages ?? []);
+        }}
       />
     </div>
   );
@@ -85,6 +107,35 @@ describe('ComposerStashMenu', () => {
     // Clear all
     fireEvent.click(screen.getByTestId('composer-stash-clear-all'));
     expect(loadComposerDraftStash('ws-ui-1')).toEqual([]);
+  });
+
+  it('stashes image-only drafts, clears active attachments, and restores them on pop', () => {
+    render(
+      <StashHarness
+        scopeId="ws-images-only"
+        initialImages={['.vibe-images/a.png', '.vibe-images/b.png']}
+      />
+    );
+
+    expect(screen.getByTestId('active-images')).toHaveTextContent(
+      '.vibe-images/a.png,.vibe-images/b.png'
+    );
+
+    // Can stash image-only draft even when text is empty
+    fireEvent.click(screen.getByTestId('composer-stash-push-button'));
+    expect(screen.getByTestId('active-images')).toHaveTextContent('');
+    expect(loadComposerDraftStash('ws-images-only')[0]).toMatchObject({
+      text: '',
+      attachmentCount: 2,
+      images: ['.vibe-images/a.png', '.vibe-images/b.png'],
+    });
+
+    // Pop via Ctrl+Alt+S when composer is completely empty restores both images
+    fireEvent.keyDown(window, { key: 's', ctrlKey: true, altKey: true });
+    expect(screen.getByTestId('active-images')).toHaveTextContent(
+      '.vibe-images/a.png,.vibe-images/b.png'
+    );
+    expect(loadComposerDraftStash('ws-images-only')).toEqual([]);
   });
 
   it('pops latest stashed draft via Ctrl+Alt+S when composer is empty', () => {

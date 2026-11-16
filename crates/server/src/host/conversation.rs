@@ -236,12 +236,13 @@ impl ServerApplicationDomains {
     ) -> Result<Value, ApplicationError> {
         let args: EventsSinceArgs = parse(args)?;
         let conversation_id = parse_uuid(&args.conversation_id)?;
-        let _ = args.limit;
+        let limit = args.limit.and_then(|v| usize::try_from(v).ok());
         let _ = ensure_legacy_jsonl_migrated_on_pool(&self.pool, conversation_id).await;
         let page = ConversationProjector::rows_since_with_tombstones(
             &self.pool,
             conversation_id,
             args.after_sequence,
+            limit,
         )
         .await
         .map_err(internal_error)?;
@@ -897,14 +898,6 @@ pub async fn load_conversation_detail(
         return Ok(None);
     };
     let _ = ensure_legacy_jsonl_migrated_on_pool(pool, id).await;
-    let open = ConversationProjector::project_open(pool, id, row_limit)
-        .await
-        .map_err(internal_error)?;
-    let usage_snapshot = ConversationUsageSnapshotRecord::find(pool, id)
-        .await
-        .map_err(internal_error)?;
-    let session_stats =
-        session_stats_with_usage_snapshot(open.session_stats, usage_snapshot.as_ref());
     let current_turn = current_turn_for_conversation(pool, id).await?;
     let in_flight_user_turn_id = current_turn.as_ref().and_then(|turn| {
         matches!(
@@ -913,6 +906,17 @@ pub async fn load_conversation_detail(
         )
         .then(|| turn.id.to_string())
     });
+    if in_flight_user_turn_id.is_some() {
+        conversations::runtime_events::flush_conversation_persistence(id).await;
+    }
+    let open = ConversationProjector::project_open(pool, id, row_limit)
+        .await
+        .map_err(internal_error)?;
+    let usage_snapshot = ConversationUsageSnapshotRecord::find(pool, id)
+        .await
+        .map_err(internal_error)?;
+    let session_stats =
+        session_stats_with_usage_snapshot(open.session_stats, usage_snapshot.as_ref());
     let active_binding = active_binding_for_conversation(pool, id).await?;
     let persona = conversations::collaboration::conversation_persona(pool, id)
         .await
@@ -1176,19 +1180,9 @@ async fn latest_agent_handoff_sequence(
     pool: &SqlitePool,
     conversation_id: Uuid,
 ) -> Result<i64, ApplicationError> {
-    let seq: Option<i64> = sqlx::query_scalar(
-        r#"SELECT MAX(sequence)
-           FROM conversation_events
-           WHERE conversation_id = ?
-             AND event_kind = 'raw_diagnostic_recorded'
-             AND normalized_json LIKE '%"agent_handoff"%'"#,
-    )
-    .bind(conversation_id)
-    .fetch_optional(pool)
-    .await
-    .map_err(internal_error)?
-    .flatten();
-    Ok(seq.unwrap_or(0))
+    ConversationEventRecord::latest_agent_handoff_sequence(pool, conversation_id)
+        .await
+        .map_err(internal_error)
 }
 
 async fn latest_event<T>(

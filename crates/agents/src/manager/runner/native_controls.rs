@@ -348,6 +348,13 @@ impl AgentConnectionRunner {
                 .as_deref()
                 .and_then(|m| driver.normalize_mode(m))
             {
+                let mut auto_guard = self.auto_approve_mode.lock().await;
+                if pref_mode == engine_caps.modes.yolo_mode_id {
+                    *auto_guard = AgentAutoApproveMode::Yolo;
+                } else if *auto_guard == AgentAutoApproveMode::Yolo {
+                    *auto_guard = AgentAutoApproveMode::Off;
+                }
+                drop(auto_guard);
                 modes.current_mode_id = acp::schema::v1::SessionModeId::new(pref_mode);
             }
             for item in &preferences.config {
@@ -397,6 +404,28 @@ impl AgentConnectionRunner {
         snapshot
     }
 
+    pub(in crate::manager) fn is_plan_approval_tool(tool_name: &str) -> bool {
+        tool_name == "ExitPlanMode" || tool_name.eq_ignore_ascii_case("exit_plan_mode")
+    }
+
+    pub(in crate::manager) async fn is_session_in_plan_mode(
+        &self,
+        session_id: AgentSessionId,
+    ) -> bool {
+        let controls = self.session_controls.read().await;
+        let Some(entry) = controls.get(&session_id) else {
+            return false;
+        };
+        if entry
+            .modes
+            .as_ref()
+            .is_some_and(|m| m.current_mode_id.0.as_ref() == "plan")
+        {
+            return true;
+        }
+        current_select_option_value(&entry.config_options, "mode").as_deref() == Some("plan")
+    }
+
     pub(in crate::manager) async fn apply_native_mode_change(
         &self,
         driver: &dyn NativeEngineDriver,
@@ -406,6 +435,15 @@ impl AgentConnectionRunner {
         let normalized = driver
             .normalize_mode(&mode_id)
             .unwrap_or_else(|| mode_id.clone());
+        let yolo_mode_id = driver.capabilities().modes.yolo_mode_id;
+        {
+            let mut auto_guard = self.auto_approve_mode.lock().await;
+            if normalized == yolo_mode_id {
+                *auto_guard = AgentAutoApproveMode::Yolo;
+            } else {
+                *auto_guard = AgentAutoApproveMode::Off;
+            }
+        }
         {
             let mut controls = self.session_controls.write().await;
             let entry = controls.entry(session_id).or_default();
@@ -523,6 +561,29 @@ impl AgentConnectionRunner {
         mode_override: Option<&str>,
         config_overrides: &[AgentSessionConfigOverride],
     ) -> (Option<String>, Option<String>, Option<String>) {
+        let explicit_mode = mode_override
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(str::to_string)
+            .or_else(|| {
+                config_overrides
+                    .iter()
+                    .find(|o| o.key == "mode")
+                    .map(|o| o.value.trim().to_string())
+                    .filter(|s| !s.is_empty())
+            });
+        if let Some(ref exp_raw) = explicit_mode {
+            let exp_norm = driver
+                .normalize_mode(exp_raw)
+                .unwrap_or_else(|| exp_raw.clone());
+            let yolo_mode_id = driver.capabilities().modes.yolo_mode_id;
+            let mut auto_guard = self.auto_approve_mode.lock().await;
+            if exp_norm == yolo_mode_id {
+                *auto_guard = AgentAutoApproveMode::Yolo;
+            } else {
+                *auto_guard = AgentAutoApproveMode::Off;
+            }
+        }
         let yolo = *self.auto_approve_mode.lock().await == AgentAutoApproveMode::Yolo;
         let preferred_model = self
             .preferred_controls
@@ -580,17 +641,7 @@ impl AgentConnectionRunner {
                 })
             });
 
-        let raw_mode = mode_override
-            .map(str::trim)
-            .filter(|s| !s.is_empty())
-            .map(str::to_string)
-            .or_else(|| {
-                config_overrides
-                    .iter()
-                    .find(|o| o.key == "mode")
-                    .map(|o| o.value.trim().to_string())
-                    .filter(|s| !s.is_empty())
-            })
+        let raw_mode = explicit_mode
             .or_else(|| stored.and_then(|s| current_select_option_value(&s.config_options, "mode")));
 
         let normalized_mode = raw_mode

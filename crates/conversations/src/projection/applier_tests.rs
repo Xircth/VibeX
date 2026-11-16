@@ -742,6 +742,25 @@
         assert_eq!(mid_snapshot.last_sequence, 2);
         // 1 user row + 1 assistant row + 1 active `status:agent-request` notice = 3 rows
         assert_eq!(mid_snapshot.total_rows, 3);
+        let mid_rows =
+            db::models::conversation_timeline_row::ConversationTimelineRowRecord::list_range(
+                &pool,
+                conversation_id,
+                0,
+                10,
+            )
+            .await
+            .expect("list mid-turn materialized rows");
+        let user_row_id = format!("{turn_id}:user");
+        let assistant_row_id = format!("{turn_id}:assistant");
+        let mid_user_row = mid_rows
+            .iter()
+            .find(|r| r.row_id == user_row_id)
+            .expect("mid-turn user row present");
+        assert_eq!(
+            mid_user_row.revision, 1,
+            "user row revision must remain 1 across streaming assistant deltas"
+        );
 
         append_event(
             &pool,
@@ -780,8 +799,6 @@
         .await
         .expect("list materialized rows");
         assert_eq!(rows.len(), 3);
-        let user_row_id = format!("{turn_id}:user");
-        let assistant_row_id = format!("{turn_id}:assistant");
         let user_row = rows
             .iter()
             .find(|r| r.row_id == user_row_id)
@@ -791,8 +808,8 @@
             .find(|r| r.row_id == assistant_row_id)
             .expect("assistant row present");
         assert_eq!(
-            user_row.revision, 1,
-            "user row revision must remain 1 across streaming deltas and TurnCompleted"
+            user_row.revision, 3,
+            "TurnCompleted transitions user row phase from streaming to settled and bumps its revision"
         );
         assert_eq!(assistant_row.revision, 3);
     }

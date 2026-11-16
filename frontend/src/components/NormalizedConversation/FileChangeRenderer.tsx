@@ -1,3 +1,4 @@
+import { memo } from 'react';
 import { type FileChange } from 'shared/types';
 import { useTranslation } from 'react-i18next';
 import { useUserSystem } from '@/components/ConfigProvider';
@@ -204,4 +205,4 @@ const FileChangeRenderer = ({
   );
 };
 
-export default FileChangeRenderer;
+export default memo(FileChangeRenderer);

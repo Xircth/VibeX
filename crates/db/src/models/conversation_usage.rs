@@ -200,6 +200,7 @@ impl ConversationUsageSnapshotRecord {
 #[derive(Debug, Clone, FromRow)]
 pub struct StaleUsageEventRow {
     pub conversation_id: Uuid,
+    pub turn_id: Option<Uuid>,
     pub sequence: i64,
     pub normalized_json: String,
     pub created_at: DateTime<Utc>,
@@ -212,7 +213,7 @@ impl StaleUsageEventRow {
         E: Executor<'e, Database = Sqlite>,
     {
         sqlx::query_as::<_, Self>(
-            r#"SELECT e.conversation_id, e.sequence, e.normalized_json, e.created_at
+            r#"SELECT e.conversation_id, e.turn_id, e.sequence, e.normalized_json, e.created_at
                FROM sessions s
                LEFT JOIN conversation_usage_snapshots snap
                    ON snap.conversation_id = s.id

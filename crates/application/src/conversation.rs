@@ -219,8 +219,16 @@ pub struct SteerConversationTurnRequest {
     pub conversation_id: Uuid,
     pub expected_turn_id: Uuid,
     pub text: String,
+    #[serde(default, alias = "display_text")]
+    pub display_text: Option<String>,
     #[serde(default)]
     pub images: Vec<String>,
+    #[serde(default, alias = "file_refs")]
+    pub file_refs: Vec<agents::ConversationFileRef>,
+    #[serde(default, alias = "mode_override")]
+    pub mode_override: Option<String>,
+    #[serde(default, alias = "config_overrides")]
+    pub config_overrides: Vec<agents::AgentSessionConfigOverride>,
     #[serde(default, alias = "promoted_input_id")]
     pub promoted_input_id: Option<Uuid>,
     #[serde(

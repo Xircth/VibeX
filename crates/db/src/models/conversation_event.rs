@@ -180,6 +180,25 @@ impl ConversationEventRecord {
         Ok(value.unwrap_or(0))
     }
 
+    pub async fn latest_agent_handoff_sequence(
+        pool: &SqlitePool,
+        conversation_id: Uuid,
+    ) -> Result<i64, sqlx::Error> {
+        let value = sqlx::query_scalar::<_, i64>(
+            r#"SELECT sequence
+               FROM conversation_events
+               WHERE conversation_id = ?
+                 AND event_kind = 'raw_diagnostic_recorded'
+                 AND normalized_json LIKE '%"agent_handoff"%'
+               ORDER BY sequence DESC
+               LIMIT 1"#,
+        )
+        .bind(conversation_id)
+        .fetch_optional(pool)
+        .await?;
+        Ok(value.unwrap_or(0))
+    }
+
     pub async fn events_since<'e, E>(
         executor: E,
         conversation_id: Uuid,
@@ -224,6 +243,94 @@ impl ConversationEventRecord {
         ))
         .bind(conversation_id)
         .bind(turn_id)
+        .fetch_all(executor)
+        .await
+    }
+
+    /// Bounded variant of `events_since` returning only events with `sequence > after_sequence`
+    /// and `sequence < before_sequence`.
+    pub async fn events_since_before<'e, E>(
+        executor: E,
+        conversation_id: Uuid,
+        after_sequence: i64,
+        before_sequence: i64,
+    ) -> Result<Vec<Self>, sqlx::Error>
+    where
+        E: Executor<'e, Database = Sqlite>,
+    {
+        sqlx::query_as::<_, Self>(&format!(
+            r#"SELECT {EVENT_COLUMNS}
+               FROM conversation_events
+               WHERE conversation_id = ?1
+                 AND sequence > ?2
+                 AND sequence < ?3
+               ORDER BY sequence ASC"#
+        ))
+        .bind(conversation_id)
+        .bind(after_sequence)
+        .bind(before_sequence)
+        .fetch_all(executor)
+        .await
+    }
+
+    /// Bounded turn hydration query using `idx_conversation_events_turn_seq`: fetches all events
+    /// belonging to `turn_id` strictly before `before_sequence`, plus any `turn_id IS NULL` events
+    /// in `[min_unassigned_sequence, before_sequence)`.
+    pub async fn events_for_turn_with_unassigned_before<'e, E>(
+        executor: E,
+        conversation_id: Uuid,
+        turn_id: Uuid,
+        min_unassigned_sequence: i64,
+        before_sequence: i64,
+    ) -> Result<Vec<Self>, sqlx::Error>
+    where
+        E: Executor<'e, Database = Sqlite>,
+    {
+        sqlx::query_as::<_, Self>(&format!(
+            r#"SELECT {EVENT_COLUMNS}
+               FROM conversation_events
+               WHERE conversation_id = ?1
+                 AND turn_id = ?2
+                 AND sequence < ?4
+               UNION ALL
+               SELECT {EVENT_COLUMNS}
+               FROM conversation_events
+               WHERE conversation_id = ?1
+                 AND turn_id IS NULL
+                 AND sequence >= ?3
+                 AND sequence < ?4
+               ORDER BY sequence ASC"#
+        ))
+        .bind(conversation_id)
+        .bind(turn_id)
+        .bind(min_unassigned_sequence)
+        .bind(before_sequence)
+        .fetch_all(executor)
+        .await
+    }
+
+    /// Fetch events of a single `event_kind` after `after_sequence` using
+    /// `idx_conversation_events_conversation_kind_sequence`.
+    pub async fn events_of_kind_since<'e, E>(
+        executor: E,
+        conversation_id: Uuid,
+        event_kind: &str,
+        after_sequence: i64,
+    ) -> Result<Vec<Self>, sqlx::Error>
+    where
+        E: Executor<'e, Database = Sqlite>,
+    {
+        sqlx::query_as::<_, Self>(&format!(
+            r#"SELECT {EVENT_COLUMNS}
+               FROM conversation_events
+               WHERE conversation_id = ?1
+                 AND event_kind = ?2
+                 AND sequence > ?3
+               ORDER BY sequence ASC"#
+        ))
+        .bind(conversation_id)
+        .bind(event_kind)
+        .bind(after_sequence)
         .fetch_all(executor)
         .await
     }

@@ -50,7 +50,8 @@ export function SearchToolCard({
     `search-tool-entry:${expansionKey}`,
     false
   );
-  const effectiveExpanded = forceExpanded || expanded;
+  const isResultDetail = useToolCallResultDetail();
+  const effectiveExpanded = forceExpanded || isResultDetail || expanded;
   const isWebFetch = actionType?.action === 'web_fetch';
   const searchQuery =
     actionType?.action === 'search'
@@ -65,12 +66,11 @@ export function SearchToolCard({
   const summary = getToolSummary(toolEntry, entry.content.trim());
   const description = getToolCallDescription(entry);
   const canOpenLink = isWebFetch && /^https?:\/\//i.test(detail);
-  const isResultDetail = useToolCallResultDetail();
   const [copied, triggerCopied] = useTemporaryFlag(1500);
   const openLink = useOpenLink();
   const panelActions = useOptionalPanelActionsContext();
   const resultItems =
-    actionType?.action === 'search'
+    effectiveExpanded && actionType?.action === 'search'
       ? parseToolHitItems(actionType.result?.value ?? actionType.result)
       : [];
   const result =
@@ -156,53 +156,55 @@ export function SearchToolCard({
       expandable
       onToggle={toggle}
     >
-      {isWebFetch ? (
-        <ToolArtifact
-          badge={t('toolArtifact.fetch')}
-          title={detail}
-          titleLabel={detail}
-          onTitleClick={canOpenLink ? handleOpenLink : undefined}
-          actions={isResultDetail ? actions : undefined}
-        >
-          {result ? (
-            <ToolProse>
-              <ToolResultView result={result} />
-            </ToolProse>
-          ) : null}
-        </ToolArtifact>
-      ) : (
-        <ToolArtifact>
-          <ToolFacts
-            facts={searchArgumentFacts(actionType.arguments, searchQuery)}
-          />
-          {resultItems.length > 0 ? (
-            <ToolSearchHits
-              items={resultItems}
-              onOpenUrl={openLink}
-              onOpenPath={(path, line) => {
-                const resolved = resolveToolFilePath(path);
-                const title = deriveRelativeFilePath(resolved, null) ?? path;
-                panelActions?.openFilePreview(resolved, {
-                  displayPath: title,
-                  title,
-                  location: fileReadLocation(line, line),
-                });
-              }}
-              onOpenDirectory={(path) => {
-                panelActions?.revealInFileTree(path, { nodeType: 'folder' });
-              }}
-            />
-          ) : result ? (
-            <ToolProse>
-              {result.type.type === 'json' ? (
-                <ToolFacts facts={jsonToFacts(result.value)} />
-              ) : (
+      {effectiveExpanded ? (
+        isWebFetch ? (
+          <ToolArtifact
+            badge={t('toolArtifact.fetch')}
+            title={detail}
+            titleLabel={detail}
+            onTitleClick={canOpenLink ? handleOpenLink : undefined}
+            actions={isResultDetail ? actions : undefined}
+          >
+            {result ? (
+              <ToolProse>
                 <ToolResultView result={result} />
-              )}
-            </ToolProse>
-          ) : null}
-        </ToolArtifact>
-      )}
+              </ToolProse>
+            ) : null}
+          </ToolArtifact>
+        ) : (
+          <ToolArtifact>
+            <ToolFacts
+              facts={searchArgumentFacts(actionType.arguments, searchQuery)}
+            />
+            {resultItems.length > 0 ? (
+              <ToolSearchHits
+                items={resultItems}
+                onOpenUrl={openLink}
+                onOpenPath={(path, line) => {
+                  const resolved = resolveToolFilePath(path);
+                  const title = deriveRelativeFilePath(resolved, null) ?? path;
+                  panelActions?.openFilePreview(resolved, {
+                    displayPath: title,
+                    title,
+                    location: fileReadLocation(line, line),
+                  });
+                }}
+                onOpenDirectory={(path) => {
+                  panelActions?.revealInFileTree(path, { nodeType: 'folder' });
+                }}
+              />
+            ) : result ? (
+              <ToolProse>
+                {result.type.type === 'json' ? (
+                  <ToolFacts facts={jsonToFacts(result.value)} />
+                ) : (
+                  <ToolResultView result={result} />
+                )}
+              </ToolProse>
+            ) : null}
+          </ToolArtifact>
+        )
+      ) : null}
     </ToolCardShell>
   );
 }

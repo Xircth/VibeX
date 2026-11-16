@@ -309,7 +309,13 @@ pub(super) fn normalize_sidecar_event(
                 cache_read_tokens: raw.get("cacheReadInputTokens").and_then(Value::as_u64),
                 cache_write_tokens: raw.get("cacheCreationInputTokens").and_then(Value::as_u64),
                 cost_usd: raw.get("totalCostUsd").and_then(Value::as_f64),
+                context_used: raw.get("contextUsed").and_then(Value::as_u64),
                 context_window: raw.get("contextWindow").and_then(Value::as_u64),
+                is_turn_summary: raw
+                    .get("isTurnSummary")
+                    .or_else(|| event.get("isTurnSummary"))
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false),
                 model: str_opt(raw, "model"),
             })
         }
@@ -317,7 +323,8 @@ pub(super) fn normalize_sidecar_event(
             prompt_id,
             session_id,
             subagent_id: str_or(event, "subagentId", "subagent"),
-            parent_tool_use_id: str_opt(event, "parentToolUseId"),
+            parent_tool_use_id: str_opt(event, "parentToolUseId")
+                .or_else(|| str_opt(event, "parent_tool_use_id")),
             subagent_type: str_opt(event, "subagentType"),
             description: str_opt(event, "description"),
         }),
@@ -325,12 +332,16 @@ pub(super) fn normalize_sidecar_event(
             prompt_id,
             session_id,
             subagent_id: str_or(event, "subagentId", "subagent"),
+            parent_tool_use_id: str_opt(event, "parentToolUseId")
+                .or_else(|| str_opt(event, "parent_tool_use_id")),
             text_delta: str_opt(event, "textDelta").unwrap_or_else(|| str_or(event, "text", "")),
         }),
         "subagent/complete" => Some(EngineEvent::SubagentCompleted {
             prompt_id,
             session_id,
             subagent_id: str_or(event, "subagentId", "subagent"),
+            parent_tool_use_id: str_opt(event, "parentToolUseId")
+                .or_else(|| str_opt(event, "parent_tool_use_id")),
             status: str_or(event, "status", "completed"),
             summary: str_opt(event, "summary"),
         }),

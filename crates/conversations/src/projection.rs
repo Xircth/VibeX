@@ -5,6 +5,9 @@ mod fold;
 mod query;
 mod rows;
 mod runtime_status;
+mod write_cache;
+#[cfg(test)]
+mod bounds_tests;
 
 use std::{
     collections::{BTreeMap, HashSet},
@@ -49,7 +52,10 @@ pub use self::{
         MAX_WINDOW_BYTES, TimelineKeysetCursor, decode_timeline_cursor, encode_timeline_cursor,
     },
 };
-pub(crate) use self::applier::apply_checkpoint_metadata_update_on_conn as applier_checkpoint_update;
+pub(crate) use self::{
+    applier::apply_checkpoint_metadata_update_on_conn as applier_checkpoint_update,
+    cache::fetch_hydrated_turns_for_projector,
+};
 use self::{
     cache::{antigravity_conversation, decode_timeline_row_records, record_rebuilt_projector_fold},
     fold::ProjectedTurn,
@@ -216,6 +222,48 @@ pub(crate) fn emit_captured_internal_message(message: agents::CapturedInternalMe
     }
 }
 
+static PROJECTION_REPAIR_HOOK: OnceLock<Arc<dyn Fn(Uuid) + Send + Sync + 'static>> = OnceLock::new();
+static PENDING_PROJECTION_REPAIRS: OnceLock<Mutex<HashSet<Uuid>>> = OnceLock::new();
+
+/// Register a background repair hook backed by `WritePool` so cold-fold fallbacks on
+/// read queries deduplicatedly rebuild stale or missing projections.
+pub fn register_projection_repair_hook(write_pool: db::WritePool) {
+    let _ = PROJECTION_REPAIR_HOOK.set(Arc::new(move |conversation_id| {
+        let pending = PENDING_PROJECTION_REPAIRS.get_or_init(|| Mutex::new(HashSet::new()));
+        {
+            let mut guard = pending.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+            if !guard.insert(conversation_id) {
+                return;
+            }
+        }
+        let Ok(handle) = tokio::runtime::Handle::try_current() else {
+            let mut guard = pending.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+            guard.remove(&conversation_id);
+            return;
+        };
+        let pool = write_pool.clone();
+        handle.spawn(async move {
+            if let Err(error) =
+                ConversationProjector::rebuild_projection(pool.as_pool(), conversation_id).await
+            {
+                tracing::warn!(%conversation_id, %error, "background projection repair failed");
+            }
+            if let Some(pending) = PENDING_PROJECTION_REPAIRS.get() {
+                pending
+                    .lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner())
+                    .remove(&conversation_id);
+            }
+        });
+    }));
+}
+
+pub(super) fn schedule_projection_repair(conversation_id: Uuid) {
+    if let Some(hook) = PROJECTION_REPAIR_HOOK.get() {
+        hook(conversation_id);
+    }
+}
+
 pub struct ConversationProjector;
 
 impl ConversationProjector {
@@ -246,6 +294,9 @@ impl ConversationProjector {
             });
         }
         let fold = Self::fold(pool, conversation_id).await?;
+        if fold.last_sequence > 0 {
+            schedule_projection_repair(conversation_id);
+        }
         let session_stats = fold.session_stats();
         let timeline = annotate_fork_points(
             pool,
@@ -509,7 +560,10 @@ fn summarize_turn_metrics(
             segments.push(segment);
         }
     }
-    if !turn.assistant.blocks.is_empty() {
+    if !turn.assistant.blocks.is_empty()
+        || turn.assistant.usage.is_some()
+        || turn.assistant.duration_ms.is_some()
+    {
         segments.push(&turn.assistant);
     }
     let mut has_usage = false;
@@ -521,22 +575,27 @@ fn summarize_turn_metrics(
             agg.output_tokens += u.output_tokens;
             agg.cache_creation_input_tokens += u.cache_creation_input_tokens;
             agg.cache_read_input_tokens += u.cache_read_input_tokens;
+            if u.cost_amount.is_some() {
+                agg.cost_amount = u.cost_amount;
+            }
+            if u.cost_currency.is_some() {
+                agg.cost_currency = u.cost_currency.clone();
+            }
         }
     }
     if let Some(latest_max_seg) = segments.iter().rev().find(|s| {
         s.usage
             .as_ref()
-            .and_then(|u| u.context_window_max)
-            .is_some()
+            .is_some_and(|u| u.context_window_max.is_some() || u.context_used.is_some())
     }) && let Some(u) = latest_max_seg.usage.as_ref()
     {
         agg.context_window_max = u.context_window_max;
-        agg.context_used = Some(
+        agg.context_used = u.context_used.or(Some(
             u.input_tokens
                 + u.output_tokens
                 + u.cache_creation_input_tokens
                 + u.cache_read_input_tokens,
-        );
+        ));
     }
     let duration_sum: u64 = segments.iter().filter_map(|s| s.duration_ms).sum();
     let has_duration = segments.iter().any(|s| s.duration_ms.is_some());
@@ -563,6 +622,8 @@ struct ProjectionSnapshotState {
     #[serde(default)]
     turns: Vec<ProjectedTurn>,
     #[serde(default)]
+    turn_order: Vec<Uuid>,
+    #[serde(default)]
     side_rows: Vec<TimelineRow>,
     #[serde(default)]
     side_row_turns: BTreeMap<String, Uuid>,
@@ -580,6 +641,7 @@ impl Default for ProjectionSnapshotState {
     fn default() -> Self {
         Self {
             turns: Vec::new(),
+            turn_order: Vec::new(),
             side_rows: Vec::new(),
             side_row_turns: BTreeMap::new(),
             last_sequence: 0,
@@ -592,11 +654,19 @@ impl Default for ProjectionSnapshotState {
 
 impl ProjectionFold {
     fn side_row_turn_id(&self, row: &TimelineRow) -> Option<Uuid> {
+        if let Some(turn_id) = self.side_row_turns.get(&row.row_id).copied() {
+            return Some(turn_id);
+        }
+        if let Some(turn_id_str) = row.row_id.strip_prefix("host-note:agent-handoff:after:")
+            && let Ok(turn_id) = Uuid::parse_str(turn_id_str)
+        {
+            return Some(turn_id);
+        }
         match &row.row {
             ConversationTimelineRow::SessionNotice { .. } => None,
             ConversationTimelineRow::TurnError { error } => error.turn_id,
             ConversationTimelineRow::FileChangeSummary { turn_id, .. } => *turn_id,
-            _ => self.side_row_turns.get(&row.row_id).copied(),
+            _ => None,
         }
     }
 
@@ -636,6 +706,7 @@ impl ProjectionFold {
             .collect();
         ProjectionSnapshotState {
             turns,
+            turn_order: self.turn_order.clone(),
             side_rows: self.side_rows.clone(),
             side_row_turns: self.side_row_turns.clone(),
             last_sequence: self.last_sequence,
@@ -651,6 +722,7 @@ impl ProjectionFold {
     ) -> ProjectionSnapshotState {
         ProjectionSnapshotState {
             turns: Vec::new(),
+            turn_order: self.turn_order.clone(),
             side_rows: self.side_rows.clone(),
             side_row_turns: self.side_row_turns.clone(),
             last_sequence: self.last_sequence,
@@ -722,7 +794,10 @@ impl ProjectionFold {
                     turns.push(segment);
                 }
             }
-            if !turn.assistant.blocks.is_empty() {
+            if !turn.assistant.blocks.is_empty()
+                || turn.assistant.usage.is_some()
+                || turn.assistant.duration_ms.is_some()
+            {
                 turns.push(&turn.assistant);
             }
         }
@@ -793,6 +868,7 @@ impl ProjectionFold {
                     usage_announced: false,
                     trailing_raw_text: String::new(),
                     emitted_internal_count: 0,
+                    internal_scan_cursor: Default::default(),
                 },
             );
             return;
@@ -896,10 +972,12 @@ fn session_stats_from_turns(turns: &[&MessageTurn]) -> Option<SessionStats> {
     let context_window = turns.iter().rev().find_map(|turn| {
         let usage = turn.usage.as_ref()?;
         let max = usage.context_window_max?;
-        let used = usage.input_tokens
-            + usage.output_tokens
-            + usage.cache_creation_input_tokens
-            + usage.cache_read_input_tokens;
+        let used = usage.context_used.unwrap_or(
+            usage.input_tokens
+                + usage.output_tokens
+                + usage.cache_creation_input_tokens
+                + usage.cache_read_input_tokens,
+        );
         Some((used, max))
     });
     (total_tokens > 0).then_some(SessionStats {

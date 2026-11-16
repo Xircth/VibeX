@@ -1602,4 +1602,192 @@ describe('useConversationTimeline', () => {
       clearTimeoutSpy.mockRestore();
     }
   });
+
+  it('retries stale auto-connect errors up to 2 times and resets connecting=false without surfacing a load error', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      detailMock.mockResolvedValue(detail());
+      const staleErr = new Error(
+        'Not found: agent connection `46054836-6607-4f56-a4c1-376afc469934` was not found'
+      );
+      ensureSessionControlsMock
+        .mockRejectedValueOnce(staleErr)
+        .mockRejectedValueOnce(staleErr)
+        .mockRejectedValueOnce(staleErr);
+
+      const { result } = renderHook(() =>
+        useConversationTimeline(CONVERSATION_ID)
+      );
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(1000);
+      });
+
+      expect(ensureSessionControlsMock).toHaveBeenCalledTimes(3);
+      expect(result.current.error).toBeNull();
+      expect(result.current.sessionBindReady).toBe(false);
+      expect(result.current.connecting).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('hydrates optimistic turns published right before ConversationTimeline mounts', async () => {
+    detailMock.mockReturnValue(new Promise(() => {}));
+
+    publishOptimisticConversationTurn({
+      type: 'add',
+      conversationId: CONVERSATION_ID,
+      turn: messageTurn('pre-mount-opt-1', 'user', [
+        { type: 'text', text: 'First prompt in newly created session' },
+      ]),
+    });
+
+    const { result } = renderHook(() =>
+      useConversationTimeline(CONVERSATION_ID)
+    );
+
+    await waitFor(() =>
+      expect(result.current.timeline.map((t) => t.turn.role)).toEqual([
+        'user',
+        'assistant',
+      ])
+    );
+    expect(result.current.timeline[0]?.turn.blocks).toEqual([
+      { type: 'text', text: 'First prompt in newly created session' },
+    ]);
+  });
+
+  it('subscribes to live row_ops before detail resolves, replays pre-detail batches past cursor, and heals pre-detail gaps', async () => {
+    let resolveDetail: (value: DbConversationDetail) => void = () => {};
+    detailMock.mockReturnValue(
+      new Promise((resolve) => {
+        resolveDetail = resolve;
+      })
+    );
+
+    const { result } = renderHook(() =>
+      useConversationTimeline(CONVERSATION_ID)
+    );
+
+    // ensureLive is active BEFORE detail resolves
+    await waitFor(() => expect(listeners).toHaveLength(1));
+
+    // A TurnCompleted / settled assistant batch arrives at seq=3 (previous_sequence=2) while detail (seq=1) is still in flight
+    eventsSinceMock.mockResolvedValueOnce({
+      conversation_id: CONVERSATION_ID,
+      after_sequence: 1n,
+      last_sequence: 3n,
+      rows: [assistantRow('t1', 'Completed during open race', 3n)],
+    });
+
+    act(() => {
+      listeners[0]?.({
+        ...batch(
+          [{ op: 'upsert', row: assistantRow('t1', 'Completed during open race', 3n) }],
+          3n
+        ),
+        previous_sequence: 2n,
+      });
+    });
+
+    await act(async () => {
+      resolveDetail({
+        ...detail(),
+        timeline: {
+          ...detail().timeline,
+          last_sequence: 1n,
+          rows: [userRow('t1', 'question', 1n)],
+        },
+      });
+      await Promise.resolve();
+    });
+
+    await waitFor(() =>
+      expect(eventsSinceMock).toHaveBeenCalledWith({
+        conversationId: CONVERSATION_ID,
+        afterSequence: 1n,
+      })
+    );
+    await waitFor(() =>
+      expect(
+        result.current.timeline.find((r) => r.turn.role === 'assistant')?.phase
+      ).toBe('settled')
+    );
+    expect(
+      result.current.timeline.find((r) => r.turn.role === 'assistant')?.turn
+        .blocks
+    ).toEqual([{ type: 'text', text: 'Completed during open race' }]);
+  });
+
+  it('discards stale loadOlder timelinePage responses when loadEpoch advances before resolution', async () => {
+    detailMock
+      .mockResolvedValueOnce({
+        ...detail(),
+        timeline: {
+          ...detail().timeline,
+          last_sequence: 10n,
+          rows: [userRow('t10', 'latest', 10n)],
+          truncated_from_start: true,
+          older_cursor: 'cursor-older-1',
+        },
+      })
+      .mockResolvedValueOnce({
+        ...detail(),
+        timeline: {
+          ...detail().timeline,
+          last_sequence: 11n,
+          rows: [userRow('t11', 'reloaded window', 11n)],
+          truncated_from_start: false,
+          older_cursor: null,
+        },
+      });
+
+    let resolveOlderPage: (value: {
+      conversation_id: string;
+      projection_version: number;
+      cursor: string;
+      next_cursor: null;
+      rows: TimelineRow[];
+    }) => void = () => {};
+    timelinePageMock.mockReturnValueOnce(
+      new Promise((resolve) => {
+        resolveOlderPage = resolve;
+      })
+    );
+
+    const { result } = renderHook(() =>
+      useConversationTimeline(CONVERSATION_ID)
+    );
+
+    await waitFor(() => expect(result.current.hasEarlier).toBe(true));
+
+    act(() => {
+      void result.current.loadOlder();
+    });
+    await waitFor(() => expect(timelinePageMock).toHaveBeenCalledTimes(1));
+
+    // Advance loadEpoch via refresh() before timelinePage resolves
+    act(() => {
+      result.current.refresh();
+    });
+    await waitFor(() =>
+      expect(result.current.timeline.map((r) => r.turn.id)).toEqual([
+        't11:user',
+      ])
+    );
+
+    await act(async () => {
+      resolveOlderPage({
+        conversation_id: CONVERSATION_ID,
+        projection_version: 2,
+        cursor: 'cursor-older-1',
+        next_cursor: null,
+        rows: [userRow('t-stale-epoch', 'stale older row', 1n)],
+      });
+      await Promise.resolve();
+    });
+
+    expect(result.current.timeline.map((r) => r.turn.id)).toEqual(['t11:user']);
+  });
 });

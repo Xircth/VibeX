@@ -124,4 +124,41 @@ describe('composerDraftStash', () => {
       formatComposerStashRelativeTime(base - 3 * 3_600_000, base, labels)
     ).toBe('3h ago');
   });
+
+  it('persists images on stashed drafts, supports image-only drafts, and stays backward-compatible with legacy items lacking images', () => {
+    const scope = 'ws-images';
+    const afterImageOnly = pushComposerDraftStash(scope, {
+      text: '',
+      images: ['.vibe-images/shot-1.png', '.vibe-images/shot-2.png'],
+      now: 5000,
+    });
+    expect(afterImageOnly).toHaveLength(1);
+    expect(afterImageOnly[0]).toMatchObject({
+      text: '',
+      attachmentCount: 2,
+      images: ['.vibe-images/shot-1.png', '.vibe-images/shot-2.png'],
+    });
+
+    // Legacy localStorage item without `images` field still loads cleanly
+    window.localStorage.setItem(
+      composerStashStorageKey('ws-legacy'),
+      JSON.stringify([
+        {
+          id: 'legacy-1',
+          text: 'Legacy text draft',
+          createdAt: 1234,
+          attachmentCount: 1,
+        },
+      ])
+    );
+    const legacyItems = loadComposerDraftStash('ws-legacy');
+    expect(legacyItems).toEqual([
+      {
+        id: 'legacy-1',
+        text: 'Legacy text draft',
+        createdAt: 1234,
+        attachmentCount: 1,
+      },
+    ]);
+  });
 });

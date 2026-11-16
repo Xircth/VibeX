@@ -1,55 +1,127 @@
-import type { TimelineRow } from 'shared/types';
+import type { MessageTurn, TimelineRow } from 'shared/types';
+import { plausibleTurnStartMs } from '@/components/conversation-thread/turnClock';
 import {
   alignStreamingAssistantWithUserPhase,
   dedupeTurns,
   isLiveProjectorRowId,
   liveOverlayForRow,
   mergeOptimisticUsersBeforeOrphanAssistants,
+  messageTurnPairKey,
   orderSameTurnUserBeforeAssistant,
   overlayLiveText,
   toBigInt,
   withPendingAssistantTurns,
 } from './queue';
 import { defaultInlineSideRow, sideRowsForEntry } from './permissions';
-import type {
-  ConversationStoreEntry,
-  ConversationStoreState,
-  ConversationTimelineItem,
-  ConversationTimelineTurn,
+import {
+  selectActiveTurnStartedAt,
+  type ConversationStoreEntry,
+  type ConversationStoreState,
+  type ConversationTimelineItem,
+  type ConversationTimelineTurn,
+  type LiveTextOverlay,
 } from './turnLifecycle';
+
+type CachedProjectedRowTurn = {
+  blocks: MessageTurn['blocks'];
+  phase: string;
+  revision: TimelineRow['revision'];
+  overlay: LiveTextOverlay | undefined;
+  timestampOverride: string | null;
+  forkPointStatus: ConversationTimelineTurn['forkPointStatus'];
+  result: ConversationTimelineTurn;
+};
+
+const projectedRowTurnCache = new WeakMap<TimelineRow, CachedProjectedRowTurn>();
 
 export function timelineTurnsForEntry(
   entry: ConversationStoreEntry | null
 ): ConversationTimelineTurn[] {
   if (!entry) return [];
+  const activeTurnId =
+    entry.detail?.current_turn?.id ??
+    entry.detail?.in_flight_user_turn_id ??
+    entry.currentTurnId;
+  const activeStartedAt = selectActiveTurnStartedAt(entry);
+  const activeStartedMs = activeStartedAt
+    ? plausibleTurnStartMs(activeStartedAt)
+    : null;
+  const hasActiveUserRow = activeTurnId
+    ? entry.rows.some(
+        (row) =>
+          row.row.kind === 'message_turn' &&
+          row.row.turn.role === 'user' &&
+          (row.row_id === `${activeTurnId}:user` ||
+            row.row.turn.id === `${activeTurnId}:user`)
+      )
+    : false;
   const persisted = entry.rows.flatMap((row) => {
     if (row.row.kind !== 'message_turn') return [];
     const overlay = liveOverlayForRow(row, entry.liveText);
-    const turn = overlay
+    let timestampOverride: string | null = null;
+    if (
+      row.row.phase === 'streaming' &&
+      row.row.turn.role === 'assistant' &&
+      activeTurnId &&
+      !hasActiveUserRow &&
+      activeStartedAt &&
+      activeStartedMs !== null &&
+      messageTurnPairKey(row.row_id) === activeTurnId
+    ) {
+      const existingMs = plausibleTurnStartMs(row.row.turn.timestamp);
+      if (existingMs === null || activeStartedMs < existingMs) {
+        timestampOverride = activeStartedAt;
+      }
+    }
+    const forkPointStatus: ConversationTimelineTurn['forkPointStatus'] =
+      'fork_point_status' in row.row
+        ? ((
+            row.row as {
+              fork_point_status?: ConversationTimelineTurn['forkPointStatus'];
+            }
+          ).fork_point_status ?? null)
+        : null;
+    const cached = projectedRowTurnCache.get(row);
+    if (
+      cached &&
+      cached.blocks === row.row.turn.blocks &&
+      cached.phase === row.row.phase &&
+      cached.revision === row.revision &&
+      cached.overlay === overlay &&
+      cached.timestampOverride === timestampOverride &&
+      cached.forkPointStatus === forkPointStatus
+    ) {
+      return [cached.result];
+    }
+    let turn = overlay
       ? {
           ...row.row.turn,
           blocks: overlayLiveText(row.row.turn.blocks, overlay),
         }
       : row.row.turn;
-    return [
-      {
-        key: `conversation-${row.row_id}`,
-        turn,
-        revision: toBigInt(row.revision),
-        phase: row.row.phase as ConversationTimelineTurn['phase'],
-        forkPointStatus:
-          'fork_point_status' in row.row
-            ? ((
-                row.row as {
-                  fork_point_status?: ConversationTimelineTurn['forkPointStatus'];
-                }
-              ).fork_point_status ?? null)
-            : null,
-      },
-    ];
+    if (timestampOverride !== null) {
+      turn = { ...turn, timestamp: timestampOverride };
+    }
+    const projected: ConversationTimelineTurn = {
+      key: `conversation-${row.row_id}`,
+      turn,
+      revision: toBigInt(row.revision),
+      phase: row.row.phase as ConversationTimelineTurn['phase'],
+      forkPointStatus,
+    };
+    projectedRowTurnCache.set(row, {
+      blocks: row.row.turn.blocks,
+      phase: row.row.phase,
+      revision: row.revision,
+      overlay,
+      timestampOverride,
+      forkPointStatus,
+      result: projected,
+    });
+    return [projected];
   });
   const maxRowRevision = entry.rows.reduce((max, row) => {
-    if (!isLiveProjectorRowId(row.row_id)) return max;
+    if (!isLiveProjectorRowId(row.row_id, entry.conversationId)) return max;
     const revision = toBigInt(row.revision);
     return revision > max ? revision : max;
   }, entry.lastSequence);
@@ -67,7 +139,11 @@ export function timelineTurnsForEntry(
           dedupeTurns(persisted),
           optimistic
         )
-      )
+      ),
+      {
+        activeTurnId: activeTurnId ?? null,
+        activeStartedAt,
+      }
     )
   );
 }
@@ -117,7 +193,7 @@ export function timelineItemsForEntry(
 
   for (const message of messages) {
     const isEpochMillisMessage =
-      !isLiveProjectorRowId(message.item.turn.id) &&
+      !isLiveProjectorRowId(message.item.turn.id, entry?.conversationId) &&
       message.revision >= EPOCH_MILLIS_REVISION_FLOOR &&
       maxSideRevision < EPOCH_MILLIS_REVISION_FLOOR;
     const isOptimisticOrZeroTrailing =

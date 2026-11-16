@@ -1,0 +1,63 @@
+{
+  "formatVersion": 1,
+  "name": "PR CI 失败自动排查并评论",
+  "description": "当 GitHub Actions 检查失败时，在独立分支拉起编码 Agent 定位并修复问题，随后在原 PR 下回复排查结论。",
+  "inputSchema": {
+    "type": "object"
+  },
+  "policy": {
+    "maxConcurrentAgentSteps": 4,
+    "maxAgentCalls": 16,
+    "deadlineSeconds": 3600,
+    "maxOutputBytes": 65536
+  },
+  "steps": [
+    {
+      "id": "intake-trigger",
+      "dependsOn": [],
+      "phase": "[vibex-studio:v1]{\"hasOrchestratorPreset\":true,\"orchestratorPreset\":\"direct_reflex\",\"trigger\":{\"title\":\"GitHub CI 构建失败时\",\"triggerKind\":\"platform\",\"sourceKind\":\"github\",\"eventType\":\"github.workflow_run.completed\",\"evalMode\":\"auto\",\"hasTemporal\":true,\"temporal\":null,\"filter\":{\"sourceKinds\":[\"github\"],\"sourceInstanceIds\":[],\"eventTypes\":[\"github.workflow_run.completed\"],\"allowedActors\":[],\"conditions\":[{\"op\":\"not_bot_actor\"},{\"op\":\"eq\",\"pointer\":\"/workflow_run/conclusion\",\"value\":\"failure\"}]}},\"userPhase\":null}",
+      "inputBindings": {},
+      "kind": "notify",
+      "title": "[pulse-trigger] GitHub CI 构建失败时"
+    },
+    {
+      "id": "diagnose-and-fix",
+      "dependsOn": ["intake-trigger"],
+      "phase": "[vibex-studio:v1]{\"hasSubscribeThread\":true,\"subscribeThread\":true,\"session\":{\"workspaceIsolation\":\"isolated_worktree\",\"executorProfileId\":null,\"modeOverride\":null,\"configOverrides\":{},\"outputLanguage\":\"zh-CN\",\"outputDescription\":\"拉取失败构建日志，在独立分支完成最小化修复并运行测试验证\"},\"userPhase\":null}",
+      "inputBindings": {},
+      "kind": "session",
+      "agentId": "claude-code",
+      "promptTemplate": "拉取失败构建日志并定位根因（{{payload.workflow_run.name}} · {{payload.workflow_run.html_url}}），在独立工作树提交最小修复补丁并输出简明结论。",
+      "workspaceAccess": "write_isolated",
+      "modelOverride": null,
+      "subscribeThread": true,
+      "completion": "automatic",
+      "outputSchema": {
+        "type": "object",
+        "required": ["summary"],
+        "properties": {
+          "summary": { "type": "string" }
+        }
+      }
+    },
+    {
+      "id": "comment-pr",
+      "dependsOn": ["diagnose-and-fix"],
+      "phase": "[vibex-studio:v1]{\"outbox\":{\"actionKind\":\"github_comment\",\"title\":\"在原 PR 下回复排查与修复结果\",\"payloadTemplate\":\"已完成 CI 失败排查：{{steps.diagnose-and-fix.output.summary}}\"},\"userPhase\":null}",
+      "inputBindings": {
+        "fixResult": {
+          "source": "step_output",
+          "step_id": "diagnose-and-fix",
+          "pointer": "/summary"
+        }
+      },
+      "kind": "outbox_action",
+      "actionKind": "reply_channel",
+      "targetTemplate": "{{threadKey}}",
+      "payloadTemplate": {
+        "channelHint": "github_comment",
+        "message": "已完成 CI 失败排查：{{steps.diagnose-and-fix.output.summary}}"
+      }
+    }
+  ]
+}

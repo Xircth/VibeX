@@ -20,6 +20,7 @@ import {
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import {
+  Activity,
   BarChart3,
   Bot,
   Code2,
@@ -59,7 +60,7 @@ const RAIL_ICONS: Record<ActivityRailItemId, LucideIcon> = {
 };
 
 const KANBAN_RAIL_VIEWS: Array<{
-  id: 'builtin:usage';
+  id: 'builtin:usage' | 'builtin:pulse';
   titleKey: string;
   fallback: string;
   Icon: LucideIcon;
@@ -69,6 +70,12 @@ const KANBAN_RAIL_VIEWS: Array<{
     titleKey: 'kanbanViews.usage',
     fallback: '计量统计',
     Icon: BarChart3,
+  },
+  {
+    id: 'builtin:pulse',
+    titleKey: 'kanbanViews.pulse',
+    fallback: '自动化任务',
+    Icon: Activity,
   },
 ];
 

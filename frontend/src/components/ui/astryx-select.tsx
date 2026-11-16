@@ -37,6 +37,7 @@ export interface AstryxSelectOption {
 
 interface AstryxSelectProps {
   id?: string;
+  'data-testid'?: string;
   value: string;
   options: AstryxSelectOption[];
   onChange: (value: string) => void;
@@ -46,6 +47,8 @@ interface AstryxSelectProps {
   disabled?: boolean;
   /** Shows a clear (×) button when a value is selected. */
   hasClear?: boolean;
+  /** Renders the selected option's icon inline before its label in the trigger. */
+  showSelectedIcon?: boolean;
   /** Custom option body renderer (for example `<SelectorOption ... />`). */
   renderOption?: (option: AstryxSelectOption) => React.ReactNode;
   /** Renders a trailing action (for example edit/delete) inside each option. */
@@ -67,6 +70,7 @@ interface AstryxSelectProps {
 
 export function AstryxSelect({
   id,
+  'data-testid': dataTestId,
   value,
   options,
   onChange,
@@ -74,6 +78,7 @@ export function AstryxSelect({
   ariaLabel,
   disabled = false,
   hasClear = false,
+  showSelectedIcon = false,
   renderOption,
   renderOptionAction,
   size = 'default',
@@ -259,6 +264,7 @@ export function AstryxSelect({
       <div
         ref={triggerRef}
         id={id}
+        data-testid={dataTestId}
         role="combobox"
         tabIndex={disabled ? -1 : 0}
         aria-label={ariaLabel}
@@ -284,10 +290,16 @@ export function AstryxSelect({
         <span
           className={cn(
             'astryx-select-trigger-label',
+            showSelectedIcon && selected?.icon && 'inline-flex items-center gap-1.5',
             !selected && 'is-placeholder'
           )}
         >
-          {selected ? selected.label : placeholder}
+          {showSelectedIcon && selected?.icon ? (
+            <span className="shrink-0">{selected.icon as React.ReactNode}</span>
+          ) : null}
+          <span className="truncate">
+            {selected ? selected.label : placeholder}
+          </span>
         </span>
         {hasClear && selected ? (
           <span

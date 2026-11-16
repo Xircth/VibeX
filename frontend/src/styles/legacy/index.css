@@ -1,5 +1,7 @@
 @import '../fonts.css';
 
+@layer reset, astryx-base, astryx-theme;
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -567,13 +569,15 @@
 }
 
 /* 3) Base styles scoped to .legacy-design */
-@layer base {
+@layer reset {
   .legacy-design *,
   .legacy-design *::before,
   .legacy-design *::after {
-    @apply border-border;
+    border-color: hsl(var(--border));
   }
+}
 
+@layer base {
   /* Thumb only: Safari 18+ and Chromium 121+ paint a track when
      `scrollbar-width` / `scrollbar-color` are set, and those properties
      override ::-webkit-scrollbar. Keep the standard properties as a
@@ -615,11 +619,13 @@
     background: hsl(var(--muted-foreground) / 0.48);
   }
 
-  :where(.legacy-design) button:not(.astryx-segmented-control-item),
-  :where(.legacy-design) input:not([type='checkbox']):not([type='radio']),
-  :where(.legacy-design) textarea,
-  :where(.legacy-design) select {
-    border-radius: var(--radius);
+  @layer reset {
+    :where(.legacy-design) button:not(.astryx-segmented-control-item),
+    :where(.legacy-design) input:not([type='checkbox']):not([type='radio']),
+    :where(.legacy-design) textarea,
+    :where(.legacy-design) select {
+      border-radius: var(--radius);
+    }
   }
 
   :where(.legacy-design) textarea.notes-editor {
@@ -1338,6 +1344,8 @@ html.dark {
     :where(
       .astryx-text-input *,
       .astryx-textarea *,
+      .astryx-tokenizer *,
+      .astryx-typeahead *,
       .settings-search-field *,
       .plugin-search-control *,
       .agent-registry-search *,
@@ -1370,6 +1378,8 @@ html.dark {
     :where(
       .astryx-text-input *,
       .astryx-textarea *,
+      .astryx-tokenizer *,
+      .astryx-typeahead *,
       .settings-search-field *,
       .plugin-search-control *,
       .agent-registry-search *,
@@ -1490,6 +1500,56 @@ html.dark {
 }
 
 .legacy-design :is(.astryx-selector, .astryx-text-input) button {
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  background-color: transparent !important;
+  background-image: none !important;
+  box-shadow: none !important;
+  outline: none !important;
+}
+
+.legacy-design :is(.astryx-tokenizer, .astryx-typeahead) {
+  border-width: 1px !important;
+  border-style: solid !important;
+  border-color: var(--color-border-emphasized, var(--border-strong)) !important;
+  border-radius: var(
+    --_field-radius,
+    var(--radius-element, var(--radius))
+  ) !important;
+  background-color: var(
+    --color-background-surface,
+    var(--surface-content)
+  ) !important;
+  box-sizing: border-box !important;
+  transition:
+    border-color 125ms ease,
+    box-shadow 125ms ease !important;
+  outline: none !important;
+}
+
+.legacy-design
+  :is(.astryx-tokenizer, .astryx-typeahead):hover:not(:focus-within):not(
+    [aria-disabled='true']
+  ):not(:has(:disabled)) {
+  box-shadow: inset 0 0 0 2px
+    color-mix(
+      in srgb,
+      var(--color-border-emphasized, var(--border-strong)) 30%,
+      transparent
+    ) !important;
+}
+
+.legacy-design :is(.astryx-tokenizer, .astryx-typeahead):focus-within {
+  border-color: var(--color-accent, hsl(var(--primary))) !important;
+  box-shadow: inset 0 0 0 2px
+    var(--color-accent-muted, hsl(var(--primary) / 0.12)) !important;
+}
+
+.legacy-design :is(.astryx-tokenizer, .astryx-typeahead) input {
+  appearance: none !important;
+  -webkit-appearance: none !important;
+  color-scheme: only light;
   border: 0 !important;
   border-radius: 0 !important;
   background: transparent !important;
@@ -1860,6 +1920,7 @@ html.dark {
     .primary-control
   ) {
   background-color: var(--color-accent, hsl(var(--primary))) !important;
+  background-image: none !important;
   color: var(--color-on-accent, hsl(var(--primary-foreground))) !important;
   border-radius: var(
     --_button-radius,
@@ -1871,6 +1932,7 @@ html.dark {
   :is(.astryx-button, .astryx-icon-button)[data-variant='primary']:not(
     .primary-control
   ):hover:not(:disabled):not([aria-disabled='true']) {
+  background-image: none !important;
   opacity: 0.9;
 }
 
@@ -1878,7 +1940,10 @@ html.dark {
   :is(.astryx-button, .astryx-icon-button)[data-variant='secondary']:not(
     .raised-control
   ) {
+  border: 1px solid var(--border-subtle) !important;
   background-color: var(--surface-control-solid) !important;
+  background-image: none !important;
+  box-shadow: none !important;
   color: var(--text-strong, var(--color-text-primary)) !important;
   border-radius: var(
     --_button-radius,
@@ -1894,6 +1959,7 @@ html.dark {
     --surface-control-solid-hover,
     var(--color-overlay-hover)
   ) !important;
+  background-image: none !important;
 }
 
 .legacy-design
@@ -1905,6 +1971,7 @@ html.dark {
     .collaboration-icon-btn
   ) {
   background-color: transparent !important;
+  background-image: none !important;
   color: var(--text-primary, var(--color-text-primary)) !important;
   border-radius: var(
     --_button-radius,
@@ -1921,6 +1988,7 @@ html.dark {
     .collaboration-icon-btn
   ):hover:not(:disabled):not([aria-disabled='true']) {
   background-color: var(--surface-control-hover) !important;
+  background-image: none !important;
 }
 
 .legacy-design
@@ -2053,6 +2121,7 @@ html.dark {
     --color-error-muted,
     hsl(var(--destructive) / 0.12)
   ) !important;
+  background-image: none !important;
   color: var(--color-error, hsl(var(--destructive))) !important;
   border-radius: var(
     --_button-radius,
@@ -2107,11 +2176,11 @@ html.dark {
 }
 
 .legacy-design.dark
-  :is(.astryx-text-input, .astryx-textarea)
+  :is(.astryx-text-input, .astryx-textarea, .astryx-tokenizer, .astryx-typeahead)
   :is(input, textarea),
 .dark
   .legacy-design
-  :is(.astryx-text-input, .astryx-textarea)
+  :is(.astryx-text-input, .astryx-textarea, .astryx-tokenizer, .astryx-typeahead)
   :is(input, textarea) {
   color-scheme: only dark;
 }
@@ -3849,6 +3918,8 @@ html.dark {
       :where(
         .astryx-text-input *,
         .astryx-textarea *,
+        .astryx-tokenizer *,
+        .astryx-typeahead *,
         .settings-search-field *,
         .plugin-search-control *,
         .agent-registry-search *,
@@ -3870,6 +3941,8 @@ html.dark {
       :where(
         .astryx-text-input *,
         .astryx-textarea *,
+        .astryx-tokenizer *,
+        .astryx-typeahead *,
         .settings-search-field *,
         .settings-list-search *,
         .plugin-search-control *,
@@ -3926,6 +3999,8 @@ html.dark {
       :where(
         .astryx-text-input *,
         .astryx-textarea *,
+        .astryx-tokenizer *,
+        .astryx-typeahead *,
         .settings-search-field *,
         .plugin-search-control *,
         .agent-registry-search *,
@@ -4053,6 +4128,8 @@ html.dark {
       :where(
         .astryx-text-input *,
         .astryx-textarea *,
+        .astryx-tokenizer *,
+        .astryx-typeahead *,
         .settings-search-field *,
         .plugin-search-control *,
         .agent-registry-search *,
@@ -4065,6 +4142,8 @@ html.dark {
       :where(
         .astryx-text-input *,
         .astryx-textarea *,
+        .astryx-tokenizer *,
+        .astryx-typeahead *,
         .settings-search-field *,
         .plugin-search-control *,
         .agent-registry-search *,
@@ -19454,3 +19533,23 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
   white-space: nowrap;
   font-weight: 500;
 }
+
+/* ──────────────────────────────────────────────────────────────────────────
+ * Pulse Automation Page — Compact Button & Control Typography
+ * Shrinks button, combobox, and segmented-control typography across the
+ * Automation workbench for lighter visual density.
+ * ────────────────────────────────────────────────────────────────────────── */
+.pulse-automation-page .astryx-button:not([data-size='lg']),
+.pulse-automation-page button[role='combobox'],
+.pulse-automation-page .astryx-segmented-control-item {
+  --_button-font-size: 0.71875rem;
+  font-size: 0.71875rem !important;
+  line-height: 1rem;
+}
+
+.pulse-automation-page .astryx-button[data-size='xs'] {
+  --_button-font-size: 0.6875rem;
+  font-size: 0.6875rem !important;
+  line-height: 0.9375rem;
+}
+

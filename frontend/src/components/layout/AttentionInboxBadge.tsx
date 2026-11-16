@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import {
@@ -17,8 +17,13 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from '@/components/ui/popover';
+import {
+  PulseInteractionCard,
+  type PulseInteractionLabels,
+} from '@/components/kanban/pulseInteractionForm';
 import { attentionApi } from '@/lib/api/attention';
 import { useOpenProjectSession } from '@/hooks/useOpenProjectSession';
+import { usePulseDeckSnapshot } from '@/hooks/usePulseDeckSnapshot';
 import { backendListen } from '@/lib/backendTransport';
 import { cn } from '@/lib/utils';
 
@@ -89,12 +94,28 @@ function useRelativeTime() {
   return (timestampMs: number | null) => {
     if (timestampMs === null) return null;
     const diffMs = Date.now() - timestampMs;
-    if (diffMs < 60_000) return t('attentionInbox.justNow');
+    if (diffMs < 60_000) {
+      return t('attentionInbox.justNow', { defaultValue: 'just now' });
+    }
     const minutes = Math.floor(diffMs / 60_000);
-    if (minutes < 60) return t('attentionInbox.minutesAgo', { count: minutes });
+    if (minutes < 60) {
+      return t('attentionInbox.minutesAgo', {
+        count: minutes,
+        defaultValue: `${minutes} min ago`,
+      });
+    }
     const hours = Math.floor(minutes / 60);
-    if (hours < 24) return t('attentionInbox.hoursAgo', { count: hours });
-    return t('attentionInbox.daysAgo', { count: Math.floor(hours / 24) });
+    if (hours < 24) {
+      return t('attentionInbox.hoursAgo', {
+        count: hours,
+        defaultValue: `${hours} h ago`,
+      });
+    }
+    const days = Math.floor(hours / 24);
+    return t('attentionInbox.daysAgo', {
+      count: days,
+      defaultValue: `${days} d ago`,
+    });
   };
 }
 
@@ -110,7 +131,9 @@ function AttentionItemRow({
   const presentation = KIND_PRESENTATION[item.kind];
   const Icon = presentation.icon;
   const title =
-    item.sessionName ?? item.agentType ?? t('attentionInbox.unnamedSession');
+    item.sessionName ??
+    item.agentType ??
+    t('attentionInbox.unnamedSession', { defaultValue: 'Untitled session' });
 
   return (
     <button
@@ -133,7 +156,7 @@ function AttentionItemRow({
           <span className="truncate text-xs font-medium text-foreground">
             {title}
           </span>
-          <span className="shrink-0 text-[10px] text-muted-foreground">
+          <span className="shrink-0 text-[10px] text-muted-foreground tabular-nums">
             {relativeTime(item.happenedAtMs)}
           </span>
         </span>
@@ -160,14 +183,17 @@ function AttentionItemRow({
 }
 
 /**
- * Cross-project "needs me" inbox (status bar): pending permissions/questions
- * first (they block an agent right now), then failed/interrupted turns, then
- * sessions waiting for review. Clicking an item jumps straight to the session.
+ * Cross-project "needs me" inbox (status bar): inline Pulse user approvals &
+ * typed ask-forms first, then pending permissions/questions, failed/interrupted
+ * turns, and sessions waiting for review.
  */
 export function AttentionInboxBadge() {
   const { t } = useTranslation('statusbar');
   const [open, setOpen] = useState(false);
   const [overlay, setOverlay] = useState<OverlayItem[]>([]);
+  const [resolvedPulseIds, setResolvedPulseIds] = useState<Set<string>>(
+    () => new Set()
+  );
   const openProjectSession = useOpenProjectSession();
   const queryClient = useQueryClient();
 
@@ -178,6 +204,32 @@ export function AttentionInboxBadge() {
     refetchOnWindowFocus: true,
     meta: { suppressGlobalError: true },
   });
+
+  const { snapshot: pulseSnapshot, invalidateSnapshot } =
+    usePulseDeckSnapshot();
+
+  useEffect(() => {
+    const pendingList = pulseSnapshot?.pendingInteractions;
+    if (!pendingList) return;
+    const activePendingIds = new Set(
+      pendingList
+        .filter((item) => !item.resolvedAt && item.status !== 'resolved')
+        .map((item) => item.id)
+    );
+    setResolvedPulseIds((prev) => {
+      if (prev.size === 0) return prev;
+      let changed = false;
+      const next = new Set<string>();
+      prev.forEach((id) => {
+        if (activePendingIds.has(id)) {
+          next.add(id);
+        } else {
+          changed = true;
+        }
+      });
+      return changed ? next : prev;
+    });
+  }, [pulseSnapshot?.pendingInteractions]);
 
   useEffect(() => {
     let unlisten: (() => void) | undefined;
@@ -224,6 +276,41 @@ export function AttentionInboxBadge() {
     };
   }, [queryClient]);
 
+  const pendingPulseInteractions = useMemo(
+    () =>
+      (pulseSnapshot?.pendingInteractions ?? []).filter(
+        (item) =>
+          !resolvedPulseIds.has(item.id) &&
+          !item.resolvedAt &&
+          item.status !== 'resolved'
+      ),
+    [pulseSnapshot?.pendingInteractions, resolvedPulseIds]
+  );
+
+  const pulseLabels = useMemo<PulseInteractionLabels>(
+    () => ({
+      approve: t('attentionInbox.pulseApprove', { defaultValue: 'Approve' }),
+      reject: t('attentionInbox.pulseReject', { defaultValue: 'Reject' }),
+      acknowledge: t('attentionInbox.pulseAcknowledge', {
+        defaultValue: 'Acknowledge',
+      }),
+      submit: t('attentionInbox.pulseSubmit', { defaultValue: 'Submit' }),
+      decisionNoteAria: t('attentionInbox.pulseDecisionNote', {
+        defaultValue: 'Decision note',
+      }),
+      decisionNotePlaceholder: t('attentionInbox.pulseOptionalNote', {
+        defaultValue: 'Optional note…',
+      }),
+      noteRequiredError: t('attentionInbox.pulseNoteRequired', {
+        defaultValue: 'Note is required for this decision.',
+      }),
+      selectPlaceholder: t('attentionInbox.pulseSelectPlaceholder', {
+        defaultValue: 'Select…',
+      }),
+    }),
+    [t]
+  );
+
   const serverItems = data?.items ?? [];
   const items = [
     ...overlay.filter(
@@ -231,7 +318,11 @@ export function AttentionInboxBadge() {
     ),
     ...serverItems,
   ];
-  const blockingCount = data?.blockingCount ?? 0;
+  const pulseBlockingCount = pendingPulseInteractions.filter(
+    (item) => item.kind === 'approval' || item.kind === 'ask_form'
+  ).length;
+  const blockingCount = (data?.blockingCount ?? 0) + pulseBlockingCount;
+  const totalCount = items.length + pendingPulseInteractions.length;
 
   const handleOpen = (item: AttentionItem) => {
     setOpen(false);
@@ -245,47 +336,75 @@ export function AttentionInboxBadge() {
     });
   };
 
+  const handlePulseResolved = (id: string) => {
+    setResolvedPulseIds((prev) => {
+      const next = new Set(prev);
+      next.add(id);
+      return next;
+    });
+    void invalidateSnapshot();
+  };
+
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
         <button
           type="button"
-          title={t('attentionInbox.title')}
+          title={t('attentionInbox.title', {
+            defaultValue: 'Needs your attention',
+          })}
+          data-testid="attention-inbox-trigger"
           className={cn(
-            'inline-flex items-center gap-1 rounded-full px-1.5 text-[10px] transition-colors hover:opacity-80',
+            'inline-flex items-center gap-1 rounded-full px-1.5 text-[10px] tabular-nums transition-colors hover:opacity-80',
             blockingCount > 0
               ? 'text-warning'
-              : items.length > 0
+              : totalCount > 0
                 ? 'text-foreground'
                 : 'text-muted-foreground'
           )}
         >
           <Inbox className="h-3 w-3" />
-          {items.length > 0 ? items.length : null}
+          {totalCount > 0 ? totalCount : null}
         </button>
       </PopoverTrigger>
       <PopoverContent
         align="end"
         side="top"
-        className="w-96 p-2"
+        className="w-96 border border-border bg-popover p-2"
         sideOffset={6}
       >
         <div className="mb-1 flex items-center justify-between px-2 pt-1">
           <span className="text-xs font-semibold text-foreground">
-            {t('attentionInbox.title')}
+            {t('attentionInbox.title', {
+              defaultValue: 'Needs your attention',
+            })}
           </span>
           {blockingCount > 0 ? (
-            <span className="text-[10px] text-warning">
-              {t('attentionInbox.blockingCount', { count: blockingCount })}
+            <span className="text-[10px] text-warning tabular-nums">
+              {t('attentionInbox.blockingCount', {
+                count: blockingCount,
+                defaultValue: `${blockingCount} blocking an agent`,
+              })}
             </span>
           ) : null}
         </div>
-        {items.length === 0 ? (
+        {totalCount === 0 ? (
           <div className="px-2 py-4 text-center text-xs text-muted-foreground">
-            {t('attentionInbox.empty')}
+            {t('attentionInbox.empty', {
+              defaultValue: 'Nothing needs your attention right now',
+            })}
           </div>
         ) : (
           <div className="max-h-80 overflow-y-auto">
+            {pendingPulseInteractions.map((interaction) => (
+              <PulseInteractionCard
+                key={`pulse:${interaction.id}`}
+                interaction={interaction}
+                onResolved={handlePulseResolved}
+                labels={pulseLabels}
+                className="mb-1.5"
+              />
+            ))}
             {items.map((item) => (
               <AttentionItemRow
                 key={`${item.kind}:${item.sessionId}`}

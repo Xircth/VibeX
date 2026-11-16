@@ -13,6 +13,9 @@
 //! drains every in-flight call before exit.
 
 mod client;
+mod pulse;
+mod pulse_bridge;
+mod pulse_eval;
 
 use std::{
     collections::HashMap,
@@ -61,6 +64,7 @@ struct CompanionFeatures {
     session_control: bool,
     collaboration: bool,
     space: bool,
+    pulse: bool,
 }
 
 impl CompanionFeatures {
@@ -76,6 +80,7 @@ impl CompanionFeatures {
                 session_control: false,
                 collaboration: false,
                 space: false,
+                pulse: false,
             },
             Some(value) => {
                 let has = |name: &str| value.split(',').any(|f| f.trim() == name);
@@ -87,6 +92,7 @@ impl CompanionFeatures {
                     session_control: has("session-control"),
                     collaboration: has("collaboration"),
                     space: has("space"),
+                    pulse: has("pulse") || has("automation"),
                 }
             }
         }
@@ -111,6 +117,7 @@ impl CompanionFeatures {
             | "request_approval"
             | "memory_search"
             | "memory_write" => self.collaboration && self.space,
+            other if pulse::is_pulse_tool(other) => self.pulse,
             _ => false,
         }
     }
@@ -270,23 +277,31 @@ fn parse_args() -> Result<Args, String> {
         }
     }
 
+    let resolved_product = product.unwrap_or_else(|| "delegation".to_string());
+    let mut parsed_features = CompanionFeatures::parse(features.as_deref());
+    if resolved_product == "pulse" {
+        parsed_features.pulse = true;
+    }
+
     Ok(Args {
         parent_connection_id: parent_connection_id.unwrap_or_default(),
         socket_path: socket_path.unwrap_or_default(),
         token: token
             .or_else(|| server_token.clone())
             .ok_or("missing --token or --server-token")?,
-        features: CompanionFeatures::parse(features.as_deref()),
+        features: parsed_features,
         server_url,
         server_token,
         conversation_id: resolve_conversation_id(conversation_id),
-        product: product.unwrap_or_else(|| "delegation".to_string()),
+        product: resolved_product,
     })
 }
 
 /// Tool schemas this companion advertises, filtered by enabled features.
 fn enabled_tools(features: &CompanionFeatures) -> Vec<Value> {
-    let all: Vec<Value> = serde_json::from_str(TOOL_SCHEMA).expect("embedded tool schema is valid");
+    let mut all: Vec<Value> =
+        serde_json::from_str(TOOL_SCHEMA).expect("embedded tool schema is valid");
+    all.extend(pulse::pulse_tool_schemas());
     all.into_iter()
         .filter(|tool| {
             tool.get("name")
@@ -352,10 +367,14 @@ struct Companion {
     product: String,
     instance_id: Uuid,
     operation_seq: AtomicU64,
+    pulse_state: pulse::PulseState,
 }
 
 impl Companion {
-    fn new(args: Args) -> Self {
+    fn new(mut args: Args) -> Self {
+        if args.product == "pulse" {
+            args.features.pulse = true;
+        }
         let tools = enabled_tools(&args.features);
         Self {
             parent_connection_id: args.parent_connection_id,
@@ -369,6 +388,7 @@ impl Companion {
             product: args.product,
             instance_id: Uuid::new_v4(),
             operation_seq: AtomicU64::new(0),
+            pulse_state: pulse::PulseState::new(),
         }
     }
 
@@ -407,10 +427,25 @@ impl Companion {
         }
     }
 
-    fn uses_http(&self) -> bool {
+    pub(crate) fn uses_http(&self) -> bool {
         self.server_url
             .as_ref()
             .is_some_and(|url| !url.trim().is_empty())
+    }
+
+    pub(crate) fn uses_socket(&self) -> bool {
+        !self.uses_http() && !self.socket_path.trim().is_empty()
+    }
+
+    pub(crate) fn uses_host(&self) -> bool {
+        self.uses_http() || self.uses_socket()
+    }
+
+    fn effective_bearer_token(&self) -> Option<&str> {
+        self.server_token
+            .as_deref()
+            .filter(|t| !t.trim().is_empty())
+            .or_else(|| (!self.token.trim().is_empty()).then_some(self.token.as_str()))
     }
 
     async fn send(
@@ -477,6 +512,61 @@ impl Companion {
         }
     }
 
+    pub(crate) async fn execute_pulse_call(
+        &self,
+        name: &str,
+        mut arguments: Value,
+        meta: Option<&Value>,
+        id: Option<&Value>,
+        env_mandate_override: Option<&str>,
+    ) -> Result<Value, String> {
+        self.ensure_call_operation_id(name, &mut arguments, meta, id);
+        let mut outcome = if self.uses_host() {
+            pulse_bridge::execute_host_pulse_tool(
+                self,
+                name,
+                &arguments,
+                meta,
+                env_mandate_override,
+            )
+            .await?
+        } else {
+            self.pulse_state
+                .execute_tool(name, &arguments, meta, env_mandate_override)?
+        };
+        pulse::redact_secrets(&mut outcome);
+        Ok(outcome)
+    }
+
+    async fn run_pulse_call(
+        &self,
+        id: Option<Value>,
+        name: &str,
+        arguments: Value,
+        meta: Option<Value>,
+        stdout: &Arc<Mutex<tokio::io::Stdout>>,
+    ) {
+        let final_outcome = match self
+            .execute_pulse_call(name, arguments, meta.as_ref(), id.as_ref(), None)
+            .await
+        {
+            Ok(outcome) => outcome,
+            Err(err) => {
+                write_opt(stdout, respond_error(id, -32602, &err)).await;
+                return;
+            }
+        };
+
+        write_opt(
+            stdout,
+            respond(
+                id,
+                modernize_result(meta.as_ref(), render_result(&final_outcome)),
+            ),
+        )
+        .await;
+    }
+
     /// Run a `tools/call`, racing the broker round-trip against cancellation.
     /// Writes its own response (or suppresses it on cancel).
     async fn run_call(
@@ -494,6 +584,11 @@ impl Companion {
                 respond_error(id, -32601, &format!("tool not available: {name}")),
             )
             .await;
+            return;
+        }
+        if pulse::is_pulse_tool(&name) {
+            self.run_pulse_call(id, &name, arguments, meta, &stdout)
+                .await;
             return;
         }
         let mut arguments = arguments;
@@ -825,6 +920,72 @@ impl Companion {
     }
 }
 
+impl pulse_bridge::HostCommandCaller for Companion {
+    fn call_host_command<'a>(
+        &'a self,
+        command: &'a str,
+        operation_id: &'a str,
+        args: &'a Value,
+    ) -> std::pin::Pin<
+        Box<
+            dyn std::future::Future<Output = Result<Value, client::HostCallError>>
+                + Send
+                + 'a,
+        >,
+    > {
+        Box::pin(async move {
+            if self.uses_http() {
+                let server_url = self.server_url.as_deref().unwrap_or_default();
+                let bearer = self.effective_bearer_token();
+                match client::call_host_v1_command(
+                    server_url,
+                    bearer,
+                    self.conversation_id.as_deref(),
+                    command,
+                    operation_id,
+                    args,
+                )
+                .await
+                {
+                    Ok(data) => Ok(data),
+                    Err(v1_err) if v1_err.unmounted_v1_route => {
+                        let message = BrokerMessage::Collaborate(BrokerCollaborateRequest {
+                            token: self.token.clone(),
+                            name: command.to_string(),
+                            arguments: args.clone(),
+                        });
+                        let broker_resp = client::call_http(
+                            server_url,
+                            bearer,
+                            self.conversation_id.as_deref(),
+                            &self.product,
+                            &message,
+                        )
+                        .await
+                        .map_err(|io_err| client::HostCallError::transport(io_err.to_string()))?;
+                        client::unwrap_broker_command_response(broker_resp)
+                    }
+                    Err(err) => Err(err),
+                }
+            } else if self.uses_socket() {
+                let message = BrokerMessage::Collaborate(BrokerCollaborateRequest {
+                    token: self.token.clone(),
+                    name: command.to_string(),
+                    arguments: args.clone(),
+                });
+                let broker_resp = client::call_broker(&self.socket_path, &message)
+                    .await
+                    .map_err(|io_err| client::HostCallError::transport(io_err.to_string()))?;
+                client::unwrap_broker_command_response(broker_resp)
+            } else {
+                Err(client::HostCallError::transport(
+                    "no Host HTTP or Socket IPC transport configured",
+                ))
+            }
+        })
+    }
+}
+
 fn required_string(arguments: &Value, name: &str) -> Result<String, String> {
     arguments
         .get(name)
@@ -922,7 +1083,7 @@ fn initialize_result(params: Option<&Value>) -> Value {
 
 /// Render a broker outcome as an MCP `CallToolResult`: a human/LLM-readable text
 /// summary plus the full structured outcome.
-fn render_result(outcome: &Value) -> Value {
+pub(crate) fn render_result(outcome: &Value) -> Value {
     json!({
         "content": [{ "type": "text", "text": summarize(outcome) }],
         "structuredContent": outcome,
@@ -1236,5 +1397,7 @@ async fn main() {
     }
 }
 
+#[cfg(test)]
+mod pulse_tests;
 #[cfg(test)]
 mod tests;

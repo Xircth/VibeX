@@ -45,9 +45,6 @@ const PAGES = {
   chatChannels: page('chatChannels', '/settings/chat-channels', {
     capability: 'application.call',
   }),
-  automations: page('automations', '/settings/automations', {
-    capability: 'automation.read',
-  }),
   plugins: page('plugins', '/plugins', { capability: 'plugin.read' }),
   webService: page('webService', '/settings/web-service', {
     anyOf: ['desktop.tauri', 'device.pair'],
@@ -190,11 +187,6 @@ export const SETTINGS_SEARCH_ENTRIES: SettingsSearchEntry[] = [
     'worktrees.cleanupThreshold',
   ]),
   ...entriesFor('chatChannels', ['chatChannels.title']),
-  ...entriesFor('automations', [
-    'automations.pageTitle',
-    'automations.newAutomation',
-    'automations.templatesTitle',
-  ]),
   ...entriesFor('plugins', ['plugins.pageTitle', 'plugins.developerTools']),
   ...entriesFor('webService', ['webService.title']),
   ...entriesFor('logs', [

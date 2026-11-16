@@ -1,5 +1,5 @@
 import { Badge } from '@astryxdesign/core/Badge';
-import { AtSign, Paperclip } from 'lucide-react';
+import { AtSign, Paperclip, Sparkles } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Slot } from '@/components/plugins/Slot';
 import { ActionBarUtilityButtons } from '@/components/tasks/follow-up/ActionBarUtilityButtons';
@@ -13,15 +13,28 @@ import {
 import { insertPreviewElementToken } from '@/components/tasks/follow-up/sessionComposerStructuredTokens';
 import i18n from '@/i18n';
 import { backendListen } from '@/lib/backendTransport';
+import type { PulseRuleSpec } from '@/lib/api/pulse';
 import {
   type ComposerDraftTargetHandle,
   type ComposerDraftToken,
   getActiveComposerDraftTargetId,
   registerComposerDraftTarget,
 } from '@/lib/composerDraftTargets';
+import { displayName } from '../spaceModel';
 import { CollaborationReplyCapsule } from '../CollaborationReplyCapsule';
+import {
+  isAutomateSlashCommand,
+  parseAutomateSlashIntent,
+} from '../collaborationComposerSend';
+import {
+  COLLABORATION_PULSE_PROPOSAL_EVENT,
+  buildBotPulseProposalSpec,
+  buildGroupPulseProposalSpec,
+  type CollaborationPulseProposalDetail,
+} from '../collaborationPulseEvents';
+import { PulseRuleProposalCard } from '../PulseRuleProposalCard';
 
-import { memo, useCallback, useEffect, useRef } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { BotSpaceSessionSettings } from './BotSpaceSessionSettings';
 import { useCollaborationSpacePick } from './SpaceContext';
 
@@ -55,6 +68,7 @@ const COMPOSER_DOCK_PICK_KEYS = [
   'spaceQueuedMessages',
   't',
   'userDelayedSpaceMessages',
+  'visibleRoster',
   'workspace',
   'workspacePath',
 ] as const;
@@ -90,6 +104,7 @@ export const ComposerDock = memo(function ComposerDock() {
     spaceQueuedMessages,
     t,
     userDelayedSpaceMessages,
+    visibleRoster,
     workspace,
     workspacePath,
   } = useCollaborationSpacePick(COMPOSER_DOCK_PICK_KEYS);
@@ -197,6 +212,149 @@ export const ComposerDock = memo(function ComposerDock() {
     draftTargetHandleRef.current?.markFocused();
   }, []);
 
+  const rosterOptions = useMemo(
+    () =>
+      visibleRoster.map((member) => {
+        const nickname = displayName(member);
+        const memberId =
+          member.member_id?.trim() ||
+          member.conversation_id?.trim() ||
+          nickname;
+        return { memberId, nickname };
+      }),
+    [visibleRoster]
+  );
+
+  const [activePulseProposal, setActivePulseProposal] = useState<{
+    key: number;
+    spec: PulseRuleSpec;
+    contextLabel: string;
+  } | null>(null);
+
+  useEffect(() => {
+    const handleProposalRequest = (event: Event) => {
+      const detail = (event as CustomEvent<CollaborationPulseProposalDetail>)
+        .detail;
+      if (!detail) return;
+
+      if (detail.kind === 'spec') {
+        setActivePulseProposal({
+          key: Date.now(),
+          spec: detail.spec,
+          contextLabel: detail.contextLabel ?? selected?.name ?? 'Pulse',
+        });
+        return;
+      }
+
+      if (detail.kind === 'bot') {
+        setActivePulseProposal({
+          key: Date.now(),
+          spec: buildBotPulseProposalSpec({
+            memberId: detail.memberId,
+            botName: detail.botName,
+            sourceKind:
+              detail.mode === 'schedule' ? 'time_cron' : 'webhook_standard',
+            workspaceId: detail.workspaceId ?? (workspace || null),
+            projectId: detail.projectId ?? null,
+          }),
+          contextLabel: detail.botName,
+        });
+        return;
+      }
+
+      if (detail.kind === 'group-seat') {
+        const resolvedSpaceId = detail.spaceId || selected?.space_id || '';
+        const resolvedSpaceName = detail.spaceName || selected?.name || 'Group';
+        const matchedSeat = rosterOptions.find(
+          (item) =>
+            (detail.memberId && item.memberId === detail.memberId) ||
+            item.nickname === detail.nickname
+        );
+        const resolvedMemberId =
+          detail.memberId || matchedSeat?.memberId || detail.nickname;
+        if (!resolvedSpaceId) return;
+        setActivePulseProposal({
+          key: Date.now(),
+          spec: buildGroupPulseProposalSpec({
+            spaceId: resolvedSpaceId,
+            spaceName: resolvedSpaceName,
+            dispatchMode: {
+              type: 'specific_seat',
+              memberId: resolvedMemberId,
+            },
+            workspaceId: detail.workspaceId ?? (workspace || null),
+            projectId: detail.projectId ?? null,
+          }),
+          contextLabel: `${resolvedSpaceName} → @${detail.nickname}`,
+        });
+      }
+    };
+
+    window.addEventListener(
+      COLLABORATION_PULSE_PROPOSAL_EVENT,
+      handleProposalRequest
+    );
+    return () => {
+      window.removeEventListener(
+        COLLABORATION_PULSE_PROPOSAL_EVENT,
+        handleProposalRequest
+      );
+    };
+  }, [rosterOptions, selected?.name, selected?.space_id, workspace]);
+
+  const trySubmitAutomateSlash = useCallback(
+    (rawValue: string): boolean => {
+      if (!selected || !isAutomateSlashCommand(rawValue)) {
+        return false;
+      }
+      const isBotThread = Boolean(activeDirectThreadId);
+      const botMemberId =
+        rosterOptions[0]?.memberId ||
+        (activeDirectThreadId
+          ? activeDirectThreadId.replace(/^direct:/, '')
+          : selected.space_id);
+
+      const parsed = parseAutomateSlashIntent(
+        rawValue,
+        rosterOptions,
+        isBotThread
+          ? {
+              kind: 'bot',
+              memberId: botMemberId,
+              botName: selected.name,
+              workspaceId: workspace || null,
+            }
+          : {
+              kind: 'group',
+              spaceId: selected.space_id,
+              spaceName: selected.name,
+              leadMemberId: selected.lead_member_id ?? null,
+              workspaceId: workspace || null,
+            }
+      );
+
+      if (!parsed) return false;
+      applyDraftInsertion('');
+      setActivePulseProposal({
+        key: Date.now(),
+        spec: parsed.spec,
+        contextLabel: isBotThread
+          ? `Bot: ${selected.name}`
+          : `Group: ${selected.name}`,
+      });
+      return true;
+    },
+    [
+      activeDirectThreadId,
+      applyDraftInsertion,
+      rosterOptions,
+      selected,
+      workspace,
+    ]
+  );
+
+  const isAutomateDraft = isAutomateSlashCommand(draft);
+
   return (
     <>
       {selected ? (
@@ -206,6 +364,18 @@ export const ComposerDock = memo(function ComposerDock() {
           data-space-name={selected.name}
           className="collaboration-composer-wrap"
         >
+          {activePulseProposal ? (
+            <div className="mb-2" data-testid="composer-pulse-proposal-drawer">
+              <PulseRuleProposalCard
+                key={activePulseProposal.key}
+                initialSpec={activePulseProposal.spec}
+                contextLabel={activePulseProposal.contextLabel}
+                roster={rosterOptions}
+                onSaved={() => setActivePulseProposal(null)}
+                onCancel={() => setActivePulseProposal(null)}
+              />
+            </div>
+          ) : null}
           <div className="collaboration-composer-queue">
             <div className="collaboration-composer-queue-inner">
               <MessageQueueIndicator
@@ -299,6 +469,7 @@ export const ComposerDock = memo(function ComposerDock() {
               onChange={setDraft}
               onSubmit={(value) => {
                 if (composerDisabled) return false;
+                if (trySubmitAutomateSlash(value)) return true;
                 if (!value.trim() && attachedImages.length === 0) return false;
                 void send(value);
                 return true;
@@ -352,6 +523,15 @@ export const ComposerDock = memo(function ComposerDock() {
               >
                 <AtSign className="h-[18px] w-[18px]" aria-hidden="true" />
               </Button>
+              {isAutomateDraft ? (
+                <span
+                  className="inline-flex items-center gap-1 rounded bg-primary/15 px-1.5 py-0.5 text-[10px] font-medium text-primary"
+                  data-testid="composer-automate-intent-pill"
+                >
+                  <Sparkles className="h-2.5 w-2.5" />
+                  Pulse /automate
+                </span>
+              ) : null}
               <div className="flex-1" />
               {isPrivateChatActive ? (
                 <BotSpaceSessionSettings disabled={composerDisabled} />
@@ -372,6 +552,7 @@ export const ComposerDock = memo(function ComposerDock() {
                   composerDisabled
                 }
                 onClick={() => {
+                  if (trySubmitAutomateSlash(draft)) return;
                   void send(draft);
                 }}
               />

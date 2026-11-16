@@ -31,6 +31,7 @@ pub mod plugin_v2;
 pub mod project;
 pub mod project_repo;
 pub mod provider_instance;
+pub mod pulse;
 pub mod repo;
 pub mod scratch;
 pub mod session;

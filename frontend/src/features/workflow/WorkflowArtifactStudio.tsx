@@ -3,7 +3,6 @@ import { useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { useParams } from 'react-router-dom';
 import type {
-  WorkflowDefinition,
   WorkflowEventRecord,
   WorkflowRunView,
   WorkflowStepView,
@@ -19,7 +18,15 @@ import {
 } from '@/features/agents/sessionControlsQuery';
 import { useBackendTransport } from '@/lib/transport';
 
-import { WorkflowStudio } from './WorkflowStudio';
+import {
+  WorkflowStudio,
+  toBackendWorkflowDefinition,
+  toStudioWorkflowDefinition,
+  validateStudioWorkflowExhaustively,
+  type StudioWorkflowDefinition,
+  type WorkflowStudioDefinitionInput,
+} from './WorkflowStudio';
+import { useGuardedWorkflowRunPolling } from './useGuardedWorkflowRunPolling';
 import { rememberTestWorkspace } from './workflowTestWorkspaceStore';
 import { createWorkflowApi } from './workflowApi';
 import {
@@ -31,7 +38,9 @@ import {
   resolveWorkflowSourceRevision,
 } from './workflowSourceApi';
 
-function serializeDefinition(definition: WorkflowDefinition) {
+function serializeDefinition(
+  definition: StudioWorkflowDefinition | ReturnType<typeof toBackendWorkflowDefinition>
+) {
   return JSON.stringify(
     definition,
     (_key, value) => (typeof value === 'bigint' ? Number(value) : value),
@@ -77,12 +86,14 @@ export function WorkflowArtifactStudio({
       }),
     [queryClient, workspaceId]
   );
-  const [definition, setDefinition] = useState<WorkflowDefinition | null>(null);
+  const [definition, setDefinition] = useState<StudioWorkflowDefinition | null>(
+    null
+  );
   const [savedDefinition, setSavedDefinition] =
-    useState<WorkflowDefinition | null>(null);
+    useState<StudioWorkflowDefinition | null>(null);
   const [sourceRevision, setSourceRevision] = useState<string | null>(null);
   const [version, setVersion] = useState<WorkflowVersionView | null>(null);
-  const [undoStack, setUndoStack] = useState<WorkflowDefinition[]>([]);
+  const [undoStack, setUndoStack] = useState<StudioWorkflowDefinition[]>([]);
   const [saving, setSaving] = useState(false);
   const [publishing, setPublishing] = useState(false);
   const [run, setRun] = useState<WorkflowRunView | null>(null);
@@ -116,7 +127,12 @@ export function WorkflowArtifactStudio({
     void sourceApi
       .read(filePath)
       .then((source) => {
-        const parsed = JSON.parse(source.content) as WorkflowDefinition;
+        const raw = JSON.parse(source.content) as WorkflowStudioDefinitionInput;
+        const hydrated = toStudioWorkflowDefinition(raw);
+        const parsed: StudioWorkflowDefinition = {
+          ...hydrated,
+          orchestratorPreset: hydrated.orchestratorPreset ?? null,
+        };
         if (!active) return;
         setDefinition(parsed);
         setSavedDefinition(parsed);
@@ -132,7 +148,7 @@ export function WorkflowArtifactStudio({
     };
   }, [filePath, sourceApi]);
 
-  const applyDefinition = useCallback((next: WorkflowDefinition) => {
+  const applyDefinition = useCallback((next: StudioWorkflowDefinition) => {
     setDefinition((current) => {
       if (
         !current ||
@@ -155,9 +171,19 @@ export function WorkflowArtifactStudio({
 
   const save = useCallback(async () => {
     if (!definition) return;
+    const issues = validateStudioWorkflowExhaustively(definition, t);
+    if (issues.length > 0) {
+      throw new Error(
+        t('studio.validationBlockedSave', {
+          count: issues.length,
+          first: issues[0].message,
+        })
+      );
+    }
     setSaving(true);
     try {
-      await workflowApi.validate(definition);
+      const backendDefinition = toBackendWorkflowDefinition(definition);
+      await workflowApi.validate(backendDefinition);
       const expectedRevision = await resolveWorkflowSourceRevision(
         sourceApi,
         filePath,
@@ -165,7 +191,7 @@ export function WorkflowArtifactStudio({
       );
       const result = await sourceApi.write(
         filePath,
-        serializeDefinition(definition),
+        serializeDefinition(backendDefinition),
         expectedRevision ?? undefined
       );
       setSourceRevision(result.revision);
@@ -178,6 +204,15 @@ export function WorkflowArtifactStudio({
 
   const publish = useCallback(async () => {
     if (!definition) throw new Error(t('studio.sourceNotLoaded'));
+    const issues = validateStudioWorkflowExhaustively(definition, t);
+    if (issues.length > 0) {
+      throw new Error(
+        t('studio.validationBlockedSave', {
+          count: issues.length,
+          first: issues[0].message,
+        })
+      );
+    }
     if (
       !sourceRevision ||
       !savedDefinition ||
@@ -188,7 +223,7 @@ export function WorkflowArtifactStudio({
     setPublishing(true);
     try {
       const published = await workflowApi.publish(
-        definition,
+        toBackendWorkflowDefinition(definition),
         version?.definitionId,
         undefined,
         filePath
@@ -235,19 +270,14 @@ export function WorkflowArtifactStudio({
     [workflowApi]
   );
 
-  useEffect(() => {
-    if (
-      !run?.id ||
-      ['completed', 'failed', 'cancelled', 'interrupted'].includes(run.status)
-    )
-      return;
-    const timer = window.setInterval(() => {
-      void refreshRun(run.id).catch((error) =>
-        toast.error(error instanceof Error ? error.message : String(error))
-      );
-    }, 1000);
-    return () => window.clearInterval(timer);
-  }, [refreshRun, run?.id, run?.status]);
+  useGuardedWorkflowRunPolling({
+    runId: run?.id,
+    status: run?.status,
+    refresh: refreshRun,
+    intervalMs: 1500,
+    onError: (error) =>
+      toast.error(error instanceof Error ? error.message : String(error)),
+  });
 
   const startNode = useCallback(
     async (stepId: string) => {
@@ -264,14 +294,18 @@ export function WorkflowArtifactStudio({
       ) {
         await save();
       }
-      const nextRun = await workflowApi.debug(definition, stepId, {
-        definitionId: version?.definitionId,
-        sourcePath: filePath,
-        workspaceId: run ? undefined : workspaceId,
-        input: {},
-        parentRunId: run?.id,
-        scope: 'node',
-      });
+      const nextRun = await workflowApi.debug(
+        toBackendWorkflowDefinition(definition),
+        stepId,
+        {
+          definitionId: version?.definitionId,
+          sourcePath: filePath,
+          workspaceId: run ? undefined : workspaceId,
+          input: {},
+          parentRunId: run?.id,
+          scope: 'node',
+        }
+      );
       await refreshRun(nextRun.id);
       if (workspaceId) rememberTestWorkspace(filePath, workspaceId);
       toast.success(
@@ -334,6 +368,7 @@ export function WorkflowArtifactStudio({
 
   return (
     <WorkflowStudio
+      studioMode
       className="h-full"
       definition={definition}
       onDefinitionChange={applyDefinition}
@@ -401,7 +436,7 @@ export function WorkflowArtifactStudio({
           )
         ) {
           void workflowApi
-            .cancel(run.id, 'Reset from Workflow artifact editor')
+            .cancel(run.id, t('studio.auditReasons.resetArtifact'))
             .catch((error) =>
               toast.error(
                 error instanceof Error ? error.message : String(error)
@@ -417,7 +452,7 @@ export function WorkflowArtifactStudio({
       onStopRun={() => {
         if (!run) return;
         void workflowApi
-          .pause(run.id, 'Paused from Workflow artifact editor')
+          .pause(run.id, t('studio.auditReasons.pauseArtifact'))
           .then(() => refreshRun(run.id))
           .catch((error) =>
             toast.error(error instanceof Error ? error.message : String(error))
@@ -426,7 +461,7 @@ export function WorkflowArtifactStudio({
       onTerminateRun={() => {
         if (!run) return;
         void workflowApi
-          .cancel(run.id, 'Terminated from Workflow artifact editor')
+          .cancel(run.id, t('studio.auditReasons.terminateArtifact'))
           .then(() => refreshRun(run.id))
           .catch((error) =>
             toast.error(error instanceof Error ? error.message : String(error))
@@ -445,7 +480,7 @@ export function WorkflowArtifactStudio({
       onPauseStep={(stepId) => {
         if (!run) return;
         void workflowApi
-          .pauseStep(run.id, stepId, 'Paused in node conversation')
+          .pauseStep(run.id, stepId, t('studio.auditReasons.pauseStepConversation'))
           .then(() => refreshRun(run.id))
           .catch((error) =>
             toast.error(error instanceof Error ? error.message : String(error))
@@ -462,7 +497,7 @@ export function WorkflowArtifactStudio({
           await workflowApi.pauseStep(
             activeRun.id,
             stepId,
-            'Paused for user guidance'
+            t('studio.auditReasons.pauseForGuidance')
           );
         }
         await workflowApi.submitStepInput(activeRun.id, stepId, text);

@@ -109,21 +109,53 @@ describe('WorkspaceActivityRail', () => {
     expect(getDefaultActivityRailPanelId()).toBe(PANEL_IDS.FILE_TREE);
   });
 
-  it('renders only the usage view switcher when mode is kanban', () => {
-    render(
-      <WorkspaceActivityRail
-        isEditorAreaVisible={false}
-        onToggleEditorArea={vi.fn()}
-        mode="kanban"
-      />
-    );
+  it('renders only usage and automation tasks views when mode is kanban (no workflow studio rail entry) and switches zh-CN <-> en cleanly', async () => {
+    const i18n = (await import('@/i18n')).default;
+    const { act } = await import('@testing-library/react');
+    try {
+      await act(async () => {
+        await i18n.changeLanguage('zh-CN');
+      });
+      const { rerender } = render(
+        <WorkspaceActivityRail
+          isEditorAreaVisible={false}
+          onToggleEditorArea={vi.fn()}
+          mode="kanban"
+        />
+      );
 
-    expect(
-      screen
-        .getAllByRole('button')
-        .filter((button) => button.getAttribute('aria-label'))
-        .map((button) => button.getAttribute('aria-label'))
-    ).toEqual(['计量统计']);
+      expect(
+        screen
+          .getAllByRole('button')
+          .filter((button) => button.getAttribute('aria-label'))
+          .map((button) => button.getAttribute('aria-label'))
+      ).toEqual(['计量统计', '自动化任务']);
+      expect(
+        screen.queryByTestId('kanban-rail-builtin:workflows')
+      ).not.toBeInTheDocument();
+
+      await act(async () => {
+        await i18n.changeLanguage('en');
+      });
+      rerender(
+        <WorkspaceActivityRail
+          isEditorAreaVisible={false}
+          onToggleEditorArea={vi.fn()}
+          mode="kanban"
+        />
+      );
+
+      expect(
+        screen
+          .getAllByRole('button')
+          .filter((button) => button.getAttribute('aria-label'))
+          .map((button) => button.getAttribute('aria-label'))
+      ).toEqual(['Usage', 'Automation Tasks']);
+    } finally {
+      await act(async () => {
+        await i18n.changeLanguage('zh-CN');
+      });
+    }
   });
 
   it('drags a Zone A panel handle with floating + ghost preview and auto-swaps on >50% overlap', () => {

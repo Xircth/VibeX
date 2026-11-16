@@ -1,4 +1,7 @@
-export const BUILTIN_KANBAN_VIEW_IDS = ['builtin:usage'] as const;
+export const BUILTIN_KANBAN_VIEW_IDS = [
+  'builtin:usage',
+  'builtin:pulse',
+] as const;
 
 export type BuiltinKanbanViewId = (typeof BUILTIN_KANBAN_VIEW_IDS)[number];
 
@@ -20,6 +23,12 @@ export const BUILTIN_KANBAN_VIEWS: KanbanViewDescriptor[] = [
     hidesBottomDock: true,
     builtin: true,
   },
+  {
+    id: 'builtin:pulse',
+    titleKey: 'kanbanViews.pulse',
+    hidesBottomDock: true,
+    builtin: true,
+  },
 ];
 
 export const DEFAULT_KANBAN_VIEW_ID: BuiltinKanbanViewId = 'builtin:usage';
@@ -28,8 +37,17 @@ export function migrateKanbanViewId(
   panelView?: LegacyKanbanPanelView | string | null,
   _boardStyle?: string | null
 ): string {
-  if (typeof panelView === 'string' && panelView.startsWith('plugin:')) {
-    return panelView;
+  if (typeof panelView === 'string') {
+    if (panelView === 'builtin:workflows') {
+      return 'builtin:pulse';
+    }
+    if (
+      panelView === 'builtin:usage' ||
+      panelView === 'builtin:pulse' ||
+      panelView.startsWith('plugin:')
+    ) {
+      return panelView;
+    }
   }
   return DEFAULT_KANBAN_VIEW_ID;
 }

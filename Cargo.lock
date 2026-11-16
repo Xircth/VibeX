@@ -5012,6 +5012,28 @@ dependencies = [
 ]
 
 [[package]]
+name = "pulse"
+version = "0.4.4"
+dependencies = [
+ "api-types",
+ "base64 0.22.1",
+ "chrono",
+ "chrono-tz",
+ "db",
+ "hmac",
+ "regex",
+ "serde",
+ "serde_json",
+ "sha2",
+ "sqlx",
+ "subtle",
+ "thiserror 2.0.18",
+ "tokio",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
 name = "pxfm"
 version = "0.1.29"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6013,6 +6035,7 @@ dependencies = [
  "local-deployment",
  "plugins",
  "prost",
+ "pulse",
  "regex",
  "remote-protocol",
  "reqwest 0.12.28",
@@ -9100,7 +9123,9 @@ dependencies = [
 name = "workflows"
 version = "0.4.4"
 dependencies = [
+ "api-types",
  "chrono",
+ "regex",
  "serde",
  "serde_json",
  "sha2",

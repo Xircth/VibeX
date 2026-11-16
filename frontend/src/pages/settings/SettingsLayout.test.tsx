@@ -128,12 +128,12 @@ describe('SettingsLayout capability gating', () => {
     };
     render(
       <BackendTransportProvider transport={transport}>
-        <MemoryRouter initialEntries={['/settings/automations']}>
+        <MemoryRouter initialEntries={['/settings/appearance']}>
           <Routes>
             <Route path="/settings" element={<SettingsLayout />}>
               <Route
-                path="automations"
-                element={<div>Automation content</div>}
+                path="appearance"
+                element={<div>Appearance content</div>}
               />
             </Route>
           </Routes>
@@ -143,12 +143,12 @@ describe('SettingsLayout capability gating', () => {
 
     await waitFor(() =>
       expect(
-        screen.getByRole('button', { name: /automations|自动化/i })
+        screen.getByRole('button', { name: /plugins|插件/i })
       ).toBeInTheDocument()
     );
     expect(
-      screen.getByRole('button', { name: /plugins|插件/i })
-    ).toBeInTheDocument();
+      screen.queryByRole('button', { name: /automations|自动化/i })
+    ).not.toBeInTheDocument();
     expect(
       screen.getByRole('button', { name: /remote connection|远程连接/i })
     ).toBeInTheDocument();
@@ -649,7 +649,7 @@ describe('SettingsLayout window title', () => {
         Array.from(aiGroup.querySelectorAll('button')).map((b) =>
           b.textContent?.trim()
         )
-      ).toEqual(['Agent', 'Skill', 'MCP', '消息渠道', '自动化']);
+      ).toEqual(['Agent', 'Skill', 'MCP', '消息渠道']);
 
       expect(
         Array.from(humanGroup.querySelectorAll('button')).map((b) =>

@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
+  BUILTIN_KANBAN_VIEW_IDS,
+  BUILTIN_KANBAN_VIEWS,
   adjacentKanbanViewId,
   kanbanCarouselTranslateX,
   kanbanCarouselWidth,
@@ -26,6 +28,7 @@ const views = [
   },
   { id: 'builtin:canvas', titleKey: 'c', hidesBottomDock: true, builtin: true },
   { id: 'builtin:usage', titleKey: 'd', hidesBottomDock: true, builtin: true },
+  { id: 'builtin:pulse', titleKey: 'p', hidesBottomDock: true, builtin: true },
   {
     id: 'plugin:sample/view',
     titleKey: 'e',
@@ -35,11 +38,22 @@ const views = [
 ];
 
 describe('kanbanViews', () => {
-  it('migrates legacy kanban views to the single builtin usage view while preserving plugin views', () => {
+  it('registers independent usage and pulse built-in Kanban pages without standalone workflows entry', () => {
+    expect(BUILTIN_KANBAN_VIEW_IDS).toEqual(['builtin:usage', 'builtin:pulse']);
+    expect(BUILTIN_KANBAN_VIEWS.map((view) => view.id)).toEqual([
+      'builtin:usage',
+      'builtin:pulse',
+    ]);
+  });
+
+  it('migrates legacy kanban views to builtin:usage and migrates builtin:workflows to builtin:pulse', () => {
     expect(migrateKanbanViewId('board')).toBe('builtin:usage');
     expect(migrateKanbanViewId('sessionHub')).toBe('builtin:usage');
     expect(migrateKanbanViewId('sessionHub', 'fixed')).toBe('builtin:usage');
     expect(migrateKanbanViewId('usageDashboard')).toBe('builtin:usage');
+    expect(migrateKanbanViewId('builtin:usage')).toBe('builtin:usage');
+    expect(migrateKanbanViewId('builtin:pulse')).toBe('builtin:pulse');
+    expect(migrateKanbanViewId('builtin:workflows')).toBe('builtin:pulse');
     expect(migrateKanbanViewId('plugin:sample/view')).toBe(
       'plugin:sample/view'
     );
@@ -47,6 +61,7 @@ describe('kanbanViews', () => {
 
   it('keeps a remembered view when it is still enabled', () => {
     expect(resolveKanbanViewId('builtin:usage', views)).toBe('builtin:usage');
+    expect(resolveKanbanViewId('builtin:pulse', views)).toBe('builtin:pulse');
     expect(resolveKanbanViewId('plugin:gone/view', views)).toBe(
       'builtin:columns'
     );
@@ -59,10 +74,13 @@ describe('kanbanViews', () => {
     ).toBe('builtin:sessions');
   });
 
-  it('lets arrows leave the default sessions page and reach a plugin view', () => {
+  it('lets arrows leave the default sessions page and reach standalone and plugin views', () => {
     const fixedViews = kanbanViewsForBoardStyle(views, 'fixed');
     let viewId = 'builtin:sessions';
     viewId = adjacentKanbanViewId(fixedViews, viewId, 1);
+    expect(viewId).toBe('builtin:usage');
+    viewId = adjacentKanbanViewId(fixedViews, viewId, 1);
+    expect(viewId).toBe('builtin:pulse');
     viewId = adjacentKanbanViewId(fixedViews, viewId, 1);
     expect(viewId).toBe('plugin:sample/view');
   });
@@ -73,6 +91,7 @@ describe('kanbanViews', () => {
       'builtin:columns',
       'builtin:sessions',
       'builtin:usage',
+      'builtin:pulse',
       'plugin:sample/view',
     ]);
     expect(adjacentKanbanViewId(fixedViews, 'builtin:sessions', 1)).toBe(
@@ -84,6 +103,7 @@ describe('kanbanViews', () => {
       'builtin:columns',
       'builtin:canvas',
       'builtin:usage',
+      'builtin:pulse',
       'plugin:sample/view',
     ]);
     expect(adjacentKanbanViewId(canvasViews, 'builtin:canvas', 1)).toBe(
@@ -104,20 +124,21 @@ describe('kanbanViews', () => {
   });
 
   it('rotates through plugin views without skipping built-ins', () => {
-    expect(adjacentKanbanViewId(views, 'builtin:usage', 1)).toBe(
+    expect(adjacentKanbanViewId(views, 'builtin:pulse', 1)).toBe(
       'plugin:sample/view'
     );
     expect(adjacentKanbanViewId(views, 'plugin:sample/view', -1)).toBe(
-      'builtin:usage'
+      'builtin:pulse'
     );
     expect(adjacentKanbanViewId(views, 'plugin:sample/view', 1)).toBe(
       'plugin:sample/view'
     );
   });
 
-  it('hides the execution column on canvas and usage views', () => {
+  it('hides the execution column on canvas and usage views while keeping it visible on pulse', () => {
     expect(kanbanViewHidesSessionSlot('builtin:columns')).toBe(false);
     expect(kanbanViewHidesSessionSlot('builtin:sessions')).toBe(false);
+    expect(kanbanViewHidesSessionSlot('builtin:pulse')).toBe(false);
     expect(kanbanViewHidesSessionSlot('plugin:sample/view')).toBe(false);
     expect(kanbanViewHidesSessionSlot('builtin:canvas')).toBe(true);
     expect(kanbanViewHidesSessionSlot('builtin:usage')).toBe(true);
@@ -130,14 +151,20 @@ describe('kanbanViews', () => {
     expect(kanbanBindsExecutionConversation('builtin:usage', 'workspace')).toBe(
       true
     );
+    expect(kanbanBindsExecutionConversation('builtin:pulse', 'workspace')).toBe(
+      true
+    );
   });
 
-  it('unbinds the hidden kanban execution conversation on canvas and usage', () => {
+  it('unbinds the hidden kanban execution conversation on canvas and usage while binding it on pulse', () => {
     expect(kanbanBindsExecutionConversation('builtin:canvas', 'kanban')).toBe(
       false
     );
     expect(kanbanBindsExecutionConversation('builtin:usage', 'kanban')).toBe(
       false
+    );
+    expect(kanbanBindsExecutionConversation('builtin:pulse', 'kanban')).toBe(
+      true
     );
     expect(kanbanBindsExecutionConversation('builtin:sessions', 'kanban')).toBe(
       true
@@ -150,7 +177,7 @@ describe('kanbanViews', () => {
   it('sizes the carousel for N views', () => {
     expect(kanbanCarouselWidth(5)).toBe('500%');
     expect(kanbanCarouselTranslateX(views, 'builtin:sessions')).toBe(
-      'translateX(-20%)'
+      `translateX(-${(1 * 100) / views.length}%)`
     );
   });
 });

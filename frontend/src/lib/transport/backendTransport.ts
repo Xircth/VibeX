@@ -257,6 +257,10 @@ export interface ApplicationCommandMap {
     args: { definitionId: string; limit?: number };
     result: WorkflowVersionView[];
   };
+  workflow_runs: {
+    args: { definitionId: string; limit?: number };
+    result: WorkflowRunView[];
+  };
   workflow_steps: {
     args: { runId: string };
     result: WorkflowStepView[];
@@ -317,6 +321,10 @@ export interface ApplicationCommandMap {
       };
     };
     result: WorkflowRunView;
+  };
+  workflow_delete: {
+    args: { definitionId: string };
+    result: boolean;
   };
   conversation_respond_permission: {
     args: {

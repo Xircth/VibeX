@@ -56,7 +56,7 @@ describe('kanbanViewCatalog', () => {
     ).toBe(false);
   });
 
-  it('appends one plugin view after the built-in usage view registered by dimo.webui.kanban', () => {
+  it('appends one plugin view after the built-in usage and pulse views registered by dimo.webui.kanban', () => {
     const views = kanbanViewsFromCatalog([
       {
         pluginId: 'dimo.host-surface',
@@ -75,9 +75,12 @@ describe('kanbanViewCatalog', () => {
         metadata: { slot: 'app.kanban.view' },
       },
     ]);
-    expect(views).toHaveLength(2);
-    expect(views.slice(0, 1).map((v) => v.id)).toEqual(['builtin:usage']);
-    expect(views[1]).toMatchObject({
+    expect(views).toHaveLength(3);
+    expect(views.slice(0, 2).map((v) => v.id)).toEqual([
+      'builtin:usage',
+      'builtin:pulse',
+    ]);
+    expect(views[2]).toMatchObject({
       id: 'plugin:dimo.host-surface/sample-view',
       titleKey: '示例视图',
       builtin: false,
@@ -87,6 +90,7 @@ describe('kanbanViewCatalog', () => {
   it('uses kanbanViewRegistry as the single source of truth and removes built-in views when dimo.webui.kanban is unloaded', async () => {
     expect(kanbanViewsFromCatalog([]).map((v) => v.id)).toEqual([
       'builtin:usage',
+      'builtin:pulse',
     ]);
 
     unloadPluginRuntime('dimo.webui.kanban');
@@ -112,6 +116,7 @@ describe('kanbanViewCatalog', () => {
     );
     expect(kanbanViewsFromCatalog([]).map((v) => v.id)).toEqual([
       'builtin:usage',
+      'builtin:pulse',
     ]);
   });
 });

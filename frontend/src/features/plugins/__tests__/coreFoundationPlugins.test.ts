@@ -193,7 +193,6 @@ describe('System Bundle (coreFoundationPlugins) lifecycle & EffectScope isolatio
       ['builtin:/settings/subagents', 'dimo.core.delegation'],
       ['builtin:/settings/compaction', 'dimo.core.compaction'],
       ['builtin:/settings/approval', 'dimo.core.approval'],
-      ['builtin:/settings/automations', 'dimo.core.automation'],
       ['builtin:/settings/chat-channels', 'dimo.core.channels'],
       ['builtin:/settings/instructions', 'dimo.webui.conversation'],
       ['builtin:/settings/shortcuts', 'dimo.webui.commands'],
@@ -206,6 +205,9 @@ describe('System Bundle (coreFoundationPlugins) lifecycle & EffectScope isolatio
         `Settings page ${pageId} should be owned by ${expectedOwner}`
       ).toBe(expectedOwner);
     }
+    expect(settingsPageRegistry.has('builtin:/settings/automations')).toBe(
+      false
+    );
 
     // 6. dimo.webui.theme
     const themeService = serviceContainer.get<{

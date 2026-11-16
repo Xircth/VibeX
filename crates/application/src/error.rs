@@ -7,6 +7,17 @@ pub struct ApplicationError {
 }
 
 impl ApplicationError {
+    pub fn unauthorized(message: impl Into<String>) -> Self {
+        Self {
+            envelope: ErrorEnvelope::new(
+                ErrorCode::Unauthorized,
+                message,
+                false,
+                OperationId::new(),
+            ),
+        }
+    }
+
     pub fn forbidden(message: impl Into<String>) -> Self {
         Self {
             envelope: ErrorEnvelope::new(ErrorCode::Forbidden, message, false, OperationId::new()),

@@ -13,6 +13,7 @@ import {
 } from '@dimoai/plugin-sdk';
 
 import { registerBuiltinPanels } from '@/components/layout/panels/PanelRegistry';
+import { requestOpenPulseDeck } from '@/components/kanban/pulseDeckEvents';
 import { clearPluginCrashState } from '@/components/plugins/PluginBoundary';
 import { registerBuiltinCommands } from '@/components/search/SearchPalette';
 import { conversationApi } from '@/features/conversation/conversationApi';
@@ -1562,12 +1563,7 @@ export const CORE_FOUNDATION_PLUGIN_DESCRIPTORS: readonly CoreFoundationPluginDe
         'dimo.workflow-runner',
       ],
       injects: ['dimo.agent-runtime'],
-      settingsPath: '/settings/automations',
       onActivate: (ctx) => {
-        registerBuiltinSettingsPages({
-          ctx,
-          paths: ['/settings/automations'],
-        });
         registerBuiltinCommands({ ctx });
         ctx.ui.registerSlashCommand({
           id: 'dimo.core.automation:schedule',
@@ -1575,9 +1571,7 @@ export const CORE_FOUNDATION_PLUGIN_DESCRIPTORS: readonly CoreFoundationPluginDe
           title: 'Schedule Automation',
           description: 'Create or manage a recurring scheduled automation',
           execute: () => {
-            dispatchHostCustomEvent('dimo:open-settings', {
-              section: 'automations',
-            });
+            requestOpenPulseDeck({ navigateToKanban: true });
           },
         });
         bindCoreDomainServices(
@@ -1595,12 +1589,10 @@ export const CORE_FOUNDATION_PLUGIN_DESCRIPTORS: readonly CoreFoundationPluginDe
             injects: ['dimo.agent-runtime'],
           },
           {
-            getSettingsPath: () => '/settings/automations',
+            getSettingsPath: () => null,
             getSupportedTriggers: () => ['cron', 'interval', 'manual'] as const,
             openAutomationSettings: () =>
-              dispatchHostCustomEvent('dimo:open-settings', {
-                section: 'automations',
-              }),
+              requestOpenPulseDeck({ navigateToKanban: true }),
           },
           [],
           ['dimo.core.agent-runtime']

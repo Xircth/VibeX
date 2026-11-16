@@ -1,0 +1,137 @@
+/* ───────────────────────────────────────────────────────────────────────────
+ * FilterTable — crisp hairline grid table, chip filters, and tinted status pills
+ * Harmonized to VibeX CSS tokens in light & dark mode.
+ * ─────────────────────────────────────────────────────────────────────────── */
+
+.automation-filter-table-shell {
+  --grid-line: color-mix(in srgb, var(--border-subtle, #e5e5e5) 80%, transparent);
+}
+
+.automation-filter-no-scrollbar {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.automation-filter-no-scrollbar::-webkit-scrollbar {
+  display: none;
+  width: 0;
+  height: 0;
+}
+
+.dark .automation-filter-table-shell,
+.legacy-design.dark .automation-filter-table-shell {
+  --grid-line: rgba(255, 255, 255, 0.08);
+}
+
+.automation-filter-table-card {
+  border-radius: var(--radius-container, 0.75rem);
+  background: var(--surface-content, hsl(var(--card)));
+  border: 1px solid var(--border-subtle, hsl(var(--border) / 0.7));
+  box-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.03),
+    0 4px 12px rgba(0, 0, 0, 0.025);
+}
+
+.dark .automation-filter-table-card,
+.legacy-design.dark .automation-filter-table-card {
+  box-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.25),
+    0 6px 16px rgba(0, 0, 0, 0.18);
+}
+
+.automation-filter-chip {
+  height: 26px;
+}
+
+.automation-filter-chip.is-active {
+  background: var(--surface-raised-control, hsl(var(--background)));
+  color: var(--text-strong, hsl(var(--foreground)));
+  box-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.06),
+    inset 0 0 0 1px color-mix(in srgb, var(--border-subtle, #d4d4d4) 85%, transparent);
+}
+
+.dark .automation-filter-chip.is-active,
+.legacy-design.dark .automation-filter-chip.is-active {
+  box-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.35),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.12);
+}
+
+.automation-filter-row {
+  transition: background-color 100ms ease;
+}
+
+.automation-filter-row:hover {
+  background: color-mix(in srgb, var(--surface-hover, rgba(0, 0, 0, 0.04)) 70%, transparent);
+}
+
+.automation-filter-row.is-selected {
+  background: color-mix(in srgb, hsl(var(--primary)) 8%, var(--surface-content, transparent));
+}
+
+/* Status pills — matching FilterTable aesthetic across light & dark */
+.filter-status-todo {
+  background: rgba(240, 154, 47, 0.12);
+  border-color: rgba(240, 154, 47, 0.28);
+  color: #b4690e;
+}
+
+.dark .filter-status-todo,
+.legacy-design.dark .filter-status-todo {
+  background: rgba(240, 154, 47, 0.16);
+  border-color: rgba(240, 154, 47, 0.34);
+  color: #fbbf24;
+}
+
+.filter-status-progress {
+  background: rgba(22, 166, 199, 0.11);
+  border-color: rgba(22, 166, 199, 0.28);
+  color: #0e7490;
+}
+
+.dark .filter-status-progress,
+.legacy-design.dark .filter-status-progress {
+  background: rgba(22, 166, 199, 0.16);
+  border-color: rgba(22, 166, 199, 0.34);
+  color: #38bdf8;
+}
+
+.filter-status-done {
+  background: rgba(37, 168, 120, 0.12);
+  border-color: rgba(37, 168, 120, 0.28);
+  color: #167956;
+}
+
+.dark .filter-status-done,
+.legacy-design.dark .filter-status-done {
+  background: rgba(37, 168, 120, 0.16);
+  border-color: rgba(37, 168, 120, 0.34);
+  color: #34d399;
+}
+
+.filter-status-paused {
+  background: rgba(115, 115, 115, 0.1);
+  border-color: rgba(115, 115, 115, 0.22);
+  color: #525252;
+}
+
+.dark .filter-status-paused,
+.legacy-design.dark .filter-status-paused {
+  background: rgba(163, 163, 163, 0.12);
+  border-color: rgba(163, 163, 163, 0.24);
+  color: #a3a3a3;
+}
+
+.filter-status-error {
+  background: rgba(239, 68, 68, 0.11);
+  border-color: rgba(239, 68, 68, 0.26);
+  color: #b91c1c;
+}
+
+.dark .filter-status-error,
+.legacy-design.dark .filter-status-error {
+  background: rgba(239, 68, 68, 0.16);
+  border-color: rgba(239, 68, 68, 0.34);
+  color: #f87171;
+}

@@ -447,7 +447,11 @@ impl ServerApplicationDomains {
         Ok(value)
     }
 
-    pub(super) async fn plugin_command_invoke(&self, args: Value) -> Result<Value, ApplicationError> {
+    pub(super) async fn plugin_command_invoke(
+        &self,
+        principal: &Principal,
+        args: Value,
+    ) -> Result<Value, ApplicationError> {
         let plugin_id = args
             .get("pluginId")
             .or_else(|| args.get("plugin_id"))
@@ -499,7 +503,7 @@ impl ServerApplicationDomains {
                 resolve_bridged_domain_command(&resolved_plugin_id, &resolved_command)
         {
             return self
-                .execute_bridged_domain_command(domain_command, input)
+                .execute_bridged_domain_command(principal, domain_command, input)
                 .await;
         }
 
@@ -511,6 +515,7 @@ impl ServerApplicationDomains {
 
     pub(super) async fn invoke_dynamic_plugin_command(
         &self,
+        principal: &Principal,
         qualified_command: &str,
         args: Value,
     ) -> Result<Value, ApplicationError> {
@@ -518,7 +523,7 @@ impl ServerApplicationDomains {
             qualified_command,
             "plugin.command.invoke" | "plugin_command_invoke"
         ) {
-            return self.plugin_command_invoke(args).await;
+            return self.plugin_command_invoke(principal, args).await;
         }
         let control_plane = self.plugin_control_plane().await?;
         let Some((plugin_id, command_name)) = control_plane
@@ -532,7 +537,7 @@ impl ServerApplicationDomains {
             && let Some(domain_command) = resolve_bridged_domain_command(&plugin_id, &command_name)
         {
             return self
-                .execute_bridged_domain_command(domain_command, args)
+                .execute_bridged_domain_command(principal, domain_command, args)
                 .await;
         }
         let input = args
@@ -548,15 +553,16 @@ impl ServerApplicationDomains {
 
     pub(super) async fn execute_bridged_domain_command(
         &self,
+        principal: &Principal,
         domain_command: DomainCommand,
         args: Value,
     ) -> Result<Value, ApplicationError> {
-        let primary = Box::pin(self.execute_command(domain_command, args.clone())).await;
+        let primary = Box::pin(self.execute_command(principal, domain_command, args.clone())).await;
         if primary.is_ok() {
             return primary;
         }
         if let Some(inner) = args.get("input").or_else(|| args.get("params")).cloned() {
-            let fallback = Box::pin(self.execute_command(domain_command, inner)).await;
+            let fallback = Box::pin(self.execute_command(principal, domain_command, inner)).await;
             if fallback.is_ok() {
                 return fallback;
             }

@@ -947,7 +947,6 @@ function SessionCanvasFlow({
     dropHint,
     flowData,
     layoutNodes,
-    allPlacedSessionIds,
     runningSessionIds,
     selectedIds,
   ]);

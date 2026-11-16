@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
+import { useOptionalWorktree } from '@/contexts/WorktreeContext';
 import { cn } from '@/lib/utils';
 
 import { collaborationCall } from './collaborationApi';
@@ -15,6 +16,7 @@ import {
   writeMemberBotAvatars,
   type MemberBotAvatarConfig,
 } from './MemberBotAvatar';
+import { BotAutomationsPanel } from './BotAutomationsPanel';
 import { COPY, surfaceErrorCopy } from './spaceModel';
 
 function stringRecord(value: unknown): Record<string, string> {
@@ -41,20 +43,24 @@ function configField(
 export function AssistantDetailsCustomizeTab({
   memberId,
   conversationId,
+  workspaceId: propWorkspaceId,
   initialName,
   initialAvatar,
   onSaved,
 }: {
   memberId: string;
   conversationId?: string | null;
+  workspaceId?: string | null;
   initialName: string;
   initialAvatar: MemberBotAvatarConfig;
   onSaved?: (next: { name: string; avatar: MemberBotAvatarConfig }) => void;
 }) {
+  const worktree = useOptionalWorktree();
   const [name, setName] = useState(initialName);
   const [avatar, setAvatar] = useState(initialAvatar);
   const [agentId, setAgentId] = useState('');
   const [modeId, setModeId] = useState('');
+  const [memberWorkspaceId, setMemberWorkspaceId] = useState('');
   const [configValues, setConfigValues] = useState<Record<string, string>>({});
   const [personaPrompt, setPersonaPrompt] = useState('');
   const [loading, setLoading] = useState(true);
@@ -86,6 +92,9 @@ export function AssistantDetailsCustomizeTab({
           const nextAgent = configField(config, 'agent_id', 'agentId');
           if (nextAgent) setAgentId(nextAgent);
           setModeId(configField(config, 'mode_id', 'modeId'));
+          setMemberWorkspaceId(
+            configField(config, 'workspace_id', 'workspaceId')
+          );
           setConfigValues(
             stringRecord(config?.config_values ?? config?.configValues)
           );
@@ -171,81 +180,133 @@ export function AssistantDetailsCustomizeTab({
   };
 
   const agentName = agentId ? getAgentName(agentId) : '';
+  const effectiveWorkspaceId =
+    propWorkspaceId ?? worktree?.activeWorktreeId ?? (memberWorkspaceId || null);
+  const [activeSection, setActiveSection] = useState<
+    'customize' | 'automations'
+  >('customize');
 
   return (
-    <form
-      className="collaboration-assistant-details-customize"
-      data-testid="collaboration-assistant-customize-form"
-      onSubmit={(event) => {
-        event.preventDefault();
-        void save();
-      }}
-    >
-      <div className="space-y-1.5">
-        <Label>{COPY.memberNameLabel}</Label>
-        <Input
-          aria-label={COPY.memberNameLabel}
-          value={name}
-          onChange={(event) => setName(event.target.value)}
-          placeholder={COPY.memberNameLabel}
-          className="h-8 px-2.5 text-[13px]"
-        />
-      </div>
-
-      <MemberBotAvatarPicker value={avatar} onChange={setAvatar} />
-
-      {agentName ? (
-        <div className="flex items-center gap-2">
-          <Label>Agent</Label>
-          <button
-            type="button"
-            className={cn(
-              'collaboration-assistant-agent-readonly',
-              agentShaking && 'is-shaking'
-            )}
-            data-testid="collaboration-assistant-agent-readonly"
-            onClick={() => setAgentShaking(true)}
-            onAnimationEnd={() => setAgentShaking(false)}
-          >
-            <AgentIcon agent={agentId} className="h-4 w-4" />
-            <span>{agentName}</span>
-          </button>
-        </div>
-      ) : null}
-
-      {agentId ? (
-        <MemberSessionConfigControls
-          agentId={agentId}
-          modeId={modeId}
-          values={configValues}
-          onModeId={setModeId}
-          onValues={setConfigValues}
-        />
-      ) : null}
-
-      <div className="space-y-1.5">
-        <Label>{COPY.personaPromptLabel}</Label>
-        <Textarea
-          aria-label={COPY.personaPromptLabel}
-          placeholder={COPY.personaPromptLabel}
-          value={personaPrompt}
-          onChange={(event) => setPersonaPrompt(event.target.value)}
-          className="min-h-[64px] px-2.5 py-1.5 text-[13px]"
-        />
-      </div>
-
-      {error ? <p className="collaboration-error">{error}</p> : null}
-
-      <div className="flex justify-end pt-1">
-        <Button
-          type="submit"
-          variant="primary"
-          data-dialog-primary="true"
-          disabled={saving || loading || !name.trim()}
+    <div className="space-y-3">
+      <div
+        className="inline-flex rounded-md border border-border bg-muted/50 p-0.5 text-xs"
+        role="tablist"
+        aria-label="Assistant details sections"
+      >
+        <button
+          type="button"
+          role="tab"
+          aria-selected={activeSection === 'customize'}
+          data-testid="assistant-details-tab-customize"
+          onClick={() => setActiveSection('customize')}
+          className={cn(
+            'rounded px-2.5 py-1 text-xs font-medium transition-colors',
+            activeSection === 'customize'
+              ? 'bg-background text-foreground shadow-sm'
+              : 'text-muted-foreground hover:text-foreground'
+          )}
         >
-          {COPY.saveAssistant}
-        </Button>
+          Customize
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={activeSection === 'automations'}
+          data-testid="assistant-details-tab-automations"
+          onClick={() => setActiveSection('automations')}
+          className={cn(
+            'rounded px-2.5 py-1 text-xs font-medium transition-colors',
+            activeSection === 'automations'
+              ? 'bg-background text-foreground shadow-sm'
+              : 'text-muted-foreground hover:text-foreground'
+          )}
+        >
+          Automations
+        </button>
       </div>
-    </form>
+
+      {activeSection === 'automations' ? (
+        <BotAutomationsPanel
+          memberId={memberId}
+          botName={name.trim() || initialName}
+          workspaceId={effectiveWorkspaceId}
+        />
+      ) : (
+        <form
+          className="collaboration-assistant-details-customize"
+          data-testid="collaboration-assistant-customize-form"
+          onSubmit={(event) => {
+            event.preventDefault();
+            void save();
+          }}
+        >
+          <div className="space-y-1.5">
+            <Label>{COPY.memberNameLabel}</Label>
+            <Input
+              aria-label={COPY.memberNameLabel}
+              value={name}
+              onChange={(event) => setName(event.target.value)}
+              placeholder={COPY.memberNameLabel}
+              className="h-8 px-2.5 text-[13px]"
+            />
+          </div>
+
+          <MemberBotAvatarPicker value={avatar} onChange={setAvatar} />
+
+          {agentName ? (
+            <div className="flex items-center gap-2">
+              <Label>Agent</Label>
+              <button
+                type="button"
+                className={cn(
+                  'collaboration-assistant-agent-readonly',
+                  agentShaking && 'is-shaking'
+                )}
+                data-testid="collaboration-assistant-agent-readonly"
+                onClick={() => setAgentShaking(true)}
+                onAnimationEnd={() => setAgentShaking(false)}
+              >
+                <AgentIcon agent={agentId} className="h-4 w-4" />
+                <span>{agentName}</span>
+              </button>
+            </div>
+          ) : null}
+
+          {agentId ? (
+            <MemberSessionConfigControls
+              agentId={agentId}
+              modeId={modeId}
+              values={configValues}
+              onModeId={setModeId}
+              onValues={setConfigValues}
+            />
+          ) : null}
+
+          <div className="space-y-1.5">
+            <Label>{COPY.personaPromptLabel}</Label>
+            <Textarea
+              aria-label={COPY.personaPromptLabel}
+              placeholder={COPY.personaPromptLabel}
+              value={personaPrompt}
+              onChange={(event) => setPersonaPrompt(event.target.value)}
+              className="min-h-[64px] px-2.5 py-1.5 text-[13px]"
+            />
+          </div>
+
+          {error ? <p className="collaboration-error">{error}</p> : null}
+
+          <div className="flex justify-end pt-1">
+            <Button
+              type="submit"
+              variant="primary"
+              data-dialog-primary="true"
+              disabled={saving || loading || !name.trim()}
+            >
+              {COPY.saveAssistant}
+            </Button>
+          </div>
+        </form>
+      )}
+    </div>
   );
 }

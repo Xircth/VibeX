@@ -1,7 +1,9 @@
-import { useMemo, useState } from 'react';
+import { useContext, useMemo, useState } from 'react';
+import { QueryClientContext } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
+import { useInRouterContext } from 'react-router-dom';
 import { ChatComposer } from '@astryxdesign/core/Chat';
-import { Check } from 'lucide-react';
+import { Check, CirclePlay } from 'lucide-react';
 import type {
   AgentElicitationResponse,
   AgentPermissionResponse,
@@ -9,6 +11,7 @@ import type {
 } from 'shared/types';
 
 import { useOptionalUserSystem } from '@/components/ConfigProvider';
+import { KanbanSessionConversationView } from '@/components/kanban/KanbanSessionConversationView';
 import { Button } from '@/components/ui/button';
 import { PermissionRequestCard } from '@/components/NormalizedConversation/conversation/PermissionRequestCard';
 import { QuestionRequestCard } from '@/components/NormalizedConversation/conversation/QuestionRequestCard';
@@ -25,6 +28,8 @@ export function WorkflowStepConversation({
   stepRun,
   saved,
   workspacePath,
+  isTestable = false,
+  onTestNode,
   onPause,
   onSubmit,
   onConfirm,
@@ -32,14 +37,24 @@ export function WorkflowStepConversation({
   stepRun?: WorkflowStepView;
   saved: boolean;
   workspacePath?: string | null;
+  isTestable?: boolean;
+  onTestNode?: () => Promise<void> | void;
   onPause?: () => void;
   onSubmit?: (text: string) => Promise<void> | void;
   onConfirm?: () => Promise<void> | void;
 }) {
   const { t } = useTranslation('workflow');
+  const queryClient = useContext(QueryClientContext);
+  const inRouter = useInRouterContext();
+  const canEmbedSessionSurface = Boolean(
+    stepRun?.workspaceId && stepRun?.conversationId && queryClient && inRouter
+  );
+
   const { config } = useOptionalUserSystem() ?? {};
   const { collapseAiMessages } = resolveConversationCollapsePreferences(config);
-  const conversation = useConversationTimeline(stepRun?.conversationId ?? null);
+  const conversation = useConversationTimeline(
+    canEmbedSessionSurface ? null : (stepRun?.conversationId ?? null)
+  );
   const [text, setText] = useState('');
   const [sending, setSending] = useState(false);
   const [respondingId, setRespondingId] = useState<string | null>(null);
@@ -88,12 +103,50 @@ export function WorkflowStepConversation({
       .finally(() => setRespondingId(null));
   };
 
+  if (canEmbedSessionSurface && stepRun?.workspaceId && stepRun?.conversationId) {
+    return (
+      <div
+        data-testid="workflow-step-embedded-session"
+        className="flex h-full min-h-0 flex-col gap-2"
+      >
+        <KanbanSessionConversationView
+          workspaceId={stepRun.workspaceId}
+          sessionId={stepRun.conversationId}
+          interactive
+          embedded
+          showSessionSelector={false}
+          conversationWidthMode="bounded"
+          markViewed={false}
+          className="min-h-0 flex-1 overflow-hidden rounded-[var(--radius-element)]"
+        />
+        {onConfirm ? (
+          <Button className="shrink-0" onClick={() => void onConfirm()}>
+            <Check className="mr-1.5 size-3.5" />
+            {t('studio.confirmComplete')}
+          </Button>
+        ) : null}
+      </div>
+    );
+  }
+
   return (
     <div className="flex h-full min-h-0 flex-col gap-3">
       <div className="min-h-0 flex-1 space-y-2 overflow-auto px-1 py-0.5">
         {!stepRun?.conversationId ? (
-          <div className="grid min-h-28 place-items-center text-center text-xs text-muted-foreground">
-            {t('studio.conversationPending')}
+          <div className="grid min-h-28 place-items-center gap-2 text-center text-xs text-muted-foreground">
+            {onTestNode && isTestable ? (
+              <Button
+                size="sm"
+                variant="outline"
+                data-testid="workflow-step-start-test"
+                onClick={() => void onTestNode()}
+              >
+                <CirclePlay className="mr-1.5 size-3.5" />
+                {t('studio.testNode')}
+              </Button>
+            ) : (
+              <span>{t('studio.conversationPending')}</span>
+            )}
           </div>
         ) : conversation.loading && messages.length === 0 ? (
           <ConversationTimelineSkeleton

@@ -4,6 +4,7 @@ import {
   Activity,
   Bot,
   FileDiff,
+  GitFork,
   House,
   Info,
   Plus,
@@ -100,6 +101,52 @@ export function WorkspaceTabAddMenu({
     system?.environment?.os_type
   );
 
+  const workflowStudioLabel = t('tabCreation.workflowStudio', {
+    defaultValue: 'Workflow Studio',
+  });
+
+  const openWorkflowStudio = () => {
+    const matchedPluginPanel = pluginPanels.find(
+      (item) => item.id === 'workflow-studio'
+    );
+    if (matchedPluginPanel) {
+      const metadata = contributionMetadata(matchedPluginPanel);
+      const icon = typeof metadata.icon === 'string' ? metadata.icon : null;
+      openPluginPanel({
+        title: matchedPluginPanel.label,
+        pluginId: matchedPluginPanel.pluginId,
+        contributionId: matchedPluginPanel.id,
+        icon,
+        multiInstance: metadata.multiInstance === true,
+        instance: metadata.multiInstance === true ? 'new' : 'focus',
+      });
+      return;
+    }
+
+    const matchedSdkPanel = sdkPanels.find((panel) => {
+      if (panel.builtin) return false;
+      const pluginId = panel.pluginId ?? 'plugin';
+      const rawId = panel.id.startsWith(`${pluginId}:`)
+        ? panel.id.slice(pluginId.length + 1)
+        : panel.id;
+      return rawId === PANEL_IDS.WORKFLOW_STUDIO;
+    });
+    if (matchedSdkPanel) {
+      const pluginId = matchedSdkPanel.pluginId ?? 'plugin';
+      openPluginPanel({
+        title: matchedSdkPanel.title || workflowStudioLabel,
+        pluginId,
+        contributionId: PANEL_IDS.WORKFLOW_STUDIO,
+        icon: matchedSdkPanel.icon ?? 'git-branch',
+        multiInstance: matchedSdkPanel.multiInstance !== false,
+        instance: 'focus',
+      });
+      return;
+    }
+
+    openOrFocusPanel(PANEL_IDS.WORKFLOW_STUDIO, workflowStudioLabel);
+  };
+
   const combinedPluginItems = useMemo(() => {
     const seen = new Set<string>();
     const items: Array<{
@@ -110,6 +157,7 @@ export function WorkspaceTabAddMenu({
     }> = [];
 
     for (const item of pluginPanels) {
+      if (item.id === 'workflow-studio') continue;
       const metadata = contributionMetadata(item);
       const icon = typeof metadata.icon === 'string' ? metadata.icon : null;
       const key = `${item.pluginId}:${item.id}`;
@@ -176,6 +224,7 @@ export function WorkspaceTabAddMenu({
       const rawId = panel.id.startsWith(`${pluginId}:`)
         ? panel.id.slice(pluginId.length + 1)
         : panel.id;
+      if (rawId === 'workflow-studio') continue;
       const key = `${pluginId}:${rawId}`;
       if (seen.has(key)) continue;
       seen.add(key);
@@ -278,6 +327,13 @@ export function WorkspaceTabAddMenu({
         <DropdownMenuItem onSelect={() => runInThisGroup(openDiffPreview)}>
           <FileDiff />
           {t('tabCreation.review')}
+        </DropdownMenuItem>
+        <DropdownMenuItem
+          data-testid="workspace-tab-add-workflow-studio"
+          onSelect={() => runInThisGroup(openWorkflowStudio)}
+        >
+          <GitFork />
+          {workflowStudioLabel}
         </DropdownMenuItem>
 
         <DropdownMenuSeparator />

@@ -1,5 +1,5 @@
 {
-  "eyebrow": "WORKFLOW RUN",
+  "eyebrow": "工作流运行",
   "titleFallback": "未命名工作流",
   "loading": "正在载入运行记录…",
   "loadError": "无法载入工作流运行记录",
@@ -70,6 +70,7 @@
     "showRecords": "显示记录",
     "saving": "正在保存…",
     "save": "保存",
+    "saveChanges": "保存修改",
     "publishing": "正在发布…",
     "publish": "发布",
     "back": "返回自动化",
@@ -161,6 +162,603 @@
     "debugStarted": "已开始测试 {{step}}",
     "debugRestarted": "已重启 {{step}}",
     "sourceSaved": "已保存 Workflow 源产物",
-    "close": "关闭"
+    "close": "关闭",
+    "selectWorkflow": "选择工作流",
+    "taskListAria": "切换或新建任务",
+    "taskNamePlaceholder": "输入任务名称…",
+    "createNewTask": "新建任务",
+    "emptyTaskCatalog": "暂无已保存任务",
+    "currentDraftBadge": "草稿",
+    "draftBadge": "草稿",
+    "unsavedDraftOption": "{{name}}（草稿）",
+    "newDraftOption": "新建草稿…",
+    "newWorkflow": "新建工作流",
+    "newWorkflowDefaultName": "新建任务",
+    "openPulseDeck": "自动化任务",
+    "openPulseDeckTooltip": "切换到自动化任务面板查看触发规则与候选事件",
+    "refreshCatalog": "刷新工作流与捕获事件",
+    "offlineSampleEventsHint": "离线模式 · 使用内置示例事件",
+    "builtInSamplesCount": "{{count}} 个示例事件",
+    "capturedEventsCount": "{{count}} 个捕获事件",
+    "syncTriggerOnSave": "同步触发器规则",
+    "saveTriggerRule": "保存触发器规则",
+    "loadingWorkspace": "正在加载工作流…",
+    "unsavedChanges": "有未保存更改",
+    "retryLoad": "重试",
+    "validationIssueCount": "{{count}} 项校验问题",
+    "fixValidationIssuesTooltip": "保存或发布前请先修复 {{count}} 项校验问题",
+    "validationBlockedSave": "保存前请先修复 {{count}} 项校验问题（{{first}}）",
+    "savedWithTriggers": "已发布 v{{version}} · 已同步 {{count}} 条触发器规则",
+    "savedVersionLabel": "已发布工作流 v{{version}}",
+    "triggerRulesSaved": "已保存 {{count}} 条 Pulse 触发器规则",
+    "templates": "场景模板",
+    "orchestrators": {
+      "direct_reflex": "直接响应",
+      "superagent_router": "超级智能体路由",
+      "hybrid_pipeline": "混合交付流水线",
+      "event_saga": "事件长事务 Saga",
+      "window_aggregator": "时间窗口聚合",
+      "plan_review_execute": "规划·评审·执行",
+      "parallel_fan_out": "并行分发汇总",
+      "debate_panel": "多智能体评审团",
+      "saga_compensation": "Saga 补偿事务"
+    },
+    "addMenuSections": {
+      "triggersAndPrimitives": "事件与执行原语",
+      "collaborationAndFlow": "协作、门控与控制流",
+      "legacySteps": "基础步骤"
+    },
+    "nodeTypes": {
+      "trigger": "事件触发器",
+      "session": "临时隔离会话",
+      "bot": "持久 Bot 助手",
+      "group_stage": "群组协作阶段",
+      "user_gate": "人工审批门控",
+      "condition_branch": "条件分支",
+      "bounded_loop": "有界循环",
+      "wait_for_event": "等待外部事件",
+      "outbox_action": "外部回写动作"
+    },
+    "auditReasons": {
+      "resetArtifact": "从工作流编辑器重置",
+      "pauseArtifact": "从工作流编辑器暂停",
+      "terminateArtifact": "从工作流编辑器终止",
+      "pauseStepConversation": "在节点对话中暂停",
+      "pauseForGuidance": "暂停以补充人工指导"
+    },
+    "canvasSelectTool": "选择模式",
+    "canvasPanTool": "平移模式",
+    "canvasZoomIn": "放大",
+    "canvasZoomOut": "缩小",
+    "canvasZoomReset": "100% 原始比例",
+    "canvasFitView": "适应视图",
+    "canvasMiniMap": "缩略图"
+  },
+  "sources": {
+    "feishu": "飞书",
+    "github": "GitHub",
+    "jira": "Jira",
+    "linear": "Linear",
+    "slack": "Slack",
+    "discord": "Discord",
+    "telegram": "Telegram",
+    "webhook_standard": "标准 Webhook",
+    "webhook_custom": "自定义 Webhook",
+    "time_cron": "Cron 定时",
+    "time_once": "单次定时",
+    "time_interval": "固定间隔",
+    "time_sla": "静默 SLA",
+    "sdk_custom": "自定义 SDK",
+    "system_internal": "系统内部"
+  },
+  "presets": {
+    "direct_reflex": {
+      "label": "直接响应",
+      "summary": "确定性门控 → 临时隔离会话 → 外部回写",
+      "name": "直接响应自动化",
+      "description": "零 Token 门控触发独立临时会话并回写诊断摘要。",
+      "steps": {
+        "intakeTrigger": "GitHub CI 失败触发器",
+        "reflexPrompt": "诊断 {{threadKey}} 上失败的 CI 任务 {{failedJob}} 并准备最小修复方案。",
+        "replyPrTitle": "评论反馈至 Pull Request",
+        "replyPrPayload": "{{threadKey}} 的 CI 诊断已完成。"
+      }
+    },
+    "superagent_router": {
+      "label": "超级智能体路由",
+      "summary": "持久分诊 Bot（固定记忆）+ 专项临时会话 + 线程分发",
+      "name": "超级智能体分诊路由",
+      "description": "持久 Bot 结合长期记忆识别意图，随后派发隔离的专项会话执行。",
+      "steps": {
+        "mentionTrigger": "飞书提及接入触发器",
+        "routerPrompt": "结合历史服务上下文分诊 {{threadKey}} 上的请求“{{text}}”。",
+        "specialistPrompt": "在独立工作树中针对 {{threadKey}} 执行专项排查。",
+        "feishuReplyTitle": "回复飞书话题",
+        "feishuReplyPayload": "已处理 {{threadKey}} 上的 {{event.type}}。"
+      }
+    },
+    "hybrid_pipeline": {
+      "label": "混合交付流水线",
+      "summary": "持久 PM Bot → 编码临时会话 → 有界循环评审 → 人工门控 → 外部回写",
+      "name": "混合研发交付流水线",
+      "description": "融合持久 PM 记忆、隔离编码会话、有界评审循环与人工合并签批。",
+      "steps": {
+        "jiraTrigger": "Jira 工单状态流转",
+        "pmPrompt": "依据路线图约束拆解 {{issue.key}}（{{issue.summary}}）。",
+        "coderPrompt": "在全新隔离会话中实现并测试 {{threadKey}} 的改动。",
+        "reviewLoopTitle": "代码评审有界循环",
+        "releaseGateTitle": "人工合并签批",
+        "releaseGateBody": "是否批准合并 {{threadKey}} 并流转 Jira 状态？",
+        "jiraOutboxTitle": "更新 Jira 工单",
+        "jiraOutboxPayload": "{{threadKey}} 修复已验证并批准。"
+      }
+    },
+    "event_saga": {
+      "label": "事件长事务 Saga",
+      "summary": "跨关联 threadKey 挂起等待外部事件 + SLA 超时门控",
+      "name": "PR 生命周期事件 Saga",
+      "description": "按关联线程键挂起等待后续外部事件，挂起期间零后台空闲进程占用。",
+      "steps": {
+        "prOpenedTrigger": "Pull Request 已创建",
+        "auditPrompt": "对 {{threadKey}} 执行初步架构评审。",
+        "waitCiTitle": "等待 CI 流水线完成",
+        "ownerNotifyTitle": "PR 可进入最终合并",
+        "ownerNotifyBody": "{{threadKey}} 已通过评审与 CI 检查。"
+      }
+    },
+    "window_aggregator": {
+      "label": "时间窗口聚合",
+      "summary": "定时调度 → 窗口合并 Bot 批处理 → 群组协作摘要 → 用户简报",
+      "name": "时间窗口摘要聚合",
+      "description": "将高频事件信号去重聚合为群组协作日报与用户简报。",
+      "steps": {
+        "digestSchedule": "工作日日报定时触发",
+        "aggregatorPrompt": "汇总最近 {{windowHours}} 小时内未解决的缺陷与回归问题。",
+        "groupSyncPrompt": "向发布作战室发布每日质量摘要卡片。",
+        "userDigestTitle": "每日发布质量简报",
+        "userDigestBody": "{{threadKey}} 每日质量简报已发布。"
+      }
+    }
+  },
+  "replay": {
+    "triggerButton": "事件回放演练",
+    "title": "捕获事件回放演练",
+    "clear": "清空",
+    "samplePickerAria": "选择示例或捕获事件",
+    "envelopeJsonLabel": "事件信封 JSON",
+    "envelopeJsonAria": "回放事件信封 JSON",
+    "applyButton": "运行干跑演练",
+    "missingRequiredFields": "事件信封需包含 source、eventType、actor 和 trace 字段。",
+    "invalidJson": "事件信封 JSON 格式无效。",
+    "triggerGates": "触发器门控",
+    "matchedSummary": "命中 {{matched}}/{{total}}",
+    "matched": "命中",
+    "filtered": "未命中",
+    "renderedPrompts": "节点提示词渲染预览"
+  },
+  "nodes": {
+    "badges": {
+      "trigger": "触发器",
+      "session": "临时会话",
+      "bot": "Bot 助手",
+      "group": "群组协作",
+      "gate": "人工门控",
+      "loop": "循环",
+      "wait": "等待事件",
+      "branch": "条件分支",
+      "outbox": "回写动作"
+    },
+    "triggerKinds": {
+      "platform": "平台事件",
+      "webhook": "Webhook",
+      "temporal": "定时调度",
+      "sdk": "自定义 SDK"
+    },
+    "temporal": {
+      "cronWeekdays": "Cron {{expression}} · 工作日",
+      "cron": "Cron {{expression}}",
+      "once": "单次 · {{fireAt}}",
+      "intervalSeconds": "每 {{count}} 秒",
+      "intervalMinutes": "每 {{count}} 分钟",
+      "intervalHours": "每 {{count}} 小时",
+      "slaMinutes": "SLA {{count}} 分钟（{{prefix}}）"
+    },
+    "sessionResetDetail": "每次运行重置上下文",
+    "botMemoryDetail": "固定会话记忆",
+    "isolation": {
+      "isolated_worktree": "独立 Worktree",
+      "project_root": "共享工作区",
+      "scratch": "只读沙盒"
+    },
+    "mailbox": {
+      "fifo_serial": "FIFO 串行",
+      "coalesce_batch": "窗口合并"
+    },
+    "groupDispatch": {
+      "specific_seat": "指定席位 · {{memberId}}",
+      "mention_seats": "提及 {{count}} 个席位",
+      "moderator_triage": "主持人分诊 · {{memberId}}",
+      "broadcast_log_only": "仅广播归档"
+    },
+    "gateKinds": {
+      "notify": "消息通知",
+      "approval": "人工审批",
+      "ask_form": "表单收集"
+    },
+    "outboxKinds": {
+      "feishu_reply": "飞书回复",
+      "feishu_webhook": "飞书通知",
+      "reply_channel": "回复原会话",
+      "jira_comment": "Jira 评论",
+      "github_comment": "GitHub 评论",
+      "webhook_post": "Webhook 回调",
+      "emit_event": "发出事件"
+    },
+    "maxRounds": "最多 {{count}} 轮",
+    "quorumCount": "法定 {{count}} 席",
+    "slaSeconds": "SLA {{seconds}}s",
+    "loopTarget": "循环 → {{target}}",
+    "branchCondition": "条件判断",
+    "unsetBot": "未绑定 Bot",
+    "unsetGroup": "未指定空间",
+    "eventFallback": "事件",
+    "triggerEvalModeAria": "触发器 {{id}} 评估模式",
+    "quickAddNext": "衔接下一步",
+    "defaults": {
+      "triggerTitle": "事件触发器",
+      "sessionPrompt": "在独立工作树中分析 {{threadKey}} 上的 {{event.type}}。",
+      "botPrompt": "结合持久项目记忆分诊 {{event.type}}。",
+      "groupPrompt": "协同评审 {{threadKey}} 并收敛执行方案。",
+      "userGateTitle": "发布门控审批",
+      "userGateBody": "是否批准针对 {{threadKey}} 提议的变更？",
+      "approvalTitle": "需要审批确认",
+      "conditionTitle": "分支条件判断",
+      "boundedLoopTitle": "评审有界循环",
+      "waitForEventTitle": "等待关联事件",
+      "outboxTitle": "回写源线程",
+      "outboxPayload": "{{threadKey}} 自动化工作流已完成。",
+      "fallbackPrompt": "处理 {{event.type}}",
+      "fallbackBotPrompt": "使用持久记忆处理 {{event.type}}。",
+      "fallbackSessionPrompt": "在全新隔离会话中执行任务。"
+    }
+  },
+  "inspector": {
+    "modeAriaLabel": "检查器视图模式",
+    "tabs": {
+      "overview": "节点概览",
+      "records": "执行记录"
+    },
+    "summaries": {
+      "triggerEvent": "当来自 {{source}} 的 {{event}} 事件发生时自动触发流程。",
+      "triggerTemporal": "按照计划 {{schedule}} 自动触发流程。",
+      "session": "由 {{agent}} 在干净隔离会话中执行此步编码或分析任务。",
+      "defaultAgentAction": "执行代码分析与验证任务",
+      "bot": "由「{{bot}}」结合长期协作记忆处理此步任务。",
+      "defaultBotAction": "结合历史上下文分诊并处理事件",
+      "group": "在「{{space}}」协作群组中协同讨论并收敛结论。",
+      "approval": "暂停流程并等待你人工批准后才继续后续步骤。",
+      "notify": "向你的桌面发送结果摘要通知。",
+      "boundedLoop": "自动循环迭代审查，最多执行 {{count}} 轮。",
+      "waitForEvent": "挂起等待关联事件 {{event}} 到达后继续。",
+      "condition": "根据上一步结果自动判断进入哪个分支。",
+      "outbox": "将处理结论自动发送至 {{target}}。"
+    },
+    "lightTweaks": {
+      "triggerTitle": "名称",
+      "cronExpression": "Cron",
+      "agentLabel": "Agent",
+      "botLabel": "Bot",
+      "groupLabel": "群组",
+      "promptLabel": "指令",
+      "gateTitle": "标题",
+      "gateMessage": "内容",
+      "outboxTitle": "标题",
+      "outboxMessage": "内容",
+      "controlTitle": "标题",
+      "maxRounds": "最大轮次"
+    },
+    "agentEdit": {
+      "label": "让 Agent 修改",
+      "placeholder": "让 Agent 调整此步…",
+      "submitAria": "发送步骤修改请求给 Agent",
+      "dispatchedToast": "已派发给 Agent：{{title}}"
+    },
+    "tiers": {
+      "visual": "可视化",
+      "advanced": "高级",
+      "json": "JSON"
+    },
+    "waitingApprovalBadge": "等待审批",
+    "approvalNoteLabel": "审批备注（可选）",
+    "approvalNotePlaceholder": "补充批准或拒绝说明",
+    "approve": "批准",
+    "reject": "拒绝",
+    "customJsonDecision": "自定义 JSON 决定",
+    "stepKinds": {
+      "trigger": "事件触发器",
+      "session": "临时会话",
+      "bot": "持久 Bot 助手",
+      "group_stage": "群组协作",
+      "user_gate": "人工门控",
+      "control": "控制流",
+      "condition_branch": "条件分支",
+      "bounded_loop": "有界循环",
+      "wait_for_event": "等待事件",
+      "outbox_action": "外部回写",
+      "agent": "Agent 节点",
+      "approval": "确认节点",
+      "notify": "通知节点"
+    },
+    "primitive": {
+      "label": "执行原语",
+      "sessionLabel": "临时隔离会话",
+      "sessionSub": "每次运行重置上下文",
+      "botLabel": "持久 Bot 助手",
+      "botSub": "固定会话记忆"
+    },
+    "session": {
+      "workspaceIsolation": "工作区隔离策略",
+      "workspaceIsolationHint": "独立 Worktree 为每次运行检出干净分支，避免并发写冲突。",
+      "isolationOptions": {
+        "isolated_worktree": "独立 Worktree（干净隔离工作树）",
+        "project_root": "项目根目录（共享工作区）",
+        "scratch": "临时沙盒（只读共享）"
+      }
+    },
+    "bot": {
+      "memberId": "绑定 Bot 成员 ID",
+      "memberIdHint": "关联持久 Bot 身份以跨事件保留长期记忆。",
+      "conversationScope": "会话记忆范围",
+      "scopes": {
+        "fixed_primary": "固定主会话",
+        "per_thread_topic": "按线程独立话题"
+      },
+      "mailboxPolicy": "信箱投递策略",
+      "mailboxOptions": {
+        "fifo_serial": "FIFO 串行执行",
+        "fifo_serial_detail": "FIFO 串行（按序逐轮处理）",
+        "coalesce_batch": "窗口合并批处理",
+        "coalesce_batch_detail": "窗口合并（高频信号去重批处理）"
+      }
+    },
+    "trigger": {
+      "evalMode": "评估模式",
+      "category": "触发器类型",
+      "categories": {
+        "platform": "平台事件",
+        "webhook": "Webhook 回调",
+        "temporal": "定时与超时（Cron / 单次 / 间隔 / SLA）",
+        "sdk": "自定义 SDK 事件"
+      },
+      "temporalKind": "定时调度类型",
+      "temporalKinds": {
+        "cron": "Cron 定时计划",
+        "once": "单次定时触发",
+        "interval": "固定时间间隔",
+        "inactivity_sla": "静默超时 SLA"
+      },
+      "cronExpression": "Cron 表达式",
+      "timezone": "时区",
+      "fireAt": "触发时间（ISO-8601）",
+      "intervalSeconds": "间隔时长（秒）",
+      "threadKeyPrefix": "线程键前缀",
+      "timeoutSeconds": "超时时间（秒）",
+      "eventSource": "事件来源",
+      "eventType": "事件类型",
+      "filterSyncHint": "修改来源或事件类型会自动更新节点门控过滤条件。"
+    },
+    "group": {
+      "spaceId": "协作空间 ID",
+      "dispatchMode": "席位分发模式",
+      "dispatchModes": {
+        "specific_seat": "指定单一席位",
+        "mention_seats": "提及多个席位",
+        "moderator_triage": "主持人分诊调度",
+        "broadcast_log_only": "仅广播归档（零唤醒）"
+      },
+      "seatMemberId": "目标席位成员 ID",
+      "mentionedSeats": "提及席位列表（逗号分隔）",
+      "moderatorMemberId": "主持人成员 ID",
+      "rounds": "最大协作轮次",
+      "quorum": "法定收敛席位数",
+      "optionalPlaceholder": "可选",
+      "convergenceHint": "达到法定席位响应或轮次上限后收敛输出并进入下游节点。"
+    },
+    "userGate": {
+      "interactionKind": "交互模式",
+      "kinds": {
+        "approval": "批准决策",
+        "ask_form": "表单填写",
+        "notify": "消息通知"
+      },
+      "severity": "紧急程度",
+      "severities": {
+        "info": "常规提示",
+        "warning": "重要关注",
+        "urgent": "紧急阻断"
+      },
+      "slaSeconds": "SLA 超时（秒）",
+      "optionalPlaceholder": "可选",
+      "optionalMin10Placeholder": "可选（至少 10 秒）",
+      "bodyTemplate": "消息正文模板",
+      "hint": "支持插值 {{threadKey}} 与上游输出，超时后触发 SLA 提醒。"
+    },
+    "control": {
+      "controlType": "控制流类型",
+      "types": {
+        "condition": "条件分支",
+        "bounded_loop": "有界循环",
+        "wait_for_event": "等待外部事件"
+      },
+      "maxIterations": "最大循环轮次（1-50）",
+      "loopTargetStepId": "回跳目标节点 ID",
+      "waitEventType": "等待关联事件类型",
+      "threadKeyTemplate": "关联线程键模板",
+      "timeoutSeconds": "等待超时（秒）",
+      "branchExpression": "分支条件表达式",
+      "waitHint": "运行将挂起并释放工作进程，直至同 threadKey 的目标事件到达。"
+    },
+    "outbox": {
+      "targetKind": "回写目标类型",
+      "destination": "目标频道 / URL / 事件名",
+      "payloadTemplate": "幂等消息载荷模板",
+      "hint": "通过幂等键安全回写外部平台，重试时不会重复发送评论。"
+    },
+    "advanced": {
+      "subscribeThread": "订阅关联线程后续事件",
+      "threadKey": "线程关联键（threadKey）",
+      "threadKeyHint": "同一线程键的后续回复将自动路由至关联上下文。",
+      "botMailboxPolicy": "Bot 信箱投递策略",
+      "boundedLoopMax": "有界循环最大轮次（1-50）",
+      "slaTimeoutSeconds": "SLA 超时时间（秒）",
+      "gateFilterAndDryRun": "确定性门控过滤与样本干跑"
+    },
+    "json": {
+      "selectedStep": "当前节点",
+      "fullWorkflow": "完整工作流",
+      "apply": "应用 JSON",
+      "editorAria": "声明式 JSON 协同编辑器",
+      "exhaustiveValidation": "全量静态校验",
+      "zeroIssues": "0 项问题",
+      "issueCount": "{{count}} 项问题",
+      "errors": {
+        "rootObjectRequired": "声明式 JSON 根节点必须是 JSON 对象。",
+        "stepKindRequired": "节点 JSON 必须包含有效的 \"kind\" 字段。",
+        "stepIdAndKindRequired": "节点 JSON 必须包含字符串类型的 \"id\" 与 \"kind\" 字段。",
+        "stepsArrayRequired": "工作流 JSON 必须包含 \"steps\" 数组。",
+        "invalidSyntax": "JSON 语法无效。"
+      }
+    },
+    "flow": {
+      "joinModeLabel": "多前驱汇合策略",
+      "joinModeAll": "全部完成 (ALL)",
+      "joinModeAny": "任一完成 (ANY)",
+      "joinModeHint": "全部完成等待所有上游分支收敛；任一完成在首个到达的分支完成后立即启动。",
+      "disconnectPredecessor": "断开与 {{id}} 的连线",
+      "movePredecessorUp": "上移前置节点 {{id}}",
+      "movePredecessorDown": "下移前置节点 {{id}}",
+      "branchPortAria": "来自 {{id}} 的分支端口"
+    },
+    "records": {
+      "runPickerAria": "选择工作流运行记录",
+      "runOption": "{{status}} · {{time}}",
+      "attemptLabel": "第 {{attempt}} 次尝试",
+      "noRunsYet": "暂无运行记录",
+      "loadingRecords": "正在加载执行记录…",
+      "noStepAttempt": "该节点在所选运行中尚未执行。",
+      "auditEvents": "持久事件",
+      "noAuditEvents": "暂无关联持久事件",
+      "rawJson": "原始数据 JSON",
+      "trigger": {
+        "sourceLabel": "事件源",
+        "eventTypeLabel": "事件类型",
+        "scheduleLabel": "调度规则",
+        "gateLabel": "门控结果",
+        "matched": "已命中并触发",
+        "payloadLabel": "触发输入载荷",
+        "capturedTitle": "近期捕获事件"
+      },
+      "bot": {
+        "memberLabel": "绑定 Bot",
+        "scopeLabel": "记忆范围",
+        "mailboxLabel": "投递策略",
+        "conversationLabel": "持久会话",
+        "inputLabel": "输入上下文",
+        "outputLabel": "Bot 响应输出",
+        "evidenceLabel": "执行证据"
+      },
+      "group": {
+        "spaceLabel": "协作群组",
+        "dispatchLabel": "调度模式",
+        "roundsLabel": "最大轮次",
+        "quorumLabel": "收敛席位",
+        "outputLabel": "群组收敛结果"
+      },
+      "gate": {
+        "kindLabel": "门控类型",
+        "severityLabel": "紧急程度",
+        "slaLabel": "SLA 超时",
+        "decisionLabel": "人工审批决定",
+        "pendingApproval": "等待审批决策"
+      },
+      "control": {
+        "kindLabel": "控制流",
+        "expressionLabel": "分支表达式",
+        "iterationsLabel": "循环进度",
+        "waitEventLabel": "等待事件",
+        "threadKeyLabel": "关联键",
+        "timeoutLabel": "超时秒数",
+        "outputLabel": "控制流结果"
+      },
+      "outbox": {
+        "channelLabel": "回写渠道",
+        "destinationLabel": "目标地址",
+        "attemptsLabel": "投递次数",
+        "errorLabel": "最近错误",
+        "payloadLabel": "回写内容 / 回执",
+        "recentDispatches": "Outbox 投递队列",
+        "noDispatches": "暂无 Outbox 投递记录"
+      }
+    }
+  },
+  "ports": {
+    "targetInputTooltip": "输入汇合端口（可连接多个前驱节点）",
+    "sourceOutputTooltip": "输出端口（可拖出多条并行连线）",
+    "fanInBadgeAll": "汇合 ×{{count}} · 全部",
+    "fanInBadgeAny": "汇合 ×{{count}} · 任一",
+    "fanOutCount": "×{{count}}",
+    "fanOutBadgeTooltip": "并行扇出 {{count}} 条下游连线",
+    "conditionTrue": "满足 (True)",
+    "conditionTrueShort": "满足",
+    "conditionTrueTooltip": "条件满足分支输出端口（可连接多个下游节点）",
+    "conditionFalse": "不满足 (False)",
+    "conditionFalseShort": "不满足",
+    "conditionFalseTooltip": "条件不满足分支输出端口（可连接多个下游节点）",
+    "approvalApproved": "批准 (Approved)",
+    "approvalApprovedShort": "批准",
+    "approvalApprovedTooltip": "审批通过分支输出端口（可连接多个下游节点）",
+    "approvalRejected": "驳回 (Rejected)",
+    "approvalRejectedShort": "驳回",
+    "approvalRejectedTooltip": "审批驳回分支输出端口（可连接多个下游节点）",
+    "loopBody": "循环体 (Loop)",
+    "loopBodyShort": "循环体",
+    "loopBodyTooltip": "有界循环体输出端口（可回连前驱步骤或连接循环体内节点）",
+    "loopExit": "完成退出 (Exit)",
+    "loopExitShort": "退出",
+    "loopExitTooltip": "循环完成退出输出端口（进入后续下游阶段）"
+  },
+  "validation": {
+    "emptyFilterPointer": "过滤条件的 JSON Pointer 不能为空。",
+    "invalidFilterRegex": "过滤条件中的正则表达式无效。",
+    "emptyStepId": "节点 ID 不能为空。",
+    "selfDependency": "节点“{{id}}”不能依赖自身。",
+    "unknownDependency": "依赖节点“{{dep}}”在当前工作流中不存在。",
+    "emptyTriggerTitle": "触发器标题不能为空。",
+    "missingTemporalSpec": "定时触发器必须配置调度规则。",
+    "emptyCronExpression": "Cron 表达式不能为空。",
+    "intervalTooShort": "固定时间间隔至少为 5 秒。",
+    "slaTooShort": "静默 SLA 超时时间至少为 10 秒。",
+    "emptyEventType": "触发器事件类型（eventType）不能为空。",
+    "missingAgentId": "临时会话节点必须指定目标 Agent。",
+    "emptyPrompt": "临时会话节点的提示词不能为空。",
+    "missingBotMemberId": "持久 Bot 节点必须绑定成员 ID（memberId）。",
+    "emptyBotPrompt": "持久 Bot 节点的提示词不能为空。",
+    "missingSpaceId": "群组协作阶段必须指定协作空间 ID（spaceId）。",
+    "missingSeatMemberId": "指定席位分发必须填写席位成员 ID。",
+    "emptyMentionSeats": "提及席位分发至少需要一个成员 ID。",
+    "missingModeratorId": "主持人分诊分发必须填写主持人成员 ID。",
+    "emptyGroupPrompt": "群组协作阶段的消息提示词不能为空。",
+    "emptyGateTitle": "人工门控标题不能为空。",
+    "invalidSlaTimeout": "启用 SLA 超时时至少需要 10 秒。",
+    "emptyControlTitle": "控制流节点标题不能为空。",
+    "invalidBoundedLoopMaxIterations": "有界循环轮次必须是 1 到 50 之间的整数 (1 <= maxIterations <= 50)。",
+    "emptyConditionExpression": "条件分支节点必须填写非空条件表达式。",
+    "emptyWaitEventType": "等待外部事件节点必须指定事件类型（waitEventType）。",
+    "emptyWaitThreadKey": "等待外部事件节点必须指定关联线程键模板（threadKeyTemplate）。",
+    "emptyOutboxDestination": "外部回写动作必须指定目标频道、URL 或事件类型。",
+    "emptyOutboxTemplate": "外部回写动作的消息载荷模板不能为空。",
+    "emptyWorkflowName": "工作流名称不能为空。",
+    "emptySteps": "工作流至少需要包含一个节点。",
+    "duplicateStepId": "节点 ID“{{id}}”重复。"
   }
 }

@@ -18,6 +18,7 @@
     "stepCompleted": "已完成"
   },
   "automationFailureTitle": "自动化运行失败",
+  "pulseObserveTitle": "Pulse 观察候选（{{count}}）",
   "openProject": "打开 {{name}}",
   "backgroundProjects": {
     "ariaLabel": "后台活跃项目",
@@ -61,7 +62,15 @@
     "justNow": "刚刚",
     "minutesAgo": "{{count}} 分钟前",
     "hoursAgo": "{{count}} 小时前",
-    "daysAgo": "{{count}} 天前"
+    "daysAgo": "{{count}} 天前",
+    "pulseApprove": "批准",
+    "pulseReject": "拒绝",
+    "pulseAcknowledge": "知悉",
+    "pulseSubmit": "提交",
+    "pulseDecisionNote": "决策备注",
+    "pulseOptionalNote": "可选备注…",
+    "pulseNoteRequired": "此决策需要填写备注。",
+    "pulseSelectPlaceholder": "请选择…"
   },
   "mcp": {
     "title": "MCP 服务",

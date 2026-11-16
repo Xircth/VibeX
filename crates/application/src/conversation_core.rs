@@ -252,6 +252,19 @@ where
         self.workflows.definitions(limit).await
     }
 
+    pub async fn delete_workflow_definition(
+        &self,
+        principal: &Principal,
+        definition_id: Uuid,
+    ) -> Result<bool, ApplicationError> {
+        if !principal.allows("workflow.write") {
+            return Err(ApplicationError::forbidden(
+                "principal lacks workflow.write",
+            ));
+        }
+        self.workflows.delete_definition(definition_id).await
+    }
+
     pub async fn workflow_versions(
         &self,
         principal: &Principal,
@@ -262,6 +275,18 @@ where
             return Err(ApplicationError::forbidden("principal lacks workflow.read"));
         }
         self.workflows.versions(definition_id, limit).await
+    }
+
+    pub async fn workflow_runs(
+        &self,
+        principal: &Principal,
+        definition_id: Uuid,
+        limit: u32,
+    ) -> Result<Vec<WorkflowRunView>, ApplicationError> {
+        if !principal.allows("workflow.read") {
+            return Err(ApplicationError::forbidden("principal lacks workflow.read"));
+        }
+        self.workflows.runs(definition_id, limit).await
     }
 
     pub async fn workflow_events(

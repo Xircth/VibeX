@@ -149,12 +149,17 @@ function lazyPanel(
 const PANEL_COMPONENT_MAP: Record<
   PanelId,
   React.FC<IDockviewPanelProps>
-> = Object.fromEntries(
-  BUILTIN_PANEL_MANIFESTS.map((manifest) => [
-    manifest.id,
-    lazyPanel(manifest.component),
-  ])
-) as Record<PanelId, React.FC<IDockviewPanelProps>>;
+> = {
+  ...(Object.fromEntries(
+    BUILTIN_PANEL_MANIFESTS.map((manifest) => [
+      manifest.id,
+      lazyPanel(manifest.component),
+    ])
+  ) as Record<PanelId, React.FC<IDockviewPanelProps>>),
+  [PANEL_IDS.WORKFLOW_STUDIO]: lazyPanel(
+    () => import('@/features/workflow/WorkflowStudioDockPanel')
+  ),
+};
 
 /**
  * The dockview component resolver.
@@ -400,6 +405,13 @@ export function usePanelMeta(): PanelMeta[] {
       id: PANEL_IDS.SESSION_LIST,
       title: t('panelRegistry.sessionList'),
       defaultPosition: 'left',
+    },
+    {
+      id: PANEL_IDS.WORKFLOW_STUDIO,
+      title: t('tabCreation.workflowStudio', {
+        defaultValue: 'Workflow Studio',
+      }),
+      defaultPosition: 'center',
     },
   ];
 }

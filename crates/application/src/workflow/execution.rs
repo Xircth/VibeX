@@ -1,13 +1,13 @@
-use agents::{AgentId, ConversationInputPayload};
+use agents::ConversationInputPayload;
 use async_trait::async_trait;
 use conversations::{ConversationContext, SubmitConversationInput};
 use db::models::conversation::{ConversationRecord, CreateConversationRecord};
 use uuid::Uuid;
 use workflows::{
-    AcceptWorkflowStepCandidate, CompleteWorkflowStep, DecideApproval, ForkWorkflowRun,
-    PauseWorkflowRun, PublishWorkflow, ResumePausedWorkflowRun, ReviewWorkflow, StartWorkflow,
-    WorkflowCore, WorkflowDefinitionSummary, WorkflowEventRecord, WorkflowRunView,
-    WorkflowStepSpec, WorkflowStepView, WorkflowStore, WorkflowValidationView, WorkflowVersionView,
+    AcceptWorkflowStepCandidate, CompleteWorkflowStep, ForkWorkflowRun, PauseWorkflowRun,
+    PublishWorkflow, ResumePausedWorkflowRun, ReviewWorkflow, StartWorkflow, WorkflowCore,
+    WorkflowDefinitionSummary, WorkflowEventRecord, WorkflowRunView, WorkflowStepView,
+    WorkflowStore, WorkflowValidationView, WorkflowVersionView,
 };
 
 use super::{
@@ -16,7 +16,7 @@ use super::{
     PauseWorkflowStepRequest, PublishWorkflowRequest, ResumePausedWorkflowRequest,
     ResumeWorkflowRequest, StartWorkflowRequest, SubmitWorkflowStepInputRequest,
     ValidateWorkflowRequest, WorkflowExecutionPort, WorkflowStoreExecutionPort,
-    render_agent_prompt, wait_for_dispatched_input_turn,
+    wait_for_dispatched_input_turn,
 };
 use crate::{
     ApplicationError, ConversationExecutionPort, ConversationSessionExecutionPort, Principal,
@@ -67,11 +67,6 @@ impl WorkflowStoreExecutionPort {
             .iter()
             .find(|step| step.id == request.step_id)
             .ok_or_else(|| ApplicationError::not_found("workflow step not found"))?;
-        let WorkflowStepSpec::Agent(agent) = &definition_step.spec else {
-            return Err(ApplicationError::bad_request(
-                "approval steps do not have Agent Conversations",
-            ));
-        };
         let step = self
             .store
             .steps(request.run_id)
@@ -90,8 +85,6 @@ impl WorkflowStoreExecutionPort {
             .conversation_id
             .ok_or_else(|| ApplicationError::internal("workflow step has no child Conversation"))?;
         let workspace_id = step.workspace_id.unwrap_or(run.workspace_id);
-        let agent_id = AgentId::parse(&agent.agent_id)
-            .map_err(|error| ApplicationError::bad_request(error.to_string()))?;
         let resolved_input_json = step
             .resolved_input_json
             .as_deref()
@@ -102,15 +95,16 @@ impl WorkflowStoreExecutionPort {
                     "workflow step resolved input is invalid: {error}"
                 ))
             })?;
-        let recovery_context = render_agent_prompt(
-            &agent.prompt,
+        let continuation = crate::workflow_pulse::build_step_continuation_context(
+            &self.pool,
+            &definition_step.spec,
             &resolved_input,
-            agent.output_schema.as_ref(),
-            agent.output_description.as_deref(),
-            agent.output_language.as_deref(),
-        )?;
+            run.workspace_id,
+        )
+        .await?;
         let follow_up_prompt = format!(
-            "{recovery_context}\n\nAdditional user guidance for this continuing Turn:\n{}",
+            "{}\n\nAdditional user guidance for this continuing Turn:\n{}",
+            continuation.recovery_context,
             request.text.trim()
         );
         let submission = ConversationSessionExecutionPort::new(context.clone())
@@ -120,21 +114,14 @@ impl WorkflowStoreExecutionPort {
                 payload: ConversationInputPayload {
                     continuation_policy: None,
                     expected_binding_revision: None,
-                    agent_id,
+                    agent_id: continuation.agent_id,
                     workspace_id,
-                    executor_profile_id: agent.executor_profile_id.clone(),
+                    executor_profile_id: continuation.executor_profile_id,
                     text: follow_up_prompt,
                     display_text: None,
                     images: Vec::new(),
-                    mode_override: agent.mode_override.clone(),
-                    config_overrides: agent
-                        .config_overrides
-                        .iter()
-                        .map(|(key, value)| agents::AgentSessionConfigOverride {
-                            key: key.clone(),
-                            value: value.clone(),
-                        })
-                        .collect(),
+                    mode_override: continuation.mode_override,
+                    config_overrides: continuation.config_overrides,
                     workflow_refs: Vec::new(),
                     file_refs: Vec::new(),
                     internal_prompt_contributions: Vec::new(),
@@ -338,6 +325,13 @@ impl WorkflowExecutionPort for WorkflowStoreExecutionPort {
         self.core.definitions(limit).await.map_err(map_error)
     }
 
+    async fn delete_definition(&self, definition_id: Uuid) -> Result<bool, ApplicationError> {
+        self.core
+            .delete_definition(definition_id)
+            .await
+            .map_err(map_error)
+    }
+
     async fn versions(
         &self,
         definition_id: Uuid,
@@ -345,6 +339,17 @@ impl WorkflowExecutionPort for WorkflowStoreExecutionPort {
     ) -> Result<Vec<WorkflowVersionView>, ApplicationError> {
         self.core
             .versions(definition_id, limit)
+            .await
+            .map_err(map_error)
+    }
+
+    async fn runs(
+        &self,
+        definition_id: Uuid,
+        limit: u32,
+    ) -> Result<Vec<WorkflowRunView>, ApplicationError> {
+        self.core
+            .runs(definition_id, limit)
             .await
             .map_err(map_error)
     }
@@ -385,16 +390,13 @@ impl WorkflowExecutionPort for WorkflowStoreExecutionPort {
         operation_id: Uuid,
         request: DecideWorkflowRequest,
     ) -> Result<WorkflowRunView, ApplicationError> {
-        self.core
-            .decide(DecideApproval {
-                run_id: request.run_id,
-                step_id: request.step_id,
-                decision: request.decision,
-                operation_id,
-                principal: principal_json(principal),
-            })
-            .await
-            .map_err(map_error)
+        crate::workflow_pulse::decide_workflow_or_user_gate(
+            &self.core,
+            principal,
+            operation_id,
+            request,
+        )
+        .await
     }
 
     async fn cancel(
@@ -707,11 +709,11 @@ fn unavailable<T>() -> Result<T, ApplicationError> {
     ))
 }
 
-fn principal_json(principal: &Principal) -> serde_json::Value {
+pub(crate) fn principal_json(principal: &Principal) -> serde_json::Value {
     principal.evidence()
 }
 
-pub(super) fn map_error(error: workflows::WorkflowError) -> ApplicationError {
+pub(crate) fn map_error(error: workflows::WorkflowError) -> ApplicationError {
     match error {
         workflows::WorkflowError::Validation(message) => ApplicationError::bad_request(message),
         workflows::WorkflowError::NotFound(message) => ApplicationError::not_found(message),

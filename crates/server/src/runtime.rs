@@ -304,6 +304,10 @@ where
                 get(crate::preview_proxy::proxy_path::<R>),
             )
             .nest("/api/v1", protected)
+            .nest(
+                "/api/pulse",
+                crate::pulse_http::pulse_router::<R>(Arc::clone(&self.state)),
+            )
             .fallback(get(static_asset::<R>))
             .with_state(Arc::clone(&self.state))
             .layer(middleware::from_fn(crate::e2ee::e2ee_middleware))
@@ -805,7 +809,7 @@ fn should_record_device_connection(device_id: DeviceId, ip: Option<&str>) -> boo
     true
 }
 
-async fn require_token<R>(
+pub(crate) async fn require_token<R>(
     State(state): State<Arc<ServerState<R>>>,
     mut request: Request,
     next: Next,
@@ -1141,7 +1145,7 @@ fn bad_request(message: &str) -> Response {
     ))
 }
 
-fn application_error_response(error: ErrorEnvelope) -> Response {
+pub(crate) fn application_error_response(error: ErrorEnvelope) -> Response {
     (status_for_error_code(error.code), Json(error)).into_response()
 }
 

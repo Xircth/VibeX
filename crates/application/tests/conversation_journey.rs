@@ -428,6 +428,8 @@ async fn start_turn_is_launched_through_the_injected_execution_port() {
             &Principal::local_desktop(),
             Uuid::new_v4(),
             StartConversationTurn {
+                continuation_policy: None,
+                expected_binding_revision: None,
                 agent_id: "codex".to_string(),
                 workspace_id,
                 conversation_id,
@@ -440,8 +442,6 @@ async fn start_turn_is_launched_through_the_injected_execution_port() {
                 workflow_refs: Vec::new(),
                 internal_prompt_contributions: Vec::new(),
                 operation_id: None,
-                continuation_policy: None,
-                expected_binding_revision: None,
                 provider_instance_id: None,
             },
         )

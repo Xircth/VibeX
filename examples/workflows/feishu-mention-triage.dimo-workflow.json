@@ -1,0 +1,88 @@
+{
+  "formatVersion": 1,
+  "name": "飞书 @提及值班分诊并回复",
+  "description": "当飞书群消息 @提及机器人时，先由值班 Bot 结合历史上下文分诊，再拉起编码 Agent 深入核查并回复原飞书话题。",
+  "inputSchema": {
+    "type": "object"
+  },
+  "policy": {
+    "maxConcurrentAgentSteps": 4,
+    "maxAgentCalls": 16,
+    "deadlineSeconds": 3600,
+    "maxOutputBytes": 65536
+  },
+  "steps": [
+    {
+      "id": "feishu-mention",
+      "dependsOn": [],
+      "phase": "[vibex-studio:v1]{\"hasOrchestratorPreset\":true,\"orchestratorPreset\":\"superagent_router\",\"trigger\":{\"title\":\"飞书群消息 @提及我时\",\"triggerKind\":\"platform\",\"sourceKind\":\"feishu\",\"eventType\":\"feishu.im.mention\",\"evalMode\":\"auto\",\"hasTemporal\":true,\"temporal\":null,\"filter\":{\"sourceKinds\":[\"feishu\"],\"sourceInstanceIds\":[],\"eventTypes\":[\"feishu.im.mention\"],\"allowedActors\":[],\"conditions\":[{\"op\":\"not_bot_actor\"}]}},\"userPhase\":null}",
+      "inputBindings": {},
+      "kind": "notify",
+      "title": "[pulse-trigger] 飞书群消息 @提及我时"
+    },
+    {
+      "id": "triage-bot",
+      "dependsOn": ["feishu-mention"],
+      "phase": "[vibex-studio:v1]{\"bot\":{\"hasOutputDescription\":true,\"outputDescription\":\"结合团队历史记忆判断问题归属并拆解排查任务\",\"hasOutputSchema\":true},\"userPhase\":null}",
+      "inputBindings": {},
+      "kind": "bot",
+      "memberId": "triage-bot",
+      "conversationScope": "fixed_primary",
+      "mailboxPolicy": "fifo_serial",
+      "promptTemplate": "阅读飞书提问内容（{{payload.text}}），结合近期值班上下文快速定级并整理排查重点。",
+      "completion": "automatic",
+      "outputSchema": {
+        "type": "object",
+        "required": ["summary"],
+        "properties": {
+          "summary": { "type": "string" }
+        }
+      }
+    },
+    {
+      "id": "investigate-code",
+      "dependsOn": ["triage-bot"],
+      "phase": "[vibex-studio:v1]{\"session\":{\"workspaceIsolation\":\"scratch\",\"executorProfileId\":null,\"modeOverride\":null,\"configOverrides\":{},\"outputLanguage\":\"zh-CN\",\"outputDescription\":\"检索代码库核实根因并生成清晰答复\"},\"userPhase\":null}",
+      "inputBindings": {
+        "triage": {
+          "source": "step_output",
+          "step_id": "triage-bot",
+          "pointer": "/summary"
+        }
+      },
+      "kind": "session",
+      "agentId": "codex",
+      "promptTemplate": "根据分诊要点核查代码库并给出准确结论：{{steps.triage-bot.output.summary}}",
+      "workspaceAccess": "read_only_shared",
+      "modelOverride": null,
+      "subscribeThread": false,
+      "completion": "automatic",
+      "outputSchema": {
+        "type": "object",
+        "required": ["summary"],
+        "properties": {
+          "summary": { "type": "string" }
+        }
+      }
+    },
+    {
+      "id": "reply-feishu",
+      "dependsOn": ["investigate-code"],
+      "phase": "[vibex-studio:v1]{\"outbox\":{\"actionKind\":\"feishu_reply\",\"title\":\"在原飞书话题下回复结论\",\"payloadTemplate\":\"{{steps.investigate-code.output.summary}}\"},\"userPhase\":null}",
+      "inputBindings": {
+        "answer": {
+          "source": "step_output",
+          "step_id": "investigate-code",
+          "pointer": "/summary"
+        }
+      },
+      "kind": "outbox_action",
+      "actionKind": "reply_channel",
+      "targetTemplate": "feishu:{{threadKey}}",
+      "payloadTemplate": {
+        "channelHint": "feishu_reply",
+        "message": "{{steps.investigate-code.output.summary}}"
+      }
+    }
+  ]
+}

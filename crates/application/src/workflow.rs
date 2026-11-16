@@ -1,9 +1,8 @@
 #[path = "workflow/execution.rs"]
 mod execution;
 
-pub(crate) use self::execution::UnavailableWorkflowExecution;
+pub(crate) use self::execution::{UnavailableWorkflowExecution, map_error, principal_json};
 pub use self::execution::ensure_member_session_workspace;
-use self::execution::map_error;
 
 use agents::{AgentId, ConversationInputPayload};
 use async_trait::async_trait;
@@ -184,11 +183,23 @@ pub trait WorkflowExecutionPort: Send + Sync {
         &self,
         limit: u32,
     ) -> Result<Vec<WorkflowDefinitionSummary>, ApplicationError>;
+    async fn delete_definition(&self, _definition_id: Uuid) -> Result<bool, ApplicationError> {
+        Err(ApplicationError::capability_unavailable(
+            "workflow deletion is not configured",
+        ))
+    }
     async fn versions(
         &self,
         definition_id: Uuid,
         limit: u32,
     ) -> Result<Vec<WorkflowVersionView>, ApplicationError>;
+    async fn runs(
+        &self,
+        _definition_id: Uuid,
+        _limit: u32,
+    ) -> Result<Vec<WorkflowRunView>, ApplicationError> {
+        Ok(Vec::new())
+    }
     async fn steps(&self, run_id: Uuid) -> Result<Vec<WorkflowStepView>, ApplicationError>;
     async fn events(
         &self,
@@ -285,10 +296,10 @@ pub struct WorkflowStoreExecutionPort {
 
 #[derive(Clone)]
 pub struct WorkflowAgentDispatcher {
-    store: WorkflowStore,
-    core: WorkflowCore,
-    conversations: std::sync::Arc<ConversationSessionExecutionPort>,
-    context: ConversationContext,
+    pub(crate) store: WorkflowStore,
+    pub(crate) core: WorkflowCore,
+    pub(crate) conversations: std::sync::Arc<ConversationSessionExecutionPort>,
+    pub(crate) context: ConversationContext,
     next_retention_at: std::sync::Arc<std::sync::Mutex<std::time::Instant>>,
 }
 
@@ -339,9 +350,7 @@ impl WorkflowAgentDispatcher {
             .find(|step| step.id == claimed.step.step_id)
             .ok_or_else(|| ApplicationError::internal("claimed workflow step is missing"))?;
         let WorkflowStepSpec::Agent(agent) = &step.spec else {
-            return Err(ApplicationError::internal(
-                "dispatcher claimed a non-agent workflow step",
-            ));
+            return self.dispatch_pulse_claimed_step(&claimed, step).await;
         };
         let agent_id = AgentId::parse(&agent.agent_id)
             .map_err(|error| ApplicationError::bad_request(error.to_string()))?;
@@ -650,8 +659,10 @@ impl WorkflowAgentDispatcher {
                         .iter()
                         .find(|step| step.id == step_id)
                         .ok_or_else(|| ApplicationError::internal("workflow step is missing"))?;
-                    let output = match &step.spec {
-                        WorkflowStepSpec::Agent(_) => match extract_last_assistant_text(
+                    let completion_policy =
+                        crate::workflow_pulse::step_uses_conversation_turn(&step.spec);
+                    let output = match completion_policy {
+                        Some(_) => match extract_last_assistant_text(
                             &self.context.deployment.db().pool,
                             conversation_id,
                             turn_id,
@@ -673,13 +684,10 @@ impl WorkflowAgentDispatcher {
                                 continue;
                             }
                         },
-                        WorkflowStepSpec::Approval(_) | WorkflowStepSpec::Notify(_) => None,
+                        None => None,
                     };
-                    let completion = match &step.spec {
-                        WorkflowStepSpec::Agent(agent)
-                            if agent.completion_policy == CompletionPolicy::Manual
-                                || user_intervened =>
-                        {
+                    let completion = match completion_policy {
+                        Some(policy) if policy == CompletionPolicy::Manual || user_intervened => {
                             self.core
                                 .stage_step_candidate(StageWorkflowStepCandidate {
                                     run_id,
@@ -688,7 +696,7 @@ impl WorkflowAgentDispatcher {
                                 })
                                 .await
                         }
-                        WorkflowStepSpec::Agent(_) => {
+                        Some(_) => {
                             self.core
                                 .complete_step(CompleteWorkflowStep {
                                     run_id,
@@ -697,11 +705,10 @@ impl WorkflowAgentDispatcher {
                                 })
                                 .await
                         }
-                        WorkflowStepSpec::Approval(_) | WorkflowStepSpec::Notify(_) => {
-                            Err(workflows::WorkflowError::Conflict(
-                                "dispatcher cannot complete approval or notify steps".to_string(),
-                            ))
-                        }
+                        None => Err(workflows::WorkflowError::Conflict(
+                            "dispatcher cannot complete non-conversational steps via turn reconciliation"
+                                .to_string(),
+                        )),
                     };
                     match completion {
                         Ok(_) => {}
@@ -795,7 +802,7 @@ impl WorkflowAgentDispatcher {
     }
 }
 
-async fn create_isolated_step_workspace(
+pub(crate) async fn create_isolated_step_workspace(
     context: &ConversationContext,
     parent_workspace_id: Uuid,
     run_id: Uuid,
@@ -841,7 +848,7 @@ async fn create_isolated_workspace(
     })
 }
 
-fn render_agent_prompt(
+pub(crate) fn render_agent_prompt(
     prompt: &str,
     input: &std::collections::BTreeMap<String, serde_json::Value>,
     output_schema: Option<&serde_json::Value>,
@@ -1007,7 +1014,7 @@ fn final_assistant_text(events: &[(i64, String, String)]) -> Option<String> {
     (!text.trim().is_empty()).then(|| text.trim().to_owned())
 }
 
-async fn wait_for_dispatched_input_turn(
+pub(crate) async fn wait_for_dispatched_input_turn(
     pool: &db::DbPool,
     input_id: Uuid,
 ) -> Result<Uuid, ApplicationError> {

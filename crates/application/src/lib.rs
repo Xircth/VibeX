@@ -10,6 +10,7 @@ mod error;
 mod notification;
 mod principal;
 mod workflow;
+mod workflow_pulse;
 
 pub use agents::ConversationWorkflowRef;
 pub use args::{ArgShape, decode_command_args, decode_command_args_shaped};

@@ -73,18 +73,6 @@ vi.mock('@/pages/settings/AgentSettings', () => ({
 vi.mock('@/pages/settings/AppearanceSettings', () => ({
   AppearanceSettings: () => <div data-testid="settings-appearance" />,
 }));
-vi.mock('@/pages/settings/AutomationCenter', () => ({
-  AutomationCenter: () => <div data-testid="settings-automations" />,
-}));
-vi.mock('@/pages/settings/AutomationEditorRoutes', () => ({
-  AutomationEditRoute: () => <div data-testid="settings-automation-edit" />,
-  TurnAutomationEditorRoute: () => (
-    <div data-testid="settings-automation-turn-new" />
-  ),
-  WorkflowAutomationEditorRoute: () => (
-    <div data-testid="settings-automation-workflow-new" />
-  ),
-}));
 vi.mock('@/pages/settings/ChatChannelSettings', () => ({
   ChatChannelSettings: () => <div data-testid="settings-chat-channels" />,
 }));
@@ -279,6 +267,15 @@ describe('MainAppRoutes', () => {
     expect(screen.getByTestId('settings-layout')).toBeInTheDocument();
     expect(
       screen.queryByTestId(/^settings-model-providers$/)
+    ).not.toBeInTheDocument();
+  });
+
+  it('does not expose the removed automations settings route', () => {
+    renderAt('/settings/automations');
+
+    expect(screen.getByTestId('settings-layout')).toBeInTheDocument();
+    expect(
+      screen.queryByTestId(/^settings-automations$/)
     ).not.toBeInTheDocument();
   });
 

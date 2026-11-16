@@ -1,0 +1,22 @@
+[package]
+name = "pulse"
+version = "0.4.4"
+edition = "2024"
+
+[dependencies]
+api-types = { path = "../api-types" }
+db = { path = "../db" }
+base64 = "0.22"
+chrono = { workspace = true }
+chrono-tz = "0.10"
+hmac = "0.12"
+regex = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+sha2 = "0.10"
+sqlx = { version = "0.8.6", features = ["runtime-tokio", "sqlite", "chrono", "uuid"] }
+subtle = "2.6"
+thiserror = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+uuid = { workspace = true }

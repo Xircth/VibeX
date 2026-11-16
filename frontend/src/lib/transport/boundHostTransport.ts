@@ -34,6 +34,7 @@ const HOST_PUSH_EVENT_PREFIXES = [
   'dimo://settings-file-changed',
   'dimo://collaboration-space-changed',
   'dimo://collaboration-receipts-changed',
+  'vibex://pulse-deck-changed',
   'theme-changed',
   'log-settings://changed',
   'logs://appended',

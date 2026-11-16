@@ -1,13 +1,17 @@
 import { ChevronLeft, ChevronRight, LayoutGrid } from 'lucide-react';
+import { ProductContextMenu } from '@/components/context-menu/ProductContextMenu';
+import type { ProductContextMenuItem } from '@/components/context-menu/contextMenuTypes';
 import { Popover, PopoverTrigger } from '@/components/ui/popover';
 import { cn } from '@/lib/utils';
 import i18n from '@/i18n';
 import { COPY, displayName } from '../spaceModel';
 import { MemberBotAvatar } from '../MemberBotAvatar';
+import { buildMemberAvatarMenuItems } from '../memberAvatarMenu';
+import { requestCollaborationPulseProposal } from '../collaborationPulseEvents';
 import { spaceCollectionPreviewPanelId } from '../CollaborationSpaceCollectionPanel';
 import { ScheduledMessages } from './ScheduledMessages';
 
-import { memo } from 'react';
+import { memo, useState } from 'react';
 import { useCollaborationSpacePick } from './SpaceContext';
 
 const MEMBER_PANEL_PICK_KEYS = [
@@ -21,14 +25,17 @@ const MEMBER_PANEL_PICK_KEYS = [
   'memberAvatars',
   'openAssistantDetailsTab',
   'openDelayedMemberPopover',
+  'openPrivateChat',
   'openSpaceCollectionTab',
   'scheduleCloseDelayedMemberPopover',
   'scheduledMessages',
   'selectMemberForPreview',
   'selected',
+  'setDraft',
   'setTopMemberBarExpanded',
   'topMemberBarExpanded',
   'visibleRoster',
+  'workspace',
 ] as const;
 
 export const MemberPanel = memo(function MemberPanel({
@@ -37,6 +44,12 @@ export const MemberPanel = memo(function MemberPanel({
   variant?: 'overlay' | 'header';
 } = {}) {
   const isHeaderVariant = variant === 'header';
+  const [seatMenu, setSeatMenu] = useState<{
+    x: number;
+    y: number;
+    ariaLabel: string;
+    items: ProductContextMenuItem[];
+  } | null>(null);
   const {
     activeDirectThreadId,
     activePreviewTabId,
@@ -47,14 +60,17 @@ export const MemberPanel = memo(function MemberPanel({
     listAvatarStyle,
     openAssistantDetailsTab,
     openDelayedMemberPopover,
+    openPrivateChat,
     openSpaceCollectionTab,
     scheduleCloseDelayedMemberPopover,
     scheduledMessages,
     selectMemberForPreview,
     selected,
+    setDraft,
     setTopMemberBarExpanded,
     topMemberBarExpanded,
     visibleRoster,
+    workspace,
   } = useCollaborationSpacePick(MEMBER_PANEL_PICK_KEYS);
 
   return (
@@ -183,6 +199,56 @@ export const MemberPanel = memo(function MemberPanel({
                       onClick={() =>
                         selectMemberForPreview(selected.space_id, member)
                       }
+                      onContextMenu={(event) => {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        const resolvedMemberId =
+                          member.member_id?.trim() || convId || nick;
+                        setSeatMenu({
+                          x: event.clientX,
+                          y: event.clientY,
+                          ariaLabel: nick,
+                          items: buildMemberAvatarMenuItems({
+                            nickname: nick,
+                            color: avatar.color,
+                            avatar,
+                            memberId: resolvedMemberId,
+                            spaceId: selected.space_id,
+                            spaceName: selected.name,
+                            onMention: () => {
+                              setDraft?.(
+                                (prev) => `${prev ? `${prev} ` : ''}@${nick} `
+                              );
+                            },
+                            onOpenPrivateChat: () => {
+                              openPrivateChat?.(selected.space_id, member);
+                            },
+                            onOpenSession: () => {
+                              selectMemberForPreview(selected.space_id, member);
+                            },
+                            onBindPulseTrigger: () => {
+                              requestCollaborationPulseProposal(
+                                activeDirectThreadId
+                                  ? {
+                                      kind: 'bot',
+                                      memberId: resolvedMemberId,
+                                      botName: nick,
+                                      mode: 'event',
+                                      workspaceId: workspace || null,
+                                    }
+                                  : {
+                                      kind: 'group-seat',
+                                      spaceId: selected.space_id,
+                                      spaceName: selected.name,
+                                      memberId: resolvedMemberId,
+                                      nickname: nick,
+                                      workspaceId: workspace || null,
+                                    }
+                              );
+                            },
+                          }),
+                        });
+                      }}
                     >
                       <span
                         className="collaboration-list-avatar"
@@ -209,6 +275,8 @@ export const MemberPanel = memo(function MemberPanel({
                       nick={nick}
                       memberHoverKey={memberHoverKey}
                       items={memberScheduledMessages}
+                      memberId={member.member_id ?? convId ?? nick}
+                      spaceId={selected.space_id}
                     />
                   ) : null}
                 </Popover>
@@ -294,7 +362,7 @@ export const MemberPanel = memo(function MemberPanel({
                   );
                 })}
                 {visibleRoster.length > 5 ? (
-                  <span className="collaboration-top-member-stack-item collaboration-top-member-stack-more">
+                  <span className="collaboration-top-member-stack-item collaboration-top-member-stack-more tabular-nums">
                     +{visibleRoster.length - 5}
                   </span>
                 ) : null}
@@ -306,6 +374,15 @@ export const MemberPanel = memo(function MemberPanel({
             />
           </button>
         </div>
+      ) : null}
+      {seatMenu ? (
+        <ProductContextMenu
+          x={seatMenu.x}
+          y={seatMenu.y}
+          items={seatMenu.items}
+          onClose={() => setSeatMenu(null)}
+          ariaLabel={seatMenu.ariaLabel}
+        />
       ) : null}
     </>
   );

@@ -3,13 +3,19 @@ use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
-use crate::WorkflowError;
+use crate::{
+    BotStepSpec, BoundedLoopStepSpec, ConditionBranchStepSpec, GroupDispatchMode,
+    GroupStageStepSpec, MAX_BOUNDED_LOOP_ITERATIONS, MAX_WAIT_FOR_EVENT_TIMEOUT_SECONDS,
+    OutboxActionStepSpec, SessionStepSpec, UserGateStepSpec, UserInteractionKind,
+    WaitForEventStepSpec, WorkflowError,
+    pulse_steps::{validate_gate_condition, validate_gate_filter_ast},
+};
 
 pub const WORKFLOW_DEFINITION_VERSION: u32 = 1;
 pub const MAX_WORKFLOW_STEPS: usize = 1_000;
 pub(crate) const MAX_WORKFLOW_INPUT_BYTES: usize = 4 * 1024 * 1024;
 const MAX_WORKFLOW_DEFINITION_BYTES: usize = 4 * 1024 * 1024;
-const MAX_STEP_PROMPT_BYTES: usize = 64 * 1024;
+pub(crate) const MAX_STEP_PROMPT_BYTES: usize = 64 * 1024;
 const MAX_STEP_OUTPUT_DESCRIPTION_BYTES: usize = 16 * 1024;
 const MAX_SCHEMA_DEPTH: usize = 32;
 const MAX_SCHEMA_NODES: usize = 10_000;
@@ -51,6 +57,59 @@ pub enum WorkflowStepSpec {
     Agent(AgentStepSpec),
     Approval(ApprovalStepSpec),
     Notify(NotifyStepSpec),
+    Session(SessionStepSpec),
+    Bot(BotStepSpec),
+    GroupStage(GroupStageStepSpec),
+    UserGate(UserGateStepSpec),
+    ConditionBranch(ConditionBranchStepSpec),
+    BoundedLoop(BoundedLoopStepSpec),
+    WaitForEvent(WaitForEventStepSpec),
+    OutboxAction(OutboxActionStepSpec),
+}
+
+impl WorkflowStepSpec {
+    pub const fn kind_name(&self) -> &'static str {
+        match self {
+            Self::Agent(_) => "agent",
+            Self::Approval(_) => "approval",
+            Self::Notify(_) => "notify",
+            Self::Session(_) => "session",
+            Self::Bot(_) => "bot",
+            Self::GroupStage(_) => "group_stage",
+            Self::UserGate(_) => "user_gate",
+            Self::ConditionBranch(_) => "condition_branch",
+            Self::BoundedLoop(_) => "bounded_loop",
+            Self::WaitForEvent(_) => "wait_for_event",
+            Self::OutboxAction(_) => "outbox_action",
+        }
+    }
+
+    pub const fn output_schema(&self) -> Option<&serde_json::Value> {
+        match self {
+            Self::Agent(agent) => agent.output_schema.as_ref(),
+            Self::Session(session) => session.output_schema.as_ref(),
+            Self::Bot(bot) => bot.output_schema.as_ref(),
+            Self::Approval(_)
+            | Self::Notify(_)
+            | Self::GroupStage(_)
+            | Self::UserGate(_)
+            | Self::ConditionBranch(_)
+            | Self::BoundedLoop(_)
+            | Self::WaitForEvent(_)
+            | Self::OutboxAction(_) => None,
+        }
+    }
+
+    pub const fn is_executable_step(&self) -> bool {
+        matches!(
+            self,
+            Self::Agent(_)
+                | Self::Session(_)
+                | Self::Bot(_)
+                | Self::GroupStage(_)
+                | Self::OutboxAction(_)
+        )
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
@@ -115,8 +174,14 @@ pub struct NotifyStepSpec {
 #[serde(tag = "source", rename_all = "snake_case")]
 #[ts(export)]
 pub enum WorkflowBinding {
-    RunInput { pointer: String },
-    StepOutput { step_id: String, pointer: String },
+    RunInput {
+        pointer: String,
+    },
+    StepOutput {
+        #[serde(alias = "stepId")]
+        step_id: String,
+        pointer: String,
+    },
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
@@ -163,195 +228,717 @@ impl Default for WorkflowPolicy {
     }
 }
 
-pub fn normalize_definition(
-    mut definition: WorkflowDefinition,
-) -> Result<WorkflowDefinition, WorkflowError> {
+pub(crate) fn normalize_definition_in_place(definition: &mut WorkflowDefinition) {
     definition.name = definition.name.trim().to_string();
     definition.description = definition
         .description
+        .take()
         .map(|description| description.trim().to_string())
         .filter(|description| !description.is_empty());
     for step in &mut definition.steps {
         step.id = step.id.trim().to_string();
+        for dep in &mut step.depends_on {
+            *dep = dep.trim().to_string();
+        }
         step.depends_on.sort();
         step.depends_on.dedup();
+        match &mut step.spec {
+            WorkflowStepSpec::ConditionBranch(branch) => {
+                for id in &mut branch.then_step_ids {
+                    *id = id.trim().to_string();
+                }
+                branch.then_step_ids.dedup();
+                for id in &mut branch.else_step_ids {
+                    *id = id.trim().to_string();
+                }
+                branch.else_step_ids.dedup();
+            }
+            WorkflowStepSpec::BoundedLoop(bounded) => {
+                for id in &mut bounded.target_step_ids {
+                    *id = id.trim().to_string();
+                }
+                bounded.target_step_ids.dedup();
+            }
+            WorkflowStepSpec::WaitForEvent(wait) => {
+                for event_type in &mut wait.event_types {
+                    *event_type = event_type.trim().to_string();
+                }
+                wait.event_types.dedup();
+            }
+            _ => {}
+        }
     }
     definition
         .steps
         .sort_by(|left, right| left.id.cmp(&right.id));
+}
+
+pub fn normalize_definition(
+    mut definition: WorkflowDefinition,
+) -> Result<WorkflowDefinition, WorkflowError> {
+    normalize_definition_in_place(&mut definition);
     validate_definition(&definition)?;
     Ok(definition)
 }
 
-pub fn validate_definition(definition: &WorkflowDefinition) -> Result<(), WorkflowError> {
-    if serde_json::to_vec(definition)?.len() > MAX_WORKFLOW_DEFINITION_BYTES {
-        return Err(WorkflowError::Validation(format!(
-            "workflow definition exceeds {MAX_WORKFLOW_DEFINITION_BYTES} bytes"
-        )));
+/// Exhaustively validates a `WorkflowDefinition` in a single pass without failing
+/// fast on the first violation. Returns all collected validation error messages.
+pub fn validate_definition_errors(definition: &WorkflowDefinition) -> Vec<String> {
+    let mut errors = Vec::new();
+
+    match serde_json::to_vec(definition) {
+        Ok(bytes) => {
+            if bytes.len() > MAX_WORKFLOW_DEFINITION_BYTES {
+                errors.push(format!(
+                    "workflow definition exceeds {MAX_WORKFLOW_DEFINITION_BYTES} bytes"
+                ));
+            }
+        }
+        Err(err) => {
+            errors.push(format!("workflow definition failed serialization: {err}"));
+        }
     }
+
     if definition.format_version != WORKFLOW_DEFINITION_VERSION {
-        return Err(WorkflowError::Validation(format!(
+        errors.push(format!(
             "unsupported workflow format version {}",
             definition.format_version
-        )));
-    }
-    if definition.name.is_empty() || definition.name.len() > 200 {
-        return Err(WorkflowError::Validation(
-            "workflow name must contain 1..=200 bytes".to_string(),
         ));
     }
+    if definition.name.trim().is_empty() || definition.name.len() > 200 {
+        errors.push("workflow name must contain 1..=200 bytes".to_string());
+    }
     if definition.steps.is_empty() || definition.steps.len() > MAX_WORKFLOW_STEPS {
-        return Err(WorkflowError::Validation(format!(
+        errors.push(format!(
             "workflow must contain 1..={MAX_WORKFLOW_STEPS} steps"
-        )));
+        ));
     }
-    validate_policy(&definition.policy)?;
+    validate_policy_errors(&definition.policy, &mut errors);
     if let Some(schema) = &definition.input_schema {
-        validate_json_schema(schema)?;
-    }
-    let mut ids = BTreeSet::new();
-    for step in &definition.steps {
-        if !valid_step_id(&step.id) || !ids.insert(step.id.as_str()) {
-            return Err(WorkflowError::Validation(format!(
-                "invalid or duplicate step id `{}`",
-                step.id
-            )));
-        }
-        match &step.spec {
-            WorkflowStepSpec::Agent(agent) => {
-                if agent.agent_id.trim().is_empty() || agent.prompt.trim().is_empty() {
-                    return Err(WorkflowError::Validation(format!(
-                        "agent step `{}` requires agentId and prompt",
-                        step.id
-                    )));
-                }
-                if agent.agent_id.len() > 200 || agent.prompt.len() > MAX_STEP_PROMPT_BYTES {
-                    return Err(WorkflowError::Validation(format!(
-                        "agent step `{}` agentId or prompt exceeds supported size",
-                        step.id
-                    )));
-                }
-                if agent.side_effect_class == SideEffectClass::ReadOnly
-                    && agent.workspace_access != WorkspaceAccess::ReadOnlyShared
-                {
-                    return Err(WorkflowError::Validation(format!(
-                        "step `{}` claims read_only without read_only_shared enforcement",
-                        step.id
-                    )));
-                }
-                if agent
-                    .output_language
-                    .as_ref()
-                    .is_some_and(|language| language.trim().is_empty() || language.len() > 64)
-                {
-                    return Err(WorkflowError::Validation(format!(
-                        "agent step `{}` has an invalid outputLanguage",
-                        step.id
-                    )));
-                }
-                if agent
-                    .output_description
-                    .as_ref()
-                    .is_some_and(|description| {
-                        description.len() > MAX_STEP_OUTPUT_DESCRIPTION_BYTES
-                    })
-                {
-                    return Err(WorkflowError::Validation(format!(
-                        "agent step `{}` outputDescription exceeds the size limit",
-                        step.id
-                    )));
-                }
-                if let Some(schema) = &agent.output_schema {
-                    validate_json_schema(schema)?;
-                }
-            }
-            WorkflowStepSpec::Approval(approval) => {
-                if approval.title.trim().is_empty() || approval.approver_scope.trim().is_empty() {
-                    return Err(WorkflowError::Validation(format!(
-                        "approval step `{}` requires title and approverScope",
-                        step.id
-                    )));
-                }
-                validate_json_schema(&approval.decision_schema)?;
-            }
-            WorkflowStepSpec::Notify(notify) => {
-                if notify.title.len() > 200 {
-                    return Err(WorkflowError::Validation(format!(
-                        "notify step `{}` title exceeds supported size",
-                        step.id
-                    )));
-                }
-            }
-        }
+        let mut nodes = 0;
+        validate_schema_node_errors(schema, 0, "$.inputSchema", &mut nodes, &mut errors);
     }
 
-    let by_id = definition
-        .steps
-        .iter()
-        .map(|step| (step.id.as_str(), step))
-        .collect::<BTreeMap<_, _>>();
+    let mut seen_ids = BTreeSet::new();
+    let mut by_id = BTreeMap::<&str, &WorkflowStep>::new();
     for step in &definition.steps {
-        for dependency in &step.depends_on {
-            if dependency == &step.id || !by_id.contains_key(dependency.as_str()) {
-                return Err(WorkflowError::Validation(format!(
-                    "step `{}` has invalid dependency `{dependency}`",
-                    step.id
-                )));
-            }
+        if !valid_step_id(&step.id) || !seen_ids.insert(step.id.as_str()) {
+            errors.push(format!("invalid or duplicate step id `{}`", step.id));
+        } else {
+            by_id.insert(step.id.as_str(), step);
         }
-        for binding in step.input_bindings.values() {
-            match binding {
-                WorkflowBinding::RunInput { pointer } => {
-                    validate_pointer(pointer)?;
-                }
-                WorkflowBinding::StepOutput { step_id, pointer } => {
-                    let source = by_id.get(step_id.as_str()).ok_or_else(|| {
-                        WorkflowError::Validation(format!(
-                            "step `{}` binding references unknown step `{step_id}`",
-                            step.id
-                        ))
-                    })?;
-                    if !is_transitive_dependency(&by_id, &step.id, step_id) {
-                        return Err(WorkflowError::Validation(format!(
-                            "step `{}` reads `{step_id}` without depending on it",
-                            step.id
-                        )));
-                    }
-                    let _ = source;
-                    validate_pointer(pointer)?;
-                }
-            }
-        }
+        validate_step_spec(step, &mut errors);
     }
-    deterministic_order(definition)?;
-    Ok(())
+
+    for step in &definition.steps {
+        validate_step_cross_references(step, &by_id, definition, &mut errors);
+    }
+
+    if !by_id.is_empty()
+        && let Err(cycle_error) = deterministic_order_for_known_steps(definition, &by_id)
+    {
+        errors.push(cycle_error);
+    }
+
+    errors
 }
 
-pub(crate) fn deterministic_order(
+pub fn validate_definition(definition: &WorkflowDefinition) -> Result<(), WorkflowError> {
+    let errors = validate_definition_errors(definition);
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        Err(WorkflowError::Validation(errors.join("; ")))
+    }
+}
+
+fn validate_step_spec(step: &WorkflowStep, errors: &mut Vec<String>) {
+    match &step.spec {
+        WorkflowStepSpec::Agent(agent) => {
+            if agent.agent_id.trim().is_empty() || agent.prompt.trim().is_empty() {
+                errors.push(format!(
+                    "agent step `{}` requires agentId and prompt",
+                    step.id
+                ));
+            }
+            if agent.agent_id.len() > 200 || agent.prompt.len() > MAX_STEP_PROMPT_BYTES {
+                errors.push(format!(
+                    "agent step `{}` agentId or prompt exceeds supported size",
+                    step.id
+                ));
+            }
+            if agent.side_effect_class == SideEffectClass::ReadOnly
+                && agent.workspace_access != WorkspaceAccess::ReadOnlyShared
+            {
+                errors.push(format!(
+                    "step `{}` claims read_only without read_only_shared enforcement",
+                    step.id
+                ));
+            }
+            if agent
+                .output_language
+                .as_ref()
+                .is_some_and(|language| language.trim().is_empty() || language.len() > 64)
+            {
+                errors.push(format!(
+                    "agent step `{}` has an invalid outputLanguage",
+                    step.id
+                ));
+            }
+            if agent
+                .output_description
+                .as_ref()
+                .is_some_and(|description| description.len() > MAX_STEP_OUTPUT_DESCRIPTION_BYTES)
+            {
+                errors.push(format!(
+                    "agent step `{}` outputDescription exceeds the size limit",
+                    step.id
+                ));
+            }
+            if let Some(schema) = &agent.output_schema {
+                let mut nodes = 0;
+                validate_schema_node_errors(
+                    schema,
+                    0,
+                    &format!("$.steps.{}", step.id),
+                    &mut nodes,
+                    errors,
+                );
+            }
+        }
+        WorkflowStepSpec::Approval(approval) => {
+            if approval.title.trim().is_empty() || approval.approver_scope.trim().is_empty() {
+                errors.push(format!(
+                    "approval step `{}` requires title and approverScope",
+                    step.id
+                ));
+            }
+            let mut nodes = 0;
+            validate_schema_node_errors(
+                &approval.decision_schema,
+                0,
+                &format!("$.steps.{}.decisionSchema", step.id),
+                &mut nodes,
+                errors,
+            );
+        }
+        WorkflowStepSpec::Notify(notify) => {
+            if notify.title.len() > 200 {
+                errors.push(format!(
+                    "notify step `{}` title exceeds supported size",
+                    step.id
+                ));
+            }
+        }
+        WorkflowStepSpec::Session(session) => {
+            if session.agent_id.trim().is_empty() {
+                errors.push(format!(
+                    "session step `{}` requires non-empty agentId",
+                    step.id
+                ));
+            } else if session.agent_id.len() > 200 {
+                errors.push(format!(
+                    "session step `{}` agentId exceeds 200 bytes",
+                    step.id
+                ));
+            }
+            if session.prompt_template.trim().is_empty() {
+                errors.push(format!(
+                    "session step `{}` requires non-empty promptTemplate",
+                    step.id
+                ));
+            } else if session.prompt_template.len() > MAX_STEP_PROMPT_BYTES {
+                errors.push(format!(
+                    "session step `{}` promptTemplate exceeds supported size",
+                    step.id
+                ));
+            }
+            if session
+                .model_override
+                .as_ref()
+                .is_some_and(|model| model.trim().is_empty() || model.len() > 200)
+            {
+                errors.push(format!(
+                    "session step `{}` modelOverride must contain 1..=200 non-whitespace bytes",
+                    step.id
+                ));
+            }
+            if let Some(schema) = &session.output_schema {
+                let mut nodes = 0;
+                validate_schema_node_errors(
+                    schema,
+                    0,
+                    &format!("$.steps.{}.outputSchema", step.id),
+                    &mut nodes,
+                    errors,
+                );
+            }
+        }
+        WorkflowStepSpec::Bot(bot) => {
+            if bot.member_id.trim().is_empty() {
+                errors.push(format!(
+                    "bot step `{}` requires non-empty memberId",
+                    step.id
+                ));
+            } else if bot.member_id.len() > 200 {
+                errors.push(format!("bot step `{}` memberId exceeds 200 bytes", step.id));
+            }
+            if bot.prompt_template.trim().is_empty() {
+                errors.push(format!(
+                    "bot step `{}` requires non-empty promptTemplate",
+                    step.id
+                ));
+            } else if bot.prompt_template.len() > MAX_STEP_PROMPT_BYTES {
+                errors.push(format!(
+                    "bot step `{}` promptTemplate exceeds supported size",
+                    step.id
+                ));
+            }
+            if let Some(schema) = &bot.output_schema {
+                let mut nodes = 0;
+                validate_schema_node_errors(
+                    schema,
+                    0,
+                    &format!("$.steps.{}.outputSchema", step.id),
+                    &mut nodes,
+                    errors,
+                );
+            }
+        }
+        WorkflowStepSpec::GroupStage(group) => {
+            if group.space_id.trim().is_empty() {
+                errors.push(format!(
+                    "group_stage step `{}` requires non-empty spaceId",
+                    step.id
+                ));
+            } else if group.space_id.len() > 200 {
+                errors.push(format!(
+                    "group_stage step `{}` spaceId exceeds 200 bytes",
+                    step.id
+                ));
+            }
+            if group.message_template.trim().is_empty() {
+                errors.push(format!(
+                    "group_stage step `{}` requires non-empty messageTemplate",
+                    step.id
+                ));
+            } else if group.message_template.len() > MAX_STEP_PROMPT_BYTES {
+                errors.push(format!(
+                    "group_stage step `{}` messageTemplate exceeds supported size",
+                    step.id
+                ));
+            }
+            match &group.dispatch_mode {
+                GroupDispatchMode::SpecificSeat { member_id } => {
+                    if member_id.trim().is_empty() || member_id.len() > 200 {
+                        errors.push(format!(
+                            "group_stage step `{}` specific_seat requires a valid memberId",
+                            step.id
+                        ));
+                    }
+                }
+                GroupDispatchMode::MentionSeats { member_id_list, .. } => {
+                    if member_id_list.is_empty() {
+                        errors.push(format!(
+                            "group_stage step `{}` mention_seats requires non-empty memberIdList",
+                            step.id
+                        ));
+                    }
+                    for (idx, member_id) in member_id_list.iter().enumerate() {
+                        if member_id.trim().is_empty() || member_id.len() > 200 {
+                            errors.push(format!(
+                                "group_stage step `{}` memberIdList[{idx}] must be 1..=200 non-empty bytes",
+                                step.id
+                            ));
+                        }
+                    }
+                    if let Some(quorum) = group.quorum_count
+                        && (quorum as usize) > member_id_list.len()
+                    {
+                        errors.push(format!(
+                            "group_stage step `{}` quorumCount `{quorum}` exceeds mentioned seat count {}",
+                            step.id,
+                            member_id_list.len()
+                        ));
+                    }
+                }
+                GroupDispatchMode::ModeratorTriage {
+                    moderator_member_id,
+                } => {
+                    if moderator_member_id.trim().is_empty() || moderator_member_id.len() > 200 {
+                        errors.push(format!(
+                            "group_stage step `{}` moderator_triage requires a valid moderatorMemberId",
+                            step.id
+                        ));
+                    }
+                }
+                GroupDispatchMode::BroadcastLogOnly => {
+                    if group.quorum_count.is_some() {
+                        errors.push(format!(
+                            "group_stage step `{}` broadcast_log_only cannot specify quorumCount",
+                            step.id
+                        ));
+                    }
+                }
+            }
+            if let Some(quorum) = group.quorum_count
+                && !(1..=100).contains(&quorum)
+            {
+                errors.push(format!(
+                    "group_stage step `{}` quorumCount `{quorum}` must be within 1..=100",
+                    step.id
+                ));
+            }
+        }
+        WorkflowStepSpec::UserGate(gate) => {
+            if gate.title_template.trim().is_empty() {
+                errors.push(format!(
+                    "user_gate step `{}` requires non-empty titleTemplate",
+                    step.id
+                ));
+            } else if gate.title_template.len() > 200 {
+                errors.push(format!(
+                    "user_gate step `{}` titleTemplate exceeds 200 bytes",
+                    step.id
+                ));
+            }
+            if gate.body_template.len() > MAX_STEP_PROMPT_BYTES {
+                errors.push(format!(
+                    "user_gate step `{}` bodyTemplate exceeds supported size",
+                    step.id
+                ));
+            }
+            match gate.interaction_kind {
+                UserInteractionKind::Approval => {
+                    if gate.approval_options.is_empty() {
+                        errors.push(format!(
+                            "user_gate step `{}` with approval interaction requires non-empty approvalOptions",
+                            step.id
+                        ));
+                    }
+                    let mut option_ids = BTreeSet::new();
+                    for (idx, option) in gate.approval_options.iter().enumerate() {
+                        if option.id.trim().is_empty() || !option_ids.insert(option.id.as_str()) {
+                            errors.push(format!(
+                                "user_gate step `{}` approvalOptions[{idx}] has invalid or duplicate id `{}`",
+                                step.id, option.id
+                            ));
+                        }
+                        if option.label.trim().is_empty() {
+                            errors.push(format!(
+                                "user_gate step `{}` approvalOptions[{idx}] requires non-empty label",
+                                step.id
+                            ));
+                        }
+                    }
+                }
+                UserInteractionKind::AskForm => {
+                    if gate.form_schema.is_none() {
+                        errors.push(format!(
+                            "user_gate step `{}` with ask_form interaction requires formSchema",
+                            step.id
+                        ));
+                    }
+                }
+                UserInteractionKind::Notify | UserInteractionKind::Digest => {}
+            }
+            if let Some(schema) = &gate.form_schema {
+                let mut nodes = 0;
+                validate_schema_node_errors(
+                    schema,
+                    0,
+                    &format!("$.steps.{}.formSchema", step.id),
+                    &mut nodes,
+                    errors,
+                );
+            }
+            if let Some(timeout) = gate.sla_timeout_seconds
+                && !(1..=MAX_WAIT_FOR_EVENT_TIMEOUT_SECONDS).contains(&timeout)
+            {
+                errors.push(format!(
+                    "user_gate step `{}` slaTimeoutSeconds `{timeout}` must be within 1..={MAX_WAIT_FOR_EVENT_TIMEOUT_SECONDS}",
+                    step.id
+                ));
+            }
+        }
+        WorkflowStepSpec::ConditionBranch(branch) => {
+            validate_gate_filter_ast(
+                &branch.filter,
+                &format!("$.steps.{}.filter", step.id),
+                errors,
+            );
+            if branch.then_step_ids.is_empty() && branch.else_step_ids.is_empty() {
+                errors.push(format!(
+                    "condition_branch step `{}` requires at least one target in thenStepIds or elseStepIds",
+                    step.id
+                ));
+            }
+            let then_set = branch
+                .then_step_ids
+                .iter()
+                .map(String::as_str)
+                .collect::<BTreeSet<_>>();
+            for else_id in &branch.else_step_ids {
+                if then_set.contains(else_id.as_str()) {
+                    errors.push(format!(
+                        "condition_branch step `{}` target `{else_id}` cannot appear in both thenStepIds and elseStepIds",
+                        step.id
+                    ));
+                }
+            }
+        }
+        WorkflowStepSpec::BoundedLoop(bounded) => {
+            if bounded.max_iterations == 0 || bounded.max_iterations > MAX_BOUNDED_LOOP_ITERATIONS {
+                errors.push(format!(
+                    "bounded_loop step `{}` maxIterations `{}` must be within 1..={MAX_BOUNDED_LOOP_ITERATIONS}",
+                    step.id, bounded.max_iterations
+                ));
+            }
+            if bounded.target_step_ids.is_empty() {
+                errors.push(format!(
+                    "bounded_loop step `{}` requires non-empty targetStepIds",
+                    step.id
+                ));
+            }
+            if let Some(condition) = &bounded.until_condition {
+                validate_gate_condition(
+                    condition,
+                    &format!("$.steps.{}.untilCondition", step.id),
+                    errors,
+                );
+            }
+        }
+        WorkflowStepSpec::WaitForEvent(wait) => {
+            if wait.event_types.is_empty() {
+                errors.push(format!(
+                    "wait_for_event step `{}` requires non-empty eventTypes",
+                    step.id
+                ));
+            }
+            for (idx, event_type) in wait.event_types.iter().enumerate() {
+                if event_type.trim().is_empty() || event_type.len() > 200 {
+                    errors.push(format!(
+                        "wait_for_event step `{}` eventTypes[{idx}] must contain 1..=200 non-empty bytes",
+                        step.id
+                    ));
+                }
+            }
+            if let Some(pointer) = &wait.thread_key_pointer
+                && (pointer.trim().is_empty() || !pointer.starts_with('/') || pointer == "/")
+            {
+                errors.push(format!(
+                    "wait_for_event step `{}` threadKeyPointer `{pointer}` must start with / and name a non-root field",
+                    step.id
+                ));
+            }
+            if let Some(filter) = &wait.filter {
+                validate_gate_filter_ast(filter, &format!("$.steps.{}.filter", step.id), errors);
+            }
+            if let Some(timeout) = wait.timeout_seconds
+                && !(1..=MAX_WAIT_FOR_EVENT_TIMEOUT_SECONDS).contains(&timeout)
+            {
+                errors.push(format!(
+                    "wait_for_event step `{}` timeoutSeconds `{timeout}` must be within 1..={MAX_WAIT_FOR_EVENT_TIMEOUT_SECONDS}",
+                    step.id
+                ));
+            }
+        }
+        WorkflowStepSpec::OutboxAction(outbox) => {
+            if outbox.target_template.trim().is_empty() {
+                errors.push(format!(
+                    "outbox_action step `{}` requires non-empty targetTemplate",
+                    step.id
+                ));
+            } else if outbox.target_template.len() > 2_048 {
+                errors.push(format!(
+                    "outbox_action step `{}` targetTemplate exceeds 2048 bytes",
+                    step.id
+                ));
+            }
+            match serde_json::to_vec(&outbox.payload_template) {
+                Ok(bytes) => {
+                    if bytes.len() > MAX_STEP_PROMPT_BYTES {
+                        errors.push(format!(
+                            "outbox_action step `{}` payloadTemplate exceeds supported size",
+                            step.id
+                        ));
+                    }
+                }
+                Err(err) => {
+                    errors.push(format!(
+                        "outbox_action step `{}` payloadTemplate serialization error: {err}",
+                        step.id
+                    ));
+                }
+            }
+        }
+    }
+}
+
+fn validate_step_cross_references(
+    step: &WorkflowStep,
+    by_id: &BTreeMap<&str, &WorkflowStep>,
     definition: &WorkflowDefinition,
-) -> Result<Vec<String>, WorkflowError> {
-    let mut incoming = definition
-        .steps
+    errors: &mut Vec<String>,
+) {
+    for dependency in &step.depends_on {
+        if dependency == &step.id || !by_id.contains_key(dependency.as_str()) {
+            errors.push(format!(
+                "step `{}` has invalid dependency `{dependency}`",
+                step.id
+            ));
+        }
+    }
+    match &step.spec {
+        WorkflowStepSpec::ConditionBranch(branch) => {
+            for target_id in branch.then_step_ids.iter().chain(&branch.else_step_ids) {
+                if target_id == &step.id || !by_id.contains_key(target_id.as_str()) {
+                    errors.push(format!(
+                        "condition_branch step `{}` references invalid target step `{target_id}`",
+                        step.id
+                    ));
+                }
+            }
+        }
+        WorkflowStepSpec::BoundedLoop(bounded) => {
+            for target_id in &bounded.target_step_ids {
+                if target_id == &step.id || !by_id.contains_key(target_id.as_str()) {
+                    errors.push(format!(
+                        "bounded_loop step `{}` references invalid target step `{target_id}`",
+                        step.id
+                    ));
+                }
+            }
+        }
+        _ => {}
+    }
+    for binding in step.input_bindings.values() {
+        match binding {
+            WorkflowBinding::RunInput { pointer } => {
+                if let Err(err) = validate_pointer(pointer) {
+                    errors.push(err.to_string());
+                }
+            }
+            WorkflowBinding::StepOutput { step_id, pointer } => {
+                if let Err(err) = validate_pointer(pointer) {
+                    errors.push(err.to_string());
+                }
+                if !by_id.contains_key(step_id.as_str()) {
+                    errors.push(format!(
+                        "step `{}` binding references unknown step `{step_id}`",
+                        step.id
+                    ));
+                } else if by_id.contains_key(step.id.as_str())
+                    && !is_transitive_dependency(definition, by_id, &step.id, step_id)
+                {
+                    errors.push(format!(
+                        "step `{}` reads `{step_id}` without depending on it",
+                        step.id
+                    ));
+                }
+            }
+        }
+    }
+}
+
+/// Returns true if the edge `dependency -> step.id` is an authorized back-edge
+/// emitted from a `BoundedLoop` step back to one of its `target_step_ids`.
+pub(crate) fn is_bounded_loop_back_edge(
+    definition: &WorkflowDefinition,
+    step_id: &str,
+    dependency: &str,
+) -> bool {
+    let Some(dep_step) = definition.steps.iter().find(|s| s.id == dependency) else {
+        return false;
+    };
+    let WorkflowStepSpec::BoundedLoop(bounded) = &dep_step.spec else {
+        return false;
+    };
+    if !bounded
+        .target_step_ids
         .iter()
-        .map(|step| (step.id.clone(), step.depends_on.len()))
-        .collect::<BTreeMap<_, _>>();
+        .any(|target| target == step_id)
+    {
+        return false;
+    }
+    // `dependency` is a BoundedLoop targeting `step_id`. Treat `dependency -> step_id`
+    // as a loop back-edge whenever `dependency` also depends (directly or transitively,
+    // without using `dependency -> step_id`) on `step_id`.
+    let mut pending = dep_step
+        .depends_on
+        .iter()
+        .map(String::as_str)
+        .collect::<Vec<_>>();
+    let mut visited = BTreeSet::new();
+    while let Some(current) = pending.pop() {
+        if current == step_id {
+            return true;
+        }
+        if visited.insert(current)
+            && let Some(node) = definition.steps.iter().find(|s| s.id == current)
+        {
+            for next in &node.depends_on {
+                if !(current == step_id && next == dependency) {
+                    pending.push(next.as_str());
+                }
+            }
+        }
+    }
+    false
+}
+
+/// Computes the forward DAG dependencies of `step`, including implicit edges from
+/// `ConditionBranch` parents and stripping authorized `BoundedLoop` back-edges.
+pub(crate) fn effective_forward_dependencies(
+    definition: &WorkflowDefinition,
+    step: &WorkflowStep,
+) -> Vec<String> {
+    let mut deps = BTreeSet::new();
+    for dep in &step.depends_on {
+        if !is_bounded_loop_back_edge(definition, &step.id, dep) {
+            deps.insert(dep.clone());
+        }
+    }
+    for candidate in &definition.steps {
+        if candidate.id == step.id {
+            continue;
+        }
+        if let WorkflowStepSpec::ConditionBranch(branch) = &candidate.spec
+            && (branch.then_step_ids.iter().any(|id| id == &step.id)
+                || branch.else_step_ids.iter().any(|id| id == &step.id))
+            && !is_bounded_loop_back_edge(definition, &step.id, &candidate.id)
+        {
+            deps.insert(candidate.id.clone());
+        }
+    }
+    deps.into_iter().collect()
+}
+
+fn deterministic_order_for_known_steps(
+    definition: &WorkflowDefinition,
+    by_id: &BTreeMap<&str, &WorkflowStep>,
+) -> Result<Vec<String>, String> {
+    let mut incoming = BTreeMap::<String, usize>::new();
     let mut outgoing = BTreeMap::<String, Vec<String>>::new();
-    for step in &definition.steps {
-        for dependency in &step.depends_on {
-            outgoing
-                .entry(dependency.clone())
-                .or_default()
-                .push(step.id.clone());
+    for (&id, &step) in by_id {
+        let valid_deps = effective_forward_dependencies(definition, step)
+            .into_iter()
+            .filter(|dep| dep != id && by_id.contains_key(dep.as_str()))
+            .collect::<Vec<_>>();
+        incoming.insert(id.to_string(), valid_deps.len());
+        for dependency in valid_deps {
+            outgoing.entry(dependency).or_default().push(id.to_string());
         }
     }
     for children in outgoing.values_mut() {
         children.sort();
+        children.dedup();
     }
     let mut ready = incoming
         .iter()
         .filter_map(|(id, count)| (*count == 0).then_some(id.clone()))
         .collect::<VecDeque<_>>();
-    let mut order = Vec::with_capacity(definition.steps.len());
+    let mut order = Vec::with_capacity(by_id.len());
     while let Some(id) = ready.pop_front() {
         order.push(id.clone());
         for child in outgoing.get(&id).into_iter().flatten() {
@@ -363,17 +950,32 @@ pub(crate) fn deterministic_order(
             }
         }
     }
-    if order.len() != definition.steps.len() {
-        return Err(WorkflowError::Validation(
-            "workflow dependency graph contains a cycle".to_string(),
-        ));
+    if order.len() != by_id.len() {
+        return Err("workflow dependency graph contains a cycle outside BoundedLoop".to_string());
     }
     Ok(order)
 }
 
+pub(crate) fn deterministic_order(
+    definition: &WorkflowDefinition,
+) -> Result<Vec<String>, WorkflowError> {
+    let by_id = definition
+        .steps
+        .iter()
+        .map(|step| (step.id.as_str(), step))
+        .collect::<BTreeMap<_, _>>();
+    deterministic_order_for_known_steps(definition, &by_id).map_err(WorkflowError::Validation)
+}
+
 pub fn validate_json_schema(schema: &serde_json::Value) -> Result<(), WorkflowError> {
     let mut nodes = 0;
-    validate_schema_node(schema, 0, "$", &mut nodes)
+    let mut errors = Vec::new();
+    validate_schema_node_errors(schema, 0, "$", &mut nodes, &mut errors);
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        Err(WorkflowError::Validation(errors.join("; ")))
+    }
 }
 
 pub fn validate_json_value(
@@ -497,26 +1099,30 @@ fn validate_value_node(
     Ok(())
 }
 
-fn validate_schema_node(
+fn validate_schema_node_errors(
     schema: &serde_json::Value,
     depth: usize,
     path: &str,
     nodes: &mut usize,
-) -> Result<(), WorkflowError> {
+    errors: &mut Vec<String>,
+) {
     *nodes += 1;
     if *nodes > MAX_SCHEMA_NODES {
-        return Err(WorkflowError::Validation(format!(
-            "schema exceeds {MAX_SCHEMA_NODES} nodes at {path}"
-        )));
+        if *nodes == MAX_SCHEMA_NODES + 1 {
+            errors.push(format!("schema exceeds {MAX_SCHEMA_NODES} nodes at {path}"));
+        }
+        return;
     }
     if depth > MAX_SCHEMA_DEPTH {
-        return Err(WorkflowError::Validation(format!(
+        errors.push(format!(
             "schema exceeds {MAX_SCHEMA_DEPTH} levels at {path}"
-        )));
+        ));
+        return;
     }
-    let object = schema.as_object().ok_or_else(|| {
-        WorkflowError::Validation(format!("schema node at {path} must be an object"))
-    })?;
+    let Some(object) = schema.as_object() else {
+        errors.push(format!("schema node at {path} must be an object"));
+        return;
+    };
     const ALLOWED: &[&str] = &[
         "type",
         "enum",
@@ -534,9 +1140,7 @@ fn validate_schema_node(
     ];
     for key in object.keys() {
         if !ALLOWED.contains(&key.as_str()) {
-            return Err(WorkflowError::Validation(format!(
-                "unsupported schema keyword `{key}` at {path}"
-            )));
+            errors.push(format!("unsupported schema keyword `{key}` at {path}"));
         }
     }
     if let Some(kind) = object.get("type") {
@@ -547,153 +1151,154 @@ fn validate_schema_node(
             )
         });
         if !valid {
-            return Err(WorkflowError::Validation(format!(
-                "unsupported schema type at {path}"
-            )));
+            errors.push(format!("unsupported schema type at {path}"));
         }
     }
     if let Some(values) = object.get("enum") {
-        let values = values
-            .as_array()
-            .filter(|values| !values.is_empty())
-            .ok_or_else(|| {
-                WorkflowError::Validation(format!("enum at {path} must be a non-empty array"))
-            })?;
-        let mut unique = BTreeSet::new();
-        for value in values {
-            let normalized = serde_json::to_string(value)?;
-            if !unique.insert(normalized) {
-                return Err(WorkflowError::Validation(format!(
-                    "enum at {path} contains duplicate values"
-                )));
+        match values.as_array().filter(|values| !values.is_empty()) {
+            Some(values) => {
+                let mut unique = BTreeSet::new();
+                for value in values {
+                    match serde_json::to_string(value) {
+                        Ok(normalized) => {
+                            if !unique.insert(normalized) {
+                                errors.push(format!("enum at {path} contains duplicate values"));
+                            }
+                        }
+                        Err(err) => {
+                            errors
+                                .push(format!("enum value at {path} failed serialization: {err}"));
+                        }
+                    }
+                }
             }
+            None => errors.push(format!("enum at {path} must be a non-empty array")),
         }
     }
     if let Some(required) = object.get("required") {
-        let required = required.as_array().ok_or_else(|| {
-            WorkflowError::Validation(format!("required at {path} must be an array"))
-        })?;
-        let mut unique = BTreeSet::new();
-        for field in required {
-            let field = field
-                .as_str()
-                .filter(|field| !field.is_empty())
-                .ok_or_else(|| {
-                    WorkflowError::Validation(format!(
-                        "required entries at {path} must be non-empty strings"
-                    ))
-                })?;
-            if !unique.insert(field) {
-                return Err(WorkflowError::Validation(format!(
-                    "required at {path} contains duplicate fields"
-                )));
+        match required.as_array() {
+            Some(required) => {
+                let mut unique = BTreeSet::new();
+                for field in required {
+                    match field.as_str().filter(|field| !field.is_empty()) {
+                        Some(field) => {
+                            if !unique.insert(field) {
+                                errors
+                                    .push(format!("required at {path} contains duplicate fields"));
+                            }
+                        }
+                        None => errors.push(format!(
+                            "required entries at {path} must be non-empty strings"
+                        )),
+                    }
+                }
             }
+            None => errors.push(format!("required at {path} must be an array")),
         }
     }
     if object
         .get("additionalProperties")
         .is_some_and(|value| !value.is_boolean())
     {
-        return Err(WorkflowError::Validation(format!(
-            "additionalProperties at {path} must be boolean"
-        )));
+        errors.push(format!("additionalProperties at {path} must be boolean"));
     }
-    validate_unsigned_bounds(object, "minLength", "maxLength", path)?;
-    validate_unsigned_bounds(object, "minItems", "maxItems", path)?;
-    validate_number_bounds(object, "minimum", "maximum", path)?;
+    validate_unsigned_bounds_errors(object, "minLength", "maxLength", path, errors);
+    validate_unsigned_bounds_errors(object, "minItems", "maxItems", path, errors);
+    validate_number_bounds_errors(object, "minimum", "maximum", path, errors);
     if let Some(properties) = object.get("properties") {
-        let properties = properties.as_object().ok_or_else(|| {
-            WorkflowError::Validation(format!("properties at {path} must be an object"))
-        })?;
-        for (name, child) in properties {
-            validate_schema_node(
-                child,
-                depth + 1,
-                &format!("{path}.properties.{name}"),
-                nodes,
-            )?;
+        match properties.as_object() {
+            Some(properties) => {
+                for (name, child) in properties {
+                    validate_schema_node_errors(
+                        child,
+                        depth + 1,
+                        &format!("{path}.properties.{name}"),
+                        nodes,
+                        errors,
+                    );
+                }
+            }
+            None => errors.push(format!("properties at {path} must be an object")),
         }
     }
     if let Some(items) = object.get("items") {
-        validate_schema_node(items, depth + 1, &format!("{path}.items"), nodes)?;
+        validate_schema_node_errors(items, depth + 1, &format!("{path}.items"), nodes, errors);
     }
-    Ok(())
 }
 
-fn validate_unsigned_bounds(
+fn validate_unsigned_bounds_errors(
     object: &serde_json::Map<String, serde_json::Value>,
     minimum_key: &str,
     maximum_key: &str,
     path: &str,
-) -> Result<(), WorkflowError> {
-    let minimum = object
-        .get(minimum_key)
-        .map(|value| {
-            value.as_u64().ok_or_else(|| {
-                WorkflowError::Validation(format!("{minimum_key} at {path} must be unsigned"))
-            })
-        })
-        .transpose()?;
-    let maximum = object
-        .get(maximum_key)
-        .map(|value| {
-            value.as_u64().ok_or_else(|| {
-                WorkflowError::Validation(format!("{maximum_key} at {path} must be unsigned"))
-            })
-        })
-        .transpose()?;
-    if matches!((minimum, maximum), (Some(minimum), Some(maximum)) if minimum > maximum) {
-        return Err(WorkflowError::Validation(format!(
-            "{minimum_key} exceeds {maximum_key} at {path}"
-        )));
+    errors: &mut Vec<String>,
+) {
+    let minimum = object.get(minimum_key).and_then(|value| {
+        let parsed = value.as_u64();
+        if parsed.is_none() {
+            errors.push(format!("{minimum_key} at {path} must be unsigned"));
+        }
+        parsed
+    });
+    let maximum = object.get(maximum_key).and_then(|value| {
+        let parsed = value.as_u64();
+        if parsed.is_none() {
+            errors.push(format!("{maximum_key} at {path} must be unsigned"));
+        }
+        parsed
+    });
+    if matches!((minimum, maximum), (Some(min), Some(max)) if min > max) {
+        errors.push(format!("{minimum_key} exceeds {maximum_key} at {path}"));
     }
-    Ok(())
 }
 
-fn validate_number_bounds(
+fn validate_number_bounds_errors(
     object: &serde_json::Map<String, serde_json::Value>,
     minimum_key: &str,
     maximum_key: &str,
     path: &str,
-) -> Result<(), WorkflowError> {
-    let minimum = object
-        .get(minimum_key)
-        .map(|value| {
-            value.as_f64().ok_or_else(|| {
-                WorkflowError::Validation(format!("{minimum_key} at {path} must be a number"))
-            })
-        })
-        .transpose()?;
-    let maximum = object
-        .get(maximum_key)
-        .map(|value| {
-            value.as_f64().ok_or_else(|| {
-                WorkflowError::Validation(format!("{maximum_key} at {path} must be a number"))
-            })
-        })
-        .transpose()?;
-    if matches!((minimum, maximum), (Some(minimum), Some(maximum)) if minimum > maximum) {
-        return Err(WorkflowError::Validation(format!(
-            "{minimum_key} exceeds {maximum_key} at {path}"
-        )));
+    errors: &mut Vec<String>,
+) {
+    let minimum = object.get(minimum_key).and_then(|value| {
+        let parsed = value.as_f64();
+        if parsed.is_none() {
+            errors.push(format!("{minimum_key} at {path} must be a number"));
+        }
+        parsed
+    });
+    let maximum = object.get(maximum_key).and_then(|value| {
+        let parsed = value.as_f64();
+        if parsed.is_none() {
+            errors.push(format!("{maximum_key} at {path} must be a number"));
+        }
+        parsed
+    });
+    if matches!((minimum, maximum), (Some(min), Some(max)) if min > max) {
+        errors.push(format!("{minimum_key} exceeds {maximum_key} at {path}"));
     }
-    Ok(())
 }
 
-pub fn validate_policy(policy: &WorkflowPolicy) -> Result<(), WorkflowError> {
+fn validate_policy_errors(policy: &WorkflowPolicy, errors: &mut Vec<String>) {
     if !(1..=64).contains(&policy.max_concurrent_agent_steps)
         || !(1..=10_000).contains(&policy.max_agent_calls)
         || !(1..=7 * 24 * 60 * 60).contains(&policy.deadline_seconds)
         || !(1_024..=64 * 1024 * 1024).contains(&policy.max_output_bytes)
     {
-        return Err(WorkflowError::Validation(
-            "workflow policy exceeds supported hard limits".to_string(),
-        ));
+        errors.push("workflow policy exceeds supported hard limits".to_string());
     }
-    Ok(())
 }
 
-fn valid_step_id(id: &str) -> bool {
+pub fn validate_policy(policy: &WorkflowPolicy) -> Result<(), WorkflowError> {
+    let mut errors = Vec::new();
+    validate_policy_errors(policy, &mut errors);
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        Err(WorkflowError::Validation(errors.join("; ")))
+    }
+}
+
+pub(crate) fn valid_step_id(id: &str) -> bool {
     !id.is_empty()
         && id.len() <= 80
         && id
@@ -712,204 +1317,25 @@ fn validate_pointer(pointer: &str) -> Result<(), WorkflowError> {
 }
 
 fn is_transitive_dependency(
+    definition: &WorkflowDefinition,
     by_id: &BTreeMap<&str, &WorkflowStep>,
     target: &str,
     possible_dependency: &str,
 ) -> bool {
-    let mut pending = by_id[target]
-        .depends_on
-        .iter()
-        .map(String::as_str)
-        .collect::<Vec<_>>();
+    let Some(&target_step) = by_id.get(target) else {
+        return false;
+    };
+    let mut pending = effective_forward_dependencies(definition, target_step);
     let mut visited = BTreeSet::new();
     while let Some(id) = pending.pop() {
         if id == possible_dependency {
             return true;
         }
-        if visited.insert(id) {
-            pending.extend(by_id[id].depends_on.iter().map(String::as_str));
+        if visited.insert(id.clone())
+            && let Some(&node) = by_id.get(id.as_str())
+        {
+            pending.extend(effective_forward_dependencies(definition, node));
         }
     }
     false
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn agent(id: &str, dependencies: &[&str]) -> WorkflowStep {
-        WorkflowStep {
-            id: id.to_string(),
-            depends_on: dependencies.iter().map(|value| value.to_string()).collect(),
-            phase: None,
-            input_bindings: BTreeMap::new(),
-            spec: WorkflowStepSpec::Agent(AgentStepSpec {
-                agent_id: "codex".to_string(),
-                prompt: format!("run {id}"),
-                executor_profile_id: None,
-                mode_override: None,
-                config_overrides: BTreeMap::new(),
-                output_language: None,
-                output_description: None,
-                output_schema: Some(serde_json::json!({"type": "object"})),
-                workspace_access: WorkspaceAccess::ReadOnlyShared,
-                side_effect_class: SideEffectClass::ReadOnly,
-                allow_one_repair: false,
-                allow_skip_on_review: false,
-                completion_policy: CompletionPolicy::Automatic,
-            }),
-        }
-    }
-
-    fn definition(steps: Vec<WorkflowStep>) -> WorkflowDefinition {
-        WorkflowDefinition {
-            format_version: WORKFLOW_DEFINITION_VERSION,
-            name: "test".to_string(),
-            description: None,
-            input_schema: Some(serde_json::json!({"type": "object"})),
-            steps,
-            policy: WorkflowPolicy::default(),
-        }
-    }
-
-    #[test]
-    fn agent_workspace_access_defaults_to_the_native_session_policy() {
-        let step: WorkflowStep = serde_json::from_value(serde_json::json!({
-            "id": "review",
-            "kind": "agent",
-            "agentId": "codex",
-            "prompt": "Review"
-        }))
-        .unwrap();
-        let WorkflowStepSpec::Agent(agent) = step.spec else {
-            unreachable!()
-        };
-        assert_eq!(agent.workspace_access, WorkspaceAccess::Native);
-    }
-
-    #[test]
-    fn rejects_cycles_unknown_dependencies_and_unsafe_schema_keywords() {
-        let cycle = definition(vec![agent("a", &["b"]), agent("b", &["a"])]);
-        assert!(
-            validate_definition(&cycle)
-                .unwrap_err()
-                .to_string()
-                .contains("cycle")
-        );
-
-        let unknown = definition(vec![agent("a", &["missing"])]);
-        assert!(
-            validate_definition(&unknown)
-                .unwrap_err()
-                .to_string()
-                .contains("invalid dependency")
-        );
-
-        assert!(
-            validate_json_schema(&serde_json::json!({"$ref": "https://example.test/schema"}))
-                .unwrap_err()
-                .to_string()
-                .contains("unsupported schema keyword")
-        );
-    }
-
-    #[test]
-    fn deterministic_order_is_stable_for_parallel_roots() {
-        let workflow = definition(vec![
-            agent("finish", &["beta", "alpha"]),
-            agent("beta", &[]),
-            agent("alpha", &[]),
-        ]);
-        assert_eq!(
-            deterministic_order(&workflow).unwrap(),
-            vec!["alpha", "beta", "finish"]
-        );
-    }
-
-    #[test]
-    fn agent_completion_policy_defaults_to_automatic_and_round_trips_manual() {
-        let automatic: AgentStepSpec = serde_json::from_value(serde_json::json!({
-            "agentId": "codex",
-            "prompt": "inspect"
-        }))
-        .unwrap();
-        assert_eq!(automatic.completion_policy, CompletionPolicy::Automatic);
-
-        let manual: AgentStepSpec = serde_json::from_value(serde_json::json!({
-            "agentId": "codex",
-            "prompt": "inspect",
-            "completionPolicy": "manual"
-        }))
-        .unwrap();
-        assert_eq!(manual.completion_policy, CompletionPolicy::Manual);
-        assert_eq!(
-            serde_json::to_value(manual).unwrap()["completionPolicy"],
-            "manual"
-        );
-    }
-
-    #[test]
-    fn output_binding_requires_a_transitive_dependency() {
-        let mut consumer = agent("consumer", &[]);
-        consumer.input_bindings.insert(
-            "value".to_string(),
-            WorkflowBinding::StepOutput {
-                step_id: "producer".to_string(),
-                pointer: "/value".to_string(),
-            },
-        );
-        let workflow = definition(vec![agent("producer", &[]), consumer]);
-        assert!(
-            validate_definition(&workflow)
-                .unwrap_err()
-                .to_string()
-                .contains("without depending")
-        );
-    }
-
-    #[test]
-    fn rejects_oversized_definition_fields_and_wide_schema_bombs() {
-        let mut oversized_prompt = definition(vec![agent("step", &[])]);
-        let WorkflowStepSpec::Agent(agent) = &mut oversized_prompt.steps[0].spec else {
-            unreachable!();
-        };
-        agent.prompt = "x".repeat(64 * 1024 + 1);
-        assert!(
-            validate_definition(&oversized_prompt)
-                .unwrap_err()
-                .to_string()
-                .contains("prompt")
-        );
-
-        let properties = (0..10_001)
-            .map(|index| {
-                (
-                    format!("field_{index}"),
-                    serde_json::json!({"type": "string"}),
-                )
-            })
-            .collect::<serde_json::Map<_, _>>();
-        assert!(
-            validate_json_schema(&serde_json::json!({
-                "type": "object",
-                "properties": properties,
-            }))
-            .unwrap_err()
-            .to_string()
-            .contains("nodes")
-        );
-    }
-
-    #[test]
-    fn rejects_malformed_schema_constraint_types_and_ranges() {
-        for schema in [
-            serde_json::json!({"type": "string", "maxLength": "large"}),
-            serde_json::json!({"type": "array", "minItems": 2, "maxItems": 1}),
-            serde_json::json!({"type": "object", "required": [1]}),
-            serde_json::json!({"type": "object", "additionalProperties": "no"}),
-            serde_json::json!({"enum": []}),
-        ] {
-            assert!(validate_json_schema(&schema).is_err(), "accepted {schema}");
-        }
-    }
 }

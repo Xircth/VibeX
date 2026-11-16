@@ -18,6 +18,7 @@
     "stepCompleted": "completed"
   },
   "automationFailureTitle": "Automation run failed",
+  "pulseObserveTitle": "Pulse Observe candidates ({{count}})",
   "openProject": "Open {{name}}",
   "backgroundProjects": {
     "ariaLabel": "Active background projects",
@@ -61,7 +62,15 @@
     "justNow": "just now",
     "minutesAgo": "{{count}} min ago",
     "hoursAgo": "{{count}} h ago",
-    "daysAgo": "{{count}} d ago"
+    "daysAgo": "{{count}} d ago",
+    "pulseApprove": "Approve",
+    "pulseReject": "Reject",
+    "pulseAcknowledge": "Acknowledge",
+    "pulseSubmit": "Submit",
+    "pulseDecisionNote": "Decision note",
+    "pulseOptionalNote": "Optional note…",
+    "pulseNoteRequired": "Note is required for this decision.",
+    "pulseSelectPlaceholder": "Select…"
   },
   "mcp": {
     "title": "MCP services",

@@ -6,6 +6,7 @@ import type {
 } from 'shared/types';
 import {
   callApplicationCommand,
+  configuredBackendTransport,
   type BackendTransport,
 } from '@/lib/backendTransport';
 
@@ -87,8 +88,17 @@ export function createWorkflowApi(transport: BackendTransport) {
       callApplicationCommand(transport, 'workflow_version', { versionId }),
     list: (limit = 100) =>
       callApplicationCommand(transport, 'workflow_list', { limit }),
+    listDefinitions: (limit = 100) =>
+      callApplicationCommand(transport, 'workflow_list', { limit }),
+    deleteDefinition: (definitionId: string) =>
+      callApplicationCommand(transport, 'workflow_delete', { definitionId }),
     versions: (definitionId: string, limit = 100) =>
       callApplicationCommand(transport, 'workflow_versions', {
+        definitionId,
+        limit,
+      }),
+    runs: (definitionId: string, limit = 20): Promise<WorkflowRunView[]> =>
+      callApplicationCommand(transport, 'workflow_runs', {
         definitionId,
         limit,
       }),
@@ -192,3 +202,5 @@ export function createWorkflowApi(transport: BackendTransport) {
       ),
   };
 }
+
+export const workflowsApi = createWorkflowApi(configuredBackendTransport);

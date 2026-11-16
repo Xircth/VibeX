@@ -60,6 +60,7 @@ pub struct ServerApplicationDomains {
     pub(crate) preview_proxy: PreviewProxyRegistry,
     pub(crate) automation: HeadlessAutomationRuntime,
     pub(crate) automation_ownership: AutomationOwnership,
+    pub(crate) pulse_engine: Arc<pulse::PulseEngine>,
     pub(crate) conversations: ConversationContext,
     pub(crate) deployment: Arc<LocalDeployment>,
     pub(crate) runtime_root: std::path::PathBuf,
@@ -102,14 +103,16 @@ impl ServerApplicationDomains {
 
     pub(super) async fn execute_command(
         &self,
+        principal: &Principal,
         command: DomainCommand,
         args: Value,
     ) -> Result<Value, ApplicationError> {
-        Box::pin(self.execute_command_inner(command, args)).await
+        Box::pin(self.execute_command_inner(principal, command, args)).await
     }
 
     async fn execute_command_inner(
         &self,
+        principal: &Principal,
         command: DomainCommand,
         args: Value,
     ) -> Result<Value, ApplicationError> {
@@ -179,7 +182,7 @@ impl ServerApplicationDomains {
             DomainCommand::PluginSurfaceRevoke => self.plugin_surface_revoke(args).await,
             DomainCommand::PluginHostCall => self.plugin_host_call(args).await,
             DomainCommand::PluginInvokeContribution => self.plugin_invoke_contribution(args).await,
-            DomainCommand::PluginCommandInvoke => self.plugin_command_invoke(args).await,
+            DomainCommand::PluginCommandInvoke => self.plugin_command_invoke(principal, args).await,
             DomainCommand::ProjectList => self.project_list().await,
             DomainCommand::ProjectRepositories => self.project_repositories(args).await,
             DomainCommand::RepoBranches => self.repo_branches(args).await,
@@ -518,6 +521,9 @@ impl ServerApplicationDomains {
             DomainCommand::ConversationSideChatAbort => {
                 crate::host::side_chat::abort(self, args).await
             }
+            other if crate::pulse_runtime::is_pulse_domain_command(other) => {
+                Box::pin(self.execute_pulse_command(principal, other, args)).await
+            }
             other if crate::host::catalog::handles(other) => {
                 Box::pin(crate::host::catalog::dispatch(self, other, args)).await
             }
@@ -525,7 +531,9 @@ impl ServerApplicationDomains {
         }
     }
 
-    pub(super) async fn plugin_control_plane(&self) -> Result<&plugins::PluginControlPlane, ApplicationError> {
+    pub(super) async fn plugin_control_plane(
+        &self,
+    ) -> Result<&plugins::PluginControlPlane, ApplicationError> {
         Ok(self.plugin_control_plane.as_ref())
     }
 }
@@ -534,26 +542,33 @@ impl ServerApplicationDomains {
 impl ApplicationDomainPort for ServerApplicationDomains {
     async fn execute(
         &self,
-        _principal: &Principal,
+        principal: &Principal,
         command: DomainCommand,
         args: Value,
     ) -> Result<Value, ApplicationError> {
+        if crate::pulse_runtime::is_pulse_domain_command(command) {
+            return crate::host::events::bind_host_events(
+                self.events.clone(),
+                Box::pin(self.execute_pulse_command(principal, command, args)),
+            )
+            .await;
+        }
         crate::host::events::bind_host_events(
             self.events.clone(),
-            self.execute_command(command, args),
+            Box::pin(self.execute_command(principal, command, args)),
         )
         .await
     }
 
     async fn execute_dynamic(
         &self,
-        _principal: &Principal,
+        principal: &Principal,
         command_name: &str,
         args: Value,
     ) -> Result<Value, ApplicationError> {
         crate::host::events::bind_host_events(
             self.events.clone(),
-            self.invoke_dynamic_plugin_command(command_name, args),
+            self.invoke_dynamic_plugin_command(principal, command_name, args),
         )
         .await
     }

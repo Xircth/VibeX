@@ -9,5 +9,5 @@ pub fn workflow_wake() -> &'static Notify {
 }
 
 pub fn notify_workflow_work() {
-    workflow_wake().notify_one();
+    workflow_wake().notify_waiters();
 }

@@ -1,0 +1,37 @@
+{
+  "name": "@vibex/pulse-sdk",
+  "version": "0.4.4",
+  "license": "MIT",
+  "type": "module",
+  "description": "Typed Event SDK, Standard Webhooks verifier, Dual-Primitive builders, REST client, and CLI for VibeX Pulse",
+  "bin": {
+    "vibex-pulse": "./bin/vibex-pulse.mjs"
+  },
+  "files": [
+    "bin",
+    "src",
+    "README.md"
+  ],
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./src/index.ts"
+    },
+    "./webhook": {
+      "types": "./src/webhook.ts",
+      "default": "./src/webhook.ts"
+    },
+    "./cli": {
+      "types": "./src/cli.ts",
+      "default": "./src/cli.ts"
+    }
+  },
+  "types": "./src/index.ts",
+  "scripts": {
+    "check": "node -e \"await import('./src/index.ts'); await import('./src/cli.ts');\"",
+    "test": "node --test test/*.mjs"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

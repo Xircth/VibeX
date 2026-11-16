@@ -46,12 +46,13 @@ export function kanbanSessionRendersInHub(viewId: string): boolean {
   return viewId === 'builtin:sessions';
 }
 
-/** The monitor is overflow: it does not occupy a column while empty. */
+/** The monitor is overflow: it does not occupy a column while empty unless Pulse Deck is open. */
 export function shouldShowKanbanMonitor(
   userPrefersVisible: boolean,
-  monitoredCount: number
+  monitoredCount: number,
+  forceVisible = false
 ): boolean {
-  return userPrefersVisible && monitoredCount > 0;
+  return Boolean(forceVisible) || (userPrefersVisible && monitoredCount > 0);
 }
 
 /** Queuing another session into the monitor is a request to see that column. */

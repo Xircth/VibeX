@@ -671,6 +671,10 @@ pub(crate) fn normalize_codex_notification(
             if let Some(ref tid) = session_id
                 && let Ok(mut map) = compaction_states.write()
             {
+                const MAX_COMPACTION_STATES: usize = 256;
+                if map.len() >= MAX_COMPACTION_STATES && !map.contains_key(tid) {
+                    map.retain(|_, state| state.in_progress);
+                }
                 let entry =
                     map.entry(tid.clone())
                         .or_insert_with(|| CodexAutoCompactionThreadState {

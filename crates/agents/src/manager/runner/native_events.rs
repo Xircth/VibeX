@@ -381,9 +381,10 @@ impl AgentConnectionRunner {
                 turn_state.last_streamed_message_id = None;
                 if let Some(id) = tool_use_id {
                     turn_state.running_tool_calls.remove(&id);
-                    let tool_name = turn_state.tool_names.get(&id).map(String::as_str);
-                    let formatted = format_tool_result_content(tool_name, &content)
-                        .or_else(|| turn_state.terminal_buffers.get(&id).cloned());
+                    let tool_name = turn_state.tool_names.remove(&id);
+                    let buffered = turn_state.terminal_buffers.remove(&id);
+                    let formatted =
+                        format_tool_result_content(tool_name.as_deref(), &content).or(buffered);
                     let meta = self
                         .fold_air_tool_meta(&id, None, false)
                         .await
@@ -415,8 +416,16 @@ impl AgentConnectionRunner {
                 delta,
                 ..
             } => {
+                const MAX_TERMINAL_BUFFER_BYTES: usize = 512 * 1024;
                 let buf = turn_state.terminal_buffers.entry(id.clone()).or_default();
                 buf.push_str(&delta);
+                if buf.len() > MAX_TERMINAL_BUFFER_BYTES {
+                    let mut trim_at = buf.len() - MAX_TERMINAL_BUFFER_BYTES;
+                    while trim_at < buf.len() && !buf.is_char_boundary(trim_at) {
+                        trim_at += 1;
+                    }
+                    buf.drain(..trim_at);
+                }
                 let cumulative = buf.clone();
                 self.emit(
                     Some(session_id),

@@ -269,7 +269,7 @@ struct AgentTerminalSession {
     cwd: Option<PathBuf>,
     command: String,
     args: Vec<String>,
-    output_history: Arc<Mutex<Vec<u8>>>,
+    output_history: Arc<Mutex<VecDeque<u8>>>,
     seq: AtomicU64,
     subscribers: Arc<Mutex<Vec<TerminalOutputTx>>>,
     exit_status: Arc<RwLock<Option<AgentTerminalExit>>>,
@@ -365,7 +365,7 @@ impl AgentTerminalRegistry {
             cwd: cwd.clone(),
             command: args.command.clone(),
             args: args.args.clone(),
-            output_history: Arc::new(Mutex::new(Vec::new())),
+            output_history: Arc::new(Mutex::new(VecDeque::new())),
             seq: AtomicU64::new(0),
             subscribers: Arc::new(Mutex::new(Vec::new())),
             exit_status: Arc::new(RwLock::new(None)),
@@ -435,7 +435,7 @@ impl AgentTerminalRegistry {
 
                         {
                             let mut history = session.output_history.lock().await;
-                            history.extend_from_slice(&data);
+                            history.extend(&data);
                             if trim_output_history(&mut history, limit) {
                                 was_truncated = true;
                             }
@@ -491,9 +491,10 @@ impl AgentTerminalRegistry {
         terminal_id: AgentTerminalId,
     ) -> Option<HostTerminalSnapshot> {
         let session = self.sessions.read().await.get(&terminal_id)?.clone();
-        let history = session.output_history.lock().await.clone();
+        let mut history = session.output_history.lock().await;
+        let bytes = history.make_contiguous();
         let seq = session.seq.load(Ordering::Acquire);
-        Some(HostTerminalSnapshot::from_bytes(&history, seq))
+        Some(HostTerminalSnapshot::from_bytes(bytes, seq))
     }
 
     pub async fn snapshot_output(
@@ -501,7 +502,10 @@ impl AgentTerminalRegistry {
         terminal_id: AgentTerminalId,
     ) -> Option<AgentTerminalOutputSnapshot> {
         let session = self.sessions.read().await.get(&terminal_id)?.clone();
-        let output = String::from_utf8_lossy(&session.output_history.lock().await).to_string();
+        let output = {
+            let mut history = session.output_history.lock().await;
+            String::from_utf8_lossy(history.make_contiguous()).into_owned()
+        };
         let truncated = *session.truncated.read().await;
         let exit = session.exit_status.read().await.clone();
 
@@ -658,15 +662,15 @@ fn effective_output_byte_limit(requested: Option<u64>) -> usize {
     }
 }
 
-fn trim_output_history(history: &mut Vec<u8>, limit: usize) -> bool {
+fn trim_output_history(history: &mut VecDeque<u8>, limit: usize) -> bool {
     if history.len() <= limit {
         return false;
     }
 
     let overflow = history.len() - limit;
     let boundary_search_end = (overflow + MAX_LINE_BOUNDARY_SEARCH).min(history.len());
-    let trim_to = history[overflow..boundary_search_end]
-        .iter()
+    let trim_to = history
+        .range(overflow..boundary_search_end)
         .position(|byte| matches!(byte, b'\n' | b'\r'))
         .map(|offset| overflow + offset + 1)
         .unwrap_or_else(|| first_utf8_boundary_at_or_after(history, overflow));
@@ -675,7 +679,7 @@ fn trim_output_history(history: &mut Vec<u8>, limit: usize) -> bool {
     true
 }
 
-fn first_utf8_boundary_at_or_after(bytes: &[u8], index: usize) -> usize {
+fn first_utf8_boundary_at_or_after(bytes: &VecDeque<u8>, index: usize) -> usize {
     let mut index = index.min(bytes.len());
     while index < bytes.len() && !is_utf8_boundary_byte(bytes[index]) {
         index += 1;

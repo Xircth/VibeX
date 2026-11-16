@@ -34,11 +34,32 @@ impl RuntimeEventSink for NoopEventSink {
 }
 
 const PERSIST_EVENT_CHANNEL_CAPACITY: usize = 8192;
+const SOFT_OVERFLOW_QUEUE_CAP: usize = 8_192;
+const HARD_OVERFLOW_QUEUE_CAP: usize = 32_768;
+
+fn is_ephemeral_telemetry_event(event: &AgentEvent) -> bool {
+    matches!(
+        event,
+        AgentEvent::RawAcpDiagnostic { .. }
+            | AgentEvent::RequestActivity { .. }
+            | AgentEvent::TerminalOutput { .. }
+            | AgentEvent::ThoughtChunk { .. }
+            | AgentEvent::Usage { .. }
+    )
+}
+
+fn is_high_volume_delta_event(event: &AgentEvent) -> bool {
+    matches!(
+        event,
+        AgentEvent::MessageChunk { .. } | AgentEvent::ToolCallUpdate { .. }
+    )
+}
 
 #[derive(Default)]
 struct OverflowQueueState {
     queue: VecDeque<AgentEventEnvelope>,
     draining: bool,
+    dropped_ephemeral: u64,
 }
 
 struct BoundedRuntimeEventSink {
@@ -139,7 +160,23 @@ impl RuntimeEventSink for BoundedRuntimeEventSink {
                     }
                 }
             } else {
-                guard.queue.push_back(envelope);
+                let len = guard.queue.len();
+                let should_drop = (len >= SOFT_OVERFLOW_QUEUE_CAP
+                    && is_ephemeral_telemetry_event(&envelope.event))
+                    || (len >= HARD_OVERFLOW_QUEUE_CAP
+                        && is_high_volume_delta_event(&envelope.event));
+                if should_drop {
+                    guard.dropped_ephemeral = guard.dropped_ephemeral.saturating_add(1);
+                    if guard.dropped_ephemeral == 1 || guard.dropped_ephemeral.is_power_of_two() {
+                        tracing::warn!(
+                            queue_len = len,
+                            dropped_ephemeral = guard.dropped_ephemeral,
+                            "runtime event overflow queue saturated; shedding ephemeral telemetry event"
+                        );
+                    }
+                } else {
+                    guard.queue.push_back(envelope);
+                }
                 false
             }
         };
@@ -333,6 +370,8 @@ struct PromptDispatchOptions {
 }
 
 const MAX_RECENT_EVENTS: usize = 2_000;
+const MAX_SETTLED_PROMPTS: usize = 512;
+const MAX_SETTLED_CONNECTIONS: usize = 128;
 
 pub struct AgentRuntime {
     state: Arc<RwLock<RuntimeState>>,
@@ -2373,6 +2412,7 @@ impl AgentRuntime {
                         state.prompt_blocks.remove(&input.prompt_id);
                         state.prompt_display_blocks.remove(&input.prompt_id);
                         state.prompt_options.remove(&input.prompt_id);
+                        state.request_activity.remove(&input.prompt_id);
                     }
                 }
 
@@ -2469,54 +2509,101 @@ impl AgentRuntime {
             }
         }
 
-        let mut state = self.state.write().await;
-        state
-            .pending_session_connections
-            .retain(|_, cid| *cid != connection_id);
-        let snapshot = state
-            .connections
-            .get_mut(&connection_id)
-            .map(|connection| {
-                connection.snapshot.status = AgentConnectionStatus::Disconnected;
-                connection.snapshot.updated_at = Utc::now();
-                connection.snapshot.clone()
-            })
-            .ok_or_else(|| AgentError::ConnectionNotFound(connection_id.to_string()))?;
+        let evicted_session_ids = {
+            let mut state = self.state.write().await;
+            state
+                .pending_session_connections
+                .retain(|_, cid| *cid != connection_id);
+            let snapshot = state
+                .connections
+                .get_mut(&connection_id)
+                .map(|connection| {
+                    connection.snapshot.status = AgentConnectionStatus::Disconnected;
+                    connection.snapshot.updated_at = Utc::now();
+                    connection.snapshot.clone()
+                })
+                .ok_or_else(|| AgentError::ConnectionNotFound(connection_id.to_string()))?;
 
-        self.emit_locked(
-            &mut state,
-            snapshot.workspace_id,
-            snapshot.id,
-            None,
-            AgentEvent::ConnectionStatusChanged {
-                snapshot: snapshot.clone(),
-            },
-        );
+            self.emit_locked(
+                &mut state,
+                snapshot.workspace_id,
+                snapshot.id,
+                None,
+                AgentEvent::ConnectionStatusChanged {
+                    snapshot: snapshot.clone(),
+                },
+            );
 
-        Ok(snapshot)
+            let evicted_sessions = prune_settled_history_locked(&mut state);
+            (snapshot, evicted_sessions)
+        };
+        if !evicted_session_ids.1.is_empty() {
+            let mut keepalive = self.keepalive_sessions.lock().await;
+            for sid in evicted_session_ids.1 {
+                keepalive.remove(&sid);
+            }
+        }
+
+        Ok(evicted_session_ids.0)
     }
 
     /// Reap a short-lived probe/discovery connection and remove it from the
     /// runtime active set instead of retaining a Disconnected history entry.
     pub async fn discard_connection(&self, connection_id: AgentConnectionId) -> AgentResult<()> {
         let manager_result = self.connection_manager.disconnect(connection_id).await;
-        let mut state = self.state.write().await;
-        let is_pending_connecting = state
-            .connections
-            .get(&connection_id)
-            .is_some_and(|c| c.snapshot.status == AgentConnectionStatus::Connecting);
-        if let Err(err) = manager_result
-            && !is_pending_connecting
-        {
-            return Err(err);
+        let removed_session_ids = {
+            let mut state = self.state.write().await;
+            let is_pending_connecting = state
+                .connections
+                .get(&connection_id)
+                .is_some_and(|c| c.snapshot.status == AgentConnectionStatus::Connecting);
+            if let Err(err) = manager_result
+                && !is_pending_connecting
+            {
+                return Err(err);
+            }
+            state.connections.remove(&connection_id);
+            state
+                .pending_session_connections
+                .retain(|_, cid| *cid != connection_id);
+            let removed_sessions: Vec<AgentSessionId> = state
+                .sessions
+                .iter()
+                .filter_map(|(sid, session)| {
+                    (session.snapshot.connection_id == connection_id).then_some(*sid)
+                })
+                .collect();
+            for sid in &removed_sessions {
+                state.sessions.remove(sid);
+            }
+            if !removed_sessions.is_empty() {
+                let removed_session_set: HashSet<AgentSessionId> =
+                    removed_sessions.iter().copied().collect();
+                let removed_prompt_ids: Vec<AgentPromptId> = state
+                    .prompts
+                    .iter()
+                    .filter_map(|(pid, prompt)| {
+                        removed_session_set
+                            .contains(&prompt.session_id)
+                            .then_some(*pid)
+                    })
+                    .collect();
+                for pid in removed_prompt_ids {
+                    state.prompts.remove(&pid);
+                    state.prompt_blocks.remove(&pid);
+                    state.prompt_display_blocks.remove(&pid);
+                    state.prompt_options.remove(&pid);
+                    state.request_activity.remove(&pid);
+                }
+            }
+            removed_sessions
+        };
+        if !removed_session_ids.is_empty() {
+            let mut keepalive = self.keepalive_sessions.lock().await;
+            for sid in removed_session_ids {
+                keepalive.remove(&sid);
+            }
         }
-        state.connections.remove(&connection_id);
-        state
-            .pending_session_connections
-            .retain(|_, cid| *cid != connection_id);
-        state
-            .sessions
-            .retain(|_, session| session.snapshot.connection_id != connection_id);
         Ok(())
     }
 
@@ -2650,6 +2737,8 @@ impl AgentRuntime {
                 state.prompt_blocks.remove(&finished.prompt_id);
                 state.prompt_display_blocks.remove(&finished.prompt_id);
                 state.prompt_options.remove(&finished.prompt_id);
+                state.request_activity.remove(&finished.prompt_id);
+                let _ = prune_settled_history_locked(state);
             }
             AgentEvent::SessionLinked {
                 acp_session_id,
@@ -2739,8 +2828,19 @@ impl AgentRuntime {
                         error.message.clone(),
                     );
                 }
+                let _ = prune_settled_history_locked(state);
             }
             _ => {}
+        }
+        if matches!(
+            &manager_event.event,
+            AgentEvent::ConnectionStatusChanged { snapshot }
+                if matches!(
+                    snapshot.status,
+                    AgentConnectionStatus::Disconnected | AgentConnectionStatus::Failed
+                )
+        ) {
+            let _ = prune_settled_history_locked(state);
         }
     }
 }
@@ -2808,6 +2908,7 @@ fn fail_prompt_locked(
     state.prompt_blocks.remove(&prompt_id);
     state.prompt_display_blocks.remove(&prompt_id);
     state.prompt_options.remove(&prompt_id);
+    state.request_activity.remove(&prompt_id);
 }
 
 fn fail_connection_sessions_locked(
@@ -2851,9 +2952,91 @@ fn fail_connection_sessions_locked(
                 state.prompt_blocks.remove(&prompt_id);
                 state.prompt_display_blocks.remove(&prompt_id);
                 state.prompt_options.remove(&prompt_id);
+                state.request_activity.remove(&prompt_id);
             }
         }
     }
+}
+
+fn prune_settled_history_locked(state: &mut RuntimeState) -> Vec<AgentSessionId> {
+    if state.prompts.len() > MAX_SETTLED_PROMPTS {
+        let mut pinned_prompts = HashSet::new();
+        for session in state.sessions.values() {
+            if let Some(active) = session.queue.active() {
+                pinned_prompts.insert(active);
+            }
+            pinned_prompts.extend(session.queue.queued());
+        }
+        let mut settled: Vec<(AgentPromptId, chrono::DateTime<Utc>)> = state
+            .prompts
+            .iter()
+            .filter_map(|(pid, prompt)| {
+                let is_settled = matches!(
+                    prompt.status,
+                    AgentPromptStatus::Completed { .. } | AgentPromptStatus::Failed { .. }
+                );
+                (is_settled && !pinned_prompts.contains(pid)).then_some((*pid, prompt.updated_at))
+            })
+            .collect();
+        if settled.len() > MAX_SETTLED_PROMPTS {
+            settled.sort_by_key(|(_, updated_at)| *updated_at);
+            let excess = settled.len() - MAX_SETTLED_PROMPTS;
+            for (pid, _) in settled.into_iter().take(excess) {
+                state.prompts.remove(&pid);
+                state.prompt_blocks.remove(&pid);
+                state.prompt_display_blocks.remove(&pid);
+                state.prompt_options.remove(&pid);
+                state.request_activity.remove(&pid);
+            }
+        }
+    }
+
+    let mut evicted_sessions = Vec::new();
+    if state.connections.len() > MAX_SETTLED_CONNECTIONS {
+        let mut busy_connections = HashSet::new();
+        for session in state.sessions.values() {
+            if session.queue.active().is_some() || !session.queue.queued().is_empty() {
+                busy_connections.insert(session.snapshot.connection_id);
+            }
+        }
+        let mut settled: Vec<(AgentConnectionId, chrono::DateTime<Utc>)> = state
+            .connections
+            .iter()
+            .filter_map(|(cid, conn)| {
+                let is_settled = matches!(
+                    conn.snapshot.status,
+                    AgentConnectionStatus::Disconnected | AgentConnectionStatus::Failed
+                );
+                (is_settled && !busy_connections.contains(cid))
+                    .then_some((*cid, conn.snapshot.updated_at))
+            })
+            .collect();
+        if settled.len() > MAX_SETTLED_CONNECTIONS {
+            settled.sort_by_key(|(_, updated_at)| *updated_at);
+            let excess = settled.len() - MAX_SETTLED_CONNECTIONS;
+            let evicted_cids: HashSet<AgentConnectionId> =
+                settled.into_iter().take(excess).map(|(cid, _)| cid).collect();
+            for cid in &evicted_cids {
+                state.connections.remove(cid);
+            }
+            state
+                .pending_session_connections
+                .retain(|_, cid| !evicted_cids.contains(cid));
+            evicted_sessions = state
+                .sessions
+                .iter()
+                .filter_map(|(sid, session)| {
+                    evicted_cids
+                        .contains(&session.snapshot.connection_id)
+                        .then_some(*sid)
+                })
+                .collect();
+            for sid in &evicted_sessions {
+                state.sessions.remove(sid);
+            }
+        }
+    }
+    evicted_sessions
 }
 
 fn preview_text(text: &str) -> String {
@@ -5629,5 +5812,65 @@ mod tests {
 
         let expected: Vec<i64> = (1..=500).collect();
         assert_eq!(received_sequences, expected);
+    }
+
+    #[tokio::test]
+    async fn bounded_runtime_event_sink_sheds_ephemeral_overflow_while_preserving_terminal_events() {
+        let (sender, mut receiver) = mpsc::channel(4);
+        let sink = Arc::new(BoundedRuntimeEventSink::new(sender));
+        let connection_id = AgentConnectionId::new();
+        let session_id = AgentSessionId::new();
+        let workspace_id = Uuid::new_v4();
+
+        let total_ephemeral = SOFT_OVERFLOW_QUEUE_CAP as i64 + 64;
+        for seq in 1..=total_ephemeral {
+            sink.emit(AgentEventEnvelope {
+                sequence: seq,
+                workspace_id,
+                connection_id,
+                session_id: Some(session_id),
+                event: AgentEvent::ThoughtChunk {
+                    content: AgentContentBlock::Text {
+                        text: format!("thought-{seq}"),
+                    },
+                },
+                created_at: Utc::now(),
+            });
+        }
+
+        let terminal_seq = total_ephemeral + 1;
+        sink.emit(AgentEventEnvelope {
+            sequence: terminal_seq,
+            workspace_id,
+            connection_id,
+            session_id: Some(session_id),
+            event: AgentEvent::PromptFinished {
+                finished: crate::AgentPromptFinished {
+                    prompt_id: AgentPromptId::new(),
+                    stop_reason: Some("end_turn".to_string()),
+                    usage: None,
+                },
+            },
+            created_at: Utc::now(),
+        });
+
+        let dropped = sink
+            .overflow
+            .lock()
+            .expect("overflow lock")
+            .dropped_ephemeral;
+        assert!(dropped > 0, "ephemeral telemetry past soft cap must be shed");
+
+        let mut saw_terminal = false;
+        while let Some(env) = tokio::time::timeout(Duration::from_secs(2), receiver.recv())
+            .await
+            .expect("drain timed out")
+        {
+            if env.sequence == terminal_seq {
+                saw_terminal = true;
+                break;
+            }
+        }
+        assert!(saw_terminal, "PromptFinished must never be shed under overflow");
     }
 }

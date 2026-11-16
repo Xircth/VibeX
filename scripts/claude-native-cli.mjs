@@ -567,7 +567,15 @@ export function createClaudeCliSdkFallback({
         queue.fail(err);
       });
 
+      const abortSignal = options.abortController?.signal;
+      const onAbort = () => close();
+
+      function cleanupAbortListener() {
+        abortSignal?.removeEventListener('abort', onAbort);
+      }
+
       child.on('close', (code) => {
+        cleanupAbortListener();
         rl.close();
         for (const [, ctrl] of inFlightControlAborts) ctrl.abort();
         inFlightControlAborts.clear();
@@ -643,6 +651,7 @@ export function createClaudeCliSdkFallback({
 
       async function interrupt() {
         closed = true;
+        cleanupAbortListener();
         try {
           await sendControlRequest({ subtype: 'interrupt' }, 600);
         } catch {
@@ -656,6 +665,7 @@ export function createClaudeCliSdkFallback({
       function close() {
         if (closed) return;
         closed = true;
+        cleanupAbortListener();
         for (const [, ctrl] of inFlightControlAborts) ctrl.abort();
         inFlightControlAborts.clear();
         endStdin();
@@ -663,11 +673,11 @@ export function createClaudeCliSdkFallback({
         queue.end();
       }
 
-      if (options.abortController?.signal) {
-        if (options.abortController.signal.aborted) {
+      if (abortSignal) {
+        if (abortSignal.aborted) {
           close();
         } else {
-          options.abortController.signal.addEventListener('abort', () => close(), { once: true });
+          abortSignal.addEventListener('abort', onAbort, { once: true });
         }
       }
 

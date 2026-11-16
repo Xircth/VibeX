@@ -1,6 +1,6 @@
 //! Explicit product-history destinations. Native session IDs are never file identity.
 use std::{
-    collections::HashMap,
+    collections::{HashMap, VecDeque},
     path::PathBuf,
     sync::{LazyLock, RwLock},
 };
@@ -17,31 +17,57 @@ pub struct TranscriptTarget {
     pub session_id: String,
 }
 
-static TARGETS: LazyLock<RwLock<HashMap<AgentConnectionId, Option<TranscriptTarget>>>> =
-    LazyLock::new(|| RwLock::new(HashMap::new()));
+const MAX_RETIRED_TARGETS: usize = 4_096;
+
+#[derive(Default)]
+struct TranscriptTargetRegistry {
+    map: HashMap<AgentConnectionId, Option<TranscriptTarget>>,
+    retired_order: VecDeque<AgentConnectionId>,
+}
+
+impl TranscriptTargetRegistry {
+    fn mark_retired(&mut self, connection: AgentConnectionId) {
+        self.retired_order.push_back(connection);
+        while self.retired_order.len() > MAX_RETIRED_TARGETS {
+            if let Some(oldest) = self.retired_order.pop_front()
+                && self.map.get(&oldest).is_some_and(Option::is_none)
+            {
+                self.map.remove(&oldest);
+            }
+        }
+    }
+}
+
+static TARGETS: LazyLock<RwLock<TranscriptTargetRegistry>> =
+    LazyLock::new(|| RwLock::new(TranscriptTargetRegistry::default()));
 
 pub fn bind(connection: AgentConnectionId, target: TranscriptTarget) {
     TARGETS
         .write()
         .expect("transcript target lock")
+        .map
         .insert(connection, Some(target));
 }
 
 pub fn release(connection: AgentConnectionId) {
-    TARGETS
-        .write()
-        .expect("transcript target lock")
-        .insert(connection, None);
+    let mut registry = TARGETS.write().expect("transcript target lock");
+    registry.map.insert(connection, None);
+    registry.mark_retired(connection);
 }
 
 /// Retire under the same lock as enqueueing so a subsequent flush is a barrier.
 /// Keep the connection tombstone for delayed runtime envelopes from this host.
 pub fn retire_target(target: &TranscriptTarget) {
-    let mut targets = TARGETS.write().expect("transcript target lock");
-    for destination in targets.values_mut() {
+    let mut registry = TARGETS.write().expect("transcript target lock");
+    let mut newly_retired = Vec::new();
+    for (&connection, destination) in registry.map.iter_mut() {
         if destination.as_ref() == Some(target) {
             *destination = None;
+            newly_retired.push(connection);
         }
+    }
+    for connection in newly_retired {
+        registry.mark_retired(connection);
     }
 }
 
@@ -49,6 +75,7 @@ pub fn is_bound(connection: AgentConnectionId) -> bool {
     TARGETS
         .read()
         .expect("transcript target lock")
+        .map
         .get(&connection)
         .is_some_and(Option::is_some)
 }
@@ -57,6 +84,7 @@ pub fn is_retired(connection: AgentConnectionId) -> bool {
     TARGETS
         .read()
         .expect("transcript target lock")
+        .map
         .get(&connection)
         .is_some_and(Option::is_none)
 }
@@ -74,7 +102,7 @@ pub fn record_entry(
     payload: serde_json::Value,
 ) -> tokio::sync::oneshot::Receiver<()> {
     let targets = TARGETS.read().expect("transcript target lock");
-    match targets.get(&connection) {
+    match targets.map.get(&connection) {
         Some(Some(target)) => acp_transcript::record_entry_in(
             &target.root,
             &target.directory,
@@ -94,7 +122,7 @@ pub fn record_steer(
     payload: serde_json::Value,
 ) -> tokio::sync::oneshot::Receiver<()> {
     let targets = TARGETS.read().expect("transcript target lock");
-    match targets.get(&connection) {
+    match targets.map.get(&connection) {
         Some(Some(target)) => acp_transcript::record_steer_in(
             &target.root,
             &target.directory,

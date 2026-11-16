@@ -7,7 +7,7 @@
 //! remain active for legacy backfill, external parsers (`crate::parsers::*`), and tests.
 
 use std::{
-    collections::{HashMap, HashSet},
+    collections::{HashMap, HashSet, VecDeque},
     future::Future,
     io::{Seek as _, Write as _},
     path::{Path, PathBuf},
@@ -24,6 +24,42 @@ pub use self::reader::*;
 /// Schema version of the transcript file.
 pub const TRANSCRIPT_SCHEMA_VERSION: u32 = 1;
 
+const MAX_IN_MEMORY_SESSION_KEYS: usize = 4_096;
+
+#[derive(Default)]
+struct BoundedKeySet {
+    keys: HashSet<(String, String)>,
+    order: VecDeque<(String, String)>,
+}
+
+impl BoundedKeySet {
+    fn insert(&mut self, key: (String, String)) -> bool {
+        if !self.keys.insert(key.clone()) {
+            return false;
+        }
+        self.order.push_back(key);
+        while self.keys.len() > MAX_IN_MEMORY_SESSION_KEYS {
+            if let Some(oldest) = self.order.pop_front() {
+                self.keys.remove(&oldest);
+            } else {
+                break;
+            }
+        }
+        true
+    }
+
+    fn remove(&mut self, key: &(String, String)) {
+        self.keys.remove(key);
+        if self.order.len() > self.keys.len().saturating_mul(2).max(16) {
+            self.order.retain(|k| self.keys.contains(k));
+        }
+    }
+
+    fn contains(&self, key: &(String, String)) -> bool {
+        self.keys.contains(key)
+    }
+}
+
 /// Async callback registered by the persistence layer to check whether SQLite
 /// already holds recorded turns/events for `(conversation_id, agent_dir, acp_session_id)`.
 pub type AsyncRecordedHistoryProbe = Arc<
@@ -36,12 +72,12 @@ static REGISTERED_HISTORY_PROBE: LazyLock<RwLock<Option<AsyncRecordedHistoryProb
     LazyLock::new(|| RwLock::new(None));
 
 /// Sessions that observed at least one live prompt/update/steer/turn-end in this process.
-static RECORDED_SESSIONS: LazyLock<Mutex<HashSet<(String, String)>>> =
-    LazyLock::new(|| Mutex::new(HashSet::new()));
+static RECORDED_SESSIONS: LazyLock<Mutex<BoundedKeySet>> =
+    LazyLock::new(|| Mutex::new(BoundedKeySet::default()));
 
 /// In-flight or completed `session/load` replay claims in this process.
-static CLAIMED_REPLAYS: LazyLock<Mutex<HashSet<(String, String)>>> =
-    LazyLock::new(|| Mutex::new(HashSet::new()));
+static CLAIMED_REPLAYS: LazyLock<Mutex<BoundedKeySet>> =
+    LazyLock::new(|| Mutex::new(BoundedKeySet::default()));
 
 /// Register the authoritative SQLite history probe used by `session/load` replay gating.
 pub fn register_recorded_history_probe(probe: AsyncRecordedHistoryProbe) {

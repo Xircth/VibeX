@@ -453,7 +453,7 @@ async fn has_running_for_session_is_true_only_while_the_child_is_alive() {
 
 #[test]
 fn trim_output_history_prefers_line_boundary_after_overflow() {
-    let mut history = vec![b'a'; DEFAULT_OUTPUT_BYTE_LIMIT + 10];
+    let mut history = std::collections::VecDeque::from(vec![b'a'; DEFAULT_OUTPUT_BYTE_LIMIT + 10]);
     history[12] = b'\n';
 
     assert!(trim_output_history(&mut history, DEFAULT_OUTPUT_BYTE_LIMIT));
@@ -464,17 +464,32 @@ fn trim_output_history_prefers_line_boundary_after_overflow() {
 
 #[test]
 fn trim_output_history_does_not_start_with_utf8_continuation_byte() {
-    let mut history = vec![b'a'; DEFAULT_OUTPUT_BYTE_LIMIT + 4];
+    let mut history = std::collections::VecDeque::from(vec![b'a'; DEFAULT_OUTPUT_BYTE_LIMIT + 4]);
     let bytes = [0xe5, 0xa5, 0xbd];
-    history[2..2 + bytes.len()].copy_from_slice(&bytes);
+    for (idx, byte) in bytes.iter().enumerate() {
+        history[2 + idx] = *byte;
+    }
 
     assert!(trim_output_history(&mut history, DEFAULT_OUTPUT_BYTE_LIMIT));
 
     assert!(
         history
-            .first()
+            .front()
             .is_none_or(|byte| is_utf8_boundary_byte(*byte))
     );
+}
+
+#[test]
+fn trim_output_history_preserves_recent_bytes_across_wrapped_ring_chunks() {
+    let mut history = std::collections::VecDeque::new();
+    history.extend(&vec![b'x'; 64]);
+    history.drain(..48);
+    history.extend(b"first-line\nsecond-line\nthird-line");
+
+    assert!(trim_output_history(&mut history, 20));
+    let contiguous = history.make_contiguous();
+    assert!(std::str::from_utf8(contiguous).is_ok());
+    assert!(contiguous.ends_with(b"third-line"));
 }
 
 #[tokio::test]

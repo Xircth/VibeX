@@ -527,6 +527,9 @@ impl ConversationSessionService {
 
     pub(self) async fn turn_lock(&self, conversation_id: Uuid) -> Arc<tokio::sync::Mutex<()>> {
         let mut locks = self.ctx.turn_locks.lock().await;
+        if locks.len() > 128 {
+            locks.retain(|id, lock| *id == conversation_id || Arc::strong_count(lock) > 1);
+        }
         Arc::clone(
             locks
                 .entry(conversation_id)
@@ -584,6 +587,17 @@ impl ConversationSessionService {
         update: impl FnOnce(&mut ConversationRuntimeState),
     ) {
         let mut states = self.ctx.runtime_states.lock().await;
+        if states.len() > 256 {
+            states.retain(|id, s| {
+                *id == conversation_id
+                    || s.turn_in_flight
+                    || s.active_turn_id.is_some()
+                    || s.active_prompt_id.is_some()
+                    || s.pending_permission_id.is_some()
+                    || s.pending_question_id.is_some()
+                    || !s.active_delegation_ids.is_empty()
+            });
+        }
         let state = states.entry(conversation_id).or_default();
         update(state);
     }

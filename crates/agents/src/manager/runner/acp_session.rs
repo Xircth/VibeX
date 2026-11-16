@@ -174,8 +174,7 @@ impl AgentConnectionRunner {
                         Ok(())
                     };
                     if result.is_ok() {
-                        self.session_map.write().await.remove(&session_id);
-                        self.session_controls.write().await.remove(&session_id);
+                        self.cleanup_discarded_session(session_id).await;
                     }
                     let _ = result_tx.send(result);
                 }

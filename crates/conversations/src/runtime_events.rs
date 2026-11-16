@@ -938,6 +938,14 @@ impl ConversationAgentEventRecorder {
                 }
                 false
             }
+            ConversationEvent::TurnCompleted { .. }
+            | ConversationEvent::TurnFailed { .. }
+            | ConversationEvent::TurnCancelled { .. }
+            | ConversationEvent::TurnBlocked { .. } => {
+                self.pending_step_text.remove(&mapped.conversation_id);
+                self.turn_had_tool_call.remove(&mapped.conversation_id);
+                false
+            }
             _ => false,
         }
     }
@@ -964,6 +972,9 @@ impl ConversationAgentEventRecorder {
                 }
                 let turn_id =
                     bind_prompt_turn(&self.pool, conversation_id, &snapshot.id.to_string()).await?;
+                if self.active_turn_cache.len() >= 512 {
+                    self.active_turn_cache.clear();
+                }
                 self.active_turn_cache.insert(conversation_id, turn_id);
                 Ok(turn_id)
             }
@@ -1001,6 +1012,9 @@ impl ConversationAgentEventRecorder {
                         self.turn_db_lookups += 1;
                     }
                     let resolved = in_flight_active_turn_id(&self.pool, conversation_id).await?;
+                    if self.active_turn_cache.len() >= 512 {
+                        self.active_turn_cache.clear();
+                    }
                     self.active_turn_cache.insert(conversation_id, resolved);
                     resolved
                 };

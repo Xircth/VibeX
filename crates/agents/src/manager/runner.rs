@@ -618,6 +618,20 @@ impl AgentConnectionRunner {
         *self.active_prompt.lock().await = None;
     }
 
+    pub(in crate::manager) async fn cleanup_discarded_session(&self, session_id: AgentSessionId) {
+        let acp_session_id = self.session_map.write().await.remove(&session_id);
+        self.session_controls.write().await.remove(&session_id);
+        self.preferred_controls.write().await.remove(&session_id);
+        self.session_wants_prompt_suggestions
+            .write()
+            .await
+            .remove(&session_id);
+        self.idle_compaction.remove_session(session_id.0);
+        if let Some(acp_session_id) = acp_session_id {
+            self.stream_dedup.lock().await.remove(&acp_session_id);
+        }
+    }
+
     pub(in crate::manager) fn emit_connection_status(
         &self,
         status: AgentConnectionStatus,

@@ -212,15 +212,8 @@ impl AgentConnectionRunner {
                     result_tx,
                 } => {
                     self.cancel_pending_interactions(session_id).await;
-                    self.session_map.write().await.remove(&session_id);
-                    self.session_controls.write().await.remove(&session_id);
-                    self.preferred_controls.write().await.remove(&session_id);
-                    self.session_wants_prompt_suggestions
-                        .write()
-                        .await
-                        .remove(&session_id);
+                    self.cleanup_discarded_session(session_id).await;
                     session_char_accumulators.remove(&session_id);
-                    self.idle_compaction.remove_session(session_id.0);
                     let _ = result_tx.send(Ok(()));
                 }
                 AgentConnectionCommand::ResumeSession {

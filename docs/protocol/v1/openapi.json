@@ -1,7 +1,7 @@
 {
   "openapi": "3.1.0",
   "info": {
-    "title": "VibeX Remote Protocol",
+    "title": "Dimo Remote Protocol",
     "version": "1.0"
   },
   "servers": [

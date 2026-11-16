@@ -7,7 +7,7 @@
 //! automated bridging, and tool RESULTS all arrive as user messages, the
 //! results as text shaped `[tool for 'arg'] Result:\n<output>`. A user message
 //! therefore fans out into a System record (tool results) emitted first, then a
-//! User record (genuine text). VibeX-authored; the format is Cline's.
+//! User record (genuine text). Dimo-authored; the format is Cline's.
 
 use chrono::Utc;
 use serde_json::Value;

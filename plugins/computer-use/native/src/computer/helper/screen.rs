@@ -1,18 +1,18 @@
 //! The entire screen, shared as a whole: one picture of it, and pointer
 //! actions at points on it.
 //!
-//! Sharing the screen does not lift the rules that hold for any window: vibex
+//! Sharing the screen does not lift the rules that hold for any window: dimo
 //! itself and the applications on the blocklist are never seen nor touched.
 //! Over the whole screen the helper judges that itself, window by window, at
-//! the moment of the capture or the action, by the rules vibex hands it
-//! ([`ScreenRules`]) — so a window that came up since vibex last looked is
+//! the moment of the capture or the action, by the rules dimo hands it
+//! ([`ScreenRules`]) — so a window that came up since dimo last looked is
 //! judged too, not let through for want of having been listed. A window is
-//! judged by its owner, as vibex judges a window it lists, and one whose
+//! judged by its owner, as dimo judges a window it lists, and one whose
 //! owner cannot be told an application the person could share — the menu
 //! bar the system draws, the system's own agents — is judged as one that is
 //! never shared. So is a window of the system's that shows what other
 //! windows hold — an overview of every window, previews of them, other
-//! applications' notifications ([`shows_others`]) — which vibex cannot
+//! applications' notifications ([`shows_others`]) — which dimo cannot
 //! judge piece by piece; and the keys and corners that bring such an
 //! overview up are kept out of reach (`keys::classify_for_screen`,
 //! [`in_a_corner`]).
@@ -643,7 +643,7 @@ pub async fn act(
     if landings.iter().any(|l| !lands_allowed(&windows, l.screen)) {
         return Err(HelperError::new(
             HelperErrorCode::OutOfTarget,
-            "That point is on a part of the screen that is never shared — a window of vibex's \
+            "That point is on a part of the screen that is never shared — a window of dimo's \
              own, of an application on the user's never-share list, or of the system's that \
              no application owns — which sharing the screen does not reach, so nothing was \
              sent. Take a new screenshot: those parts are painted over in it.",

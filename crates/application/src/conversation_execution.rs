@@ -106,6 +106,7 @@ impl ConversationExecutionPort for ConversationSessionExecutionPort {
                 queued_input_claim: None,
                 operation_id: request.operation_id,
                 collaboration_origin: None,
+                provider_instance_id: request.provider_instance_id,
             })
             .await
             .map(|(turn, _)| turn)
@@ -185,11 +186,35 @@ impl ConversationExecutionPort for ConversationSessionExecutionPort {
         let dispatched = match self.dispatch_next_queued_input(conversation_id).await {
             Ok(turn) => turn,
             Err(error) => {
+                let current = self
+                    .inputs
+                    .find(conversation_id, submitted.id)
+                    .await
+                    .map_err(map_input_error)?;
+                if current.turn_id.is_none() {
+                    if matches!(
+                        current.status,
+                        conversations::ConversationInputStatus::Queued
+                            | conversations::ConversationInputStatus::Scheduled
+                    ) {
+                        let _ = self
+                            .inputs
+                            .cancel(CancelConversationInput {
+                                conversation_id,
+                                input_id: submitted.id,
+                                operation_id: uuid::Uuid::new_v4(),
+                                expected_revision: current.revision,
+                            })
+                            .await;
+                    }
+                    return Err(error);
+                }
                 tracing::warn!(
                     %conversation_id,
                     input_id = %submitted.id,
+                    turn_id = ?current.turn_id,
                     %error,
-                    "durable conversation input was accepted; dispatch will retry later"
+                    "committed turn failed during initial handshake"
                 );
                 None
             }

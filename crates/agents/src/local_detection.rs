@@ -2,7 +2,7 @@
 //!
 //! Installation truth is the user environment: PATH, npm global prefix, uv
 //! tools and the user bin. The Installation lock records the last successful
-//! observation of those paths; it is not a second, VibeX-owned install.
+//! observation of those paths; it is not a second, Dimo-owned install.
 
 use std::path::{Path, PathBuf};
 

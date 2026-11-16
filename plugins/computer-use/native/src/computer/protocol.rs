@@ -1,6 +1,6 @@
-//! Frames between vibex and `vibex-computer-helper`.
+//! Frames between dimo and `dimo-computer-helper`.
 //!
-//! One private channel per helper: the socketpair vibex created and handed to
+//! One private channel per helper: the socketpair dimo created and handed to
 //! the helper as its stdin/stdout on macOS, plain pipes elsewhere. Frames are
 //! the broker's length-prefixed JSON ([`write_frame`] / [`read_frame`]), with
 //! the broker's 16 MiB cap — which is also the most the broker can hand an
@@ -8,9 +8,9 @@
 //! have been delivered anyway.
 //!
 //! **The helper speaks first**, with [`HelperMessage::Ready`]. That ordering is
-//! load-bearing on macOS: vibex created both ends of the socketpair, so until
-//! the helper has written to its end the kernel still reports vibex itself as
-//! the peer, and a signature check of "the peer" would check vibex. vibex
+//! load-bearing on macOS: dimo created both ends of the socketpair, so until
+//! the helper has written to its end the kernel still reports dimo itself as
+//! the peer, and a signature check of "the peer" would check dimo. dimo
 //! verifies the helper only after the first frame arrives.
 //!
 //! The ops are a closed list. The driver behind the helper advertises dozens
@@ -41,33 +41,33 @@ use super::types::{
 };
 
 /// Bumped whenever a frame changes shape. The helper ships in the same bundle
-/// as vibex, so a mismatch means a broken install (a helper left behind by a
-/// partial update), and vibex refuses to talk to it rather than guess.
+/// as dimo, so a mismatch means a broken install (a helper left behind by a
+/// partial update), and dimo refuses to talk to it rather than guess.
 pub const PROTOCOL_VERSION: u32 = 14;
 
-/// A fingerprint of the sources the helper is built from, the same in vibex
+/// A fingerprint of the sources the helper is built from, the same in dimo
 /// and the helper when both are built from one tree (see `build.rs`). The
-/// helper says it in [`HelperReady::source`]; a development vibex checks it.
-pub const SOURCE_FINGERPRINT: &str = env!("VIBEX_COMPUTER_SOURCE");
+/// helper says it in [`HelperReady::source`]; a development dimo checks it.
+pub const SOURCE_FINGERPRINT: &str = env!("DIMO_COMPUTER_SOURCE");
 
-/// vibex → helper.
+/// dimo → helper.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct HelperRequest {
     pub id: u64,
     pub op: HelperOp,
-    /// How many of the person's Stops vibex had counted when it let this
+    /// How many of the person's Stops dimo had counted when it let this
     /// request through. The helper serves nothing of a request from before
     /// a Stop it has heard of ([`HelperOp::Halt`]) — whichever of the two
     /// frames reached it first — and holds nothing against one from after.
     pub stop: u64,
 }
 
-/// The `stop` of a [`HelperOp::Halt`] that ends everything: vibex is closing
+/// The `stop` of a [`HelperOp::Halt`] that ends everything: dimo is closing
 /// the helper, and nothing it was asked before is served.
 pub const STOP_ALL: u64 = u64::MAX;
 
-/// What vibex may ask the helper for.
+/// What dimo may ask the helper for.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "camelCase")]
 pub enum HelperOp {
@@ -80,7 +80,7 @@ pub enum HelperOp {
         driver_version: String,
     },
     /// The helper's own OS permissions. Read-only: never raises a dialog.
-    /// (Asking for one is not an op: vibex starts a helper of its own for
+    /// (Asking for one is not an op: dimo starts a helper of its own for
     /// that — see [`REQUEST_PERMISSION_ARG`].)
     Permissions,
     ListApps,
@@ -146,7 +146,7 @@ pub enum HelperOp {
         window_id: u64,
         request: VerifyRequest,
     },
-    /// Act on one window. vibex has checked the grant, the addressing, the
+    /// Act on one window. dimo has checked the grant, the addressing, the
     /// keys and — for the front — that the person allows it; the helper
     /// checks again what only it can see at the moment of delivery — that
     /// the pid is still the process the window was shared from, and the
@@ -212,7 +212,7 @@ pub enum HelperOp {
     ClipboardWrite {
         text: String,
     },
-    /// The person pressed Stop — vibex's `stop`-th — or vibex is closing the
+    /// The person pressed Stop — dimo's `stop`-th — or dimo is closing the
     /// helper ([`STOP_ALL`]): kill the driver started for a request from
     /// before it, now, whatever it is in the middle of, and serve nothing
     /// more of any request from before it. A `Halt` older than one already
@@ -225,8 +225,8 @@ pub enum HelperOp {
 }
 
 /// The argument that starts the helper for one permission request instead
-/// of serving vibex: `vibex-computer-helper --request-permission
-/// accessibility`. vibex starts it as it starts the helper — its own TCC
+/// of serving dimo: `dimo-computer-helper --request-permission
+/// accessibility`. dimo starts it as it starts the helper — its own TCC
 /// principal — so the request names the helper; and a fresh process each
 /// time, because macOS takes a request from each process once. It asks for
 /// that permission alone, then prints a [`PermissionAsked`] line and exits.
@@ -435,9 +435,9 @@ pub struct RawAct {
     pub clipboard: Option<u64>,
 }
 
-/// Who may never be seen or touched over the entire screen: vibex itself,
+/// Who may never be seen or touched over the entire screen: dimo itself,
 /// and the applications on the blocklist — which the helper judges on its
-/// own there, window by window, as vibex judges a window it shares.
+/// own there, window by window, as dimo judges a window it shares.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ScreenRules {
@@ -465,7 +465,7 @@ pub struct ClipboardUse {
     /// changes the clipboard, and say what to.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub track: bool,
-    /// The clipboard as the agent last put it there itself, when vibex holds
+    /// The clipboard as the agent last put it there itself, when dimo holds
     /// that it still may be pasted: an action that pastes — a paste key, a
     /// menu command or a control that pastes — goes only while the clipboard
     /// is still this. Without it, nothing that pastes goes at all.
@@ -482,7 +482,7 @@ pub struct RawClipboard {
     pub text: Option<String>,
 }
 
-/// helper → vibex.
+/// helper → dimo.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "camelCase")]
 pub enum HelperMessage {
@@ -495,24 +495,24 @@ pub enum HelperMessage {
 #[serde(rename_all = "camelCase")]
 pub struct HelperReady {
     pub protocol: u32,
-    /// The helper's own crate version, which is vibex's.
+    /// The helper's own crate version, which is dimo's.
     pub version: String,
     /// What the helper knows about who it is talking to.
     pub peer: PeerCheck,
     /// [`SOURCE_FINGERPRINT`] as the helper was built. Absent from a helper
-    /// older than the field, which a development vibex takes for a stale one.
+    /// older than the field, which a development dimo takes for a stale one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub source: Option<String>,
 }
 
-/// Whether the helper checked vibex's code signature before serving it.
+/// Whether the helper checked dimo's code signature before serving it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum PeerCheck {
-    /// It did, and vibex passed (macOS release builds).
+    /// It did, and dimo passed (macOS release builds).
     Verified,
     /// A development build: no requirement was compiled in to check against.
-    /// Said out loud so vibex can show it.
+    /// Said out loud so dimo can show it.
     Development,
     /// No code signature to check on this platform.
     NotApplicable,
@@ -520,7 +520,7 @@ pub enum PeerCheck {
 
 /// The answer to one [`HelperRequest`]: exactly one of `ok` / `error`.
 ///
-/// `ok` travels as a plain JSON value because vibex knows which op it asked
+/// `ok` travels as a plain JSON value because dimo knows which op it asked
 /// and decodes it into that op's type ([`HelperReply::decode`]); a tagged
 /// union here would only repeat the op kind the id already names.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -645,7 +645,7 @@ impl RawApp {
 }
 
 /// An installed application as the driver lists it: who it is — its bundle
-/// identifier, or its executable — for vibex to judge by, and the command
+/// identifier, or its executable — for dimo to judge by, and the command
 /// that starts it, which is not who it is: a launch command carries
 /// arguments, and on Linux may be a wrapper (`flatpak run …`).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -867,7 +867,7 @@ impl HelperError {
         };
         Self {
             code: HelperErrorCode::PermissionMissing,
-            message: format!("vibex-computer-helper has not been granted {what}"),
+            message: format!("dimo-computer-helper has not been granted {what}"),
             permission: Some(permission),
         }
     }
@@ -977,7 +977,7 @@ mod tests {
         assert_eq!(err.permission, Some(OsPermission::ScreenRecording));
     }
 
-    /// Every request carries vibex's count of Stops, and so does a Stop: they
+    /// Every request carries dimo's count of Stops, and so does a Stop: they
     /// are held one against the other by it, not by the order they arrive in.
     #[test]
     fn requests_and_stops_carry_the_stop_count() {
@@ -994,7 +994,7 @@ mod tests {
             serde_json::from_value::<HelperRequest>(wire).unwrap(),
             request
         );
-        // A request without one is not a request from this vibex.
+        // A request without one is not a request from this dimo.
         assert!(serde_json::from_value::<HelperRequest>(serde_json::json!({
             "id": 1, "op": {"kind": "listApps"}
         }))

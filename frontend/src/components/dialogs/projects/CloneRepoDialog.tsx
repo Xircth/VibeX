@@ -45,10 +45,17 @@ const CloneRepoDialogImpl = NiceModal.create<Record<string, never>>(() => {
     parentDir && derivedName ? joinPath(parentDir, derivedName) : '';
 
   const pickDir = async () => {
-    const picked = await pickHostDirectory();
-    if (typeof picked === 'string') {
-      setParentDir(picked);
-      setError(null);
+    try {
+      const picked = await pickHostDirectory({
+        title: t('cloneRepo.cloneToLabel'),
+        value: parentDir,
+      });
+      if (typeof picked === 'string') {
+        setParentDir(picked);
+        setError(null);
+      }
+    } catch (err) {
+      setError(getErrorMessage(err) || t('cloneRepo.cloneFailed'));
     }
   };
 
@@ -124,7 +131,10 @@ const CloneRepoDialogImpl = NiceModal.create<Record<string, never>>(() => {
                 label={t('cloneRepo.cloneToLabel')}
                 isLabelHidden
                 value={parentDir}
-                onChange={setParentDir}
+                onChange={(value) => {
+                  setParentDir(value);
+                  setError(null);
+                }}
                 placeholder={t('cloneRepo.parentDirPlaceholder')}
                 isDisabled={cloning}
                 width="100%"

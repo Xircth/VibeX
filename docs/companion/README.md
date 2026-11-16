@@ -1,6 +1,6 @@
 # Companion & Paired Remote Clients
 
-VibeX clients — **native iOS Companion** ([`mobile/ios`](../../mobile/ios), [ADR-0084](../adr/0084-native-swiftui-ios-companion.md)), **native Android Companion** ([`mobile/android`](../../mobile/android), [ADR-0041](../adr/0041-native-kotlin-compose-android-companion.md)), and **paired Remote Desktop Workstations** ([ADR-0054](../adr/0054-host-family-distribution-and-client-surfaces.md)) — connect to an online **VibeX Host** (`vibex` Desktop or `vibex-server`) over **Remote Protocol v1** ([`docs/protocol/v1/README.md`](../protocol/v1/README.md)).
+Dimo clients — **native iOS Companion** ([`mobile/ios`](../../mobile/ios), [ADR-0084](../adr/0084-native-swiftui-ios-companion.md)), **native Android Companion** ([`mobile/android`](../../mobile/android), [ADR-0041](../adr/0041-native-kotlin-compose-android-companion.md)), and **paired Remote Desktop Workstations** ([ADR-0054](../adr/0054-host-family-distribution-and-client-surfaces.md)) — connect to an online **Dimo Host** (`dimo` Desktop or `dimo-server`) over **Remote Protocol v1** ([`docs/protocol/v1/README.md`](../protocol/v1/README.md)).
 
 Mobile Companions never execute coding agents, Git worktrees, PTY shells, or plugin workers on the phone; all compute stays on the Host while Companions observe live timelines, answer approvals/questions, steer or launch turns, and read offline caches.
 
@@ -17,7 +17,7 @@ Defined by [ADR-0059](../adr/0059-host-identity-and-pairing-invitation.md) and [
 | Preset | Target Surface | Permitted Capabilities |
 | --- | --- | --- |
 | **Companion Device** | `mobile/ios` (SwiftUI), `mobile/android` (Kotlin/Compose) | Browse projects/workspaces/conversations (`conversation.read`), create/send/steer/cancel turns, approve/deny permissions, answer structured questions, inspect read-only Artifacts, and read local offline cache. Excludes PTY terminals, plugin installation, and Host administration. |
-| **Workstation Device** | Paired Desktop `vibex` (`RemoteDesktopTransport`) | Full remote coding loop: conversations, files, diffs, Git, PTY terminals, DAG Workflows, Automations, and installed plugin surfaces over HTTPS/WS or E2EE WebRTC (`vibex-webrtc://`). Excludes Host Console administration (listener bind, pairing issuance, device revocation, binary upgrade). |
+| **Workstation Device** | Paired Desktop `dimo` (`RemoteDesktopTransport`) | Full remote coding loop: conversations, files, diffs, Git, PTY terminals, DAG Workflows, Automations, and installed plugin surfaces over HTTPS/WS or E2EE WebRTC (`dimo-webrtc://`). Excludes Host Console administration (listener bind, pairing issuance, device revocation, binary upgrade). |
 
 ---
 
@@ -28,7 +28,7 @@ All remote clients consume the same event-sourced conversation pipeline (`Conver
 ### Capability Handshake & WebSocket Subprotocol
 
 1. **Handshake**: `GET /api/v1/capabilities` verifies protocol compatibility (`protocol_version: 1`), resolves `host_id`, and returns the exact command/scope set derived from `HostCommandRegistry` ([ADR-0078](../adr/0078-host-command-registry-single-seam.md)).
-2. **WebSocket Authentication**: Connect to `/api/v1/ws` passing the device credential in `Sec-WebSocket-Protocol: vibex.token.<base64url>` (query-string tokens are rejected).
+2. **WebSocket Authentication**: Connect to `/api/v1/ws` passing the device credential in `Sec-WebSocket-Protocol: dimo.token.<base64url>` (query-string tokens are rejected).
 3. **Durable Attach Lifecycle**:
    - Client sends `attach` for a `conversation_id` with optional `after_sequence` (its highest persisted event sequence).
    - Host replies `ready`, streams either incremental `event` frames (replay) or a full materialized `snapshot` when `after_sequence` falls behind retention, emits high-water `live` once caught up, and streams real-time updates thereafter (`detached` closes the subscription).

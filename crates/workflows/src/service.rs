@@ -1020,10 +1020,10 @@ fn validate_source_path(source_path: &str) -> Result<(), WorkflowError> {
         || path
             .components()
             .any(|component| matches!(component, std::path::Component::ParentDir))
-        || !source_path.ends_with(".vibex-workflow.json")
+        || !source_path.ends_with(".dimo-workflow.json")
     {
         return Err(WorkflowError::Validation(
-            "sourcePath must be a relative *.vibex-workflow.json path".to_string(),
+            "sourcePath must be a relative *.dimo-workflow.json path".to_string(),
         ));
     }
     Ok(())

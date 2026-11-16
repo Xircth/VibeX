@@ -16,7 +16,7 @@ const mocks = vi.hoisted(() => ({
       version: '0.1.3',
       body: '## English\n\nEnglish notes\n\n## 中文\n\n中文更新说明',
       date: '2026-08-16T00:00:00.000Z',
-      releaseUrl: 'https://github.com/Xircth/VibeX/releases/tag/v0.1.3',
+      releaseUrl: 'https://github.com/DimoADE/Dimo/releases/tag/v0.1.3',
       canInstall: true,
     },
   },
@@ -89,7 +89,7 @@ describe('AppUpdaterSection', () => {
 
     await user.click(await screen.findByRole('button', { name: '发布页' }));
     expect(open).toHaveBeenCalledWith(
-      'https://github.com/Xircth/VibeX/releases/tag/v0.1.3'
+      'https://github.com/DimoADE/Dimo/releases/tag/v0.1.3'
     );
   });
 });

@@ -345,7 +345,7 @@ function WorkflowAutomationEditor({
   );
   const [workspaceId, setWorkspaceId] = useState('project-root');
   const [sourcePath, setSourcePath] = useState(
-    '~/.vibex/workflows/new-workflow.vibex-workflow.json'
+    '~/.dimo/workflows/new-workflow.dimo-workflow.json'
   );
   const [sourceRevision, setSourceRevision] = useState<string | null>(null);
   const [name, setName] = useState(initialAutomation?.name ?? definition.name);
@@ -532,7 +532,7 @@ function WorkflowAutomationEditor({
         );
         const authoredPath =
           loadedVersion.sourcePath ??
-          '~/.vibex/workflows/workflow.vibex-workflow.json';
+          '~/.dimo/workflows/workflow.dimo-workflow.json';
         setSourcePath(authoredPath);
         const root = initialAutomation.target.spec.workspace.rootFolder;
         try {

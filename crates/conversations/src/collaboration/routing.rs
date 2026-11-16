@@ -920,7 +920,7 @@ pub const DEFAULT_COLLAB_TURN_TIMEOUT_MINUTES: i64 = 15;
 
 pub fn agent_reply_chain_max() -> usize {
     env_i64(
-        "VIBEX_AGENT_REPLY_CHAIN_MAX",
+        "DIMO_AGENT_REPLY_CHAIN_MAX",
         DEFAULT_AGENT_REPLY_CHAIN_MAX as i64,
     )
     .max(1) as usize
@@ -934,20 +934,20 @@ pub(crate) fn env_i64(key: &str, default: i64) -> i64 {
         .unwrap_or(default)
 }
 
-/// `VIBEX_MEMBER_IDLE_MINUTES` (default 30; 0 disables sleeping).
+/// `DIMO_MEMBER_IDLE_MINUTES` (default 30; 0 disables sleeping).
 pub fn idle_sleep_minutes() -> i64 {
-    env_i64("VIBEX_MEMBER_IDLE_MINUTES", DEFAULT_IDLE_SLEEP_MINUTES)
+    env_i64("DIMO_MEMBER_IDLE_MINUTES", DEFAULT_IDLE_SLEEP_MINUTES)
 }
 
-/// `VIBEX_MEMBER_WAKE_CAP` (default 3) sleeping sessions woken per turn.
+/// `DIMO_MEMBER_WAKE_CAP` (default 3) sleeping sessions woken per turn.
 pub fn wake_cap_per_turn() -> i64 {
-    env_i64("VIBEX_MEMBER_WAKE_CAP", DEFAULT_WAKE_CAP_PER_TURN)
+    env_i64("DIMO_MEMBER_WAKE_CAP", DEFAULT_WAKE_CAP_PER_TURN)
 }
 
-/// `VIBEX_COLLAB_TURN_TIMEOUT_MINUTES` (default 15) before an open turn times out.
+/// `DIMO_COLLAB_TURN_TIMEOUT_MINUTES` (default 15) before an open turn times out.
 pub fn collab_turn_timeout_minutes() -> i64 {
     env_i64(
-        "VIBEX_COLLAB_TURN_TIMEOUT_MINUTES",
+        "DIMO_COLLAB_TURN_TIMEOUT_MINUTES",
         DEFAULT_COLLAB_TURN_TIMEOUT_MINUTES,
     )
     .max(1)
@@ -1119,11 +1119,22 @@ pub fn spawn_idle_session_sweeper(pool: SqlitePool, delivery: DeliveryContext) {
         }
     });
     tokio::spawn(async move {
+        let notify = round_sweep_notify();
         loop {
+            let notified = notify.notified();
+            tokio::pin!(notified);
             if let Err(error) = sweep_round_grace_detach(&grace_pool, &grace_delivery).await {
                 tracing::warn!(%error, "round grace detach sweep failed");
             }
-            tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+            let wait = if has_active_collaboration_rounds(&grace_pool).await {
+                std::time::Duration::from_secs(1)
+            } else {
+                std::time::Duration::from_secs(30)
+            };
+            tokio::select! {
+                _ = &mut notified => {}
+                _ = tokio::time::sleep(wait) => {}
+            }
         }
     });
 }
@@ -1992,7 +2003,7 @@ mod tests {
         assert!(is_person_ref("@你"));
         assert!(is_person_ref("用户"));
         assert!(!is_person_ref("小A"));
-        assert!(!is_person_ref("vibex://space/demo/user"));
+        assert!(!is_person_ref("dimo://space/demo/user"));
         assert_eq!(actor_display_name("User"), "Person");
         assert_eq!(actor_display_name("小A"), "小A");
         assert_eq!(actor_display_name("@小A"), "小A");

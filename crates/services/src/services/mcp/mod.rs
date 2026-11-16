@@ -2,7 +2,7 @@
 //!
 //! "Global" means writing an entry to every compatible agent's native MCP
 //! config file (Claude `~/.claude.json`, Codex `~/.codex/config.toml`, Hermes
-//! `~/.hermes/config.yaml`, …). VibeX does not keep a separate registry.
+//! `~/.hermes/config.yaml`, …). Dimo does not keep a separate registry.
 //!
 //! All server specs are stored in a single canonical JSON shape
 //! (`{type: "stdio"|"http"|"sse", …}`); per-agent writers translate that to
@@ -55,7 +55,7 @@ static MARKETPLACE_HTTP_CLIENT: LazyLock<Result<reqwest::Client, String>> = Lazy
     reqwest::Client::builder()
         .connect_timeout(Duration::from_secs(8))
         .timeout(Duration::from_secs(20))
-        .user_agent("vibex-mcp-market/1.0")
+        .user_agent("dimo-mcp-market/1.0")
         .build()
         .map_err(|e| format!("failed to initialize marketplace HTTP client: {e}"))
 });
@@ -134,7 +134,7 @@ const ALL_APPS: [McpAppType; 20] = [
     McpAppType::Pi,
 ];
 
-/// Targets that VibeX exposes for new MCP assignments. OpenClaw and Pi remain
+/// Targets that Dimo exposes for new MCP assignments. OpenClaw and Pi remain
 /// in `ALL_APPS` so legacy/extension entries can be scanned and removed, but
 /// are not offered for new global assignments.
 const ASSIGNABLE_APPS: [McpAppType; 18] = [
@@ -1788,11 +1788,11 @@ fn canonical_to_codex_entry(spec: &Value) -> Result<toml::Value, McpError> {
                 .get("command")
                 .and_then(Value::as_str)
                 .ok_or_else(|| bad("Codex conversion: stdio MCP spec missing command"))?;
-            if command.contains("vibex-mcp") && !command.contains("vibex-workflow-mcp") {
+            if command.contains("dimo-mcp") && !command.contains("dimo-workflow-mcp") {
                 table.insert(
                     "env_vars".to_string(),
                     toml::Value::Array(vec![toml::Value::String(
-                        "VIBEX_CONVERSATION_ID".to_string(),
+                        "DIMO_CONVERSATION_ID".to_string(),
                     )]),
                 );
             }
@@ -3022,9 +3022,9 @@ fn upsert_grok_server(id: &str, spec: &Value) -> Result<(), McpError> {
 
 /// Product MCP identities projected into `~/.grok/config.toml`.
 const GROK_PRODUCT_MCP_IDS: &[&str] = &[
-    "vibex-delegation-mcp",
-    "vibex-session-mcp",
-    "vibex-workflow-mcp",
+    "dimo-delegation-mcp",
+    "dimo-session-mcp",
+    "dimo-workflow-mcp",
 ];
 
 /// Grok waits this long for each native MCP during `session/new` (default 30).
@@ -4045,7 +4045,7 @@ async fn probe_stdio_mcp_tools(spec: &Value) -> Vec<String> {
             "params": {
                 "protocolVersion": "2024-11-05",
                 "capabilities": {},
-                "clientInfo": { "name": "vibex-mcp-probe", "version": "1.0.0" }
+                "clientInfo": { "name": "dimo-mcp-probe", "version": "1.0.0" }
             }
         });
         let init_notif = json!({
@@ -4136,7 +4136,7 @@ async fn probe_http_mcp_tools(spec: &Value) -> Vec<String> {
             "params": {
                 "protocolVersion": "2024-11-05",
                 "capabilities": {},
-                "clientInfo": { "name": "vibex-mcp-probe", "version": "1.0.0" }
+                "clientInfo": { "name": "dimo-mcp-probe", "version": "1.0.0" }
             }
         });
         let mut session_id: Option<String> = None;
@@ -5470,7 +5470,7 @@ mod tests {
     async fn saved_hermes_home_expands_tilde_for_mcp() {
         let environment = HashMap::from([(
             "HERMES_HOME".to_string(),
-            "~/.hermes-vibex-test".to_string(),
+            "~/.hermes-dimo-test".to_string(),
         )]);
 
         let path =
@@ -5479,7 +5479,7 @@ mod tests {
         assert_eq!(
             path,
             home_dir_or_default()
-                .join(".hermes-vibex-test")
+                .join(".hermes-dimo-test")
                 .join("config.yaml")
         );
     }
@@ -5695,7 +5695,7 @@ mod tests {
 
     #[test]
     fn omp_assignment_writes_omp_mcp_json_not_pi() {
-        let home = Path::new("/tmp/vibex-home");
+        let home = Path::new("/tmp/dimo-home");
         let pi = home.join(".pi").join("agent");
         let env = BTreeMap::from([(
             "PI_CODING_AGENT_DIR".to_string(),
@@ -5895,7 +5895,7 @@ mod tests {
             "command": "node",
             "args": ["runtime/mcp-server.mjs"],
             "cwd": "/plugins/browser",
-            "name": "vibex-browser",
+            "name": "dimo-browser",
             "transport": "stdio",
             "tools": [{ "name": "browser_list_tabs", "group": "browser" }]
         }))
@@ -5918,7 +5918,7 @@ mod tests {
     fn grok_stdio_keeps_host_family_startup_timeout() {
         let entry = canonical_to_grok_entry(&json!({
             "type": "stdio",
-            "command": "/opt/vibex-mcp",
+            "command": "/opt/dimo-mcp",
             "args": ["--product", "delegation"],
             "startup_timeout_sec": 5
         }))
@@ -5939,20 +5939,20 @@ mod tests {
         fs::write(&path, "[ui]\ntheme = \"dark\"\n").expect("seed Grok");
         upsert_grok_server_at(
             &path,
-            "vibex-delegation-mcp",
+            "dimo-delegation-mcp",
             &json!({
                 "type": "stdio",
-                "command": "/opt/vibex-mcp",
+                "command": "/opt/dimo-mcp",
                 "args": ["--token", "abc", "--features", "delegation"]
             }),
         )
         .expect("write companion");
         let text = fs::read_to_string(&path).expect("read Grok");
-        assert!(text.contains("vibex-delegation-mcp"));
-        assert!(text.contains("/opt/vibex-mcp"));
+        assert!(text.contains("dimo-delegation-mcp"));
+        assert!(text.contains("/opt/dimo-mcp"));
         assert!(text.contains("delegation"));
         assert!(text.contains("theme = \"dark\""));
-        assert!(remove_grok_server_at(&path, "vibex-delegation-mcp").expect("remove companion"));
+        assert!(remove_grok_server_at(&path, "dimo-delegation-mcp").expect("remove companion"));
         assert!(read_grok_servers_at(&path).expect("rescan Grok").is_empty());
     }
 
@@ -5965,8 +5965,8 @@ mod tests {
             r#"[ui]
 theme = "dark"
 
-[mcp_servers.vibex-delegation-mcp]
-command = "/opt/vibex-mcp"
+[mcp_servers.dimo-delegation-mcp]
+command = "/opt/dimo-mcp"
 args = ["--server-url", "http://127.0.0.1:9"]
 
 [mcp_servers.other]
@@ -5988,7 +5988,7 @@ command = "other"
             .expect("servers");
         assert_eq!(
             servers
-                .get("vibex-delegation-mcp")
+                .get("dimo-delegation-mcp")
                 .and_then(toml::Value::as_table)
                 .and_then(|entry| entry.get("startup_timeout_sec"))
                 .and_then(toml::Value::as_integer),

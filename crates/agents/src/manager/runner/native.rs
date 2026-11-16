@@ -100,11 +100,11 @@ impl AgentConnectionRunner {
         let (launch_env, scrubbed_env_keys) = self.build_native_engine_launch_env(&*driver)?;
         let auth = driver.resolve_auth(&launch_env);
         let provider_instance_id = launch_env
-            .get("VIBEX_PROVIDER_INSTANCE_ID")
+            .get("DIMO_PROVIDER_INSTANCE_ID")
             .map(|value| value.trim().to_string())
             .filter(|value| !value.is_empty());
         let isolate_profile = launch_env
-            .get("VIBEX_ISOLATE_PROVIDER_PROFILE")
+            .get("DIMO_ISOLATE_PROVIDER_PROFILE")
             .is_some_and(|value| value.trim() == "1");
         let initial_mcp = self.build_native_session_mcp_json(None).await;
 
@@ -114,7 +114,7 @@ impl AgentConnectionRunner {
             provider_instance_id,
             isolate_profile,
             auth,
-            model: launch_env.get("VIBEX_DEFAULT_MODEL").cloned(),
+            model: launch_env.get("DIMO_DEFAULT_MODEL").cloned(),
             config_overrides: json!({}),
             env: launch_env,
             scrubbed_env_keys,
@@ -212,10 +212,8 @@ impl AgentConnectionRunner {
                     result_tx,
                 } => {
                     self.cancel_pending_interactions(session_id).await;
-                    self.session_map.write().await.remove(&session_id);
-                    self.session_controls.write().await.remove(&session_id);
+                    self.cleanup_discarded_session(session_id).await;
                     session_char_accumulators.remove(&session_id);
-                    self.idle_compaction.remove_session(session_id.0);
                     let _ = result_tx.send(Ok(()));
                 }
                 AgentConnectionCommand::ResumeSession {
@@ -542,7 +540,7 @@ impl AgentConnectionRunner {
                 self.fail_active_turn(
                     session_id,
                     prompt_id,
-                    AgentError::Runtime(err.to_string()),
+                    super::native_events::classify_native_turn_error(err.to_string()),
                 )
                 .await;
                 return false;
@@ -557,23 +555,23 @@ impl AgentConnectionRunner {
 
         let mut turn_state = NativeTurnState::default();
         let mut disconnect_requested = false;
+        let idle_timeout = prompt_idle_timeout();
 
         loop {
             tokio::select! {
                 maybe_event = stream.next() => {
                     let Some(engine_event) = maybe_event else {
-                        if self.active_prompt.lock().await.take().is_some() {
-                            self.emit(
-                                Some(session_id),
-                                Some(prompt_id),
-                                AgentEvent::PromptFinished {
-                                    finished: AgentPromptFinished {
-                                        prompt_id,
-                                        stop_reason: Some("end_turn".to_string()),
-                                        usage: turn_state.accumulated_usage.take(),
-                                    },
-                                },
-                            );
+                        if self.active_prompt.lock().await.is_some() {
+                            self.cancel_pending_interactions(session_id).await;
+                            self.fail_active_turn(
+                                session_id,
+                                prompt_id,
+                                AgentError::Runtime(
+                                    "Native engine event stream closed before turn completed"
+                                        .to_string(),
+                                ),
+                            )
+                            .await;
                         }
                         break;
                     };
@@ -594,6 +592,58 @@ impl AgentConnectionRunner {
                     {
                         break;
                     }
+                }
+                _ = async {
+                    if idle_timeout.is_some() {
+                        tokio::time::sleep(Duration::from_secs(2)).await;
+                    } else {
+                        std::future::pending::<()>().await;
+                    }
+                } => {
+                    let Some(idle_timeout) = idle_timeout else {
+                        continue;
+                    };
+                    if !turn_state.running_tool_calls.is_empty()
+                        || prompt_idle_watchdog_blocked(
+                            self.has_pending_permission_for(session_id).await,
+                            self.has_pending_elicitation_for(session_id).await,
+                            self.has_running_terminal_for(session_id).await,
+                        )
+                    {
+                        continue;
+                    }
+                    let elapsed = self.last_activity.lock().await.elapsed();
+                    if elapsed < idle_timeout {
+                        continue;
+                    }
+                    self.cancel_pending_interactions(session_id).await;
+                    let _ = driver.interrupt(handle).await;
+                    self.emit(
+                        Some(session_id),
+                        Some(prompt_id),
+                        AgentEvent::SessionInvalidated {
+                            reason: "idle_timeout".into(),
+                        },
+                    );
+                    self.emit(
+                        Some(session_id),
+                        Some(prompt_id),
+                        AgentEvent::Error {
+                            error: AgentErrorEvent {
+                                message: format!(
+                                    "No native engine activity was received for {}s. The request ended because the configured idle timeout elapsed.",
+                                    elapsed.as_secs()
+                                ),
+                                code: Some("idle_timeout".to_string()),
+                                raw: Some(serde_json::json!({
+                                    "elapsed_secs": elapsed.as_secs(),
+                                    "timeout_secs": idle_timeout.as_secs(),
+                                })),
+                            },
+                        },
+                    );
+                    *self.active_prompt.lock().await = None;
+                    break;
                 }
                 maybe_cmd = cmd_rx.recv() => {
                     let Some(cmd) = maybe_cmd else {
@@ -655,9 +705,18 @@ impl AgentConnectionRunner {
                             };
                             let _ = result_tx.send(res);
                         }
-                        AgentConnectionCommand::Cancel { result_tx, .. } => {
-                            let ok = driver.interrupt(handle).await.is_ok();
-                            let _ = result_tx.send(ok);
+                        AgentConnectionCommand::Cancel {
+                            session_id: cancel_session,
+                            prompt_id: cancel_prompt,
+                            result_tx,
+                        } => {
+                            if cancel_session == session_id && cancel_prompt == prompt_id {
+                                self.cancel_pending_interactions(session_id).await;
+                                let ok = driver.interrupt(handle).await.is_ok();
+                                let _ = result_tx.send(ok);
+                            } else {
+                                let _ = result_tx.send(false);
+                            }
                         }
                         AgentConnectionCommand::RespondPermission {
                             permission_id,

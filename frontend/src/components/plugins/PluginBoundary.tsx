@@ -1,4 +1,4 @@
-import { disposePluginRegistrations, globalServices } from '@vibex/plugin-sdk';
+import { disposePluginRegistrations, globalServices } from '@dimoai/plugin-sdk';
 import { Component, type ErrorInfo, type ReactNode } from 'react';
 
 export const CRASH_QUARANTINE_THRESHOLD = 3;

@@ -27,7 +27,7 @@ import {
   useOptionalPanelActionsContext,
   usePanelActionsContext,
 } from '@/contexts/PanelActionsContext';
-import { useViews } from '@vibex/plugin-sdk';
+import { useViews } from '@dimoai/plugin-sdk';
 import { useUserSystem } from '@/components/ConfigProvider';
 import { PluginOverlays } from '@/components/plugins/PluginOverlays';
 import { PluginRemoteView } from '@/components/plugins/PluginRemoteView';
@@ -159,15 +159,21 @@ export function IDELayout({
     (state) => state.kanbanByProject[projectKey]?.lastActiveWorkspaceId ?? null
   );
   const { worktrees } = useProjectWorktrees(projectId);
-  const {
-    serializedLayout,
-    setSerializedLayout,
-    isRightPanelVisible,
-    setRightPanelWidth,
-    isEditorAreaVisible,
-    toggleEditorArea,
-    activeTab,
-  } = useLayoutStore();
+  const serializedLayout = useLayoutStore((state) => state.serializedLayout);
+  const setSerializedLayout = useLayoutStore(
+    (state) => state.setSerializedLayout
+  );
+  const isRightPanelVisible = useLayoutStore(
+    (state) => state.isRightPanelVisible
+  );
+  const setRightPanelWidth = useLayoutStore(
+    (state) => state.setRightPanelWidth
+  );
+  const isEditorAreaVisible = useLayoutStore(
+    (state) => state.isEditorAreaVisible
+  );
+  const toggleEditorArea = useLayoutStore((state) => state.toggleEditorArea);
+  const activeTab = useLayoutStore((state) => state.activeTab);
   const arrangement = useLayoutArrangement();
   const effectiveWorkspaceId = activeWorktreeId ?? workspaceId ?? null;
   const surfaceWorkspaceId = useMemo(
@@ -533,7 +539,7 @@ export function IDELayout({
 
   const handleTabBarDragOver = useCallback(
     (event: React.DragEvent<HTMLDivElement>) => {
-      if (!event.dataTransfer.types.includes('application/x-vibex-panel')) {
+      if (!event.dataTransfer.types.includes('application/x-dimo-panel')) {
         return;
       }
       event.preventDefault();
@@ -554,13 +560,13 @@ export function IDELayout({
 
   const handleTabBarDrop = useCallback(
     (event: React.DragEvent<HTMLDivElement>) => {
-      if (!event.dataTransfer.types.includes('application/x-vibex-panel')) {
+      if (!event.dataTransfer.types.includes('application/x-dimo-panel')) {
         return;
       }
       event.preventDefault();
       setIsTabBarDragOver(false);
 
-      const rawData = event.dataTransfer.getData('application/x-vibex-panel');
+      const rawData = event.dataTransfer.getData('application/x-dimo-panel');
       if (!rawData || !panelActions) return;
 
       routeWorkspaceTabBarDrop(rawData, panelActions);
@@ -945,142 +951,138 @@ export function IDELayout({
 
       <RightPanelSlotContext.Provider value={sessionPlacement}>
         <div
-          className="workspace-stage-host relative flex flex-1 min-w-0 flex-col"
+          ref={dockviewRootRef}
+          className="workspace-stage-host relative flex min-h-0 flex-1 min-w-0 flex-col"
           data-canvas-stage-active={isWorkspaceCanvasMode ? 'true' : undefined}
         >
           <MobileDeviceConnectBanner />
-          <div
-            className="relative flex min-h-0 min-w-0 flex-1 flex-col"
-            ref={dockviewRootRef}
-          >
-            {showZeroProjectStage ? <WorkspaceZeroProjectStage /> : null}
+          {showZeroProjectStage ? <WorkspaceZeroProjectStage /> : null}
 
-            {hasProject && isDockviewMounted ? (
+          {hasProject && isDockviewMounted ? (
+            <div
+              className="min-h-0 flex-1"
+              style={
+                effectiveActiveTab === 'workspace'
+                  ? undefined
+                  : { display: 'none' }
+              }
+              aria-hidden={effectiveActiveTab !== 'workspace'}
+            >
               <div
-                className="min-h-0 flex-1"
-                style={
-                  effectiveActiveTab === 'workspace'
-                    ? undefined
-                    : { display: 'none' }
-                }
-                aria-hidden={effectiveActiveTab !== 'workspace'}
+                ref={setDockviewHostNode}
+                className={`tab-bar-drop-zone ${isTabBarDragOver ? 'is-drag-over' : ''}`}
+                onDragOver={handleTabBarDragOver}
+                onDragLeave={handleTabBarDragLeave}
+                onDrop={handleTabBarDrop}
               >
+                <DockviewReact
+                  components={panelComponents}
+                  defaultTabComponent={WorkspaceDockviewTab}
+                  leftHeaderActionsComponent={WorkspaceTabAddMenu}
+                  onReady={handleReady}
+                  className="dockview-theme-light dockview-theme-ayu"
+                  disableAutoResizing={true}
+                  disableFloatingGroups={true}
+                  dndEdges={false}
+                />
+              </div>
+            </div>
+          ) : null}
+
+          {isWorkspaceCanvasMode ? (
+            <div
+              className="kanban-overlay absolute top-0 bottom-0 z-10 min-w-0"
+              style={{
+                left: canvasStageInsets.left,
+                right: canvasStageInsets.right,
+                width: `calc(100% - ${canvasStageInsets.left + canvasStageInsets.right}px)`,
+              }}
+              data-testid="workspace-canvas-stage"
+            >
+              {canvasStageInsets.left > 0 ? (
                 <div
-                  ref={setDockviewHostNode}
-                  className={`tab-bar-drop-zone ${isTabBarDragOver ? 'is-drag-over' : ''}`}
-                  onDragOver={handleTabBarDragOver}
-                  onDragLeave={handleTabBarDragLeave}
-                  onDrop={handleTabBarDrop}
-                >
-                  <DockviewReact
-                    components={panelComponents}
-                    defaultTabComponent={WorkspaceDockviewTab}
-                    leftHeaderActionsComponent={WorkspaceTabAddMenu}
-                    onReady={handleReady}
-                    className="dockview-theme-light dockview-theme-ayu"
-                    disableAutoResizing={true}
-                    disableFloatingGroups={true}
-                    dndEdges={false}
-                  />
-                </div>
-              </div>
-            ) : null}
-
-            {isWorkspaceCanvasMode ? (
-              <div
-                className="kanban-overlay absolute top-0 bottom-0 z-10 min-w-0"
-                style={{
-                  left: canvasStageInsets.left,
-                  right: canvasStageInsets.right,
-                  width: `calc(100% - ${canvasStageInsets.left + canvasStageInsets.right}px)`,
-                }}
-                data-testid="workspace-canvas-stage"
-              >
-                {canvasStageInsets.left > 0 ? (
-                  <div
-                    aria-hidden="true"
-                    data-testid="workspace-canvas-sash-proxy-left"
-                    className="absolute top-0 bottom-0 -left-1 z-30 w-2 cursor-ew-resize"
-                    onPointerDown={(event) =>
-                      forwardCanvasBoundarySashPointerDown('left', event)
-                    }
-                  />
-                ) : null}
-                {canvasStageInsets.right > 0 ? (
-                  <div
-                    aria-hidden="true"
-                    data-testid="workspace-canvas-sash-proxy-right"
-                    className="absolute top-0 bottom-0 -right-1 z-30 w-2 cursor-ew-resize"
-                    onPointerDown={(event) =>
-                      forwardCanvasBoundarySashPointerDown('right', event)
-                    }
-                  />
-                ) : null}
-                <Suspense fallback={null}>
-                  <LazyWorkspaceCanvasStage
-                    presentation="canvas"
-                    workspaceStage
-                    zoneOrder={['list', 'monitor', 'session']}
-                  />
-                </Suspense>
-              </div>
-            ) : null}
-
-            {showStageCreationOverlay ? (
-              <div
-                ref={setStageCreationHostNode}
-                data-testid="workspace-stage-creation-overlay"
-                className="workspace-stage-creation-overlay pointer-events-none absolute top-0 bottom-0 z-20 min-w-0 overflow-hidden rounded-[14px]"
-                style={{
-                  left: canvasStageInsets.left,
-                  right: canvasStageInsets.right,
-                  width: `calc(100% - ${canvasStageInsets.left + canvasStageInsets.right}px)`,
-                }}
-              />
-            ) : null}
-
-            {hasProject ? (
-              <KeepAliveSurface
-                active={effectiveActiveTab === 'kanban'}
-                evictAfterMs={KANBAN_INACTIVE_EVICT_MS}
-                className="kanban-overlay absolute inset-0 z-10"
-              >
-                <Suspense
-                  fallback={
-                    <div className="kanban-loading-state flex h-full w-full items-center justify-center p-6 text-sm">
-                      <div className="workspace-loading-panel flex items-center gap-3 px-4 py-3">
-                        <div className="h-4 w-4 animate-spin rounded-full border border-primary border-t-transparent" />
-                        <span>Loading Kanban...</span>
-                      </div>
-                    </div>
+                  aria-hidden="true"
+                  data-testid="workspace-canvas-sash-proxy-left"
+                  className="absolute top-0 bottom-0 -left-1 z-30 w-2 cursor-ew-resize"
+                  onPointerDown={(event) =>
+                    forwardCanvasBoundarySashPointerDown('left', event)
                   }
-                >
-                  <LazyKanbanBoard />
-                </Suspense>
-              </KeepAliveSurface>
-            ) : null}
-
-            {ActiveSdkTabComponent ? (
-              <div className="kanban-overlay absolute inset-0 z-10">
-                <ActiveSdkTabComponent
-                  workspaceId={surfaceWorkspaceId}
-                  projectId={projectId ?? null}
                 />
-              </div>
-            ) : null}
-
-            {activePluginTab ? (
-              <div className="kanban-overlay absolute inset-0 z-10">
-                <PluginRemoteView
-                  item={activePluginTab}
-                  slot="app.tab"
-                  enabled
-                  workspaceId={surfaceWorkspaceId}
-                  projectId={projectId ?? null}
+              ) : null}
+              {canvasStageInsets.right > 0 ? (
+                <div
+                  aria-hidden="true"
+                  data-testid="workspace-canvas-sash-proxy-right"
+                  className="absolute top-0 bottom-0 -right-1 z-30 w-2 cursor-ew-resize"
+                  onPointerDown={(event) =>
+                    forwardCanvasBoundarySashPointerDown('right', event)
+                  }
                 />
-              </div>
-            ) : null}
-          </div>
+              ) : null}
+              <Suspense fallback={null}>
+                <LazyWorkspaceCanvasStage
+                  presentation="canvas"
+                  workspaceStage
+                  zoneOrder={['list', 'monitor', 'session']}
+                />
+              </Suspense>
+            </div>
+          ) : null}
+
+          {showStageCreationOverlay ? (
+            <div
+              ref={setStageCreationHostNode}
+              data-testid="workspace-stage-creation-overlay"
+              className="workspace-stage-creation-overlay pointer-events-none absolute top-0 bottom-0 z-20 min-w-0 overflow-hidden rounded-[14px]"
+              style={{
+                left: canvasStageInsets.left,
+                right: canvasStageInsets.right,
+                width: `calc(100% - ${canvasStageInsets.left + canvasStageInsets.right}px)`,
+              }}
+            />
+          ) : null}
+
+          {hasProject ? (
+            <KeepAliveSurface
+              active={effectiveActiveTab === 'kanban'}
+              evictAfterMs={KANBAN_INACTIVE_EVICT_MS}
+              className="kanban-overlay absolute inset-0 z-10"
+            >
+              <Suspense
+                fallback={
+                  <div className="kanban-loading-state flex h-full w-full items-center justify-center p-6 text-sm">
+                    <div className="workspace-loading-panel flex items-center gap-3 px-4 py-3">
+                      <div className="h-4 w-4 animate-spin rounded-full border border-primary border-t-transparent" />
+                      <span>Loading Kanban...</span>
+                    </div>
+                  </div>
+                }
+              >
+                <LazyKanbanBoard />
+              </Suspense>
+            </KeepAliveSurface>
+          ) : null}
+
+          {ActiveSdkTabComponent ? (
+            <div className="kanban-overlay absolute inset-0 z-10">
+              <ActiveSdkTabComponent
+                workspaceId={surfaceWorkspaceId}
+                projectId={projectId ?? null}
+              />
+            </div>
+          ) : null}
+
+          {activePluginTab ? (
+            <div className="kanban-overlay absolute inset-0 z-10">
+              <PluginRemoteView
+                item={activePluginTab}
+                slot="app.tab"
+                enabled
+                workspaceId={surfaceWorkspaceId}
+                projectId={projectId ?? null}
+              />
+            </div>
+          ) : null}
         </div>
       </RightPanelSlotContext.Provider>
     </div>

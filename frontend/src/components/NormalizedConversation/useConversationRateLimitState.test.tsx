@@ -144,4 +144,146 @@ describe('useConversationRateLimitState', () => {
     expect(cancelSpy).toHaveBeenCalledWith({ conversationId: 'conv-rl-1' });
     expect(screen.queryByTestId('rate-limit-recovery-banner')).toBeNull();
   });
+
+  it('reacts to conversation-rate-limit rate_limit_updated, rate_limit_auto_resume, rate_limit_cancelled, and rate_limited and cleans up listeners', async () => {
+    const handlers = new Map<string, Set<(payload: unknown) => void>>();
+    const unlistenSpy = vi.fn();
+    const { configureBackendTransport, getBackendTransport } = await import(
+      '@/lib/backendTransport'
+    );
+    const previousTransport = getBackendTransport();
+
+    configureBackendTransport({
+      environment: 'desktop',
+      call: vi.fn(),
+      listen: vi.fn((event: string, handler: (payload: unknown) => void) => {
+        if (!handlers.has(event)) handlers.set(event, new Set());
+        handlers.get(event)!.add(handler);
+        return Promise.resolve(() => {
+          unlistenSpy(event);
+          handlers.get(event)?.delete(handler);
+        });
+      }),
+    });
+
+    try {
+      const retryRows: TimelineRow[] = [
+        {
+          row_id: 'runtime-req-1',
+          revision: 1n,
+          row: {
+            kind: 'session_notice',
+            notice: {
+              title: 'Retrying',
+              severity: 'warning',
+              request_status: {
+                turn_id: 'turn-1',
+                prompt_id: 'p-1',
+                connection_id: 'c-1',
+                since: '2026-06-01T12:00:00.000Z',
+                activity: {
+                  phase: 'retrying',
+                  retry: {
+                    attempt: 1,
+                    max_attempts: 5,
+                    delay_ms: 120_000n,
+                    reason: 'HTTP 429 rate_limit exceeded',
+                    code: 'rate_limited',
+                  },
+                },
+              },
+            },
+          },
+        },
+      ];
+
+      const { unmount } = render(
+        <ConversationStatusProvider>
+          <Producer sideRows={retryRows} />
+          <ComposerBannerConsumer />
+        </ConversationStatusProvider>
+      );
+
+      await screen.findByTestId('rate-limit-recovery-banner');
+
+      const emitEvent = (payload: unknown) => {
+        for (const handler of handlers.get('conversation-rate-limit:conv-rl-1') ?? []) {
+          handler(payload);
+        }
+      };
+
+      // Ignore events for other conversations
+      await act(async () => {
+        emitEvent({
+          conversationId: 'other-conv',
+          kind: 'rate_limit_cancelled',
+        });
+      });
+      expect(screen.getByTestId('rate-limit-recovery-banner')).toBeInTheDocument();
+
+      // Apply live rate_limit_updated from backend RateLimitState shape
+      await act(async () => {
+        emitEvent({
+          conversationId: 'conv-rl-1',
+          kind: 'rate_limit_updated',
+          rateLimit: {
+            sessionId: 'conv-rl-1',
+            engineId: 'claude_code',
+            limitedAt: '2026-06-01T12:00:00.000Z',
+            resetAt: '2026-06-01T12:10:00.000Z',
+            autoResume: false,
+            continuationPrompt: 'Run vitest after reset.',
+          },
+        });
+      });
+
+      expect(screen.getByTestId('rate-limit-auto-resume-switch')).toHaveAttribute(
+        'data-state',
+        'unchecked'
+      );
+
+      // Clear when rate_limit_auto_resume fires even though sideRows still has the old notice
+      await act(async () => {
+        emitEvent({
+          conversationId: 'conv-rl-1',
+          kind: 'rate_limit_auto_resume',
+          continuationPrompt: 'Run vitest after reset.',
+        });
+      });
+      expect(screen.queryByTestId('rate-limit-recovery-banner')).toBeNull();
+
+      // Show again when a new rate_limited lifecycle event arrives
+      await act(async () => {
+        emitEvent({
+          conversationId: 'conv-rl-1',
+          kind: 'rate_limited',
+          rateLimit: {
+            sessionId: 'conv-rl-1',
+            engineId: 'codex',
+            limitedAt: '2026-06-01T12:15:00.000Z',
+            resetAt: '2026-06-01T12:20:00.000Z',
+            autoResume: true,
+            continuationPrompt: 'Continue.',
+          },
+        });
+      });
+      expect(screen.getByTestId('rate-limit-recovery-banner')).toBeInTheDocument();
+
+      // Clear when rate_limit_cancelled fires
+      await act(async () => {
+        emitEvent({
+          conversationId: 'conv-rl-1',
+          kind: 'rate_limit_cancelled',
+        });
+      });
+      expect(screen.queryByTestId('rate-limit-recovery-banner')).toBeNull();
+
+      unmount();
+      expect(unlistenSpy).toHaveBeenCalledWith(
+        'conversation-rate-limit:conv-rl-1'
+      );
+    } finally {
+      configureBackendTransport(previousTransport);
+    }
+  });
 });

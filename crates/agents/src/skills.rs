@@ -111,7 +111,7 @@ pub fn skills_surface(agent_type: AgentKind) -> AgentSkillsSurface {
     }
 }
 
-/// Every agent VibeX manages. Order is used for stable scan/display output.
+/// Every agent Dimo manages. Order is used for stable scan/display output.
 const ALL_AGENTS: [AgentKind; 20] = [
     AgentKind::ClaudeCode,
     AgentKind::Codex,
@@ -1033,11 +1033,11 @@ pub async fn delete_agent_skill_with_storage(
 //
 // The settings UI mirrors the MCP page: a "本地 Skill" list (scanned across
 // every agent's global skill dirs + ~/.agents/skills + the global store
-// ~/.vibex/skills, deduped by name and grouped by prefix) and a "Skill 市场"
+// ~/.dimo/skills, deduped by name and grouped by prefix) and a "Skill 市场"
 // backed by skills.sh. Installing shells out to the `skills` CLI
 // (`npx skills add`) into a staging dir, then mirrors the skill — via symlink
 // or file copy — into the chosen targets. "全局" hosting records the skill in
-// ~/.vibex/skills and mirrors it into every locally supported Agent adapter.
+// ~/.dimo/skills and mirrors it into every locally supported Agent adapter.
 // ===========================================================================
 
 #[derive(Debug, Clone, Serialize)]
@@ -1048,7 +1048,7 @@ pub struct LocalSkill {
     /// Prefix group (text before the first '-'); UI may collapse same-prefix
     /// skills (e.g. `minimax-search`, `minimax-tts` → group `minimax`).
     pub group: String,
-    /// Recorded in the global store (~/.vibex/skills).
+    /// Recorded in the global store (~/.dimo/skills).
     pub global: bool,
     /// Agents whose skill dirs currently carry this skill (snake_case keys).
     pub apps: Vec<String>,
@@ -1128,14 +1128,14 @@ struct SkillSearchRow {
     is_official: bool,
 }
 
-fn vibex_skills_dir() -> PathBuf {
+fn dimo_skills_dir() -> PathBuf {
     dirs::home_dir()
         .unwrap_or_else(|| PathBuf::from("."))
-        .join(".vibex")
+        .join(".dimo")
         .join("skills")
 }
 
-/// The agent-specific directory VibeX writes skills into when hosting.
+/// The agent-specific directory Dimo writes skills into when hosting.
 fn agent_primary_skill_dir(agent: AgentKind) -> Option<PathBuf> {
     let home = dirs::home_dir();
     match agent {
@@ -1210,7 +1210,7 @@ struct SkillHostingLayout {
 
 fn system_skill_hosting_layout() -> SkillHostingLayout {
     SkillHostingLayout {
-        store: vibex_skills_dir(),
+        store: dimo_skills_dir(),
         agent_dirs: ALL_AGENTS
             .into_iter()
             .filter_map(|agent| {
@@ -1247,7 +1247,7 @@ fn global_scan_dirs(custom_targets: &[CustomAgentSkillStorage]) -> Vec<SkillDir>
     }
     dirs.push(SkillDir {
         scope: AgentSkillScope::Global,
-        path: vibex_skills_dir(),
+        path: dimo_skills_dir(),
         read_only: false,
     });
     dirs
@@ -1263,7 +1263,7 @@ async fn scan_all_skills(custom_targets: &[CustomAgentSkillStorage]) -> Vec<Loca
     }
 
     let mut map: BTreeMap<String, Agg> = BTreeMap::new();
-    let vibex = vibex_skills_dir();
+    let dimo = dimo_skills_dir();
 
     for agent in ALL_AGENTS {
         let allow_md = allows_markdown_file(agent);
@@ -1302,12 +1302,12 @@ async fn scan_all_skills(custom_targets: &[CustomAgentSkillStorage]) -> Vec<Loca
         }
     }
 
-    let vibex_dir = SkillDir {
+    let dimo_dir = SkillDir {
         scope: AgentSkillScope::Global,
-        path: vibex,
+        path: dimo,
         read_only: false,
     };
-    for item in list_skills_in_dir(&vibex_dir, false).await {
+    for item in list_skills_in_dir(&dimo_dir, false).await {
         let entry = map.entry(item.id.clone()).or_default();
         entry.global = true;
         if entry.description.is_none() {
@@ -1430,7 +1430,7 @@ fn physical_path_key(path: &Path) -> PathBuf {
     }
     // Resolve the physical parent directory, but deliberately do not
     // canonicalize the final Skill entry. That entry may already be a managed
-    // symlink to the VibeX central store; following it would turn the
+    // symlink to the Dimo central store; following it would turn the
     // destination key into the source itself and a subsequent replace would
     // delete the central copy.
     let Some(name) = lexical.file_name().map(|name| name.to_os_string()) else {
@@ -1460,7 +1460,7 @@ fn physical_path_key(path: &Path) -> PathBuf {
 ///
 /// `src` is a short-lived staging snapshot the caller deletes right after this
 /// returns, so symlinks must never point at it. Global hosting first
-/// materializes a real copy in the global store (~/.vibex/skills) and links
+/// materializes a real copy in the global store (~/.dimo/skills) and links
 /// the agents to that; non-global hosting has no persistent link source, so
 /// it always copies into the agent dirs regardless of `link`.
 fn apply_hosting(
@@ -1491,10 +1491,10 @@ fn apply_hosting_with_layout(
     layout: &SkillHostingLayout,
     custom_targets: &[CustomAgentSkillStorage],
 ) -> Result<(), SkillError> {
-    let vibex = layout.store.join(skill_id);
+    let dimo = layout.store.join(skill_id);
     let (agent_src, agent_link) = if global {
-        place_skill(src, &vibex, false)?;
-        (vibex.clone(), link)
+        place_skill(src, &dimo, false)?;
+        (dimo.clone(), link)
     } else {
         (src.to_path_buf(), false)
     };
@@ -1529,7 +1529,7 @@ fn apply_hosting_with_layout(
         }
     }
     if !global {
-        remove_if_exists(&vibex)?;
+        remove_if_exists(&dimo)?;
     }
     Ok(())
 }
@@ -1573,7 +1573,7 @@ fn configure_bundled_skills_with_layout(
 }
 
 /// Project a portable Plugin's Skill directories without overwriting entries
-/// not owned by that Plugin. Sources are first copied into a stable VibeX
+/// not owned by that Plugin. Sources are first copied into a stable Dimo
 /// provenance store, then linked to Agent directories with copy fallback.
 ///
 /// The call is declarative: `skills` is the complete set the Plugin currently
@@ -1596,21 +1596,21 @@ pub fn project_plugin_skills(
 }
 
 pub const HOST_MULTI_AGENT_PLUGIN_ID: &str = "host.multi-agent";
-pub const HOST_MULTI_AGENT_SKILL_ID: &str = "vibex-bot";
-const LEGACY_MULTI_AGENT_SKILL_ID: &str = "vibex-multi-agent";
+pub const HOST_MULTI_AGENT_SKILL_ID: &str = "dimo-bot";
+const LEGACY_MULTI_AGENT_SKILL_ID: &str = "dimo-multi-agent";
 
 const HOST_BOT_SKILL_FILES: &[(&str, &str)] = &[
-    ("SKILL.md", include_str!("skills/vibex-bot/SKILL.md")),
+    ("SKILL.md", include_str!("skills/dimo-bot/SKILL.md")),
     (
         "SPACE-RULES.md",
-        include_str!("skills/vibex-bot/SPACE-RULES.md"),
+        include_str!("skills/dimo-bot/SPACE-RULES.md"),
     ),
-    ("MEMORY.md", include_str!("skills/vibex-bot/MEMORY.md")),
+    ("MEMORY.md", include_str!("skills/dimo-bot/MEMORY.md")),
 ];
 
-/// `$VIBEX_HOME` when set, otherwise `~/.vibex`.
-fn vibex_home_dir() -> PathBuf {
-    if let Ok(value) = std::env::var("VIBEX_HOME") {
+/// `$DIMO_HOME` when set, otherwise `~/.dimo`.
+fn dimo_home_dir() -> PathBuf {
+    if let Ok(value) = std::env::var("DIMO_HOME") {
         let trimmed = value.trim();
         if !trimmed.is_empty() {
             return PathBuf::from(trimmed);
@@ -1618,17 +1618,17 @@ fn vibex_home_dir() -> PathBuf {
     }
     dirs::home_dir()
         .unwrap_or_else(|| PathBuf::from("."))
-        .join(".vibex")
+        .join(".dimo")
 }
 
-/// Absolute path of the host Bot skill: `~/.vibex/skills/vibex-bot`
-/// (`$VIBEX_HOME/skills/vibex-bot` when `VIBEX_HOME` is set).
+/// Absolute path of the host Bot skill: `~/.dimo/skills/dimo-bot`
+/// (`$DIMO_HOME/skills/dimo-bot` when `DIMO_HOME` is set).
 ///
 /// Session layer should point Space hidden sessions at this directory on
 /// demand. Ordinary non-Space sessions must not load it from Agent CLI
 /// global skill directories.
-pub fn vibex_bot_skill_dir() -> PathBuf {
-    let dir = vibex_home_dir()
+pub fn dimo_bot_skill_dir() -> PathBuf {
+    let dir = dimo_home_dir()
         .join("skills")
         .join(HOST_MULTI_AGENT_SKILL_ID);
     if dir.is_absolute() {
@@ -1648,14 +1648,14 @@ fn host_multi_agent_projection_skill_ids() -> [String; 2] {
 
 /// Install or remove the host Bot skill.
 ///
-/// The skill is written only to [`vibex_bot_skill_dir`]. Leftover projections
-/// of `vibex-multi-agent` and `vibex-bot` in Agent CLI global skill dirs are
+/// The skill is written only to [`dimo_bot_skill_dir`]. Leftover projections
+/// of `dimo-multi-agent` and `dimo-bot` in Agent CLI global skill dirs are
 /// always cleaned first so ordinary sessions do not keep loading them.
 pub fn sync_host_multi_agent_skill(enabled: bool) -> Result<(), SkillError> {
     sync_host_multi_agent_skill_with_layout(
         enabled,
         &system_skill_hosting_layout(),
-        &vibex_bot_skill_dir(),
+        &dimo_bot_skill_dir(),
     )
 }
 
@@ -1826,7 +1826,7 @@ fn project_plugin_skills_with_layout(
             .join(plugin_id)
             .join(&skill_id);
         place_skill(source, &stable, false)?;
-        std::fs::write(stable.join(".vibex-plugin-owner"), plugin_id)
+        std::fs::write(stable.join(".dimo-plugin-owner"), plugin_id)
             .map_err(|error| SkillError::Other(format!("记录插件 Skill 来源失败: {error}")))?;
 
         for (agent_id, directory) in &layout.agent_dirs {
@@ -1880,9 +1880,12 @@ fn validate_plugin_projection_id(plugin_id: &str) -> Result<(), SkillError> {
 }
 
 fn owned_plugin_projection(path: &Path, plugin_id: &str) -> bool {
-    std::fs::read_to_string(path.join(".vibex-plugin-owner"))
-        .map(|owner| owner == plugin_id)
-        .unwrap_or(false)
+    // Projections created before the Dimo rename carry the old marker name;
+    // still recognize them so their Skills are refreshed instead of orphaned.
+    [".dimo-plugin-owner", ".vibex-plugin-owner"]
+        .iter()
+        .filter_map(|marker| std::fs::read_to_string(path.join(marker)).ok())
+        .any(|owner| owner == plugin_id)
 }
 
 fn parse_agent_keys(
@@ -1903,7 +1906,7 @@ fn parse_agent_keys(
 }
 
 fn staging_dir() -> PathBuf {
-    workspace_utils::path::get_vibex_temp_dir().join(format!("skill-{}", uuid::Uuid::new_v4()))
+    workspace_utils::path::get_dimo_temp_dir().join(format!("skill-{}", uuid::Uuid::new_v4()))
 }
 
 /// BFS the staging tree for the installed skill directory (prefer an exact
@@ -2319,7 +2322,7 @@ async fn fetch_popular_skills_for_view(
         _ => "https://www.skills.sh/",
     };
     let client = reqwest::Client::builder()
-        .user_agent("Mozilla/5.0 vibex-skills-market/1.0")
+        .user_agent("Mozilla/5.0 dimo-skills-market/1.0")
         .timeout(std::time::Duration::from_secs(12))
         .build()
         .map_err(|e| SkillError::Other(e.to_string()))?;
@@ -2356,7 +2359,7 @@ pub async fn search_skill_market_with_view(
     }
     let snapshot = builtin_popular_skills_snapshot();
     let client = reqwest::Client::builder()
-        .user_agent("vibex-skills-market/1.0")
+        .user_agent("dimo-skills-market/1.0")
         .timeout(std::time::Duration::from_secs(15))
         .build()
         .map_err(|e| SkillError::Other(e.to_string()))?;
@@ -2563,7 +2566,7 @@ pub async fn get_market_skill_detail(
 
     let url = format!("https://www.skills.sh/{clean_source}/{clean_skill_id}");
     let client = reqwest::Client::builder()
-        .user_agent("Mozilla/5.0 vibex-skills-market/1.0")
+        .user_agent("Mozilla/5.0 dimo-skills-market/1.0")
         .timeout(std::time::Duration::from_secs(12))
         .build()
         .map_err(|e| SkillError::Other(e.to_string()))?;
@@ -2974,14 +2977,14 @@ mod tests {
         std::fs::create_dir_all(&skill).unwrap();
         std::fs::write(skill.join("SKILL.md"), "stale projection").unwrap();
         std::fs::write(
-            skill.join(".vibex-plugin-owner"),
+            skill.join(".dimo-plugin-owner"),
             HOST_MULTI_AGENT_PLUGIN_ID,
         )
         .unwrap();
     }
 
     #[test]
-    fn host_bot_skill_is_written_only_under_vibex_home() {
+    fn host_bot_skill_is_written_only_under_dimo_home() {
         let temp = tempfile::tempdir().unwrap();
         let codex = temp.path().join("codex");
         let layout = SkillHostingLayout {
@@ -2998,7 +3001,7 @@ mod tests {
         std::fs::create_dir_all(&plugin_store).unwrap();
         std::fs::write(plugin_store.join("SKILL.md"), "stale store").unwrap();
 
-        let dest = temp.path().join("vibex-home/skills/vibex-bot");
+        let dest = temp.path().join("dimo-home/skills/dimo-bot");
         sync_host_multi_agent_skill_with_layout(true, &layout, &dest).unwrap();
 
         assert!(dest.join("SKILL.md").is_file());
@@ -3007,7 +3010,7 @@ mod tests {
         assert!(
             std::fs::read_to_string(dest.join("SKILL.md"))
                 .unwrap()
-                .contains("name: vibex-bot")
+                .contains("name: dimo-bot")
         );
         assert!(!dest.join("COLLABORATION-SPACE.md").exists());
         assert!(!dest.join("SESSION-AND-DELEGATION.md").exists());
@@ -3017,7 +3020,7 @@ mod tests {
         );
         assert!(
             !codex.join(HOST_MULTI_AGENT_SKILL_ID).exists(),
-            "vibex-bot must not be projected into Agent CLI skill dirs"
+            "dimo-bot must not be projected into Agent CLI skill dirs"
         );
         assert!(
             !temp
@@ -3032,8 +3035,8 @@ mod tests {
     }
 
     #[test]
-    fn vibex_bot_skill_dir_is_under_vibex_home_skills() {
-        let dir = vibex_bot_skill_dir();
+    fn dimo_bot_skill_dir_is_under_dimo_home_skills() {
+        let dir = dimo_bot_skill_dir();
         assert!(dir.is_absolute());
         assert_eq!(
             dir.file_name().and_then(|name| name.to_str()),
@@ -3065,7 +3068,7 @@ mod tests {
         std::fs::write(user_skill.join("SKILL.md"), "user skill").unwrap();
 
         let results = project_plugin_skills_with_layout(
-            "dev.vibex.research",
+            "dev.dimo.research",
             &[("research".to_string(), source.join("SKILL.md"))],
             &BTreeSet::from(["codex".to_string(), "claude_code".to_string()]),
             true,
@@ -3086,7 +3089,7 @@ mod tests {
         );
         assert!(owned_plugin_projection(
             &temp.path().join("claude/research"),
-            "dev.vibex.research"
+            "dev.dimo.research"
         ));
     }
 
@@ -3109,16 +3112,16 @@ mod tests {
         };
         let all = vec![skill_source("kept"), skill_source("dropped")];
         let agents = BTreeSet::from(["codex".to_string(), "claude_code".to_string()]);
-        let store = temp.path().join("store/.plugins/dev.vibex.science");
+        let store = temp.path().join("store/.plugins/dev.dimo.science");
 
-        project_plugin_skills_with_layout("dev.vibex.science", &all, &agents, true, &layout)
+        project_plugin_skills_with_layout("dev.dimo.science", &all, &agents, true, &layout)
             .unwrap();
         assert!(temp.path().join("codex/dropped/SKILL.md").is_file());
 
         // A later projection contributes only `kept`, as happens when a domain
         // is switched off or a package upgrade drops a Skill.
         let results = project_plugin_skills_with_layout(
-            "dev.vibex.science",
+            "dev.dimo.science",
             &all[..1],
             &agents,
             true,
@@ -3146,7 +3149,7 @@ mod tests {
         let skill = source.path().join("SKILL.md");
         std::fs::write(
             &skill,
-            "---\nname: vibex-plugin-development\ndescription: Develop a plugin.\n---\n# Develop\n",
+            "---\nname: dimo-plugin-development\ndescription: Develop a plugin.\n---\n# Develop\n",
         )
         .unwrap();
         let temp = tempfile::tempdir().unwrap();
@@ -3156,8 +3159,8 @@ mod tests {
         };
 
         let results = project_plugin_skills_with_layout(
-            "vibex.plugin-development",
-            &[("vibex-plugin-development".to_string(), skill)],
+            "dimo.plugin-development",
+            &[("dimo-plugin-development".to_string(), skill)],
             &BTreeSet::from(["codex".to_string()]),
             false,
             &layout,
@@ -3169,7 +3172,7 @@ mod tests {
         }));
         assert!(
             temp.path()
-                .join("codex/vibex-plugin-development/SKILL.md")
+                .join("codex/dimo-plugin-development/SKILL.md")
                 .is_file()
         );
     }
@@ -3188,7 +3191,7 @@ mod tests {
         std::fs::create_dir_all(&source).unwrap();
         std::fs::write(source.join("SKILL.md"), "plugin skill").unwrap();
         project_plugin_skills_with_layout(
-            "dev.vibex.research",
+            "dev.dimo.research",
             &[("research".to_string(), source.join("SKILL.md"))],
             &BTreeSet::from(["codex".to_string(), "claude_code".to_string()]),
             true,
@@ -3200,7 +3203,7 @@ mod tests {
         std::fs::write(user_skill.join("SKILL.md"), "user skill").unwrap();
 
         remove_plugin_skill_projections_with_layout(
-            "dev.vibex.research",
+            "dev.dimo.research",
             &["research".to_owned(), "notes".to_owned()],
             &layout,
         )
@@ -3211,7 +3214,7 @@ mod tests {
         assert!(
             !temp
                 .path()
-                .join("store/.plugins/dev.vibex.research")
+                .join("store/.plugins/dev.dimo.research")
                 .exists()
         );
         assert_eq!(
@@ -3224,13 +3227,13 @@ mod tests {
     fn custom_agent_skills_require_an_explicit_storage_declaration() {
         assert!(resolved_skill_dirs("local-reviewer", None, None).is_err());
 
-        let directory = std::env::temp_dir().join("vibex-custom-agent-skills");
+        let directory = std::env::temp_dir().join("dimo-custom-agent-skills");
         let storage = CustomAgentSkillStorage {
             agent_id: "local-reviewer".to_string(),
             shared_store: true,
             directory: Some(directory.clone()),
         };
-        let workspace = std::env::temp_dir().join("vibex-custom-agent-workspace");
+        let workspace = std::env::temp_dir().join("dimo-custom-agent-workspace");
         let (dirs, allow_markdown) =
             resolved_skill_dirs("local-reviewer", Some(&storage), Some(&workspace)).unwrap();
 
@@ -3308,7 +3311,7 @@ mod tests {
     async fn saved_hermes_home_expands_tilde_for_skills() {
         let environment = HashMap::from([(
             "HERMES_HOME".to_string(),
-            "~/.hermes-vibex-test".to_string(),
+            "~/.hermes-dimo-test".to_string(),
         )]);
         let paths = with_saved_agent_environment(environment, async {
             skill_dirs(AgentKind::Hermes, None)
@@ -3322,7 +3325,7 @@ mod tests {
             paths.contains(
                 &dirs::home_dir()
                     .unwrap()
-                    .join(".hermes-vibex-test")
+                    .join(".hermes-dimo-test")
                     .join("skills")
             )
         );
@@ -3385,10 +3388,10 @@ mod tests {
     }
 
     #[test]
-    fn vibex_bot_skill_states_space_protocol_and_core_tools() {
-        let skill = include_str!("skills/vibex-bot/SKILL.md");
-        let playbook = include_str!("skills/vibex-bot/SPACE-RULES.md");
-        let memory = include_str!("skills/vibex-bot/MEMORY.md");
+    fn dimo_bot_skill_states_space_protocol_and_core_tools() {
+        let skill = include_str!("skills/dimo-bot/SKILL.md");
+        let playbook = include_str!("skills/dimo-bot/SPACE-RULES.md");
+        let memory = include_str!("skills/dimo-bot/MEMORY.md");
         for body in [skill, playbook, memory] {
             assert!(
                 !body.contains("我正在查看项目中"),
@@ -3428,9 +3431,9 @@ mod tests {
             playbook.contains("日志回执") && playbook.contains("叫醒回读"),
             "cross-space posts must distinguish log receipt from wake"
         );
-        assert!(playbook.contains("~/.vibex/spaces/<space_id>/collection/"));
+        assert!(playbook.contains("~/.dimo/spaces/<space_id>/collection/"));
         assert!(
-            playbook.contains("VIBEX_TEAM_SPACES_ROOT"),
+            playbook.contains("DIMO_TEAM_SPACES_ROOT"),
             "collection root override must be named"
         );
         assert!(playbook.contains("space_id") && playbook.contains("session_id"));
@@ -3558,7 +3561,7 @@ mod tests {
             store: temp.path().join("store"),
             agent_dirs: BTreeMap::from([("codex".to_string(), temp.path().join("codex"))]),
         };
-        let dest = temp.path().join("vibex-bot");
+        let dest = temp.path().join("dimo-bot");
 
         sync_host_multi_agent_skill_with_layout(true, &layout, &dest).unwrap();
         assert!(dest.join("SKILL.md").is_file());

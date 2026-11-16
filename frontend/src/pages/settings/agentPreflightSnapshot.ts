@@ -16,7 +16,7 @@ const BOOTSTRAP_DEPENDENCY_IDS = new Set([
 ]);
 
 function storageKey(agentId: AgentId): string {
-  return `vibex:agent-preflight:${agentId}`;
+  return `dimo:agent-preflight:${agentId}`;
 }
 
 export function readPreflightSnapshot(

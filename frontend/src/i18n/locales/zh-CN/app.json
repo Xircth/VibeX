@@ -112,7 +112,7 @@
     "statusIdle": "空闲"
   },
   "shell": {
-    "appUpdateAvailable": "VibeX {{version}} 可更新。",
+    "appUpdateAvailable": "Dimo {{version}} 可更新。",
     "openReleasePage": "打开发布页",
     "viewUpdate": "查看更新",
     "agentRuntimeSetupRequired": "{{agents}} 的本机 Agent Runtime 或 ACP 缺失或不兼容。请在 Agent 设置中预检查并安装或更新。",
@@ -143,8 +143,8 @@
     "tagline": "超级 Agent Coding 平台"
   },
   "webConnect": {
-    "formLabel": "连接到 VibeX",
-    "title": "连接 VibeX Host",
+    "formLabel": "连接到 Dimo",
+    "title": "连接 Dimo Host",
     "description": "输入连接码",
     "hostLabel": "主机地址",
     "tokenLabel": "连接码",
@@ -154,7 +154,7 @@
     "connect": "连接",
     "connecting": "正在连接…",
     "hostMismatch": "当前页面是 Web UI，请保持上面的主机地址。",
-    "notAHost": "这不是 VibeX Host 地址。请填写「设置 → 远程连接」中的主机地址。",
+    "notAHost": "这不是 Dimo Host 地址。请填写「设置 → 远程连接」中的主机地址。",
     "authFailed": "无法连接到该主机。请检查主机地址和连接码。"
   },
   "kanbanSessions": {
@@ -245,7 +245,7 @@
       },
       "compatible": {
         "label": "已兼容",
-        "summary": "当前版本 {{current}} 已满足 VibeX 运行要求。",
+        "summary": "当前版本 {{current}} 已满足 Dimo 运行要求。",
         "detail": "当前安装满足要求，无需额外处理。"
       }
     }

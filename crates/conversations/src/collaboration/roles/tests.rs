@@ -1599,7 +1599,7 @@ async fn direct_chat_identity_context_and_defensive_list_messages() {
         "{dm_context}"
     );
     assert!(dm_context.contains("memory_search"), "{dm_context}");
-    assert!(dm_context.contains("~/.vibex/spaces/"), "{dm_context}");
+    assert!(dm_context.contains("~/.dimo/spaces/"), "{dm_context}");
     assert!(!dm_context.contains("TeamSpaces"), "{dm_context}");
     assert!(
         !dm_context.contains("所属协作空间：未定空间"),

@@ -95,8 +95,8 @@ export function PluginDetailOverview({
           <header>
             <FileSearch aria-hidden="true" />
             <div>
-              <h4>{t('plugins.extendsVibexTitle')}</h4>
-              <p>{t('plugins.extendsVibexDescription')}</p>
+              <h4>{t('plugins.extendsDimoTitle')}</h4>
+              <p>{t('plugins.extendsDimoDescription')}</p>
             </div>
           </header>
           {hasFilePreview ? (

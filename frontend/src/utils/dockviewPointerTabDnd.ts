@@ -60,25 +60,45 @@ function createTabDragGhost(
   clientX: number,
   clientY: number
 ): HTMLElement {
-  const ghost = document.createElement('div');
+  const ghost = tabElement.cloneNode(true) as HTMLElement;
   const rect = tabElement.getBoundingClientRect();
+  const computed = window.getComputedStyle(tabElement);
 
   ghost.setAttribute('data-dockview-tab-drag-ghost', 'true');
   ghost.style.position = 'fixed';
   ghost.style.left = `${Math.round(clientX + 10)}px`;
   ghost.style.top = `${Math.round(clientY + 10)}px`;
+
+  // Match the original tab's exact dimensions, including the border we add.
   if (rect.width > 0) {
     ghost.style.width = `${Math.round(rect.width)}px`;
   }
   if (rect.height > 0) {
     ghost.style.height = `${Math.round(rect.height)}px`;
   }
+
+  ghost.style.boxSizing = 'border-box';
   ghost.style.margin = '0';
+  ghost.style.padding = computed.padding;
+  ghost.style.display = computed.display;
+  ghost.style.alignItems = computed.alignItems;
+  ghost.style.justifyContent = computed.justifyContent;
+  ghost.style.gap = computed.gap;
   ghost.style.pointerEvents = 'none';
   ghost.style.zIndex = '100000';
-  ghost.style.borderRadius = 'var(--radius, 6px)';
+  ghost.style.opacity = '0.9';
+
+  // Preserve the original border-radius so the ghost matches the tab shape
+  // (the border shorthand below would otherwise reset it).
+  ghost.style.borderRadius = computed.borderRadius;
   ghost.style.border = '2px dashed hsl(var(--primary) / 0.72)';
-  ghost.style.background = 'transparent';
+  ghost.style.boxShadow = '0 4px 16px hsl(var(--shadow-ink) / 0.18)';
+
+  // Preserve typography so the cloned label renders identically.
+  ghost.style.fontFamily = computed.fontFamily;
+  ghost.style.fontSize = computed.fontSize;
+  ghost.style.lineHeight = computed.lineHeight;
+  ghost.style.color = computed.color;
 
   (tabElement.closest('.legacy-design') ?? document.body).appendChild(ghost);
   return ghost;
@@ -300,6 +320,13 @@ export function installDockviewPointerTabDnd(rootElement: HTMLElement): {
       ghostElement.remove();
       ghostElement = null;
     }
+
+    // Restore draggable attribute so Dockview's native drag pipeline works
+    // again for the next drag interaction.
+    if (sourceTab && sourceTab.getAttribute('draggable') === 'false') {
+      sourceTab.setAttribute('draggable', 'true');
+    }
+
     document.body.style.cursor = previousBodyCursor;
 
     if (commitDrop) {
@@ -336,6 +363,14 @@ export function installDockviewPointerTabDnd(rootElement: HTMLElement): {
     activeSourceTab = tabElement;
     previousBodyCursor = document.body.style.cursor;
     document.body.style.cursor = 'grabbing';
+
+    // Strip draggable so the browser does not fire its own native dragstart
+    // on top of our synthetic one — WebView2/Windows would otherwise set a
+    // no-drop cursor before we can cancel via preventDefault().
+    if (tabElement.hasAttribute('draggable')) {
+      tabElement.setAttribute('draggable', 'false');
+    }
+
     ghostElement = createTabDragGhost(tabElement, clientX, clientY);
 
     window.addEventListener('pointermove', handleWindowPointerMove, true);
@@ -469,16 +504,28 @@ export function installDockviewPointerTabDnd(rootElement: HTMLElement): {
       return;
     }
 
-    const panelData = getPanelData();
-    if (!panelData) {
+    // Synthetic dragstart dispatched by our own pointer-move handler: always
+    // cancel the native drag and bridge to our ghost-based system. The native
+    // WebView2 OLE DoDragDrop would otherwise set a no-drop cursor on Windows.
+    if (isDispatchingSyntheticDragStart) {
+      event.preventDefault();
+      const startX = event.clientX || pending?.startX || 0;
+      const startY = event.clientY || pending?.startY || 0;
+      beginActiveDragSession(tabElement, startX, startY);
       return;
     }
 
+    // For native dragstart events we still need to verify that Dockview's
+    // TabDragHandler has populated LocalSelectionTransfer with a PanelTransfer
+    // before bridging — otherwise the drop payload would be empty.
     const shouldBridgeWithPointer =
-      isDispatchingSyntheticDragStart ||
-      pending?.tabElement === tabElement ||
-      event.isTrusted;
+      pending?.tabElement === tabElement || event.isTrusted;
     if (!shouldBridgeWithPointer) {
+      return;
+    }
+
+    const panelData = getPanelData();
+    if (!panelData) {
       return;
     }
 

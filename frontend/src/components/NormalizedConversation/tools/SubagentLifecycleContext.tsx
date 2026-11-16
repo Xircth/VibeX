@@ -29,16 +29,33 @@ export function useSubagentLifecycleIndex(): SubagentLifecycleIndex {
   return useContext(SubagentLifecycleContext);
 }
 
+type TurnToolsCacheEntry = {
+  blocks: MessageTurn['blocks'];
+  tools: Parameters<typeof collectSubagentLifecycleIndex>[0];
+};
+
+const turnToolsCache = new WeakMap<MessageTurn, TurnToolsCacheEntry>();
+
+function extractTurnTools(
+  turn: MessageTurn
+): Parameters<typeof collectSubagentLifecycleIndex>[0] {
+  const cached = turnToolsCache.get(turn);
+  if (cached && cached.blocks === turn.blocks) {
+    return cached.tools;
+  }
+  const tools = planTurnBlocks(turn.blocks).flatMap((item) =>
+    item.kind === 'tool' && item.use
+      ? [{ use: item.use, result: item.result }]
+      : []
+  );
+  turnToolsCache.set(turn, { blocks: turn.blocks, tools });
+  return tools;
+}
+
 export function indexSubagentLifecycleFromTurns(
   turns: MessageTurn[]
 ): SubagentLifecycleIndex {
-  const tools = turns.flatMap((turn) =>
-    planTurnBlocks(turn.blocks).flatMap((item) =>
-      item.kind === 'tool' && item.use
-        ? [{ use: item.use, result: item.result }]
-        : []
-    )
-  );
+  const tools = turns.flatMap(extractTurnTools);
   if (tools.length === 0) {
     return EMPTY_INDEX;
   }

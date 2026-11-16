@@ -81,22 +81,22 @@ async fn one_authenticated_application_surface_opens_product_domains_for_the_web
         app.clone(),
         "plugin_marketplace_install",
         serde_json::json!({
-            "owner": "vibex",
+            "owner": "dimo",
             "pluginName": "office",
         }),
     )
     .await;
-    assert_eq!(installed["id"], "vibex.office");
+    assert_eq!(installed["id"], "dimo.office");
 
     let product_plugins = call(app.clone(), "plugin_control_catalog", serde_json::json!({})).await;
-    assert_eq!(product_plugins["plugins"][0]["id"], "vibex.office");
+    assert_eq!(product_plugins["plugins"][0]["id"], "dimo.office");
     assert_eq!(
         product_plugins["plugins"][0]["description"],
-        "在 VibeX 中创建、编辑、分析和预览 DOCX、XLSX 与 PPTX 文件。"
+        "在 Dimo 中创建、编辑、分析和预览 DOCX、XLSX 与 PPTX 文件。"
     );
     assert_eq!(
         product_plugins["plugins"][0]["formats"],
-        serde_json::json!(["vibex"])
+        serde_json::json!(["dimo"])
     );
     assert_eq!(
         product_plugins["plugins"][0]["appContributions"][0]["kind"], "file_opener",
@@ -110,7 +110,7 @@ async fn one_authenticated_application_surface_opens_product_domains_for_the_web
     let detail = call(
         app.clone(),
         "plugin_product_detail",
-        serde_json::json!({ "pluginId": "vibex.office" }),
+        serde_json::json!({ "pluginId": "dimo.office" }),
     )
     .await;
     let contents = detail["contents"].as_array().expect("contents");
@@ -132,7 +132,7 @@ async fn one_authenticated_application_surface_opens_product_domains_for_the_web
             .as_str()
             .expect("README")
             .trim_start()
-            .starts_with("# VibeX Office")
+            .starts_with("# Dimo Office")
     );
     assert_eq!(detail["config"]["idleTimeoutMinutes"], 10);
 
@@ -140,7 +140,7 @@ async fn one_authenticated_application_surface_opens_product_domains_for_the_web
         app.clone(),
         "plugin_save_config",
         serde_json::json!({
-            "pluginId": "vibex.office",
+            "pluginId": "dimo.office",
             "config": { "idleTimeoutMinutes": 12 }
         }),
     )
@@ -160,7 +160,7 @@ async fn one_authenticated_application_surface_opens_product_domains_for_the_web
         app.clone(),
         "plugin_control_grant_permissions",
         serde_json::json!({
-            "pluginId": "vibex.office",
+            "pluginId": "dimo.office",
             "permissionIds": ["preview-opened-office-file"]
         }),
     )
@@ -174,7 +174,7 @@ async fn one_authenticated_application_surface_opens_product_domains_for_the_web
     let missing_runtime = call_status(
         app.clone(),
         "plugin_control_install_runtime",
-        serde_json::json!({ "pluginId": "vibex.office", "runtimeId": "missing" }),
+        serde_json::json!({ "pluginId": "dimo.office", "runtimeId": "missing" }),
     )
     .await;
     assert_eq!(missing_runtime, StatusCode::NOT_FOUND);

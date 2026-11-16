@@ -151,3 +151,106 @@ export function getComposerSessionLabels({
     compactSessionLabel: truncateComposerSessionLabel(compactSource),
   };
 }
+
+export type AutoCreatedComposerSession = {
+  sessionId: string;
+  executor: string;
+};
+
+export type ComposerControlScopeSnapshot = {
+  sessionId: string | undefined;
+  targetExecutor: string | null | undefined;
+  resolvedSessionExecutor: string | null | undefined;
+};
+
+export function resolveComposerControlScopeTransition({
+  previous,
+  current,
+  autoCreatedSession,
+}: {
+  previous: ComposerControlScopeSnapshot | null;
+  current: ComposerControlScopeSnapshot;
+  autoCreatedSession: AutoCreatedComposerSession | null;
+}): {
+  shouldReset: boolean;
+  shouldPersistToAutoCreatedSession: boolean;
+  nextAutoCreatedSession: AutoCreatedComposerSession | null;
+} {
+  if (!previous) {
+    return {
+      shouldReset: true,
+      shouldPersistToAutoCreatedSession: false,
+      nextAutoCreatedSession: autoCreatedSession,
+    };
+  }
+
+  const unchanged =
+    previous.sessionId === current.sessionId &&
+    previous.targetExecutor === current.targetExecutor &&
+    previous.resolvedSessionExecutor === current.resolvedSessionExecutor;
+  if (unchanged) {
+    return {
+      shouldReset: false,
+      shouldPersistToAutoCreatedSession: false,
+      nextAutoCreatedSession: autoCreatedSession,
+    };
+  }
+
+  if (
+    autoCreatedSession &&
+    current.sessionId === autoCreatedSession.sessionId &&
+    current.targetExecutor === autoCreatedSession.executor &&
+    (current.resolvedSessionExecutor == null ||
+      current.resolvedSessionExecutor === autoCreatedSession.executor)
+  ) {
+    const isInitialActivation = previous.sessionId === undefined;
+    const isHydrated =
+      current.resolvedSessionExecutor === autoCreatedSession.executor;
+    return {
+      shouldReset: false,
+      shouldPersistToAutoCreatedSession: isInitialActivation,
+      nextAutoCreatedSession: isHydrated ? null : autoCreatedSession,
+    };
+  }
+
+  return {
+    shouldReset: true,
+    shouldPersistToAutoCreatedSession: false,
+    nextAutoCreatedSession: null,
+  };
+}
+
+export function persistPendingSessionControls({
+  conversationId,
+  selectedMode,
+  selectedConfigValues,
+  setSessionMode,
+  setSessionConfigOption,
+}: {
+  conversationId: string;
+  selectedMode: string | null;
+  selectedConfigValues: Record<string, string>;
+  setSessionMode: (args: {
+    conversationId: string;
+    modeId: string;
+  }) => Promise<unknown>;
+  setSessionConfigOption: (args: {
+    conversationId: string;
+    key: string;
+    value: string;
+  }) => Promise<unknown>;
+}): void {
+  if (selectedMode) {
+    void setSessionMode({ conversationId, modeId: selectedMode }).catch(
+      () => {}
+    );
+  }
+  for (const [key, value] of Object.entries(selectedConfigValues)) {
+    if (!key || !value) continue;
+    void setSessionConfigOption({ conversationId, key, value }).catch(
+      () => {}
+    );
+  }
+}
+
+

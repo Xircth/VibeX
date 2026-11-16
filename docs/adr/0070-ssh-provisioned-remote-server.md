@@ -2,14 +2,14 @@
 status: proposed
 date: 2026-09-04
 decision-makers:
-  - VibeX maintainers
+  - Dimo maintainers
 ---
 
-# 通过 SSH 供给与接管远程 VibeX Server
+# 通过 SSH 供给与接管远程 Dimo Server
 
 本决定为「把整个工作区搬到远端」补全最后一环：用户只有一台可 SSH 访问的服务器
-（无公网 origin、无局域网可达、未安装 VibeX）时，桌面端能够经 SSH **供给**
-（安装、启动、升级）一个版本配套的 `vibex-server`，经 SSH **隧道**建立可达，
+（无公网 origin、无局域网可达、未安装 Dimo）时，桌面端能够经 SSH **供给**
+（安装、启动、升级）一个版本配套的 `dimo-server`，经 SSH **隧道**建立可达，
 经 SSH **信任引导**完成设备配对，然后以既有 Server-bound window 使用远端
 Host——Agent、Git worktree、终端、插件全部在服务器上运行，桌面（或 WebUI）
 只是客户端。
@@ -20,7 +20,7 @@ Host——Agent、Git worktree、终端、插件全部在服务器上运行，�
 平台。
 
 对标：VS Code Remote-SSH。其可行性来自产品核心先有 client/server 边界，SSH
-扩展只是「供给器 + 隧道 + 指向切换」。VibeX 的对应边界已由 ADR-0033 建立并
+扩展只是「供给器 + 隧道 + 指向切换」。Dimo 的对应边界已由 ADR-0033 建立并
 部分实现，本篇不重建边界，只补 SSH 通道。
 
 ## Context
@@ -29,7 +29,7 @@ Host——Agent、Git worktree、终端、插件全部在服务器上运行，�
 
 1. **共享应用核心与 Headless Server 已在。** `crates/server` 提供
    `HeadlessServer` / `host_application_core()`，与 Tauri 桌面共用同一
-   Application Core（ADR-0033）；`vibex-server` 独立二进制存在，发行物形态已由
+   Application Core（ADR-0033）；`dimo-server` 独立二进制存在，发行物形态已由
    ADR-0054 定义（跨平台目录 / 可选 Docker，含 `web/` 与官方插件快照）。
 2. **远程协议与传输已在。** `crates/remote-protocol` v1.0：版本化命令信封、
    WS 订阅（Conversation / WorkflowRun）、设备配对凭据、`ServerCapabilities`
@@ -45,7 +45,7 @@ Host——Agent、Git worktree、终端、插件全部在服务器上运行，�
 
 缺的是三件事，全部与 SSH 相关：
 
-- **供给**：目标机器上没有 `vibex-server` 时，没有任何自动化安装/启动路径；
+- **供给**：目标机器上没有 `dimo-server` 时，没有任何自动化安装/启动路径；
 - **可达**：ADR-0059 的 Reachability 名单假设 Host 已在运行并能出示邀请；
   「只有 SSH 能进去」的机器既无 origin 也无邀请可扫；
 - **信任引导**：配对邀请依赖本机控制台出示；无头服务器没有控制台可看。
@@ -54,7 +54,7 @@ Host——Agent、Git worktree、终端、插件全部在服务器上运行，�
 
 ### 1. 拓扑与职责分离
 
-SSH 只承担三件事：**供给通道**（投递与管理 `vibex-server`）、**承载隧道**
+SSH 只承担三件事：**供给通道**（投递与管理 `dimo-server`）、**承载隧道**
 （本地端口转发）、**信任引导通道**（经 SSH exec 取一次性配对邀请）。数据面
 维持 remote-protocol over HTTP/WS 不变——SSH 不是第二套应用协议。
 
@@ -64,12 +64,12 @@ SSH 只承担三件事：**供给通道**（投递与管理 `vibex-server`）、
   ▼
 127.0.0.1:<forwarded>  ── ssh -L 隧道 ──▶  远端 127.0.0.1:<port>
                                               │
-                                        vibex-server（loopback-only）
+                                        dimo-server（loopback-only）
                                               │
                         Agent / worktree / 终端 / 插件内核（全在远端）
 ```
 
-远端 `vibex-server` 以 **SSH-only 模式**运行：只 bind loopback、不发布任何
+远端 `dimo-server` 以 **SSH-only 模式**运行：只 bind loopback、不发布任何
 非 loopback Reachability、公网零暴露。ADR-0054 的拓扑约束不变：同一数据目录
 同一时刻只有一个 Host；插件内核只活在拥有数据目录的 Host（即远端）上。
 
@@ -77,18 +77,18 @@ SSH 只承担三件事：**供给通道**（投递与管理 `vibex-server`）、
 
 Server Profile（ADR-0033）新增 `ssh` 供给类型。它保存 SSH 目标（host、port、
 user、可选 jump）与远端数据目录路径等**非秘密元数据**；SSH 认证一律复用
-**用户系统 SSH 环境**（`~/.ssh/config`、ssh-agent、密钥文件），VibeX 不存储、
+**用户系统 SSH 环境**（`~/.ssh/config`、ssh-agent、密钥文件），Dimo 不存储、
 不生成、不管理 SSH 私钥（与 ADR-0060「使用用户环境」同一原则）。
 
 连接一个 SSH Host Profile 时按以下幂等管线执行，每步可见、可重试、失败不留
 半状态：
 
-1. **探测**：`ssh` 执行探测脚本，识别 OS/arch、既有 `vibex-server` 及其版本、
+1. **探测**：`ssh` 执行探测脚本，识别 OS/arch、既有 `dimo-server` 及其版本、
    数据目录占用（ADR-0054：被占用则只能作客户端，禁止起第二个 Host）。
 2. **投递**：远端缺失或版本不配套时，下载（远端直连或经本地中转上传）与
-   客户端**同 semver 家族**的 VibeX Server 发行物，sha256 校验后解压到版本化
-   目录（`~/.vibex/server/<version>/`），原子切换 `current` 链接。
-3. **启动**：以 SSH-only 模式启动 `vibex-server`（loopback bind、指定数据
+   客户端**同 semver 家族**的 Dimo Server 发行物，sha256 校验后解压到版本化
+   目录（`~/.dimo/server/<version>/`），原子切换 `current` 链接。
+3. **启动**：以 SSH-only 模式启动 `dimo-server`（loopback bind、指定数据
    目录），等待健康检查。进程守护默认用最朴素的方式（nohup + pidfile，随
    发行物提供可选 systemd user unit 模板），不强制远端安装任何守护框架。
 4. **隧道**：建立 `ssh -L` 本地转发（随机本地端口），断线自动重建；隧道由
@@ -109,7 +109,7 @@ ADR-0059 的原则不变：长期凭据不进邀请、secret 五分钟一次性�
 
 - **SSH 权限即管理员证明。** 能以 SSH 登录目标机器并读写数据目录的人，等价于
   能在本机控制台出示邀请的人。因此供给器可经 SSH exec 调用远端
-  `vibex-server` 的邀请出示命令，取得一次性 pairing secret 并立即兑换为本
+  `dimo-server` 的邀请出示命令，取得一次性 pairing secret 并立即兑换为本
   设备的 scoped device credential——全程不落盘、不进 URL、不需要用户抄码。
 - **隧道 origin 不进 Host 权威名单。** `127.0.0.1:<forwarded>` 是客户端本地
   派生地址，对其它设备无意义；它作为**客户端本地 Reachability**（新增来源
@@ -145,7 +145,7 @@ capabilities 台账；差距即 P0 落实的剩余工作，不属于本 ADR 的�
   端点一并考虑（同为 HTTP 端点，隧道天然可承载）。
 - **SSH 供给器作为官方插件交付。** `remote.profile.*` / `remote.connect` 是
   公开 `host.call` 族；`provider.remote.provisioner` 是公开贡献点。SSH 供给
-  走官方插件 `vibex.remote-ssh`（插件详情配置面 + Full Trust Worker 跑探测、
+  走官方插件 `dimo.remote-ssh`（插件详情配置面 + Full Trust Worker 跑探测、
   安装、启动、隧道与配对）。已保存 Host 用 `provisionKind=ssh` 标记，Host
   不按插件 ID 分支。第三方可用同一套 API 开发 mosh、teleport、云厂商 API
   等替代供给器。卸载该插件默认不删除已保存 Host。
@@ -153,7 +153,7 @@ capabilities 台账；差距即 P0 落实的剩余工作，不属于本 ADR 的�
 ### 6. 安全基线
 
 1. **零公网暴露**：SSH-only 模式 loopback bind；不出示非 loopback 邀请。
-2. **SSH 凭据不归 VibeX**：只调用系统 `ssh`（或库实现时读取系统配置与
+2. **SSH 凭据不归 Dimo**：只调用系统 `ssh`（或库实现时读取系统配置与
    agent），不存私钥、不代管 known_hosts 决策（host key 变化时把系统 SSH 的
    告警原样呈现并阻断）。
 3. **供应链**：投递的 Server 发行物 sha256 校验（复用 updater 校验语义，
@@ -189,7 +189,7 @@ Reachability kind。
 进度呈现（探测→投递→启动→隧道→配对→连接），每步失败可单独重试；版本不配套
 以非阻断横幅提示并提供一键升级；文案遵守 maiden 原则。
 
-**验收：** 一台仅有 SSH 访问、未装 VibeX 的 Linux 服务器，从新建 Profile 到
+**验收：** 一台仅有 SSH 访问、未装 Dimo 的 Linux 服务器，从新建 Profile 到
 Server-bound window 可用全程无手工步骤（除 SSH 密钥本身）；断网后隧道自动
 重建且 durable attach 生效（ADR-0033）；forget 后远端凭据被撤销；重复供给
 幂等；host key 变化被阻断并可诊断；数据目录被另一 Host 占用时按 ADR-0054
@@ -232,12 +232,12 @@ Server-bound window 可用全程无手工步骤（除 SSH 密钥本身）；断�
 - **建立在 ADR-0033 之上**：共享 Application Core、BackendTransport、Server
   Profile、窗口绑定、断连三动作、远程 P0 边界全部沿用；本 ADR 只新增 `ssh`
   供给类型与配套管线。
-- **建立在 ADR-0054 之上**：VibeX Server 发行物、Host 家族版本、Workstation
+- **建立在 ADR-0054 之上**：Dimo Server 发行物、Host 家族版本、Workstation
   客户端等级、「插件内核只活在数据目录 Host 上」沿用；供给器投递的就是
   ADR-0054 定义的 Server 目录形态。
 - **扩展 ADR-0059**：新增 `ssh-tunnel` 客户端本地 Reachability kind 与「经
   SSH exec 的邀请投递」；一次性 secret、凭据存储、名单权威性原则不变。
-- **呼应 ADR-0060**：SSH 认证使用用户系统环境，VibeX 不代管密钥。
+- **呼应 ADR-0060**：SSH 认证使用用户系统环境，Dimo 不代管密钥。
 - **姊妹于 ADR-0069**：确认「工作区搬远端」是 L0 核心路线而非插件路线；
   同时把 SSH 供给器规划为阶段二官方插件，成为其「新领域功能插件」试金石；
   `remote.*` host.call 族补入 0069 的宿主数据 API 面盘点。

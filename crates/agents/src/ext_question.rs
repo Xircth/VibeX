@@ -2,7 +2,7 @@
 //!
 //! Claude uses standard `elicitation/create`. Grok and Cursor block on vendor
 //! ext-methods instead. This module is the single host entry: parse those
-//! methods onto the existing `x-vibex-questions` card, then encode the user's
+//! methods onto the existing `x-dimo-questions` card, then encode the user's
 //! answer back into the vendor payload.
 
 use std::collections::HashMap;
@@ -50,7 +50,7 @@ pub fn unwrap_params(params: &str) -> Result<Value, String> {
 pub fn question_schema(questions: impl IntoIterator<Item = Value>) -> Value {
     json!({
         "type": "object",
-        "x-vibex-questions": questions.into_iter().collect::<Vec<_>>(),
+        "x-dimo-questions": questions.into_iter().collect::<Vec<_>>(),
     })
 }
 
@@ -239,7 +239,7 @@ mod tests {
         .unwrap()
         .unwrap();
         assert_eq!(grok.session_id.as_deref(), Some("s1"));
-        assert!(grok.schema["x-vibex-questions"].is_array());
+        assert!(grok.schema["x-dimo-questions"].is_array());
 
         let cursor = parse(
             "cursor/ask_question",

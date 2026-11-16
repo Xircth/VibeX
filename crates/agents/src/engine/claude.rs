@@ -1,5 +1,5 @@
 //! Native Claude Code driver communicating over stdio JSON-RPC 2.0 with
-//! `scripts/claude-native-driver.mjs` on VibeX's managed or system Node.js runtime.
+//! `scripts/claude-native-driver.mjs` on Dimo's managed or system Node.js runtime.
 //!
 //! Surfaces `canUseTool` permission hooks, `AskUserQuestion` elicitation, `session/fork`,
 //! `session/revert` (`resumeSessionAt`), `SDKRateLimitInfo`, live subagent telemetry,

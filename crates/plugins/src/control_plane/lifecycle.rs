@@ -465,7 +465,7 @@ impl PluginControlPlane {
                 && let Ok(mut dep_package) =
                     PluginPackage::inspect(&monorepo_root, crate::PluginSourceKind::Marketplace)
             {
-                let publisher = dependency.publisher.as_deref().unwrap_or("vibex");
+                let publisher = dependency.publisher.as_deref().unwrap_or("dimo");
                 dep_package.source.origin =
                     Some(crate::marketplace_listing_url(publisher, &dependency.id));
                 dep_package.source.git_ref = Some(dep_package.version.clone());

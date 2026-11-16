@@ -758,6 +758,33 @@ impl ServerApplicationDomains {
             .launch_settings(&self.pool, &args.agent_id)
             .await
             .map_err(|error| ApplicationError::bad_request(error.to_string()))?;
+        let saved_defaults = SessionDefaultRepository::new(self.pool.clone())
+            .list_for_agent(&args.agent_id)
+            .await
+            .unwrap_or_default();
+        let mut mode = None;
+        let mut config = Vec::new();
+        for record in saved_defaults {
+            let Ok(parsed) = serde_json::from_str::<Value>(&record.value_json) else {
+                continue;
+            };
+            if record.option_id == "mode" {
+                if let Some(m) = parsed.as_str().map(str::trim).filter(|m| !m.is_empty()) {
+                    mode = Some(m.to_string());
+                }
+            } else {
+                let val = parsed
+                    .as_str()
+                    .map(str::to_string)
+                    .unwrap_or_else(|| parsed.to_string());
+                if !val.trim().is_empty() {
+                    config.push(agents::AgentSessionConfigOverride {
+                        key: record.option_id,
+                        value: val,
+                    });
+                }
+            }
+        }
         serialize(
             self.conversations
                 .agent_runtime
@@ -772,8 +799,9 @@ impl ServerApplicationDomains {
                     auto_approve_mode: launch.auto_approve_mode,
                     env: launch.env,
                     preferences: agents::SessionControlPreferences {
+                        mode,
+                        config,
                         wants_prompt_suggestions: true,
-                        ..Default::default()
                     },
                 })
                 .await
@@ -1649,7 +1677,7 @@ impl ServerApplicationDomains {
             AgentOperationStatus::Queued,
             Some(5),
             Some(format!(
-                "$ vibex agent {} {}",
+                "$ dimo agent {} {}",
                 operation_kind_key(kind),
                 agent_id.as_str()
             )),
@@ -2561,7 +2589,7 @@ mod tests {
     #[test]
     fn plugin_path_args_still_require_a_filesystem_path() {
         let parsed = serde_json::from_value::<PluginPathArgs>(json!({
-            "pluginId": "vibex.plugin-development",
+            "pluginId": "dimo.plugin-development",
             "allAgents": true,
             "agents": []
         }));

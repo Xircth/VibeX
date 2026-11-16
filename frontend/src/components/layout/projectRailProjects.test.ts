@@ -42,7 +42,7 @@ describe('project rail project ordering', () => {
     };
     const children = [
       { id: 'c-open', name: 'open-connector', parent_project_id: 'parent' },
-      { id: 'c-vibex', name: 'VibeX', parent_project_id: 'parent' },
+      { id: 'c-dimo', name: 'Dimo', parent_project_id: 'parent' },
       { id: 'c-codeg', name: 'codeg', parent_project_id: 'parent' },
     ];
 
@@ -57,8 +57,8 @@ describe('project rail project ordering', () => {
     expect(first.map((project) => project.id)).toEqual([
       'parent',
       'c-codeg',
+      'c-dimo',
       'c-open',
-      'c-vibex',
     ]);
     expect(second.map((project) => project.id)).toEqual(
       first.map((project) => project.id)
@@ -94,13 +94,13 @@ describe('project rail project ordering', () => {
     const items = [
       {
         id: '1',
-        displayName: 'my-vibex-plugin',
-        root_path: '/Users/dev/plugins/my-vibex-plugin',
+        displayName: 'my-dimo-plugin',
+        root_path: '/Users/dev/plugins/my-dimo-plugin',
       },
       {
         id: '2',
-        displayName: 'VibeX',
-        root_path: 'C:\\Users\\dev\\projects\\VibeX',
+        displayName: 'Dimo',
+        root_path: 'C:\\Users\\dev\\projects\\Dimo',
       },
       {
         id: '3',
@@ -109,7 +109,7 @@ describe('project rail project ordering', () => {
       },
     ];
 
-    expect(filterProjectsByQuery(items, 'vibex').map((p) => p.id)).toEqual([
+    expect(filterProjectsByQuery(items, 'dimo').map((p) => p.id)).toEqual([
       '2',
       '1',
     ]);

@@ -186,10 +186,10 @@
 
   function post(message) {
     try {
-      var queue = globalThis.__vibexPickQueue
+      var queue = globalThis.__dimoPickQueue
       if (!Array.isArray(queue)) {
         queue = []
-        globalThis.__vibexPickQueue = queue
+        globalThis.__dimoPickQueue = queue
       }
       queue.push(message)
     } catch {

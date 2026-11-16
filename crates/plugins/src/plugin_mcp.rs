@@ -124,18 +124,18 @@ mod tests {
     fn host_family_admission_uses_the_product_catalog() {
         let admitted = admit_plugin_mcp(
             "acme.delegation",
-            "vibex-delegation-mcp",
+            "dimo-delegation-mcp",
             &json!({
                 "managedRuntime": {
                     "kind": "hostFamilyBinary",
-                    "binaryId": "vibex-mcp",
+                    "binaryId": "dimo-mcp",
                     "product": "delegation"
                 }
             }),
             &json!({}),
         );
         assert_eq!(admitted.kind, PluginMcpKind::HostFamily);
-        assert_eq!(admitted.server_id, "vibex-delegation-mcp");
+        assert_eq!(admitted.server_id, "dimo-delegation-mcp");
         assert_eq!(admitted.tools, crate::advertised_mcp_tools("delegation", 0));
     }
 

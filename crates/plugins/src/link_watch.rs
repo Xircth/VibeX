@@ -30,12 +30,12 @@ pub(super) async fn run_developer_link_watch(plane: Arc<PluginControlPlane>) {
 }
 
 pub fn user_plugins_dir() -> Option<PathBuf> {
-    if let Ok(custom) = std::env::var("VIBEX_USER_PLUGINS_DIR")
+    if let Ok(custom) = std::env::var("DIMO_USER_PLUGINS_DIR")
         && !custom.trim().is_empty()
     {
         return Some(PathBuf::from(custom.trim()));
     }
-    dirs::home_dir().map(|home| home.join(".vibex").join("plugins"))
+    dirs::home_dir().map(|home| home.join(".dimo").join("plugins"))
 }
 
 async fn watch_with_notify(

@@ -2,7 +2,7 @@
 status: accepted
 date: 2026-08-28
 decision-makers:
-  - VibeX maintainers
+  - Dimo maintainers
 ---
 
 # 插件平台改进计划（市场、单路作者链、可运行脚手架）
@@ -65,27 +65,27 @@ decision-makers:
 
 - Node 系模板写 `runtime/worker.mjs` + `runtime/main.mjs`（`runStdioPluginWorker`）。
 - 测试从定义模块导入；无 Worker 模板用 fixture 导出。
-- `engines.vibex`：`>=0.1.3 <1.0.0`。
+- `engines.dimo`：`>=0.1.3 <1.0.0`。
 - 增加可编辑文件 Tab 模板（或把 `file-tab` 说明改成预览，另加 `editor-tab`）。名字与产物
   必须一致。
 - CLI 测试覆盖：init 后 `validate` 通过；打包后的 `dist/worker.mjs` 含 stdio 循环；
-  `vibex-plugin test` 在临时目录下仍绿。
+  `dimo-plugin test` 在临时目录下仍绿。
 
 ### 1.3 删除开发 MCP，Skill 改为 CLI 规范
 
 - 插件开发包去掉 `content.mcp`、`devMcp`、`contents/mcps/plugin-dev.json`。
-- `crates/plugins` / `crates/vibex-mcp` / `src-tauri` 注入去掉 `plugin-dev` 产品。
+- `crates/plugins` / `crates/dimo-mcp` / `src-tauri` 注入去掉 `plugin-dev` 产品。
 - 设置页开发工具对话框去掉 endpoint/凭据；需要该产品时走向市场官方分类（Phase 3
   接上之前，可暂时链到「添加本地目录」的 `add --dev` 说明）。
-- `vibex-plugin install --link` 与 `dev` 改为与 `vibex plugin add --dev` 同一
-  `plugin_control_import` 路径，拒绝 `VIBEX_PLUGIN_DEV_TOKEN`，不再依赖
-  `VIBEX_PLUGIN_DEV_GRANT`。
+- `dimo-plugin install --link` 与 `dev` 改为与 `dimo plugin add --dev` 同一
+  `plugin_control_import` 路径，拒绝 `DIMO_PLUGIN_DEV_TOKEN`，不再依赖
+  `DIMO_PLUGIN_DEV_GRANT`。
 - 重写 `assets/plugins/plugin-development` 的 Skill、README、参考：完整开发与测试
   规范以 CLI 为准，含 `test --host`。
 
 ### 1.4 Host 旅程门
 
-- `vibex plugin test --host` 作为 Node/App/MCP 模板与官方包 CI 的必过项。
+- `dimo plugin test --host` 作为 Node/App/MCP 模板与官方包 CI 的必过项。
 - 最短旅程：安装或链接 → 启用 → 点到该模板声明的用户能力 → 卸载后源目录仍在。
 - Office / Workflow Creator / 插件开发包在实现阶段按各自 integration 补旅程，不把
   harness 绿当成完成。
@@ -95,7 +95,7 @@ decision-makers:
 
 ## Phase 2 — 官网 Catalog API
 
-仓库：`~/Projects/vibex-site`。不改审核模型（待审不上架）。
+仓库：`~/Projects/dimo-site`。不改审核模型（待审不上架）。
 
 新增 `/api/marketplace/v1/`（或等价版本化前缀），实现 0066「Marketplace Catalog API」
 六类只读接口。相对现有 `GET /api/marketplace/list`：
@@ -107,7 +107,7 @@ decision-makers:
 - artifact 必须有完整性证据（sha256）；GitHub 源给出可钉死的 tag。
 
 现有 `GET /api/marketplace/artifact/:author/:plugin` 可保留给 CLI，v1 artifact 与它
-返回字段对齐并补 tag/digest。CORS：允许桌面与 `vibex-server` 所在的回环与用户配置
+返回字段对齐并补 tag/digest。CORS：允许桌面与 `dimo-server` 所在的回环与用户配置
 的 Host 来源读取公开目录。
 
 **验收：** 无登录可拉官方全量与社区 50 条；搜索能命中第 51 条社区包；待审包 404；
@@ -136,16 +136,16 @@ decision-makers:
 比较后在已安装行显示「可更新」与更新按钮。更新走预览弹窗 + 现行
 `plugin_control` 更新/替换，保留 `config.json`。
 
-`vibex plugin add --web <github>` 写入 `sourceKind=github`。
-`vibex plugin add --web https://vibex.xforever.xin/marketplace/<owner>/<name>`
+`dimo plugin add --web <github>` 写入 `sourceKind=github`。
+`dimo plugin add --web https://vibex.xforever.xin/marketplace/<owner>/<name>`
 写入 `sourceKind=marketplace`。`plugin update` 只跟随来源锁。
 
 ### 3.4 官方包不再预装
 
 - 停止启动时 `materialize_builtin_plugins` 自动 import 到 catalog。
-- 官方五件套在官网以 `category=official` 上架（owner 建议 `vibex`）。
+- 官方五件套在官网以 `category=official` 上架（owner 建议 `dimo`）。
 - Host 家族可继续打包快照目录，仅供离线市场官方分类安装。
-- 迁移：已有 builtin 记录改为官方市场来源锁（owner=`vibex`，name=现 plugin id，
+- 迁移：已有 builtin 记录改为官方市场来源锁（owner=`dimo`，name=现 plugin id，
   tag/version=当时版本），允许卸载。不要删用户已启用状态。
 - 修订测试 `crates/plugins/tests/official_host_catalog.rs` 等「启动即五件套」断言。
 

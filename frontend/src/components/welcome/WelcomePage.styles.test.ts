@@ -25,7 +25,7 @@ function declarationsFor(selector: string) {
 }
 
 describe('welcome project surfaces', () => {
-  it('describes VibeX as a super Agent Coding platform', () => {
+  it('describes Dimo as a super Agent Coding platform', () => {
     expect(zhCNApp.welcomePage.tagline).toBe('超级 Agent Coding 平台');
     expect(enApp.welcomePage.tagline).toBe('Super Agent Coding Platform');
   });

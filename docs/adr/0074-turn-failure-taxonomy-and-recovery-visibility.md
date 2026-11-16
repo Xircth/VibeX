@@ -2,7 +2,7 @@
 status: proposed
 date: 2026-09-04
 decision-makers:
-  - VibeX maintainers
+  - Dimo maintainers
 ---
 
 # Turn 失败分类以结构化证据为准，恢复过程与恢复结果对用户可见

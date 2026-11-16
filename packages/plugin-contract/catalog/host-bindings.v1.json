@@ -810,7 +810,7 @@
       "implementation": "crates/browser-host/src/service.rs:dispatch",
       "reaches_core": false,
       "status": "ready",
-      "notes": "Used by vibex.browser (tab.list/tab.close/grant.set/...); absent from host-api.v1.json. J7: registered in host-api.v1.json; status raised to ready."
+      "notes": "Used by dimo.browser (tab.list/tab.close/grant.set/...); absent from host-api.v1.json. J7: registered in host-api.v1.json; status raised to ready."
     },
     {
       "name": "blob",

@@ -32,6 +32,7 @@ use uuid::Uuid;
 use crate::projection::{
     CachedRowProjector, ConversationRowProjectors, IncrementalRowProjector,
     evict_least_recently_used_projectors, extend_coalesced_row_ops,
+    fetch_hydrated_turns_for_projector,
 };
 
 /// Emitted when a workbench-affecting event lands (turn queued / started / completed / …).
@@ -138,6 +139,45 @@ impl ConversationLivePipeline {
         map.retain(|id, lock| active.contains_key(id) || Arc::strong_count(lock) > 1);
     }
 
+    async fn ensure_projector_turns_hydrated(
+        &self,
+        conversation_id: Uuid,
+        records: &[ConversationEventRecord],
+    ) {
+        let missing_info = {
+            let map = self.projectors.lock().await;
+            map.get(&conversation_id).and_then(|entry| {
+                let missing = entry.projector.missing_turns_for_records(records);
+                if missing.is_empty() {
+                    None
+                } else {
+                    Some((entry.projector.complete_antigravity_reads(), missing))
+                }
+            })
+        };
+        let Some((complete_antigravity_reads, missing)) = missing_info else {
+            return;
+        };
+        match fetch_hydrated_turns_for_projector(
+            &self.pool,
+            conversation_id,
+            complete_antigravity_reads,
+            &missing,
+        )
+        .await
+        {
+            Ok(hydrated) => {
+                let mut map = self.projectors.lock().await;
+                if let Some(entry) = map.get_mut(&conversation_id) {
+                    entry.projector.insert_hydrated_turns(hydrated);
+                }
+            }
+            Err(error) => {
+                tracing::warn!(%conversation_id, %error, "row-op emit: turn hydration failed");
+            }
+        }
+    }
+
     /// Publish committed events as frontend row operations in durable sequence order.
     ///
     /// This is the single realtime path to the frontend: the frontend consumes
@@ -237,14 +277,20 @@ impl ConversationLivePipeline {
         } else {
             None
         };
+        if let Some(projector) = loaded_projector {
+            self.projectors
+                .lock()
+                .await
+                .entry(conversation_id)
+                .or_insert(projector);
+        }
+        self.ensure_projector_turns_hydrated(conversation_id, &new_records)
+            .await;
 
         // Fold the new records into row ops.
         let mut ops = Vec::new();
         let should_emit = {
             let mut map = self.projectors.lock().await;
-            if let Some(projector) = loaded_projector {
-                map.entry(conversation_id).or_insert(projector);
-            }
             let entry = map
                 .get_mut(&conversation_id)
                 .expect("projector present after insert");
@@ -303,13 +349,14 @@ impl ConversationLivePipeline {
         }
 
         // Check for workbench-affecting events and notify if needed.
-        if is_workbench_changed(&new_records) {
-            if let Ok(Some(session)) = Session::find_by_id(&self.pool, conversation_id).await {
-                self.coalescer.emit_workspaces_sessions_changed(WorkspaceSessionsChanged {
+        if is_workbench_changed(&new_records)
+            && let Ok(Some(session)) = Session::find_by_id(&self.pool, conversation_id).await
+        {
+            self.coalescer
+                .emit_workspaces_sessions_changed(WorkspaceSessionsChanged {
                     workspace_id: session.workspace_id,
                     conversation_id,
                 });
-            }
         }
     }
 
@@ -415,20 +462,15 @@ impl ConversationLivePipeline {
             if rec.sequence <= prev_seq {
                 continue;
             }
-            if rec.sequence > prev_seq + 1 {
-                if let Ok(mid_gap) = ConversationEventRecord::events_since(
-                    &self.pool,
-                    conversation_id,
-                    prev_seq,
-                    2000,
-                )
-                .await
-                {
-                    for gap in mid_gap {
-                        if gap.sequence < rec.sequence && gap.sequence > prev_seq {
-                            prev_seq = gap.sequence;
-                            new_records.push(gap);
-                        }
+            if rec.sequence > prev_seq + 1
+                && let Ok(mid_gap) =
+                    ConversationEventRecord::events_since(&self.pool, conversation_id, prev_seq, 2000)
+                        .await
+            {
+                for gap in mid_gap {
+                    if gap.sequence < rec.sequence && gap.sequence > prev_seq {
+                        prev_seq = gap.sequence;
+                        new_records.push(gap);
                     }
                 }
             }
@@ -456,13 +498,19 @@ impl ConversationLivePipeline {
         } else {
             None
         };
+        if let Some(projector) = loaded_projector {
+            self.projectors
+                .lock()
+                .await
+                .entry(conversation_id)
+                .or_insert(projector);
+        }
+        self.ensure_projector_turns_hydrated(conversation_id, &new_records)
+            .await;
 
         let mut ops = Vec::new();
         let should_emit = {
             let mut map = self.projectors.lock().await;
-            if let Some(projector) = loaded_projector {
-                map.entry(conversation_id).or_insert(projector);
-            }
             let entry = map
                 .get_mut(&conversation_id)
                 .expect("projector present after insert");
@@ -549,12 +597,18 @@ impl ConversationLivePipeline {
         } else {
             None
         };
+        if let Some(projector) = loaded_projector {
+            self.projectors
+                .lock()
+                .await
+                .entry(conversation_id)
+                .or_insert(projector);
+        }
+        self.ensure_projector_turns_hydrated(conversation_id, std::slice::from_ref(record))
+            .await;
 
         let (cursor, ops) = {
             let mut map = self.projectors.lock().await;
-            if let Some(projector) = loaded_projector {
-                map.entry(conversation_id).or_insert(projector);
-            }
             let entry = map
                 .get_mut(&conversation_id)
                 .expect("projector present after insert");
@@ -779,13 +833,16 @@ mod tests {
     use crate::ConversationRowProjectors;
 
     /// Test sink that captures emitted batches for assertion.
+    type CapturedBatches = Arc<std::sync::Mutex<Vec<(String, ConversationRowOpBatch)>>>;
+    type CapturedWorkbench = Arc<std::sync::Mutex<Vec<WorkspaceSessionsChanged>>>;
+
     struct CapturingSink {
-        batches: Arc<std::sync::Mutex<Vec<(String, ConversationRowOpBatch)>>>,
-        workbench: Arc<std::sync::Mutex<Vec<WorkspaceSessionsChanged>>>,
+        batches: CapturedBatches,
+        workbench: CapturedWorkbench,
     }
 
     impl CapturingSink {
-        fn new() -> (Self, Arc<std::sync::Mutex<Vec<(String, ConversationRowOpBatch)>>>, Arc<std::sync::Mutex<Vec<WorkspaceSessionsChanged>>>) {
+        fn new() -> (Self, CapturedBatches, CapturedWorkbench) {
             let batches = Arc::new(std::sync::Mutex::new(Vec::new()));
             let workbench = Arc::new(std::sync::Mutex::new(Vec::new()));
             (
@@ -1013,11 +1070,13 @@ mod tests {
         };
 
         let empty = super::SessionControlState::default();
-        let mut with_modes = super::SessionControlState::default();
-        with_modes.session_modes = Some(agents::conversation::ConversationSessionModes {
-            current: None,
-            modes: Vec::new(),
-        });
+        let with_modes = super::SessionControlState {
+            session_modes: Some(agents::conversation::ConversationSessionModes {
+                current: None,
+                modes: Vec::new(),
+            }),
+            ..Default::default()
+        };
 
         // AppendText-only should not emit global
         let append_ops = vec![ConversationRowOp::AppendText {

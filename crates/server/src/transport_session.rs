@@ -169,8 +169,8 @@ pub enum SessionSubscription {
     },
 }
 
-/// Unified transport session shared by WebRTC DataChannels (`vibex.control.v1`
-/// + `vibex.bulk.v1`) and local adapters.
+/// Unified transport session shared by WebRTC DataChannels (`dimo.control.v1`
+/// + `dimo.bulk.v1`) and local adapters.
 pub struct TransportSession<R> {
     credential: AuthenticatedCredential,
     auth: Arc<dyn ServerAuth>,
@@ -429,7 +429,7 @@ where
         }
     }
 
-    /// Enqueues a large payload onto the `vibex.bulk.v1` outbox split into `32KB` chunks.
+    /// Enqueues a large payload onto the `dimo.bulk.v1` outbox split into `32KB` chunks.
     pub fn enqueue_bulk_payload(
         &mut self,
         operation_id: OperationId,
@@ -445,7 +445,7 @@ where
         self.bulk_queue.extend(frames);
     }
 
-    /// Drains queued `vibex.bulk.v1` frames while enforcing the `128KB`
+    /// Drains queued `dimo.bulk.v1` frames while enforcing the `128KB`
     /// (`BULK_BUFFERED_HIGH_WATER_BYTES`) SCTP bufferedAmount backpressure ceiling.
     pub fn drain_bulk_frames(
         &mut self,
@@ -466,7 +466,7 @@ where
         out
     }
 
-    /// Processes an inbound `vibex.bulk.v1` control frame such as `bulk_cancel`.
+    /// Processes an inbound `dimo.bulk.v1` control frame such as `bulk_cancel`.
     pub fn handle_bulk_frame(&mut self, frame: BulkChannelFrame) {
         if let BulkChannelFrame::BulkCancel { operation_id } = frame {
             self.bulk_queue.retain(|queued| match queued {

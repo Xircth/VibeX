@@ -492,9 +492,9 @@ impl AgentConnectionRunner {
         let mode_env = self
             .snapshot
             .env
-            .get("VIBEX_ENGINE_MODE")
+            .get("DIMO_ENGINE_MODE")
             .cloned()
-            .or_else(|| std::env::var("VIBEX_ENGINE_MODE").ok());
+            .or_else(|| std::env::var("DIMO_ENGINE_MODE").ok());
         let force_native = mode_env
             .as_deref()
             .is_some_and(|v| v.trim().eq_ignore_ascii_case("native"));
@@ -616,6 +616,20 @@ impl AgentConnectionRunner {
             *guard = None;
         }
         *self.active_prompt.lock().await = None;
+    }
+
+    pub(in crate::manager) async fn cleanup_discarded_session(&self, session_id: AgentSessionId) {
+        let acp_session_id = self.session_map.write().await.remove(&session_id);
+        self.session_controls.write().await.remove(&session_id);
+        self.preferred_controls.write().await.remove(&session_id);
+        self.session_wants_prompt_suggestions
+            .write()
+            .await
+            .remove(&session_id);
+        self.idle_compaction.remove_session(session_id.0);
+        if let Some(acp_session_id) = acp_session_id {
+            self.stream_dedup.lock().await.remove(&acp_session_id);
+        }
     }
 
     pub(in crate::manager) fn emit_connection_status(

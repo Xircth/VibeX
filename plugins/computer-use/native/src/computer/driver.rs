@@ -1,6 +1,6 @@
 //! The pinned cua-driver release, and what the helper holds it to.
 //!
-//! cua-driver is downloaded into vibex's binary cache, a directory the user —
+//! cua-driver is downloaded into dimo's binary cache, a directory the user —
 //! and so any agent running as the user — can write to. On macOS the helper
 //! runs it as a child that inherits the helper's TCC grants, which makes that
 //! file the attack surface: replace it, and your code runs with Screen
@@ -13,7 +13,7 @@
 //!   and executable digests below were computed from the v0.32.0 release
 //!   assets, once their bundles checked out against that workflow
 //!   (`cd-rust-cua-driver.yml` at the release's tag), and are reviewed and
-//!   signed with vibex's own code.
+//!   signed with dimo's own code.
 //! * **On macOS the running image is checked, not the file.** The helper
 //!   starts the driver suspended and checks the process that is about to run
 //!   against the designated requirement, the per-architecture cdhash, the
@@ -25,8 +25,8 @@
 //! Upgrading the driver is a code change to this file: new digests, new
 //! cdhashes, reviewed like any other. What a person can do from Settings is
 //! fetch this pinned release and remove the driver altogether — never pick
-//! another release. An older release left by an earlier vibex stays until
-//! then: the cache is shared with any other vibex on the machine, which may
+//! another release. An older release left by an earlier dimo stays until
+//! then: the cache is shared with any other dimo on the machine, which may
 //! still run it.
 
 use crate::acp::error::AcpError;
@@ -56,7 +56,7 @@ pub struct DriverArtifact {
 }
 
 /// macOS ships one universal binary for both architectures: the archive
-/// without `CuaDriver.app`, which vibex does not use (the helper, not a
+/// without `CuaDriver.app`, which dimo does not use (the helper, not a
 /// LaunchServices-launched app, is the TCC principal here).
 pub const DRIVER_ARTIFACTS: &[DriverArtifact] = &[
     DriverArtifact {
@@ -126,11 +126,11 @@ pub const DRIVER_ENTITLEMENTS: &[&str] = &[
     "com.apple.security.device.screen-capture",
 ];
 
-/// Entitlements none of vibex's executables — vibex, the helper, the driver —
+/// Entitlements none of dimo's executables — dimo, the helper, the driver —
 /// may carry. Each one lets another process of the same user put code inside
 /// the one that has it: a library it did not sign, a `DYLD_*` variable, a
 /// debugger. On the driver or the helper that code would run with their TCC
-/// grants; on vibex it would run as the process the helper trusts.
+/// grants; on dimo it would run as the process the helper trusts.
 pub const DENIED_ENTITLEMENTS: &[&str] = &[
     "com.apple.security.cs.disable-library-validation",
     "com.apple.security.cs.allow-dyld-environment-variables",
@@ -175,7 +175,7 @@ static FILES: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 ///
 /// The archive digest is checked before anything is unpacked. The executable
 /// digest is the helper's to check, before every launch — this function runs
-/// in vibex, and a check made here would be a check of a file an agent can
+/// in dimo, and a check made here would be a check of a file an agent can
 /// replace a moment later.
 pub async fn ensure_driver(on_progress: impl Fn(&str)) -> Result<std::path::PathBuf, AcpError> {
     let artifact = artifact_for_current_platform().ok_or_else(|| {
@@ -218,7 +218,7 @@ pub fn cached_driver_path() -> Option<std::path::PathBuf> {
 mod tests {
     use super::*;
 
-    /// Every platform vibex ships on has a pin, and every pin is a well-formed
+    /// Every platform dimo ships on has a pin, and every pin is a well-formed
     /// digest of the right release.
     #[test]
     fn every_shipping_platform_is_pinned() {

@@ -191,7 +191,7 @@ describe('ChildConversationViewer', () => {
                   prompt: 'Pick a tracker',
                   options: ['Local markdown'],
                   schema: {
-                    'x-vibex-questions': [
+                    'x-dimo-questions': [
                       {
                         id: 'tracker',
                         question: 'Pick a tracker',
@@ -229,5 +229,153 @@ describe('ChildConversationViewer', () => {
     expect(
       screen.queryByRole('button', { name: '提交回答' })
     ).not.toBeInTheDocument();
+  });
+
+  it('deduplicates multiple answered questions that already match AskQuestion tool_use blocks', () => {
+    useConversationTimeline.mockImplementation(() =>
+      timelineMock({
+        timeline: [
+          {
+            key: 'assistant-1',
+            phase: 'settled',
+            revision: 1n,
+            turn: {
+              id: 'turn-1:assistant',
+              role: 'assistant',
+              timestamp: '2026-08-24T00:00:01.000Z',
+              blocks: [
+                {
+                  type: 'tool_use',
+                  tool_use_id: 'ask-1',
+                  tool_name: 'ask_user_question',
+                  input_preview: JSON.stringify({
+                    questions: [{ id: 'q1', question: 'First question?' }],
+                  }),
+                  meta: null,
+                },
+                {
+                  type: 'tool_result',
+                  tool_use_id: 'ask-1',
+                  output_preview: 'Yes',
+                  is_error: false,
+                },
+              ],
+            },
+          },
+        ],
+        items: [
+          {
+            kind: 'message',
+            item: {
+              key: 'assistant-1',
+              phase: 'settled',
+              revision: 1n,
+              turn: {
+                id: 'turn-1:assistant',
+                role: 'assistant',
+                timestamp: '2026-08-24T00:00:01.000Z',
+                blocks: [
+                  {
+                    type: 'tool_use',
+                    tool_use_id: 'ask-1',
+                    tool_name: 'ask_user_question',
+                    input_preview: JSON.stringify({
+                      questions: [{ id: 'q1', question: 'First question?' }],
+                    }),
+                    meta: null,
+                  },
+                  {
+                    type: 'tool_result',
+                    tool_use_id: 'ask-1',
+                    output_preview: 'Yes',
+                    is_error: false,
+                  },
+                ],
+              },
+            },
+          },
+          {
+            kind: 'side',
+            revision: 2n,
+            row: {
+              row_id: 'q-1',
+              revision: 2n,
+              row: {
+                kind: 'question_request',
+                request: {
+                  question_id: 'q-1',
+                  prompt: 'First question?',
+                  options: ['Yes', 'No'],
+                },
+                response: { answer: 'Yes', content: null },
+              },
+            },
+          },
+          {
+            kind: 'side',
+            revision: 3n,
+            row: {
+              row_id: 'q-2',
+              revision: 3n,
+              row: {
+                kind: 'question_request',
+                request: {
+                  question_id: 'q-2',
+                  prompt: 'Unmatched side question?',
+                  options: ['A', 'B'],
+                },
+                response: { answer: 'A', content: null },
+              },
+            },
+          },
+        ],
+      })
+    );
+
+    render(
+      <ChildConversationViewer
+        conversationId="child-1"
+        attempt={{ id: 'ws-1', container_ref: null } as never}
+        task={null}
+        onClose={vi.fn()}
+      />
+    );
+
+    // Only unmatched side question renders an extra QuestionRequestCard (ask-question-tool-card count = 2: one from TurnActivity, one from q-2; q-1 is deduped).
+    expect(screen.getByText('Unmatched side question?')).toBeInTheDocument();
+    expect(screen.getAllByText('First question?')).toHaveLength(1);
+  });
+
+  it('activates the virtualized list when renderRows exceeds 24 items', () => {
+    const manyMessages = Array.from({ length: 26 }, (_, idx) => ({
+      key: `msg-${idx}`,
+      phase: 'settled',
+      revision: BigInt(idx + 1),
+      turn: {
+        id: `turn-${idx}:assistant`,
+        role: 'assistant',
+        blocks: [{ type: 'text', text: `Virtual child row ${idx}` }],
+        timestamp: '2026-08-24T00:00:01.000Z',
+      },
+    }));
+    useConversationTimeline.mockImplementation(() =>
+      timelineMock({
+        timeline: manyMessages,
+        items: manyMessages.map((item) => ({ kind: 'message', item })),
+      })
+    );
+
+    render(
+      <ChildConversationViewer
+        conversationId="child-1"
+        attempt={{ id: 'ws-1', container_ref: null } as never}
+        task={null}
+        onClose={vi.fn()}
+      />
+    );
+
+    expect(
+      screen.getByTestId('child-conversation-virtual-list')
+    ).toBeInTheDocument();
   });
 });

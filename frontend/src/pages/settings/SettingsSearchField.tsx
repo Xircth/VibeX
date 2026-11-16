@@ -23,7 +23,7 @@ export function SettingsSearch({
   const { t } = useTranslation('settings');
   const results = useMemo(() => {
     const visible = SETTINGS_SEARCH_ENTRIES.filter((entry) => {
-      if (entry.requiresVibeXAccount && !isSignedIn) return false;
+      if (entry.requiresDimoAccount && !isSignedIn) return false;
       if (entry.anyOf) return entry.anyOf.some((cap) => supports(cap));
       return !entry.capability || supports(entry.capability);
     }).map((entry) => ({

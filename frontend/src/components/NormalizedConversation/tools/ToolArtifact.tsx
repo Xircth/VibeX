@@ -1,4 +1,4 @@
-import { type KeyboardEvent, type ReactNode } from 'react';
+import { useMemo, useState, type KeyboardEvent, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { FileText, Folder, Globe } from 'lucide-react';
 import type { CommandExitStatus, TodoItem } from 'shared/types';
@@ -12,6 +12,8 @@ import {
 } from '@/utils/shikiHighlighter';
 import type { ArtifactFact } from './toolArtifactModel';
 import { commandExitCode, splitCodeLines } from './toolArtifactModel';
+
+const MAX_INITIAL_SNIPPET_LINES = 300;
 
 type ToolArtifactProps = {
   badge?: ReactNode;
@@ -143,45 +145,75 @@ export function ToolCodeSnippet({
   language?: string;
   showLineNumbers?: boolean;
 }) {
+  const { t } = useTranslation('conversation');
+  const [showAllLines, setShowAllLines] = useState(false);
+  const allLines = useMemo(() => splitCodeLines(content), [content]);
+  const isTruncated = allLines.length > MAX_INITIAL_SNIPPET_LINES;
+  const visibleLines = useMemo(
+    () =>
+      isTruncated && !showAllLines
+        ? allLines.slice(0, MAX_INITIAL_SNIPPET_LINES)
+        : allLines,
+    [allLines, isTruncated, showAllLines]
+  );
+  const visibleContent = useMemo(
+    () =>
+      isTruncated && !showAllLines ? visibleLines.join('\n') : content,
+    [content, isTruncated, showAllLines, visibleLines]
+  );
   const codeLanguage = normalizeShikiLanguage(
     language ?? languageFromPath(path)
   );
-  const tokens = useShikiTokens(content, codeLanguage);
-  const lines = splitCodeLines(content);
+  const tokens = useShikiTokens(visibleContent, codeLanguage);
 
   return (
-    <div className="conv-tool-code" role="table">
-      {lines.map((line, index) => (
-        <div
-          className={cn(
-            'conv-tool-code-line',
-            !showLineNumbers && 'without-line-numbers',
-            highlightedRange &&
-              startLine + index >= highlightedRange.start &&
-              startLine + index <= highlightedRange.end &&
-              'is-inspected'
-          )}
-          key={index}
-          role="row"
-        >
-          {showLineNumbers ? (
-            <span className="conv-tool-code-num" role="rowheader">
-              {startLine + index}
-            </span>
-          ) : null}
-          <span className="conv-tool-code-text" role="cell">
-            {(tokens[index] ?? []).map((token, tokenIndex) => (
-              <span
-                key={`${index}-${token.offset}-${tokenIndex}`}
-                style={getShikiTokenStyle(token)}
-              >
-                {token.content}
+    <div>
+      <div className="conv-tool-code" role="table">
+        {visibleLines.map((line, index) => (
+          <div
+            className={cn(
+              'conv-tool-code-line',
+              !showLineNumbers && 'without-line-numbers',
+              highlightedRange &&
+                startLine + index >= highlightedRange.start &&
+                startLine + index <= highlightedRange.end &&
+                'is-inspected'
+            )}
+            key={index}
+            role="row"
+          >
+            {showLineNumbers ? (
+              <span className="conv-tool-code-num" role="rowheader">
+                {startLine + index}
               </span>
-            ))}
-            {line ? null : '\u00a0'}
-          </span>
-        </div>
-      ))}
+            ) : null}
+            <span className="conv-tool-code-text" role="cell">
+              {(tokens[index] ?? []).map((token, tokenIndex) => (
+                <span
+                  key={`${index}-${token.offset}-${tokenIndex}`}
+                  style={getShikiTokenStyle(token)}
+                >
+                  {token.content}
+                </span>
+              ))}
+              {line ? null : '\u00a0'}
+            </span>
+          </div>
+        ))}
+      </div>
+      {isTruncated ? (
+        <button
+          type="button"
+          className="mt-1 inline-flex items-center rounded px-2 py-0.5 text-[11px] font-medium tabular-nums text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground"
+          onClick={() => setShowAllLines((prev) => !prev)}
+        >
+          {showAllLines
+            ? t('toolArtifact.showFewerLines', {
+                count: MAX_INITIAL_SNIPPET_LINES,
+              })
+            : t('toolArtifact.showAllLines', { count: allLines.length })}
+        </button>
+      ) : null}
     </div>
   );
 }

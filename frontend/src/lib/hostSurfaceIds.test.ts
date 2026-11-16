@@ -9,20 +9,20 @@ import {
 
 describe('hostSurfaceIds', () => {
   it('namespaces plugin surfaces', () => {
-    expect(pluginSurfaceId('vibex.host-surface', 'sample-tab')).toBe(
-      'plugin:vibex.host-surface/sample-tab'
+    expect(pluginSurfaceId('dimo.host-surface', 'sample-tab')).toBe(
+      'plugin:dimo.host-surface/sample-tab'
     );
     expect(
-      parsePluginSurfaceId('plugin:vibex.host-surface/sample-tab')
+      parsePluginSurfaceId('plugin:dimo.host-surface/sample-tab')
     ).toEqual({
-      pluginId: 'vibex.host-surface',
+      pluginId: 'dimo.host-surface',
       contributionId: 'sample-tab',
     });
-    expect(pluginSurfaceId('vibex.browser', 'browser', 2)).toBe(
-      'plugin:vibex.browser/browser:2'
+    expect(pluginSurfaceId('dimo.browser', 'browser', 2)).toBe(
+      'plugin:dimo.browser/browser:2'
     );
-    expect(parsePluginSurfaceId('plugin:vibex.browser/browser:2')).toEqual({
-      pluginId: 'vibex.browser',
+    expect(parsePluginSurfaceId('plugin:dimo.browser/browser:2')).toEqual({
+      pluginId: 'dimo.browser',
       contributionId: 'browser',
       instance: '2',
     });

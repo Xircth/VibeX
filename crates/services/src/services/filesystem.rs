@@ -268,7 +268,7 @@ impl FilesystemService {
         max_depth: Option<usize>,
         cancel: Option<&CancellationToken>,
         skip_dirs: &HashSet<String>,
-        vibex_temp_dir: &Path,
+        dimo_temp_dir: &Path,
         seen_repo_paths: &mut HashSet<PathBuf>,
     ) -> Vec<DirectoryEntry> {
         let mut walker_builder = WalkBuilder::new(root);
@@ -279,7 +279,7 @@ impl FilesystemService {
             .git_exclude(true)
             .filter_entry({
                 let cancel = cancel.cloned();
-                let vibex_temp_dir = vibex_temp_dir.to_path_buf();
+                let dimo_temp_dir = dimo_temp_dir.to_path_buf();
                 let skip_dirs = skip_dirs.clone();
                 move |entry| {
                     if let Some(token) = cancel.as_ref()
@@ -294,7 +294,7 @@ impl FilesystemService {
                         return false;
                     }
 
-                    if utils::path::normalize_macos_private_alias(path).starts_with(&vibex_temp_dir)
+                    if utils::path::normalize_macos_private_alias(path).starts_with(&dimo_temp_dir)
                     {
                         return false;
                     }
@@ -371,7 +371,7 @@ impl FilesystemService {
         cancel: Option<&CancellationToken>,
     ) -> Result<Vec<DirectoryEntry>, FilesystemError> {
         let skip_dirs = Self::get_directories_to_skip();
-        let vibex_temp_dir = utils::path::get_vibex_temp_dir();
+        let dimo_temp_dir = utils::path::get_dimo_temp_dir();
         let mut seen_repo_paths = HashSet::new();
         let mut git_repos = Vec::new();
 
@@ -389,7 +389,7 @@ impl FilesystemService {
                 max_depth,
                 cancel,
                 &skip_dirs,
-                &vibex_temp_dir,
+                &dimo_temp_dir,
                 &mut seen_repo_paths,
             ));
         }

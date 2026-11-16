@@ -12,7 +12,7 @@ import {
   validateSafeFetchUrl,
   type AppEntrypointManifest,
   type PermissionCapability,
-  type VibeXPluginManifest,
+  type DimoPluginManifest,
   type WorkerEntrypointManifest,
 } from './manifest.js';
 
@@ -56,7 +56,7 @@ describe('plugin manifest contract', () => {
       sharedWorker: true,
       isolation: 'shared',
     };
-    const v1: VibeXPluginManifest = {
+    const v1: DimoPluginManifest = {
       manifestVersion: 4,
       apiVersion: '1.0',
       id: 'hello.notes',
@@ -65,7 +65,7 @@ describe('plugin manifest contract', () => {
       name: 'Notes',
       entrypoints: { worker, app: v1App },
     };
-    const v2: VibeXPluginManifest = {
+    const v2: DimoPluginManifest = {
       ...v1,
       apiVersion: '2.0',
       entrypoints: { worker, app: v2App },
@@ -113,11 +113,11 @@ describe('declarative grants security boundary helpers', () => {
     expect(
       isPathWithinRoot('/home/user/../user2/secret.txt', '/home/user')
     ).toBe(false);
-    expect(isPathWithinRoot('C:\\Work\\VibeX\\src\\a.ts', 'c:/Work/VibeX')).toBe(
+    expect(isPathWithinRoot('C:\\Work\\Dimo\\src\\a.ts', 'c:/Work/Dimo')).toBe(
       true
     );
     expect(
-      isPathWithinRoot('C:\\Work\\VibeX-other\\a.ts', 'C:\\Work\\VibeX')
+      isPathWithinRoot('C:\\Work\\Dimo-other\\a.ts', 'C:\\Work\\Dimo')
     ).toBe(false);
   });
 

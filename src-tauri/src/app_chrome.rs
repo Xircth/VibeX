@@ -353,7 +353,7 @@ mod tests {
     #[test]
     fn launch_args_open_a_new_local_window() {
         assert_eq!(
-            launch_action(&["vibex".into(), "--new-window".into()]),
+            launch_action(&["dimo".into(), "--new-window".into()]),
             Some(LaunchAction::NewWindow)
         );
     }
@@ -361,15 +361,15 @@ mod tests {
     #[test]
     fn launch_args_open_local_settings() {
         assert_eq!(
-            launch_action(&["vibex".into(), "--open-settings".into()]),
+            launch_action(&["dimo".into(), "--open-settings".into()]),
             Some(LaunchAction::OpenSettings)
         );
     }
 
     #[test]
     fn launch_args_ignore_unrelated_values() {
-        assert_eq!(launch_action(&["vibex".into(), "vibex://x".into()]), None);
-        assert_eq!(launch_action(&["vibex".into()]), None);
+        assert_eq!(launch_action(&["dimo".into(), "dimo://x".into()]), None);
+        assert_eq!(launch_action(&["dimo".into()]), None);
     }
 
     #[test]

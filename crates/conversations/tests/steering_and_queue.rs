@@ -16,7 +16,7 @@ use conversations::{
     SubmitConversationInput,
 };
 use db::models::{
-    conversation::{ConversationRecord, CreateConversationRecord},
+    conversation::{ConversationAgentBindingRecord, ConversationRecord, CreateConversationRecord},
     conversation_turn::ConversationTurnRecord,
     project::{CreateProject, Project},
     repo::Repo,
@@ -54,9 +54,16 @@ impl ConversationHost for SteeringFixtureHost {
         _: &str,
         text: String,
         _: &[String],
-        _: &[agents::ConversationFileRef],
+        file_refs: &[agents::ConversationFileRef],
     ) -> Result<Vec<AgentContentBlock>, ConversationServiceError> {
-        Ok(vec![AgentContentBlock::Text { text }])
+        let mut blocks = vec![AgentContentBlock::Text { text }];
+        for file_ref in file_refs {
+            blocks.push(AgentContentBlock::Resource {
+                uri: format!("file:///{}", file_ref.path),
+                title: Some(file_ref.path.clone()),
+            });
+        }
+        Ok(blocks)
     }
 
     async fn launch_settings(
@@ -66,7 +73,7 @@ impl ConversationHost for SteeringFixtureHost {
     ) -> Result<AgentRuntimeLaunchSettings, ConversationServiceError> {
         let mut env = HashMap::new();
         if let Some(mode) = &self.steering_env {
-            env.insert("VIBEX_IN_MEMORY_STEERING".to_string(), mode.clone());
+            env.insert("DIMO_IN_MEMORY_STEERING".to_string(), mode.clone());
         }
         Ok(AgentRuntimeLaunchSettings {
             auto_approve_mode: agents::AgentAutoApproveMode::Off,
@@ -206,6 +213,7 @@ impl SteeringFixture {
             queued_input_claim: None,
             operation_id: Some(Uuid::new_v4()),
             collaboration_origin: None,
+            provider_instance_id: None,
         }
     }
 
@@ -225,6 +233,7 @@ impl SteeringFixture {
             file_refs: Vec::new(),
             internal_prompt_contributions: Vec::new(),
             collaboration_origin: None,
+            provider_instance_id: None,
         }
     }
 }
@@ -249,7 +258,11 @@ async fn non_native_engine_steer_cancels_active_turn_and_restarts_immediately() 
             operation_id: op_id,
             expected_turn_id: initial.turn_id,
             text: "steered follow-up".into(),
+            display_text: None,
             images: Vec::new(),
+            file_refs: Vec::new(),
+            mode_override: None,
+            config_overrides: Vec::new(),
             principal: serde_json::json!({ "kind": "local_desktop" }),
             promoted_input_id: None,
             promoted_input_expected_revision: None,
@@ -293,7 +306,11 @@ async fn non_native_engine_steer_cancels_active_turn_and_restarts_immediately() 
             operation_id: op_id,
             expected_turn_id: initial.turn_id,
             text: "steered follow-up".into(),
+            display_text: None,
             images: Vec::new(),
+            file_refs: Vec::new(),
+            mode_override: None,
+            config_overrides: Vec::new(),
             principal: serde_json::json!({ "kind": "local_desktop" }),
             promoted_input_id: None,
             promoted_input_expected_revision: None,
@@ -358,7 +375,11 @@ async fn promoting_third_queued_message_on_non_native_engine_dispatches_msg3_bef
             operation_id: Uuid::new_v4(),
             expected_turn_id: initial.turn_id,
             text: "Msg 3".into(),
+            display_text: None,
             images: Vec::new(),
+            file_refs: Vec::new(),
+            mode_override: None,
+            config_overrides: Vec::new(),
             principal: serde_json::json!({ "kind": "local_desktop" }),
             promoted_input_id: Some(msg3.id),
             promoted_input_expected_revision: Some(msg3.revision),
@@ -441,7 +462,11 @@ async fn native_engine_steer_injects_without_interrupt_and_consumes_promoted_que
             operation_id: Uuid::new_v4(),
             expected_turn_id: initial.turn_id,
             text: "Msg 2".into(),
+            display_text: None,
             images: Vec::new(),
+            file_refs: Vec::new(),
+            mode_override: None,
+            config_overrides: Vec::new(),
             principal: serde_json::json!({ "kind": "local_desktop" }),
             promoted_input_id: Some(msg2.id),
             promoted_input_expected_revision: Some(msg2.revision),
@@ -521,7 +546,11 @@ async fn rpc_steering_unsupported_falls_back_to_interrupt_restart_when_allowed()
             operation_id: Uuid::new_v4(),
             expected_turn_id: initial.turn_id,
             text: "fallback steer".into(),
+            display_text: None,
             images: Vec::new(),
+            file_refs: Vec::new(),
+            mode_override: None,
+            config_overrides: Vec::new(),
             principal: serde_json::json!({ "kind": "local_desktop" }),
             promoted_input_id: None,
             promoted_input_expected_revision: None,
@@ -536,4 +565,177 @@ async fn rpc_steering_unsupported_falls_back_to_interrupt_restart_when_allowed()
         Some(ConversationSteeringDeliveryMode::InterruptRestart)
     );
     assert!(receipt.restarted_turn_id.is_some());
+}
+
+#[tokio::test]
+async fn submit_and_dispatch_pre_turn_failure_returns_err_and_cancels_input_without_stranding_queue()
+{
+    let fx = SteeringFixture::new(None).await;
+
+    let mut bad_input = fx.start_input("trigger pre-turn failure");
+    bad_input.workspace_id = Uuid::new_v4();
+    let err = fx
+        .service
+        .submit_and_dispatch(bad_input, "user")
+        .await
+        .expect_err("missing workspace must propagate pre-turn NotFound error");
+    assert!(
+        matches!(err, ConversationServiceError::NotFound(_)),
+        "expected NotFound, got: {err:?}"
+    );
+
+    let items = fx.inputs.list(fx.conversation).await.expect("list inputs");
+    assert_eq!(items.len(), 1);
+    assert_eq!(items[0].status, ConversationInputStatus::Cancelled);
+
+    // Subsequent valid prompt must dispatch normally instead of stalling behind a stranded queue row.
+    let next = fx
+        .service
+        .submit_and_dispatch(fx.start_input("valid follow-up"), "user")
+        .await
+        .expect("subsequent valid submit_and_dispatch");
+    assert!(next.turn.is_some());
+}
+
+#[tokio::test]
+async fn interrupt_restart_steer_preserves_display_text_file_refs_and_control_overrides() {
+    let fx = SteeringFixture::new(None).await;
+    let pool = &fx.ctx.deployment.db().pool;
+
+    let (initial, _) = fx
+        .service
+        .start_turn(fx.start_input("turn 1"))
+        .await
+        .expect("start turn 1");
+
+    let file_refs = vec![agents::ConversationFileRef {
+        path: "src/lib.rs".into(),
+        start_line: Some(1),
+        end_line: Some(10),
+    }];
+    let config_overrides = vec![agents::AgentSessionConfigOverride {
+        key: "reasoning_effort".into(),
+        value: "high".into(),
+    }];
+
+    let receipt = fx
+        .service
+        .steer(ConversationSteerInput {
+            conversation_id: fx.conversation,
+            operation_id: Uuid::new_v4(),
+            expected_turn_id: initial.turn_id,
+            text: "expanded @src/lib.rs check this".into(),
+            display_text: Some("[@:src/lib.rs](src/lib.rs) check this".into()),
+            images: Vec::new(),
+            file_refs: file_refs.clone(),
+            mode_override: Some("plan".into()),
+            config_overrides: config_overrides.clone(),
+            principal: serde_json::json!({ "kind": "local_desktop" }),
+            promoted_input_id: None,
+            promoted_input_expected_revision: None,
+            allow_interrupt_restart: true,
+        })
+        .await
+        .expect("interrupt_restart steer with display_text, file_refs, and overrides");
+
+    let restarted_turn_id = receipt.restarted_turn_id.expect("restarted turn id");
+    let dispatched = fx
+        .inputs
+        .list(fx.conversation)
+        .await
+        .expect("list inputs")
+        .into_iter()
+        .find(|item| item.turn_id == Some(restarted_turn_id))
+        .expect("dispatched restarted input exists");
+
+    assert_eq!(
+        dispatched.payload.display_text.as_deref(),
+        Some("[@:src/lib.rs](src/lib.rs) check this")
+    );
+    assert_eq!(dispatched.payload.file_refs, file_refs);
+    assert_eq!(dispatched.payload.mode_override.as_deref(), Some("plan"));
+    assert_eq!(dispatched.payload.config_overrides, config_overrides);
+
+    let active_binding =
+        ConversationAgentBindingRecord::active_for_conversation(pool, fx.conversation)
+            .await
+            .expect("query active binding")
+            .expect("active binding exists");
+    assert_eq!(active_binding.current_mode.as_deref(), Some("plan"));
+    assert!(
+        active_binding
+            .config_selection_json
+            .contains("\"reasoning_effort\":\"high\""),
+        "expected reasoning_effort in config_selection_json: {}",
+        active_binding.config_selection_json
+    );
+
+    let user_input_json: String = sqlx::query_scalar(
+        "SELECT normalized_json FROM conversation_events
+         WHERE conversation_id = ? AND turn_id = ? AND event_kind = 'user_turn_created'
+         ORDER BY sequence DESC LIMIT 1",
+    )
+    .bind(fx.conversation)
+    .bind(restarted_turn_id)
+    .fetch_one(pool)
+    .await
+    .expect("restarted turn user_turn_created event");
+    assert!(
+        user_input_json.contains("[@:src/lib.rs](src/lib.rs) check this"),
+        "user_turn_created event must preserve display_text: {user_input_json}"
+    );
+    assert!(
+        user_input_json.contains("\"kind\":\"resource\"")
+            && user_input_json.contains("\"uri\":\"src/lib.rs\""),
+        "user_turn_created event must include file_ref resource block: {user_input_json}"
+    );
+}
+
+#[tokio::test]
+async fn set_session_mode_and_config_before_first_bind_persist_selection_and_emit_events() {
+    let fx = SteeringFixture::new(None).await;
+    let pool = &fx.ctx.deployment.db().pool;
+
+    fx.service
+        .set_session_mode(fx.conversation, "plan".into())
+        .await
+        .expect("set_session_mode before first bind");
+
+    fx.service
+        .set_session_config_option(fx.conversation, "reasoning_effort".into(), "high".into())
+        .await
+        .expect("set_session_config_option before first bind");
+
+    let active_binding =
+        ConversationAgentBindingRecord::active_for_conversation(pool, fx.conversation)
+            .await
+            .expect("query active binding")
+            .expect("binding opened for pre-bind control selection");
+    assert_eq!(active_binding.agent_id.as_str(), "codex");
+    assert_eq!(active_binding.current_mode.as_deref(), Some("plan"));
+    assert!(
+        active_binding
+            .config_selection_json
+            .contains("\"reasoning_effort\":\"high\""),
+        "expected reasoning_effort in config_selection_json: {}",
+        active_binding.config_selection_json
+    );
+
+    let event_kinds: Vec<String> = sqlx::query_scalar(
+        "SELECT event_kind FROM conversation_events WHERE conversation_id = ? ORDER BY sequence ASC",
+    )
+    .bind(fx.conversation)
+    .fetch_all(pool)
+    .await
+    .expect("query conversation_events");
+    assert!(
+        event_kinds.iter().any(|k| k == "session_mode_updated"),
+        "expected session_mode_updated in {event_kinds:?}"
+    );
+    assert!(
+        event_kinds
+            .iter()
+            .any(|k| k == "session_config_options_updated"),
+        "expected session_config_options_updated in {event_kinds:?}"
+    );
 }

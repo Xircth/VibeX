@@ -73,7 +73,7 @@ pub fn parse_request(params: &str) -> Result<AskUserQuestionExtRequest, String> 
 pub fn question_schema(questions: &[AskUserQuestion]) -> Value {
     json!({
         "type": "object",
-        "x-vibex-questions": questions
+        "x-dimo-questions": questions
             .iter()
             .enumerate()
             .map(|(index, question)| {

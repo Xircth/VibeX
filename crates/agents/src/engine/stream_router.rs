@@ -169,9 +169,9 @@ pub fn prepare_instance_isolation_env_for_keys(
 
     let root_base = spec
         .env
-        .get("VIBEX_PROVIDER_INSTANCES_ROOT")
+        .get("DIMO_PROVIDER_INSTANCES_ROOT")
         .map(std::path::PathBuf::from)
-        .unwrap_or_else(|| std::env::temp_dir().join("vibex-provider-instances"));
+        .unwrap_or_else(|| std::env::temp_dir().join("dimo-provider-instances"));
 
     let instance_root = root_base.join(sanitize_instance_dir_segment(instance_id));
     create_private_dir_all(&instance_root)?;
@@ -249,6 +249,7 @@ impl TurnRouteFilter {
                 | EngineEvent::SubagentSpawned { session_id, .. }
                 | EngineEvent::SubagentUpdated { session_id, .. }
                 | EngineEvent::SubagentCompleted { session_id, .. }
+                | EngineEvent::HookEvent { session_id, .. }
                 | EngineEvent::PromptSteered { session_id, .. }
                 | EngineEvent::AutoCompactionChanged { session_id, .. }
                 | EngineEvent::TurnCompleted { session_id, .. }

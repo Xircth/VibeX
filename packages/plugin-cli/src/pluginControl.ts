@@ -3,7 +3,7 @@ import { readFile, realpath, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 
-import type { VibeXPluginManifest } from "@vibex/plugin-sdk";
+import type { DimoPluginManifest } from "@dimoai/plugin-sdk";
 
 import { createPackageLock } from "./package.js";
 import { validatePlugin } from "./validation.js";
@@ -15,7 +15,7 @@ export type PluginIdentity = {
 
 export interface LinkedPackage {
   root: string;
-  manifest: VibeXPluginManifest;
+  manifest: DimoPluginManifest;
   identity: PluginIdentity;
   packageDigest: string;
 }
@@ -27,8 +27,8 @@ export function resolvePluginDirectoryInput(input?: string): string {
     return direct;
   }
   const userPluginsRoot =
-    process.env.VIBEX_USER_PLUGINS_DIR?.trim() ||
-    join(homedir(), ".vibex", "plugins");
+    process.env.DIMO_USER_PLUGINS_DIR?.trim() ||
+    join(homedir(), ".dimo", "plugins");
   const underUserPlugins = join(userPluginsRoot, target);
   if (existsSync(underUserPlugins)) {
     return underUserPlugins;
@@ -43,7 +43,7 @@ export async function inspectLinkedPackage(
   const { root: sourceRoot, manifestPath, rawManifest } =
     await readPluginReference(resolvedInput);
   const isRootV2Manifest =
-    !manifestPath.endsWith(join(".vibex-plugin", "plugin.json")) &&
+    !manifestPath.endsWith(join(".dimo-plugin", "plugin.json")) &&
     String(rawManifest.apiVersion) === "2.0";
   if (!isRootV2Manifest) {
     const validation = await validatePlugin(sourceRoot);
@@ -56,7 +56,7 @@ export async function inspectLinkedPackage(
     manifestVersion: 4,
     ...rawManifest,
     publisher: rawManifest.publisher ?? "local",
-  } as VibeXPluginManifest;
+  } as DimoPluginManifest;
   const lock = await createPackageLock(sourceRoot);
   return {
     root: sourceRoot,
@@ -71,14 +71,14 @@ async function readPluginReference(root: string) {
   if (!(await stat(sourceRoot)).isDirectory()) {
     throw new Error("plugin_link_source_not_directory");
   }
-  const nestedManifestPath = join(sourceRoot, ".vibex-plugin", "plugin.json");
+  const nestedManifestPath = join(sourceRoot, ".dimo-plugin", "plugin.json");
   const rootManifestPath = join(sourceRoot, "plugin.json");
   const manifestPath = existsSync(nestedManifestPath)
     ? nestedManifestPath
     : rootManifestPath;
   const manifest = JSON.parse(
     await readFile(manifestPath, "utf8"),
-  ) as Partial<VibeXPluginManifest> & { apiVersion?: string };
+  ) as Partial<DimoPluginManifest> & { apiVersion?: string };
   const publisher =
     typeof manifest.publisher === "string" && manifest.publisher.trim()
       ? manifest.publisher

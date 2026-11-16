@@ -2,19 +2,19 @@
 status: proposed
 date: 2026-09-14
 decision-makers:
-  - VibeX maintainers
+  - Dimo maintainers
 ---
 
 # Windows Desktop 内存归因与性能预算
 
 ## Context
 
-Windows 用户报告仅打开两个会话时，任务管理器按 VibeX 分组显示约 1.6 GB，
+Windows 用户报告仅打开两个会话时，任务管理器按 Dimo 分组显示约 1.6 GB，
 其中标为 Agent 的进程约 500 MB。本报告把这个现象当作需要可重复测量的性能问题，
 而不是把分组数值直接等同于某一个进程的泄漏。
 
 任务管理器的应用分组包含 WebView2 browser、renderer、GPU、utility、storage 和
-network service 进程，也包含 VibeX 拉起的 ACP/CLI、Node、`cmd.exe` 及其子进程。
+network service 进程，也包含 Dimo 拉起的 ACP/CLI、Node、`cmd.exe` 及其子进程。
 因此截图中的约 1.6 GB 至少包括：主 WebView2 约 394 MB、另一个 WebView2
 约 76 MB、GPU 约 81 MB、WebView2 manager 约 44 MB，以及多个 Node/ACP 进程。
 截图没有提供 Private Bytes、Commit、共享页、进程父子树或退出后的残留情况，不能据此
@@ -142,7 +142,7 @@ WebView2 diagnostic API 采样；采样工具本身的开销要单独记录。�
   都走幂等的 terminate-and-wait；不能只调用 leader 的 `kill_on_drop`。
 - 给进程记录 `conversation_id`、connection id、parent PID、job id、启动来源和退出
   原因；启动后短时间内退出的 shim/`cmd.exe` 不应留下不可追踪的 Node 子树。定期扫描
-  VibeX-owned job，发现无 owner 的进程立即回收并计数。
+  Dimo-owned job，发现无 owner 的进程立即回收并计数。
 - 优先直接启动可执行文件，只有 Windows shim 必须时才使用 `cmd.exe /d /c`；对 npx
   profile 复用已安装 runtime，避免每个会话重复启动探测/下载 worker。Agent 安装探测
   继续遵守 ADR-0026 的有界并发。
@@ -186,7 +186,7 @@ WebView2 diagnostic API 采样；采样工具本身的开销要单独记录。�
   开发工具或安装器进程不能混入产品基线。
 - CI 增加进程树清理、关闭后零孤儿、长流 30 分钟 plateau、双会话增量、WebView 多窗口
   和大仓库 I/O 的 smoke/perf 场景。失败时上传脱敏后的指标摘要，不上传命令行中的 token。
-- Desktop 与 `vibex-server` 共用的 Application Core、事件协议和资源上限必须同时验证，
+- Desktop 与 `dimo-server` 共用的 Application Core、事件协议和资源上限必须同时验证，
   不能只修桌面端。
 
 ## Priority and rollout
@@ -207,7 +207,7 @@ WebView 窗口复用和重路由懒加载。
 
 ## Consequences
 
-这项决定把“VibeX 分组占用”拆成可行动的组件预算，维护者可以知道内存来自 WebView、
+这项决定把“Dimo 分组占用”拆成可行动的组件预算，维护者可以知道内存来自 WebView、
 数据库、事件复制还是 Agent 子树。它会增加 Windows telemetry、job 管理、性能夹具和
 发布前测试的维护成本，也可能降低后台轮询频率或延迟非可见页面刷新；这些变化通过事件
 唤醒、cursor 增量同步和懒加载保持用户可见的实时体验。

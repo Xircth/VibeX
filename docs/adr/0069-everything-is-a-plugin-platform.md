@@ -1,16 +1,16 @@
 
-> **状态注记（2026-11）：** 协作空间已改为宿主内置组件，不再依赖插件 `vibex.multi-agent`（成员身份与隐藏会话模型见 [docs/architecture.md#collaboration-member-identity](../architecture.md#collaboration-member-identity)）；同时自 `v0.4.4` 起，插件安装/启用阶段支持自动解析并安装声明的本地运行时依赖。本文正文保留原决策语境，不改正文。
+> **状态注记（2026-11）：** 协作空间已改为宿主内置组件，不再依赖插件 `dimo.multi-agent`（成员身份与隐藏会话模型见 [docs/architecture.md#collaboration-member-identity](../architecture.md#collaboration-member-identity)）；同时自 `v0.4.4` 起，插件安装/启用阶段支持自动解析并安装声明的本地运行时依赖。本文正文保留原决策语境，不改正文。
 
 ---
 status: accepted
 date: 2026-09-04
 decision-makers:
-  - VibeX maintainers
+  - Dimo maintainers
 ---
 
 # 一切皆插件：壳层贡献点、宿主 Provider 缝与无特权官方插件
 
-本决定把「插件优先、一切皆插件」从口号落成可验收的平台契约：定义 VibeX 口径下
+本决定把「插件优先、一切皆插件」从口号落成可验收的平台契约：定义 Dimo 口径下
 「一切皆插件」的边界与原则、插件的完整接管面、实现方案与外部依赖、模块修改面、
 官方插件的分发与默认启用策略、安全基线、开发者体验闭环，以及分批次实施计划。
 
@@ -44,15 +44,15 @@ DeepSeek Harness 架构对标，以及产品所有者补充要求（2026-09-04�
    全量分发（ADR-0007）。
 
 对标 DeepSeek Harness（Cordis）：其「无特权壳层、能力缝三角（服务定义 + 提供者 +
-消费者）、内核最小化纪律」应吸收；其「agent loop 也是插件」不适用（VibeX 是 ACP
-编排壳，loop 在外部 Agent 内），其单进程热插拔组合方式不适用（VibeX 是 Rust 内核 +
+消费者）、内核最小化纪律」应吸收；其「agent loop 也是插件」不适用（Dimo 是 ACP
+编排壳，loop 在外部 Agent 内），其单进程热插拔组合方式不适用（Dimo 是 Rust 内核 +
 独立 Node Worker 多进程），其插件树式叠加组合被产品决定排除（见第 3 节原则 8）。
 
 ## Part I — 概念、原则与接管面
 
-### 1. 「一切皆插件」的 VibeX 定义
+### 1. 「一切皆插件」的 Dimo 定义
 
-> VibeX 基座只承诺一件事：**多 Agent 会话 + 隔离工作区 + 可信历史**。
+> Dimo 基座只承诺一件事：**多 Agent 会话 + 隔离工作区 + 可信历史**。
 > 在此之上的每一个可见 UI 区域、每一项宿主能力提供者、每一个非身份核心的内置
 > 功能，都必须存在对应的贡献点或 Provider 缝，且官方功能与第三方插件走同一条路。
 
@@ -113,7 +113,7 @@ DeepSeek Harness 架构对标，以及产品所有者补充要求（2026-09-04�
    修改插件 A 源码，以新身份（新 Publisher + Plugin ID）打包为插件 B，本地植入
    或上传市场后安装。同一贡献点上多个插件的并存与替换由宿主冲突解析处理
    （确定、可解释、用户显式选择），不由插件互相协商。
-9. **借鉴设计、控制依赖。** 语义可以来自 Cordis / Theia，实现落在 VibeX 自己的
+9. **借鉴设计、控制依赖。** 语义可以来自 Cordis / Theia，实现落在 Dimo 自己的
    manifest 与 Rust 控制面。外部依赖只引入调研确认且仍必要的项（第 12 节）。
 
 ### 4. 插件的完整接管面（目标态总表）
@@ -140,8 +140,8 @@ DeepSeek Harness 架构对标，以及产品所有者补充要求（2026-09-04�
 | 右侧栏区块 | `app.rail.section` | 新增 | Batch 4 |
 | 用量数据源 | `provider.usage`（Provider seam） | 新增 | Batch 4 |
 | 编辑器 opener | `provider.editor.opener` | 新增 | Batch 4 |
-| 浏览器运行时 | Host 系统 WebView（`crates/browser-host`）+ 官方插件 `vibex.browser` | 新增 | Batch 5 |
-| 派生开发 | `vibex-plugin fork`（源码派生 + `derivedFrom` 溯源元数据 + 新身份打包） | 新增 | Batch 6 |
+| 浏览器运行时 | Host 系统 WebView（`crates/browser-host`）+ 官方插件 `dimo.browser` | 新增 | Batch 5 |
+| 派生开发 | `dimo-plugin fork`（源码派生 + `derivedFrom` 溯源元数据 + 新身份打包） | 新增 | Batch 6 |
 | git 面板 API 族 | `host.call: git.*`（status / branch / log / stage / commit） | 评估项，Batch 4 后立项 | 未排期 |
 | 会话人格投影 | Conversation 详情附带创建时的角色快照；Composer 只读展示 | 稳定面 | 多智能体协同（2026-10-19） |
 | 工作区聚焦 | `host.call workspace.focusConversation`：聚焦该窗口唯一会话面板 | 稳定面 | 多智能体协同（2026-10-19） |
@@ -223,7 +223,7 @@ N 个第三方、或全部去掉——见上，全禁用即移除看板 Tab）�
    `app.settings.page` 默认轨。宿主用 Module Federation 2.0 纯 runtime
    （`createInstance` / `registerRemotes` / `loadRemote`）从本地插件产物 HTTP
    端点加载远程模块，React 以 singleton 共享；插件构建走
-   `@module-federation/vite` 模板（进 `vibex-plugin init`）。每个插件面板包在
+   `@module-federation/vite` 模板（进 `dimo-plugin init`）。每个插件面板包在
    `DockviewPanelErrorBoundary` 内，崩溃不出面板。
 3. iframe App surface：现有 `AppSurfaceHost` 轨，保留给文档型 UI 与
    `artifact.editor`。
@@ -252,7 +252,7 @@ Registry 注册）、**消费者**（现有 UI / 命令面）。冲突解析确�
   会话上下文引用，输出替换草稿；内置提示词优化迁为官方插件（复用
   `host.service` + broker `agent.invoke`）。
 - **浏览器运行时**：Host 以系统 WebView 提供 `host.call browser.*`（`crates/browser-host`）。
-  官方插件 `vibex.browser` 贡献 `app.panel`（`engine: host-browser`）、
+  官方插件 `dimo.browser` 贡献 `app.panel`（`engine: host-browser`）、
   `app.rail.section`、`app.settings.page` 与 `content.mcp`。ADR-0007 的 CEF
   技术选型已 superseded。
 
@@ -265,7 +265,7 @@ Registry 注册）、**消费者**（现有 UI / 命令面）。冲突解析确�
 
 **源码组织：项目子仓库。** 每个官方插件是独立 git 仓库，以 submodule 挂在
 `assets/plugins/<name>`（沿用 `assets/plugins/plugin-development` 既有惯例）。
-插件仓库自包含：标准 manifest、SDK 依赖、CI（`vibex-plugin build / validate /
+插件仓库自包含：标准 manifest、SDK 依赖、CI（`dimo-plugin build / validate /
 test` + `test --host`）。主仓库 CI 只消费其构建产物，不深入其源码——这保证
 插件与项目源码可分离。
 
@@ -319,21 +319,21 @@ Full Trust（ADR-0048）定义执行信任：**安装即授予本机权限**。�
 目标：开发、调试、测试、热更新、打包、发布全环节一等支持，而不是「一套能用的
 流程」。所有能力对官方与第三方作者同权（原则 2）。
 
-- **脚手架**：`vibex-plugin init` 为每类贡献提供可运行模板（panel /
+- **脚手架**：`dimo-plugin init` 为每类贡献提供可运行模板（panel /
   composer-action / provider / status-toolbar / file-tab / worker 等），init 产物
   必须直接通过 `build / validate / test` 并能在真实 Host 激活（ADR-0066 第 3 节
   标准延续到新模板）。
-- **开发与热更新**：`vibex plugin add --dev .` 链接开发目录并监视 digest；Worker
+- **开发与热更新**：`dimo plugin add --dev .` 链接开发目录并监视 digest；Worker
   与声明式贡献变更走候选代原子 reload（已有）。新增：**federation 面板开发模式**
-  ——`vibex-plugin dev` 起 Vite dev server，宿主 `loadRemote` 指向 dev 端点，
+  ——`dimo-plugin dev` 起 Vite dev server，宿主 `loadRemote` 指向 dev 端点，
   面板代码享受 HMR（改代码不重载宿主、不重建激活代）；退出 dev 模式回落到
   构建产物。iframe surface 支持 devtools 打开与 `srcDoc` 热替换。
 - **调试与诊断**：宿主提供插件运行诊断面（每插件 Worker 存活、最近崩溃、stdout/
   stderr 日志流、贡献 readiness 与失败证据——诊断模型已有，补 UI 消费）；面板
-  崩溃落错误边界并可一键重试；`vibex-plugin doctor` 汇总工具链、SDK 版本与
+  崩溃落错误边界并可一键重试；`dimo-plugin doctor` 汇总工具链、SDK 版本与
   Host 兼容性。
 - **测试**：单元层用 Testing 包的 fake broker 与 App harness（ADR-0046）；
-  集成层 `vibex-plugin test`；宿主旅程层 `vibex plugin test --host` 覆盖该包声明
+  集成层 `dimo-plugin test`；宿主旅程层 `dimo plugin test --host` 覆盖该包声明
   的每个用户可见能力（ADR-0066 第 8 节完成门扩展到新贡献 kind）。官方插件
   仓库 CI 必须全跑三层。
 - **打包与发布**：确定性 `pack`（digest 稳定）；市场上传走官网（GitHub 地址或
@@ -347,7 +347,7 @@ kind 不进稳定面。
 
 响应「在别人插件基础上开发」的需求，但不开放运行时叠加（原则 8）：
 
-- **派生（fork）**：`vibex-plugin fork <source>` 从已安装包快照或 GitHub 仓库
+- **派生（fork）**：`dimo-plugin fork <source>` 从已安装包快照或 GitHub 仓库
   复制源码，强制换新 Publisher + Plugin ID，写入 `derivedFrom` 溯源元数据
   （原身份 + 版本 + digest）。派生包是完全独立的插件：独立安装、独立数据、
   独立更新通道，不继承原插件权限与数据（第 9 节）。市场详情页展示溯源信息。
@@ -393,7 +393,7 @@ Lumino（与 dockview 同位竞争）、extism / wasmtime（与 Full Trust 冲�
 | `frontend/src/pages/settings/`（`SettingsLayout` 等） | 设置侧栏消费 `app.settings.page` 贡献条目 |
 | `packages/plugin-sdk` / `packages/plugin-cli` | 新贡献类型；federation 构建模板与 `dev` HMR 模式；`fork` 命令；`test --host` 旅程扩展；诊断面数据源 |
 | `assets/plugins/` | 新增能力等价插件 submodule（notes、prompt-enhancer、kanban-board、kanban-columns、kanban-canvas、kanban-usage、web-preview 等），各自独立仓库与 CI |
-| 官网 `vibex-site` Catalog | 官方分类展示能力等价插件；GitHub 地址上传流程（既有）承接阶段二 |
+| 官网 `dimo-site` Catalog | 官方分类展示能力等价插件；GitHub 地址上传流程（既有）承接阶段二 |
 | `shared/types.ts` | 随 Rust DTO 由 `generate-types` 再生 |
 
 ## Part III — 实施计划（分批次，不设时限）
@@ -427,14 +427,14 @@ Batch 5 是官方能力插件化，Batch 6 是派生与分发闭环。每批完�
 4. `provider.model.importSource` 贡献 kind + 「外部供应商导入」对话框消费贡献列表。
 5. 官方示范：一个真实供应商导入插件上架市场官方分类。
 6. **DX 基线**：插件运行诊断面 UI（Worker 存活 / 日志流 / readiness 失败证据）；
-   `vibex-plugin doctor` 覆盖新 kind；六个 slot 的 init 模板与 Skill 旅程文档。
+   `dimo-plugin doctor` 覆盖新 kind；六个 slot 的 init 模板与 Skill 旅程文档。
 
 **前端设计要求：** 全部插件贡献 UI 使用 `DESIGN.md` token（`--surface-*` /
 `--text-*`），禁止局部调色板；状态栏项与内置项视觉同权（同高、同字号、同
 hover 语义）；供应商确认对话框复用 `dialog-surface`；诊断面进设置 → 插件详情，
 不新开顶级入口；文案遵守 maiden 原则 6；en 与 zh-CN locale 同步。
 
-**验收：** `vibex plugin test --host` 覆盖六个 slot 各一条旅程；参考插件从市场
+**验收：** `dimo plugin test --host` 覆盖六个 slot 各一条旅程；参考插件从市场
 安装→启用→贡献即时出现→禁用→原子消失；供应商插件可把预设写入列表、用户确认后
 绑定生效并投影到 Agent 原生配置；未确认的 bind 调用被拒绝且有审计记录；诊断面
 能呈现一次人为制造的 Worker 崩溃及其恢复。
@@ -451,9 +451,9 @@ hover 语义）；供应商确认对话框复用 `dialog-surface`；诊断面进
    Tab 栏移除）；内置四视图先以内置贡献形态接入容器（实现暂不迁出，迁出在
    Batch 3 / 5）。
 3. Module Federation runtime 集成：本地插件产物 HTTP 端点、`loadRemote`、React
-   singleton；`@module-federation/vite` 模板进 `vibex-plugin init`（`panel` /
+   singleton；`@module-federation/vite` 模板进 `dimo-plugin init`（`panel` /
    `kanban-view` 模板）。
-4. **`vibex-plugin dev` 面板 HMR 模式**：宿主 `loadRemote` 指向 Vite dev 端点，
+4. **`dimo-plugin dev` 面板 HMR 模式**：宿主 `loadRemote` 指向 Vite dev 端点，
    改代码不重载宿主；退出回落构建产物。
 5. `app.settings.page` 贡献点：设置侧栏合成插件页面条目，页面走 federation /
    iframe 轨（稳定面认定推迟到 Batch 3 与官方消费者同批，原则 3）。
@@ -496,7 +496,7 @@ hover 语义）；供应商确认对话框复用 `dialog-surface`；诊断面进
    插件存储。
 
 **前端设计要求：** 迁移后各功能的交互与视觉与迁移前一致（用户无感知），看板
-首屏尤其不得出现可感知的加载退化；插件详情页标注「随 VibeX 提供，默认启用，
+首屏尤其不得出现可感知的加载退化；插件详情页标注「随 Dimo 提供，默认启用，
 可禁用可卸载」；卸载后的入口占位给出市场重装动作。
 
 **验收：** 升级后用户的笔记、提示词优化与三个看板视图连续可用（对照测试 +
@@ -533,8 +533,8 @@ opener 插件出现在全部「用编辑器打开」入口；`EditorType::Custom
    看板计量视图，原 `KanbanUsageDashboard` / `PlanUsageDashboard` 硬编码实现
    删除；进能力等价白名单（默认启用）。至此宿主不再内置任何看板视图实现，
    禁用/卸载全部四个看板插件即可整体去掉看板 Tab。
-2. 拆除 CEF：发行物不再捆绑 Chromium Embedded Framework 或 `vibex_cef_helper`。
-3. **官方浏览器插件** `vibex.browser`：`app.panel`（`engine: host-browser`，
+2. 拆除 CEF：发行物不再捆绑 Chromium Embedded Framework 或 `dimo_cef_helper`。
+3. **官方浏览器插件** `dimo.browser`：`app.panel`（`engine: host-browser`，
    `multiInstance`）+ `app.rail.section` + `app.settings.page` + `content.mcp`；
    Host provider 在 `crates/browser-host`。旧布局中的 `web-preview` 面板在启动时丢弃。
 4. 评估（立项不实现）：chat channel 桥（Telegram / 企微 / iLink）下沉方案。
@@ -542,7 +542,7 @@ opener 插件出现在全部「用编辑器打开」入口；`EditorType::Custom
 **前端设计要求：** 计量看板插件沿用现有计量视觉语言（`planUsageFormat` 格式、
 诚实缺失）；浏览器面板 chrome 使用 Host 系统 WebView，不内嵌 iframe。
 
-**验收：** 新装发行物不含 CEF / `vibex_cef_helper`；升级用户看板计量视图连续
+**验收：** 新装发行物不含 CEF / `dimo_cef_helper`；升级用户看板计量视图连续
 （默认启用迁移，箭头切换可达计量视图）；禁用浏览器插件后应用无浏览器功能残留入口；
 打开插件面板即可浏览；两个插件过无特权 CI 检查；
 禁用/卸载全部四个看板插件后看板 Tab 从中央 Tab 栏消失且激活态回落工作区，
@@ -552,7 +552,7 @@ opener 插件出现在全部「用编辑器打开」入口；`EditorType::Custom
 
 **任务：**
 
-1. `vibex-plugin fork <source>`：从已安装包快照或 GitHub 仓库派生，强制新
+1. `dimo-plugin fork <source>`：从已安装包快照或 GitHub 仓库派生，强制新
    Publisher + Plugin ID，写 `derivedFrom` 溯源，提示原 license；市场详情页
    展示溯源。
 2. 同槽冲突解析完善：并存聚合与单选规则覆盖全部新 slot / Provider 缝，宿主
@@ -622,7 +622,7 @@ Batch 4 的 `provider.usage` 验收完成开工。git `host.call` API 族在 Bat
   Full Trust、ADR-0051 托管 MCP seam、ADR-0058 诚实性（usage provider 继承其
   约束）、ADR-0068 工作区默认面。
 - **姊妹篇 [ADR-0070](0070-ssh-provisioned-remote-server.md)**：「工作区搬到
-  远端」是 L0 核心路线（SSH 供给的远程 VibeX Server），不是插件路线；其中的
+  远端」是 L0 核心路线（SSH 供给的远程 Dimo Server），不是插件路线；其中的
   SSH 供给器规划为阶段二官方能力等价插件，作为本 ADR「新领域功能插件」的
   试金石案例。
 

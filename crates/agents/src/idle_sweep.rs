@@ -23,15 +23,15 @@ use crate::{AgentConnectionManager, AgentSessionId};
 
 pub const DEFAULT_IDLE_TIMEOUT_SECS: u64 = 180;
 pub const SWEEP_INTERVAL_SECS: u64 = 60;
-pub const IDLE_TIMEOUT_ENV: &str = "VIBEX_ACP_IDLE_TIMEOUT_SECS";
+pub const IDLE_TIMEOUT_ENV: &str = "DIMO_ACP_IDLE_TIMEOUT_SECS";
 
 /// How long a group stays hot after a user message, in-flight delivery, or warmup.
 pub const DEFAULT_HOT_GROUP_WINDOW_SECS: u64 = 15 * 60;
-pub const HOT_GROUP_WINDOW_ENV: &str = "VIBEX_ACP_HOT_GROUP_WINDOW_SECS";
+pub const HOT_GROUP_WINDOW_ENV: &str = "DIMO_ACP_HOT_GROUP_WINDOW_SECS";
 
 /// Idle timeout applied to member sessions of a hot group.
 pub const DEFAULT_HOT_GROUP_IDLE_TIMEOUT_SECS: u64 = 20 * 60;
-pub const HOT_GROUP_IDLE_TIMEOUT_ENV: &str = "VIBEX_ACP_HOT_GROUP_IDLE_TIMEOUT_SECS";
+pub const HOT_GROUP_IDLE_TIMEOUT_ENV: &str = "DIMO_ACP_HOT_GROUP_IDLE_TIMEOUT_SECS";
 
 pub fn idle_timeout_from_env() -> Option<Duration> {
     duration_from_env(IDLE_TIMEOUT_ENV, DEFAULT_IDLE_TIMEOUT_SECS)

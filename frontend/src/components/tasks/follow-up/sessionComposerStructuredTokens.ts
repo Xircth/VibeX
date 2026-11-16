@@ -6,6 +6,11 @@ import {
 } from './AgentMention';
 import type { AtReferenceMember } from './composerAtReferences';
 import {
+  parseCommitReferenceUri,
+  parseConversationReferenceUri,
+  parseProjectReferenceUri,
+} from './referenceUris';
+import {
   decodeQuoteTokenHeader,
   encodeQuoteTokenHeader,
   hasQuoteSourceAnchor,
@@ -20,9 +25,6 @@ export {
   type QuoteTokenMetadata,
 };
 
-const CONVERSATION_URI_PREFIX = 'vibex://conversation/';
-const COMMIT_URI_PREFIX = 'vibex://commit/';
-const PROJECT_URI_PREFIX = 'vibex://project/';
 const QUOTE_TOKEN_OPEN = '[:quote';
 const QUOTE_CHIP_CHARS = 4;
 
@@ -62,46 +64,6 @@ export function quoteTokenChipLabel(text: string): string {
   if (chars.length === 0) return '@';
   const preview = chars.slice(0, QUOTE_CHIP_CHARS).join('');
   return chars.length > QUOTE_CHIP_CHARS ? `@${preview}...` : `@${preview}`;
-}
-
-function parseConversationReferenceUri(uri: string): string | null {
-  if (!uri.toLowerCase().startsWith(CONVERSATION_URI_PREFIX)) return null;
-  const id = uri.slice(CONVERSATION_URI_PREFIX.length).trim();
-  return id || null;
-}
-
-function parseProjectReferenceUri(
-  uri: string
-): { projectId: string; path: string } | null {
-  if (!uri.toLowerCase().startsWith(PROJECT_URI_PREFIX)) return null;
-  const body = uri.slice(PROJECT_URI_PREFIX.length);
-  const separator = body.lastIndexOf('@');
-  if (separator <= 0 || separator === body.length - 1) return null;
-  try {
-    const projectId = decodeURIComponent(body.slice(0, separator));
-    const path = decodeURIComponent(body.slice(separator + 1));
-    if (!projectId || !path) return null;
-    return { projectId, path };
-  } catch {
-    return null;
-  }
-}
-
-function parseCommitReferenceUri(
-  uri: string
-): { repoId: string; sha: string } | null {
-  if (!uri.toLowerCase().startsWith(COMMIT_URI_PREFIX)) return null;
-  const body = uri.slice(COMMIT_URI_PREFIX.length);
-  const separator = body.lastIndexOf('@');
-  if (separator <= 0 || separator === body.length - 1) return null;
-  try {
-    const repoId = decodeURIComponent(body.slice(0, separator));
-    const sha = body.slice(separator + 1);
-    if (!repoId || !sha) return null;
-    return { repoId, sha };
-  } catch {
-    return null;
-  }
 }
 
 function shortCommitSha(sha: string): string {
@@ -165,7 +127,7 @@ type PreviewElementTokenPayload = {
 
 const LEGACY_PREVIEW_ELEMENT_PREFIX = 'element:';
 const LEGACY_PREVIEW_ELEMENT_STORAGE_PREFIX =
-  'vibex:session-composer-preview-element:';
+  'dimo:session-composer-preview-element:';
 const COMMAND_TYPES = new Set<SessionComposerCommandType>([
   '@',
   '/',
@@ -402,20 +364,24 @@ function parseBareAgentMentionAt(
   };
 }
 
+const AGENT_MENTION_PREFIXES = ['(dimo://agent/', '(vibex://agent/'] as const;
+
 function parseAgentMentionAt(
   source: string,
   start: number
 ): { token: SessionComposerStructuredToken; end: number } | null {
   if (source.slice(start, start + 2) !== '[&') return null;
   const namePart = readEscapedPart(source, start + 2, ']');
-  if (
-    !namePart ||
-    source.slice(namePart.end + 1, namePart.end + 16) !== '(vibex://agent/'
-  ) {
+  if (!namePart) return null;
+  const afterBracket = namePart.end + 1;
+  const matchedPrefix = AGENT_MENTION_PREFIXES.find((prefix) =>
+    source.startsWith(prefix, afterBracket)
+  );
+  if (!matchedPrefix) {
     return null;
   }
 
-  const kindStart = namePart.end + 16;
+  const kindStart = afterBracket + matchedPrefix.length;
   const kindEnd = source.indexOf(')', kindStart);
   if (kindEnd < 0 || kindEnd === kindStart) return null;
 

@@ -1,4 +1,5 @@
 import { hostFileSrc } from '@/lib/hostAsset';
+import { writeTextToClipboard } from '@/utils/clipboard';
 
 import type { SpaceCollectionItemRecord } from './CollaborationSpaceCollectionPanel';
 
@@ -12,7 +13,10 @@ export async function copySpaceCollectionItem(
   const kind = collectionItemKind(item);
   if (kind === 'text') {
     const text = item.text_content ?? item.file_name ?? item.name ?? '';
-    await navigator.clipboard.writeText(text);
+    const copied = await writeTextToClipboard(text);
+    if (!copied) {
+      throw new Error('Failed to copy text to clipboard');
+    }
     return;
   }
   if (kind !== 'image') {
@@ -23,13 +27,18 @@ export async function copySpaceCollectionItem(
   const response = await fetch(src);
   const blob = await response.blob();
   const type = blob.type.startsWith('image/') ? blob.type : 'image/png';
-  const clipboard = navigator.clipboard;
+  const clipboard =
+    typeof navigator !== 'undefined' ? navigator.clipboard : undefined;
   if (
     typeof ClipboardItem !== 'undefined' &&
+    clipboard &&
     typeof clipboard.write === 'function'
   ) {
     await clipboard.write([new ClipboardItem({ [type]: blob })]);
     return;
   }
-  await clipboard.writeText(item.file_path);
+  const copied = await writeTextToClipboard(item.file_path);
+  if (!copied) {
+    throw new Error('Failed to copy image path to clipboard');
+  }
 }

@@ -57,19 +57,19 @@ impl CapabilityBroker for RecordingBroker {
 }
 
 fn write_shared_worker_package(root: &Path, index: usize, version: &str, exported_style: bool) {
-    let plugin_id = format!("dev.vibex.shared-{index}");
+    let plugin_id = format!("dev.dimo.shared-{index}");
     let handler_id = format!("ping.w{index}");
-    std::fs::create_dir_all(root.join(".vibex-plugin")).unwrap();
+    std::fs::create_dir_all(root.join(".dimo-plugin")).unwrap();
     std::fs::write(
-        root.join(".vibex-plugin/plugin.json"),
+        root.join(".dimo-plugin/plugin.json"),
         serde_json::to_string_pretty(&json!({
             "manifestVersion": 4,
             "apiVersion": "1.0",
             "id": plugin_id,
-            "publisher": "dev.vibex",
+            "publisher": "dev.dimo",
             "name": format!("Shared Worker {index}"),
             "version": version,
-            "engines": { "vibex": ">=0.1.3 <1.0.0", "pluginSdk": "^1.0.0" },
+            "engines": { "dimo": ">=0.1.3 <1.0.0", "pluginSdk": "^1.0.0" },
             "entrypoints": {
                 "worker": { "path": "worker.mjs", "runtime": "node", "protocol": "1.1" }
             },
@@ -103,7 +103,7 @@ fn write_shared_worker_package(root: &Path, index: usize, version: &str, exporte
         cwd: process.cwd(),
         rssBytes: process.memoryUsage().rss,
         heapUsedBytes: process.memoryUsage().heapUsed,
-        slotCount: globalThis.__VIBEX_SHARED_PLUGIN_HOST__?.slots?.size ?? 0,
+        slotCount: globalThis.__DIMO_SHARED_PLUGIN_HOST__?.slots?.size ?? 0,
         brokerEcho,
       }};
     }});
@@ -165,7 +165,7 @@ for await (const line of rl) {{
           cwd: process.cwd(),
           rssBytes: process.memoryUsage().rss,
           heapUsedBytes: process.memoryUsage().heapUsed,
-          slotCount: globalThis.__VIBEX_SHARED_PLUGIN_HOST__?.slots?.size ?? 0,
+          slotCount: globalThis.__DIMO_SHARED_PLUGIN_HOST__?.slots?.size ?? 0,
           brokerEcho,
         }}
       }}));
@@ -223,7 +223,7 @@ async fn ten_tier2_node_plugins_share_one_process_and_stay_under_40mb_delta() {
 
     // Activate plugin 0 first and record baseline RSS of the single shared Node process
     control
-        .activate_and_enable(&node, "dev.vibex.shared-0", &[], broker.clone())
+        .activate_and_enable(&node, "dev.dimo.shared-0", &[], broker.clone())
         .await
         .unwrap();
     assert_eq!(control.active_worker_process_count().await, 1);
@@ -233,7 +233,7 @@ async fn ten_tier2_node_plugins_share_one_process_and_stay_under_40mb_delta() {
         .expect("shared Node process PID");
 
     let lease_0 = control
-        .activation_lease("dev.vibex.shared-0")
+        .activation_lease("dev.dimo.shared-0")
         .await
         .unwrap();
     let first_probe = lease_0
@@ -245,7 +245,7 @@ async fn ten_tier2_node_plugins_share_one_process_and_stay_under_40mb_delta() {
 
     // Activate the remaining 9 Tier-2 Node plugins (total 10 active simultaneously)
     for index in 1..10 {
-        let plugin_id = format!("dev.vibex.shared-{index}");
+        let plugin_id = format!("dev.dimo.shared-{index}");
         control
             .activate_and_enable(&node, &plugin_id, &[], broker.clone())
             .await
@@ -263,7 +263,7 @@ async fn ten_tier2_node_plugins_share_one_process_and_stay_under_40mb_delta() {
     // Invoke all 10 plugins and verify PID sharing, cwd isolation, broker scoping, and memory delta < 40 MB
     let mut max_rss = baseline_rss;
     for (index, dir) in temp_dirs.iter().enumerate() {
-        let plugin_id = format!("dev.vibex.shared-{index}");
+        let plugin_id = format!("dev.dimo.shared-{index}");
         let handler_id = format!("ping.w{index}");
         let lease = control
             .activation_lease(&plugin_id)
@@ -307,7 +307,7 @@ async fn ten_tier2_node_plugins_share_one_process_and_stay_under_40mb_delta() {
 
     // Hot-reload plugin 3 to version 2.0.0 while holding its v1.0.0 lease
     let old_lease_3 = control
-        .activation_lease("dev.vibex.shared-3")
+        .activation_lease("dev.dimo.shared-3")
         .await
         .unwrap();
     let v2_dir = tempfile::tempdir().unwrap();
@@ -321,7 +321,7 @@ async fn ten_tier2_node_plugins_share_one_process_and_stay_under_40mb_delta() {
     assert_eq!(control.active_worker_process_count().await, 1);
 
     let new_lease_3 = control
-        .activation_lease("dev.vibex.shared-3")
+        .activation_lease("dev.dimo.shared-3")
         .await
         .unwrap();
     let v2_res = new_lease_3
@@ -335,12 +335,12 @@ async fn ten_tier2_node_plugins_share_one_process_and_stay_under_40mb_delta() {
 
     // Disable 9 plugins and verify the 10th still works on the same shared Node process
     for index in 0..9 {
-        let plugin_id = format!("dev.vibex.shared-{index}");
+        let plugin_id = format!("dev.dimo.shared-{index}");
         control.set_enabled(&plugin_id, false).await.unwrap();
     }
     assert_eq!(control.active_worker_process_count().await, 1);
     let lease_9 = control
-        .activation_lease("dev.vibex.shared-9")
+        .activation_lease("dev.dimo.shared-9")
         .await
         .unwrap();
     let res_9 = lease_9
@@ -353,7 +353,7 @@ async fn ten_tier2_node_plugins_share_one_process_and_stay_under_40mb_delta() {
 
     // Disable the last plugin and verify the shared Node OS process terminates (0 processes left)
     control
-        .set_enabled("dev.vibex.shared-9", false)
+        .set_enabled("dev.dimo.shared-9", false)
         .await
         .unwrap();
     assert_eq!(
@@ -382,7 +382,7 @@ async fn failed_candidate_in_shared_runner_does_not_disrupt_healthy_plugins() {
     control
         .activate_and_enable(
             &node,
-            "dev.vibex.shared-1",
+            "dev.dimo.shared-1",
             &[],
             Arc::new(DenyCapabilityBroker),
         )
@@ -408,7 +408,7 @@ async fn failed_candidate_in_shared_runner_does_not_disrupt_healthy_plugins() {
     let err = control
         .activate_and_enable(
             &node,
-            "dev.vibex.shared-2",
+            "dev.dimo.shared-2",
             &[],
             Arc::new(DenyCapabilityBroker),
         )
@@ -420,7 +420,7 @@ async fn failed_candidate_in_shared_runner_does_not_disrupt_healthy_plugins() {
     assert_eq!(control.active_worker_process_count().await, 1);
     assert_eq!(control.shared_node_worker_pid().await, Some(shared_pid));
     let lease_1 = control
-        .activation_lease("dev.vibex.shared-1")
+        .activation_lease("dev.dimo.shared-1")
         .await
         .unwrap();
     let res = lease_1
@@ -439,17 +439,17 @@ async fn shared_node_plugins_collaborate_via_service_container_and_revoke_on_dis
 
     // Plugin A: Service Provider + Waterfall Interceptor
     let provider_dir = tempfile::tempdir().unwrap();
-    std::fs::create_dir_all(provider_dir.path().join(".vibex-plugin")).unwrap();
+    std::fs::create_dir_all(provider_dir.path().join(".dimo-plugin")).unwrap();
     std::fs::write(
-        provider_dir.path().join(".vibex-plugin/plugin.json"),
+        provider_dir.path().join(".dimo-plugin/plugin.json"),
         serde_json::to_string_pretty(&json!({
             "manifestVersion": 4,
             "apiVersion": "1.0",
-            "id": "dev.vibex.service-provider",
-            "publisher": "dev.vibex",
+            "id": "dev.dimo.service-provider",
+            "publisher": "dev.dimo",
             "name": "Service Provider",
             "version": "1.0.0",
-            "engines": { "vibex": ">=0.1.3 <1.0.0", "pluginSdk": "^1.0.0" },
+            "engines": { "dimo": ">=0.1.3 <1.0.0", "pluginSdk": "^1.0.0" },
             "entrypoints": {
                 "worker": { "path": "worker.mjs", "runtime": "node", "protocol": "1.1" }
             },
@@ -487,17 +487,17 @@ async fn shared_node_plugins_collaborate_via_service_container_and_revoke_on_dis
 
     // Plugin B: Service Consumer
     let consumer_dir = tempfile::tempdir().unwrap();
-    std::fs::create_dir_all(consumer_dir.path().join(".vibex-plugin")).unwrap();
+    std::fs::create_dir_all(consumer_dir.path().join(".dimo-plugin")).unwrap();
     std::fs::write(
-        consumer_dir.path().join(".vibex-plugin/plugin.json"),
+        consumer_dir.path().join(".dimo-plugin/plugin.json"),
         serde_json::to_string_pretty(&json!({
             "manifestVersion": 4,
             "apiVersion": "1.0",
-            "id": "dev.vibex.service-consumer",
-            "publisher": "dev.vibex",
+            "id": "dev.dimo.service-consumer",
+            "publisher": "dev.dimo",
             "name": "Service Consumer",
             "version": "1.0.0",
-            "engines": { "vibex": ">=0.1.3 <1.0.0", "pluginSdk": "^1.0.0" },
+            "engines": { "dimo": ">=0.1.3 <1.0.0", "pluginSdk": "^1.0.0" },
             "entrypoints": {
                 "worker": { "path": "worker.mjs", "runtime": "node", "protocol": "1.1" }
             },
@@ -551,7 +551,7 @@ async fn shared_node_plugins_collaborate_via_service_container_and_revoke_on_dis
     control
         .activate_and_enable(
             &node,
-            "dev.vibex.service-provider",
+            "dev.dimo.service-provider",
             &[],
             Arc::new(DenyCapabilityBroker),
         )
@@ -560,7 +560,7 @@ async fn shared_node_plugins_collaborate_via_service_container_and_revoke_on_dis
     control
         .activate_and_enable(
             &node,
-            "dev.vibex.service-consumer",
+            "dev.dimo.service-consumer",
             &[],
             Arc::new(DenyCapabilityBroker),
         )
@@ -568,7 +568,7 @@ async fn shared_node_plugins_collaborate_via_service_container_and_revoke_on_dis
         .unwrap();
 
     let consumer_lease = control
-        .activation_lease("dev.vibex.service-consumer")
+        .activation_lease("dev.dimo.service-consumer")
         .await
         .unwrap();
     let active_res = consumer_lease
@@ -581,7 +581,7 @@ async fn shared_node_plugins_collaborate_via_service_container_and_revoke_on_dis
 
     // Disable provider plugin -> its services and waterfall interceptors must be automatically revoked
     control
-        .set_enabled("dev.vibex.service-provider", false)
+        .set_enabled("dev.dimo.service-provider", false)
         .await
         .unwrap();
 
@@ -624,17 +624,17 @@ async fn shared_node_async_timeout_isolates_faulty_slot_and_hard_crash_recovers_
 
     // Faulty plugin 2 with both an async hang handler and a hard crash handler
     let faulty_dir = tempfile::tempdir().unwrap();
-    std::fs::create_dir_all(faulty_dir.path().join(".vibex-plugin")).unwrap();
+    std::fs::create_dir_all(faulty_dir.path().join(".dimo-plugin")).unwrap();
     std::fs::write(
-        faulty_dir.path().join(".vibex-plugin/plugin.json"),
+        faulty_dir.path().join(".dimo-plugin/plugin.json"),
         serde_json::to_string_pretty(&json!({
             "manifestVersion": 4,
             "apiVersion": "1.0",
-            "id": "dev.vibex.faulty",
-            "publisher": "dev.vibex",
+            "id": "dev.dimo.faulty",
+            "publisher": "dev.dimo",
             "name": "Faulty Worker",
             "version": "1.0.0",
-            "engines": { "vibex": ">=0.1.3 <1.0.0", "pluginSdk": "^1.0.0" },
+            "engines": { "dimo": ">=0.1.3 <1.0.0", "pluginSdk": "^1.0.0" },
             "entrypoints": {
                 "worker": { "path": "worker.mjs", "runtime": "node", "protocol": "1.1" }
             },
@@ -686,20 +686,20 @@ async fn shared_node_async_timeout_isolates_faulty_slot_and_hard_crash_recovers_
 
     let broker = Arc::new(RecordingBroker::default());
     control
-        .activate_and_enable(&node, "dev.vibex.shared-1", &[], broker.clone())
+        .activate_and_enable(&node, "dev.dimo.shared-1", &[], broker.clone())
         .await
         .unwrap();
     control
-        .activate_and_enable(&node, "dev.vibex.faulty", &[], broker.clone())
+        .activate_and_enable(&node, "dev.dimo.faulty", &[], broker.clone())
         .await
         .unwrap();
 
     let initial_pid = control.shared_node_worker_pid().await.unwrap();
     let healthy_lease = control
-        .activation_lease("dev.vibex.shared-1")
+        .activation_lease("dev.dimo.shared-1")
         .await
         .unwrap();
-    let faulty_lease = control.activation_lease("dev.vibex.faulty").await.unwrap();
+    let faulty_lease = control.activation_lease("dev.dimo.faulty").await.unwrap();
 
     // 1. Trigger async timeout on faulty plugin -> must isolate only faulty slot and keep initial_pid alive!
     let timeout_err = faulty_lease
@@ -722,16 +722,16 @@ async fn shared_node_async_timeout_isolates_faulty_slot_and_hard_crash_recovers_
     // 2. Re-activate faulty plugin and trigger hard process crash (process.exit(1))
     drop(faulty_lease);
     control
-        .activate_and_enable(&node, "dev.vibex.faulty", &[], broker.clone())
+        .activate_and_enable(&node, "dev.dimo.faulty", &[], broker.clone())
         .await
         .unwrap();
-    let faulty_lease_2 = control.activation_lease("dev.vibex.faulty").await.unwrap();
+    let faulty_lease_2 = control.activation_lease("dev.dimo.faulty").await.unwrap();
     let _crash_err = faulty_lease_2
         .invoke("faulty.crash", json!({}))
         .await
         .expect_err("process.exit(1) must fail the crashing invocation");
 
-    // Survivor plugin (dev.vibex.shared-1) must have been automatically remounted onto a fresh shared Node process!
+    // Survivor plugin (dev.dimo.shared-1) must have been automatically remounted onto a fresh shared Node process!
     let recovered_pid = control
         .shared_node_worker_pid()
         .await

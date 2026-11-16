@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1200" height="880" viewBox="0 0 1200 880">
-  <title>VibeX All-in-One Agent-Native Development Platform</title>
-  <desc>VibeX unites 20+ coding agents with free-form tabs and infinite spatial canvas, multi-worktree engineering, 3-tier agent collaboration, everything-is-a-plugin Vibe Coding tools, and multi-Host connectivity.</desc>
+  <title>Dimo All-in-One Agent-Native Development Platform</title>
+  <desc>Dimo unites 20+ coding agents with free-form tabs and infinite spatial canvas, multi-worktree engineering, 3-tier agent collaboration, everything-is-a-plugin Vibe Coding tools, and multi-Host connectivity.</desc>
   
   <defs>
     <linearGradient id="bg-grad" x1="0" y1="0" x2="0" y2="1">
@@ -56,7 +56,7 @@
 
   <g font-family="Inter, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif">
     <!-- Header -->
-    <text x="600" y="48" text-anchor="middle" fill="#0F172A" font-size="22" font-weight="800">VibeX All-in-One Agent-Native Development Platform</text>
+    <text x="600" y="48" text-anchor="middle" fill="#0F172A" font-size="22" font-weight="800">Dimo All-in-One Agent-Native Development Platform</text>
     <text x="600" y="74" text-anchor="middle" fill="#475569" font-size="12.5" font-weight="500">Multi-Agent Visualization · Tabs &amp; Infinite Canvas · 3-Tier Collaboration · Everything is a Plugin · Multi-Host Everywhere</text>
 
     <!-- Flow lines from Agents to ACP -->
@@ -80,7 +80,7 @@
     <path d="M238 330 V344" fill="none" stroke="#2563EB" stroke-width="1.75" stroke-linecap="round" stroke-dasharray="5 6" opacity="0.72"><animate attributeName="stroke-dashoffset" values="22;0" dur="1.4s" begin="0.25s" repeatCount="indefinite"/></path>
     <path d="M962 330 V344" fill="none" stroke="#059669" stroke-width="1.75" stroke-linecap="round" stroke-dasharray="5 6" opacity="0.72"><animate attributeName="stroke-dashoffset" values="22;0" dur="1.4s" begin="0.28s" repeatCount="indefinite"/></path>
 
-    <!-- Layer 3: VibeX Platform Core Container -->
+    <!-- Layer 3: Dimo Platform Core Container -->
     <g filter="url(#host-shadow)">
       <rect x="38" y="344" width="1124" height="392" rx="22" fill="#FFFFFF" stroke="#CBD5E1" stroke-width="1.5"/>
       <rect x="39" y="345" width="1122" height="48" rx="21" fill="url(#host-header-grad)"/>
@@ -89,7 +89,7 @@
       <circle cx="66" cy="369" r="6" fill="#2563EB"/>
       <circle cx="84" cy="369" r="6" fill="#7C3AED"/>
       <circle cx="102" cy="369" r="6" fill="#10B981"/>
-      <text x="124" y="374" fill="#0F172A" font-size="14.5" font-weight="800">VibeX High-Performance Core (Multi-Agent Workspace × Vibe Coding Toolkit)</text>
+      <text x="124" y="374" fill="#0F172A" font-size="14.5" font-weight="800">Dimo High-Performance Core (Multi-Agent Workspace × Vibe Coding Toolkit)</text>
       <rect x="886" y="356" width="254" height="26" rx="13" fill="#0F172A"/>
       <text x="1013" y="373" text-anchor="middle" fill="#F8FAFC" font-size="10.5" font-weight="700">Native Rust Speed · Local-First Data</text>
     </g>

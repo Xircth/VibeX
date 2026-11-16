@@ -2,12 +2,12 @@
 status: accepted
 date: 2026-07-28
 decision-makers:
-  - VibeX maintainers
+  - Dimo maintainers
 ---
 
 # Agent 纳入关系独立于安装状态与 Registry 可用性
 
-VibeX 用“已添加”表达 Agent 已经进入用户的 Agent 集合，而不用“已安装”代替这一
+Dimo 用“已添加”表达 Agent 已经进入用户的 Agent 集合，而不用“已安装”代替这一
 关系。Built-in Agent 默认已添加；其他 Registry Agent 在用户确认“添加并安装”时
 立即成为已添加 Agent、进入统一 Agent 导航带，并在其详情页继续安装、预检查、
 认证和修复。

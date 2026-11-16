@@ -20,8 +20,8 @@ const history: BrowserAddressHistoryEntry[] = [
     visitedAt: 50,
   },
   {
-    url: 'https://github.com/Xircth/VibeX',
-    title: 'Xircth/VibeX: IADE',
+    url: 'https://github.com/DimoADE/Dimo',
+    title: 'DimoADE/Dimo: IADE',
     favicon: 'https://github.com/favicon.ico',
     visitedAt: 90,
   },
@@ -47,7 +47,7 @@ describe('suggestBrowserAddresses', () => {
     expect(rows.map((row) => row.url)).toEqual([
       'https://github.com/',
       'https://github.com/xintaofei/codeg',
-      'https://github.com/Xircth/VibeX',
+      'https://github.com/DimoADE/Dimo',
     ]);
   });
 
@@ -57,12 +57,12 @@ describe('suggestBrowserAddresses', () => {
     expect(rows.map((row) => row.url)).toEqual([
       'https://github.com/',
       'https://github.com/xintaofei/codeg',
-      'https://github.com/Xircth/VibeX',
+      'https://github.com/DimoADE/Dimo',
     ]);
     expect(rows.map((row) => row.title)).toEqual([
       'GitHub',
       'xintaofei/codeg: Collaborative multi-agent AI coding workspace',
-      'Xircth/VibeX: IADE',
+      'DimoADE/Dimo: IADE',
     ]);
   });
 
@@ -92,7 +92,7 @@ describe('suggestBrowserAddresses', () => {
     expect(rows.map((row) => row.url).slice(0, 3)).toEqual([
       'https://github.com/',
       'https://github.com/xintaofei/codeg',
-      'https://github.com/Xircth/VibeX',
+      'https://github.com/DimoADE/Dimo',
     ]);
     const gitee = rows.findIndex((row) => row.url === 'https://gitee.com/');
     expect(gitee).toBeGreaterThan(2);

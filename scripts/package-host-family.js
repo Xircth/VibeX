@@ -75,7 +75,7 @@ function packageHostFamily(options) {
     path.dirname(options.plugins),
     "..",
     "packages",
-    "vibex-workflow-mcp",
+    "dimo-workflow-mcp",
     "dist",
     "mcp",
     "workflow-control.mjs",
@@ -100,12 +100,12 @@ function packageHostFamily(options) {
     copyDirectory(rustSdk, path.join(output, "sdk", "rust"));
   }
   const catalogCandidates = [
-    path.join(repoRoot, "vibex-plugin.json"),
-    path.join(path.dirname(options.plugins), "vibex-plugin.json"),
+    path.join(repoRoot, "dimo-plugin.json"),
+    path.join(path.dirname(options.plugins), "dimo-plugin.json"),
   ];
   const catalog = catalogCandidates.find((candidate) => fs.existsSync(candidate));
   if (catalog) {
-    copyFile(catalog, path.join(output, "vibex-plugin.json"));
+    copyFile(catalog, path.join(output, "dimo-plugin.json"));
   }
   const claudeNativeScripts = [
     "claude-native-driver.mjs",

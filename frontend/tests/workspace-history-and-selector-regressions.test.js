@@ -12,10 +12,10 @@ function readFile(relativePath) {
   return fs.readFileSync(path.join(frontendRoot, relativePath), 'utf8');
 }
 
-test('settings header no longer shows the VibeX desktop wording', () => {
+test('settings header no longer shows the Dimo desktop wording', () => {
   const source = readFile('src/pages/settings/SettingsLayout.tsx');
 
-  assert.doesNotMatch(source, /VibeX 桌面端设置/);
+  assert.doesNotMatch(source, /Dimo 桌面端设置/);
 });
 
 test('branding tagline stays on the multi-task Vibe Coding copy', () => {

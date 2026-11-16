@@ -126,7 +126,7 @@ afterEach(() => {
 
 describe('useLayoutStore', () => {
   beforeEach(() => {
-    localStorage.removeItem('vibex-ide-layout');
+    localStorage.removeItem('dimo-ide-layout');
     useLayoutStore.getState().setCurrentProject(GLOBAL_PROJECT_SCOPE);
     useLayoutStore.getState().resetLayout();
   });
@@ -726,8 +726,8 @@ describe('persisted layout migration and rehydration', () => {
     const oldLayout = {
       grid: { root: {}, width: 1360, height: 800, orientation: 0 },
       panels: {
-        'plugin:vibex.host-surface/sample-panel': {
-          id: 'plugin:vibex.host-surface/sample-panel',
+        'plugin:dimo.host-surface/sample-panel': {
+          id: 'plugin:dimo.host-surface/sample-panel',
           contentComponent: 'plugin-panel',
           title: '示例面板',
         },
@@ -746,7 +746,7 @@ describe('persisted layout migration and rehydration', () => {
           'project-a': {
             serializedLayout: oldLayout,
             rightPanelWidth: 480,
-            activeTab: 'plugin:vibex.host-surface/sample-tab',
+            activeTab: 'plugin:dimo.host-surface/sample-tab',
           },
         },
       },
@@ -757,12 +757,12 @@ describe('persisted layout migration and rehydration', () => {
       oldLayout
     );
     expect(migrated.projectLayouts['project-a'].activeTab).toBe(
-      'plugin:vibex.host-surface/sample-tab'
+      'plugin:dimo.host-surface/sample-tab'
     );
-    expect(migrated.activeTab).toBe('plugin:vibex.host-surface/sample-tab');
+    expect(migrated.activeTab).toBe('plugin:dimo.host-surface/sample-tab');
     expect(
       migrated.projectLayouts['project-a'].serializedLayout?.panels?.[
-        'plugin:vibex.host-surface/sample-panel'
+        'plugin:dimo.host-surface/sample-panel'
       ]
     ).toMatchObject({ contentComponent: 'plugin-panel' });
   });
@@ -875,7 +875,7 @@ describe('persisted layout migration and rehydration', () => {
     delete dirtyLayout.panels['web-preview'];
 
     localStorage.setItem(
-      'vibex-ide-layout',
+      'dimo-ide-layout',
       JSON.stringify({
         version: 30,
         state: {

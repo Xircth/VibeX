@@ -35,7 +35,7 @@ pub async fn import_cli_inbox(app: AppHandle) -> Result<(), AppError> {
     let Some(home) = dirs::home_dir() else {
         return Ok(());
     };
-    let inbox = home.join(".vibex").join("imports");
+    let inbox = home.join(".dimo").join("imports");
     let Ok(entries) = std::fs::read_dir(&inbox) else {
         return Ok(());
     };
@@ -96,7 +96,7 @@ async fn import_cli_package(
         .as_ref()
         .map(|archive| archive.root.as_path())
         .unwrap_or(input);
-    if !source.join(".vibex-plugin/plugin.json").is_file() {
+    if !source.join(".dimo-plugin/plugin.json").is_file() {
         return import_native_plugin(source, source_kind, decision).await;
     }
     let incoming = plugins::PluginPackage::inspect(source, source_kind).map_err(plugin_error)?;
@@ -265,7 +265,7 @@ async fn import_native_plugin(
     }
     imported_id.ok_or_else(|| {
         AppError::BadRequest(
-            "plugin source must contain a VibeX, Codex, or Claude Code manifest".to_owned(),
+            "plugin source must contain a Dimo, Codex, or Claude Code manifest".to_owned(),
         )
     })
 }
@@ -943,7 +943,7 @@ async fn materialize_plugin_mcp_spec(
         .filter_map(serde_json::Value::as_str)
         .collect::<Vec<_>>();
     let token = serde_json::json!({
-        "typ": "vibex.plugin-mcp",
+        "typ": "dimo.plugin-mcp",
         "plugin_id": plugin.id(),
         "mcp_id": server_id,
         "scopes": scopes,
@@ -957,8 +957,8 @@ async fn materialize_plugin_mcp_spec(
             "command": plugins::spawnable_fs_path(&node),
             "args": [plugins::spawnable_fs_path(&entrypoint)],
             "env": {
-                "VIBEX_PLUGIN_MCP_TOKEN": token,
-                "VIBEX_MCP_PROTOCOL_REVISION": managed
+                "DIMO_PLUGIN_MCP_TOKEN": token,
+                "DIMO_MCP_PROTOCOL_REVISION": managed
                     .get("protocolRevision")
                     .and_then(serde_json::Value::as_str)
                     .unwrap_or("2026-07-28")
@@ -1061,7 +1061,7 @@ fn extract_plugin_tar_gz(path: &Path) -> Result<ExtractedPluginArchive, AppError
         .map_err(|error| AppError::BadRequest(format!("cannot open plugin archive: {error}")))?;
     let decoder = flate2::read::GzDecoder::new(file);
     let mut archive = tar::Archive::new(decoder);
-    let staging = tempfile::tempdir_in(utils::path::get_vibex_temp_dir())
+    let staging = tempfile::tempdir_in(utils::path::get_dimo_temp_dir())
         .map_err(|error| AppError::Internal(format!("cannot stage plugin archive: {error}")))?;
     let mut extracted_bytes = 0_u64;
     let mut entries = 0_usize;
@@ -1126,7 +1126,7 @@ fn extract_plugin_zip(path: &Path) -> Result<ExtractedPluginArchive, AppError> {
         ));
     }
 
-    let staging = tempfile::tempdir_in(utils::path::get_vibex_temp_dir())
+    let staging = tempfile::tempdir_in(utils::path::get_dimo_temp_dir())
         .map_err(|error| AppError::Internal(format!("cannot stage plugin ZIP: {error}")))?;
     let mut extracted_bytes = 0_u64;
     let mut normalized_paths = BTreeSet::new();
@@ -1246,7 +1246,7 @@ fn resolve_extracted_plugin_root(staging: &Path) -> Result<PathBuf, AppError> {
 }
 
 fn has_supported_plugin_manifest(root: &Path) -> bool {
-    root.join(".vibex-plugin/plugin.json").is_file()
+    root.join(".dimo-plugin/plugin.json").is_file()
         || root.join(".codex-plugin/plugin.json").is_file()
         || root.join(".claude-plugin/plugin.json").is_file()
 }
@@ -1265,13 +1265,13 @@ mod tests {
         let spec = serde_json::json!({
             "managedRuntime": {
                 "kind": "hostFamilyBinary",
-                "binaryId": "vibex-mcp",
+                "binaryId": "dimo-mcp",
                 "product": "delegation"
             }
         });
         assert!(is_host_family_binary_mcp(&spec));
         assert_eq!(
-            plugins::projected_mcp_server_id("vibex.multi-agent", "vibex-delegation-mcp", &spec),
+            plugins::projected_mcp_server_id("dimo.multi-agent", "dimo-delegation-mcp", &spec),
             plugins::DELEGATION_MCP_NAME
         );
         assert!(!is_host_family_binary_mcp(&serde_json::json!({
@@ -1294,7 +1294,7 @@ mod tests {
         let mut archive = ZipWriter::new(file);
         archive
             .start_file(
-                "demo/.vibex-plugin/plugin.json",
+                "demo/.dimo-plugin/plugin.json",
                 SimpleFileOptions::default(),
             )
             .unwrap();
@@ -1307,7 +1307,7 @@ mod tests {
 
         let extracted = extract_plugin_archive(&archive_path).unwrap();
 
-        assert!(extracted.root.join(".vibex-plugin/plugin.json").is_file());
+        assert!(extracted.root.join(".dimo-plugin/plugin.json").is_file());
         assert!(extracted.root.join("skills/demo/SKILL.md").is_file());
     }
 

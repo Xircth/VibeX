@@ -62,7 +62,7 @@ describe('AgentDefaultsField', () => {
   it('shows an empty state when no agents are enabled', () => {
     render(
       <AgentDefaultsField
-        pluginId="vibex.multi-agent"
+        pluginId="dimo.multi-agent"
         name="agentDefaults"
         schema={{
           type: 'object',
@@ -95,7 +95,7 @@ describe('AgentDefaultsField', () => {
 
     render(
       <AgentDefaultsField
-        pluginId="vibex.multi-agent"
+        pluginId="dimo.multi-agent"
         name="agentDefaults"
         schema={{
           type: 'object',
@@ -135,7 +135,7 @@ describe('AgentDefaultsField', () => {
 
     render(
       <AgentDefaultsField
-        pluginId="vibex.multi-agent"
+        pluginId="dimo.multi-agent"
         name="agentDefaults"
         schema={{ type: 'object', additionalProperties: true }}
         value={{}}

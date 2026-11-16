@@ -56,16 +56,24 @@ impl ConversationSessionService {
         &self,
         input: ConversationSteerInput,
     ) -> Result<ConversationSteeringReceipt, ConversationServiceError> {
-        if input.text.trim().is_empty() && input.images.is_empty() {
+        if input.text.trim().is_empty()
+            && input.images.is_empty()
+            && input.file_refs.is_empty()
+            && input.promoted_input_id.is_none()
+        {
             return Err(ConversationServiceError::BadRequest(
-                "Steering input must include text or an image".to_string(),
+                "Steering input must include text, an image, or a file reference".to_string(),
             ));
         }
         let payload_digest = format!(
             "{:x}",
             Sha256::digest(serde_json::to_vec(&serde_json::json!({
                 "text": &input.text,
+                "displayText": &input.display_text,
                 "images": &input.images,
+                "fileRefs": &input.file_refs,
+                "modeOverride": &input.mode_override,
+                "configOverrides": &input.config_overrides,
             }))?)
         );
         let pool = &self.ctx.deployment.db().pool;
@@ -160,6 +168,12 @@ impl ConversationSessionService {
         }
 
         let mut promoted_requires_restart = false;
+        let mut effective_text = input.text.clone();
+        let mut effective_display_text = input.display_text.clone();
+        let mut effective_images = input.images.clone();
+        let mut effective_file_refs = input.file_refs.clone();
+        let mut effective_mode_override = input.mode_override.clone();
+        let mut effective_config_overrides = input.config_overrides.clone();
         if let Some(promoted_id) = input.promoted_input_id {
             let promoted_view = inputs.find(input.conversation_id, promoted_id).await?;
             if existing_requested_id.is_none() {
@@ -181,10 +195,37 @@ impl ConversationSessionService {
                     )));
                 }
             }
+            if effective_text.trim().is_empty() {
+                effective_text = promoted_view.payload.text.clone();
+            }
+            if effective_display_text.is_none() {
+                effective_display_text = promoted_view.payload.display_text.clone();
+            }
+            if effective_images.is_empty() {
+                effective_images = promoted_view.payload.images.clone();
+            }
+            if effective_file_refs.is_empty() {
+                effective_file_refs = promoted_view.payload.file_refs.clone();
+            }
+            if effective_mode_override.is_none() {
+                effective_mode_override = promoted_view.payload.mode_override.clone();
+            }
+            if effective_config_overrides.is_empty() {
+                effective_config_overrides = promoted_view.payload.config_overrides.clone();
+            }
             if !promoted_view.payload.workflow_refs.is_empty() {
                 promoted_requires_restart = true;
             }
         }
+        let effective_input = ConversationSteerInput {
+            text: effective_text,
+            display_text: effective_display_text,
+            images: effective_images,
+            file_refs: effective_file_refs,
+            mode_override: effective_mode_override,
+            config_overrides: effective_config_overrides,
+            ..input
+        };
 
         let execution_workspace_id = crate::isolated_workspace::execution_workspace_id(
             &self.ctx,
@@ -226,37 +267,46 @@ impl ConversationSessionService {
         let agent_blocks = self
             .ctx
             .host
-            .build_prompt_blocks(&working_dir, input.text.clone(), &input.images, &[])
+            .build_prompt_blocks(
+                &working_dir,
+                effective_input.text.clone(),
+                &effective_input.images,
+                &effective_input.file_refs,
+            )
             .await?;
-        let display_blocks = agent_blocks_with_display_text(&agent_blocks, &input.text);
+        let display_label = effective_input
+            .display_text
+            .as_deref()
+            .unwrap_or(&effective_input.text);
+        let display_blocks = agent_blocks_with_display_text(&agent_blocks, display_label);
         let visible_blocks =
-            conversation_input_blocks_with_display_text(&agent_blocks, &input.text, None);
+            conversation_input_blocks_with_display_text(&agent_blocks, display_label, None);
         let steering_id = existing_requested_id.unwrap_or_else(Uuid::new_v4);
         if existing_requested_id.is_none() {
             self.append_event(
-                input.conversation_id,
-                Some(input.expected_turn_id),
+                effective_input.conversation_id,
+                Some(effective_input.expected_turn_id),
                 "user",
                 ConversationEvent::ConversationSteering {
                     event: agents::ConversationSteeringEvent::Requested {
                         steering_id,
-                        operation_id: input.operation_id,
-                        expected_turn_id: input.expected_turn_id,
+                        operation_id: effective_input.operation_id,
+                        expected_turn_id: effective_input.expected_turn_id,
                         payload_digest,
                         blocks: visible_blocks,
-                        principal: input.principal.clone(),
+                        principal: effective_input.principal.clone(),
                     },
                 },
                 Some(format!(
                     "conversation-steering-operation:{}",
-                    input.operation_id
+                    effective_input.operation_id
                 )),
             )
             .await?;
         }
 
-        let runtime_session_id = AgentSessionId(input.conversation_id);
-        let runtime = self.runtime_snapshot(input.conversation_id).await;
+        let runtime_session_id = AgentSessionId(effective_input.conversation_id);
+        let runtime = self.runtime_snapshot(effective_input.conversation_id).await;
         let connection_id = runtime
             .connection_id
             .as_deref()
@@ -265,13 +315,13 @@ impl ConversationSessionService {
             .active_prompt_id
             .as_deref()
             .and_then(parse_agent_prompt_id);
-        let host_owns_turn = runtime.active_turn_id == Some(input.expected_turn_id);
+        let host_owns_turn = runtime.active_turn_id == Some(effective_input.expected_turn_id);
         if !host_owns_turn {
             return self
                 .settle_steering(
-                    input.conversation_id,
+                    effective_input.conversation_id,
                     steering_id,
-                    input.expected_turn_id,
+                    effective_input.expected_turn_id,
                     SteeringSettlement::Rejected {
                         code: "turn_not_live",
                         message: "The expected Turn is not live on this host".to_string(),
@@ -285,20 +335,31 @@ impl ConversationSessionService {
             .agent_runtime
             .session_controls_snapshot(runtime_session_id)
             .await;
-        let native_steering_negotiated = controls
-            .as_ref()
-            .ok()
-            .and_then(|controls| controls.capabilities.as_ref())
-            .is_some_and(|capabilities| capabilities.steering);
+        let native_steering_negotiated = match &controls {
+            Ok(controls) => controls
+                .capabilities
+                .as_ref()
+                .is_some_and(|capabilities| capabilities.steering),
+            Err(error) => {
+                tracing::warn!(
+                    conversation_id = %input.conversation_id,
+                    %steering_id,
+                    expected_turn_id = %input.expected_turn_id,
+                    %error,
+                    "failed to query session controls before steering"
+                );
+                false
+            }
+        };
 
         if connection_id.is_none()
             || prompt_id.is_none()
             || !native_steering_negotiated
             || promoted_requires_restart
         {
-            if input.allow_interrupt_restart {
+            if effective_input.allow_interrupt_restart {
                 return self
-                    .execute_interrupt_restart(&conversation, steering_id, &input)
+                    .execute_interrupt_restart(&conversation, steering_id, &effective_input)
                     .await;
             }
             let (code, message) = if connection_id.is_none() || prompt_id.is_none() {
@@ -314,9 +375,9 @@ impl ConversationSessionService {
             };
             return self
                 .settle_steering(
-                    input.conversation_id,
+                    effective_input.conversation_id,
                     steering_id,
-                    input.expected_turn_id,
+                    effective_input.expected_turn_id,
                     SteeringSettlement::Rejected { code, message },
                 )
                 .await;
@@ -338,13 +399,15 @@ impl ConversationSessionService {
         let settlement = match result {
             Ok(receipt) => match receipt.outcome {
                 agents::AgentSteerOutcome::Injected => {
-                    if let Some(promoted_id) = input.promoted_input_id {
+                    if let Some(promoted_id) = effective_input.promoted_input_id {
                         inputs
                             .consume_for_native_steer(
-                                input.conversation_id,
+                                effective_input.conversation_id,
                                 promoted_id,
-                                deterministic_steer_input_operation_id(input.operation_id),
-                                input.promoted_input_expected_revision,
+                                deterministic_steer_input_operation_id(
+                                    effective_input.operation_id,
+                                ),
+                                effective_input.promoted_input_expected_revision,
                             )
                             .await?;
                     }
@@ -360,18 +423,17 @@ impl ConversationSessionService {
                         .unwrap_or_else(|| "Agent found no running Turn".to_string()),
                 },
                 agents::AgentSteerOutcome::StartedNewTurn => {
-                    let _ = self
-                        .append_event(
-                            input.conversation_id,
-                            Some(input.expected_turn_id),
-                            "runtime",
-                            ConversationEvent::DeliveryChannelLatched {
-                                from: agents::conversation::DeliveryChannel::Native,
-                                to: agents::conversation::DeliveryChannel::None,
-                            },
-                            None,
-                        )
-                        .await;
+                    self.append_event(
+                        effective_input.conversation_id,
+                        Some(effective_input.expected_turn_id),
+                        "runtime",
+                        ConversationEvent::DeliveryChannelLatched {
+                            from: agents::conversation::DeliveryChannel::Native,
+                            to: agents::conversation::DeliveryChannel::None,
+                        },
+                        None,
+                    )
+                    .await?;
                     SteeringSettlement::Unknown {
                         message: "Agent started a new Turn despite promptRequired fallback policy"
                             .to_string(),
@@ -379,9 +441,9 @@ impl ConversationSessionService {
                 }
             },
             Err(agents::AgentError::SteeringUnsupported) => {
-                if input.allow_interrupt_restart {
+                if effective_input.allow_interrupt_restart {
                     return self
-                        .execute_interrupt_restart(&conversation, steering_id, &input)
+                        .execute_interrupt_restart(&conversation, steering_id, &effective_input)
                         .await;
                 }
                 SteeringSettlement::Rejected {
@@ -394,14 +456,23 @@ impl ConversationSessionService {
                 code: "turn_conflict",
                 message: "The expected Turn is no longer active".to_string(),
             },
-            Err(error) => SteeringSettlement::Unknown {
-                message: error.to_string(),
-            },
+            Err(error) => {
+                tracing::warn!(
+                    conversation_id = %input.conversation_id,
+                    %steering_id,
+                    expected_turn_id = %input.expected_turn_id,
+                    %error,
+                    "native in-flight steering failed; settling steering as unknown"
+                );
+                SteeringSettlement::Unknown {
+                    message: error.to_string(),
+                }
+            }
         };
         self.settle_steering(
-            input.conversation_id,
+            effective_input.conversation_id,
             steering_id,
-            input.expected_turn_id,
+            effective_input.expected_turn_id,
             settlement,
         )
         .await
@@ -444,14 +515,15 @@ impl ConversationSessionService {
                         workspace_id: conversation.workspace_id,
                         executor_profile_id: None,
                         text: input.text.clone(),
-                        display_text: None,
+                        display_text: input.display_text.clone(),
                         images: input.images.clone(),
-                        mode_override: None,
-                        config_overrides: Vec::new(),
+                        mode_override: input.mode_override.clone(),
+                        config_overrides: input.config_overrides.clone(),
                         workflow_refs: Vec::new(),
-                        file_refs: Vec::new(),
+                        file_refs: input.file_refs.clone(),
                         internal_prompt_contributions: Vec::new(),
                         collaboration_origin: None,
+                        provider_instance_id: None,
                     },
                     principal: input.principal.clone(),
                 })
@@ -492,8 +564,7 @@ impl ConversationSessionService {
             tokio::time::sleep(INTERRUPT_RESTART_POLL_INTERVAL).await;
         }
 
-        let mut restarted_turn_id = None;
-        if previous_turn_settled {
+        let settlement = if previous_turn_settled {
             if let Err(error) = self.dispatch_next_queued_input(input.conversation_id).await {
                 tracing::warn!(
                     conversation_id = %input.conversation_id,
@@ -502,9 +573,13 @@ impl ConversationSessionService {
                     "interrupt_restart dispatch failed; steered input remains at queue front"
                 );
             }
-            loop {
-                let maybe_view = inputs.find(input.conversation_id, target_input_id).await.ok();
-                restarted_turn_id = maybe_view.as_ref().and_then(|view| view.turn_id);
+            let restarted_turn_id = loop {
+                let maybe_view = match inputs.find(input.conversation_id, target_input_id).await {
+                    Ok(view) => Some(view),
+                    Err(crate::ConversationInputControlError::NotFound(_)) => None,
+                    Err(error) => return Err(error.into()),
+                };
+                let restarted_turn_id = maybe_view.as_ref().and_then(|view| view.turn_id);
                 let still_launching = match &maybe_view {
                     Some(view) if view.status == crate::ConversationInputStatus::Claimed => true,
                     Some(view) => match view.turn_id {
@@ -515,21 +590,45 @@ impl ConversationSessionService {
                     },
                     None => false,
                 };
-                if !still_launching || tokio::time::Instant::now() >= deadline {
-                    break;
+                if !still_launching {
+                    break restarted_turn_id;
+                }
+                if tokio::time::Instant::now() >= deadline {
+                    tracing::warn!(
+                        conversation_id = %input.conversation_id,
+                        %steering_id,
+                        %target_input_id,
+                        ?restarted_turn_id,
+                        "interrupt_restart timed out waiting for restarted turn to launch"
+                    );
+                    break restarted_turn_id;
                 }
                 tokio::time::sleep(INTERRUPT_RESTART_POLL_INTERVAL).await;
+            };
+            SteeringSettlement::Accepted {
+                delivery_mode: agents::ConversationSteeringDeliveryMode::InterruptRestart,
+                restarted_turn_id,
             }
-        }
+        } else {
+            tracing::warn!(
+                conversation_id = %input.conversation_id,
+                %steering_id,
+                expected_turn_id = %input.expected_turn_id,
+                "interrupt_restart timed out waiting for previous turn to settle"
+            );
+            SteeringSettlement::Unknown {
+                message: format!(
+                    "Timed out waiting for turn {} to settle before restarting",
+                    input.expected_turn_id
+                ),
+            }
+        };
 
         self.settle_steering(
             input.conversation_id,
             steering_id,
             input.expected_turn_id,
-            SteeringSettlement::Accepted {
-                delivery_mode: agents::ConversationSteeringDeliveryMode::InterruptRestart,
-                restarted_turn_id,
-            },
+            settlement,
         )
         .await
     }
@@ -631,6 +730,12 @@ impl ConversationSessionService {
             )),
         )
         .await?;
+        self.update_runtime_state(conversation_id, |state| {
+            if state.pending_permission_id.as_deref() == Some(permission_id.as_str()) {
+                state.pending_permission_id = None;
+            }
+        })
+        .await;
         let decision = match &response {
             AgentPermissionResponse::Selected {
                 option_id, persist, ..
@@ -647,13 +752,21 @@ impl ConversationSessionService {
         };
         let delivery_ctx =
             crate::ScopedConversationControl::new(self.ctx.clone()).delivery_context();
-        let _ = crate::collaboration_cards::resolve_approval_card_if_pending(
+        if let Err(error) = crate::collaboration_cards::resolve_approval_card_if_pending(
             &self.ctx.deployment.db().pool,
             &permission_id,
             decision,
             &delivery_ctx,
         )
-        .await;
+        .await
+        {
+            tracing::warn!(
+                %conversation_id,
+                permission_id = %permission_id,
+                error = %error.message,
+                "failed to settle collab IM card after permission response"
+            );
+        }
         Ok(())
     }
 
@@ -709,6 +822,12 @@ impl ConversationSessionService {
             )),
         )
         .await?;
+        self.update_runtime_state(conversation_id, |state| {
+            if state.pending_question_id.as_deref() == Some(question_id.as_str()) {
+                state.pending_question_id = None;
+            }
+        })
+        .await;
         let delivery_ctx =
             crate::ScopedConversationControl::new(self.ctx.clone()).delivery_context();
         if let Err(error) = crate::collaboration_cards::resolve_elicitation_question_card(

@@ -5,7 +5,7 @@ import type {
   SearchableItem,
   SearchSource,
 } from '@astryxdesign/core/Typeahead';
-import { useSlashCommands } from '@vibex/plugin-sdk';
+import { useSlashCommands } from '@dimoai/plugin-sdk';
 import { type AgentLocalSkill, type AgentSkillsListResult } from '@/lib/api';
 import type { BackendTransport } from '@/lib/backendTransport';
 import { createPluginApi, createPluginControlApi } from '@/lib/api/plugins';

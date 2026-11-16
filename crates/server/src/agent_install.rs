@@ -1,4 +1,4 @@
-//! Host-side Agent catalog and user-environment installer for `vibex-server`.
+//! Host-side Agent catalog and user-environment installer for `dimo-server`.
 
 use std::{
     collections::{BTreeMap, HashMap},
@@ -157,7 +157,7 @@ pub(crate) fn is_native_engine_profile(agent_id: &AgentId) -> bool {
     let Some(profile) = catalog.profile(agent_id) else {
         return false;
     };
-    let mode_env = std::env::var("VIBEX_ENGINE_MODE").ok();
+    let mode_env = std::env::var("DIMO_ENGINE_MODE").ok();
     matches!(
         profile.effective_topology(
             agents::engine::EngineRuntimePreference::NativeFirst,
@@ -213,7 +213,7 @@ fn print_catalog(entries: &[AgentCatalogEntry]) {
     println!();
     println!("ACP Registry");
     if registry.is_empty() {
-        println!("  (refresh with `vibex-server list --refresh`)");
+        println!("  (refresh with `dimo-server list --refresh`)");
     } else {
         for entry in registry {
             print_entry(entry);
@@ -578,13 +578,13 @@ async fn ensure_membership(pool: &SqlitePool, agent_id: &AgentId) -> anyhow::Res
         anyhow::bail!("built-in Agent `{agent_id}` is missing from membership");
     }
     let snapshot = load_registry_snapshot(pool, true).await?.ok_or_else(|| {
-        anyhow::anyhow!("ACP Registry is empty; run `vibex-server list --refresh`")
+        anyhow::anyhow!("ACP Registry is empty; run `dimo-server list --refresh`")
     })?;
     let entry = snapshot
         .entries
         .iter()
         .find(|entry| &entry.agent_id == agent_id)
-        .ok_or_else(|| anyhow::anyhow!("unknown Agent `{agent_id}`; run `vibex-server list`"))?;
+        .ok_or_else(|| anyhow::anyhow!("unknown Agent `{agent_id}`; run `dimo-server list`"))?;
     let position = sqlx::query_scalar::<_, i64>(
         "SELECT COALESCE(MAX(position), -1) + 1 FROM agent_membership",
     )
@@ -1102,7 +1102,7 @@ async fn resolve_node_runtime(managed_artifacts_dir: &Path) -> anyhow::Result<No
         return Ok(runtime);
     }
     println!(
-        "System Node.js is unavailable; falling back to VibeX-managed Node.js {MANAGED_NODE_VERSION}"
+        "System Node.js is unavailable; falling back to Dimo-managed Node.js {MANAGED_NODE_VERSION}"
     );
     let runtime = ensure_managed_node(managed_artifacts_dir).await?;
     export_bootstrapped_node(&runtime)?;
@@ -1166,7 +1166,7 @@ async fn resolve_uv_runtime(managed_artifacts_dir: &Path) -> anyhow::Result<Path
         println!("Using system uv at {}", uv.display());
         return Ok(uv);
     }
-    println!("System uv is unavailable; falling back to VibeX-managed uv {MANAGED_UV_VERSION}");
+    println!("System uv is unavailable; falling back to Dimo-managed uv {MANAGED_UV_VERSION}");
     ensure_managed_uv(managed_artifacts_dir).await
 }
 
@@ -1185,7 +1185,7 @@ async fn resolve_bun_runtime(
         return Ok(bun);
     }
     println!(
-        "System Bun (>=1.3.14) is unavailable; falling back to VibeX-managed Bun {MANAGED_BUN_VERSION}"
+        "System Bun (>=1.3.14) is unavailable; falling back to Dimo-managed Bun {MANAGED_BUN_VERSION}"
     );
     let bun = match ensure_managed_bun(managed_artifacts_dir).await {
         Ok(path) => path,

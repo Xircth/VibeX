@@ -32,7 +32,7 @@ import { Switch } from '@/components/ui/switch';
 import { toast } from '@/components/ui/toast';
 import {
   reconcileRemoteHostAccount,
-  useVibeXAccount,
+  useDimoAccount,
 } from '@/features/model-router';
 import {
   hostClientApi,
@@ -214,7 +214,7 @@ function useLocalProvisioners() {
 
 export function RemoteClientSettings() {
   const { t } = useTranslation(['settings', 'common']);
-  const { isSignedIn, overview } = useVibeXAccount();
+  const { isSignedIn, overview } = useDimoAccount();
   const hasRelayPermission = Boolean(
     isSignedIn && overview?.relayPermission !== false
   );

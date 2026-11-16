@@ -49,7 +49,7 @@ fn canonicalize_lossy(path: &Path) -> PathBuf {
 
 /// System, profile-junction, and package-cache directories that must never be
 /// scanned or watched when a workspace points at a user home directory or
-/// parent folder. Watching `AppData` or `.vibex` on Windows walks tens of
+/// parent folder. Watching `AppData` or `.dimo` on Windows walks tens of
 /// thousands of cache/diagnostic folders (`ElevatedDiagnostics`, `Temp\WinSAT`,
 /// WebView2 `EBWebView`, SQLite WAL/logs) and creates a self-triggering watch
 /// loop plus large `FileIdMap` cache allocations.
@@ -69,7 +69,7 @@ const WATCHER_SKIP_DIRS: &[&str] = &[
     "$recycle.bin",
     "library",
     ".trash",
-    ".vibex",
+    ".dimo",
     ".cache",
     ".cargo",
     ".rustup",
@@ -572,7 +572,7 @@ pub fn async_watcher(root: PathBuf) -> Result<WatcherComponents, FilesystemWatch
     // so the scan stays off the worker stack.
     let (sender, receiver) = std::sync::mpsc::channel();
     std::thread::Builder::new()
-        .name("vibex-file-tree-watch".to_string())
+        .name("dimo-file-tree-watch".to_string())
         .stack_size(8 * 1024 * 1024)
         .spawn(move || {
             let _ = sender.send(build_async_watcher(root));
@@ -975,7 +975,7 @@ mod tests {
         let root = canonicalize_lossy(temp.path());
         std::fs::create_dir_all(root.join("AppData/Local/ElevatedDiagnostics")).unwrap();
         std::fs::create_dir_all(root.join("AppData/Local/Temp/WinSAT")).unwrap();
-        std::fs::create_dir_all(root.join(".vibex/skills/vibex-bot")).unwrap();
+        std::fs::create_dir_all(root.join(".dimo/skills/dimo-bot")).unwrap();
         std::fs::create_dir_all(root.join(".cargo/registry")).unwrap();
         std::fs::create_dir_all(root.join("projects/demo")).unwrap();
 
@@ -990,8 +990,8 @@ mod tests {
             "AppData and ElevatedDiagnostics must never be watched: {watched_paths:?}"
         );
         assert!(
-            !watched_paths.iter().any(|p| p.ends_with(".vibex")),
-            ".vibex runtime dir must never be watched: {watched_paths:?}"
+            !watched_paths.iter().any(|p| p.ends_with(".dimo")),
+            ".dimo runtime dir must never be watched: {watched_paths:?}"
         );
         assert!(
             !watched_paths.iter().any(|p| p.ends_with(".cargo")),

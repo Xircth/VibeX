@@ -105,7 +105,7 @@ describe('ChatChannelSettings', () => {
     mocks.getEventFilter.mockResolvedValue({
       enabled_events: ['prompt_started'],
     });
-    mocks.getCommandPrefix.mockResolvedValue({ prefix: '/vibex' });
+    mocks.getCommandPrefix.mockResolvedValue({ prefix: '/dimo' });
     mocks.getIncludePromptText.mockResolvedValue(false);
     mocks.getWebhooks.mockResolvedValue([]);
     mocks.getLanguage.mockResolvedValue('en');
@@ -174,9 +174,9 @@ describe('ChatChannelSettings', () => {
 
     await user.click(within(tablist).getByRole('tab', { name: '指令' }));
     expect(screen.getByLabelText('命令前缀')).toBeVisible();
-    expect(screen.getByText('/vibex folder [n|name]')).toBeVisible();
-    expect(screen.getByText('/vibex resume [n|id]')).toBeVisible();
-    expect(screen.queryByText('/vibex ping')).not.toBeInTheDocument();
+    expect(screen.getByText('/dimo folder [n|name]')).toBeVisible();
+    expect(screen.getByText('/dimo resume [n|id]')).toBeVisible();
+    expect(screen.queryByText('/dimo ping')).not.toBeInTheDocument();
     expect(screen.queryByText('暂无渠道')).not.toBeInTheDocument();
 
     await user.click(within(tablist).getByRole('tab', { name: '事件' }));

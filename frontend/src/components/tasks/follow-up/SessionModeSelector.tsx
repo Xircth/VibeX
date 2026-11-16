@@ -22,7 +22,7 @@ import { compactSessionControlLabel } from './sessionControlLabels';
 
 /**
  * Keep Agent-advertised modes intact, except that bypass-permissions remains
- * behind VibeX's explicit local safety gate. Shared by the composer's icon
+ * behind Dimo's explicit local safety gate. Shared by the composer's icon
  * picker and the create form's labeled field.
  */
 export function presentableSessionModes(

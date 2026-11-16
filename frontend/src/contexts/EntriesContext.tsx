@@ -140,17 +140,61 @@ function tokenUsageEqual(
   );
 }
 
+type EntriesActionsContextType = Pick<
+  EntriesContextType,
+  | 'setEntries'
+  | 'setTokenUsageInfo'
+  | 'setSessionModes'
+  | 'setSessionConfigOptions'
+  | 'setConversationPlanEntries'
+  | 'setConversationTurnInFlight'
+  | 'setConversationSteeringTurnId'
+  | 'setConversationSteeringTarget'
+  | 'setConversationDeliveryChannel'
+  | 'setUserMessageHistory'
+  | 'reset'
+>;
+
+const MAX_RUNTIME_CACHE_ENTRIES = 24;
 const entriesRuntimeByKey = new Map<string, EntriesRuntimeValue>();
 const listenersByKey = new Map<string, Set<() => void>>();
 
 const EntriesContext = createContext<EntriesContextType | null>(null);
+const EntriesActionsContext = createContext<EntriesActionsContextType | null>(
+  null
+);
+
+function touchRuntimeKey(key: string, value: EntriesRuntimeValue) {
+  entriesRuntimeByKey.delete(key);
+  entriesRuntimeByKey.set(key, value);
+}
+
+function evictInactiveRuntimeEntries() {
+  if (entriesRuntimeByKey.size <= MAX_RUNTIME_CACHE_ENTRIES) {
+    return;
+  }
+  for (const key of entriesRuntimeByKey.keys()) {
+    if (entriesRuntimeByKey.size <= MAX_RUNTIME_CACHE_ENTRIES) {
+      break;
+    }
+    if ((listenersByKey.get(key)?.size ?? 0) === 0) {
+      entriesRuntimeByKey.delete(key);
+    }
+  }
+}
 
 function getRuntimeValue(key: string): EntriesRuntimeValue {
-  return entriesRuntimeByKey.get(key) ?? EMPTY_RUNTIME_VALUE;
+  const existing = entriesRuntimeByKey.get(key);
+  if (!existing) {
+    return EMPTY_RUNTIME_VALUE;
+  }
+  touchRuntimeKey(key, existing);
+  return existing;
 }
 
 function writeRuntimeValue(key: string, value: EntriesRuntimeValue) {
-  entriesRuntimeByKey.set(key, value);
+  touchRuntimeKey(key, value);
+  evictInactiveRuntimeEntries();
   listenersByKey.get(key)?.forEach((listener) => listener());
 }
 
@@ -212,6 +256,17 @@ export const EntriesProvider = ({
     return subscribeRuntimeValue(runtimeKey, sync);
   }, [runtimeKey]);
 
+  const commitRuntimeUpdate = useCallback(
+    (nextValue: EntriesRuntimeValue) => {
+      localValueRef.current = nextValue;
+      setLocalValue(nextValue);
+      if (runtimeKey) {
+        writeRuntimeValue(runtimeKey, nextValue);
+      }
+    },
+    [runtimeKey]
+  );
+
   const setEntries = useCallback(
     (newEntries: PatchTypeWithKey[]) => {
       if (
@@ -220,20 +275,12 @@ export const EntriesProvider = ({
       ) {
         return;
       }
-      const nextValue = {
+      commitRuntimeUpdate({
         ...localValueRef.current,
         entries: newEntries,
-      };
-      localValueRef.current = nextValue;
-
-      if (runtimeKey) {
-        writeRuntimeValue(runtimeKey, nextValue);
-        return;
-      }
-
-      setLocalValue(nextValue);
+      });
     },
-    [runtimeKey]
+    [commitRuntimeUpdate]
   );
 
   const setTokenUsageInfo = useCallback(
@@ -245,20 +292,12 @@ export const EntriesProvider = ({
       if (tokenUsageEqual(localValueRef.current.tokenUsageInfo, info)) {
         return;
       }
-      const nextValue = {
+      commitRuntimeUpdate({
         ...localValueRef.current,
         tokenUsageInfo: info,
-      };
-      localValueRef.current = nextValue;
-
-      if (runtimeKey) {
-        writeRuntimeValue(runtimeKey, nextValue);
-        return;
-      }
-
-      setLocalValue(nextValue);
+      });
     },
-    [runtimeKey]
+    [commitRuntimeUpdate]
   );
 
   const setSessionModes = useCallback(
@@ -272,20 +311,12 @@ export const EntriesProvider = ({
         modes.current === null && modes.modes.length === 0
           ? EMPTY_SESSION_MODES
           : modes;
-      const nextValue = {
+      commitRuntimeUpdate({
         ...localValueRef.current,
         sessionModes: normalizedModes,
-      };
-      localValueRef.current = nextValue;
-
-      if (runtimeKey) {
-        writeRuntimeValue(runtimeKey, nextValue);
-        return;
-      }
-
-      setLocalValue(nextValue);
+      });
     },
-    [runtimeKey]
+    [commitRuntimeUpdate]
   );
 
   const setSessionConfigOptions = useCallback(
@@ -298,21 +329,13 @@ export const EntriesProvider = ({
       ) {
         return;
       }
-      const nextValue = {
+      commitRuntimeUpdate({
         ...localValueRef.current,
         sessionConfigOptions:
           options.length === 0 ? EMPTY_SESSION_CONFIG_OPTIONS : options,
-      };
-      localValueRef.current = nextValue;
-
-      if (runtimeKey) {
-        writeRuntimeValue(runtimeKey, nextValue);
-        return;
-      }
-
-      setLocalValue(nextValue);
+      });
     },
-    [runtimeKey]
+    [commitRuntimeUpdate]
   );
 
   const setConversationPlanEntries = useCallback(
@@ -322,21 +345,13 @@ export const EntriesProvider = ({
       ) {
         return;
       }
-      const nextValue = {
+      commitRuntimeUpdate({
         ...localValueRef.current,
         conversationPlanEntries:
           entries.length === 0 ? EMPTY_CONVERSATION_PLAN_ENTRIES : entries,
-      };
-      localValueRef.current = nextValue;
-
-      if (runtimeKey) {
-        writeRuntimeValue(runtimeKey, nextValue);
-        return;
-      }
-
-      setLocalValue(nextValue);
+      });
     },
-    [runtimeKey]
+    [commitRuntimeUpdate]
   );
 
   const setConversationTurnInFlight = useCallback(
@@ -347,20 +362,12 @@ export const EntriesProvider = ({
       ) {
         return;
       }
-      const nextValue = {
+      commitRuntimeUpdate({
         ...localValueRef.current,
         conversationTurnInFlight,
-      };
-      localValueRef.current = nextValue;
-
-      if (runtimeKey) {
-        writeRuntimeValue(runtimeKey, nextValue);
-        return;
-      }
-
-      setLocalValue(nextValue);
+      });
     },
-    [runtimeKey]
+    [commitRuntimeUpdate]
   );
 
   const setConversationSteeringTurnId = useCallback(
@@ -371,20 +378,12 @@ export const EntriesProvider = ({
       ) {
         return;
       }
-      const nextValue = {
+      commitRuntimeUpdate({
         ...localValueRef.current,
         conversationSteeringTurnId,
-      };
-      localValueRef.current = nextValue;
-
-      if (runtimeKey) {
-        writeRuntimeValue(runtimeKey, nextValue);
-        return;
-      }
-
-      setLocalValue(nextValue);
+      });
     },
-    [runtimeKey]
+    [commitRuntimeUpdate]
   );
 
   const setConversationSteeringTarget = useCallback(
@@ -397,20 +396,12 @@ export const EntriesProvider = ({
       ) {
         return;
       }
-      const nextValue = {
+      commitRuntimeUpdate({
         ...localValueRef.current,
         conversationSteeringTarget,
-      };
-      localValueRef.current = nextValue;
-
-      if (runtimeKey) {
-        writeRuntimeValue(runtimeKey, nextValue);
-        return;
-      }
-
-      setLocalValue(nextValue);
+      });
     },
-    [runtimeKey]
+    [commitRuntimeUpdate]
   );
 
   const setConversationDeliveryChannel = useCallback(
@@ -421,20 +412,12 @@ export const EntriesProvider = ({
       ) {
         return;
       }
-      const nextValue = {
+      commitRuntimeUpdate({
         ...localValueRef.current,
         conversationDeliveryChannel,
-      };
-      localValueRef.current = nextValue;
-
-      if (runtimeKey) {
-        writeRuntimeValue(runtimeKey, nextValue);
-        return;
-      }
-
-      setLocalValue(nextValue);
+      });
     },
-    [runtimeKey]
+    [commitRuntimeUpdate]
   );
 
   const setUserMessageHistory = useCallback(
@@ -444,40 +427,24 @@ export const EntriesProvider = ({
       ) {
         return;
       }
-      const nextValue = {
+      commitRuntimeUpdate({
         ...localValueRef.current,
         userMessageHistory:
           messages.length === 0 ? EMPTY_USER_MESSAGE_HISTORY : messages,
-      };
-      localValueRef.current = nextValue;
-
-      if (runtimeKey) {
-        writeRuntimeValue(runtimeKey, nextValue);
-        return;
-      }
-
-      setLocalValue(nextValue);
+      });
     },
-    [runtimeKey]
+    [commitRuntimeUpdate]
   );
 
   const reset = useCallback(() => {
     if (localValueRef.current === EMPTY_RUNTIME_VALUE) {
       return;
     }
-    localValueRef.current = EMPTY_RUNTIME_VALUE;
+    commitRuntimeUpdate(EMPTY_RUNTIME_VALUE);
+  }, [commitRuntimeUpdate]);
 
-    if (runtimeKey) {
-      writeRuntimeValue(runtimeKey, EMPTY_RUNTIME_VALUE);
-      return;
-    }
-
-    setLocalValue(EMPTY_RUNTIME_VALUE);
-  }, [runtimeKey]);
-
-  const value = useMemo(
+  const actionsValue = useMemo<EntriesActionsContextType>(
     () => ({
-      entries: localValue.entries,
       setEntries,
       setTokenUsageInfo,
       setSessionModes,
@@ -489,6 +456,26 @@ export const EntriesProvider = ({
       setConversationDeliveryChannel,
       setUserMessageHistory,
       reset,
+    }),
+    [
+      reset,
+      setConversationDeliveryChannel,
+      setConversationPlanEntries,
+      setConversationSteeringTarget,
+      setConversationSteeringTurnId,
+      setConversationTurnInFlight,
+      setEntries,
+      setSessionConfigOptions,
+      setSessionModes,
+      setTokenUsageInfo,
+      setUserMessageHistory,
+    ]
+  );
+
+  const value = useMemo(
+    () => ({
+      entries: localValue.entries,
+      ...actionsValue,
       tokenUsageInfo: localValue.tokenUsageInfo,
       sessionModes: localValue.sessionModes,
       sessionConfigOptions: localValue.sessionConfigOptions,
@@ -499,24 +486,13 @@ export const EntriesProvider = ({
       conversationDeliveryChannel: localValue.conversationDeliveryChannel,
       userMessageHistory: localValue.userMessageHistory,
     }),
-    [
-      localValue,
-      reset,
-      setEntries,
-      setTokenUsageInfo,
-      setSessionModes,
-      setSessionConfigOptions,
-      setConversationPlanEntries,
-      setConversationTurnInFlight,
-      setConversationSteeringTurnId,
-      setConversationSteeringTarget,
-      setConversationDeliveryChannel,
-      setUserMessageHistory,
-    ]
+    [actionsValue, localValue]
   );
 
   return (
-    <EntriesContext.Provider value={value}>{children}</EntriesContext.Provider>
+    <EntriesActionsContext.Provider value={actionsValue}>
+      <EntriesContext.Provider value={value}>{children}</EntriesContext.Provider>
+    </EntriesActionsContext.Provider>
   );
 };
 
@@ -539,3 +515,7 @@ export const useTokenUsage = () => {
 /** Non-throwing accessor for callers that may render outside an EntriesProvider. */
 export const useOptionalEntries = (): EntriesContextType | null =>
   useContext(EntriesContext);
+
+/** Stable action-only accessor so writers do not re-render on entries/token updates. */
+export const useOptionalEntriesActions = (): EntriesActionsContextType | null =>
+  useContext(EntriesActionsContext);

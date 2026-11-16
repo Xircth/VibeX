@@ -10,11 +10,11 @@ Plugin Platform 的目标是让一个可安装包以同一个身份、版本和�
 - Runtime：本地 CLI、Binary、MCP 或 sidecar 资源。
 
 平台不把 Tauri plugin、Rust 动态库或任意前端模块加载器暴露为公共兼容面。它也不尝试
-把 Codex/Claude Code 原生插件的全部能力自动翻译成 VibeX App contribution。
+把 Codex/Claude Code 原生插件的全部能力自动翻译成 Dimo App contribution。
 
 ## 2. 核心设计约束（ADR-0046 / 0047 / 0048 / 0069）
 
-- **单一内核收敛**：Package 校验、安装快照、Runtime 锁探测、Activation Generation 发布与贡献点注册全部收敛在 `crates/plugins`（Plugin Kernel）一个深模块内，宿主命令与前端不再按特定插件 ID（如 `vibex.office`）写特判分支；
+- **单一内核收敛**：Package 校验、安装快照、Runtime 锁探测、Activation Generation 发布与贡献点注册全部收敛在 `crates/plugins`（Plugin Kernel）一个深模块内，宿主命令与前端不再按特定插件 ID（如 `dimo.office`）写特判分支；
 - **非强制 Skill 约束**：插件包只需至少声明一项受支持的贡献（App-only、Provider-only、Theme-only 或 Agent-only 包均一等合法）；
 - **官方插件零特权**：官方插件与第三方插件使用同一套公开 SDK、清单 Schema 与 `ArtifactToolProvider` / `HostApiBridge` 租约接缝（由 `pnpm run plugin:no-privilege` 持续门禁校验）。
 
@@ -24,7 +24,7 @@ Plugin Platform 的目标是让一个可安装包以同一个身份、版本和�
 Plugin source / .vxp
         │
         ▼
-┌──────────────────────── VibeX Host ─────────────────────────┐
+┌──────────────────────── Dimo Host ─────────────────────────┐
 │ Package Inspector → Installation Store → Plugin Kernel      │
 │                                          │                  │
 │                 ┌────────────────────────┼─────────────┐    │
@@ -46,7 +46,7 @@ Plugin source / .vxp
        Desktop / Web / Remote client
 ```
 
-Worker 与 Runtime 永远运行在拥有数据目录的 VibeX Host。远程客户端不能把 Host 插件下载
+Worker 与 Runtime 永远运行在拥有数据目录的 Dimo Host。远程客户端不能把 Host 插件下载
 到本机执行，也不能因本机具备某能力而绕开 Server-bound window 的 Host 归属。
 
 ## 4. 深模块与 seam
@@ -191,7 +191,7 @@ Broker 仍校验 plugin identity、generation、参数 schema 和 Runtime lock�
 - heartbeat、structured logs、crash/backoff 与强制终止；
 - activation-scoped lifecycle identity。
 
-首个实现使用 VibeX 管理的 JavaScript runtime；protocol 保持语言无关，使其他 Worker adapter
+首个实现使用 Dimo 管理的 JavaScript runtime；protocol 保持语言无关，使其他 Worker adapter
 后续能实现同一 seam。进程隔离只用于 crash containment、reload 与 generation drain，不应被描述
 为 security sandbox。
 
@@ -228,7 +228,7 @@ App contribution 分两类：
 
 #### Host-rendered surface
 
-插件提供 descriptor，VibeX 使用自身组件和 design tokens 渲染。当前稳定的 Host-rendered kind：
+插件提供 descriptor，Dimo 使用自身组件和 design tokens 渲染。当前稳定的 Host-rendered kind：
 
 - `app.command`
 - `app.toolbar`
@@ -247,7 +247,7 @@ Host-rendered surface 不执行 package App 代码，适合 Office 第一阶段�
 
 - document 可以加载脚本、样式、图片、字体和网络资源；
 - 不设置 iframe sandbox、CSP 或 Permissions Policy；
-- package 代码与 VibeX 运行在同一用户信任级别；
+- package 代码与 Dimo 运行在同一用户信任级别；
 - bridge 只接受 JSON-compatible typed messages；
 - 每个 mount 仍绑定 plugin/generation，unmount/generation change 后撤销 session；
 - navigation、download、clipboard 与浏览器 API 可直接使用，也可选择结构化 Host API。
@@ -385,7 +385,7 @@ preview proxy 只代理已注册 provider lease 的 loopback endpoint，不能�
 
 ## 9. 产品信息架构契约
 
-Plugin 模块服务于 VibeX Product Plugin，保留全局设置侧栏并采用“单列目录 → 独立详情”结构：
+Plugin 模块服务于 Dimo Product Plugin，保留全局设置侧栏并采用“单列目录 → 独立详情”结构：
 
 - 目录行只显示图标、名称、README summary、发布者/版本和启停状态；
 - 点击目录行进入插件独立页面；
@@ -399,7 +399,7 @@ Plugin 模块服务于 VibeX Product Plugin，保留全局设置侧栏并采用�
 
 Codex、Claude Code 等 Agent-native plugin 位于“设置 → Agent”的对应 Agent 页面底部，默认
 折叠并使用原生插件的列表/预览。它只呈现当前 Agent 原生权威和 adapter 支持的操作，不重复
-列出 VibeX Package 的 App/Runtime 生命周期；若多格式 source 与 VibeX Package 相关联，可以
+列出 Dimo Package 的 App/Runtime 生命周期；若多格式 source 与 Dimo Package 相关联，可以
 显示可追溯链接，但仍是两个独立启停状态。
 
 远程窗口中两个入口都作用于当前 Server Profile 的 Host。当前客户端能力不允许安装或修改时，
@@ -416,6 +416,6 @@ Codex、Claude Code 等 Agent-native plugin 位于“设置 → Agent”的对�
 6. Runtime GC 不删除仍被 installation、generation 或 lease 引用的内容。
 7. Agent、App 和 Runtime contribution 的 package version/digest 必须一致。
 8. 核心消费者只按 contribution kind/identity 调用，不识别具体插件 ID。
-9. Native Agent plugin 与 VibeX Product Plugin 保持独立 lifecycle，不互相替代启停状态。
+9. Native Agent plugin 与 Dimo Product Plugin 保持独立 lifecycle，不互相替代启停状态。
 10. Built-in/source-bundled 只影响发现与可删除性，不绕过 schema、digest、activation 或
     contract tests。

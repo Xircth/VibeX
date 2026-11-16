@@ -11,11 +11,11 @@ export { getHideBotSessions, setHideBotSessions, useHideBotSessions };
 
 export const DEFAULT_HIDE_DEFAULT_WORKSPACE = false;
 export const HIDE_DEFAULT_WORKSPACE_KEY =
-  'vibex:hide-default-workspace' as const;
+  'dimo:hide-default-workspace' as const;
 
 export const DEFAULT_HIDE_INACTIVE_SESSIONS = false;
 export const HIDE_INACTIVE_SESSIONS_KEY =
-  'vibex:hide-inactive-7d-sessions' as const;
+  'dimo:hide-inactive-7d-sessions' as const;
 
 export const INACTIVE_SESSION_THRESHOLD_MS = 7 * 24 * 60 * 60 * 1000;
 

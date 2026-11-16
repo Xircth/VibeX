@@ -26,7 +26,7 @@ function isCompleteHtmlDocument(code: string): boolean {
 function buildPreviewBridgeScript(previewId?: string): string {
   if (!previewId) return '';
   const safeId = JSON.stringify(previewId);
-  return `<script>(function(){var id=${safeId};function report(){try{var doc=document.documentElement;var body=document.body;var h=Math.max(doc?doc.scrollHeight:0,doc?doc.offsetHeight:0,body?body.scrollHeight:0,body?body.offsetHeight:0);if(h>0&&window.parent){window.parent.postMessage({type:'vibex-html-preview-height',previewId:id,height:h},'*');}}catch(e){}}window.addEventListener('load',report);window.addEventListener('resize',report);window.addEventListener('contextmenu',function(ev){try{ev.preventDefault();if(window.parent){window.parent.postMessage({type:'vibex-html-preview-contextmenu',previewId:id,clientX:ev.clientX,clientY:ev.clientY},'*');}}catch(e){}});window.addEventListener('mousedown',function(ev){if(ev.button===0&&window.parent){try{window.parent.postMessage({type:'vibex-html-preview-dismiss-menu',previewId:id},'*');}catch(e){}}});if(typeof ResizeObserver!=='undefined'){try{new ResizeObserver(report).observe(document.documentElement);}catch(e){}}setTimeout(report,60);setTimeout(report,280);})();</script>`;
+  return `<script>(function(){var id=${safeId};function report(){try{var doc=document.documentElement;var body=document.body;var h=Math.max(doc?doc.scrollHeight:0,doc?doc.offsetHeight:0,body?body.scrollHeight:0,body?body.offsetHeight:0);if(h>0&&window.parent){window.parent.postMessage({type:'dimo-html-preview-height',previewId:id,height:h},'*');}}catch(e){}}window.addEventListener('load',report);window.addEventListener('resize',report);window.addEventListener('contextmenu',function(ev){try{ev.preventDefault();if(window.parent){window.parent.postMessage({type:'dimo-html-preview-contextmenu',previewId:id,clientX:ev.clientX,clientY:ev.clientY},'*');}}catch(e){}});window.addEventListener('mousedown',function(ev){if(ev.button===0&&window.parent){try{window.parent.postMessage({type:'dimo-html-preview-dismiss-menu',previewId:id},'*');}catch(e){}}});if(typeof ResizeObserver!=='undefined'){try{new ResizeObserver(report).observe(document.documentElement);}catch(e){}}setTimeout(report,60);setTimeout(report,280);})();</script>`;
 }
 
 export function wrapHtmlPreviewDocument(
@@ -165,7 +165,7 @@ export const HtmlPreviewBlock = memo(function HtmlPreviewBlock({
         return;
       }
       if (
-        data.type === 'vibex-html-preview-height' &&
+        data.type === 'dimo-html-preview-height' &&
         typeof data.height === 'number' &&
         Number.isFinite(data.height)
       ) {
@@ -173,13 +173,13 @@ export const HtmlPreviewBlock = memo(function HtmlPreviewBlock({
         setMeasuredHeight((prev) => (prev === clamped ? prev : clamped));
         return;
       }
-      if (data.type === 'vibex-html-preview-contextmenu') {
+      if (data.type === 'dimo-html-preview-contextmenu') {
         const cx = typeof data.clientX === 'number' ? data.clientX : 24;
         const cy = typeof data.clientY === 'number' ? data.clientY : 24;
         openContextMenuAt(cx, cy);
         return;
       }
-      if (data.type === 'vibex-html-preview-dismiss-menu') {
+      if (data.type === 'dimo-html-preview-dismiss-menu') {
         setContextMenu(null);
       }
     };
@@ -263,10 +263,31 @@ export const HtmlPreviewBlock = memo(function HtmlPreviewBlock({
     [openContextMenuAt]
   );
 
-  const srcDoc = useMemo(
+  const rawSrcDoc = useMemo(
     () => wrapHtmlPreviewDocument(effectiveCode, previewId),
     [effectiveCode, previewId]
   );
+  const [srcDoc, setSrcDoc] = useState(rawSrcDoc);
+  const lastSrcDocCommitRef = useRef<number>(0);
+
+  useEffect(() => {
+    if (!isStreaming) {
+      lastSrcDocCommitRef.current = Date.now();
+      setSrcDoc((prev) => (prev === rawSrcDoc ? prev : rawSrcDoc));
+      return;
+    }
+    const elapsed = Date.now() - lastSrcDocCommitRef.current;
+    if (elapsed >= 400) {
+      lastSrcDocCommitRef.current = Date.now();
+      setSrcDoc((prev) => (prev === rawSrcDoc ? prev : rawSrcDoc));
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      lastSrcDocCommitRef.current = Date.now();
+      setSrcDoc(rawSrcDoc);
+    }, 400 - elapsed);
+    return () => window.clearTimeout(timer);
+  }, [isStreaming, rawSrcDoc]);
 
   if (isStreaming && !effectiveCode.trim()) {
     return (

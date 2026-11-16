@@ -6,15 +6,15 @@ use uuid::Uuid;
 const BUILTIN_MAPPINGS: &[(&str, &str)] = &[
     (
         "3f8e2b10-7c44-4c5e-9a11-d2af01000001",
-        "vibex.builtin.dashi-ppt",
+        "dimo.builtin.dashi-ppt",
     ),
     (
         "3f8e2b10-7c44-4c5e-9a11-d2af01000002",
-        "vibex.builtin.vibe-motion",
+        "dimo.builtin.vibe-motion",
     ),
     (
         "3f8e2b10-7c44-4c5e-9a11-d2af01000003",
-        "vibex.builtin.understand-anything",
+        "dimo.builtin.understand-anything",
     ),
 ];
 
@@ -278,7 +278,7 @@ mod tests {
         assert_eq!(mapped.status, LegacyMigrationStatus::MappedBuiltin);
         assert_eq!(
             mapped.mapped_plugin_id.as_deref(),
-            Some("vibex.builtin.dashi-ppt")
+            Some("dimo.builtin.dashi-ppt")
         );
         assert!(
             evidence

@@ -363,7 +363,7 @@ export type PulseSubscriberKind = 'session' | 'bot' | 'group' | 'workflow';
 export type PulseSubscriptionView = {
   id: string;
   threadKey: string;
-  subscriberKind: PulseSubscriberKind | (string & {});
+  subscriberKind: PulseSubscriberKind | (string & NonNullable<unknown>);
   subscriberId: string;
   active: boolean;
   createdAt: string;

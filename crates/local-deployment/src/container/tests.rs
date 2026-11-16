@@ -91,7 +91,7 @@ fn seed_committed_repo(git: &GitService, repo_path: &Path) {
 }
 
 fn temp_external_path(name: &str) -> PathBuf {
-    std::env::temp_dir().join(format!("vibex-external-{name}-{}", Uuid::new_v4()))
+    std::env::temp_dir().join(format!("dimo-external-{name}-{}", Uuid::new_v4()))
 }
 
 fn long_running_script() -> &'static str {
@@ -405,7 +405,7 @@ fn test_container(pool: SqlitePool) -> LocalContainerService {
         notification_service: NotificationService::new(config),
         pty: crate::pty::PtyService::new(),
         settings_path: std::env::temp_dir()
-            .join(format!("vibex-test-settings-{}.json", Uuid::new_v4())),
+            .join(format!("dimo-test-settings-{}.json", Uuid::new_v4())),
     }
 }
 

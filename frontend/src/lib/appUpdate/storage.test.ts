@@ -16,8 +16,8 @@ describe('app update check storage', () => {
   afterEach(() => {
     clearLastCheck();
     writeDismissedVersion(null);
-    window.localStorage.removeItem('vibex.appUpdate.lastMainRoute');
-    window.localStorage.removeItem('vibex.appUpdate.postUpdateRestore');
+    window.localStorage.removeItem('dimo.appUpdate.lastMainRoute');
+    window.localStorage.removeItem('dimo.appUpdate.postUpdateRestore');
   });
 
   it('round-trips a completed check including changelog', () => {
@@ -28,7 +28,7 @@ describe('app update check storage', () => {
         version: '0.1.3',
         body: '## English\n\nNotes',
         date: '2026-08-16T00:00:00Z',
-        releaseUrl: 'https://github.com/Xircth/VibeX/releases/tag/v0.1.3',
+        releaseUrl: 'https://github.com/DimoADE/Dimo/releases/tag/v0.1.3',
         canInstall: true,
       },
     });
@@ -40,7 +40,7 @@ describe('app update check storage', () => {
         version: '0.1.3',
         body: '## English\n\nNotes',
         date: '2026-08-16T00:00:00Z',
-        releaseUrl: 'https://github.com/Xircth/VibeX/releases/tag/v0.1.3',
+        releaseUrl: 'https://github.com/DimoADE/Dimo/releases/tag/v0.1.3',
         canInstall: true,
       },
     });
@@ -48,7 +48,7 @@ describe('app update check storage', () => {
 
   it('rejects a stored answer with a broken timestamp', () => {
     window.localStorage.setItem(
-      'vibex.appUpdate.lastCheck',
+      'dimo.appUpdate.lastCheck',
       JSON.stringify({
         at: 'yesterday',
         currentVersion: '0.1.2',
@@ -132,11 +132,11 @@ describe('app update check storage', () => {
 
   it.each([
     '/settings/system',
-    '/plugins/vibex.browser',
+    '/plugins/dimo.browser',
     '/unknown',
     'https://example.com',
   ])('does not restore unsupported main-window route %s', (route) => {
-    window.localStorage.setItem('vibex.appUpdate.lastMainRoute', route);
+    window.localStorage.setItem('dimo.appUpdate.lastMainRoute', route);
     expect(readLastMainWindowRoute()).toBeNull();
   });
 
@@ -153,7 +153,7 @@ describe('app update check storage', () => {
 
   it('repairs a remembered file address before returning to the main window', () => {
     window.localStorage.setItem(
-      'vibex.appUpdate.lastMainRoute',
+      'dimo.appUpdate.lastMainRoute',
       '/local-projects/project-1/workspaces/workspace-1/evidence/image.png'
     );
 
@@ -174,7 +174,7 @@ describe('app update check storage', () => {
 
   it('repairs file addresses stored by an older updater', () => {
     window.localStorage.setItem(
-      'vibex.appUpdate.postUpdateRestore',
+      'dimo.appUpdate.postUpdateRestore',
       JSON.stringify({
         route:
           '/local-projects/project-1/workspaces/workspace-1/evidence/image.png',

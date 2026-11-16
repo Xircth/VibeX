@@ -2,7 +2,7 @@
 status: accepted
 date: 2026-09-13
 decision-makers:
-  - VibeX maintainers
+  - Dimo maintainers
 ---
 
 # 供应商预置目录是插件贡献的模板，不是导入源，也不是 CC-Switch
@@ -28,7 +28,7 @@ ProviderSwitch 写进并不存在的自动启用列表。
 `models.dev` 列表，但覆盖的是官方/目录内 Provider，不是按 Agent 整理的中转模板。
 
 CC-Switch 用预置网格解决了「空白表单」：第一格永远是 Custom，其余是无密钥模板，
-点选填表、用户补 Key、保存后才出现卡片，「Enable」再写入该 App 的原生配置。VibeX
+点选填表、用户补 Key、保存后才出现卡片，「Enable」再写入该 App 的原生配置。Dimo
 要的是这个**填表**动词，不是 CC-Switch 的本地代理、协议转换、Universal Provider
 跨 App 同步，也不是赞助商促销文案、心形/星标徽章或尊享/赞助商分组标题。
 
@@ -68,9 +68,9 @@ Agent 过滤、启停原子性。官方目录随 ProviderSwitch 版本更新。
 ### 4. ProviderSwitch 是普通官方市场插件，默认禁用，不是能力等价插件
 
 ADR-0069 §8 的自动启用白名单只适用于「从内置迁出」的能力。这份目录是新能力，
-不是迁出。不得发明一份自动启用白名单，也不得把 `vibex.provider-switch` 写进
+不是迁出。不得发明一份自动启用白名单，也不得把 `dimo.provider-switch` 写进
 §8。随 Host family 提供 bundled 快照，可从官方分类安装；安装后默认禁用，启用
-即出现网格。Host **不得**按插件 ID `vibex.provider-switch` 特判。
+即出现网格。Host **不得**按插件 ID `dimo.provider-switch` 特判。
 
 ### 5. Catalog DTO 按表面判别联合；已保存连接仍瘦
 
@@ -95,7 +95,7 @@ validate、Host inspect、真实 UI 消费、作者文档）之前，保持 prev
 「自定义」。OpenCode / MiMo 的空白连接表单就是 Custom，不另做第一格。插件不能
 移除 Custom。
 
-### 8. 按 VibeX 规范 Agent id 分目录
+### 8. 按 Dimo 规范 Agent id 分目录
 
 每份目录对应一个规范 Agent id。Gemini 目录只贡献 `antigravity`，**永不**
 发射 `gemini`：后者是另一字符串，Host 按字符串相等过滤，不得为匹配去特判
@@ -108,7 +108,7 @@ Antigravity（那是导入源的动词）。Claude Desktop 丢弃。没有供应
 与徽章。官方订阅 / 官方 API 预置不进供应商目录。赞助商层次只作为转换输入，映射
 到 `category` 之后不得出现在输出里。
 
-### 10. 官方插件身份是 `vibex.provider-switch`
+### 10. 官方插件身份是 `dimo.provider-switch`
 
 它是官方产品包：进 bundled 发行物与官方分类，不是导入源那种 authoring sample。
 优先独立仓库以 submodule 挂入（ADR-0069 §8）；仓库未就绪时可先 in-tree，行为与

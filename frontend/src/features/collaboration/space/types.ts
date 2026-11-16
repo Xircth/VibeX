@@ -157,5 +157,5 @@ export const CONTACT_AVATAR_PX = 40;
 
 export function stableSpaceMessageId(message: SpaceMessage): string {
   const raw = String(message.id ?? message.envelope.id ?? '').trim();
-  return raw.replace(/^vibex:\/\/space-message\//, '');
+  return raw.replace(/^dimo:\/\/space-message\//, '');
 }

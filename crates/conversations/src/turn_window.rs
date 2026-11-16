@@ -438,7 +438,7 @@ mod tests {
     fn nav_outline_vector() -> (Vec<MessageTurn>, serde_json::Value) {
         let mut vector: serde_json::Value =
             serde_json::from_str(NAV_OUTLINE_VECTOR).expect("vector parses");
-        // Codeg's vector carries `turn_error`, which VibeX stores as protocol content.
+        // Codeg's vector carries `turn_error`, which Dimo stores as protocol content.
         // The navigator ignores that block, so the outline stays the shared vector.
         rewrite_turn_errors(&mut vector);
         let full: Vec<MessageTurn> =

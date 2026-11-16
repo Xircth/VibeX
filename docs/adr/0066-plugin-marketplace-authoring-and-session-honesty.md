@@ -2,7 +2,7 @@
 status: accepted
 date: 2026-08-28
 decision-makers:
-  - VibeX maintainers
+  - Dimo maintainers
 ---
 
 # 插件市场、单路作者工具链与会话生效诚实性
@@ -26,16 +26,16 @@ Host 自动进入 catalog。
 
 当前控制面已经能安装、启停、链接开发和投影 Skill/MCP，但真实用户路径不完整：
 
-1. 设置 → 插件页副标题只说「通过可安装的插件为 VibeX 增加新能力」，用户打开开关后
+1. 设置 → 插件页副标题只说「通过可安装的插件为 Dimo 增加新能力」，用户打开开关后
    当前会话往往没有新工具。官方 MCP 只进入启用之后的新会话或 rebind 会话，这个事实
    没有出现在该页。
 2. 官方五件套以 `sourceKind=builtin` 预装进 catalog，默认禁用、不能当快照卸载。磁盘
    上有包不等于已启用，也不等于用户主动选择过。
-3. `vibex-plugin init` 写出的 Node Worker 没有 stdio 循环，Host 启动即退出；`file-tab`
-   实际是只读预览；测试用 `import.meta.url` 在 `vibex-plugin test` 下会找不到文件。
+3. `dimo-plugin init` 写出的 Node Worker 没有 stdio 循环，Host 启动即退出；`file-tab`
+   实际是只读预览；测试用 `import.meta.url` 在 `dimo-plugin test` 下会找不到文件。
 4. 开发链接同时存在产品 CLI、Plugin Dev HTTP、开发工具对话框和开发 MCP。开发 MCP
    只返回 `pending_confirmation`，不能当调试面。
-5. 产品官网 `~/Projects/vibex-site` 已有 `/marketplace` 与
+5. 产品官网 `~/Projects/dimo-site` 已有 `/marketplace` 与
    `/api/marketplace/list`、`/api/marketplace/artifact/:author/:plugin`，但 Host 没有
    市场 Tab，也没有按官方/社区分页的目录 API。安装预览和 Full Trust 确认不完整。
 6. SDK/CLI 列出的 integration 与 `host.call` 并不都在 Host inspect、UI 和官方包上闭环。
@@ -66,8 +66,8 @@ Office、会话增强、多智能体协同、Workflow Creator、插件开发 **�
 `sourceKind=builtin` 自动写入 Host catalog，也不再「随 Host 安装、不能卸载」。
 
 它们作为官网市场的 **官方分类** 上架。用户从市场 Tab 或 CLI 安装后，与其它包一样
-默认禁用，可以卸载。Host 家族仍按 ADR-0055 携带官方 MCP **二进制**（`vibex-mcp`、
-`vibex-workflow-mcp`）；磁盘上有二进制不等于已安装插件，更不等于已注入会话。
+默认禁用，可以卸载。Host 家族仍按 ADR-0055 携带官方 MCP **二进制**（`dimo-mcp`、
+`dimo-workflow-mcp`）；磁盘上有二进制不等于已安装插件，更不等于已注入会话。
 
 Host 发行物可以附带官方包快照，仅作为市场官方分类的**离线安装缓存**。离线安装仍走
 与在线市场相同的预览和 Full Trust 确认，origin 记为官方市场。不得在启动时静默
@@ -76,11 +76,11 @@ Host 发行物可以附带官方包快照，仅作为市场官方分类的**离�
 
 修订 ADR-0057「不能卸载的内置插件」与 ADR-0055 中「builtin 插件默认存在于 catalog」
 的表述。原生 Workflow Studio 仍不依赖 Workflow Creator 插件；未安装该插件时，
-`*.vibex-workflow.json` 不走插件编辑面。
+`*.dimo-workflow.json` 不走插件编辑面。
 
 ### 3. `init` 必须产出 Host 可运行的包
 
-`vibex-plugin init` 的完成标准是：对选用模板，`build` / `validate` / `test` 通过，
+`dimo-plugin init` 的完成标准是：对选用模板，`build` / `validate` / `test` 通过，
 且按该模板声明的 integration 能在真实 Host 上激活并完成对应的用户路径。
 
 固定约定：
@@ -89,12 +89,12 @@ Host 发行物可以附带官方包快照，仅作为市场官方分类的**离�
   定义模块与 `runtime/main.mjs` 的 `runStdioPluginWorker` 入口。`build` 打包
   `main.mjs` → `dist/worker.mjs`。测试从定义模块导入，禁止从 `dist/worker.mjs`
   导入，禁止用 `import.meta.url` 读插件根。
-- `engines.vibex` 为 `>=0.1.3 <1.0.0`，`engines.pluginSdk` 为 `^1.0.0`。
+- `engines.dimo` 为 `>=0.1.3 <1.0.0`，`engines.pluginSdk` 为 `^1.0.0`。
 - 模板名与产物一致。`file-tab` 表示 `.txt` 只读预览加详情面板。可编辑 UTF-8 文件
   Tab 使用独立模板（`file.opener.editorSurface` + `app.surface(slot: artifact.editor)`），
   对齐 Workflow Creator。
 - Python 模板保持 `run_stdio_plugin_worker`；Rust 模板的清单 path 指向编译产物说明，
-  并在 README 写明 `vibex-plugin build` 不编译 Rust。
+  并在 README 写明 `dimo-plugin build` 不编译 Rust。
 - 无 Worker 模板的测试用模块导出的 fixture，不读磁盘路径。
 
 作者 Skill 与 CLI help 只描述上述产物，不保留「init 之后还要手补 stdio」作为默认步骤。
@@ -104,27 +104,27 @@ Host 发行物可以附带官方包快照，仅作为市场官方分类的**离�
 开发、校验、链接、诊断只走命令行。产品命令是：
 
 ```text
-vibex-plugin init | build | validate | test | pack | toolchain
-vibex plugin add --dev .
-vibex plugin test --host
-vibex plugin pack
-vibex plugin add --profile | --web
+dimo-plugin init | build | validate | test | pack | toolchain
+dimo plugin add --dev .
+dimo plugin test --host
+dimo plugin pack
+dimo plugin add --profile | --web
 ```
 
-`vibex plugin add --dev .` 是链接本机目录的唯一产品入口：build、validate、经本机
+`dimo plugin add --dev .` 是链接本机目录的唯一产品入口：build、validate、经本机
 Host token 调用 `plugin_control_import`（`developerLink`），尝试启用，并监视 digest。
-Host 未运行时写入 `~/.vibex/imports/links.jsonl`。
+Host 未运行时写入 `~/.dimo/imports/links.jsonl`。
 
 删除插件开发包的 `content.mcp`（`plugin_dev_link_request` / `plugin_dev_link_status`）、
-根配置 `devMcp`、以及 `vibex-mcp` 的 `plugin-dev` 产品面。不要用半截 MCP 当调试器。
+根配置 `devMcp`、以及 `dimo-mcp` 的 `plugin-dev` 产品面。不要用半截 MCP 当调试器。
 Agent 按插件开发 Skill 直接跑 CLI。
 
-`vibex-plugin install --link` / `dev` / `doctor` 若仍实现，只能作为 `add --dev` 的
-同一 Host import 的别名，不得再要求 `VIBEX_PLUGIN_DEV_GRANT`。设置页「插件开发」
+`dimo-plugin install --link` / `dev` / `doctor` 若仍实现，只能作为 `add --dev` 的
+同一 Host import 的别名，不得再要求 `DIMO_PLUGIN_DEV_GRANT`。设置页「插件开发」
 对话框不再展示 loopback endpoint 或索要凭据。需要该产品时，从市场官方分类安装
 「插件开发」插件。
 
-插件开发 Skill 必须写清完整开发与测试规范：定位本机 `vibex-plugin toolchain`、
+插件开发 Skill 必须写清完整开发与测试规范：定位本机 `dimo-plugin toolchain`、
 确认产品边界、`init`、组装、stdio 入口、harness、`validate`/`test`、`add --dev`、
 `test --host`、`pack` 与市场/Git 安装。禁止把校验成功当成 App、Runtime 或 MCP 已在
 Host 上可用。禁止向用户索要 token。
@@ -145,7 +145,7 @@ Host 上可用。禁止向用户索要 token。
 - 列表项展示名称、一句话 summary、owner、版本/tag、来源（官方市场或 GitHub）。
 
 安装预览和 Full Trust 确认以**弹窗**完成，适用于：市场安装、拖入 `.vxp`、
-`vibex plugin add --profile` / `--web`、离线官方缓存。弹窗至少展示：owner、
+`dimo plugin add --profile` / `--web`、离线官方缓存。弹窗至少展示：owner、
 plugin-name、tag、version、publisher/id、摘要、将获得的用户可见能力（打开的文件、
 注入的 MCP、是否有 Worker/App）、来源 URL 或仓库，以及一句不可省略的确认：
 
@@ -192,10 +192,10 @@ inspect、至少一处真实 UI 或 Agent 消费、以及作者 Skill/参考文�
 - `app.surface` 的 `plugin.detail.panel` 与 `artifact.editor`
 - `host.service`
 - `app.command` / `app.toolbar` / `app.status` / `app.composer.slash` /
-  `app.timeline.card` / `app.settings.section`（官方参考包 `vibex.host-chrome`，
+  `app.timeline.card` / `app.settings.section`（官方参考包 `dimo.host-chrome`，
   `init --template host-chrome`）
 - `provider.model.importSource` 与 `host.call: provider.presets.list/save/bind`
-  （官方参考包 `vibex.provider-import`，`init --template provider-import`）
+  （官方参考包 `dimo.provider-import`，`init --template provider-import`）
 
 `content.hook` 仍出现在 kinds 目录里，状态为 `unimplemented`：清单能通过
 校验，但 Host 没有 Hook 运行时，inspect 会警告。不得把它写进 `init` 模板或
@@ -210,11 +210,11 @@ inspect、至少一处真实 UI 或 Agent 消费、以及作者 Skill/参考文�
 
 官方包和带 Worker/App/MCP 的 `init` 模板，在 harness 之外必须通过最短 Host 旅程：
 链接或安装 → 启用 → 行使该模板声明的用户可见能力 → 卸载或禁用后开发目录仍在。
-产品命令是 `vibex plugin test --host`。没有这条旅程，不得声称模板或官方包完成。
+产品命令是 `dimo plugin test --host`。没有这条旅程，不得声称模板或官方包完成。
 
 ## Marketplace Catalog API
 
-产品官网（`~/Projects/vibex-site`）为 Host 增加只读 Catalog API，与现有提交/审核
+产品官网（`~/Projects/dimo-site`）为 Host 增加只读 Catalog API，与现有提交/审核
 队列分离。现有 `GET /api/marketplace/list` 返回全量已发布数组，缺少官方/社区分页、
 搜索和 tag。Host 不依赖该无版本端点作为权威。
 
@@ -247,7 +247,7 @@ repo URL、package digest。未发布、待审、已拒绝的条目不得出现�
 - **不修订** ADR-0046 的 Publisher+ID 产品身份、候选代、digest；不修订 ADR-0051 的
   托管 MCP 通用 seam。
 - 产品官网 ADR-0005 仍然有效；本决定要求它补 Host 用的 Catalog API，不把待审包
-  暴露给 VibeX。
+  暴露给 Dimo。
 
 ## Consequences
 

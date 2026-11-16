@@ -9,7 +9,7 @@ import {
   serializedLayoutHasPanel,
 } from './browserPanelLifetime';
 
-const panelId = 'plugin:vibex.browser/browser:1';
+const panelId = 'plugin:dimo.browser/browser:1';
 
 const layoutWithPanel = {
   panels: {
@@ -29,7 +29,7 @@ describe('serializedLayoutHasPanel', () => {
     expect(
       serializedLayoutHasPanel(
         layoutWithPanel,
-        'plugin:vibex.browser/browser:2'
+        'plugin:dimo.browser/browser:2'
       )
     ).toBe(false);
     expect(serializedLayoutHasPanel(null, panelId)).toBe(false);

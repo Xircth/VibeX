@@ -47,7 +47,7 @@ pub fn plugin_worker_cpython_lock() -> Option<LanguageRuntimeLock> {
         _ => return None,
     };
     Some(LanguageRuntimeLock {
-        id: "vibex-plugin-worker-cpython",
+        id: "dimo-plugin-worker-cpython",
         version: PLUGIN_WORKER_CPYTHON_VERSION,
         target,
         url: format!(

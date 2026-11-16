@@ -30,7 +30,7 @@ describe('getStartupPromptStep', () => {
     ).toBe('none');
   });
 
-  it.each(['/plugins', '/plugins/vibex.office'])(
+  it.each(['/plugins', '/plugins/dimo.office'])(
     'suppresses startup prompts in the product plugin module at %s',
     (pathname) => {
       expect(

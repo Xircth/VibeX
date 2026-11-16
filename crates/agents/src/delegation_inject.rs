@@ -21,7 +21,7 @@ pub struct InjectedMcpServer {
     pub args: Vec<String>,
 }
 
-/// Runtime-negotiated capabilities relevant to the VibeX companion.
+/// Runtime-negotiated capabilities relevant to the Dimo companion.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct CompanionCapabilities {
     pub accepts_session_mcp_servers: bool,

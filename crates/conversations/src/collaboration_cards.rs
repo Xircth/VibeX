@@ -368,10 +368,10 @@ pub async fn post_blocking_user_question(
 }
 
 /// Questions array for an IM Ask card, taken from an elicitation schema
-/// (`x-vibex-questions` or JSON Schema `properties`) or synthesized from the prompt.
+/// (`x-dimo-questions` or JSON Schema `properties`) or synthesized from the prompt.
 pub fn questions_from_elicitation_schema(schema: Option<&Value>, prompt: &str) -> Value {
     if let Some(questions) = schema
-        .and_then(|schema| schema.get("x-vibex-questions"))
+        .and_then(|schema| schema.get("x-dimo-questions"))
         .and_then(Value::as_array)
         .filter(|items| !items.is_empty())
     {
@@ -1171,10 +1171,10 @@ mod tests {
     }
 
     #[test]
-    fn elicitation_schema_keeps_vibex_questions_for_the_im_card() {
+    fn elicitation_schema_keeps_dimo_questions_for_the_im_card() {
         let schema = json!({
             "type": "object",
-            "x-vibex-questions": [{
+            "x-dimo-questions": [{
                 "id": "q1",
                 "header": "方案",
                 "question": "用哪个方案？",
@@ -1265,7 +1265,7 @@ mod tests {
         let question_id = Uuid::new_v4().to_string();
         let schema = json!({
             "type": "object",
-            "x-vibex-questions": [{
+            "x-dimo-questions": [{
                 "question": "用哪个方案？",
                 "header": "方案",
                 "options": [

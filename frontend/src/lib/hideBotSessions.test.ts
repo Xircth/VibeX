@@ -75,7 +75,7 @@ describe('hideBotSessions', () => {
     expect(
       isBotCollaborationSession({
         collaboration: null,
-        initial_prompt: '<vibex-private-bootstrap>\n你刚被设为用户的总管 Bot。',
+        initial_prompt: '<dimo-private-bootstrap>\n你刚被设为用户的总管 Bot。',
       })
     ).toBe(true);
     expect(

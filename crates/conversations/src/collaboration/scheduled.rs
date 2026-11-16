@@ -55,6 +55,44 @@ pub(crate) fn scheduled_deadline(
     Ok(Some(when))
 }
 
+static DELAYED_INPUT_NOTIFY: std::sync::OnceLock<tokio::sync::Notify> = std::sync::OnceLock::new();
+
+fn delayed_input_notify() -> &'static tokio::sync::Notify {
+    DELAYED_INPUT_NOTIFY.get_or_init(tokio::sync::Notify::new)
+}
+
+pub(crate) fn notify_delayed_input_changed() {
+    if let Some(notify) = DELAYED_INPUT_NOTIFY.get() {
+        notify.notify_waiters();
+    }
+}
+
+async fn next_delayed_input_sleep(pool: &SqlitePool) -> std::time::Duration {
+    const IDLE_POLL_INTERVAL: std::time::Duration = std::time::Duration::from_secs(60);
+    const MIN_DUE_DELAY: std::time::Duration = std::time::Duration::from_millis(50);
+
+    let next_deliver_at: Option<String> = sqlx::query_scalar(
+        "SELECT MIN(deliver_at) FROM conversation_delayed_inputs WHERE status = 'scheduled'",
+    )
+    .fetch_optional(pool)
+    .await
+    .ok()
+    .flatten();
+
+    let Some(raw) = next_deliver_at else {
+        return IDLE_POLL_INTERVAL;
+    };
+    let Ok(deliver_at) = DateTime::parse_from_rfc3339(&raw).map(|dt| dt.with_timezone(&Utc))
+    else {
+        return std::time::Duration::from_secs(5);
+    };
+    let remaining = deliver_at.signed_duration_since(Utc::now());
+    match remaining.to_std() {
+        Ok(duration) if !duration.is_zero() => duration.clamp(MIN_DUE_DELAY, IDLE_POLL_INTERVAL),
+        _ => MIN_DUE_DELAY,
+    }
+}
+
 pub(crate) async fn schedule_input(
     pool: &SqlitePool,
     input: &SendSessionInput,
@@ -126,7 +164,11 @@ pub(crate) async fn schedule_input(
         })
     }
     .await;
-    finish_immediate(&mut conn, outcome).await
+    let receipt = finish_immediate(&mut conn, outcome).await?;
+    if !receipt.idempotent_replay {
+        notify_delayed_input_changed();
+    }
+    Ok(receipt)
 }
 
 pub async fn promote_due_delayed_inputs(pool: &SqlitePool) -> Result<u32, CollaborationError> {
@@ -158,11 +200,18 @@ pub async fn promote_due_delayed_inputs_with(
 
 pub fn spawn_delayed_input_promoter(pool: SqlitePool, delivery: DeliveryContext) {
     tokio::spawn(async move {
+        let notify = delayed_input_notify();
         loop {
+            let notified = notify.notified();
+            tokio::pin!(notified);
             if let Err(error) = promote_due_delayed_inputs_with(&pool, &delivery).await {
                 tracing::warn!(%error, "delayed input promotion failed");
             }
-            tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+            let wait = next_delayed_input_sleep(&pool).await;
+            tokio::select! {
+                _ = &mut notified => {}
+                _ = tokio::time::sleep(wait) => {}
+            }
         }
     });
 }
@@ -455,6 +504,7 @@ pub async fn post_to_space_delayed_with(
         .execute(pool)
         .await
         .map_err(db)?;
+        notify_delayed_input_changed();
         id
     };
     let receipts = targets
@@ -624,6 +674,9 @@ pub async fn update_space_scheduled_message(
     .execute(pool)
     .await
     .map_err(db)?;
+    if delay_seconds.is_some_and(|s| s > 0) {
+        notify_delayed_input_changed();
+    }
     let all = list_space_scheduled_messages(pool, space_id).await?;
     Ok(all.into_iter().find(|item| item.id == id))
 }

@@ -25,5 +25,8 @@ pub mod surface;
 pub mod workspace_files;
 pub mod workspace_parity;
 
-pub use events::{HostEvent, HostEventBus, patch_stream_channel, patch_stream_subscribe_command};
+pub use events::{
+    HostEvent, HostEventBus, patch_stream_channel, patch_stream_subscribe_command,
+    patch_stream_task_key,
+};
 pub use row_ops::HostRowOpPublisher;

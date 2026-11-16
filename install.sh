@@ -1,28 +1,28 @@
 #!/usr/bin/env sh
 #
-# Install the VibeX Host family (vibex-server, vibex-mcp, vibex-workflow-mcp
+# Install the Dimo Host family (dimo-server, dimo-mcp, dimo-workflow-mcp
 # and the web bundle) from a GitHub Release.
 #
 # The desktop app is not installed by this script; it ships as a Tauri
 # installer with its own updater. Coding agents are not installed either —
 # they live in your own environment (ADR-0060).
 #
-#   curl -fsSL https://raw.githubusercontent.com/Xircth/VibeX/master/install.sh | sh
+#   curl -fsSL https://raw.githubusercontent.com/DimoADE/Dimo/master/install.sh | sh
 #
 # Environment:
-#   VIBEX_VERSION      Install this version instead of the latest release.
-#   VIBEX_PLATFORM     Override platform detection (e.g. linux-x86_64).
-#   VIBEX_GITHUB_REPO        Source repository. Default Xircth/VibeX.
-#   VIBEX_HOST_FAMILY_BASE   Override the download origin (no trailing slash).
-#   VIBEX_INSTALL_DIR        Where the `vibex` launcher goes. Default ~/.local/bin.
-#   VIBEX_PRINT_PLAN         Print the resolved platform and URLs, then exit.
+#   DIMO_VERSION      Install this version instead of the latest release.
+#   DIMO_PLATFORM     Override platform detection (e.g. linux-x86_64).
+#   DIMO_GITHUB_REPO        Source repository. Default DimoADE/Dimo.
+#   DIMO_HOST_FAMILY_BASE   Override the download origin (no trailing slash).
+#   DIMO_INSTALL_DIR        Where the `dimo` launcher goes. Default ~/.local/bin.
+#   DIMO_PRINT_PLAN         Print the resolved platform and URLs, then exit.
 
 set -eu
 
-DEFAULT_REPO="Xircth/VibeX"
-REPO="${VIBEX_GITHUB_REPO:-$DEFAULT_REPO}"
-CACHE_ROOT="${HOME}/.vibex/host-family"
-INSTALL_DIR="${VIBEX_INSTALL_DIR:-${HOME}/.local/bin}"
+DEFAULT_REPO="DimoADE/Dimo"
+REPO="${DIMO_GITHUB_REPO:-$DEFAULT_REPO}"
+CACHE_ROOT="${HOME}/.dimo/host-family"
+INSTALL_DIR="${DIMO_INSTALL_DIR:-${HOME}/.local/bin}"
 # Kept in step with npx-cli/bin/release-assets.js by scripts/release-assets.test.js.
 SUPPORTED_PLATFORMS="linux-x86_64 linux-aarch64 darwin-aarch64 windows-x86_64 windows-aarch64"
 
@@ -45,8 +45,8 @@ require_command() {
 }
 
 detect_platform() {
-    if [ -n "${VIBEX_PLATFORM:-}" ]; then
-        printf '%s' "$VIBEX_PLATFORM"
+    if [ -n "${DIMO_PLATFORM:-}" ]; then
+        printf '%s' "$DIMO_PLATFORM"
         return
     fi
 
@@ -98,28 +98,28 @@ verify_digest() {
 
 verify_sha256sums() {
     root="$1"
-    ( cd "$root" && grep -v '  SHA256SUMS$' SHA256SUMS > .vibex-verify-list || true )
-    if [ ! -s "${root}/.vibex-verify-list" ]; then
-        rm -f "${root}/.vibex-verify-list"
+    ( cd "$root" && grep -v '  SHA256SUMS$' SHA256SUMS > .dimo-verify-list || true )
+    if [ ! -s "${root}/.dimo-verify-list" ]; then
+        rm -f "${root}/.dimo-verify-list"
         fail "SHA256SUMS in the archive contained no checksums"
     fi
     if command -v sha256sum >/dev/null 2>&1; then
-        ( cd "$root" && sha256sum --quiet --check .vibex-verify-list ) ||
+        ( cd "$root" && sha256sum --quiet --check .dimo-verify-list ) ||
             fail "the extracted Host family failed per-file verification"
     else
-        ( cd "$root" && shasum -a 256 --status --check .vibex-verify-list ) ||
+        ( cd "$root" && shasum -a 256 --status --check .dimo-verify-list ) ||
             fail "the extracted Host family failed per-file verification"
     fi
-    rm -f "${root}/.vibex-verify-list"
+    rm -f "${root}/.dimo-verify-list"
 }
 
 write_launcher() {
     family_root="$1"
     mkdir -p "$INSTALL_DIR"
-    launcher="${INSTALL_DIR}/vibex"
+    launcher="${INSTALL_DIR}/dimo"
     cat > "$launcher" <<LAUNCHER
 #!/usr/bin/env sh
-exec "${family_root}/vibex-server" "\$@"
+exec "${family_root}/dimo-server" "\$@"
 LAUNCHER
     chmod +x "$launcher"
     printf '%s' "$launcher"
@@ -132,23 +132,23 @@ main() {
     platform=$(detect_platform)
     assert_supported_platform "$platform"
 
-    if [ -n "${VIBEX_VERSION:-}" ]; then
-        tag="v${VIBEX_VERSION#v}"
+    if [ -n "${DIMO_VERSION:-}" ]; then
+        tag="v${DIMO_VERSION#v}"
     else
         tag=$(latest_tag)
         [ -n "$tag" ] || fail "could not resolve the latest release of ${REPO}"
     fi
     version="${tag#v}"
 
-    archive="VibeX-${version}-${platform}-server.tar.gz"
-    if [ -n "${VIBEX_HOST_FAMILY_BASE:-}" ]; then
-        base_url="${VIBEX_HOST_FAMILY_BASE%/}"
+    archive="Dimo-${version}-${platform}-server.tar.gz"
+    if [ -n "${DIMO_HOST_FAMILY_BASE:-}" ]; then
+        base_url="${DIMO_HOST_FAMILY_BASE%/}"
     else
         base_url="https://github.com/${REPO}/releases/download/${tag}"
     fi
     family_root="${CACHE_ROOT}/${tag}/${platform}/family"
 
-    if [ -n "${VIBEX_PRINT_PLAN:-}" ]; then
+    if [ -n "${DIMO_PRINT_PLAN:-}" ]; then
         printf 'platform=%s\n' "$platform"
         printf 'tag=%s\n' "$tag"
         printf 'archive=%s\n' "$archive"
@@ -159,11 +159,11 @@ main() {
     fi
 
     if [ -f "${family_root}/SHA256SUMS" ]; then
-        printf 'VibeX Host family %s is already installed for %s.\n' "$tag" "$platform"
+        printf 'Dimo Host family %s is already installed for %s.\n' "$tag" "$platform"
         verify_sha256sums "$family_root"
     else
         TEMP_DIR=$(mktemp -d)
-        printf 'Downloading VibeX Host family %s for %s...\n' "$tag" "$platform"
+        printf 'Downloading Dimo Host family %s for %s...\n' "$tag" "$platform"
         curl -fSL --progress-bar "${base_url}/${archive}" -o "${TEMP_DIR}/${archive}" ||
             fail "could not download ${base_url}/${archive}"
         curl -fsSL "${base_url}/${archive}.sha256" -o "${TEMP_DIR}/${archive}.sha256" ||
@@ -187,16 +187,16 @@ main() {
         mv "$unpacked" "$family_root"
     fi
 
-    chmod +x "${family_root}/vibex-server" "${family_root}/vibex-mcp" \
-        "${family_root}/vibex-workflow-mcp" 2>/dev/null || true
+    chmod +x "${family_root}/dimo-server" "${family_root}/dimo-mcp" \
+        "${family_root}/dimo-workflow-mcp" 2>/dev/null || true
 
     launcher=$(write_launcher "$family_root")
-    printf '\nInstalled VibeX Host family %s to %s\n' "$tag" "$family_root"
+    printf '\nInstalled Dimo Host family %s to %s\n' "$tag" "$family_root"
     printf 'Launcher: %s\n' "$launcher"
 
     case ":${PATH}:" in
-        *":${INSTALL_DIR}:"*) printf '\nRun `vibex` to start the server on http://127.0.0.1:17891\n' ;;
-        *) printf '\nAdd %s to your PATH, then run `vibex`:\n  export PATH="%s:$PATH"\n' \
+        *":${INSTALL_DIR}:"*) printf '\nRun `dimo` to start the server on http://127.0.0.1:17891\n' ;;
+        *) printf '\nAdd %s to your PATH, then run `dimo`:\n  export PATH="%s:$PATH"\n' \
             "$INSTALL_DIR" "$INSTALL_DIR" ;;
     esac
 }

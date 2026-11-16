@@ -29,57 +29,57 @@ const OFFICIAL_PLUGIN_TELEMETRY: Record<
 > = {
   browser: {
     installs: 298,
-    repo: 'Xircth/vibex-plugin-browser',
+    repo: 'DimoADE/Dimo-plugin-browser',
     trend: [112, 134, 151, 169, 188, 205, 224, 241, 258, 272, 286, 298],
   },
   computerUse: {
     installs: 283,
-    repo: ['Xircth/vibex-plugin', 'computer-use'].join('-'),
+    repo: ['DimoADE/Dimo-plugin', 'computer-use'].join('-'),
     trend: [98, 116, 135, 154, 171, 189, 206, 223, 239, 255, 270, 283],
   },
   office: {
     installs: 264,
-    repo: 'Xircth/vibex-plugin-office',
+    repo: 'DimoADE/Dimo-plugin-office',
     trend: [92, 108, 125, 141, 158, 175, 191, 208, 224, 238, 252, 264],
   },
   sessionEnhance: {
     installs: 241,
-    repo: 'Xircth/vibex-plugin-session-enhance',
+    repo: 'DimoADE/Dimo-plugin-session-enhance',
     trend: [84, 99, 114, 129, 144, 160, 175, 190, 204, 217, 230, 241],
   },
   workflowCreator: {
     installs: 218,
-    repo: 'Xircth/vibex-plugin-workflow-creator',
+    repo: 'DimoADE/Dimo-plugin-workflow-creator',
     trend: [72, 86, 101, 115, 129, 143, 157, 171, 184, 196, 208, 218],
   },
   remoteSsh: {
     installs: 175,
-    repo: 'Xircth/vibex-plugin-remote-ssh',
+    repo: 'DimoADE/Dimo-plugin-remote-ssh',
     trend: [56, 68, 80, 91, 103, 115, 126, 137, 148, 158, 167, 175],
   },
   science: {
     installs: 162,
-    repo: 'Xircth/vibex-plugin-science',
+    repo: 'DimoADE/Dimo-plugin-science',
     trend: [51, 62, 73, 84, 95, 106, 116, 126, 136, 145, 154, 162],
   },
   providerSwitch: {
     installs: 148,
-    repo: 'Xircth/vibex-plugin-provider-switch',
+    repo: 'DimoADE/Dimo-plugin-provider-switch',
     trend: [46, 56, 66, 76, 86, 96, 106, 115, 124, 133, 141, 148],
   },
   pluginDevelopment: {
     installs: 84,
-    repo: 'Xircth/vibex-plugin-development',
+    repo: 'DimoADE/Dimo-plugin-development',
     trend: [25, 31, 37, 43, 48, 54, 60, 65, 70, 75, 80, 84],
   },
   codeCompletion: {
     installs: 204,
-    repo: 'Xircth/vibex-plugin-code-completion',
+    repo: 'DimoADE/Dimo-plugin-code-completion',
     trend: [68, 81, 95, 108, 121, 134, 146, 158, 170, 181, 193, 204],
   },
   voiceInput: {
     installs: 192,
-    repo: 'Xircth/vibex-plugin-voice-input',
+    repo: 'DimoADE/Dimo-plugin-voice-input',
     trend: [62, 74, 86, 98, 110, 122, 134, 146, 158, 170, 181, 192],
   },
 };
@@ -142,8 +142,8 @@ export function resolvePluginTelemetry(options: {
   const lowerId = pluginId.trim().toLowerCase();
   const isOfficial =
     officialKey !== null ||
-    lowerOwner === 'vibex' ||
-    pluginId.startsWith('vibex.');
+    lowerOwner === 'dimo' ||
+    pluginId.startsWith('dimo.');
 
   const githubFromUrl =
     extractGithubRepoSlug(repo) ??
@@ -167,8 +167,8 @@ export function resolvePluginTelemetry(options: {
         : (cachedStars ?? 0);
     return {
       isOfficial: true,
-      developerName: 'VibeX',
-      rawOwner: owner ?? 'vibex',
+      developerName: 'Dimo',
+      rawOwner: owner ?? 'dimo',
       avatarOwner: null as string | null,
       installs: String(preset.installs),
       stars: formatStarCount(starCount),
@@ -181,13 +181,13 @@ export function resolvePluginTelemetry(options: {
   const resolvedOwner =
     githubFromUrl?.owner ||
     (owner && owner.trim()) ||
-    (isOfficial ? 'VibeX' : 'community');
-  const cleanPluginName = pluginId.replace(/^vibex\./, '');
+    (isOfficial ? 'Dimo' : 'community');
+  const cleanPluginName = pluginId.replace(/^dimo\./, '');
   const repositorySlug =
     githubFromUrl?.slug ||
     (lowerId === 'drawio'
-      ? 'Xircth/vibex-drawio'
-      : `${isOfficial ? 'Xircth' : resolvedOwner}/${cleanPluginName}`);
+      ? 'DimoADE/Dimo-drawio'
+      : `${isOfficial ? 'DimoADE' : resolvedOwner}/${cleanPluginName}`);
 
   const seed = hashSeed(`${resolvedOwner}/${pluginId}`);
   const mockInstallCount = lowerId === 'drawio' ? 142 : 10 + (seed % 266); // strictly in 10..300
@@ -207,7 +207,7 @@ export function resolvePluginTelemetry(options: {
 
   return {
     isOfficial,
-    developerName: isOfficial ? 'VibeX' : resolvedOwner,
+    developerName: isOfficial ? 'Dimo' : resolvedOwner,
     rawOwner: owner ?? resolvedOwner,
     avatarOwner: isOfficial ? null : resolvedOwner,
     installs,
@@ -290,7 +290,7 @@ function useGithubRepoStars(
 
 /**
  * 1. 开发者属性组件（头像 + 名称）
- * 官方插件使用 VibeX 图标 + 名称 VibeX；其他开发者使用 GitHub 仓库归属者头像 + 名称
+ * 官方插件使用 Dimo 图标 + 名称 Dimo；其他开发者使用 GitHub 仓库归属者头像 + 名称
  */
 export function PluginDeveloperBadge({
   pluginId,
@@ -319,7 +319,7 @@ export function PluginDeveloperBadge({
     sourceOrigin,
   });
 
-  const vibexLogo = resolveAppLogo('lite', resolvedTheme);
+  const dimoLogo = resolveAppLogo('lite', resolvedTheme);
   const githubAvatarUrl =
     !telemetry.isOfficial &&
     telemetry.avatarOwner &&
@@ -332,7 +332,7 @@ export function PluginDeveloperBadge({
   const showRawOwnerSrOnly =
     telemetry.isOfficial &&
     telemetry.rawOwner &&
-    telemetry.rawOwner.toLowerCase() === 'vibex';
+    telemetry.rawOwner.toLowerCase() === 'dimo';
 
   return (
     <span
@@ -343,10 +343,10 @@ export function PluginDeveloperBadge({
       <span className="dsh-attr-developer-avatar" aria-hidden="true">
         {telemetry.isOfficial ? (
           <img
-            src={vibexLogo}
+            src={dimoLogo}
             alt=""
             draggable={false}
-            className="dsh-attr-vibex-logo"
+            className="dsh-attr-dimo-logo"
           />
         ) : githubAvatarUrl && !avatarFailed ? (
           <img
@@ -562,7 +562,7 @@ export function PluginTelemetrySidebar({
   const areaPath = `${linePath} L ${width} ${height} L 0 ${height} Z`;
 
   const securityAudits = [
-    { id: 'trust-hub', name: 'VibeX Trust Hub', status: 'PASS' },
+    { id: 'trust-hub', name: 'Dimo Trust Hub', status: 'PASS' },
     { id: 'socket', name: 'Socket', status: 'PASS' },
     { id: 'snyk', name: 'Snyk', status: 'PASS' },
   ] as const;

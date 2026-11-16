@@ -32,7 +32,7 @@ describe('sendAgentRuntimeTurn', () => {
       modeOverride: 'plan',
       workflowRefs: [
         {
-          pluginId: 'vibex.office',
+          pluginId: 'dimo.office',
           workflowId: 'create-presentation',
         },
       ],
@@ -56,7 +56,7 @@ describe('sendAgentRuntimeTurn', () => {
         configOverrides: [],
         workflowRefs: [
           {
-            pluginId: 'vibex.office',
+            pluginId: 'dimo.office',
             workflowId: 'create-presentation',
           },
         ],
@@ -93,6 +93,33 @@ describe('sendAgentRuntimeTurn', () => {
         configOverrides: [],
         workflowRefs: [],
         fileRefs: [],
+      }),
+      undefined
+    );
+  });
+
+  it('forwards providerInstanceId when explicitly selected', async () => {
+    submitInputMock.mockClear();
+    submitInputMock.mockResolvedValue({
+      input: { id: 'input-3', status: 'dispatched' },
+      turn: { turnId: 'turn-3' },
+    });
+
+    await sendAgentRuntimeTurn({
+      workspaceId: 'workspace-1',
+      sessionId: 'session-1',
+      executorProfileId: {
+        executor: 'claude_code' as const,
+        variant: null,
+      },
+      text: 'use custom provider',
+      providerInstanceId: 'provider-inst-42',
+    });
+
+    expect(submitInputMock).toHaveBeenCalledWith(
+      'session-1',
+      expect.objectContaining({
+        providerInstanceId: 'provider-inst-42',
       }),
       undefined
     );

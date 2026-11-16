@@ -1,6 +1,10 @@
-//! Host-owned IM outbound: one publisher seam for desktop and vibex-server.
+//! Host-owned IM outbound: one publisher seam for desktop and dimo-server.
 
-use std::sync::Arc;
+use std::{
+    path::PathBuf,
+    sync::{Arc, OnceLock},
+    time::{Duration, Instant},
+};
 
 use agents::conversation::{ConversationEvent, ConversationEventEnvelope};
 use async_trait::async_trait;
@@ -12,8 +16,24 @@ use services::services::chat_delivery::{
     ImLang, build_conversation_rich, conversation_event_key, deliver_rich, load_channel_tokens,
     post_event_webhooks, should_send,
 };
+use tokio::sync::{RwLock, mpsc};
 
 const SETTINGS_SECTION: &str = "chat_channels";
+const STORE_CACHE_TTL: Duration = Duration::from_secs(2);
+const DELIVERY_QUEUE_CAPACITY: usize = 256;
+
+#[derive(Clone)]
+struct CachedStore {
+    path: PathBuf,
+    loaded_at: Instant,
+    store: ChatChannelStore,
+}
+
+static STORE_CACHE: OnceLock<RwLock<Option<CachedStore>>> = OnceLock::new();
+
+fn store_cache() -> &'static RwLock<Option<CachedStore>> {
+    STORE_CACHE.get_or_init(|| RwLock::new(None))
+}
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 struct ChatChannelRecord {
@@ -52,6 +72,14 @@ struct ChatChannelStore {
     message_language: String,
 }
 
+impl ChatChannelStore {
+    fn has_active_targets(&self) -> bool {
+        !self.event_filter.is_empty()
+            && (self.channels.iter().any(|c| c.enabled)
+                || self.event_webhooks.iter().any(|w| w.enabled))
+    }
+}
+
 impl Default for ChatChannelStore {
     fn default() -> Self {
         Self {
@@ -64,13 +92,78 @@ impl Default for ChatChannelStore {
     }
 }
 
+struct DeliveryJob {
+    envelope: ConversationEventEnvelope,
+    event_key: &'static str,
+    store: ChatChannelStore,
+}
+
 pub struct ChatDeliveryPublisher {
     inner: Arc<dyn ConversationEventPublisher>,
+    tx: OnceLock<mpsc::Sender<DeliveryJob>>,
 }
 
 impl ChatDeliveryPublisher {
     pub fn new(inner: Arc<dyn ConversationEventPublisher>) -> Self {
-        Self { inner }
+        Self {
+            inner,
+            tx: OnceLock::new(),
+        }
+    }
+
+    fn sender(&self) -> &mpsc::Sender<DeliveryJob> {
+        self.tx.get_or_init(|| {
+            let (tx, mut rx) = mpsc::channel::<DeliveryJob>(DELIVERY_QUEUE_CAPACITY);
+            tokio::spawn(async move {
+                while let Some(job) = rx.recv().await {
+                    deliver_conversation_event(&job.envelope, job.event_key, &job.store).await;
+                }
+            });
+            tx
+        })
+    }
+
+    fn enqueue_record_with_store(&self, record: &ConversationEventRecord, store: &ChatChannelStore) {
+        let Ok(event) = serde_json::from_str::<ConversationEvent>(&record.normalized_json) else {
+            return;
+        };
+        let Some(event_key) = conversation_event_key(&event) else {
+            return;
+        };
+        if !store.event_filter.iter().any(|enabled| enabled == event_key) {
+            return;
+        }
+        let envelope = ConversationEventEnvelope {
+            id: record.id,
+            conversation_id: record.conversation_id,
+            turn_id: record.turn_id,
+            sequence: record.sequence,
+            source: record.source.clone(),
+            event,
+            created_at: record.created_at,
+        };
+        let job = DeliveryJob {
+            envelope,
+            event_key,
+            store: store.clone(),
+        };
+        if let Err(mpsc::error::TrySendError::Full(_)) = self.sender().try_send(job) {
+            tracing::warn!(
+                conversation_id = %record.conversation_id,
+                event_key,
+                "Chat delivery queue full; dropping IM/webhook notification"
+            );
+        }
+    }
+
+    async fn enqueue_record(&self, record: &ConversationEventRecord) {
+        let Ok(store) = load_store_cached().await else {
+            return;
+        };
+        if !store.has_active_targets() {
+            return;
+        }
+        self.enqueue_record_with_store(record, &store);
     }
 }
 
@@ -78,13 +171,22 @@ impl ChatDeliveryPublisher {
 impl ConversationEventPublisher for ChatDeliveryPublisher {
     async fn publish(&self, record: &ConversationEventRecord) {
         self.inner.publish(record).await;
-        notify_conversation_record(record).await;
+        self.enqueue_record(record).await;
     }
 
     async fn publish_batch(&self, records: &[ConversationEventRecord]) {
         self.inner.publish_batch(records).await;
+        if records.is_empty() {
+            return;
+        }
+        let Ok(store) = load_store_cached().await else {
+            return;
+        };
+        if !store.has_active_targets() {
+            return;
+        }
         for record in records {
-            notify_conversation_record(record).await;
+            self.enqueue_record_with_store(record, &store);
         }
     }
 
@@ -103,32 +205,34 @@ impl ConversationEventPublisher for ChatDeliveryPublisher {
     }
 }
 
-pub async fn notify_conversation_record(record: &ConversationEventRecord) {
-    let Ok(event) = serde_json::from_str::<ConversationEvent>(&record.normalized_json) else {
+pub async fn notify_conversation_event(envelope: &ConversationEventEnvelope) {
+    let Ok(store) = load_store_cached().await else {
         return;
     };
-    let envelope = ConversationEventEnvelope {
-        id: record.id,
-        conversation_id: record.conversation_id,
-        turn_id: record.turn_id,
-        sequence: record.sequence,
-        source: record.source.clone(),
-        event,
-        created_at: record.created_at,
-    };
-    notify_conversation_event(&envelope).await;
+    notify_conversation_event_with_store(envelope, &store).await;
 }
 
-pub async fn notify_conversation_event(envelope: &ConversationEventEnvelope) {
-    let Some(event) = conversation_event_key(&envelope.event) else {
+async fn notify_conversation_event_with_store(
+    envelope: &ConversationEventEnvelope,
+    store: &ChatChannelStore,
+) {
+    if !store.has_active_targets() {
         return;
-    };
-    let Ok(store) = load_store().await else {
+    }
+    let Some(event) = conversation_event_key(&envelope.event) else {
         return;
     };
     if !store.event_filter.iter().any(|enabled| enabled == event) {
         return;
     }
+    deliver_conversation_event(envelope, event, store).await;
+}
+
+async fn deliver_conversation_event(
+    envelope: &ConversationEventEnvelope,
+    event: &str,
+    store: &ChatChannelStore,
+) {
     let ids: Vec<String> = store
         .channels
         .iter()
@@ -215,6 +319,28 @@ pub async fn set_chat_message_language(language: String) -> Result<String, Strin
     Ok(language)
 }
 
+async fn load_store_cached() -> Result<ChatChannelStore, String> {
+    let path = utils::assets::settings_path();
+    let now = Instant::now();
+    {
+        let guard = store_cache().read().await;
+        if let Some(cached) = guard.as_ref()
+            && cached.path == path
+            && now.duration_since(cached.loaded_at) < STORE_CACHE_TTL
+        {
+            return Ok(cached.store.clone());
+        }
+    }
+    let store = load_store().await?;
+    let mut guard = store_cache().write().await;
+    *guard = Some(CachedStore {
+        path,
+        loaded_at: Instant::now(),
+        store: store.clone(),
+    });
+    Ok(store)
+}
+
 async fn load_store() -> Result<ChatChannelStore, String> {
     let path = utils::assets::settings_path();
     match services::services::settings_store::read_section(&path, SETTINGS_SECTION)
@@ -232,5 +358,11 @@ async fn save_store(store: &ChatChannelStore) -> Result<(), String> {
     services::services::settings_store::write_section(&path, SETTINGS_SECTION, &value)
         .await
         .map_err(|error| error.to_string())?;
+    let mut guard = store_cache().write().await;
+    *guard = Some(CachedStore {
+        path,
+        loaded_at: Instant::now(),
+        store: store.clone(),
+    });
     Ok(())
 }

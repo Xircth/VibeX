@@ -409,6 +409,8 @@ export function WorkflowInspector() {
   const [data, setData] = useState<InspectorData | null>(null);
   const [error, setError] = useState<string | null>(null);
   const eventCursor = useRef(0n);
+  const parsedDefinitionsRef = useRef<Map<string, WorkflowDefinition>>(new Map());
+  const isRunTerminal = data ? isWorkflowTerminal(data.run.status) : false;
 
   const load = useCallback(
     async (includeHistory = false) => {
@@ -419,11 +421,19 @@ export function WorkflowInspector() {
         api.steps(runId),
         loadAllEvents(api, runId, includeHistory ? 0n : eventCursor.current),
       ]);
+      let definition = parsedDefinitionsRef.current.get(version.id);
+      if (!definition) {
+        definition = JSON.parse(version.normalizedJson) as WorkflowDefinition;
+        if (parsedDefinitionsRef.current.size >= 16) {
+          parsedDefinitionsRef.current.clear();
+        }
+        parsedDefinitionsRef.current.set(version.id, definition);
+      }
       eventCursor.current = newEvents.at(-1)?.sequence ?? eventCursor.current;
       setData((current) => ({
         run,
         version,
-        definition: JSON.parse(version.normalizedJson) as WorkflowDefinition,
+        definition,
         steps,
         events: includeHistory
           ? newEvents
@@ -458,7 +468,7 @@ export function WorkflowInspector() {
   }, [load]);
 
   useEffect(() => {
-    if (!runId || !transport.subscribe) return;
+    if (!runId || !transport.subscribe || isRunTerminal) return;
     let active = true;
     const subscribe = transport.subscribe.bind(transport);
     const consume = async () => {
@@ -486,7 +496,7 @@ export function WorkflowInspector() {
     return () => {
       active = false;
     };
-  }, [load, runId, transport]);
+  }, [isRunTerminal, load, runId, transport]);
 
   const mutate = useCallback(
     async (operation: () => Promise<unknown>) => {

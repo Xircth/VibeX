@@ -162,7 +162,7 @@ fn acp_tool_image_content_becomes_a_semantic_agent_image() {
 pub(super) fn test_launch_lock(agent_id: AgentId) -> SessionLaunchLock {
     SessionLaunchLock {
         agent_id,
-        absolute_acp_program: PathBuf::from("/tmp/vibex-test-acp"),
+        absolute_acp_program: PathBuf::from("/tmp/dimo-test-acp"),
         args: Vec::new(),
         env: std::collections::BTreeMap::new(),
         runtime_version: "test-runtime".to_string(),
@@ -552,7 +552,7 @@ async fn live_manager_refuses_a_missing_working_directory() {
             agent_id: AgentId::parse("grok").unwrap(),
             launch_lock,
             workspace_id: uuid::Uuid::new_v4(),
-            working_dir: PathBuf::from("VibeX"),
+            working_dir: PathBuf::from("Dimo"),
             additional_directories: Vec::new(),
             auto_approve_mode: AgentAutoApproveMode::Off,
             env: HashMap::new(),
@@ -568,7 +568,7 @@ async fn live_manager_refuses_a_missing_working_directory() {
         message.contains("workspace working directory is missing"),
         "{message}"
     );
-    assert!(message.contains("VibeX"), "{message}");
+    assert!(message.contains("Dimo"), "{message}");
     assert!(!message.contains("No such file or directory"), "{message}");
 }
 
@@ -740,7 +740,7 @@ async fn session_auto_mode_does_not_upgrade_permission_interception() {
     )]));
 
     // Claude Code's Auto mode delegates each request to its own model
-    // classifier. It must not become VibeX's blanket auto-approval mode.
+    // classifier. It must not become Dimo's blanket auto-approval mode.
     assert_eq!(
         effective_auto_approve_mode(AgentAutoApproveMode::Off, &controls, session_id).await,
         AgentAutoApproveMode::Off

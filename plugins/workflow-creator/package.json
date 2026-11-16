@@ -1,15 +1,15 @@
 {
-  "name": "vibex.workflow-creator",
+  "name": "dimo.workflow-creator",
   "version": "2.0.0",
   "private": true,
   "type": "module",
   "scripts": {
-    "validate": "node ../VibeX/packages/plugin-cli/dist/cli.js validate",
-    "test": "node ../VibeX/packages/plugin-cli/dist/cli.js test",
+    "validate": "node ../Dimo/packages/plugin-cli/dist/cli.js validate",
+    "test": "node ../Dimo/packages/plugin-cli/dist/cli.js test",
     "test:mcp": "node --test test-mcp/source-artifact.test.mjs test-mcp/mcp-server.test.mjs",
     "test:live": "node test-mcp/live-host.mjs",
-    "build": "node ../VibeX/packages/plugin-cli/dist/cli.js build",
-    "pack": "node ../VibeX/packages/plugin-cli/dist/cli.js pack"
+    "build": "node ../Dimo/packages/plugin-cli/dist/cli.js build",
+    "pack": "node ../Dimo/packages/plugin-cli/dist/cli.js pack"
   },
   "dependencies": {
     "@modelcontextprotocol/server": "^2.0.0"

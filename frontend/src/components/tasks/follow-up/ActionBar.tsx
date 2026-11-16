@@ -26,6 +26,8 @@ interface ActionBarProps {
   effectiveExecutorProfile: ExecutorProfileId | null;
   onChangeExecutorProfile: (profile: ExecutorProfileId | null) => void;
   showProfileControls?: boolean;
+  selectedProviderInstanceId?: string | null;
+  onSelectProviderInstance?: (instanceId: string) => void;
   /** Agent-advertised session modes for the composer's mode picker. */
   sessionModes?: ConversationSessionModesState;
   /** The user's pending mode selection for the next turn. */
@@ -66,8 +68,10 @@ interface ActionBarProps {
   hasDraft?: boolean;
   getDraftValue?: () => string;
   attachmentCount?: number;
+  attachmentPaths?: string[];
+  getAttachmentPaths?: () => string[];
   onStashDraft?: () => void;
-  onRestoreDraft?: (text: string) => void;
+  onRestoreDraft?: (text: string, images?: string[]) => void;
 }
 
 export const ActionBar = memo(function ActionBar({
@@ -75,6 +79,8 @@ export const ActionBar = memo(function ActionBar({
   effectiveExecutorProfile,
   onChangeExecutorProfile,
   showProfileControls = true,
+  selectedProviderInstanceId,
+  onSelectProviderInstance,
   sessionModes,
   selectedMode = null,
   onSelectMode,
@@ -111,6 +117,8 @@ export const ActionBar = memo(function ActionBar({
   hasDraft,
   getDraftValue,
   attachmentCount = 0,
+  attachmentPaths,
+  getAttachmentPaths,
   onStashDraft,
   onRestoreDraft,
 }: ActionBarProps) {
@@ -169,6 +177,8 @@ export const ActionBar = memo(function ActionBar({
           hasDraft={hasDraft}
           getDraftValue={getDraftValue}
           attachmentCount={attachmentCount}
+          attachmentPaths={attachmentPaths}
+          getAttachmentPaths={getAttachmentPaths}
           isEditable={isEditable}
           onStashDraft={onStashDraft}
           onRestoreDraft={onRestoreDraft}
@@ -197,6 +207,8 @@ export const ActionBar = memo(function ActionBar({
         <ComposerProviderInstanceSlot
           agentId={currentAgentId}
           disabled={!isEditable}
+          selectedInstanceId={selectedProviderInstanceId}
+          onSelectInstance={onSelectProviderInstance}
         />
       ) : null}
 

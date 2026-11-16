@@ -6,15 +6,15 @@ import { readFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const root = existsSync(join(process.cwd(), '.vibex-plugin/plugin.json'))
+const root = existsSync(join(process.cwd(), '.dimo-plugin/plugin.json'))
   ? process.cwd()
   : join(dirname(fileURLToPath(import.meta.url)), '..');
 
 test('manifest contributes browser panel, dedicated browser settings page, and rail icon', async () => {
   const manifest = JSON.parse(
-    await readFile(join(root, '.vibex-plugin/plugin.json'), 'utf8')
+    await readFile(join(root, '.dimo-plugin/plugin.json'), 'utf8')
   );
-  assert.equal(manifest.id, 'vibex.browser');
+  assert.equal(manifest.id, 'dimo.browser');
   const panel = manifest.integrations.find((item) => item.kind === 'app.panel');
   assert.equal(panel.multiInstance, true);
   assert.equal(panel.engine, 'host-browser');
@@ -41,12 +41,12 @@ test('manifest contributes browser panel, dedicated browser settings page, and r
   const skill = manifest.integrations.find(
     (item) => item.kind === 'content.skill'
   );
-  assert.equal(skill.resource, 'contents/skills/vibex-browser');
+  assert.equal(skill.resource, 'contents/skills/dimo-browser');
   const skillDoc = await readFile(
-    join(root, 'contents/skills/vibex-browser/SKILL.md'),
+    join(root, 'contents/skills/dimo-browser/SKILL.md'),
     'utf8'
   );
-  assert.match(skillDoc, /^---\r?\nname: vibex-browser\r?\n/m);
+  assert.match(skillDoc, /^---\r?\nname: dimo-browser\r?\n/m);
   assert.match(skillDoc, /browser_list_tabs/);
   assert.match(skillDoc, /browser_open_tab/);
   assert.match(skillDoc, /browser_snapshot/);
@@ -59,7 +59,7 @@ test('manifest contributes browser panel, dedicated browser settings page, and r
   assert.match(skillDoc, /browser_hover/);
   assert.match(skillDoc, /browser_press_key/);
   assert.match(skillDoc, /browser_select_option/);
-  assert.match(skillDoc, /vibex-browser-browser-tools/);
+  assert.match(skillDoc, /dimo-browser-browser-tools/);
 });
 
 test('MCP resource advertises all 14 tools that the stdio server implements', async () => {
@@ -108,13 +108,13 @@ test('MCP resource uses a packaged entrypoint and advertises tools separately', 
 
 test('MCP server calls generic host.call browser operations', async () => {
   const source = await readFile(join(root, 'runtime/mcp-server.mjs'), 'utf8');
-  assert.match(source, /VIBEX_HOST_CALL_URL/);
+  assert.match(source, /DIMO_HOST_CALL_URL/);
   assert.match(source, /callHost\('browser'/);
   assert.match(source, /defaultGrant/);
   assert.match(source, /browser_open_tab/);
   assert.match(source, /await fetch\(url/);
   assert.match(source, /host_call_unreachable/);
-  assert.doesNotMatch(source, /VIBEX_BROWSER_DISPATCH/);
+  assert.doesNotMatch(source, /DIMO_BROWSER_DISPATCH/);
   assert.doesNotMatch(
     source,
     /Content-Type: application\/json\\r\\nContent-Length/
@@ -137,7 +137,7 @@ test('MCP server answers NDJSON initialize without closing', async () => {
       params: {
         protocolVersion: '2025-03-26',
         capabilities: {},
-        clientInfo: { name: 'vibex-test', version: '0' },
+        clientInfo: { name: 'dimo-test', version: '0' },
       },
     })}\n`
   );
@@ -170,7 +170,7 @@ test('MCP server answers NDJSON initialize without closing', async () => {
     assert.equal(reply.id, 1);
     assert.equal(reply.error, undefined);
     assert.equal(reply.result.protocolVersion, '2025-03-26');
-    assert.equal(reply.result.serverInfo.name, 'vibex-browser');
+    assert.equal(reply.result.serverInfo.name, 'dimo-browser');
 
     child.stdin.write(
       `${JSON.stringify({ jsonrpc: '2.0', method: 'notifications/initialized' })}\n`
@@ -270,7 +270,7 @@ test('MCP server answers Claude Code server/discover with 2026-07-28', async () 
     assert.deepEqual(reply.result.supportedVersions, ['2026-07-28']);
     assert.equal(
       reply.result._meta['io.modelcontextprotocol/serverInfo'].name,
-      'vibex-browser'
+      'dimo-browser'
     );
   } finally {
     child.kill();
@@ -330,7 +330,7 @@ test('MCP server answers Content-Length initialize without closing', async () =>
     params: {
       protocolVersion: '2026-07-28',
       capabilities: {},
-      clientInfo: { name: 'vibex-test', version: '0' },
+      clientInfo: { name: 'dimo-test', version: '0' },
     },
   });
   child.stdin.write(
@@ -368,7 +368,7 @@ test('MCP server answers Content-Length initialize without closing', async () =>
     assert.equal(reply.id, 1);
     assert.equal(reply.error, undefined);
     assert.equal(reply.result.protocolVersion, '2026-07-28');
-    assert.equal(reply.result.serverInfo.name, 'vibex-browser');
+    assert.equal(reply.result.serverInfo.name, 'dimo-browser');
   } finally {
     child.kill();
   }
@@ -376,7 +376,7 @@ test('MCP server answers Content-Length initialize without closing', async () =>
 
 test('browser-settings ships v2 app/main.js entrypoint and settings view', async () => {
   const manifest = JSON.parse(
-    await readFile(join(root, '.vibex-plugin/plugin.json'), 'utf8')
+    await readFile(join(root, '.dimo-plugin/plugin.json'), 'utf8')
   );
   const settingsPage = manifest.integrations.find(
     (item) => item.kind === 'app.settings.page'
@@ -389,7 +389,7 @@ test('browser-settings ships v2 app/main.js entrypoint and settings view', async
 
   const appMain = await readFile(join(root, 'app/main.js'), 'utf8');
   assert.match(appMain, /apiVersion:\s*['"]2\.0['"]/);
-  assert.match(appMain, /id:\s*['"]vibex\.browser['"]/);
+  assert.match(appMain, /id:\s*['"]dimo\.browser['"]/);
   assert.match(appMain, /\.\.\/src\/views\/view/);
 
   const viewSource = await readFile(join(root, 'src/views/view.tsx'), 'utf8');
@@ -497,8 +497,8 @@ test('browser_prefer and browser_screenshot support contact-sheet burst, reduced
   const child = spawn(process.execPath, [join(root, 'runtime/mcp-server.mjs')], {
     env: {
       ...process.env,
-      VIBEX_HOST_CALL_URL: hostUrl,
-      VIBEX_HOST_CALL_TOKEN: 'test-token',
+      DIMO_HOST_CALL_URL: hostUrl,
+      DIMO_HOST_CALL_TOKEN: 'test-token',
     },
     stdio: ['pipe', 'pipe', 'pipe'],
   });
@@ -575,7 +575,7 @@ test('browser_prefer and browser_screenshot support contact-sheet burst, reduced
     assert.equal(fallbackReply.result.isError, undefined);
     const evalCall = calls.find((item) => item.operation === 'eval.run');
     assert.ok(evalCall, 'expected eval.run fallback call for browser_prefer');
-    assert.match(evalCall.input.code, /__vibex_prefer_reduced_motion/);
+    assert.match(evalCall.input.code, /__dimo_prefer_reduced_motion/);
     assert.match(evalCall.input.code, /prefers-reduced-motion/);
 
     // 3. Contact-sheet burst screenshot with overMs, everyMs, reducedMotion, colorScheme

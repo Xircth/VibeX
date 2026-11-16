@@ -40,8 +40,17 @@ function queuedStatus(): Extract<QueueStatus, { status: 'queued' }> {
 }
 
 describe('durable session composer queue projection', () => {
-  it('maps server input facts without inventing local identity or ordering', () => {
-    expect(inputViewToQueuedMessage(input)).toMatchObject({
+  it('maps server input facts and preserves fileRefs, modeOverride, and configOverrides', () => {
+    const richInput: ConversationInputView = {
+      ...input,
+      payload: {
+        ...input.payload,
+        fileRefs: [{ path: 'src/App.tsx' }],
+        modeOverride: 'plan',
+        configOverrides: [{ key: 'effort', value: 'high' }],
+      },
+    };
+    expect(inputViewToQueuedMessage(richInput)).toMatchObject({
       id: 'input-1',
       session_id: 'session-1',
       operationId: 'operation-1',
@@ -52,18 +61,40 @@ describe('durable session composer queue projection', () => {
         message: 'visible text',
         agentMessage: 'agent text',
         images: ['vibe://queued-a'],
+        fileRefs: [{ path: 'src/App.tsx' }],
+        modeOverride: 'plan',
+        configOverrides: [{ key: 'effort', value: 'high' }],
       },
     });
   });
 
-  it('keeps only waiting queued inputs in the composer indicator', () => {
+  it('keeps queued and claimed inputs visible in the composer indicator until dispatched', () => {
+    const claimedInput: ConversationInputView = {
+      ...input,
+      id: 'input-claimed',
+      operationId: 'operation-claimed',
+      status: 'claimed',
+    };
+    const waiting = waitingQueueMessages([
+      input,
+      claimedInput,
+      { ...input, id: 'input-done', status: 'dispatched' },
+    ]);
+    expect(waiting).toEqual([
+      inputViewToQueuedMessage(input),
+      inputViewToQueuedMessage(claimedInput),
+    ]);
     expect(
-      waitingQueueMessages([
-        input,
-        { ...input, id: 'input-claimed', status: 'claimed' },
-        { ...input, id: 'input-done', status: 'dispatched' },
-      ])
-    ).toEqual([inputViewToQueuedMessage(input)]);
+      getQueueIndicatorState({ status: 'queued', messages: waiting })
+    ).toEqual({
+      isQueued: true,
+      queuedMessages: [
+        inputViewToQueuedMessage(input),
+        inputViewToQueuedMessage(claimedInput),
+      ],
+      isDelayedQueued: false,
+      delayedMessages: [],
+    });
   });
 
   it('hides the input this composer is currently submitting', () => {

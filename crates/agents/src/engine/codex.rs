@@ -1,7 +1,7 @@
 //! Native Rust JSON-RPC 2.0 client (`CodexAppServer`) and `CodexNativeDriver` for `codex app-server`.
 
 use std::{
-    collections::{HashMap, HashSet},
+    collections::{HashMap, HashSet, VecDeque},
     path::{Path, PathBuf},
     sync::{
         Arc, Mutex, OnceLock, RwLock,
@@ -129,6 +129,31 @@ type PendingRpcEntry = (oneshot::Sender<Result<Value, EngineError>>, u64);
 type PendingRpcMap = HashMap<u64, PendingRpcEntry>;
 type PendingServerRequestMap = HashMap<String, PendingCodexServerRequest>;
 
+const MAX_LOADED_THREADS: usize = 512;
+
+#[derive(Default)]
+struct LoadedThreadCache {
+    set: HashSet<String>,
+    order: VecDeque<String>,
+}
+
+impl LoadedThreadCache {
+    fn insert(&mut self, thread_id: &str) {
+        if self.set.insert(thread_id.to_string()) {
+            self.order.push_back(thread_id.to_string());
+            while self.order.len() > MAX_LOADED_THREADS {
+                if let Some(oldest) = self.order.pop_front() {
+                    self.set.remove(&oldest);
+                }
+            }
+        }
+    }
+
+    fn contains(&self, thread_id: &str) -> bool {
+        self.set.contains(thread_id)
+    }
+}
+
 /// Long-lived per-`(workspace_id, provider_instance_id, auth_fingerprint)` JSON-RPC 2.0
 /// client connected to `codex app-server`.
 pub struct CodexAppServer {
@@ -140,7 +165,7 @@ pub struct CodexAppServer {
     next_request_id: AtomicU64,
     pending: Arc<Mutex<PendingRpcMap>>,
     server_requests: Arc<Mutex<PendingServerRequestMap>>,
-    loaded_threads: Mutex<HashSet<String>>,
+    loaded_threads: Mutex<LoadedThreadCache>,
     turn_router: TurnEventRouter,
     event_tx: broadcast::Sender<EngineEvent>,
     latest_rate_limits: Arc<RwLock<Option<EngineRateLimits>>>,
@@ -297,7 +322,7 @@ impl CodexAppServer {
             next_request_id: AtomicU64::new(1),
             pending: Arc::new(Mutex::new(HashMap::new())),
             server_requests: Arc::new(Mutex::new(HashMap::new())),
-            loaded_threads: Mutex::new(HashSet::new()),
+            loaded_threads: Mutex::new(LoadedThreadCache::default()),
             turn_router: turn_router.clone(),
             event_tx: event_tx.clone(),
             latest_rate_limits: Arc::new(RwLock::new(None)),
@@ -322,7 +347,7 @@ impl CodexAppServer {
 
     pub async fn handshake(&self) -> Result<Value, EngineError> {
         let info =
-            json!({ "name": "vibex", "title": "VibeX", "version": env!("CARGO_PKG_VERSION") });
+            json!({ "name": "dimo", "title": "Dimo", "version": env!("CARGO_PKG_VERSION") });
         let init_params =
             json!({ "clientInfo": info, "capabilities": { "experimentalApi": true } });
         let init_result = self.request("initialize", init_params).await?;
@@ -364,7 +389,7 @@ impl CodexAppServer {
         if !is_placeholder_engine_session_id(thread_id)
             && let Ok(mut guard) = self.loaded_threads.lock()
         {
-            guard.insert(thread_id.to_string());
+            guard.insert(thread_id);
         }
     }
 
@@ -911,7 +936,7 @@ async fn run_reader_loop<R>(
 }
 
 pub async fn resolve_codex_binary(spec: &EngineStartSpec) -> Result<PathBuf, EngineError> {
-    if let Some(val) = spec.env.get("VIBEX_CODEX_PATH").map(String::as_str).map(str::trim)
+    if let Some(val) = spec.env.get("DIMO_CODEX_PATH").map(String::as_str).map(str::trim)
         && !val.is_empty()
     {
         let p = PathBuf::from(val);
@@ -919,16 +944,16 @@ pub async fn resolve_codex_binary(spec: &EngineStartSpec) -> Result<PathBuf, Eng
             return Ok(p);
         }
         return Err(EngineError::BinaryNotFound(format!(
-            "VIBEX_CODEX_PATH `{val}` not found"
+            "DIMO_CODEX_PATH `{val}` not found"
         )));
     }
-    if let Some(val) = std::env::var_os("VIBEX_CODEX_PATH").filter(|s| !s.is_empty()) {
+    if let Some(val) = std::env::var_os("DIMO_CODEX_PATH").filter(|s| !s.is_empty()) {
         let p = PathBuf::from(&val);
         if p.is_file() {
             return Ok(p);
         }
         return Err(EngineError::BinaryNotFound(format!(
-            "VIBEX_CODEX_PATH `{}` not found",
+            "DIMO_CODEX_PATH `{}` not found",
             val.to_string_lossy()
         )));
     }
@@ -1144,11 +1169,9 @@ async fn get_or_spawn_workspace_server(
     {
         return Ok(Arc::clone(existing));
     }
-    // Remove any dead entry before spawning so that repeated spawn failures do
-    // not let the map grow monotonically with stale `Arc<CodexAppServer>`s.
-    if write_guard.get(&key).is_some_and(|e| !e.is_alive()) {
-        write_guard.remove(&key);
-    }
+    // Sweep any dead entries across keys before spawning so exited or rotated
+    // workspace servers do not stay pinned in the global pool.
+    write_guard.retain(|_, server| server.is_alive());
     let spawned = CodexAppServer::spawn_for_workspace(spec).await?;
     write_guard.insert(key, Arc::clone(&spawned));
     Ok(spawned)

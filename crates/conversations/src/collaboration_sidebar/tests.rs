@@ -236,7 +236,7 @@ async fn dm_streaming_draft_streams_live_step_and_continues_after_mid_turn_tool_
     crate::collaboration::reset_space_turn_streaming_step(conversation_id);
     crate::collaboration::append_space_turn_streaming_text(
         conversation_id,
-        "我先查看一下 vibex-bot 规范和 manage_bot 工具参数",
+        "我先查看一下 dimo-bot 规范和 manage_bot 工具参数",
         false,
     );
     crate::collaboration::append_space_turn_streaming_text(
@@ -252,7 +252,7 @@ async fn dm_streaming_draft_streams_live_step_and_continues_after_mid_turn_tool_
     assert_eq!(messages_step0[1].streaming, Some(true));
     assert_eq!(
         messages_step0[1].text,
-        "我先查看一下 vibex-bot 规范和 manage_bot 工具参数，接着为你创建专门负责邮件管理的 Bot「Hailer」。"
+        "我先查看一下 dimo-bot 规范和 manage_bot 工具参数，接着为你创建专门负责邮件管理的 Bot「Hailer」。"
     );
     assert!(messages_step0[1].seq > messages_step0[0].seq);
 

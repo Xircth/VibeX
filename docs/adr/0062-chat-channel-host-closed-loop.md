@@ -2,7 +2,7 @@
 status: accepted
 date: 2026-08-25
 decision-makers:
-  - VibeX maintainers
+  - Dimo maintainers
 ---
 
 # 聊天通道在 Host 上走完编码闭环
@@ -18,7 +18,7 @@ decision-makers:
 ## 根因
 
 1. **出站不是 Host 职责。** 会话事件在 `ConversationEventPublisher` 提交后，
-   只有桌面 `events.rs` 再调 `notify_conversation_event`。`vibex-server` 用
+   只有桌面 `events.rs` 再调 `notify_conversation_event`。`dimo-server` 用
    `NoopConversationEventPublisher`，入站能跑、回合完成和权限请求推不出去。
 2. **`/task` 只跟进已有会话。** ADR-0056 写明可新建会话；实现要求先 `resume`。
 3. **微信两种模式共用一个发送函数。** iLink 命令回复走 `sendmessage`，事件和
@@ -33,7 +33,7 @@ decision-makers:
 ### 1. 出站通知属于 Host
 
 `ConversationEventPublisher` 是会话事件提交后的唯一接缝。Host 在这个接缝上投递
-IM，桌面 publisher 仍先发 row-op，再投递；`vibex-server` 只投递。桌面事件循环
+IM，桌面 publisher 仍先发 row-op，再投递；`dimo-server` 只投递。桌面事件循环
 和命令收尾不再第二次投递。
 
 独立 HTTP Webhook 汇点从同一接缝发出，不再挂在死函数上。
@@ -104,4 +104,4 @@ Telegram Topic 模式在总题 `/task` 时调用 `createForumTopic`，之后一�
 - `CONTEXT.md` 补充：IM 出站与入站同属 Host；`/task` 可新建会话；提问用
   `answer`；微信两种模式分开发送。
 - 前端事件开关与过滤器键对齐；微信表单区分企业微信与 iLink。
-- 桌面与 `vibex-server` 对同一会话事件发出同一类 IM 通知。
+- 桌面与 `dimo-server` 对同一会话事件发出同一类 IM 通知。

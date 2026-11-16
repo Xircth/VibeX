@@ -76,7 +76,7 @@ function occlusionEqual(
 /** Longer than CapturePreview (400ms) plus decode and one paint, so a timeout
  *  cannot reveal a layer while the native HWND is still on top. */
 const OVERLAY_READY_TIMEOUT_MS = 800;
-const OVERLAY_PENDING_STYLE_ID = 'vibex-overlay-pending-style';
+const OVERLAY_PENDING_STYLE_ID = 'dimo-overlay-pending-style';
 
 function occlusionNeedsHold(occlusion: NativeSurfaceOcclusion): boolean {
   return occlusion.hide || occlusion.rects.length > 0;

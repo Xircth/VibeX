@@ -208,6 +208,7 @@
             file_refs: Vec::new(),
             internal_prompt_contributions: Vec::new(),
             collaboration_origin: None,
+            provider_instance_id: None,
         }
     }
 
@@ -420,6 +421,7 @@
         let skipped_artifact_snapshot = serde_json::to_string(&ProjectionSnapshotState {
             full_fold: true,
             turns: Vec::new(),
+            turn_order: Vec::new(),
             turn_metrics: std::collections::BTreeMap::new(),
             side_rows: Vec::new(),
             side_row_turns: std::collections::BTreeMap::new(),
@@ -525,7 +527,7 @@
         assert_eq!(placeholders.len(), 1, "exactly one placeholder row");
         assert_eq!(
             placeholders[0].message.as_deref(),
-            Some("VibeX 无法读取其中一条历史记录，其余会话内容不受影响。")
+            Some("Dimo 无法读取其中一条历史记录，其余会话内容不受影响。")
         );
 
         // The normal assistant text still folded through, proving the unknown event
@@ -1641,6 +1643,274 @@
                 .iter()
                 .all(|row| row.row_id != expected_row_id),
             "reverting to source agent before any new turn must delete the boundary handoff row"
+        );
+    }
+
+    #[tokio::test]
+    async fn project_open_truncated_window_retains_slot_zero_notices_and_inline_handoff_order() {
+        let pool = setup_pool().await;
+        let (conversation_id, first_turn_id) = seed_turn(&pool).await;
+
+        let mut last_turn_id = first_turn_id;
+        for idx in 1..=12 {
+            let tid = if idx == 1 {
+                first_turn_id
+            } else {
+                let created = ConversationTurnRecord::create_pending(
+                    &pool,
+                    Uuid::new_v4(),
+                    CreateConversationTurn {
+                        conversation_id,
+                        prompt_id: Some("p"),
+                        text_preview: Some("turn"),
+                        input_blocks_json: "[]",
+                    },
+                )
+                .await
+                .expect("create turn");
+                created.id
+            };
+            append_event(
+                &pool,
+                conversation_id,
+                Some(tid),
+                "user",
+                ConversationEvent::UserTurnCreated {
+                    blocks: vec![ConversationInputBlock::Text {
+                        text: format!("user-{idx}"),
+                    }],
+                    workflow_refs: Vec::new(),
+                },
+                None,
+            )
+            .await;
+            append_event(
+                &pool,
+                conversation_id,
+                Some(tid),
+                "acp",
+                ConversationEvent::AssistantTextDelta {
+                    text: format!("assistant-{idx}"),
+                    message_id: None,
+                },
+                None,
+            )
+            .await;
+            append_event(
+                &pool,
+                conversation_id,
+                Some(tid),
+                "runtime",
+                ConversationEvent::TurnCompleted { stop_reason: None },
+                None,
+            )
+            .await;
+            if idx == 11 {
+                // Handoff after turn 11 (within newest 16-row open window)
+                append_event(
+                    &pool,
+                    conversation_id,
+                    None,
+                    "host",
+                    ConversationEvent::RawDiagnosticRecorded {
+                        label: "agent_handoff".into(),
+                        payload: Some(serde_json::json!({
+                            "afterTurnId": tid.to_string(),
+                            "fromAgent": "claude_code",
+                            "toAgent": "codex",
+                        })),
+                    },
+                    None,
+                )
+                .await;
+            }
+            last_turn_id = tid;
+        }
+
+        // Emit a session-level binding load failure notice (slot 0) after 25+ rows exist
+        append_event(
+            &pool,
+            conversation_id,
+            None,
+            "runtime",
+            ConversationEvent::AgentBindingLoadFailed {
+                reason: agents::conversation::SessionLoadFailureReason::ResourceNotFound,
+            },
+            None,
+        )
+        .await;
+
+        let open = ConversationProjector::project_open(&pool, conversation_id, 16)
+            .await
+            .expect("project_open");
+        assert!(open.timeline.truncated_from_start);
+        assert!(
+            open.timeline
+                .rows
+                .iter()
+                .any(|row| row.row_id == crate::projection::AGENT_BINDING_LOAD_FAILURE_NOTICE_ROW_ID),
+            "truncated >16-row open window must retain active slot-0 binding load failure notice"
+        );
+
+        let handoff_pos = open
+            .timeline
+            .rows
+            .iter()
+            .position(|row| row.row_id.starts_with("host-note:agent-handoff:after:"))
+            .expect("recent inline agent handoff must stay in the newest 16-row window");
+        let last_user_pos = open
+            .timeline
+            .rows
+            .iter()
+            .position(|row| row.row_id == format!("{last_turn_id}:user"))
+            .expect("turn 12 user row in tail");
+        assert!(
+            handoff_pos < last_user_pos,
+            "inline handoff after turn 11 must appear immediately before turn 12 user row"
+        );
+    }
+
+    #[tokio::test]
+    async fn steered_turn_does_not_double_count_usage_and_preserves_reported_context_used() {
+        let pool = setup_pool().await;
+        let (conversation_id, turn_id) = seed_turn(&pool).await;
+        let steering_id = Uuid::new_v4();
+
+        append_event(
+            &pool,
+            conversation_id,
+            Some(turn_id),
+            "user",
+            ConversationEvent::UserTurnCreated {
+                blocks: vec![ConversationInputBlock::Text {
+                    text: "start".into(),
+                }],
+                workflow_refs: Vec::new(),
+            },
+            None,
+        )
+        .await;
+        append_event(
+            &pool,
+            conversation_id,
+            Some(turn_id),
+            "acp",
+            ConversationEvent::AssistantTextDelta {
+                text: "before steer".into(),
+                message_id: None,
+            },
+            None,
+        )
+        .await;
+        append_event(
+            &pool,
+            conversation_id,
+            Some(turn_id),
+            "acp",
+            ConversationEvent::UsageUpdated {
+                usage: ConversationUsage {
+                    input_tokens: 100,
+                    output_tokens: 20,
+                    cache_creation_input_tokens: 0,
+                    cache_read_input_tokens: 0,
+                    context_used: Some(42_000),
+                    context_window_max: Some(200_000),
+                    ..Default::default()
+                },
+            },
+            None,
+        )
+        .await;
+        append_event(
+            &pool,
+            conversation_id,
+            Some(turn_id),
+            "user",
+            ConversationEvent::ConversationSteering {
+                event: agents::ConversationSteeringEvent::Requested {
+                    steering_id,
+                    operation_id: Uuid::new_v4(),
+                    expected_turn_id: turn_id,
+                    payload_digest: "d".into(),
+                    blocks: vec![ConversationInputBlock::Text {
+                        text: "steer mid-turn".into(),
+                    }],
+                    principal: serde_json::json!({}),
+                },
+            },
+            None,
+        )
+        .await;
+        append_event(
+            &pool,
+            conversation_id,
+            Some(turn_id),
+            "acp",
+            ConversationEvent::ConversationSteering {
+                event: agents::ConversationSteeringEvent::Accepted {
+                    steering_id,
+                    expected_turn_id: turn_id,
+                    delivery_mode: Some(agents::ConversationSteeringDeliveryMode::Native),
+                    restarted_turn_id: None,
+                },
+            },
+            None,
+        )
+        .await;
+        append_event(
+            &pool,
+            conversation_id,
+            Some(turn_id),
+            "acp",
+            ConversationEvent::AssistantTextDelta {
+                text: "after steer".into(),
+                message_id: None,
+            },
+            None,
+        )
+        .await;
+        append_event(
+            &pool,
+            conversation_id,
+            Some(turn_id),
+            "acp",
+            ConversationEvent::UsageUpdated {
+                usage: ConversationUsage {
+                    input_tokens: 100,
+                    output_tokens: 50,
+                    cache_creation_input_tokens: 0,
+                    cache_read_input_tokens: 0,
+                    context_used: Some(45_000),
+                    context_window_max: Some(200_000),
+                    ..Default::default()
+                },
+            },
+            None,
+        )
+        .await;
+        append_event(
+            &pool,
+            conversation_id,
+            Some(turn_id),
+            "runtime",
+            ConversationEvent::TurnCompleted { stop_reason: None },
+            None,
+        )
+        .await;
+
+        let open = ConversationProjector::project_open(&pool, conversation_id, 50)
+            .await
+            .expect("project_open");
+        let stats = open.session_stats.expect("session_stats");
+        assert_eq!(
+            stats.total_tokens,
+            Some(150),
+            "cumulative turn usage across steering split must equal 150, not 120 + 150 = 270"
+        );
+        assert_eq!(
+            stats.context_window_used_tokens,
+            Some(45_000),
+            "explicit context_used occupancy must not be overwritten with raw token sum"
         );
     }
 

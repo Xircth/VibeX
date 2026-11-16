@@ -1,0 +1,23 @@
+[Unit]
+Description=Dimo headless Host
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=dimo
+Group=dimo
+Environment=DIMO_DATA_DIR=/var/lib/dimo
+Environment=DIMO_STATIC_ROOT=/usr/lib/dimo/web
+Environment=DIMO_SERVER_LISTEN=127.0.0.1:17891
+ExecStart=/usr/bin/dimo-server
+Restart=on-failure
+RestartSec=3
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/dimo
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

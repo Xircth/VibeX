@@ -1,11 +1,11 @@
 export declare function buildPlugin(root: string): Promise<void>;
 export declare function sdkAliases(): {
-    "@vibex/plugin-sdk": string;
-    "@vibex/plugin-sdk/worker": string;
-    "@vibex/plugin-sdk/app": string;
-    "@vibex/plugin-sdk/testing": string;
-    "@vibex/plugin-sdk/protocol": string;
-    "@vibex/plugin-sdk/stdio": string;
+    "@dimoai/plugin-sdk": string;
+    "@dimoai/plugin-sdk/worker": string;
+    "@dimoai/plugin-sdk/app": string;
+    "@dimoai/plugin-sdk/testing": string;
+    "@dimoai/plugin-sdk/protocol": string;
+    "@dimoai/plugin-sdk/stdio": string;
     react: string;
     "react-dom": string;
     "react-dom/client": string;

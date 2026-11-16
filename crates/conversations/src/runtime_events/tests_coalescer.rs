@@ -461,7 +461,7 @@ fn tool_call_update_can_rewrite_the_title() {
     let envelope = envelope(AgentEvent::ToolCallUpdate {
         update: AgentToolCallUpdate {
             id: "tool-1".to_string(),
-            title: Some("vibex-delegation-mcp__delegate_to_agent".to_string()),
+            title: Some("dimo-delegation-mcp__delegate_to_agent".to_string()),
             status: Some("running".to_string()),
             content: None,
             input_preview: Some(r#"{"agent_type":"codex","task":"hi"}"#.to_string()),
@@ -475,7 +475,7 @@ fn tool_call_update_can_rewrite_the_title() {
         mapped,
         Some(ConversationEvent::ToolCallUpsert { tool_call })
             if tool_call.title.as_deref()
-                == Some("vibex-delegation-mcp__delegate_to_agent")
+                == Some("dimo-delegation-mcp__delegate_to_agent")
     ));
 }
 
@@ -826,5 +826,95 @@ fn an_untethered_error_is_recorded_as_a_binding_failure_rather_than_dropped() {
     assert!(matches!(
         map_agent_event(&envelope(error), None),
         Some(ConversationEvent::AgentBindingRecoveryFailed { .. })
+    ));
+}
+
+#[test]
+fn usage_updated_coalesces_without_breaking_text_stream_and_preserves_tokens() {
+    let mut coalescer = StreamingThrottleCoalescer::new();
+    let t0 = Instant::now();
+
+    assert!(
+        coalescer
+            .push_at(
+                mapped_record(
+                    1,
+                    ConversationEvent::AssistantTextDelta {
+                        text: "hello ".to_string(),
+                        message_id: None,
+                    },
+                ),
+                t0,
+            )
+            .is_empty()
+    );
+    // Mid-turn token usage must buffer without flushing the buffered text delta.
+    assert!(
+        coalescer
+            .push_at(
+                mapped_record(
+                    2,
+                    ConversationEvent::UsageUpdated {
+                        usage: agents::conversation::ConversationUsage {
+                            input_tokens: 120,
+                            output_tokens: 40,
+                            model: Some("gpt-5".to_string()),
+                            ..Default::default()
+                        },
+                    },
+                ),
+                t0 + Duration::from_millis(20),
+            )
+            .is_empty()
+    );
+    // Text delta after UsageUpdated continues to merge into the same buffered AssistantTextDelta!
+    assert!(
+        coalescer
+            .push_at(
+                mapped_record(
+                    3,
+                    ConversationEvent::AssistantTextDelta {
+                        text: "world".to_string(),
+                        message_id: None,
+                    },
+                ),
+                t0 + Duration::from_millis(40),
+            )
+            .is_empty()
+    );
+    // Occupancy-only UsageUpdated must keep earlier token counts and model.
+    assert!(
+        coalescer
+            .push_at(
+                mapped_record(
+                    4,
+                    ConversationEvent::UsageUpdated {
+                        usage: agents::conversation::ConversationUsage {
+                            context_used: Some(4096),
+                            context_window_max: Some(128_000),
+                            ..Default::default()
+                        },
+                    },
+                ),
+                t0 + Duration::from_millis(60),
+            )
+            .is_empty()
+    );
+
+    let deadline = coalescer.next_idle_deadline().expect("idle deadline set");
+    let flushed = coalescer.flush_due(deadline);
+    assert_eq!(flushed.len(), 2);
+    assert!(matches!(
+        &flushed[0].event,
+        ConversationEvent::AssistantTextDelta { text, .. } if text == "hello world"
+    ));
+    assert!(matches!(
+        &flushed[1].event,
+        ConversationEvent::UsageUpdated { usage }
+            if usage.input_tokens == 120
+                && usage.output_tokens == 40
+                && usage.context_used == Some(4096)
+                && usage.context_window_max == Some(128_000)
+                && usage.model.as_deref() == Some("gpt-5")
     ));
 }

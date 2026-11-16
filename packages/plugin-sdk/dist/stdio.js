@@ -1,4 +1,4 @@
-import { FrameReassembler, ProtocolFrameError, VIBEX_PLUGIN_API_VERSION, VIBEX_PLUGIN_PROTOCOL_VERSION, encodeProtocolMessage, frameLimitsFromAdvertised, protocolFrameLimits, } from "./protocol.js";
+import { FrameReassembler, ProtocolFrameError, DIMO_PLUGIN_API_VERSION, DIMO_PLUGIN_PROTOCOL_VERSION, encodeProtocolMessage, frameLimitsFromAdvertised, protocolFrameLimits, } from "./protocol.js";
 import { activatePluginWorker, PluginSdkError, } from "./worker.js";
 const DEFAULT_HOST_CALL_TIMEOUT_MS = 30_000;
 export async function runStdioPluginWorker(definition) {
@@ -117,8 +117,8 @@ export async function runStdioPluginWorker(definition) {
                         id: message.id,
                         ok: true,
                         result: {
-                            protocolVersion: VIBEX_PLUGIN_PROTOCOL_VERSION,
-                            sdkVersion: VIBEX_PLUGIN_API_VERSION,
+                            protocolVersion: DIMO_PLUGIN_PROTOCOL_VERSION,
+                            sdkVersion: DIMO_PLUGIN_API_VERSION,
                             registrations: [],
                             requestedFeatures: [],
                         },
@@ -197,7 +197,7 @@ export async function runStdioPluginWorker(definition) {
                     send({
                         id: message.id,
                         ok: true,
-                        result: { apiVersion: VIBEX_PLUGIN_API_VERSION },
+                        result: { apiVersion: DIMO_PLUGIN_API_VERSION },
                     });
                     break;
                 default: {
@@ -244,10 +244,10 @@ function createStderrLogger() {
         error: (message, fields) => write("error", message, fields),
     };
 }
-const SHARED_HOST_GLOBAL_KEY = "__VIBEX_SHARED_PLUGIN_HOST__";
+const SHARED_HOST_GLOBAL_KEY = "__DIMO_SHARED_PLUGIN_HOST__";
 /**
  * Returns the shared Node plugin host runtime if the current worker is
- * executing inside VibeX's multiplexed `SharedNodeWorkerHost` process, or
+ * executing inside Dimo's multiplexed `SharedNodeWorkerHost` process, or
  * `null` when running in a standalone single-plugin process.
  */
 export function getSharedNodePluginHost() {

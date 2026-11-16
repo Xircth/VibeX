@@ -91,7 +91,7 @@ describe('EngineHandoffDialog', () => {
     fireEvent.click(screen.getByTestId('handoff-preview-toggle'));
 
     const previewPre = screen.getByTestId('handoff-preview-content');
-    expect(previewPre).toHaveTextContent('[VibeX Context Handoff]');
+    expect(previewPre).toHaveTextContent('[Dimo Context Handoff]');
     expect(previewPre).toHaveTextContent('item_id: msg-1');
     expect(previewPre).toHaveTextContent('thread_read_history');
     expect(previewPre).toHaveTextContent('old-1, old-2, old-3, old-4');

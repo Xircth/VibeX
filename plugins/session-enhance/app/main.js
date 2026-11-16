@@ -1,6 +1,6 @@
 export default {
   apiVersion: '2.0',
-  id: 'vibex.session-enhance',
+  id: 'dimo.session-enhance',
   activate(ctx) {
     ctx.registerPromptContext({
       id: 'session-enhance-turn-context',
@@ -9,7 +9,7 @@ export default {
         if (!enabled) return null;
         return {
           hiddenContext:
-            'If structured session metadata is updated, emit <vibex-internal-meta channel="session.meta" nonce="v2">{"updated":true}</vibex-internal-meta>.',
+            'If structured session metadata is updated, emit <dimo-internal-meta channel="session.meta" nonce="v2">{"updated":true}</dimo-internal-meta>.',
         };
       },
     });
@@ -23,7 +23,7 @@ export default {
     });
 
     ctx.ui.registerCommand({
-      id: 'vibex.session-enhance.toggle-hints',
+      id: 'dimo.session-enhance.toggle-hints',
       title: 'Toggle Session Enhance Turn Hints',
       category: 'Session',
       icon: 'message-square',
@@ -35,7 +35,7 @@ export default {
     });
 
     ctx.services.inject(
-      ['vibex.provider-catalog', 'vibex.usage'],
+      ['dimo.provider-catalog', 'dimo.usage'],
       ([providerCatalog, usageService]) => {
         const templates =
           typeof providerCatalog?.listTemplates === 'function'
@@ -45,7 +45,7 @@ export default {
           id: 'session-enhance-status',
           label: `Session Enhance (${templates.length} templates)`,
         });
-        ctx.services.provide('vibex.session-enhance', {
+        ctx.services.provide('dimo.session-enhance', {
           activeTemplateCount: templates.length,
           canProbeUsage: typeof usageService?.probeAgentUsage === 'function',
           async getLastCapturedMeta() {

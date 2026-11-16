@@ -265,7 +265,7 @@ describe('spotlightGeometry', () => {
       callouts: [
         {
           key: 'select-project-create',
-          text: '在 VibeX 中，需要先创建或选择一个项目以继续，项目就是一个文件夹',
+          text: '在 Dimo 中，需要先创建或选择一个项目以继续，项目就是一个文件夹',
         },
         {
           key: 'select-project-global',

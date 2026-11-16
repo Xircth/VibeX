@@ -20,31 +20,45 @@ export function mergePatchedBlocks(
   incoming: ContentBlock[]
 ): ContentBlock[] {
   const next = existing.slice();
+  const indexById = new Map<string, number>();
+  let planIndex = -1;
+  for (let i = 0; i < next.length; i++) {
+    const b = next[i];
+    if (!b) continue;
+    if (b.type === 'tool_use' && b.tool_use_id) {
+      indexById.set(`tool_use:${b.tool_use_id}`, i);
+    } else if (b.type === 'tool_result' && b.tool_use_id) {
+      indexById.set(`tool_result:${b.tool_use_id}`, i);
+    } else if (b.type === 'plan') {
+      planIndex = i;
+    }
+  }
   for (const block of incoming) {
-    if (block.type === 'tool_use') {
-      const id = block.tool_use_id;
-      const match = next.findIndex(
-        (candidate) =>
-          candidate.type === 'tool_use' &&
-          Boolean(id) &&
-          candidate.tool_use_id === id
-      );
-      if (match >= 0) next[match] = block;
-      else next.push(block);
-    } else if (block.type === 'tool_result') {
-      const id = block.tool_use_id;
-      const match = next.findIndex(
-        (candidate) =>
-          candidate.type === 'tool_result' &&
-          Boolean(id) &&
-          candidate.tool_use_id === id
-      );
-      if (match >= 0) next[match] = block;
-      else next.push(block);
+    if (block.type === 'tool_use' && block.tool_use_id) {
+      const key = `tool_use:${block.tool_use_id}`;
+      const match = indexById.get(key);
+      if (match !== undefined) {
+        next[match] = block;
+      } else {
+        indexById.set(key, next.length);
+        next.push(block);
+      }
+    } else if (block.type === 'tool_result' && block.tool_use_id) {
+      const key = `tool_result:${block.tool_use_id}`;
+      const match = indexById.get(key);
+      if (match !== undefined) {
+        next[match] = block;
+      } else {
+        indexById.set(key, next.length);
+        next.push(block);
+      }
     } else if (block.type === 'plan') {
-      const match = next.findIndex((candidate) => candidate.type === 'plan');
-      if (match >= 0) next[match] = block;
-      else next.push(block);
+      if (planIndex >= 0) {
+        next[planIndex] = block;
+      } else {
+        planIndex = next.length;
+        next.push(block);
+      }
     } else {
       next.push(block);
     }
@@ -349,22 +363,32 @@ const TERMINAL_USER_PHASES = new Set<ConversationTimelineTurn['phase']>([
 export function alignStreamingAssistantWithUserPhase(
   turns: ConversationTimelineTurn[]
 ): ConversationTimelineTurn[] {
-  const userPhaseById = new Map(
-    turns
-      .filter((row) => row.turn.role === 'user')
-      .map((row) => [row.turn.id, row.phase])
-  );
+  let userPhaseById: Map<string, ConversationTimelineTurn['phase']> | null =
+    null;
+  let next: ConversationTimelineTurn[] | null = null;
 
-  return turns.map((row) => {
-    if (row.turn.role !== 'assistant' || row.phase !== 'streaming') return row;
+  for (let i = 0; i < turns.length; i += 1) {
+    const row = turns[i]!;
+    if (row.turn.role !== 'assistant' || row.phase !== 'streaming') continue;
     const userId = row.turn.id.endsWith(':assistant')
       ? `${row.turn.id.slice(0, -':assistant'.length)}:user`
       : null;
-    if (!userId) return row;
+    if (!userId) continue;
+    if (!userPhaseById) {
+      userPhaseById = new Map();
+      for (const candidate of turns) {
+        if (candidate.turn.role === 'user') {
+          userPhaseById.set(candidate.turn.id, candidate.phase);
+        }
+      }
+    }
     const userPhase = userPhaseById.get(userId);
-    if (!userPhase || !TERMINAL_USER_PHASES.has(userPhase)) return row;
-    return { ...row, phase: userPhase };
-  });
+    if (!userPhase || !TERMINAL_USER_PHASES.has(userPhase)) continue;
+    if (!next) next = turns.slice();
+    next[i] = { ...row, phase: userPhase };
+  }
+
+  return next ?? turns;
 }
 
 export function overlayLiveText(
@@ -415,29 +439,98 @@ function mergeOverlayText(existing: string, overlay: string): string {
   return existing + overlay;
 }
 
+export function isSeededInitialPromptRowId(
+  rowId: string,
+  conversationId?: string
+): boolean {
+  return Boolean(conversationId && rowId === `${conversationId}:user`);
+}
+
+function imageUriBasename(uri: string | null | undefined): string | null {
+  if (!uri) return null;
+  const clean = uri.split(/[?#]/)[0]?.trim() ?? '';
+  if (!clean) return null;
+  const name = clean.split(/[\\/]/).pop()?.trim().toLowerCase() ?? '';
+  return name || null;
+}
+
+function turnImageSignature(turn: MessageTurn): {
+  count: number;
+  basenames: string[];
+} {
+  const imageBlocks = turn.blocks.filter(
+    (block): block is Extract<ContentBlock, { type: 'image' }> =>
+      block.type === 'image'
+  );
+  const basenames = imageBlocks
+    .map((block) => imageUriBasename(block.uri))
+    .filter((name): name is string => Boolean(name));
+  return {
+    count: imageBlocks.length,
+    basenames,
+  };
+}
+
+function findMatchingImageOnlyOptimisticTurnIndex(
+  optimisticTurns: MessageTurn[],
+  candidateIndices: number[],
+  authoritativeTurn: MessageTurn
+): number {
+  const authSig = turnImageSignature(authoritativeTurn);
+  if (authSig.count > 0) {
+    if (authSig.basenames.length > 0) {
+      const exactBasenameIndex = candidateIndices.find((idx) => {
+        const optSig = turnImageSignature(optimisticTurns[idx]!);
+        return (
+          optSig.count === authSig.count &&
+          optSig.basenames.length === authSig.basenames.length &&
+          optSig.basenames.every((name, pos) => name === authSig.basenames[pos])
+        );
+      });
+      if (exactBasenameIndex !== undefined) return exactBasenameIndex;
+    }
+
+    const countCompatibleIndex = candidateIndices.find((idx) => {
+      const optSig = turnImageSignature(optimisticTurns[idx]!);
+      if (optSig.count !== authSig.count) return false;
+      return authSig.basenames.length === 0 || optSig.basenames.length === 0;
+    });
+    return countCompatibleIndex ?? -1;
+  }
+
+  const noImageIndex = candidateIndices.find(
+    (idx) => turnImageSignature(optimisticTurns[idx]!).count === 0
+  );
+  return noImageIndex ?? candidateIndices[0] ?? -1;
+}
+
 export function reconcileOptimisticTurns(
   optimisticTurns: MessageTurn[],
   timeline: ConversationTimeline,
-  baselineUserRowIds?: Readonly<Record<string, readonly string[]>>
+  baselineUserRowIds?: Readonly<Record<string, readonly string[]>>,
+  conversationId?: string
 ): MessageTurn[] {
   return reconcileOptimisticTurnsAgainstRows(
     optimisticTurns,
     timeline.rows,
-    baselineUserRowIds
+    baselineUserRowIds,
+    conversationId
   ).optimisticTurns;
 }
 
 export function reconcileOptimisticTurnsAgainstRows(
   optimisticTurns: MessageTurn[],
   rows: TimelineRow[],
-  baselineUserRowIds?: Readonly<Record<string, readonly string[]>>
+  baselineUserRowIds?: Readonly<Record<string, readonly string[]>>,
+  conversationId?: string
 ): { rows: TimelineRow[]; optimisticTurns: MessageTurn[] } {
   let remainingTurns = optimisticTurns;
   const reconciledRows = [...rows].reverse().map((row) => {
     const reconciled = reconcileOptimisticTurnAgainstUserRow(
       remainingTurns,
       row,
-      baselineUserRowIds
+      baselineUserRowIds,
+      conversationId
     );
     remainingTurns = reconciled.optimisticTurns;
     return reconciled.row;
@@ -461,39 +554,66 @@ function isBaselineUserRowForOptimisticTurn(
 export function reconcileOptimisticTurnAgainstUserRow(
   optimisticTurns: MessageTurn[],
   row: TimelineRow,
-  baselineUserRowIds?: Readonly<Record<string, readonly string[]>>
+  baselineUserRowIds?: Readonly<Record<string, readonly string[]>>,
+  conversationId?: string
 ): { row: TimelineRow; optimisticTurns: MessageTurn[] } {
   if (
     row.row.kind !== 'message_turn' ||
     row.row.turn.role !== 'user' ||
-    optimisticTurns.length === 0
+    optimisticTurns.length === 0 ||
+    isSeededInitialPromptRowId(row.row_id, conversationId)
   ) {
     return { row, optimisticTurns };
   }
 
   const authoritativeText = userTurnText(row.row.turn);
-  let optimisticIndex = optimisticTurns.findIndex(
-    (turn) =>
-      !isBaselineUserRowForOptimisticTurn(
-        turn.id,
-        row.row_id,
-        baselineUserRowIds
-      ) && userTurnText(turn) === authoritativeText
-  );
+  let optimisticIndex = -1;
 
-  if (optimisticIndex < 0) {
-    const authoritativeBackendText =
-      normalizePromptMatchText(authoritativeText);
+  if (authoritativeText === '') {
+    const emptyTextCandidates: number[] = [];
+    optimisticTurns.forEach((turn, idx) => {
+      if (
+        !isBaselineUserRowForOptimisticTurn(
+          turn.id,
+          row.row_id,
+          baselineUserRowIds
+        ) &&
+        userTurnText(turn) === ''
+      ) {
+        emptyTextCandidates.push(idx);
+      }
+    });
+    if (emptyTextCandidates.length > 0) {
+      optimisticIndex = findMatchingImageOnlyOptimisticTurnIndex(
+        optimisticTurns,
+        emptyTextCandidates,
+        row.row.turn
+      );
+    }
+  } else {
     optimisticIndex = optimisticTurns.findIndex(
       (turn) =>
         !isBaselineUserRowForOptimisticTurn(
           turn.id,
           row.row_id,
           baselineUserRowIds
-        ) &&
-        normalizePromptMatchText(userTurnText(turn)) ===
-          authoritativeBackendText
+        ) && userTurnText(turn) === authoritativeText
     );
+
+    if (optimisticIndex < 0) {
+      const authoritativeBackendText =
+        normalizePromptMatchText(authoritativeText);
+      optimisticIndex = optimisticTurns.findIndex(
+        (turn) =>
+          !isBaselineUserRowForOptimisticTurn(
+            turn.id,
+            row.row_id,
+            baselineUserRowIds
+          ) &&
+          normalizePromptMatchText(userTurnText(turn)) ===
+            authoritativeBackendText
+      );
+    }
   }
 
   if (optimisticIndex < 0) return { row, optimisticTurns };
@@ -502,16 +622,23 @@ export function reconcileOptimisticTurnAgainstUserRow(
   const optimisticTextBlocks = optimisticTurn.blocks.filter(
     (block) => block.type === 'text'
   );
+  const optimisticNonTextBlocks = optimisticTurn.blocks.filter(
+    (block) => block.type !== 'text'
+  );
   const authoritativeNonTextBlocks = row.row.turn.blocks.filter(
     (block) => block.type !== 'text'
   );
+  const mergedNonTextBlocks =
+    authoritativeNonTextBlocks.length > 0
+      ? authoritativeNonTextBlocks
+      : optimisticNonTextBlocks;
   const reconciledRow: TimelineRow = {
     ...row,
     row: {
       ...row.row,
       turn: {
         ...row.row.turn,
-        blocks: [...optimisticTextBlocks, ...authoritativeNonTextBlocks],
+        blocks: [...optimisticTextBlocks, ...mergedNonTextBlocks],
       },
     },
   };
@@ -526,7 +653,8 @@ export function reconcileOptimisticTurnAgainstUserRow(
 
 export function settleIdleOpenTail(
   rows: TimelineRow[],
-  turnInFlight: boolean
+  turnInFlight: boolean,
+  conversationId?: string
 ): TimelineRow[] {
   if (rows.length === 0 || !turnInFlight) return rows;
   const lastIndex = rows.length - 1;
@@ -535,7 +663,7 @@ export function settleIdleOpenTail(
     last &&
     last.row.kind === 'message_turn' &&
     last.row.turn.role === 'user' &&
-    !isLiveProjectorRowId(last.row_id) &&
+    !isLiveProjectorRowId(last.row_id, conversationId) &&
     last.row.phase !== 'streaming'
   ) {
     const next = rows.slice();
@@ -548,7 +676,11 @@ export function settleIdleOpenTail(
   return rows;
 }
 
-export function isLiveProjectorRowId(rowId: string): boolean {
+export function isLiveProjectorRowId(
+  rowId: string,
+  conversationId?: string
+): boolean {
+  if (isSeededInitialPromptRowId(rowId, conversationId)) return false;
   return (
     rowId.endsWith(':user') ||
     /:assistant(?::\d+)?$/.test(rowId) ||
@@ -559,12 +691,14 @@ export function isLiveProjectorRowId(rowId: string): boolean {
 /**
  * The first open of a new session can project `initial_prompt` as
  * `{conversationId}:user` before the live user row arrives. Drop that seed
- * once another user row carries the same text. Two real prompts that happen
- * to match stay, because neither uses the conversation id as its row id.
+ * once another user row or optimistic turn carries the same prompt. Two real
+ * prompts that happen to match stay, because neither uses the conversation id
+ * as its row id.
  */
 export function dropSeededInitialPrompt(
   conversationId: string,
-  rows: TimelineRow[]
+  rows: TimelineRow[],
+  optimisticTurns?: readonly MessageTurn[]
 ): TimelineRow[] {
   const seedId = `${conversationId}:user`;
   const seed = rows.find((row) => row.row_id === seedId);
@@ -576,14 +710,19 @@ export function dropSeededInitialPrompt(
     return rows;
   }
   const seedText = userTurnText(seed.row.turn);
-  const duplicated = rows.some(
+  const duplicatedInRows = rows.some(
     (row) =>
       row.row_id !== seedId &&
       row.row.kind === 'message_turn' &&
       row.row.turn.role === 'user' &&
       promptsMatch(userTurnText(row.row.turn), seedText)
   );
-  if (!duplicated) return rows;
+  const duplicatedInOptimistic =
+    optimisticTurns?.some((turn) => {
+      const optText = userTurnText(turn);
+      return seedText === '' ? optText === '' : promptsMatch(optText, seedText);
+    }) ?? false;
+  if (!duplicatedInRows && !duplicatedInOptimistic) return rows;
   return rows.filter((row) => row.row_id !== seedId);
 }
 
@@ -597,13 +736,17 @@ export function userTurnText(turn: MessageTurn): string {
 export function dedupeTurns(
   turns: ConversationTimelineTurn[]
 ): ConversationTimelineTurn[] {
+  if (turns.length <= 1) return turns;
   const retain = new Map<string, number>();
+  let hasDuplicate = false;
   turns.forEach((entry, index) => {
     const key = `${entry.turn.role}:${entry.turn.id}`;
+    if (retain.has(key)) hasDuplicate = true;
     if (!retain.has(key) || entry.turn.role !== 'user') {
       retain.set(key, index);
     }
   });
+  if (!hasDuplicate) return turns;
   return turns.filter((entry, index) => {
     const key = `${entry.turn.role}:${entry.turn.id}`;
     return retain.get(key) === index;
@@ -618,40 +761,86 @@ export function dedupeTurns(
  */
 export function withPendingAssistantTurns(
   entry: ConversationStoreEntry,
-  turns: ConversationTimelineTurn[]
+  turns: ConversationTimelineTurn[],
+  activeTurnFallback?: {
+    activeTurnId: string | null;
+    activeStartedAt: string | null;
+  }
 ): ConversationTimelineTurn[] {
-  const result = [...turns];
-  const assistantIds = new Set(
-    result
-      .filter((row) => row.turn.role === 'assistant')
-      .map((row) => row.turn.id)
-  );
+  const liveEntries = Object.entries(entry.liveText);
+  let result: ConversationTimelineTurn[] | null = null;
+  let assistantIds: Set<string> | null = null;
+  const ensureMutable = () => {
+    if (!result) result = [...turns];
+    if (!assistantIds) {
+      assistantIds = new Set(
+        result
+          .filter((row) => row.turn.role === 'assistant')
+          .map((row) => row.turn.id)
+      );
+    }
+    return { result, assistantIds };
+  };
+  const hasAssistantId = (id: string) =>
+    assistantIds
+      ? assistantIds.has(id)
+      : (result ?? turns).some(
+          (row) => row.turn.role === 'assistant' && row.turn.id === id
+        );
 
   const insertAfter = (
     userTurn: ConversationTimelineTurn,
     pending: ConversationTimelineTurn
   ) => {
-    const userIndex = result.findIndex(
+    const mutable = ensureMutable();
+    const userIndex = mutable.result.findIndex(
       (row) => row.turn.id === userTurn.turn.id
     );
-    result.splice(userIndex < 0 ? result.length : userIndex + 1, 0, pending);
-    assistantIds.add(pending.turn.id);
+    mutable.result.splice(
+      userIndex < 0 ? mutable.result.length : userIndex + 1,
+      0,
+      pending
+    );
+    mutable.assistantIds.add(pending.turn.id);
   };
 
-  for (const [rowId, overlay] of Object.entries(entry.liveText)) {
-    if (!rowId.endsWith(':assistant') || assistantIds.has(rowId)) continue;
+  for (const [rowId, overlay] of liveEntries) {
+    if (!rowId.endsWith(':assistant') || hasAssistantId(rowId)) continue;
+    const current = result ?? turns;
     const userId = `${rowId.slice(0, -':assistant'.length)}:user`;
-    let userTurn = result.find(
+    let userTurn = current.find(
       (row) => row.turn.role === 'user' && row.turn.id === userId
     );
     if (!userTurn) {
-      const lastRow = result[result.length - 1];
+      const lastRow = current[current.length - 1];
       if (lastRow && lastRow.turn.role === 'user') {
         userTurn = lastRow;
       }
     }
+    if (!userTurn) {
+      if (
+        (!entry.loadedToStart ||
+          Boolean(entry.detail?.timeline.truncated_from_start)) &&
+        activeTurnFallback?.activeTurnId &&
+        messageTurnPairKey(rowId) === activeTurnFallback.activeTurnId
+      ) {
+        const mutable = ensureMutable();
+        mutable.result.push({
+          key: `conversation-${rowId}`,
+          phase: 'streaming',
+          revision: overlay.revision,
+          turn: {
+            id: rowId,
+            role: 'assistant',
+            blocks: overlayLiveText([], overlay),
+            timestamp: activeTurnFallback.activeStartedAt ?? '',
+          },
+        });
+        mutable.assistantIds.add(rowId);
+      }
+      continue;
+    }
     if (
-      !userTurn ||
       userTurn.phase === 'settled' ||
       userTurn.phase === 'failed' ||
       userTurn.phase === 'cancelled' ||
@@ -676,25 +865,30 @@ export function withPendingAssistantTurns(
   // client row to the backend-projected streaming row. Keep one empty assistant
   // bubble across that handoff so the waiting indicator never disappears before
   // the first assistant delta arrives.
-  const pendingUser = [...result]
-    .reverse()
-    .find(
-      (row) =>
-        row.turn.role === 'user' &&
-        (row.phase === 'optimistic' || row.phase === 'streaming')
-    );
+  const current = result ?? turns;
+  let pendingUser: ConversationTimelineTurn | undefined;
+  for (let i = current.length - 1; i >= 0; i -= 1) {
+    const candidate = current[i]!;
+    if (
+      candidate.turn.role === 'user' &&
+      (candidate.phase === 'optimistic' || candidate.phase === 'streaming')
+    ) {
+      pendingUser = candidate;
+      break;
+    }
+  }
   if (pendingUser) {
-    const pendingUserIndex = result.findIndex(
+    const pendingUserIndex = current.findIndex(
       (row) => row.turn.id === pendingUser.turn.id
     );
     let hasFollowingAssistant = false;
     if (pendingUserIndex >= 0) {
       for (
         let index = pendingUserIndex + 1;
-        index < result.length;
+        index < current.length;
         index += 1
       ) {
-        const row = result[index];
+        const row = current[index];
         if (row?.turn.role === 'user' && !row.turn.id.includes(':steer:')) {
           break;
         }
@@ -707,14 +901,14 @@ export function withPendingAssistantTurns(
     const assistantId = pendingUser.turn.id.endsWith(':user')
       ? `${pendingUser.turn.id.slice(0, -':user'.length)}:assistant`
       : `${pendingUser.turn.id}:assistant`;
-    const hasOrphanAssistant = result.some(
+    const hasOrphanAssistant = current.some(
       (row) =>
         row.turn.role === 'assistant' &&
         isClientAssistantId(row.turn.id) &&
-        !hasPairedUser(result, row.turn.id)
+        !hasPairedUser(current, row.turn.id)
     );
     if (
-      !assistantIds.has(assistantId) &&
+      !hasAssistantId(assistantId) &&
       !hasFollowingAssistant &&
       !hasOrphanAssistant
     ) {
@@ -732,7 +926,7 @@ export function withPendingAssistantTurns(
     }
   }
 
-  return result;
+  return result ?? turns;
 }
 
 export function messageTurnPairKey(id: string): string | null {

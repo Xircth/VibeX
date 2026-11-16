@@ -12,7 +12,7 @@ export async function buildPlugin(root: string) {
   const pluginRoot = resolve(root);
   await mkdir(join(pluginRoot, "dist"), { recursive: true });
   const manifest = JSON.parse(
-    await readFile(join(pluginRoot, ".vibex-plugin", "plugin.json"), "utf8"),
+    await readFile(join(pluginRoot, ".dimo-plugin", "plugin.json"), "utf8"),
   ) as {
     integrations?: Array<{ id?: string; kind?: string; resource?: string }>;
     entrypoints?: {
@@ -55,8 +55,8 @@ export async function buildPlugin(root: string) {
           import definition from ${JSON.stringify(appSource)};
           const root = document.querySelector('#app') ?? document.body;
           const controller = new AbortController();
-          const surface = globalThis.vibexSurface;
-          if (!surface) throw new Error('vibex_app_surface_unavailable');
+          const surface = globalThis.dimoSurface;
+          if (!surface) throw new Error('dimo_app_surface_unavailable');
           const bootstrap = await surface.ready;
           const artifact = bootstrap.artifact ? Object.freeze({
             name: bootstrap.artifact.name,
@@ -71,8 +71,8 @@ export async function buildPlugin(root: string) {
             subscribe: (channel, listener) => {
               if (channel !== 'context') throw new Error('app_subscription_unsupported');
               const receive = (event) => listener(event.detail);
-              addEventListener('vibexsurfacecontext', receive);
-              return () => removeEventListener('vibexsurfacecontext', receive);
+              addEventListener('dimosurfacecontext', receive);
+              return () => removeEventListener('dimosurfacecontext', receive);
             },
             ready: () => { void surface.request('surface.ready'); },
           });
@@ -85,7 +85,7 @@ export async function buildPlugin(root: string) {
           }, { once: true });
         `,
         resolveDir: pluginRoot,
-        sourcefile: "vibex-app-bootstrap.mjs",
+        sourcefile: "dimo-app-bootstrap.mjs",
         loader: "js",
       },
       bundle: true,
@@ -211,9 +211,9 @@ async function buildProtocol2App(
         "react",
         "react/jsx-runtime",
         "react/jsx-dev-runtime",
-        "@vibex/plugin-sdk",
-        "@vibex/plugin-sdk/app",
-        "@vibex/plugin-sdk/worker",
+        "@dimoai/plugin-sdk",
+        "@dimoai/plugin-sdk/app",
+        "@dimoai/plugin-sdk/worker",
       ],
       sourcemap: false,
       minifyWhitespace: true,
@@ -252,12 +252,12 @@ async function exists(path: string) {
 export function sdkAliases() {
   const require = createRequire(import.meta.url);
   return {
-    "@vibex/plugin-sdk": require.resolve("@vibex/plugin-sdk"),
-    "@vibex/plugin-sdk/worker": require.resolve("@vibex/plugin-sdk/worker"),
-    "@vibex/plugin-sdk/app": require.resolve("@vibex/plugin-sdk/app"),
-    "@vibex/plugin-sdk/testing": require.resolve("@vibex/plugin-sdk/testing"),
-    "@vibex/plugin-sdk/protocol": require.resolve("@vibex/plugin-sdk/protocol"),
-    "@vibex/plugin-sdk/stdio": require.resolve("@vibex/plugin-sdk/stdio"),
+    "@dimoai/plugin-sdk": require.resolve("@dimoai/plugin-sdk"),
+    "@dimoai/plugin-sdk/worker": require.resolve("@dimoai/plugin-sdk/worker"),
+    "@dimoai/plugin-sdk/app": require.resolve("@dimoai/plugin-sdk/app"),
+    "@dimoai/plugin-sdk/testing": require.resolve("@dimoai/plugin-sdk/testing"),
+    "@dimoai/plugin-sdk/protocol": require.resolve("@dimoai/plugin-sdk/protocol"),
+    "@dimoai/plugin-sdk/stdio": require.resolve("@dimoai/plugin-sdk/stdio"),
     react: require.resolve("react"),
     "react-dom": require.resolve("react-dom"),
     "react-dom/client": require.resolve("react-dom/client"),

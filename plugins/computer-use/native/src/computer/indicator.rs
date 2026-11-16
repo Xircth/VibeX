@@ -2,11 +2,11 @@
 //! screen: up while any window is shared, naming what they may do and where,
 //! with a Stop button on it. Actions happen in the background, in windows
 //! the person may not be looking at (at the front only for a moment, where
-//! they allow it), and the vibex window with the rest of
+//! they allow it), and the dimo window with the rest of
 //! the panel may be hidden; this is the part of computer use that is never
 //! out of sight.
 //!
-//! A vibex window of its own — agents can never act on it — at the top of the
+//! A dimo window of its own — agents can never act on it — at the top of the
 //! main screen, above other windows and on every Space, never taking focus
 //! (a click on Stop works without it), and draggable out of the way. Made the
 //! first time something is shared, then hidden rather than closed, so it
@@ -108,7 +108,7 @@ fn window(app: &AppHandle) -> Option<WebviewWindow> {
         INDICATOR_LABEL,
         WebviewUrl::App("computer-indicator".into()),
     )
-    .title("VibeX")
+    .title("Dimo")
     .inner_size(WIDTH, HEIGHT)
     .resizable(false)
     .decorations(false)

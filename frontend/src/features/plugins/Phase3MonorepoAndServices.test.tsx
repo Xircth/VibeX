@@ -7,7 +7,7 @@ import {
   slashCommandRegistry,
   slotRegistry,
   viewRegistry,
-} from '@vibex/plugin-sdk';
+} from '@dimoai/plugin-sdk';
 import { agentManagementApi } from '@/features/agent-management/api';
 import type { PlanUsageResult } from 'shared/types';
 import { pluginRuntimeLoader } from './PluginRuntimeLoader';
@@ -98,39 +98,39 @@ describe('Phase 3: Monorepo Official Plugins, Host Provider Services & Cross-Plu
       const contextMenuIds = slotRegistry
         .getBySlot('message.context-menu')
         .map((s) => s.id);
-      expect(contextMenuIds).toContain('vibex.notes.capture-selection');
+      expect(contextMenuIds).toContain('dimo.notes.capture-selection');
 
       // Verify services provided by monorepo plugins
-      expect(serviceContainer.has('vibex.provider-catalog')).toBe(true);
-      expect(serviceContainer.has('vibex.session-enhance')).toBe(true);
+      expect(serviceContainer.has('dimo.provider-catalog')).toBe(true);
+      expect(serviceContainer.has('dimo.session-enhance')).toBe(true);
       expect(slotRegistry.has('session-enhance-status')).toBe(true);
       expect(slotRegistry.get('session-enhance-status')?.label).toBe(
         'Session Enhance (2 templates)'
       );
-      expect(serviceContainer.has('vibex.browser')).toBe(true);
-      expect(serviceContainer.has('vibex.office')).toBe(true);
-      expect(serviceContainer.has('vibex.workflow-creator')).toBe(true);
-      expect(serviceContainer.has('vibex.remote-ssh')).toBe(true);
-      expect(serviceContainer.has('vibex.science')).toBe(true);
-      expect(serviceContainer.has('vibex.computer-use')).toBe(true);
-      expect(serviceContainer.has('vibex.kanban-views')).toBe(true);
-      expect(serviceContainer.has('vibex.notes')).toBe(true);
-      expect(serviceContainer.has('vibex.prompt-enhancer')).toBe(true);
+      expect(serviceContainer.has('dimo.browser')).toBe(true);
+      expect(serviceContainer.has('dimo.office')).toBe(true);
+      expect(serviceContainer.has('dimo.workflow-creator')).toBe(true);
+      expect(serviceContainer.has('dimo.remote-ssh')).toBe(true);
+      expect(serviceContainer.has('dimo.science')).toBe(true);
+      expect(serviceContainer.has('dimo.computer-use')).toBe(true);
+      expect(serviceContainer.has('dimo.kanban-views')).toBe(true);
+      expect(serviceContainer.has('dimo.notes')).toBe(true);
+      expect(serviceContainer.has('dimo.prompt-enhancer')).toBe(true);
 
       // Verify in-process React views registered natively onto the v2 foundation
       expect(
-        settingsPageRegistry.get('vibex.browser:browser-settings')?.component
+        settingsPageRegistry.get('dimo.browser:browser-settings')?.component
       ).toBeTypeOf('function');
       expect(
-        settingsPageRegistry.get('vibex-plugin-computer-use:computer-use')
+        settingsPageRegistry.get('dimo-plugin-computer-use:computer-use')
           ?.component
       ).toBeTypeOf('function');
       expect(
-        viewRegistry.get('vibex-plugin-computer-use:computer-use-status')
+        viewRegistry.get('dimo-plugin-computer-use:computer-use-status')
           ?.component
       ).toBeTypeOf('function');
       expect(
-        viewRegistry.get('vibex.remote-ssh:connect-panel')?.component
+        viewRegistry.get('dimo.remote-ssh:connect-panel')?.component
       ).toBeTypeOf('function');
       expect(
         settingsPageRegistry
@@ -139,22 +139,22 @@ describe('Phase 3: Monorepo Official Plugins, Host Provider Services & Cross-Plu
           .map((page) => `${page.pluginId}:${page.id}`)
           .sort()
       ).toEqual([
-        'vibex-plugin-computer-use:computer-use',
-        'vibex.browser:browser-settings',
+        'dimo-plugin-computer-use:computer-use',
+        'dimo.browser:browser-settings',
       ]);
 
-      // Disabling upstream vibex.provider-switch automatically suspends vibex.session-enhance
-      pluginRuntimeLoader.deactivate('vibex.provider-switch');
-      expect(serviceContainer.has('vibex.provider-catalog')).toBe(false);
-      expect(serviceContainer.has('vibex.session-enhance')).toBe(false);
+      // Disabling upstream dimo.provider-switch automatically suspends dimo.session-enhance
+      pluginRuntimeLoader.deactivate('dimo.provider-switch');
+      expect(serviceContainer.has('dimo.provider-catalog')).toBe(false);
+      expect(serviceContainer.has('dimo.session-enhance')).toBe(false);
       expect(slotRegistry.has('session-enhance-status')).toBe(false);
 
-      // Re-enabling vibex.provider-switch automatically resumes vibex.session-enhance
+      // Re-enabling dimo.provider-switch automatically resumes dimo.session-enhance
       await bootstrapMonorepoOfficialPlugins({
-        onlyIds: ['vibex.provider-switch'],
+        onlyIds: ['dimo.provider-switch'],
       });
-      expect(serviceContainer.has('vibex.provider-catalog')).toBe(true);
-      expect(serviceContainer.has('vibex.session-enhance')).toBe(true);
+      expect(serviceContainer.has('dimo.provider-catalog')).toBe(true);
+      expect(serviceContainer.has('dimo.session-enhance')).toBe(true);
       expect(slotRegistry.has('session-enhance-status')).toBe(true);
     } finally {
       fetchSpy.mockRestore();
@@ -165,7 +165,7 @@ describe('Phase 3: Monorepo Official Plugins, Host Provider Services & Cross-Plu
     const pluginA = {
       apiVersion: '2.0' as const,
       id: 'plugin.usage-provider',
-      activate(ctx: import('@vibex/plugin-sdk').VibeXPluginContext) {
+      activate(ctx: import('@dimoai/plugin-sdk').DimoPluginContext) {
         ctx.services.provide('custom.usage-feed', {
           getQuotaRemaining: () => 88,
         });
@@ -175,7 +175,7 @@ describe('Phase 3: Monorepo Official Plugins, Host Provider Services & Cross-Plu
     const pluginB = {
       apiVersion: '2.0' as const,
       id: 'plugin.usage-consumer',
-      activate(ctx: import('@vibex/plugin-sdk').VibeXPluginContext) {
+      activate(ctx: import('@dimoai/plugin-sdk').DimoPluginContext) {
         ctx.services.inject(
           ['custom.usage-feed'],
           ([feed]: [{ getQuotaRemaining: () => number }]) => {
@@ -223,10 +223,10 @@ describe('Phase 3: Monorepo Official Plugins, Host Provider Services & Cross-Plu
   it('suspends and resumes dependent plugin automatically when manifest dependencies.kind=plugin is declared', async () => {
     const upstreamModule = {
       apiVersion: '2.0' as const,
-      id: 'vibex.base-toolkit',
-      activate(ctx: import('@vibex/plugin-sdk').VibeXPluginContext) {
+      id: 'dimo.base-toolkit',
+      activate(ctx: import('@dimoai/plugin-sdk').DimoPluginContext) {
         ctx.ui.registerCommand({
-          id: 'vibex.base-toolkit.ping',
+          id: 'dimo.base-toolkit.ping',
           title: 'Base Toolkit Ping',
           handler: () => undefined,
         });
@@ -235,10 +235,10 @@ describe('Phase 3: Monorepo Official Plugins, Host Provider Services & Cross-Plu
 
     const dependentModule = {
       apiVersion: '2.0' as const,
-      id: 'vibex.dependent-feature',
-      activate(ctx: import('@vibex/plugin-sdk').VibeXPluginContext) {
+      id: 'dimo.dependent-feature',
+      activate(ctx: import('@dimoai/plugin-sdk').DimoPluginContext) {
         ctx.ui.registerCommand({
-          id: 'vibex.dependent-feature.run',
+          id: 'dimo.dependent-feature.run',
           title: 'Run Dependent Feature',
           handler: () => undefined,
         });
@@ -246,42 +246,42 @@ describe('Phase 3: Monorepo Official Plugins, Host Provider Services & Cross-Plu
     };
 
     await pluginRuntimeLoader.activateModule(
-      'vibex.base-toolkit',
+      'dimo.base-toolkit',
       upstreamModule
     );
     await pluginRuntimeLoader.activateModule(
-      'vibex.dependent-feature',
+      'dimo.dependent-feature',
       dependentModule,
       {
         spec: {
-          id: 'vibex.dependent-feature',
+          id: 'dimo.dependent-feature',
           dependencies: [
-            { kind: 'plugin', id: 'vibex.base-toolkit', required: true },
+            { kind: 'plugin', id: 'dimo.base-toolkit', required: true },
           ],
         },
       }
     );
 
-    expect(commandRegistry.has('vibex.dependent-feature.run')).toBe(true);
+    expect(commandRegistry.has('dimo.dependent-feature.run')).toBe(true);
 
     // Disable upstream -> dependent is automatically suspended
-    pluginRuntimeLoader.deactivate('vibex.base-toolkit');
-    expect(commandRegistry.has('vibex.dependent-feature.run')).toBe(false);
+    pluginRuntimeLoader.deactivate('dimo.base-toolkit');
+    expect(commandRegistry.has('dimo.dependent-feature.run')).toBe(false);
 
     // Re-enable upstream -> dependent automatically resumes
     await pluginRuntimeLoader.activateModule(
-      'vibex.base-toolkit',
+      'dimo.base-toolkit',
       upstreamModule
     );
-    expect(commandRegistry.has('vibex.dependent-feature.run')).toBe(true);
+    expect(commandRegistry.has('dimo.dependent-feature.run')).toBe(true);
   });
 
-  it('allows plugins to extend and intercept vibex.usage, vibex.model-catalog, and vibex.editor host services', async () => {
+  it('allows plugins to extend and intercept dimo.usage, dimo.model-catalog, and dimo.editor host services', async () => {
     const extenderPlugin = {
       apiVersion: '2.0' as const,
       id: 'plugin.host-provider-extender',
-      activate(ctx: import('@vibex/plugin-sdk').VibeXPluginContext) {
-        // 1. Extend vibex.usage via registerUsageProber + service intercept
+      activate(ctx: import('@dimoai/plugin-sdk').DimoPluginContext) {
+        // 1. Extend dimo.usage via registerUsageProber + service intercept
         const usageService = getUsageProviderService();
         const disposeProber = usageService.registerUsageProber({
           id: 'custom-usage-prober',
@@ -298,7 +298,7 @@ describe('Phase 3: Monorepo Official Plugins, Host Provider Services & Cross-Plu
         ctx.effect(() => disposeProber);
 
         ctx.services.intercept(
-          'vibex.usage',
+          'dimo.usage',
           (
             prev: import('./providers/hostProviderServices').UsageProviderService
           ) => ({
@@ -318,7 +318,7 @@ describe('Phase 3: Monorepo Official Plugins, Host Provider Services & Cross-Plu
           })
         );
 
-        // 2. Extend vibex.editor with a custom external editor opener
+        // 2. Extend dimo.editor with a custom external editor opener
         const editorService = getEditorOpenerService();
         const disposeEditor = editorService.registerEditorOpener({
           id: 'NEOVIM_GUI',

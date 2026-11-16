@@ -8,11 +8,16 @@ import {
   ConversationStatusProvider,
   useConversationStatus,
 } from '@/contexts/ConversationStatusContext';
+import { EntriesProvider, useEntries } from '@/contexts/EntriesContext';
 import { ConversationStatusDock } from '@/components/tasks/follow-up/ConversationStatusDock';
+import { hasPendingToolApproval } from '@/components/tasks/follow-up/sessionComposerSubmit';
 import { getConversationTimelineView } from '@/features/conversation/conversationTimelineRegistry';
 import type { ConversationTimelineTurn } from '@/features/conversation/conversationStore';
 import { AGENT_CONNECTION_RECOVERING_NOTICE_ROW_ID } from '@/features/conversation/sessionNoticeNeedsRebind';
-import ConversationTimeline from './ConversationTimeline';
+import ConversationTimeline, {
+  buildResendTurnPayload,
+  timelineToPatchEntries,
+} from './ConversationTimeline';
 
 const AGENT_CONNECTION_STATUS_ROW_ID = 'runtime:connection';
 const AGENT_REQUEST_STATUS_ROW_ID = 'runtime:request';
@@ -389,5 +394,151 @@ describe('ConversationTimeline runtime status placement & localization', () => {
 
     expect(container.textContent).not.toContain('runtime.request.waiting_agent');
     expect(container.textContent).toContain('等待 Agent 响应');
+  });
+
+  it('populates EntriesContext.entries from ConversationTimeline including pending tool approvals', () => {
+    function EntriesMirror() {
+      const { entries } = useEntries();
+      return (
+        <div
+          data-testid="entries-mirror"
+          data-count={entries.length}
+          data-pending-approval={String(hasPendingToolApproval(entries))}
+        />
+      );
+    }
+
+    history.view = makeView(
+      [
+        {
+          key: 'u1',
+          phase: 'settled',
+          revision: 1n,
+          turn: {
+            id: 'turn-1:user',
+            role: 'user',
+            timestamp: '2026-11-15T00:00:00Z',
+            blocks: [{ type: 'text', text: 'Run tests' }],
+          },
+        },
+        {
+          key: 'a1',
+          phase: 'streaming',
+          revision: 2n,
+          turn: {
+            id: 'turn-1:assistant',
+            role: 'assistant',
+            timestamp: '2026-11-15T00:00:01Z',
+            blocks: [
+              {
+                type: 'tool_use',
+                tool_use_id: 'call-1',
+                tool_name: 'Bash',
+                input_preview: JSON.stringify({ command: 'pnpm test' }),
+              },
+            ],
+          },
+        },
+      ],
+      [
+        {
+          row_id: 'perm-row-1',
+          revision: 1n,
+          row: {
+            kind: 'permission_request',
+            request: {
+              permission_id: 'perm-1',
+              title: 'Run pnpm test',
+              status: 'pending',
+              details: {
+                toolCallId: 'call-1',
+                toolName: 'Bash',
+              },
+              options: [],
+            },
+          },
+        },
+      ]
+    );
+
+    render(
+      <MemoryRouter
+        future={{ v7_startTransition: true, v7_relativeSplatPath: true }}
+      >
+        <QueryClientProvider client={queryClient}>
+          <EntriesProvider>
+            <ConversationStatusProvider>
+              <ConversationTimeline attempt={attempt} task={null} />
+              <EntriesMirror />
+            </ConversationStatusProvider>
+          </EntriesProvider>
+        </QueryClientProvider>
+      </MemoryRouter>
+    );
+
+    const mirror = screen.getByTestId('entries-mirror');
+    expect(Number(mirror.getAttribute('data-count'))).toBe(2);
+    expect(mirror).toHaveAttribute('data-pending-approval', 'true');
+
+    expect(
+      timelineToPatchEntries(history.view.timeline, history.view.sideRows, [])
+    ).toHaveLength(2);
+  });
+
+  it('preserves images, fileRefs, workflowRefs, modeOverride, and configOverrides in buildResendTurnPayload', () => {
+    const payload = buildResendTurnPayload({
+      turn: {
+        id: 'turn-retry:user',
+        role: 'user',
+        timestamp: '2026-11-15T00:00:00Z',
+        blocks: [
+          {
+            type: 'text',
+            text: 'Check [@:App.tsx](src/App.tsx) [!:vibex.office/create-presentation|PPT]()',
+          },
+          {
+            type: 'image',
+            data: '',
+            mime_type: 'image/png',
+            uri: '.vibe-images/mock.png',
+          },
+        ],
+      },
+      sessionModes: {
+        current: 'architect',
+        modes: [{ id: 'architect', label: 'Architect', description: null }],
+      },
+      sessionConfigOptions: [
+        {
+          key: 'model',
+          label: 'Model',
+          value: 'gpt-5.4',
+        },
+        {
+          key: 'reasoning_effort',
+          label: 'Reasoning',
+          value: 'high',
+        },
+      ],
+    });
+
+    expect(payload).toEqual({
+      text: 'Check src/App.tsx',
+      displayText:
+        'Check [@:App.tsx](src/App.tsx) [!:vibex.office/create-presentation|PPT]()',
+      images: ['.vibe-images/mock.png'],
+      fileRefs: [{ path: 'src/App.tsx' }],
+      workflowRefs: [
+        {
+          pluginId: 'vibex.office',
+          workflowId: 'create-presentation',
+        },
+      ],
+      modeOverride: 'architect',
+      configOverrides: [
+        { key: 'model', value: 'gpt-5.4' },
+        { key: 'reasoning_effort', value: 'high' },
+      ],
+    });
   });
 });

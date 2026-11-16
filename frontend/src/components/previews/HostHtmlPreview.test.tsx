@@ -47,7 +47,7 @@ describe('HostHtmlPreview', () => {
     const sandbox = frame.getAttribute('sandbox') ?? '';
     expect(sandbox).toContain('allow-scripts');
     // Without allow-same-origin the page keeps an opaque origin, so it cannot
-    // reach the VibeX DOM or the Tauri bridge.
+    // reach the Dimo DOM or the Tauri bridge.
     expect(sandbox).not.toContain('allow-same-origin');
   });
 

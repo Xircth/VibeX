@@ -7,9 +7,9 @@ import {
   slashCommandRegistry,
   slotRegistry,
   viewRegistry,
-  type VibeXPluginContext,
-  type VibexPluginModule,
-} from '@vibex/plugin-sdk';
+  type DimoPluginContext,
+  type DimoPluginModule,
+} from '@dimoai/plugin-sdk';
 import { useEffect, useState } from 'react';
 
 import {
@@ -54,11 +54,11 @@ export function getCoreFoundationPluginDescriptor(
 
 export function createCoreFoundationModule(
   descriptor: CoreFoundationPluginDescriptor
-): VibexPluginModule {
+): DimoPluginModule {
   return {
     apiVersion: '2.0',
     id: descriptor.id,
-    activate(ctx: VibeXPluginContext) {
+    activate(ctx: DimoPluginContext) {
       descriptor.onActivate(ctx);
       for (const serviceKey of descriptor.provides) {
         if (!serviceContainer.has(serviceKey)) {

@@ -1,11 +1,11 @@
-import type { VibeXPluginManifest } from "@vibex/plugin-sdk";
+import type { DimoPluginManifest } from "@dimoai/plugin-sdk";
 export type PluginIdentity = {
     publisher: string;
     id: string;
 };
 export interface LinkedPackage {
     root: string;
-    manifest: VibeXPluginManifest;
+    manifest: DimoPluginManifest;
     identity: PluginIdentity;
     packageDigest: string;
 }

@@ -79,7 +79,7 @@ pub struct ConversationActiveBinding {
     pub status: String,
     pub capabilities: AcpCapabilitySnapshot,
     /// True when this binding was created while MultiAgent collaboration was on,
-    /// so Host delivered `vibex-delegation-mcp` on that session new/resume/rebind.
+    /// so Host delivered `dimo-delegation-mcp` on that session new/resume/rebind.
     #[serde(default)]
     pub delegation_mcp_delivered: bool,
 }

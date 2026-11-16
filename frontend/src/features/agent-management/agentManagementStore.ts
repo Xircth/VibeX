@@ -114,7 +114,7 @@ export function beginQueuedOperation(
         status: receipt.status,
         progressPercent: 0,
         message: null,
-        logs: [`$ vibex agent ${receipt.kind} ${receipt.agent_id}`],
+        logs: [`$ dimo agent ${receipt.kind} ${receipt.agent_id}`],
         sequence: state.lastEventSequence,
       },
     },

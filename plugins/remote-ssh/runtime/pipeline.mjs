@@ -85,7 +85,7 @@ export function formatSshHostConfig(name, target) {
     .replace(/^-+|-+$/g, '')
     .slice(0, 32) || 'host';
   const lines = [
-    `# VibeX Host: ${name}`,
+    `# Dimo Host: ${name}`,
     `Host ${alias}`,
     `  HostName ${target.host}`,
     `  User ${target.user}`,
@@ -125,8 +125,8 @@ export function pickDurableOrigin(addresses, sshHost, servicePort = REMOTE_PORT)
 export function isPluginManagedInstallPath(path) {
   const value = String(path ?? '').replace(/\\/g, '/');
   if (!value) return false;
-  if (value.includes('/.vibex/host-family/')) return true;
-  return /\/\.local\/bin\/vibex(\.cmd|\.exe)?$/i.test(value);
+  if (value.includes('/.dimo/host-family/')) return true;
+  return /\/\.local\/bin\/dimo(\.cmd|\.exe)?$/i.test(value);
 }
 
 export function execStartPath(raw) {
@@ -139,15 +139,15 @@ export function remoteProbeScript() {
     'export PATH="$HOME/.local/bin:$PATH"',
     'printf \'os=%s\\narch=%s\\n\' "$(uname -s | tr A-Z a-z)" "$(uname -m)"',
     'printf \'glibc=%s\\n\' "$(getconf GNU_LIBC_VERSION 2>/dev/null | awk \'{print $NF}\')"',
-    'command -v vibex || true',
-    'command -v vibex-server || true',
+    'command -v dimo || true',
+    'command -v dimo-server || true',
     'printf \'node=%s\\n\' "$(command -v node 2>/dev/null || true)"',
     'printf \'npm=%s\\n\' "$(command -v npm 2>/dev/null || true)"',
     'printf \'home=%s\\n\' "$HOME"',
     'printf \'health=%s\\n\' "$(curl -fsS --max-time 2 http://127.0.0.1:17891/health 2>/dev/null || true)"',
     'exe=""',
     'if command -v pgrep >/dev/null 2>&1; then',
-    '  pid=$(pgrep -n -x vibex-server 2>/dev/null || true)',
+    '  pid=$(pgrep -n -x dimo-server 2>/dev/null || true)',
     '  if [ -n "$pid" ] && [ -r "/proc/$pid/exe" ]; then exe=$(readlink -f "/proc/$pid/exe" 2>/dev/null || true)',
     '  elif [ -n "$pid" ]; then exe=$(ps -ww -o args= -p "$pid" 2>/dev/null | awk \'{print $1}\')',
     '  fi',
@@ -155,8 +155,8 @@ export function remoteProbeScript() {
     'printf \'exe=%s\\n\' "$exe"',
     'execstart=""',
     'if command -v systemctl >/dev/null 2>&1; then',
-    '  execstart=$(systemctl show -p ExecStart --value vibex-server.service 2>/dev/null || true)',
-    '  if [ -z "$execstart" ]; then execstart=$(systemctl --user show -p ExecStart --value vibex-server.service 2>/dev/null || true); fi',
+    '  execstart=$(systemctl show -p ExecStart --value dimo-server.service 2>/dev/null || true)',
+    '  if [ -z "$execstart" ]; then execstart=$(systemctl --user show -p ExecStart --value dimo-server.service 2>/dev/null || true); fi',
     'fi',
     'printf \'execstart=%s\\n\' "$execstart"',
   ].join('\n');
@@ -179,8 +179,8 @@ export function parseProbeOutput(output) {
   const npm = /^npm=(.*)$/m.exec(text)?.[1]?.trim() ?? '';
   const running = /"status"\s*:\s*"ok"/.test(health);
   const hasLauncher =
-    /(^|\n)\/.+\bvibex\b/.test(text) || text.includes('/vibex\n');
-  const hasServer = text.includes('vibex-server');
+    /(^|\n)\/.+\bdimo\b/.test(text) || text.includes('/dimo\n');
+  const hasServer = text.includes('dimo-server');
   return {
     os,
     arch,
@@ -206,7 +206,7 @@ export function remoteUnpackNodeScript(archivePath, platform) {
   const safePlatform = String(platform).replace(/[^A-Za-z0-9._-]/g, '');
   const version = MANAGED_NODE_VERSION.replace(/[^A-Za-z0-9._-]/g, '');
   const target = String(artifact.target).replace(/[^A-Za-z0-9._-]/g, '');
-  const prefix = `$HOME/.local/share/vibex/agent-tools/node/${version}/${safePlatform}`;
+  const prefix = `$HOME/.local/share/dimo/agent-tools/node/${version}/${safePlatform}`;
   const bin = `${prefix}/node-v${version}-${target}/bin`;
   return [
     'set -eu',
@@ -223,7 +223,7 @@ export function remoteUnpackNodeScript(archivePath, platform) {
     'mkdir -p "$HOME/.local/bin"',
     'write_shim() {',
     '  name=$1',
-    '  printf \'#!/bin/sh\\n# VibeX toolchain: %s\\nPATH="%s":"$PATH"\\nexport PATH\\nexec "%s/%s" "$@"\\n\' "$name" "$bin" "$bin" "$name" > "$HOME/.local/bin/$name"',
+    '  printf \'#!/bin/sh\\n# Dimo toolchain: %s\\nPATH="%s":"$PATH"\\nexport PATH\\nexec "%s/%s" "$@"\\n\' "$name" "$bin" "$bin" "$name" > "$HOME/.local/bin/$name"',
     '  chmod +x "$HOME/.local/bin/$name"',
     '}',
     'write_shim node',
@@ -261,11 +261,11 @@ function remotePrintAddrsLines() {
 function remoteFindBinLines() {
   return [
     'bin=""',
-    'if [ -x "$HOME/.local/bin/vibex" ]; then bin="$HOME/.local/bin/vibex"',
-    'elif command -v vibex >/dev/null 2>&1; then bin=$(command -v vibex)',
-    'elif command -v vibex-server >/dev/null 2>&1; then bin=$(command -v vibex-server)',
+    'if [ -x "$HOME/.local/bin/dimo" ]; then bin="$HOME/.local/bin/dimo"',
+    'elif command -v dimo >/dev/null 2>&1; then bin=$(command -v dimo)',
+    'elif command -v dimo-server >/dev/null 2>&1; then bin=$(command -v dimo-server)',
     'else',
-    '  for candidate in "$HOME/.vibex/host-family/"*/*/family/vibex-server; do',
+    '  for candidate in "$HOME/.dimo/host-family/"*/*/family/dimo-server; do',
     '    if [ -x "$candidate" ]; then bin=$candidate; break; fi',
     '  done',
     'fi',
@@ -277,7 +277,7 @@ export function reuseExistingStartScript(dataDir) {
   return [
     'set -eu',
     'export PATH="$HOME/.local/bin:$PATH"',
-    dir ? `export VIBEX_DATA_DIR='${dir.replace(/'/g, `'\\''`)}'` : '',
+    dir ? `export DIMO_DATA_DIR='${dir.replace(/'/g, `'\\''`)}'` : '',
     ...remotePrintAddrsLines(),
     'if curl -fsS --max-time 2 http://127.0.0.1:17891/health >/dev/null 2>&1; then',
     "  printf 'already-running\\n'",
@@ -286,19 +286,19 @@ export function reuseExistingStartScript(dataDir) {
     'fi',
     'started_with=nohup',
     'if command -v systemctl >/dev/null 2>&1; then',
-    '  if [ "$(id -u)" -eq 0 ] && [ -f /etc/systemd/system/vibex-server.service ]; then',
-    '    if systemctl start vibex-server.service; then started_with=systemd; fi',
-    '  elif [ -f "$HOME/.config/systemd/user/vibex-server.service" ]; then',
-    '    if systemctl --user start vibex-server.service; then started_with=systemd-user; fi',
+    '  if [ "$(id -u)" -eq 0 ] && [ -f /etc/systemd/system/dimo-server.service ]; then',
+    '    if systemctl start dimo-server.service; then started_with=systemd; fi',
+    '  elif [ -f "$HOME/.config/systemd/user/dimo-server.service" ]; then',
+    '    if systemctl --user start dimo-server.service; then started_with=systemd-user; fi',
     '  fi',
     'fi',
     ...remoteFindBinLines(),
     'if [ "$started_with" = nohup ]; then',
     '  if [ -z "$bin" ]; then',
-    "    printf 'vibex-server is not installed\\n' >&2",
+    "    printf 'dimo-server is not installed\\n' >&2",
     '    exit 1',
     '  fi',
-    '  nohup "$bin" serve --port 17891 >/tmp/vibex-server.log 2>&1 &',
+    '  nohup "$bin" serve --port 17891 >/tmp/dimo-server.log 2>&1 &',
     'fi',
     'for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do',
     '  if curl -fsS --max-time 2 http://127.0.0.1:17891/health >/dev/null 2>&1; then',
@@ -308,8 +308,8 @@ export function reuseExistingStartScript(dataDir) {
     '  fi',
     '  sleep 1',
     'done',
-    "printf 'vibex-server did not become healthy\\n' >&2",
-    'tail -n 40 /tmp/vibex-server.log >&2 || true',
+    "printf 'dimo-server did not become healthy\\n' >&2",
+    'tail -n 40 /tmp/dimo-server.log >&2 || true',
     'exit 1',
   ]
     .filter(Boolean)
@@ -456,7 +456,7 @@ export function createPipeline(deps) {
       `archive='${archive}'`,
       `tag='${safeTag}'`,
       `platform='${safePlatform}'`,
-      'family_root="$HOME/.vibex/host-family/$tag/$platform/family"',
+      'family_root="$HOME/.dimo/host-family/$tag/$platform/family"',
       'TEMP=$(mktemp -d)',
       'tar -xzf "$archive" -C "$TEMP"',
       'unpacked="$TEMP/$platform"',
@@ -465,10 +465,10 @@ export function createPipeline(deps) {
       'rm -rf "$family_root"',
       'mkdir -p "$(dirname "$family_root")"',
       'mv "$unpacked" "$family_root"',
-      'chmod +x "$family_root/vibex-server" "$family_root/vibex-mcp" "$family_root/vibex-workflow-mcp" 2>/dev/null || true',
+      'chmod +x "$family_root/dimo-server" "$family_root/dimo-mcp" "$family_root/dimo-workflow-mcp" 2>/dev/null || true',
       'mkdir -p "$HOME/.local/bin"',
-      'printf \'#!/bin/sh\\nif [ $# -eq 0 ]; then exec "%s/vibex-server" serve; fi\\nexec "%s/vibex-server" "$@"\\n\' "$family_root" "$family_root" > "$HOME/.local/bin/vibex"',
-      'chmod +x "$HOME/.local/bin/vibex"',
+      'printf \'#!/bin/sh\\nif [ $# -eq 0 ]; then exec "%s/dimo-server" serve; fi\\nexec "%s/dimo-server" "$@"\\n\' "$family_root" "$family_root" > "$HOME/.local/bin/dimo"',
+      'chmod +x "$HOME/.local/bin/dimo"',
       'rm -f "$archive"',
       "printf 'installed\\n'",
     ].join('\n');
@@ -522,7 +522,7 @@ export function createPipeline(deps) {
       return;
     }
     const archive = nodeArchiveName(platform);
-    const tmp = await mkdtemp(join(tmpdir(), 'vibex-node-'));
+    const tmp = await mkdtemp(join(tmpdir(), 'dimo-node-'));
     const localArchive = join(tmp, archive);
     const remoteArchive = `/tmp/${archive}`;
     try {
@@ -562,8 +562,8 @@ export function createPipeline(deps) {
       const fetchImpl = deps.fetchImpl ?? globalThis.fetch.bind(globalThis);
       const platform = platformFromProbe(seen);
       const tag = await resolveLatestTag(GITHUB_REPO, { fetchImpl });
-      const archive = `VibeX-${tag.replace(/^v/, '')}-${platform}-server.tar.gz`;
-      const tmp = await mkdtemp(join(tmpdir(), 'vibex-host-family-'));
+      const archive = `Dimo-${tag.replace(/^v/, '')}-${platform}-server.tar.gz`;
+      const tmp = await mkdtemp(join(tmpdir(), 'dimo-host-family-'));
       const localArchive = join(tmp, archive);
       const remoteArchive = `/tmp/${archive}`;
       try {
@@ -603,7 +603,7 @@ export function createPipeline(deps) {
     const script = [
       'set -eu',
       'export PATH="$HOME/.local/bin:$PATH"',
-      dir ? `export VIBEX_DATA_DIR='${dir.replace(/'/g, `'\\''`)}'` : '',
+      dir ? `export DIMO_DATA_DIR='${dir.replace(/'/g, `'\\''`)}'` : '',
       'print_addrs() {',
       '  printf \'http://127.0.0.1:17891\\n\'',
       '  if command -v hostname >/dev/null 2>&1; then',
@@ -615,16 +615,16 @@ export function createPipeline(deps) {
       '  if [ -n "$pub" ]; then printf \'http://%s:17891\\n\' "$pub"; fi',
       '}',
       'bin=""',
-      'if [ -x "$HOME/.local/bin/vibex" ]; then bin="$HOME/.local/bin/vibex"',
-      'elif command -v vibex >/dev/null 2>&1; then bin=$(command -v vibex)',
-      'elif command -v vibex-server >/dev/null 2>&1; then bin=$(command -v vibex-server)',
+      'if [ -x "$HOME/.local/bin/dimo" ]; then bin="$HOME/.local/bin/dimo"',
+      'elif command -v dimo >/dev/null 2>&1; then bin=$(command -v dimo)',
+      'elif command -v dimo-server >/dev/null 2>&1; then bin=$(command -v dimo-server)',
       'else',
-      '  for candidate in "$HOME/.vibex/host-family/"*/*/family/vibex-server; do',
+      '  for candidate in "$HOME/.dimo/host-family/"*/*/family/dimo-server; do',
       '    if [ -x "$candidate" ]; then bin=$candidate; break; fi',
       '  done',
       'fi',
       'if [ -z "$bin" ]; then',
-      '  printf \'vibex-server is not installed\\n\' >&2',
+      '  printf \'dimo-server is not installed\\n\' >&2',
       '  exit 1',
       'fi',
       'write_unit() {',
@@ -633,7 +633,7 @@ export function createPipeline(deps) {
       '  mkdir -p "$(dirname -- "$unit_path")"',
       '  cat > "$unit_path" <<UNIT',
       '[Unit]',
-      'Description=VibeX Host',
+      'Description=Dimo Host',
       'After=network.target',
       '',
       '[Service]',
@@ -642,27 +642,27 @@ export function createPipeline(deps) {
       'Restart=always',
       'RestartSec=2',
       'Environment=PATH=$HOME/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/bin',
-      dir ? `Environment=VIBEX_DATA_DIR=${dir.replace(/'/g, '')}` : '',
-      'StandardOutput=append:/tmp/vibex-server.log',
-      'StandardError=append:/tmp/vibex-server.log',
+      dir ? `Environment=DIMO_DATA_DIR=${dir.replace(/'/g, '')}` : '',
+      'StandardOutput=append:/tmp/dimo-server.log',
+      'StandardError=append:/tmp/dimo-server.log',
       '',
       '[Install]',
       'WantedBy=$wanted',
       'UNIT',
       '}',
       'if curl -fsS --max-time 2 http://127.0.0.1:17891/health >/dev/null 2>&1; then',
-      '  if [ "$(id -u)" -eq 0 ] && [ -f /etc/systemd/system/vibex-server.service ] && grep -q RUST_LOG= /etc/systemd/system/vibex-server.service; then',
-      '    write_unit /etc/systemd/system/vibex-server.service multi-user.target',
+      '  if [ "$(id -u)" -eq 0 ] && [ -f /etc/systemd/system/dimo-server.service ] && grep -q RUST_LOG= /etc/systemd/system/dimo-server.service; then',
+      '    write_unit /etc/systemd/system/dimo-server.service multi-user.target',
       '    systemctl daemon-reload',
-      '    systemctl restart vibex-server.service',
+      '    systemctl restart dimo-server.service',
       '    for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do',
       '      if curl -fsS --max-time 2 http://127.0.0.1:17891/health >/dev/null 2>&1; then break; fi',
       '      sleep 1',
       '    done',
-      '  elif [ -f "$HOME/.config/systemd/user/vibex-server.service" ] && grep -q RUST_LOG= "$HOME/.config/systemd/user/vibex-server.service"; then',
-      '    write_unit "$HOME/.config/systemd/user/vibex-server.service" default.target',
+      '  elif [ -f "$HOME/.config/systemd/user/dimo-server.service" ] && grep -q RUST_LOG= "$HOME/.config/systemd/user/dimo-server.service"; then',
+      '    write_unit "$HOME/.config/systemd/user/dimo-server.service" default.target',
       '    systemctl --user daemon-reload',
-      '    systemctl --user restart vibex-server.service',
+      '    systemctl --user restart dimo-server.service',
       '    for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do',
       '      if curl -fsS --max-time 2 http://127.0.0.1:17891/health >/dev/null 2>&1; then break; fi',
       '      sleep 1',
@@ -675,19 +675,19 @@ export function createPipeline(deps) {
       'started_with=nohup',
       'if command -v systemctl >/dev/null 2>&1; then',
       '  if [ "$(id -u)" -eq 0 ] && [ -d /etc/systemd/system ]; then',
-      '    write_unit /etc/systemd/system/vibex-server.service multi-user.target',
+      '    write_unit /etc/systemd/system/dimo-server.service multi-user.target',
       '    systemctl daemon-reload',
-      '    if systemctl is-active --quiet vibex-server.service; then systemctl restart vibex-server.service; else systemctl enable --now vibex-server.service; fi',
+      '    if systemctl is-active --quiet dimo-server.service; then systemctl restart dimo-server.service; else systemctl enable --now dimo-server.service; fi',
       '    started_with=systemd',
       '  elif systemctl --user list-unit-files >/dev/null 2>&1; then',
-      '    write_unit "$HOME/.config/systemd/user/vibex-server.service" default.target',
+      '    write_unit "$HOME/.config/systemd/user/dimo-server.service" default.target',
       '    systemctl --user daemon-reload',
-      '    if systemctl --user is-active --quiet vibex-server.service; then systemctl --user restart vibex-server.service; else systemctl --user enable --now vibex-server.service; fi',
+      '    if systemctl --user is-active --quiet dimo-server.service; then systemctl --user restart dimo-server.service; else systemctl --user enable --now dimo-server.service; fi',
       '    started_with=systemd-user',
       '  fi',
       'fi',
       'if [ "$started_with" = nohup ]; then',
-      '  nohup "$bin" serve --port 17891 >/tmp/vibex-server.log 2>&1 &',
+      '  nohup "$bin" serve --port 17891 >/tmp/dimo-server.log 2>&1 &',
       'fi',
       'for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do',
       '  if curl -fsS --max-time 2 http://127.0.0.1:17891/health >/dev/null 2>&1; then',
@@ -697,8 +697,8 @@ export function createPipeline(deps) {
       '  fi',
       '  sleep 1',
       'done',
-      'printf \'vibex-server did not become healthy\\n\' >&2',
-      'tail -n 40 /tmp/vibex-server.log >&2 || true',
+      'printf \'dimo-server did not become healthy\\n\' >&2',
+      'tail -n 40 /tmp/dimo-server.log >&2 || true',
       'exit 1',
     ]
       .filter(Boolean)
@@ -711,10 +711,10 @@ export function createPipeline(deps) {
       [
         'set -eu',
         'for candidate in \\',
-        '  "${VIBEX_DATA_DIR:-}/host.token" \\',
-        '  "$HOME/.local/share/vibex/host.token" \\',
-        '  "$HOME/.local/share/vibex/VibeX/host.token" \\',
-        '  "$HOME/Library/Application Support/app.vibex.vibex/host.token"; do',
+        '  "${DIMO_DATA_DIR:-}/host.token" \\',
+        '  "$HOME/.local/share/dimo/host.token" \\',
+        '  "$HOME/.local/share/dimo/Dimo/host.token" \\',
+        '  "$HOME/Library/Application Support/app.dimo.dimo/host.token"; do',
         '  if [ -n "$candidate" ] && [ -f "$candidate" ]; then cat "$candidate"; exit 0; fi',
         'done',
         'printf \'host token not found\\n\' >&2',
@@ -734,7 +734,7 @@ export function createPipeline(deps) {
       headers: {
         authorization: `Bearer ${hostToken}`,
         'content-type': 'application/json',
-        'x-vibex-protocol-version': '1.0',
+        'x-dimo-protocol-version': '1.0',
       },
       body: JSON.stringify({ preset: 'workstation' }),
     });
@@ -945,8 +945,8 @@ export function createPipeline(deps) {
   }
 
   async function persistSshHostFile(profile) {
-    const override = String(process.env.VIBEX_SSH_HOST_FILES_DIR ?? '').trim();
-    const dir = override || join(homedir(), '.vibex', 'ssh-hosts');
+    const override = String(process.env.DIMO_SSH_HOST_FILES_DIR ?? '').trim();
+    const dir = override || join(homedir(), '.dimo', 'ssh-hosts');
     const id = String(profile?.id ?? '').trim();
     const provision = profile?.provision ?? {};
     if (!id || !provision.host || !provision.user) return;
@@ -1068,14 +1068,14 @@ export function remoteInstallScript() {
   return [
     'set -eu',
     'export PATH="$HOME/.local/bin:$PATH"',
-    'if command -v vibex >/dev/null 2>&1 || command -v vibex-server >/dev/null 2>&1 || [ -x "$HOME/.local/bin/vibex" ]; then',
+    'if command -v dimo >/dev/null 2>&1 || command -v dimo-server >/dev/null 2>&1 || [ -x "$HOME/.local/bin/dimo" ]; then',
     "  printf 'already-installed\\n'",
     '  exit 0',
     'fi',
     hostFamilyInstaller(),
     'export PATH="$HOME/.local/bin:$PATH"',
-    'if [ ! -x "$HOME/.local/bin/vibex" ] && ! command -v vibex >/dev/null 2>&1 && ! command -v vibex-server >/dev/null 2>&1; then',
-    '  printf \'install finished but the vibex launcher is missing\\n\' >&2',
+    'if [ ! -x "$HOME/.local/bin/dimo" ] && ! command -v dimo >/dev/null 2>&1 && ! command -v dimo-server >/dev/null 2>&1; then',
+    '  printf \'install finished but the dimo launcher is missing\\n\' >&2',
     '  exit 1',
     'fi',
   ].join('\n');

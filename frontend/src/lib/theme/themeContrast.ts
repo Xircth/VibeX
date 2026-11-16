@@ -1,4 +1,4 @@
-import type { ThemeColorRole, ThemeDefinition } from '@vibex/plugin-sdk';
+import type { ThemeColorRole, ThemeDefinition } from '@dimoai/plugin-sdk';
 
 import { contrastRatio } from './colorMath';
 import {

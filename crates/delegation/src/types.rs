@@ -1,6 +1,6 @@
 //! Broker-facing request / outcome types.
 //!
-//! Session ids are `uuid::Uuid` to match VibeX's `sessions.id` column. The
+//! Session ids are `uuid::Uuid` to match Dimo's `sessions.id` column. The
 //! wire-stable `code` / `status` strings ship to LLM context and the frontend —
 //! do not rename them.
 
@@ -10,7 +10,7 @@ use uuid::Uuid;
 
 /// Everything the broker needs to dispatch a single delegation call.
 ///
-/// `parent_connection_id` is the VibeX-internal ACP connection id of the parent
+/// `parent_connection_id` is the Dimo-internal ACP connection id of the parent
 /// session (used to inherit working dir / scope parent-cancel). `requested_working_dir`
 /// is the value exactly as the LLM passed it — `None` when omitted — and is part
 /// of the `(agent_type, task, requested_working_dir)` correlation key so two

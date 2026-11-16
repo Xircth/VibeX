@@ -66,7 +66,7 @@ export function explicitHostUrl(search: string): string | null {
   return params.get('host')?.trim() || params.get('server')?.trim() || null;
 }
 
-export async function looksLikeVibexHost(
+export async function looksLikeDimoHost(
   baseUrl: string,
   fetchImpl: typeof fetch = fetch
 ): Promise<boolean> {

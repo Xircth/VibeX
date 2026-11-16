@@ -777,7 +777,7 @@ fn overlay_dev_remote(
     let sidecar = plugin
         .package
         .content_root()
-        .join(".vibex-plugin/dev-remote.json");
+        .join(".dimo-plugin/dev-remote.json");
     let overlay = std::fs::read_to_string(sidecar).ok().and_then(|text| {
         let value: Value = serde_json::from_str(&text).ok()?;
         let name = value
@@ -916,7 +916,7 @@ mod tests {
     #[test]
     fn v4_config_schema_is_not_promoted_to_runtime_settings_schema() {
         let dir = tempfile::tempdir().expect("tempdir");
-        std::fs::create_dir_all(dir.path().join(".vibex-plugin")).expect("mkdir");
+        std::fs::create_dir_all(dir.path().join(".dimo-plugin")).expect("mkdir");
         std::fs::create_dir_all(dir.path().join("app")).expect("mkdir app");
         std::fs::write(
             dir.path().join("app/main.js"),
@@ -924,7 +924,7 @@ mod tests {
         )
         .expect("write app");
         std::fs::write(
-            dir.path().join(".vibex-plugin/plugin.json"),
+            dir.path().join(".dimo-plugin/plugin.json"),
             r#"{
               "manifestVersion": 4,
               "apiVersion": "2.0",

@@ -1,11 +1,11 @@
 import { useCallback, useState } from 'react';
 import type { ConversationStatusNotice } from '@/contexts/ConversationStatusContext';
 
-const DISMISSED_NOTICE_KEY_PREFIX = 'vibex:dismissed-conversation-notice';
+const DISMISSED_NOTICE_KEY_PREFIX = 'dimo:dismissed-conversation-notice';
 const DISMISSED_SIGNATURES_KEY =
-  'vibex:dismissed-conversation-notice-signatures';
-const SEEN_ANNOUNCEMENTS_KEY = 'vibex:seen-session-announcements';
-const DISMISSED_ANNOUNCEMENTS_KEY = 'vibex:dismissed-session-announcements';
+  'dimo:dismissed-conversation-notice-signatures';
+const SEEN_ANNOUNCEMENTS_KEY = 'dimo:seen-session-announcements';
+const DISMISSED_ANNOUNCEMENTS_KEY = 'dimo:dismissed-session-announcements';
 
 function dismissalStorageKey(
   scope: string | null | undefined,

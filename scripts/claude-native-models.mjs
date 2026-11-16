@@ -211,7 +211,7 @@ export async function probeSdkSupportedModels({
   applyExecutableToOptions,
   timeoutMs = 3_000,
 } = {}) {
-  if (!sdk || env?.VIBEX_CLAUDE_SKIP_MODEL_PROBE === '1') return [];
+  if (!sdk || env?.DIMO_CLAUDE_SKIP_MODEL_PROBE === '1') return [];
   if (typeof sdk.supportedModels === 'function') {
     try {
       const result = await sdk.supportedModels();
@@ -236,7 +236,7 @@ export async function probeSdkSupportedModels({
     abortController,
     settingSources: ['user', 'project', 'local'],
   };
-  const explicitExe = readString(env?.CLAUDE_CODE_EXECUTABLE ?? env?.VIBEX_CLAUDE_PATH);
+  const explicitExe = readString(env?.CLAUDE_CODE_EXECUTABLE ?? env?.DIMO_CLAUDE_PATH);
   if (explicitExe && typeof applyExecutableToOptions === 'function') {
     applyExecutableToOptions(options, explicitExe, env, { isCliFallback: false });
   }

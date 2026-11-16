@@ -8,7 +8,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const frontendRoot = path.resolve(__dirname, '..');
 const repoRoot = path.resolve(frontendRoot, '..');
-const brandPattern = /VibeX|APP_NAME/;
+const brandPattern = /Dimo|APP_NAME/;
 
 function readFrontendFile(relativePath) {
   return fs.readFileSync(path.join(frontendRoot, relativePath), 'utf8');
@@ -18,7 +18,7 @@ function readRepoFile(relativePath) {
   return fs.readFileSync(path.join(repoRoot, relativePath), 'utf8');
 }
 
-test('Logo 组件与外观设置展示 VibeX 内部品牌', () => {
+test('Logo 组件与外观设置展示 Dimo 内部品牌', () => {
   const logoSource = readFrontendFile('src/components/Logo.tsx');
   const settingsSource = readFrontendFile(
     'src/pages/settings/AppearanceSettings.tsx'
@@ -47,7 +47,7 @@ test('新品牌图标完整覆盖明暗主题与标准、纯标记样式', () =>
   }
 });
 
-test('关键前端页面品牌文案更新为 VibeX', () => {
+test('关键前端页面品牌文案更新为 Dimo', () => {
   const welcomeSource = readFrontendFile(
     'src/components/welcome/WelcomePage.tsx'
   );
@@ -62,7 +62,7 @@ test('关键前端页面品牌文案更新为 VibeX', () => {
   assert.match(welcomeSource, brandPattern);
   assert.doesNotMatch(statusBarSource, /Vibe Kanban Promax/);
   assert.match(statusBarSource, brandPattern);
-  assert.doesNotMatch(projectContextSource, /vibe-kanban(?!.*vibex)/);
+  assert.doesNotMatch(projectContextSource, /vibe-kanban(?!.*dimo)/);
   assert.match(projectContextSource, brandPattern);
 });
 
@@ -72,14 +72,14 @@ test('桌面宿主页使用可随主题更新的新应用图标入口', () => {
   assert.doesNotMatch(indexSource, /favicon-vk/);
   assert.match(indexSource, /app-logo-light-default\.png/);
   assert.match(indexSource, /data-app-icon/);
-  assert.match(indexSource, /<title>VibeX<\/title>/);
+  assert.match(indexSource, /<title>Dimo<\/title>/);
 });
 
-test('Tauri 桌面应用名称更新为 VibeX', () => {
+test('Tauri 桌面应用名称更新为 Dimo', () => {
   const tauriConfigSource = readRepoFile('src-tauri/tauri.conf.json');
 
-  assert.match(tauriConfigSource, /"productName":\s*"VibeX"/);
-  assert.match(tauriConfigSource, /"title":\s*"VibeX"/);
+  assert.match(tauriConfigSource, /"productName":\s*"Dimo"/);
+  assert.match(tauriConfigSource, /"title":\s*"Dimo"/);
 });
 
 test('创建 PR 对话框使用新的品牌后缀', () => {
@@ -88,5 +88,5 @@ test('创建 PR 对话框使用新的品牌后缀', () => {
   );
 
   assert.doesNotMatch(createPrSource, /\(vibe-kanban(?!.*ultra)\)/);
-  assert.match(createPrSource, /\(VibeX\)|APP_NAME/);
+  assert.match(createPrSource, /\(Dimo\)|APP_NAME/);
 });

@@ -17,67 +17,67 @@ const en = i18n.getFixedT('en', 'settings');
 
 describe('official plugin presentation', () => {
   it('localizes official plugin names in the active locale', () => {
-    expect(officialPluginName('vibex.browser', 'fallback', t)).toBe('浏览器');
-    expect(officialPluginName('vibex.office', 'fallback', t)).toBe('办公套件');
-    expect(officialPluginName('vibex.workflow-creator', 'fallback', t)).toBe(
+    expect(officialPluginName('dimo.browser', 'fallback', t)).toBe('浏览器');
+    expect(officialPluginName('dimo.office', 'fallback', t)).toBe('办公套件');
+    expect(officialPluginName('dimo.workflow-creator', 'fallback', t)).toBe(
       'DAG 工作流编辑器'
     );
-    expect(officialPluginName('vibex.session-enhance', 'fallback', t)).toBe(
+    expect(officialPluginName('dimo.session-enhance', 'fallback', t)).toBe(
       '会话增强'
     );
-    expect(officialPluginName('vibex.plugin-development', 'fallback', t)).toBe(
+    expect(officialPluginName('dimo.plugin-development', 'fallback', t)).toBe(
       '插件开发'
     );
-    expect(officialPluginName('vibex.remote-ssh', 'fallback', t)).toBe(
+    expect(officialPluginName('dimo.remote-ssh', 'fallback', t)).toBe(
       'Remote SSH'
     );
-    expect(officialPluginName('vibex.provider-switch', 'fallback', t)).toBe(
+    expect(officialPluginName('dimo.provider-switch', 'fallback', t)).toBe(
       '供应商预置'
     );
-    expect(officialPluginName('vibex.science', 'fallback', t)).toBe('科学研究');
-    expect(officialPluginName('vibex-plugin-computer-use', 'fallback', t)).toBe(
+    expect(officialPluginName('dimo.science', 'fallback', t)).toBe('科学研究');
+    expect(officialPluginName('dimo-plugin-computer-use', 'fallback', t)).toBe(
       '电脑控制'
     );
-    expect(officialPluginName('vibex.code-completion', 'fallback', t)).toBe(
+    expect(officialPluginName('dimo.code-completion', 'fallback', t)).toBe(
       'AI代码补全'
     );
     expect(officialPluginName('code-completion', 'fallback', t)).toBe(
       'AI代码补全'
     );
     expect(officialPluginName('third.party', 'Drawio', t)).toBe('Drawio');
-    expect(officialPluginName('vibex.browser', 'fallback', en)).toBe('Browser');
-    expect(officialPluginName('vibex.office', 'fallback', en)).toBe(
-      'VibeX Office'
+    expect(officialPluginName('dimo.browser', 'fallback', en)).toBe('Browser');
+    expect(officialPluginName('dimo.office', 'fallback', en)).toBe(
+      'Dimo Office'
     );
-    expect(officialPluginName('vibex.workflow-creator', 'fallback', en)).toBe(
-      'VibeX Workflow Creator'
+    expect(officialPluginName('dimo.workflow-creator', 'fallback', en)).toBe(
+      'Dimo Workflow Creator'
     );
-    expect(officialPluginName('vibex.session-enhance', 'fallback', en)).toBe(
+    expect(officialPluginName('dimo.session-enhance', 'fallback', en)).toBe(
       'Session Enhance'
     );
-    expect(officialPluginName('vibex.plugin-development', 'fallback', en)).toBe(
+    expect(officialPluginName('dimo.plugin-development', 'fallback', en)).toBe(
       'Plugin Development'
     );
-    expect(officialPluginName('vibex.remote-ssh', 'fallback', en)).toBe(
+    expect(officialPluginName('dimo.remote-ssh', 'fallback', en)).toBe(
       'Remote SSH'
     );
-    expect(officialPluginName('vibex.provider-switch', 'fallback', en)).toBe(
+    expect(officialPluginName('dimo.provider-switch', 'fallback', en)).toBe(
       'Provider catalog'
     );
-    expect(officialPluginName('vibex.science', 'fallback', en)).toBe(
+    expect(officialPluginName('dimo.science', 'fallback', en)).toBe(
       'Scientific Research'
     );
     expect(
-      officialPluginName('vibex-plugin-computer-use', 'fallback', en)
+      officialPluginName('dimo-plugin-computer-use', 'fallback', en)
     ).toBe('Computer Use');
-    expect(officialPluginName('vibex.code-completion', 'fallback', en)).toBe(
+    expect(officialPluginName('dimo.code-completion', 'fallback', en)).toBe(
       'AI Code Completion'
     );
   });
 
   it('localizes official config labels without rewriting user plugins', () => {
     const official = officialConfigFieldCopy(
-      'vibex.workflow-creator',
+      'dimo.workflow-creator',
       'defaultCompletionPolicy',
       { title: 'Default Agent Step completion' },
       t
@@ -106,8 +106,8 @@ describe('official plugin presentation', () => {
       pluginInstallSource({ builtin: false, sourceKind: 'snapshot' })
     ).toBe('installed');
     expect(pluginSourceLabel('builtin', t)).toBe('内置');
-    expect(officialPluginSummary('vibex.office', 'package fallback', t)).toBe(
-      '在 VibeX 中创建、编辑、分析和预览 DOCX、XLSX 与 PPTX 文件。'
+    expect(officialPluginSummary('dimo.office', 'package fallback', t)).toBe(
+      '在 Dimo 中创建、编辑、分析和预览 DOCX、XLSX 与 PPTX 文件。'
     );
   });
 
@@ -136,7 +136,7 @@ describe('official plugin presentation', () => {
     expect(
       isOpenSourcePluginOrigin({
         sourceKind: 'marketplace',
-        sourceOrigin: 'https://vibex.xforever.xin/marketplace/vibex/office',
+        sourceOrigin: 'https://vibex.xforever.xin/marketplace/dimo/office',
       })
     ).toBe(false);
   });

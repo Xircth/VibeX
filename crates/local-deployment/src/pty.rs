@@ -85,20 +85,20 @@ fn configure_shell_command(cmd: &mut CommandBuilder, shell: &str, initial_comman
         match family {
             ShellFamily::Cmd => {
                 if let Some(command) = initial_command {
-                    cmd.env("VIBEX_CMD", command);
-                    cmd.args(["/D", "/S", "/C", "chcp 65001 >nul & %VIBEX_CMD%"]);
+                    cmd.env("DIMO_CMD", command);
+                    cmd.args(["/D", "/S", "/C", "chcp 65001 >nul & %DIMO_CMD%"]);
                 } else {
                     cmd.args(["/D", "/S", "/K", "chcp 65001 >nul"]);
                 }
             }
             ShellFamily::PowerShell => {
                 if let Some(command) = initial_command {
-                    cmd.env("VIBEX_CMD", command);
+                    cmd.env("DIMO_CMD", command);
                     cmd.args([
                         "-NoLogo",
                         "-NoProfile",
                         "-Command",
-                        "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; $ErrorActionPreference = 'Stop'; Invoke-Expression $env:VIBEX_CMD",
+                        "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; $ErrorActionPreference = 'Stop'; Invoke-Expression $env:DIMO_CMD",
                     ]);
                 } else {
                     cmd.args([
@@ -113,11 +113,11 @@ fn configure_shell_command(cmd: &mut CommandBuilder, shell: &str, initial_comman
             ShellFamily::Posix => {
                 cmd.env("TERM", "xterm-256color");
                 cmd.env("COLORTERM", "truecolor");
-                cmd.env("TERM_PROGRAM", "vibex");
+                cmd.env("TERM_PROGRAM", "dimo");
                 cmd.env("LANG", "C.UTF-8");
                 if let Some(command) = initial_command {
-                    cmd.env("VIBEX_CMD", command);
-                    cmd.args(["-l", "-i", "-c", "eval \"$VIBEX_CMD\""]);
+                    cmd.env("DIMO_CMD", command);
+                    cmd.args(["-l", "-i", "-c", "eval \"$DIMO_CMD\""]);
                 } else {
                     cmd.args(["-l", "-i"]);
                 }
@@ -129,7 +129,7 @@ fn configure_shell_command(cmd: &mut CommandBuilder, shell: &str, initial_comman
     {
         cmd.env("TERM", "xterm-256color");
         cmd.env("COLORTERM", "truecolor");
-        cmd.env("TERM_PROGRAM", "vibex");
+        cmd.env("TERM_PROGRAM", "dimo");
         match family {
             ShellFamily::PowerShell => {
                 cmd.arg("-NoLogo");
@@ -140,8 +140,8 @@ fn configure_shell_command(cmd: &mut CommandBuilder, shell: &str, initial_comman
             ShellFamily::Cmd => {}
             ShellFamily::Posix if is_bash_like_posix_shell(shell) => {
                 if let Some(command) = initial_command {
-                    cmd.env("VIBEX_CMD", command);
-                    cmd.args(["-l", "-i", "-c", "eval \"$VIBEX_CMD\""]);
+                    cmd.env("DIMO_CMD", command);
+                    cmd.args(["-l", "-i", "-c", "eval \"$DIMO_CMD\""]);
                 } else {
                     cmd.args(["-l", "-i"]);
                 }

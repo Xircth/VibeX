@@ -60,14 +60,14 @@ describe('session composer typeahead option derivation', () => {
   it('maps only ready plugin actions into prompt-backed command tokens', () => {
     const catalog = {
       plugin: {
-        id: 'vibex.office',
+        id: 'dimo.office',
         name: 'Office',
         version: '2.0.0',
         membership: 'builtin',
       },
       actions: [
         {
-          pluginId: 'vibex.office',
+          pluginId: 'dimo.office',
           actionId: 'create-presentation',
           label: '创建 PPT',
           requiredSkills: ['office-pptx'],
@@ -106,12 +106,12 @@ describe('session composer typeahead option derivation', () => {
       pluginActionsToTypeaheadOptions(catalog, 'PPT', new Set(['office-pptx']))
     ).toEqual([
       {
-        key: 'plugin-vibex.office-create-presentation',
+        key: 'plugin-dimo.office-create-presentation',
         label: '!创建 PPT',
         description: '澄清受众与目标后，创建新的 PPTX 并验证输出。',
         insertText: `${formatSessionComposerCommand({
           type: '!',
-          key: 'vibex.office/create-presentation|创建 PPT',
+          key: 'dimo.office/create-presentation|创建 PPT',
           value: '',
         })}澄清受众与目标后，创建新的 PPTX 并验证输出。`,
       },

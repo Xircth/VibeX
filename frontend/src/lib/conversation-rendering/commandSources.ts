@@ -1,4 +1,4 @@
-import type { SlashCommandContribution } from '@vibex/plugin-sdk';
+import type { SlashCommandContribution } from '@dimoai/plugin-sdk';
 import type { SlashCommandDescription } from 'shared/types';
 import type { AgentAvailableCommand } from '@/features/agents/types';
 import type { AgentLocalSkill } from '@/lib/api';

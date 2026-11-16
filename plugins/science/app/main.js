@@ -13,7 +13,7 @@ const ALL_SCIENCE_DOMAINS = [
 
 export default {
   apiVersion: '2.0',
-  id: 'vibex.science',
+  id: 'dimo.science',
   activate(ctx) {
     const enabledDomainMap = {
       general: true,
@@ -37,7 +37,7 @@ export default {
     });
 
     ctx.ui.registerCommand({
-      id: 'vibex.science.configure-domains',
+      id: 'dimo.science.configure-domains',
       title: 'Configure Scientific Skill Domains',
       category: 'Science',
       icon: 'flask-conical',
@@ -48,7 +48,7 @@ export default {
       },
     });
 
-    ctx.services.provide('vibex.science', {
+    ctx.services.provide('dimo.science', {
       domains: ['general', 'genomics', 'dataScience'],
       allDomains: [...ALL_SCIENCE_DOMAINS],
       getEnabledDomains() {

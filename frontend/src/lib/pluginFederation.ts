@@ -1,11 +1,11 @@
-import * as PluginSdk from '@vibex/plugin-sdk';
+import * as PluginSdk from '@dimoai/plugin-sdk';
 import * as React from 'react';
 
-(globalThis as Record<string, unknown>).__VIBEX_REACT__ = React;
+(globalThis as Record<string, unknown>).__DIMO_REACT__ = React;
 PluginSdk.bindExternalStoreHook(React.useSyncExternalStore);
 
-declare module '@vibex/plugin-sdk' {
-  interface VibeXPluginContext {
+declare module '@dimoai/plugin-sdk' {
+  interface DimoPluginContext {
     readonly effects: PluginSdk.EffectScope;
   }
 }
@@ -36,24 +36,24 @@ export function activatePluginModuleSync(
     module && typeof module === 'object'
       ? (module as Record<string, unknown>)
       : {};
-  const candidate = PluginSdk.isVibeXPluginDefinition(rec.default)
+  const candidate = PluginSdk.isDimoPluginDefinition(rec.default)
     ? rec.default
-    : PluginSdk.isVibeXPluginDefinition(module)
+    : PluginSdk.isDimoPluginDefinition(module)
       ? module
       : null;
   const activateFn = candidate
     ? candidate.activate.bind(candidate)
     : typeof rec.activate === 'function'
       ? (rec.activate as (
-          ctx: PluginSdk.VibeXPluginContext
+          ctx: PluginSdk.DimoPluginContext
         ) => void | (() => void) | Promise<void | (() => void)>)
       : typeof rec.default === 'function'
         ? (rec.default as (
-            ctx: PluginSdk.VibeXPluginContext
+            ctx: PluginSdk.DimoPluginContext
           ) => void | (() => void) | Promise<void | (() => void)>)
         : typeof module === 'function'
           ? (module as (
-              ctx: PluginSdk.VibeXPluginContext
+              ctx: PluginSdk.DimoPluginContext
             ) => void | (() => void) | Promise<void | (() => void)>)
           : null;
 

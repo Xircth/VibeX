@@ -1,4 +1,4 @@
-import { useSettingsPages, useViews } from '@vibex/plugin-sdk';
+import { useSettingsPages, useViews } from '@dimoai/plugin-sdk';
 import { AlertTriangle, Loader2, RotateCw } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -7,7 +7,7 @@ import { PluginBoundary } from '@/components/plugins/PluginBoundary';
 import { useTheme } from '@/components/ThemeProvider';
 import { Button } from '@/components/ui/button';
 
-const APP_SURFACE_PROTOCOL = 'vibex.app-surface/1';
+const APP_SURFACE_PROTOCOL = 'dimo.app-surface/1';
 const LOCAL_METHODS = new Set(['surface.ready', 'surface.escape']);
 const ARTIFACT_METHODS = new Set(['artifact.readText', 'artifact.writeText']);
 const HOST_ERROR_KIND_PREFIX =
@@ -47,7 +47,7 @@ export function appSurfaceHostInvokeError(
   }
   return {
     code: 'host_request_failed',
-    message: message || 'The VibeX Host could not complete this request',
+    message: message || 'The Dimo Host could not complete this request',
   };
 }
 
@@ -154,7 +154,7 @@ export function buildAppSurfaceDocument({
         params
       });
     }));
-    Object.defineProperty(globalThis, 'vibexSurface', {
+    Object.defineProperty(globalThis, 'dimoSurface', {
       configurable: false,
       enumerable: true,
       writable: false,
@@ -173,7 +173,7 @@ export function buildAppSurfaceDocument({
         const mono = styles.getPropertyValue('--font-mono').trim();
         if (ui) document.documentElement.style.setProperty('--font-ui', ui);
         if (mono) document.documentElement.style.setProperty('--font-mono', mono);
-        if (!document.getElementById('vibex-host-fonts')) {
+        if (!document.getElementById('dimo-host-fonts')) {
           const faces = [];
           for (const sheet of parent.document.styleSheets) {
             let rules;
@@ -187,7 +187,7 @@ export function buildAppSurfaceDocument({
           }
           if (faces.length) {
             const style = document.createElement('style');
-            style.id = 'vibex-host-fonts';
+            style.id = 'dimo-host-fonts';
             style.textContent = faces.join('\\n');
             document.head.append(style);
           }
@@ -195,7 +195,7 @@ export function buildAppSurfaceDocument({
       } catch {
         /* srcDoc tests and opaque frames cannot read Host font faces. */
       }
-      dispatchEvent(new CustomEvent('vibexsurfacecontext', { detail: context }));
+      dispatchEvent(new CustomEvent('dimosurfacecontext', { detail: context }));
     };
     addEventListener('message', (event) => {
       if (event.source !== parent || port) return;

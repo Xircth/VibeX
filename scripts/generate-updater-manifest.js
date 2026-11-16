@@ -5,10 +5,10 @@ const path = require("node:path");
 
 const updaterTargets = [
   {
-    artifactName: "VibeX-windows-x64",
+    artifactName: "Dimo-windows-x64",
     platform: "windows-x86_64",
     assetName(version) {
-      return `VibeX-${version}-windows-x86_64-setup.exe`;
+      return `Dimo-${version}-windows-x86_64-setup.exe`;
     },
     matches(filePath) {
       return (
@@ -18,10 +18,10 @@ const updaterTargets = [
     },
   },
   {
-    artifactName: "VibeX-windows-arm64",
+    artifactName: "Dimo-windows-arm64",
     platform: "windows-aarch64",
     assetName(version) {
-      return `VibeX-${version}-windows-aarch64-setup.exe`;
+      return `Dimo-${version}-windows-aarch64-setup.exe`;
     },
     matches(filePath) {
       return (
@@ -31,30 +31,30 @@ const updaterTargets = [
     },
   },
   {
-    artifactName: "VibeX-linux-x64",
+    artifactName: "Dimo-linux-x64",
     platform: "linux-x86_64",
     assetName(version) {
-      return `VibeX-${version}-linux-x86_64.AppImage`;
+      return `Dimo-${version}-linux-x86_64.AppImage`;
     },
     matches(filePath) {
       return filePath.endsWith(".AppImage");
     },
   },
   {
-    artifactName: "VibeX-linux-arm64",
+    artifactName: "Dimo-linux-arm64",
     platform: "linux-aarch64",
     assetName(version) {
-      return `VibeX-${version}-linux-aarch64.AppImage`;
+      return `Dimo-${version}-linux-aarch64.AppImage`;
     },
     matches(filePath) {
       return filePath.endsWith(".AppImage");
     },
   },
   {
-    artifactName: "VibeX-macos-arm64",
+    artifactName: "Dimo-macos-arm64",
     platform: "darwin-aarch64",
     assetName(version) {
-      return `VibeX-${version}-darwin-aarch64.app.tar.gz`;
+      return `Dimo-${version}-darwin-aarch64.app.tar.gz`;
     },
     matches(filePath) {
       return filePath.endsWith(".app.tar.gz");
@@ -64,9 +64,9 @@ const updaterTargets = [
 
 const installerTargets = [
   {
-    artifactName: "VibeX-macos-arm64",
+    artifactName: "Dimo-macos-arm64",
     assetName(version) {
-      return `VibeX-${version}-darwin-aarch64.dmg`;
+      return `Dimo-${version}-darwin-aarch64.dmg`;
     },
     matches(filePath) {
       return filePath.endsWith(".dmg");

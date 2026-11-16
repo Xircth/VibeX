@@ -12,7 +12,7 @@
 
 use std::collections::BTreeSet;
 
-/// Words that mark a field as a secret, in the languages vibex ships in.
+/// Words that mark a field as a secret, in the languages dimo ships in.
 const SECRET_WORDS: &[&str] = &[
     "password",
     "passwd",

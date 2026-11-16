@@ -6,7 +6,7 @@ export async function createWorkerHarness(definition, options = {}) {
     const host = options.host ?? createMemoryHostClient(hostCalls);
     const worker = await activatePluginWorker(definition, {
         context: {
-            pluginId: options.context?.pluginId ?? 'dev.vibex.test',
+            pluginId: options.context?.pluginId ?? 'dev.dimo.test',
             pluginVersion: options.context?.pluginVersion ?? '0.0.0-test',
             generation: options.context?.generation ?? 1,
             packageClass: options.context?.packageClass ?? 'full-trust',
@@ -208,8 +208,8 @@ export function createPluginTestHarness(optionsOrPlugin = {}) {
     const pluginId = direct
         ? typeof optionsOrPlugin === 'object' && optionsOrPlugin.id
             ? optionsOrPlugin.id
-            : 'dev.vibex.test'
-        : (optionsOrPlugin.pluginId ?? 'dev.vibex.test');
+            : 'dev.dimo.test'
+        : (optionsOrPlugin.pluginId ?? 'dev.dimo.test');
     const generation = direct ? 1 : (optionsOrPlugin.generation ?? 1);
     const hostCalls = [];
     const memoryHost = (!direct ? optionsOrPlugin.host : undefined) ??

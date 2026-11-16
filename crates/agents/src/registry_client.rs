@@ -38,7 +38,7 @@ pub const REGISTRY_REFRESH_TIMEOUT: StdDuration =
         Some(duration) => duration,
         None => REGISTRY_REQUEST_TIMEOUT,
     };
-const REGISTRY_USER_AGENT: &str = "vibex-acp-registry/1.0";
+const REGISTRY_USER_AGENT: &str = "dimo-acp-registry/1.0";
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RegistryPackageDistribution {
@@ -487,7 +487,7 @@ fn restore_cached_registry_icons(
 struct RawRegistryDocument {
     version: String,
     agents: Vec<RawRegistryAgent>,
-    /// Reserved by the official Registry schema for additive metadata. VibeX
+    /// Reserved by the official Registry schema for additive metadata. Dimo
     /// does not execute or interpret Registry extensions, but their presence
     /// must not invalidate the otherwise signed/validated public catalog.
     #[serde(default, rename = "extensions")]

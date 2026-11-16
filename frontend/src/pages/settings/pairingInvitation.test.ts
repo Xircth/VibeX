@@ -29,7 +29,7 @@ describe('encodePairingInvitation', () => {
       hostUrls: ['http://127.0.0.1:17891', 'http://192.168.1.20:17891'],
     });
 
-    expect(invitation.startsWith('vibex-pairing:')).toBe(true);
+    expect(invitation.startsWith('dimo-pairing:')).toBe(true);
     expect(invitation).toContain('host-stable-1');
     expect(invitation).toContain('http://192.168.1.20:17891');
     expect(invitation).not.toContain('127.0.0.1');

@@ -1,6 +1,6 @@
 [submodule "mobile/ios"]
 	path = mobile/ios
-	url = https://github.com/Xircth/vibex-remote-ios.git
+	url = https://github.com/DimoADE/Dimo-remote-ios.git
 [submodule "mobile/android"]
 	path = mobile/android
-	url = https://github.com/DorJay007/vibex-remote-android.git
+	url = https://github.com/DimoADE/Dimo-remote-android.git

@@ -34,7 +34,7 @@ const harness = vi.hoisted(() => ({
 vi.mock('@/contexts/ProjectContext', () => ({
   useProject: () => ({
     projectId: 'project-1',
-    project: { id: 'project-1', name: 'VibeX', is_git: true },
+    project: { id: 'project-1', name: 'Dimo', is_git: true },
   }),
 }));
 
@@ -390,7 +390,7 @@ describe('WorktreeSelector', () => {
     harness.repos = [
       {
         id: 'repo-1',
-        name: 'vibex',
+        name: 'dimo',
         path: 'C:/repo',
         default_target_branch: 'dev',
       },
@@ -440,7 +440,7 @@ describe('WorktreeSelector', () => {
     harness.repos = [
       {
         id: 'repo-1',
-        name: 'vibex',
+        name: 'dimo',
         path: 'C:/repo',
         default_target_branch: 'dev',
       },
@@ -521,7 +521,7 @@ describe('WorktreeSelector', () => {
     harness.repos = [
       {
         id: 'repo-1',
-        name: 'vibex',
+        name: 'dimo',
         path: 'C:/repo',
         default_target_branch: 'master',
       },

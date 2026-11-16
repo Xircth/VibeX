@@ -1,14 +1,14 @@
 //! Optional passphrase encryption for portable backups (P3-4).
 //!
 //! When a passphrase is supplied, the plaintext backup JSON is wrapped in a
-//! `VIBEXBAK` envelope: an unencrypted header (magic + KDF params + salt + nonce
+//! `DIMOBAK` envelope: an unencrypted header (magic + KDF params + salt + nonce
 //! prefix) followed by the payload encrypted with AES-256-GCM in a chunked
 //! STREAM construction. The header is plaintext because the salt/nonce must be
 //! readable before the key can be derived; the GCM tag authenticates the
 //! passphrase (a wrong passphrase fails to decrypt).
 //!
 //! Ported from the sibling reference (codeg `commands/backup/crypto.rs`), adapted
-//! to VibeX's in-memory payload (bytes in / bytes out, no file streaming and no
+//! to Dimo's in-memory payload (bytes in / bytes out, no file streaming and no
 //! cancellation token) and `AppError`.
 
 // aes-gcm 0.10's STREAM API is built on `generic_array` 0.14, whose compat shim a
@@ -34,7 +34,10 @@ use serde::{Deserialize, Serialize};
 use crate::error::AppError;
 
 /// First 8 bytes of an encrypted backup.
-pub const ENVELOPE_MAGIC: &[u8; 8] = b"VIBEXBAK";
+pub const ENVELOPE_MAGIC: &[u8; 8] = b"DIMO-BAK";
+/// Envelopes written before the Dimo rename. Read, never written, so backups
+/// taken under the previous brand still restore.
+pub const LEGACY_ENVELOPE_MAGIC: &[u8; 8] = b"VIBEXBAK";
 pub const ENVELOPE_HEADER_VERSION: u8 = 1;
 
 /// Plaintext chunk size fed to the STREAM cipher. Ciphertext chunks are this
@@ -85,7 +88,7 @@ impl Default for KdfParams {
     }
 }
 
-/// Cleartext header at the front of a `VIBEXBAK` payload. Carries everything
+/// Cleartext header at the front of a `DIMOBAK` payload. Carries everything
 /// needed to re-derive the key and decrypt.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EnvelopeHeader {
@@ -99,7 +102,11 @@ pub struct EnvelopeHeader {
 
 /// Cheap probe of the first bytes to tell an encrypted envelope from plaintext.
 pub fn is_encrypted(bytes: &[u8]) -> bool {
-    bytes.len() >= ENVELOPE_MAGIC.len() && &bytes[..ENVELOPE_MAGIC.len()] == ENVELOPE_MAGIC
+    if bytes.len() < ENVELOPE_MAGIC.len() {
+        return false;
+    }
+    let magic = &bytes[..ENVELOPE_MAGIC.len()];
+    magic == ENVELOPE_MAGIC || magic == LEGACY_ENVELOPE_MAGIC
 }
 
 fn derive_key(passphrase: &str, salt: &[u8], params: &KdfParams) -> Result<[u8; 32], AppError> {
@@ -118,7 +125,7 @@ fn derive_key(passphrase: &str, salt: &[u8], params: &KdfParams) -> Result<[u8; 
     Ok(key)
 }
 
-/// Encrypt `plaintext` into a `VIBEXBAK` envelope.
+/// Encrypt `plaintext` into a `DIMOBAK` envelope.
 pub fn encrypt_bytes(plaintext: &[u8], passphrase: &str) -> Result<Vec<u8>, AppError> {
     let mut salt = [0u8; SALT_LEN];
     let mut nonce_prefix = [0u8; NONCE_PREFIX_LEN];
@@ -170,7 +177,7 @@ pub fn encrypt_bytes(plaintext: &[u8], passphrase: &str) -> Result<Vec<u8>, AppE
     Ok(out)
 }
 
-/// Decrypt a `VIBEXBAK` envelope. A wrong passphrase (or tampering) surfaces as
+/// Decrypt a `DIMOBAK` envelope. A wrong passphrase (or tampering) surfaces as
 /// a `BadRequest` authentication error.
 pub fn decrypt_bytes(input: &[u8], passphrase: &str) -> Result<Vec<u8>, AppError> {
     let mut cursor = Cursor::new(input);
@@ -243,7 +250,7 @@ fn validate_header(h: &EnvelopeHeader) -> Result<(), AppError> {
 fn read_header<R: Read>(reader: &mut R) -> Result<EnvelopeHeader, AppError> {
     let mut magic = [0u8; 8];
     read_fill(reader, &mut magic).map_err(io_error)?;
-    if &magic != ENVELOPE_MAGIC {
+    if &magic != ENVELOPE_MAGIC && &magic != LEGACY_ENVELOPE_MAGIC {
         return Err(corrupt_header_error());
     }
     let mut ver = [0u8; 1];

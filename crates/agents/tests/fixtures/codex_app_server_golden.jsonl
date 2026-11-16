@@ -1,7 +1,7 @@
-{"seq":1,"direction":"client_to_server","frame_class":"request","frame":{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"clientInfo":{"name":"vibex-codex-native","version":"0.2.0"},"capabilities":{"experimentalApi":true}}}}
+{"seq":1,"direction":"client_to_server","frame_class":"request","frame":{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"clientInfo":{"name":"dimo-codex-native","version":"0.2.0"},"capabilities":{"experimentalApi":true}}}}
 {"seq":2,"direction":"server_to_client","frame_class":"response","frame":{"jsonrpc":"2.0","id":1,"result":{"serverInfo":{"name":"codex-app-server","version":"0.114.0"}}}}
 {"seq":3,"direction":"client_to_server","frame_class":"notification","frame":{"jsonrpc":"2.0","method":"initialized"}}
-{"seq":4,"direction":"client_to_server","frame_class":"request","frame":{"jsonrpc":"2.0","id":2,"method":"thread/start","params":{"cwd":"/workspace/vibex","model":"gpt-5-codex"}}}
+{"seq":4,"direction":"client_to_server","frame_class":"request","frame":{"jsonrpc":"2.0","id":2,"method":"thread/start","params":{"cwd":"/workspace/dimo","model":"gpt-5-codex"}}}
 {"seq":5,"direction":"server_to_client","frame_class":"response","frame":{"jsonrpc":"2.0","id":2,"result":{"thread":{"id":"thr-golden-001"}}}}
 {"seq":6,"direction":"client_to_server","frame_class":"request","frame":{"jsonrpc":"2.0","id":3,"method":"turn/start","params":{"threadId":"thr-golden-001","promptId":"00000000-0000-4000-8000-000000000101","model":"gpt-5-codex","input":[{"type":"text","text":"Verify cargo workspace invariants"}]}}}
 {"seq":7,"direction":"server_to_client","frame_class":"response","frame":{"jsonrpc":"2.0","id":3,"result":{"turn":{"id":"turn-golden-001"}}}}

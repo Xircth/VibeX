@@ -136,7 +136,7 @@ async fn incompatible_protocol_major_uses_the_stable_error_envelope() {
                     "authorization",
                     "Bearer correct horse battery staple plus entropy",
                 )
-                .header("x-vibex-protocol-version", "2.0")
+                .header("x-dimo-protocol-version", "2.0")
                 .body(Body::empty())
                 .expect("request"),
         )

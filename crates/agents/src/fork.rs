@@ -6,7 +6,7 @@
 //! the tail, so this crate only attaches the block when the turn can be named.
 //!
 //! deepseek-acp 0.8.0 accepts both halves: `messageId` is the session log's
-//! `message.id` (or the VibeX turn id when the log named nothing), and the
+//! `message.id` (or the Dimo turn id when the log named nothing), and the
 //! fingerprint hashes assistant text once per message and once per turn. This
 //! crate sends both so the id path short-circuits the ambiguous fingerprint
 //! case.
@@ -143,27 +143,27 @@ fn fingerprint_occurrence(turns: &[MessageTurn], idx: usize, fingerprint: &str) 
         + 1
 }
 
-fn is_assistant_row_for_turn(turn: &MessageTurn, vibex_turn_id: &str) -> bool {
+fn is_assistant_row_for_turn(turn: &MessageTurn, dimo_turn_id: &str) -> bool {
     if !matches!(turn.role, TurnRole::Assistant) {
         return false;
     }
-    let exact = format!("{vibex_turn_id}:assistant");
-    turn.id == exact || turn.id.starts_with(&format!("{vibex_turn_id}:assistant:"))
+    let exact = format!("{dimo_turn_id}:assistant");
+    turn.id == exact || turn.id.starts_with(&format!("{dimo_turn_id}:assistant:"))
 }
 
-/// Last assistant bubble of a VibeX Turn, including post-steering segments
+/// Last assistant bubble of a Dimo Turn, including post-steering segments
 /// (`{turn}:assistant:N`) and JSONL-projected `acp-N` user/assistant rounds.
 fn last_assistant_for_turn<'a>(
     turns: &'a [MessageTurn],
-    vibex_turn_id: &str,
+    dimo_turn_id: &str,
 ) -> Option<&'a MessageTurn> {
     if let Some(turn) = turns
         .iter()
-        .rfind(|turn| is_assistant_row_for_turn(turn, vibex_turn_id))
+        .rfind(|turn| is_assistant_row_for_turn(turn, dimo_turn_id))
     {
         return Some(turn);
     }
-    let idx = turns.iter().position(|turn| turn.id == vibex_turn_id)?;
+    let idx = turns.iter().position(|turn| turn.id == dimo_turn_id)?;
     match turns[idx].role {
         TurnRole::Assistant => Some(&turns[idx]),
         TurnRole::User => {
@@ -182,14 +182,14 @@ fn last_assistant_for_turn<'a>(
     }
 }
 
-/// Name the last assistant bubble of `vibex_turn_id`, or `None` when the
+/// Name the last assistant bubble of `dimo_turn_id`, or `None` when the
 /// adapter cannot honour that historical cut.
 pub fn resolve_fork_point_for_turn(
     turns: &[MessageTurn],
-    vibex_turn_id: &str,
+    dimo_turn_id: &str,
     agent_kind: AgentKind,
 ) -> Option<ForkPoint> {
-    let cut = last_assistant_for_turn(turns, vibex_turn_id)?;
+    let cut = last_assistant_for_turn(turns, dimo_turn_id)?;
     resolve_fork_point(turns, &cut.id, agent_kind)
 }
 

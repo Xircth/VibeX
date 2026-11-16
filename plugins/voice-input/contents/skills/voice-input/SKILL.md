@@ -1,11 +1,11 @@
 ---
 name: voice-input
-description: Configure and use AI voice dictation, Whisper/Groq speech-to-text, custom vocabulary hotwords, and intelligent post-transcription cleanup in VibeX.
+description: Configure and use AI voice dictation, Whisper/Groq speech-to-text, custom vocabulary hotwords, and intelligent post-transcription cleanup in Dimo.
 ---
 
-# AI Voice Input (`vibex.voice-input`)
+# AI Voice Input (`dimo.voice-input`)
 
-This plugin adds AI voice dictation to VibeX's session composer, Monaco code editors, and status bar.
+This plugin adds AI voice dictation to Dimo's session composer, Monaco code editors, and status bar.
 
 ## Key Capabilities
 
@@ -18,7 +18,7 @@ This plugin adds AI voice dictation to VibeX's session composer, Monaco code edi
 
 2. **Quality Controls & Post-Processing**:
    - **Language Hint (`language`)**: `auto`, `zh`, `en`, `ja`, `ko`.
-   - **Custom Vocabulary / Hotwords (`vocabulary`)**: Biases Whisper decoding via `prompt` and normalizes phonetic/casing variations of project terms (`VibeX`, `Tauri`, `Monaco`, `Worktree`, etc.).
+   - **Custom Vocabulary / Hotwords (`vocabulary`)**: Biases Whisper decoding via `prompt` and normalizes phonetic/casing variations of project terms (`Dimo`, `Tauri`, `Monaco`, `Worktree`, etc.).
    - **Post-Transcription Cleanup (`cleanupMode`)**:
      - `auto-clean`: Removes spoken filler words (`嗯`, `啊`, `那个`, `um`, `uh`), normalizes CJK/ASCII spacing and punctuation, and optionally polishes via LLM while keeping the raw transcript accessible.
      - `preview`: Displays a side-by-side comparison of cleaned vs. raw transcript before inserting.

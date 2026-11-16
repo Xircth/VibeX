@@ -1,4 +1,4 @@
-//! VibeX compatibility modules used by `crate::computer`, `crate::acp::computer_tools`,
+//! Dimo compatibility modules used by `crate::computer`, `crate::acp::computer_tools`,
 //! and `crate::commands::computer`.
 
 pub mod acp_error {
@@ -127,7 +127,7 @@ pub mod binary_cache {
         let cache = dirs::cache_dir().ok_or_else(|| {
             AcpError::DownloadFailed("Cannot determine system cache directory".into())
         })?;
-        Ok(cache.join("vibex").join("acp-binaries"))
+        Ok(cache.join("dimo").join("acp-binaries"))
     }
 
     pub fn binary_file_name(cmd: &str) -> String {

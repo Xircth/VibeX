@@ -43,7 +43,7 @@ export function collectOfficialPluginManifests(rootDir) {
     if (!existsSync(absoluteRoot)) continue;
     for (const entry of readdirSync(absoluteRoot, { withFileTypes: true })) {
       if (!entry.isDirectory()) continue;
-      const relativeManifest = `${pluginRoot}/${entry.name}/.vibex-plugin/plugin.json`;
+      const relativeManifest = `${pluginRoot}/${entry.name}/.dimo-plugin/plugin.json`;
       if (!existsSync(join(rootDir, relativeManifest))) continue;
       manifests.push({ relativeManifest, fallbackId: entry.name });
     }

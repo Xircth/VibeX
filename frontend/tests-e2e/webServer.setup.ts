@@ -4,7 +4,7 @@ import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 
-const TOKEN = 'vibex-production-web-e2e-token-00000001';
+const TOKEN = 'dimo-production-web-e2e-token-00000001';
 
 async function reserveLoopbackPort(): Promise<number> {
   return new Promise((resolvePort, reject) => {
@@ -32,7 +32,7 @@ async function waitUntilReady(
   const deadline = Date.now() + 30_000;
   while (Date.now() < deadline) {
     if (child.exitCode !== null) {
-      throw new Error(`vibex-server exited with code ${child.exitCode}`);
+      throw new Error(`dimo-server exited with code ${child.exitCode}`);
     }
     try {
       const response = await fetch(`${baseUrl}/api/v1/capabilities`, {
@@ -44,28 +44,28 @@ async function waitUntilReady(
     }
     await new Promise((resolveWait) => setTimeout(resolveWait, 100));
   }
-  throw new Error('timed out waiting for vibex-server');
+  throw new Error('timed out waiting for dimo-server');
 }
 
 export default async function setup() {
   const frontendRoot = resolve(import.meta.dirname, '..');
   const repositoryRoot = resolve(frontendRoot, '..');
-  const dataDir = mkdtempSync(resolve(tmpdir(), 'vibex-web-e2e-'));
+  const dataDir = mkdtempSync(resolve(tmpdir(), 'dimo-web-e2e-'));
   const port = await reserveLoopbackPort();
   const baseUrl = `http://127.0.0.1:${port}`;
   const executable =
     process.platform === 'win32'
-      ? resolve(repositoryRoot, 'target', 'debug', 'vibex-server.exe')
-      : resolve(repositoryRoot, 'target', 'debug', 'vibex-server');
+      ? resolve(repositoryRoot, 'target', 'debug', 'dimo-server.exe')
+      : resolve(repositoryRoot, 'target', 'debug', 'dimo-server');
   const child = spawn(executable, [], {
     cwd: repositoryRoot,
     env: {
       ...process.env,
       RUST_LOG: 'warn',
-      VIBEX_DATA_DIR: dataDir,
-      VIBEX_SERVER_LISTEN: `127.0.0.1:${port}`,
-      VIBEX_SERVER_TOKEN: TOKEN,
-      VIBEX_STATIC_ROOT: resolve(frontendRoot, 'dist'),
+      DIMO_DATA_DIR: dataDir,
+      DIMO_SERVER_LISTEN: `127.0.0.1:${port}`,
+      DIMO_SERVER_TOKEN: TOKEN,
+      DIMO_STATIC_ROOT: resolve(frontendRoot, 'dist'),
     },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
@@ -79,8 +79,8 @@ export default async function setup() {
     child.kill();
     throw new Error(`${String(error)}\n${output.join('')}`);
   }
-  process.env.VIBEX_E2E_BASE_URL = baseUrl;
-  process.env.VIBEX_E2E_TOKEN = TOKEN;
+  process.env.DIMO_E2E_BASE_URL = baseUrl;
+  process.env.DIMO_E2E_TOKEN = TOKEN;
 
   return async () => {
     child.kill();

@@ -18,7 +18,7 @@ import {
   resolveAccountAvatarLabel,
   resolveAccountDisplayName,
   useAccountSavedHosts,
-  useVibeXAccount,
+  useDimoAccount,
 } from '@/features/model-router';
 import { cn } from '@/lib/utils';
 
@@ -38,7 +38,7 @@ export function AccountSettings() {
     signingOut,
     refresh,
     signOut,
-  } = useVibeXAccount();
+  } = useDimoAccount();
   const { syncNow: syncSavedHosts, isSyncing: isSyncingSavedHosts } =
     useAccountSavedHosts();
 

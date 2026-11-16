@@ -793,7 +793,7 @@ impl WorktreeManager {
         .map_err(|e| WorktreeError::TaskJoin(format!("{e}")))?
     }
 
-    /// Get the base directory for VibeX worktrees
+    /// Get the base directory for Dimo worktrees
     pub fn get_worktree_base_dir() -> std::path::PathBuf {
         if let Some(override_path) = WORKSPACE_DIR_OVERRIDE
             .read()
@@ -802,7 +802,7 @@ impl WorktreeManager {
         {
             // Always use app-owned subdirectory within custom path for safety.
             // This ensures orphan cleanup never touches user's existing folders.
-            return override_path.join(".vibex-workspaces");
+            return override_path.join(".dimo-workspaces");
         }
         Self::get_default_worktree_base_dir()
     }

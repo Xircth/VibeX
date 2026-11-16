@@ -578,6 +578,63 @@ impl ConversationAgentEventRecorder {
         streaming_updated_conversations: &mut std::collections::BTreeSet<Uuid>,
         batch: &mut RecordedConversationBatch,
     ) -> Result<(), RuntimeEventRecordError> {
+        let terminal = is_terminal_conversation_event(&mapped.event);
+        if let Some(context) = &self.conversation_context {
+            match &mapped.event {
+                ConversationEvent::PermissionRequested { request } => {
+                    let mut states = context.runtime_states.lock().await;
+                    states
+                        .entry(mapped.conversation_id)
+                        .or_default()
+                        .pending_permission_id = Some(request.permission_id.clone());
+                }
+                ConversationEvent::PermissionResponded { permission_id, .. } => {
+                    let mut states = context.runtime_states.lock().await;
+                    if let Some(state) = states.get_mut(&mapped.conversation_id)
+                        && state.pending_permission_id.as_deref() == Some(permission_id.as_str())
+                    {
+                        state.pending_permission_id = None;
+                    }
+                }
+                ConversationEvent::QuestionRequested { request } => {
+                    let mut states = context.runtime_states.lock().await;
+                    states
+                        .entry(mapped.conversation_id)
+                        .or_default()
+                        .pending_question_id = Some(request.question_id.clone());
+                }
+                ConversationEvent::QuestionResponded { question_id, .. } => {
+                    let mut states = context.runtime_states.lock().await;
+                    if let Some(state) = states.get_mut(&mapped.conversation_id)
+                        && state.pending_question_id.as_deref() == Some(question_id.as_str())
+                    {
+                        state.pending_question_id = None;
+                    }
+                }
+                ConversationEvent::TurnBlocked {
+                    reason: agents::conversation::TurnBlockedReason::Authentication { .. },
+                } => {
+                    let mut states = context.runtime_states.lock().await;
+                    if let Some(state) = states.get_mut(&mapped.conversation_id) {
+                        state.turn_in_flight = false;
+                        state.active_turn_id = None;
+                        state.active_prompt_id = None;
+                        state.pending_permission_id = None;
+                        state.pending_question_id = None;
+                        state.recovery_status = Some("auth_required".to_string());
+                    }
+                }
+                _ if terminal => {
+                    let mut states = context.runtime_states.lock().await;
+                    if let Some(state) = states.get_mut(&mapped.conversation_id) {
+                        state.pending_permission_id = None;
+                        state.pending_question_id = None;
+                    }
+                }
+                _ => {}
+            }
+        }
+
         match &mapped.event {
             ConversationEvent::QuestionRequested { request } => {
                 let delivery_ctx = self.delivery_context();
@@ -628,7 +685,6 @@ impl ConversationAgentEventRecorder {
             _ => {}
         }
 
-        let terminal = is_terminal_conversation_event(&mapped.event);
         if terminal && let Some(turn_id) = mapped.turn_id {
             crate::handoff::settle(&self.pool, turn_id).await?;
             let (status, stop_reason, error_message) = match &mapped.event {
@@ -882,6 +938,14 @@ impl ConversationAgentEventRecorder {
                 }
                 false
             }
+            ConversationEvent::TurnCompleted { .. }
+            | ConversationEvent::TurnFailed { .. }
+            | ConversationEvent::TurnCancelled { .. }
+            | ConversationEvent::TurnBlocked { .. } => {
+                self.pending_step_text.remove(&mapped.conversation_id);
+                self.turn_had_tool_call.remove(&mapped.conversation_id);
+                false
+            }
             _ => false,
         }
     }
@@ -908,6 +972,9 @@ impl ConversationAgentEventRecorder {
                 }
                 let turn_id =
                     bind_prompt_turn(&self.pool, conversation_id, &snapshot.id.to_string()).await?;
+                if self.active_turn_cache.len() >= 512 {
+                    self.active_turn_cache.clear();
+                }
                 self.active_turn_cache.insert(conversation_id, turn_id);
                 Ok(turn_id)
             }
@@ -945,6 +1012,9 @@ impl ConversationAgentEventRecorder {
                         self.turn_db_lookups += 1;
                     }
                     let resolved = in_flight_active_turn_id(&self.pool, conversation_id).await?;
+                    if self.active_turn_cache.len() >= 512 {
+                        self.active_turn_cache.clear();
+                    }
                     self.active_turn_cache.insert(conversation_id, resolved);
                     resolved
                 };

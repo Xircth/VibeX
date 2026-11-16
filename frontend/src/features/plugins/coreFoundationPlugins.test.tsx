@@ -1,5 +1,5 @@
 import { render } from '@testing-library/react';
-import { serviceContainer } from '@vibex/plugin-sdk';
+import { serviceContainer } from '@dimoai/plugin-sdk';
 import { describe, expect, it } from 'vitest';
 
 import {
@@ -22,7 +22,7 @@ import {
 } from './PluginRuntimeLoader';
 
 describe('CoreFoundationPlugins (DSH-aligned decomposition)', () => {
-  it('decomposes VibeX into 22 first-class plugins across 4 planes', () => {
+  it('decomposes Dimo into 22 first-class plugins across 4 planes', () => {
     expect(CORE_PLUGIN_PLANES.map((plane) => plane.id)).toEqual([
       'webui',
       'agent',
@@ -35,13 +35,13 @@ describe('CoreFoundationPlugins (DSH-aligned decomposition)', () => {
       CORE_FOUNDATION_PLUGIN_DESCRIPTORS.map((item) => item.id)
     );
     expect(ids.size).toBe(22);
-    expect(ids.has('vibex.core.plugin-manager')).toBe(true);
-    expect(ids.has('vibex.core.agent-runtime')).toBe(true);
-    expect(ids.has('vibex.core.skills')).toBe(true);
-    expect(ids.has('vibex.core.shell')).toBe(true);
-    expect(ids.has('vibex.webui.layout')).toBe(true);
-    expect(ids.has('vibex.webui.conversation')).toBe(true);
-    expect(ids.has('vibex.webui.kanban')).toBe(true);
+    expect(ids.has('dimo.core.plugin-manager')).toBe(true);
+    expect(ids.has('dimo.core.agent-runtime')).toBe(true);
+    expect(ids.has('dimo.core.skills')).toBe(true);
+    expect(ids.has('dimo.core.shell')).toBe(true);
+    expect(ids.has('dimo.webui.layout')).toBe(true);
+    expect(ids.has('dimo.webui.conversation')).toBe(true);
+    expect(ids.has('dimo.webui.kanban')).toBe(true);
 
     for (const descriptor of CORE_FOUNDATION_PLUGIN_DESCRIPTORS) {
       expect(typeof descriptor.onActivate).toBe('function');
@@ -70,10 +70,10 @@ describe('CoreFoundationPlugins (DSH-aligned decomposition)', () => {
     }
 
     // Verify EffectScope teardown and reload for a sample core plugin
-    unloadPluginRuntime('vibex.core.workspace-git');
-    expect(serviceContainer.has('vibex.workspace-git')).toBe(false);
-    await loadCoreFoundationPlugin('vibex.core.workspace-git');
-    expect(serviceContainer.has('vibex.workspace-git')).toBe(true);
+    unloadPluginRuntime('dimo.core.workspace-git');
+    expect(serviceContainer.has('dimo.workspace-git')).toBe(false);
+    await loadCoreFoundationPlugin('dimo.core.workspace-git');
+    expect(serviceContainer.has('dimo.workspace-git')).toBe(true);
   });
 
   it('provides a bespoke 36x36 SVG icon artwork for every core foundation plugin', () => {

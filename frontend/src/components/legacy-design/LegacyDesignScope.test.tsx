@@ -12,7 +12,7 @@ const legacyStyles = readFileSync(
 );
 
 describe('LegacyDesignScope', () => {
-  it('keeps the Astryx color mode synchronized with the VibeX theme', async () => {
+  it('keeps the Astryx color mode synchronized with the Dimo theme', async () => {
     render(
       <ThemeProvider initialTheme={ThemeMode.DARK}>
         <LegacyDesignScope>

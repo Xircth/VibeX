@@ -20,6 +20,6 @@ test('desktop Tauri dev uses the default cargo runner, not a CEF app bundle', ()
   );
   assert.doesNotMatch(desktopDev, /run-tauri-dev-macos/);
   assert.doesNotMatch(desktopDev, /--runner/);
-  assert.doesNotMatch(desktopDev, /cef-runtime|vibex_cef_helper/);
+  assert.doesNotMatch(desktopDev, /cef-runtime|dimo_cef_helper/);
   assert.match(desktopDev, /exec',\s*'tauri',\s*'dev'/);
 });

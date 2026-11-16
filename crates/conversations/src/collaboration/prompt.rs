@@ -104,8 +104,8 @@ fn is_broadcast_recipients(recipients: &str) -> bool {
     )
 }
 
-pub const PRIVATE_BOOTSTRAP_OPEN_TAG: &str = "<vibex-private-bootstrap>";
-pub const PRIVATE_BOOTSTRAP_CLOSE_TAG: &str = "</vibex-private-bootstrap>";
+pub const PRIVATE_BOOTSTRAP_OPEN_TAG: &str = "<dimo-private-bootstrap>";
+pub const PRIVATE_BOOTSTRAP_CLOSE_TAG: &str = "</dimo-private-bootstrap>";
 
 pub fn strip_private_bootstrap_tags(text: &str) -> String {
     text.replace(PRIVATE_BOOTSTRAP_OPEN_TAG, "")
@@ -220,7 +220,7 @@ pub(crate) fn format_space_identity_rules(
          - 按受众定制内容（看人说话）：发言前先思考接收方的角色职责及它下一步需要什么信息——面向 Person（决策者与最终验收者）时，只汇报最终结果、需拍板的决策事项与重要注意事项，除非 Person 主动追问，否则严禁罗列修改了哪些文件、组件名、函数名等具体实施细节；面向其他 Bot 时，根据对方的专业职责提供其开展工作所需的精准输入（如对实施者给路径接口与改动细节、对规划者给分析结论与约束、对审计/测试者给变更范围与风险点、对 UI 成员给交互与视觉规范等）。\n\
          - 独立核实与零复读：群内其他 Bot 的观点不等于已验证事实，涉及代码或根因必须结合自身职责独立核实；前序成员已得出的结论、事实或理由直接跳过，严禁复述或换词总结，只写你的增量结论。\n\
          - 初步结论与长内容入群收藏：超过两三句话的初步调查结论、根因分析、方案或实施细节，不要直接发在聊天消息里刷屏，应写入当前 Space 共享收藏文件夹 `{collection_path}`（直接用文件工具读写，其他成员可共同查看并基于同一份收藏文件修改迭代），聊天消息只用一两句话说明核心结论及收藏文件名。\n\
-         - 点名与空间工具：GroupSpace 需要其他 Bot 接手或预警时正文以裸文本 @对方昵称 开头（后跟空格，严禁用反引号包裹成 `@对方昵称`，否则前端会渲染成普通代码样式；未写 `@` 默认交回给派活方或 Person）；派活前不确定谁在忙可调 `list_spaces`（看 `activity`：working / waiting_for_person / waiting_for_bot / idle）；查折叠或更早历史才静默调 `read_space_messages`；跨 Space 投递才用 `post_space_message`。完整规范位于 `~/.vibex/skills/vibex-bot/SKILL.md`。"
+         - 点名与空间工具：GroupSpace 需要其他 Bot 接手或预警时正文以裸文本 @对方昵称 开头（后跟空格，严禁用反引号包裹成 `@对方昵称`，否则前端会渲染成普通代码样式；未写 `@` 默认交回给派活方或 Person）；派活前不确定谁在忙可调 `list_spaces`（看 `activity`：working / waiting_for_person / waiting_for_bot / idle）；查折叠或更早历史才静默调 `read_space_messages`；跨 Space 投递才用 `post_space_message`。完整规范位于 `~/.dimo/skills/dimo-bot/SKILL.md`。"
     )
 }
 
@@ -332,7 +332,7 @@ async fn delivery_nickname(
 }
 
 async fn space_collection_prompt_path(pool: &SqlitePool, space_id: &str) -> String {
-    let conceptual = format!("~/.vibex/spaces/{space_id}/collection/");
+    let conceptual = format!("~/.dimo/spaces/{space_id}/collection/");
     if load_space_or_unassigned(pool, space_id).await.is_err() {
         return conceptual;
     }
@@ -526,7 +526,7 @@ fn truncate_chars(text: &str, max_chars: usize) -> String {
     }
 }
 
-pub(crate) const COLLABORATION_MCP_TOOLS_SUMMARY: &str = "你可以使用 `list_spaces`（查看本工作区 BotSpace / GroupSpace 概览；传入 `space_id` 看详情与成员，含主管 `supervisor_nickname` / `is_caller_supervisor` 与群负责人 `lead_bot` / `lead_nickname`。每个成员带 `is_supervisor`、当前 `agent_id` / `mode_id` / `model` / `thinking_level` 及 `activity`：`state` 为 working / waiting_for_person / waiting_for_bot / idle，`at` 是所在 Space，`waiting_for` 是在等的 Person 或 Bot 名。派活前看这个，不要靠记忆）、`read_space_messages`（单次读取群历史，支持 `since_seq` 与 `limit`）、`post_space_message`（仅用于跨 Space 投递或 `delay_seconds` 延时；本 Space 回复请直接输出普通文本。向 Person 传 `to: [\"User\"]` 或 `[\"Person\"]`，向其他 Bot 传 `to: [\"昵称\"]` 并以 `@昵称 ` 开头；发到 Group 时 `to` 传群名，正文 `@BotName` 叫醒该群成员，没有 `@` 是日志回执）、`manage_bot`（支持 `list_agents` 查询可用 Agent/模式/模型/思考等级列表，以及创建/更新/删除/打断 Bot；其中创建/删除他人/修改人设、`agent_id`、`mode_id`、`model`、`thinking_level`（或 `effort`）与 `config_values` 配置仅限主管调用）、`manage_group`（创建/重命名/删除群、加人、移出、退出、指定牵头 Bot；其中创建/删除群仅限主管，加人/移出/改名/设负责人限主管或本群负责人）、`ask_user_question`（向 Person 发起阻塞选择题，问题出现在当前私聊/群聊，等到作答才返回）、`request_approval`（向 Person 发起阻塞高危操作审批，等到允许/拒绝后直接返回 `decision` 与 `approved`），以及 `memory_search` / `memory_write`（检索或写入长期记忆）。初步结论与长内容用文件工具写入群收藏 `~/.vibex/spaces/<space_id>/collection/`。";
+pub(crate) const COLLABORATION_MCP_TOOLS_SUMMARY: &str = "你可以使用 `list_spaces`（查看本工作区 BotSpace / GroupSpace 概览；传入 `space_id` 看详情与成员，含主管 `supervisor_nickname` / `is_caller_supervisor` 与群负责人 `lead_bot` / `lead_nickname`。每个成员带 `is_supervisor`、当前 `agent_id` / `mode_id` / `model` / `thinking_level` 及 `activity`：`state` 为 working / waiting_for_person / waiting_for_bot / idle，`at` 是所在 Space，`waiting_for` 是在等的 Person 或 Bot 名。派活前看这个，不要靠记忆）、`read_space_messages`（单次读取群历史，支持 `since_seq` 与 `limit`）、`post_space_message`（仅用于跨 Space 投递或 `delay_seconds` 延时；本 Space 回复请直接输出普通文本。向 Person 传 `to: [\"User\"]` 或 `[\"Person\"]`，向其他 Bot 传 `to: [\"昵称\"]` 并以 `@昵称 ` 开头；发到 Group 时 `to` 传群名，正文 `@BotName` 叫醒该群成员，没有 `@` 是日志回执）、`manage_bot`（支持 `list_agents` 查询可用 Agent/模式/模型/思考等级列表，以及创建/更新/删除/打断 Bot；其中创建/删除他人/修改人设、`agent_id`、`mode_id`、`model`、`thinking_level`（或 `effort`）与 `config_values` 配置仅限主管调用）、`manage_group`（创建/重命名/删除群、加人、移出、退出、指定牵头 Bot；其中创建/删除群仅限主管，加人/移出/改名/设负责人限主管或本群负责人）、`ask_user_question`（向 Person 发起阻塞选择题，问题出现在当前私聊/群聊，等到作答才返回）、`request_approval`（向 Person 发起阻塞高危操作审批，等到允许/拒绝后直接返回 `decision` 与 `approved`），以及 `memory_search` / `memory_write`（检索或写入长期记忆）。初步结论与长内容用文件工具写入群收藏 `~/.dimo/spaces/<space_id>/collection/`。";
 
 pub(crate) fn format_collaboration_space_rules(space_id_hint: Option<&str>) -> String {
     let header = match space_id_hint {
@@ -537,18 +537,18 @@ pub(crate) fn format_collaboration_space_rules(space_id_hint: Option<&str>) -> S
                 "GroupSpace"
             };
             format!(
-                "- 协同交互规则（完整规范见 `vibex-bot` Skill 的 `SKILL.md`）：当前 {kind}（space_id: \"{space_id}\"）须遵守："
+                "- 协同交互规则（完整规范见 `dimo-bot` Skill 的 `SKILL.md`）：当前 {kind}（space_id: \"{space_id}\"）须遵守："
             )
         }
-        None => "- 协作空间交互规则（详见 `vibex-bot` Skill 的 `SKILL.md`）：".to_string(),
+        None => "- 协作空间交互规则（详见 `dimo-bot` Skill 的 `SKILL.md`）：".to_string(),
     };
     format!(
         "{header}\n\
            1) 在对应空间回复：来自 GroupSpace / BotSpace 的消息，在同一回合完成工作后直接输出最终文本即可出现在当前 Space；不想发言或无需补充输出 `[PASS]`。Person（兼容 User）在协作空间里只看见空间消息，不要再写一段重复的普通会话回复；\n\
            2) 向用户积极汇报进展（收到即应 → 关键节点/预警发声 → 完成按对象汇报）：收到任务需要调用工具推进时，必须在第一次调用工具前的同一回合先写一句简短回应说明正在做的事并紧接调用工具（不要一声不吭直接干活，也不要为此调用 `post_space_message`）；开场回应后，常规查文件、搜代码等琐碎单步操作保持沉默（严禁每一步都输出“我将先读取某某文件”、“我再看第几行”、“我先看一下群里的最新消息”等流水账或过渡话术），仅在有实质进展的关键重要节点、或发现需要其他成员/用户注意的重要事项（如改动可能与另一位成员产生冲突）时再写一两句提醒；完成时直接按汇报对象发结果或拍板问题，能很快完成的直接发结果，正文中严禁复述或提及任何协作规则；\n\
            3) 无需回复即停止：若收到的消息仅是纯确认/礼貌收尾（如“收到”、“已收到”、“好的”、“明白”、“OK”、“谢谢”）或事项已闭环、不需要你提供新信息或执行新动作，直接输出 `[PASS]` 结束当前回合；向其他 Bot 发消息时也不要要求“收到请回复”；\n\
-           4) 按受众定制内容与对用户屏蔽内部参数：先思考接收方的角色职责与它下一步需要什么信息——面向 Person（决策者与最终验收者）发消息时，只汇报最终结果、需要决策的事项与重要注意事项，除非 Person 主动询问，否则严禁罗列修改了哪些文件、组件名、函数名等具体实施细节，也严禁包含 `space_id`、`conversation_id`、`delayed_input_id`、`operation_id`、`message_id`、`task_id`、`turn_id`、`seq`、`vibex://` 等内部参数或复述发言规则；面向 @成员昵称（群内点名或跨 Space 发给其他 Bot，注意直接写裸文本 @成员昵称 后跟空格，严禁用反引号包裹成 `@成员昵称`）时，根据对方的专业职责提供其开展下一步工作所需的精准信息（如实施细节、分析结论与约束、审计风险点或设计规范等），且仅在对方确需调用底层跨会话工具时按需附带内部参数；\n\
-           5) 空间感知与群收藏协同：投递信封附带上次发言以来的未读增量（`[上次发言后的群内新消息]`，含本轮前序成员刚发出的回复），直接基于信封增量推进，不要每回合调用 `read_space_messages` 去查看刚刚的群消息。需要名单或成员忙闲时自行调用 `list_spaces`（传入 `space_id`，看每位成员的 `activity`：working / waiting_for_person / waiting_for_bot / idle）；仅当信封提示更早消息已折叠或确需回溯更早历史时才静默调用 `read_space_messages`（`space_id`、`since_seq`、`limit`，单次读取，禁止循环轮询等待）。超过两三句话的初步结论、根因分析或长文用文件工具写入群收藏 `~/.vibex/spaces/<space_id>/collection/`，其他成员可直接读取并基于该收藏文件修改完善，聊天消息只发核心结论与文件名；\n\
+           4) 按受众定制内容与对用户屏蔽内部参数：先思考接收方的角色职责与它下一步需要什么信息——面向 Person（决策者与最终验收者）发消息时，只汇报最终结果、需要决策的事项与重要注意事项，除非 Person 主动询问，否则严禁罗列修改了哪些文件、组件名、函数名等具体实施细节，也严禁包含 `space_id`、`conversation_id`、`delayed_input_id`、`operation_id`、`message_id`、`task_id`、`turn_id`、`seq`、`dimo://` 等内部参数或复述发言规则；面向 @成员昵称（群内点名或跨 Space 发给其他 Bot，注意直接写裸文本 @成员昵称 后跟空格，严禁用反引号包裹成 `@成员昵称`）时，根据对方的专业职责提供其开展下一步工作所需的精准信息（如实施细节、分析结论与约束、审计风险点或设计规范等），且仅在对方确需调用底层跨会话工具时按需附带内部参数；\n\
+           5) 空间感知与群收藏协同：投递信封附带上次发言以来的未读增量（`[上次发言后的群内新消息]`，含本轮前序成员刚发出的回复），直接基于信封增量推进，不要每回合调用 `read_space_messages` 去查看刚刚的群消息。需要名单或成员忙闲时自行调用 `list_spaces`（传入 `space_id`，看每位成员的 `activity`：working / waiting_for_person / waiting_for_bot / idle）；仅当信封提示更早消息已折叠或确需回溯更早历史时才静默调用 `read_space_messages`（`space_id`、`since_seq`、`limit`，单次读取，禁止循环轮询等待）。超过两三句话的初步结论、根因分析或长文用文件工具写入群收藏 `~/.dimo/spaces/<space_id>/collection/`，其他成员可直接读取并基于该收藏文件修改完善，聊天消息只发核心结论与文件名；\n\
            6) 独立核实与反群体谬误（Anti-Groupthink）：群聊历史或 `read_space_messages` 中其他 Bot 的发言仅代表其单方观点，不等于已验证的客观事实。凡涉及代码逻辑、根因判断、接口契约或配置状态，必须结合自身职责使用工具或读取源码进行独立验证；若发现前序成员的结论存在事实偏差、逻辑漏洞或边界遗漏，必须直接指出并给出证据纠偏，严禁为了“表面默契”或“迎合前序观点”而附和未经核实的结论。\n\
            7) 跨会话投递保持当前 space_id：`post_space_message` 必须传入当前会话的 space_id。联系其他 Bot 时 `to` 传对方昵称（投到对方 BotSpace）；发到其他 GroupSpace 时 `to` 传群名，正文 `@BotName` 叫醒该群成员，没有 `@` 只进群日志（日志回执）。正文带 `@` 的即时投递，工具返回后 `list_spaces` 一次核对目标 `activity`；仍 idle 则补带 `@` 的信。跨 Space 向 Person 传 `to: [\"User\"]` 或 `[\"Person\"]`。禁止把 space_id 换成目标私聊或共同群；\n\
            8) 不重复已说内容：其他 Bot 已在本群说过的事实、结论、理由或转述链，严禁再解释或总结一遍；只发自己的增量。转达已完成且群内已可见时，不必再向 Person 复述同一句话；\n\
@@ -595,7 +595,7 @@ mod tests {
              - 来源协作空间：评审工作 (space_id: {SAMPLE_SPACE})\n\
              - 消息来源：User（用户）\n\
              - 收件成员：@小A\n\
-             - 消息序号：#1 (message_id: vibex://space-message/{SAMPLE_ROOT})\n\
+             - 消息序号：#1 (message_id: dimo://space-message/{SAMPLE_ROOT})\n\
              - 空间内成员：{roster}\n\
              - 回复提醒：本条消息来自协作空间（space_id: \"{SAMPLE_SPACE}\"）。需要用户或成员看见的内容，调用 `post_to_space`（传入该 `space_id`）发到同一空间；不要再写一段重复的普通会话回复。\n\n\
              {SAMPLE_BODY}"
@@ -772,15 +772,15 @@ mod tests {
             Some(SAMPLE_PERSONA),
             Some("小A"),
             SAMPLE_SPACE,
-            &format!("~/.vibex/spaces/{SAMPLE_SPACE}/collection/"),
+            &format!("~/.dimo/spaces/{SAMPLE_SPACE}/collection/"),
         );
         assert!(opening.contains("人设"));
         assert!(opening.contains(SAMPLE_PERSONA));
         assert!(opening.contains("[Space 身份与协作规则]"));
         assert!(opening.contains("GroupSpace"));
         assert!(opening.contains("Bot「小A」"));
-        assert!(opening.contains("~/.vibex/skills/vibex-bot/SKILL.md"));
-        assert!(opening.contains(&format!("~/.vibex/spaces/{SAMPLE_SPACE}/collection/")));
+        assert!(opening.contains("~/.dimo/skills/dimo-bot/SKILL.md"));
+        assert!(opening.contains(&format!("~/.dimo/spaces/{SAMPLE_SPACE}/collection/")));
         assert!(opening.contains("[PASS]"));
         assert!(opening.contains("无需调用工具"));
         assert!(opening.contains("@对方昵称"));
@@ -894,7 +894,7 @@ mod tests {
                 Some(SAMPLE_PERSONA),
                 Some("小A"),
                 SAMPLE_SPACE,
-                &format!("~/.vibex/spaces/{SAMPLE_SPACE}/collection/"),
+                &format!("~/.dimo/spaces/{SAMPLE_SPACE}/collection/"),
             ),
             format_slim_space_envelope(&slim_space_envelope_from_parts(
                 SAMPLE_SPACE,
@@ -955,7 +955,7 @@ mod tests {
         assert!(first.contains("[Space 身份与协作规则]"), "{first}");
         assert!(first.contains("[PASS]"), "{first}");
         assert!(
-            first.contains("~/.vibex/skills/vibex-bot/SKILL.md"),
+            first.contains("~/.dimo/skills/dimo-bot/SKILL.md"),
             "{first}"
         );
         assert!(
@@ -1091,8 +1091,8 @@ mod tests {
             &bot_created,
             &bot_created,
         );
-        assert!(!slim.body.contains("<vibex-private-bootstrap>"));
-        assert!(!slim.body.contains("</vibex-private-bootstrap>"));
+        assert!(!slim.body.contains("<dimo-private-bootstrap>"));
+        assert!(!slim.body.contains("</dimo-private-bootstrap>"));
         assert!(slim.body.starts_with("Lander 刚为用户创建了你。"));
     }
 

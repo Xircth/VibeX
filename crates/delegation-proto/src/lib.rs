@@ -1,5 +1,5 @@
 //! Wire protocol shared between the in-app delegation broker (the `delegation`
-//! crate, listener side) and the out-of-process `vibex-mcp` companion (client
+//! crate, listener side) and the out-of-process `dimo-mcp` companion (client
 //! side).
 //!
 //! Deliberately dependency-light (serde + tokio io only) so the companion

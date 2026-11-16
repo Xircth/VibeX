@@ -1,4 +1,4 @@
-import { usePanels, useSlotContributions } from '@vibex/plugin-sdk';
+import { usePanels, useSlotContributions } from '@dimoai/plugin-sdk';
 import type { IDockviewHeaderActionsProps } from 'dockview-react';
 import {
   Activity,

@@ -89,7 +89,7 @@ import {
 } from '@/lib/workspaceDefault';
 import { HostSelector } from '@/components/layout/HostSelector';
 import { ProjectQuickSwitcher } from '@/components/layout/ProjectQuickSwitcher';
-import { useSlotContributions, useViews } from '@vibex/plugin-sdk';
+import { useSlotContributions, useViews } from '@dimoai/plugin-sdk';
 import { collectPluginToolbarTabs } from './toolbarTabs';
 import {
   contributionMetadata,

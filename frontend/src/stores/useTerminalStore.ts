@@ -235,7 +235,7 @@ export const useTerminalStore = create<TerminalState>()(
       },
     }),
     {
-      name: 'vibex-terminal-sessions',
+      name: 'dimo-terminal-sessions',
       version: 3,
       migrate: (persistedState) => {
         const state = (persistedState ?? {}) as Partial<TerminalState>;

@@ -41,7 +41,7 @@ const preview: PluginUpdatePreview = {
     builtin: false,
     sourceKind: 'snapshot',
     sourcePath: '',
-    formats: ['vibex'],
+    formats: ['dimo'],
     skills: [],
     runtimes: [],
     warnings: [],

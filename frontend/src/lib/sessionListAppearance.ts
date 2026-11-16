@@ -2,7 +2,7 @@ import { createContext, useSyncExternalStore } from 'react';
 import { persistFrontendPreference } from '@/lib/frontendPreferences';
 
 export type SessionListAppearance = 'compact' | 'full';
-export const SESSION_LIST_APPEARANCE_KEY = 'vibex:session-list-appearance';
+export const SESSION_LIST_APPEARANCE_KEY = 'dimo:session-list-appearance';
 export const SessionListAppearanceContext =
   createContext<SessionListAppearance>('compact');
 

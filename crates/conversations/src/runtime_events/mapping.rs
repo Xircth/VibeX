@@ -38,11 +38,15 @@ pub(super) fn is_terminal_tool_status(status: Option<&str>) -> bool {
     )
 }
 
-/// Only pure transient UI hints bypass `conversation_events` persistence.
-/// All 5 content event families (`AssistantTextDelta`, `AssistantReasoningDelta`,
-/// `AssistantContentAppended`, `PlanUpdated`, `ToolCallUpsert`) are persisted in SQLite.
+/// Pure transient UI hints bypass `conversation_events` persistence and publish live only.
+/// Content and state events (`AssistantTextDelta`, `AssistantReasoningDelta`,
+/// `AssistantContentAppended`, `PlanUpdated`, `ToolCallUpsert`, etc.) remain persisted in SQLite.
 pub(super) fn is_unpersisted_conversation_event(event: &ConversationEvent) -> bool {
-    matches!(event, ConversationEvent::PromptSuggestionUpdated { .. })
+    matches!(
+        event,
+        ConversationEvent::PromptSuggestionUpdated { .. }
+            | ConversationEvent::RequestActivityChanged { .. }
+    )
 }
 
 pub(super) fn is_terminal_conversation_event(event: &ConversationEvent) -> bool {

@@ -16,9 +16,9 @@ use zip::{ZipWriter, write::SimpleFileOptions};
 const TOKEN: &str = "plugin-update-test-only-token-at-least-32-bytes";
 fn files(version: &str) -> Vec<(&'static str, String)> {
     vec![
-        (".vibex-plugin/plugin.json", json!({"manifestVersion":4,"apiVersion":"2.0","id":"acme.notes","publisher":"acme","name":"Notes","version":version,"readme":"README.md","content":{"root":"contents","index":".vibex-plugin/content.index.json"},"config":{"schema":{"type":"object","properties":{"preview":{"type":"boolean"}},"additionalProperties":false}},"engines":{"vibex":">=0.1.3 <1.0.0","pluginSdk":"^2.0.0"},"integrations":[]}).to_string()),
+        (".dimo-plugin/plugin.json", json!({"manifestVersion":4,"apiVersion":"2.0","id":"acme.notes","publisher":"acme","name":"Notes","version":version,"readme":"README.md","content":{"root":"contents","index":".dimo-plugin/content.index.json"},"config":{"schema":{"type":"object","properties":{"preview":{"type":"boolean"}},"additionalProperties":false}},"engines":{"dimo":">=0.1.3 <1.0.0","pluginSdk":"^2.0.0"},"integrations":[]}).to_string()),
         ("README.md", "---\nsummary: Work with notes.\n---\n# Notes\n".into()),
-        (".vibex-plugin/content.index.json", "{\"schemaVersion\":1,\"items\":[]}".into()),
+        (".dimo-plugin/content.index.json", "{\"schemaVersion\":1,\"items\":[]}".into()),
         ("config.json", "{\"preview\":true}".into()),
     ]
 }
@@ -286,11 +286,11 @@ async fn standalone_host_updates_plugins_over_http() {
     let log_path = data.path().join("host.log");
     let log = std::fs::File::create(&log_path).unwrap();
     let mut host = HostProcess(
-        std::process::Command::new(env!("CARGO_BIN_EXE_vibex-server"))
+        std::process::Command::new(env!("CARGO_BIN_EXE_dimo-server"))
             .current_dir(data.path())
-            .env("VIBEX_DATA_DIR", data.path())
-            .env("VIBEX_SERVER_LISTEN", address.to_string())
-            .env("VIBEX_SERVER_TOKEN", TOKEN)
+            .env("DIMO_DATA_DIR", data.path())
+            .env("DIMO_SERVER_LISTEN", address.to_string())
+            .env("DIMO_SERVER_TOKEN", TOKEN)
             .env("RUST_LOG", "warn")
             .stdout(log.try_clone().unwrap())
             .stderr(log)

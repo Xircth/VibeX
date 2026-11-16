@@ -189,7 +189,7 @@ impl RemoteDesktopRegistry {
             .post(format!("{}/api/v1/call/{command}", profile.base_url))
             .bearer_auth(&profile.token.0)
             .header(
-                "x-vibex-protocol-version",
+                "x-dimo-protocol-version",
                 remote_protocol::PROTOCOL_VERSION,
             )
             .json(&serde_json::json!({
@@ -213,7 +213,7 @@ impl RemoteDesktopRegistry {
             .get(format!("{}/api/v1/capabilities", profile.base_url))
             .bearer_auth(&profile.token.0)
             .header(
-                "x-vibex-protocol-version",
+                "x-dimo-protocol-version",
                 remote_protocol::PROTOCOL_VERSION,
             )
             .send()
@@ -361,7 +361,7 @@ fn websocket_url(base_url: &str) -> String {
 
 fn token_protocol(token: &str) -> String {
     use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
-    format!("vibex.token.{}", URL_SAFE_NO_PAD.encode(token.as_bytes()))
+    format!("dimo.token.{}", URL_SAFE_NO_PAD.encode(token.as_bytes()))
 }
 
 async fn connect_remote_socket(
@@ -374,7 +374,7 @@ async fn connect_remote_socket(
     let mut request = websocket_url(&profile.base_url)
         .into_client_request()
         .map_err(internal)?;
-    let protocol = format!("vibex.v1, {}", token_protocol(&profile.token.0));
+    let protocol = format!("dimo.v1, {}", token_protocol(&profile.token.0));
     request.headers_mut().insert(
         "Sec-WebSocket-Protocol",
         HeaderValue::from_str(&protocol).map_err(internal)?,

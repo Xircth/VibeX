@@ -237,8 +237,8 @@ function protectMathSpansInTextSegment(
 }
 
 /**
- * VibeX markdown pre-pass executed before blank-line block splitting:
- * 1. Resolves VibeX inline tag markers and strips prompt-materialized tag suffixes,
+ * Dimo markdown pre-pass executed before blank-line block splitting:
+ * 1. Resolves Dimo inline tag markers and strips prompt-materialized tag suffixes,
  *    plus separates any trailing `## Tag Reference` / `## 标签引用` section.
  * 2. Replaces display/multi-line math (`$$...$$`, `\[...\]`, `\begin{env}...\end{env}`)
  *    outside code with single-line placeholders so internal blank lines never split TeX.

@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef } from 'react';
+import { useCallback, useEffect, useState, useRef } from 'react';
 import type { Operation } from 'rfc6902';
 import { cloneAndApplyUpsertPatch } from '@/utils/jsonPatch';
 import { getBackendTransport } from '@/lib/transport/transportRegistry';
@@ -42,6 +42,7 @@ export interface TauriPatchStreamResult<T> {
   isConnected: boolean;
   isInitialized: boolean;
   error: string | null;
+  retry: () => void;
 }
 
 function asLogMsg(payload: unknown): TauriLogMsg | null {
@@ -71,10 +72,15 @@ export const usePatchStream = <T extends object>(
   const [isConnected, setIsConnected] = useState(false);
   const [isInitialized, setIsInitialized] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [retryNonce, setRetryNonce] = useState(0);
   const dataRef = useRef<T | undefined>(undefined);
   const finishedRef = useRef<boolean>(false);
   const isInitializedRef = useRef<boolean>(false);
   const argsKey = subscribeArgs ? JSON.stringify(subscribeArgs) : '';
+
+  const retry = useCallback(() => {
+    setRetryNonce((current) => current + 1);
+  }, []);
 
   useEffect(() => {
     if (!enabled) {
@@ -170,15 +176,46 @@ export const usePatchStream = <T extends object>(
     };
 
     let iterator: AsyncIterator<RemoteEvent> | undefined;
+    let retryTimer: ReturnType<typeof setTimeout> | undefined;
+    let retryAttempts = 0;
 
-    const setup = async () => {
+    const scheduleReconnect = () => {
+      if (cancelled || finishedRef.current || retryTimer !== undefined) {
+        return;
+      }
+      const delay = Math.min(1000 * 2 ** retryAttempts, 10_000);
+      retryAttempts += 1;
+      retryTimer = setTimeout(() => {
+        retryTimer = undefined;
+        if (!cancelled && !finishedRef.current) {
+          void setup(true);
+        }
+      }, delay);
+    };
+
+    const setup = async (isReconnect = false) => {
+      if (cancelled || finishedRef.current) {
+        return;
+      }
       const transport = getBackendTransport();
       const stream = STREAM_BY_COMMAND[subscribeCommand];
       if (!stream || !transport.subscribe) {
+        setIsConnected(false);
         setError(`patch stream ${subscribeCommand} is not available`);
         return;
       }
+      if (isReconnect) {
+        const nextInit = initialData();
+        if (injectInitialEntry) {
+          injectInitialEntry(nextInit);
+        }
+        dataRef.current = nextInit;
+        finishedRef.current = false;
+        isInitializedRef.current = false;
+        pendingOps = [];
+      }
       const args = (argsKey ? JSON.parse(argsKey) : {}) as JsonValue;
+      let currentIterator: AsyncIterator<RemoteEvent> | undefined;
       try {
         const subscription = transport.subscribe({
           subscription_id: randomUUID(),
@@ -186,32 +223,59 @@ export const usePatchStream = <T extends object>(
           stream,
           args,
         });
-        iterator = subscription[Symbol.asyncIterator]();
+        currentIterator = subscription[Symbol.asyncIterator]();
+        iterator = currentIterator;
         if (cancelled) {
-          void iterator.return?.();
+          void currentIterator.return?.();
           return;
         }
         setIsConnected(true);
         setError(null);
+        let sawMessage = false;
         while (!cancelled) {
-          const next = await iterator.next();
+          const next = await currentIterator.next();
           if (next.done || cancelled) break;
+          if (!sawMessage) {
+            sawMessage = true;
+            retryAttempts = 0;
+          }
           applyMessage((next.value as RemoteEvent).payload);
+        }
+        if (!cancelled && !finishedRef.current) {
+          setError('Stream disconnected unexpectedly');
+          scheduleReconnect();
         }
       } catch (err) {
         if (!cancelled) {
           console.error(`Failed to subscribe to ${eventChannel}:`, err);
           setError(err instanceof Error ? err.message : 'Failed to connect');
+          const retryable =
+            typeof err === 'object' && err !== null && 'retryable' in err
+              ? (err as { retryable?: unknown }).retryable !== false
+              : true;
+          if (retryable) {
+            scheduleReconnect();
+          }
         }
       } finally {
-        void iterator?.return?.();
+        void currentIterator?.return?.();
+        if (iterator === currentIterator) {
+          iterator = undefined;
+        }
+        if (!cancelled) {
+          setIsConnected(false);
+        }
       }
     };
 
-    void setup();
+    void setup(false);
 
     return () => {
       cancelled = true;
+      if (retryTimer !== undefined) {
+        clearTimeout(retryTimer);
+        retryTimer = undefined;
+      }
       void iterator?.return?.();
       dataRef.current = undefined;
       finishedRef.current = false;
@@ -228,7 +292,8 @@ export const usePatchStream = <T extends object>(
     initialData,
     injectInitialEntry,
     deduplicatePatches,
+    retryNonce,
   ]);
 
-  return { data, isConnected, isInitialized, error };
+  return { data, isConnected, isInitialized, error, retry };
 };

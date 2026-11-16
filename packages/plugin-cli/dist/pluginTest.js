@@ -22,7 +22,7 @@ export async function testPlugin(root, options = {}) {
     if (!entries.length) {
         throw new Error("plugin_test_harness_missing: test/*.test.mjs is required");
     }
-    const outputRoot = join(pluginRoot, ".vibex-plugin", ".test-dist");
+    const outputRoot = join(pluginRoot, ".dimo-plugin", ".test-dist");
     await mkdir(outputRoot, { recursive: true });
     try {
         const outputs = [];
@@ -40,7 +40,7 @@ export async function testPlugin(root, options = {}) {
                     "import.meta.url": JSON.stringify(pathToFileURL(entry).href),
                 },
                 banner: {
-                    js: `if (!process.env.VIBEX_PLUGIN_ROOT) process.env.VIBEX_PLUGIN_ROOT = ${JSON.stringify(pluginRoot)};`,
+                    js: `if (!process.env.DIMO_PLUGIN_ROOT) process.env.DIMO_PLUGIN_ROOT = ${JSON.stringify(pluginRoot)};`,
                 },
                 sourcemap: false,
                 legalComments: "none",
@@ -59,7 +59,7 @@ async function testPluginOnHost(root) {
     const plugin = await inspectLinkedPackage(root);
     const installed = await importLinkedOnProductHost(plugin.root, plugin.identity);
     if (installed.queued) {
-        throw new Error("No Host is bound. Run `vibex plugin run server --http://127.0.0.1:17891 --token <token>`.");
+        throw new Error("No Host is bound. Run `dimo plugin run server --http://127.0.0.1:17891 --token <token>`.");
     }
     await enableOnProductHost(plugin.identity.id);
     const integrations = await readManifestIntegrations(root);
@@ -110,7 +110,7 @@ async function testPluginOnHost(root) {
     await access(root);
 }
 async function readManifestIntegrations(root) {
-    const raw = await readFile(join(root, ".vibex-plugin", "plugin.json"), "utf8");
+    const raw = await readFile(join(root, ".dimo-plugin", "plugin.json"), "utf8");
     const manifest = JSON.parse(raw);
     return manifest.integrations;
 }
@@ -182,7 +182,7 @@ async function runNodeTests(root, outputs) {
     await new Promise((resolvePromise, reject) => {
         const child = spawn(process.execPath, ["--test", ...outputs], {
             cwd: root,
-            env: { ...process.env, VIBEX_PLUGIN_ROOT: root },
+            env: { ...process.env, DIMO_PLUGIN_ROOT: root },
             stdio: "inherit",
         });
         child.on("error", reject);

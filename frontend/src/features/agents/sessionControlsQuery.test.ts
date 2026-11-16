@@ -101,12 +101,12 @@ describe('session controls query cache', () => {
     publishLiveSessionControls(client, {
       agentType: 'omp',
       workspaceId: 'workspace-1',
-      controls: modelWith(['vibex/opus', 'antigravity/gemini']),
+      controls: modelWith(['dimo/opus', 'antigravity/gemini']),
     });
     publishLiveSessionControls(client, {
       agentType: 'omp',
       workspaceId: 'workspace-1',
-      controls: modelWith(['vibex/opus']),
+      controls: modelWith(['dimo/opus']),
     });
 
     const schema = client.getQueryData<AgentSessionControlsSnapshot>(
@@ -114,7 +114,7 @@ describe('session controls query cache', () => {
     );
     expect(
       schema?.config_options[0].choices?.map((choice) => choice.value)
-    ).toEqual(['vibex/opus']);
+    ).toEqual(['dimo/opus']);
   });
 
   it('normalizes null or undefined agentType without throwing during disabled query key evaluation', () => {

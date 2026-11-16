@@ -5,7 +5,7 @@ export type SettingsSearchEntry = {
   groupKey: string;
   capability?: string;
   anyOf?: string[];
-  requiresVibeXAccount?: boolean;
+  requiresDimoAccount?: boolean;
 };
 
 const page = (
@@ -58,7 +58,7 @@ const PAGES = {
 function entriesFor(
   pageKey: keyof typeof PAGES,
   labelKeys: string[],
-  options?: { requiresVibeXAccount?: boolean }
+  options?: { requiresDimoAccount?: boolean }
 ): SettingsSearchEntry[] {
   const meta = PAGES[pageKey];
   return labelKeys.map((labelKey) => ({
@@ -68,7 +68,7 @@ function entriesFor(
     groupKey: meta.groupKey,
     capability: meta.capability,
     anyOf: meta.anyOf,
-    requiresVibeXAccount: options?.requiresVibeXAccount,
+    requiresDimoAccount: options?.requiresDimoAccount,
   }));
 }
 
@@ -95,7 +95,7 @@ export const SETTINGS_SEARCH_ENTRIES: SettingsSearchEntry[] = [
       'subscription.modelOverviewTitle',
       'account.hostsSectionTitle',
     ],
-    { requiresVibeXAccount: true }
+    { requiresDimoAccount: true }
   ),
   ...entriesFor('appearance', [
     'appearance.theme.title',

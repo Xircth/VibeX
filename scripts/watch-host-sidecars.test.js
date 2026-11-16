@@ -21,48 +21,48 @@ test('desktop dev points official MCP sidecars at the debug cargo outputs', () =
   );
 
   assert.equal(
-    env.VIBEX_MCP_BIN,
-    path.join('/custom-target', 'debug', 'vibex-mcp.exe')
+    env.DIMO_MCP_BIN,
+    path.join('/custom-target', 'debug', 'dimo-mcp.exe')
   );
   assert.equal(
-    env.VIBEX_WORKFLOW_MCP_BIN,
-    path.join('/custom-target', 'debug', 'vibex-workflow-mcp.exe')
+    env.DIMO_WORKFLOW_MCP_BIN,
+    path.join('/custom-target', 'debug', 'dimo-workflow-mcp.exe')
   );
 });
 
 test('sidecar debug binaries fall back to the workspace target directory', () => {
   assert.equal(
-    sidecarDebugBinary('vibex-mcp', {
+    sidecarDebugBinary('dimo-mcp', {
       repo: '/repo',
       env: {},
       platform: 'linux',
     }),
-    path.join('/repo', 'target', 'debug', 'vibex-mcp')
+    path.join('/repo', 'target', 'debug', 'dimo-mcp')
   );
 });
 
-test('an explicit VIBEX_MCP_BIN override is preserved', () => {
+test('an explicit DIMO_MCP_BIN override is preserved', () => {
   const env = applySidecarDevEnv(
-    { VIBEX_MCP_BIN: '/opt/custom-mcp' },
+    { DIMO_MCP_BIN: '/opt/custom-mcp' },
     { repo: '/repo', platform: 'linux' }
   );
 
-  assert.equal(env.VIBEX_MCP_BIN, '/opt/custom-mcp');
+  assert.equal(env.DIMO_MCP_BIN, '/opt/custom-mcp');
   assert.equal(
-    env.VIBEX_WORKFLOW_MCP_BIN,
-    path.join('/repo', 'target', 'debug', 'vibex-workflow-mcp')
+    env.DIMO_WORKFLOW_MCP_BIN,
+    path.join('/repo', 'target', 'debug', 'dimo-workflow-mcp')
   );
 });
 
 test('only official product MCP crates trigger a sidecar rebuild', () => {
   const repo = '/repo';
   assert.equal(
-    isHostSidecarSourcePath(path.join(repo, 'crates/vibex-mcp/src/main.rs'), repo),
+    isHostSidecarSourcePath(path.join(repo, 'crates/dimo-mcp/src/main.rs'), repo),
     true
   );
   assert.equal(
     isHostSidecarSourcePath(
-      path.join(repo, 'crates/vibex-mcp/tool_schema.json'),
+      path.join(repo, 'crates/dimo-mcp/tool_schema.json'),
       repo
     ),
     true
@@ -76,7 +76,7 @@ test('only official product MCP crates trigger a sidecar rebuild', () => {
   );
   assert.equal(
     isHostSidecarSourcePath(
-      path.join(repo, 'crates/vibex-workflow-mcp/src/main.rs'),
+      path.join(repo, 'crates/dimo-workflow-mcp/src/main.rs'),
       repo
     ),
     true
@@ -91,7 +91,7 @@ test('only official product MCP crates trigger a sidecar rebuild', () => {
   );
   assert.equal(
     isHostSidecarSourcePath(
-      path.join(repo, 'target/debug/vibex-mcp.exe'),
+      path.join(repo, 'target/debug/dimo-mcp.exe'),
       repo
     ),
     false
@@ -99,15 +99,15 @@ test('only official product MCP crates trigger a sidecar rebuild', () => {
 });
 
 test('rebuildHostSidecars frees locked debug and deps binaries then cargo-builds both sidecars', () => {
-  const repo = fs.mkdtempSync(path.join(os.tmpdir(), 'vibex-sidecar-rebuild-'));
+  const repo = fs.mkdtempSync(path.join(os.tmpdir(), 'dimo-sidecar-rebuild-'));
   const debugDir = path.join(repo, 'target', 'debug');
   const depsDir = path.join(debugDir, 'deps');
   fs.mkdirSync(depsDir, { recursive: true });
-  const lockedOuter = path.join(debugDir, `vibex-mcp${exe}`);
-  const lockedDeps = path.join(depsDir, `vibex_mcp${exe}`);
-  const lockedHashed = path.join(depsDir, `vibex_mcp-a1b2c3d4e5f6${exe}`);
-  const staleRunning = path.join(debugDir, `vibex-mcp.running${exe}`);
-  const staleOld = path.join(depsDir, `vibex_mcp${exe}.old-99-1`);
+  const lockedOuter = path.join(debugDir, `dimo-mcp${exe}`);
+  const lockedDeps = path.join(depsDir, `dimo_mcp${exe}`);
+  const lockedHashed = path.join(depsDir, `dimo_mcp-a1b2c3d4e5f6${exe}`);
+  const staleRunning = path.join(debugDir, `dimo-mcp.running${exe}`);
+  const staleOld = path.join(depsDir, `dimo_mcp${exe}.old-99-1`);
   fs.writeFileSync(lockedOuter, 'old');
   fs.writeFileSync(lockedDeps, 'old-deps');
   fs.writeFileSync(lockedHashed, 'old-hashed');
@@ -138,17 +138,17 @@ test('rebuildHostSidecars frees locked debug and deps binaries then cargo-builds
   assert.deepEqual(cargoCalls[0].args, [
     'build',
     '-p',
-    'vibex-mcp',
+    'dimo-mcp',
     '-p',
-    'vibex-workflow-mcp',
+    'dimo-workflow-mcp',
   ]);
   assert.equal(cargoCalls[0].cwd, repo);
   assert.deepEqual(staged, [path.join(repo, 'target')]);
 });
 
 test('watchHostSidecars rebuilds after a sidecar source change', async () => {
-  const repo = fs.mkdtempSync(path.join(os.tmpdir(), 'vibex-sidecar-watch-'));
-  const srcDir = path.join(repo, 'crates', 'vibex-mcp', 'src');
+  const repo = fs.mkdtempSync(path.join(os.tmpdir(), 'dimo-sidecar-watch-'));
+  const srcDir = path.join(repo, 'crates', 'dimo-mcp', 'src');
   fs.mkdirSync(srcDir, { recursive: true });
   const file = path.join(srcDir, 'main.rs');
   fs.writeFileSync(file, 'fn main() {}\n');

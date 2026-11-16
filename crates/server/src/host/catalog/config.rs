@@ -368,7 +368,7 @@ pub(super) async fn enhance_prompt(
     }
     let events = runtime.subscribe_events();
     let working_dir =
-        utils::path::vibex_scratch_subdir("prompt-enhance").map_err(internal_error)?;
+        utils::path::dimo_scratch_subdir("prompt-enhance").map_err(internal_error)?;
     let prepared = match runtime
         .prepare_session(EnsureAgentSessionInput {
             agent_id: agent_id.clone(),

@@ -6,13 +6,13 @@ product
 
 ## Category & Positioning
 
-**VibeX** is an **All-in-One Agent-Native Development Platform** uniting a visual multi-agent development environment and a Vibe Coding toolkit on a high-performance, highly decoupled Rust core where **everything is a plugin**.
+**Dimo** is an **All-in-One Agent-Native Development Platform** uniting a visual multi-agent development environment and a Vibe Coding toolkit on a high-performance, highly decoupled Rust core where **everything is a plugin**.
 
-Developers use VibeX to visualize and orchestrate **20+ Coding Agents** (Claude Code, Codex, OpenCode, Cursor, Antigravity, DeepSeek, Grok, Cline, Kimi Code, CodeBuddy, Qoder, TRAE CLI, and the open ACP ecosystem) across free split-tab and Infinite Canvas workspaces, isolated Git worktrees, 3-tier agent collaboration flows, cross-agent session handoffs, and connected Mobile / Desktop / WebUI / Server hosts.
+Developers use Dimo to visualize and orchestrate **20+ Coding Agents** (Claude Code, Codex, OpenCode, Cursor, Antigravity, DeepSeek, Grok, Cline, Kimi Code, CodeBuddy, Qoder, TRAE CLI, and the open ACP ecosystem) across free split-tab and Infinite Canvas workspaces, isolated Git worktrees, 3-tier agent collaboration flows, cross-agent session handoffs, and connected Mobile / Desktop / WebUI / Server hosts.
 
 ## Users
 
-VibeX serves software engineers, tech leads, and AI-native Vibe Coders who run multiple coding agents concurrently against real codebases.
+Dimo serves software engineers, tech leads, and AI-native Vibe Coders who run multiple coding agents concurrently against real codebases.
 
 The primary user is technical, keyboard-fluent, and outcome-driven. In a typical session they advance several parallel workstreams at once: framing context with `@` references and live browser element picking, delegating subtasks via `&Agent` or multi-Bot collaboration rooms, migrating or steering sessions across agents without losing context, reviewing diffs or 3-pane merges across isolated Git worktrees, and continuing runs seamlessly from desktop, WebUI, remote servers, native iOS/Android apps, or IM channels.
 
@@ -30,7 +30,7 @@ Success means a developer gets the best possible Vibe Coding experience—direct
 
 Calm, inspectable, and precise.
 
-VibeX feels like a high-craft engineering cockpit (aligned with macOS Tahoe Liquid-Glass chrome over opaque, high-contrast content surfaces documented in `DESIGN.md`). Polish serves scanability, state honesty, and low cognitive friction across multi-hour sessions. Copy is direct, concrete, and free of hype.
+Dimo feels like a high-craft engineering cockpit (aligned with macOS Tahoe Liquid-Glass chrome over opaque, high-contrast content surfaces documented in `DESIGN.md`). Polish serves scanability, state honesty, and low cognitive friction across multi-hour sessions. Copy is direct, concrete, and free of hype.
 
 ## Anti-references
 

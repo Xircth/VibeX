@@ -1149,6 +1149,7 @@ mod workspace_lock_tests {
                     queued_input_claim: None,
                     operation_id: None,
                     collaboration_origin: None,
+                    provider_instance_id: None,
                 },
                 crate::commit_reminder::USER_ORIGIN,
             ),

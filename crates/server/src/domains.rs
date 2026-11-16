@@ -958,7 +958,7 @@ pub(crate) fn resolve_bridged_domain_command(
     }
     if plugin_id
         .trim()
-        .strip_prefix("vibex.")
+        .strip_prefix("dimo.")
         .is_some_and(|slug| slug.ends_with("-enhancer"))
     {
         let normalized = command_name.trim().replace(['-', '.'], "_");
@@ -982,13 +982,13 @@ mod plugin_invoke_contribution_args {
     #[test]
     fn saved_host_reconnect_payload_is_a_worker_invoke() {
         let args = parse::<PluginInvokeContributionArgs>(json!({
-            "pluginId": "vibex.remote-ssh",
+            "pluginId": "dimo.remote-ssh",
             "handler": "provision.ensure",
             "input": { "profile": { "id": "ssh-lab" } },
             "timeoutSeconds": 300
         }))
         .expect("worker invoke args");
-        assert_eq!(args.plugin_id, "vibex.remote-ssh");
+        assert_eq!(args.plugin_id, "dimo.remote-ssh");
         assert_eq!(args.handler, "provision.ensure");
         assert_eq!(args.timeout_seconds, Some(300));
         assert_eq!(args.input["profile"]["id"], "ssh-lab");
@@ -997,7 +997,7 @@ mod plugin_invoke_contribution_args {
     #[test]
     fn worker_invoke_args_are_not_an_app_surface_session() {
         let args = json!({
-            "pluginId": "vibex.remote-ssh",
+            "pluginId": "dimo.remote-ssh",
             "handler": "provision.ensure",
             "input": { "profile": { "id": "ssh-lab" } },
             "timeoutSeconds": 300
@@ -1008,7 +1008,7 @@ mod plugin_invoke_contribution_args {
     #[test]
     fn monorepo_official_plugin_matches_default_and_manifest_version_tags() {
         let temp = tempfile::tempdir().expect("tempdir");
-        let manifest_dir = temp.path().join(".vibex-plugin");
+        let manifest_dir = temp.path().join(".dimo-plugin");
         std::fs::create_dir_all(&manifest_dir).expect("create manifest dir");
         std::fs::write(manifest_dir.join("plugin.json"), r#"{"version":"2.0.0"}"#)
             .expect("write plugin.json");
@@ -1052,41 +1052,41 @@ mod plugin_invoke_contribution_args {
 
         let cases = [
             (
-                "vibex.core.workspace-git.project_list",
+                "dimo.core.workspace-git.project_list",
                 DomainCommand::ProjectList,
             ),
             (
-                "vibex.core.workspace-git.branches",
+                "dimo.core.workspace-git.branches",
                 DomainCommand::RepoBranches,
             ),
-            ("vibex.core.automation.list", DomainCommand::AutomationList),
+            ("dimo.core.automation.list", DomainCommand::AutomationList),
             (
-                "vibex.core.automation.templates",
+                "dimo.core.automation.templates",
                 DomainCommand::AutomationTemplates,
             ),
             (
-                "vibex.core.session.detail",
+                "dimo.core.session.detail",
                 DomainCommand::ConversationDetail,
             ),
             (
-                "vibex.core.session.rows_since",
+                "dimo.core.session.rows_since",
                 DomainCommand::ConversationRowsSince,
             ),
-            ("vibex.core.skills.list", DomainCommand::AgentSkillsList),
+            ("dimo.core.skills.list", DomainCommand::AgentSkillsList),
             (
-                "vibex.core.agent-runtime.management_bar",
+                "dimo.core.agent-runtime.management_bar",
                 DomainCommand::AgentManagementBar,
             ),
             (
-                "vibex.core.channels.get_webhooks",
+                "dimo.core.channels.get_webhooks",
                 DomainCommand::GetChatEventWebhooks,
             ),
             (
-                "vibex.prompt-enhancer.enhance",
+                "dimo.prompt-enhancer.enhance",
                 DomainCommand::EnhancePrompt,
             ),
             (
-                "vibex.prompt-enhancer.cancel",
+                "dimo.prompt-enhancer.cancel",
                 DomainCommand::CancelEnhancePrompt,
             ),
         ];

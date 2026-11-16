@@ -16,30 +16,46 @@
     fn unpersisted_delta_does_not_hide_the_next_database_event() {
         let conversation_id = Uuid::new_v4();
         let mut cached = CachedRowProjector::new(IncrementalRowProjector::at_sequence(4));
-        cached
-            .apply_unpersisted(&record_of(
-                conversation_id,
-                0,
-                ConversationEvent::AssistantTextDelta {
-                    text: "hi".into(),
-                    message_id: None,
-                },
-            ))
-            .expect("delta");
+        for chunk in ["hi", " ", "there"] {
+            cached
+                .apply_unpersisted(&record_of(
+                    conversation_id,
+                    0,
+                    ConversationEvent::AssistantTextDelta {
+                        text: chunk.into(),
+                        message_id: None,
+                    },
+                ))
+                .expect("delta");
+        }
         assert_eq!(cached.db_cursor, 4);
-        assert_eq!(cached.projector.last_sequence(), 5);
+        assert_eq!(
+            cached.projector.last_sequence(),
+            4,
+            "unpersisted deltas must not inflate projector sequence above db_cursor"
+        );
         assert!(cached.has_unpersisted());
 
-        cached
+        let ops = cached
             .apply_persisted(&record_of(
                 conversation_id,
                 5,
                 ConversationEvent::TurnCompleted { stop_reason: None },
             ))
-            .expect("completed");
+            .expect("completed")
+            .expect("persisted event applied");
         assert_eq!(cached.db_cursor, 5);
-        assert_eq!(cached.projector.last_sequence(), 6);
+        assert_eq!(cached.projector.last_sequence(), 5);
         assert!(!cached.has_unpersisted());
+        for op in ops {
+            if let ConversationRowOp::Upsert { row } = op {
+                assert!(
+                    row.revision <= 5,
+                    "persisted row revision {} must never drift above SQLite sequence 5",
+                    row.revision
+                );
+            }
+        }
     }
 
     #[test]
@@ -262,7 +278,7 @@
             Some(turn1_id),
             "acp",
             ConversationEvent::AssistantTextDelta {
-                text: "Hello <vibex-internal-meta plugin=\"p1\" channel=\"ch\" nonce=\"n1\">{\"secret\":42}</vib".into(),
+                text: "Hello <dimo-internal-meta plugin=\"p1\" channel=\"ch\" nonce=\"n1\">{\"secret\":42}</di".into(),
                 message_id: None,
             },
             None,
@@ -279,7 +295,7 @@
             Some(turn1_id),
             "acp",
             ConversationEvent::AssistantTextDelta {
-                text: "ex-internal-meta>world!".into(),
+                text: "mo-internal-meta>world!".into(),
                 message_id: None,
             },
             None,
@@ -1071,7 +1087,7 @@
             Some(turn_id),
             "acp",
             ConversationEvent::AssistantTextDelta {
-                text: "Hello user!\n<vibex-internal-meta channel=\"vibex.memory:extract:n77\">{\"key\":".into(),
+                text: "Hello user!\n<dimo-internal-meta channel=\"dimo.memory:extract:n77\">{\"key\":".into(),
                 message_id: None,
             },
             None,
@@ -1092,7 +1108,7 @@
             Some(turn_id),
             "acp",
             ConversationEvent::AssistantTextDelta {
-                text: "\"val\"}</vibex-internal-meta>\n\nHow can I help?".into(),
+                text: "\"val\"}</dimo-internal-meta>\n\nHow can I help?".into(),
                 message_id: None,
             },
             None,
@@ -1106,8 +1122,8 @@
             }]
         );
         let captured = rx.try_recv().expect("captured internal message");
-        assert_eq!(captured.plugin_id, "vibex.memory");
-        assert_eq!(captured.channel, "vibex.memory:extract:n77");
+        assert_eq!(captured.plugin_id, "dimo.memory");
+        assert_eq!(captured.channel, "dimo.memory:extract:n77");
         assert_eq!(captured.nonce, "n77");
         assert_eq!(captured.parsed_payload, serde_json::json!({"key": "val"}));
     }

@@ -11,7 +11,7 @@ function isDebugBuild(env = process.env) {
 }
 
 function cargoTarget(env = process.env) {
-  return env.VIBEX_BUILD_TARGET || env.TAURI_ENV_TARGET_TRIPLE || null;
+  return env.DIMO_BUILD_TARGET || env.TAURI_ENV_TARGET_TRIPLE || null;
 }
 
 function rustcHost() {
@@ -27,15 +27,15 @@ function sidecarBuildArgs({ debug, target }) {
   const args = [
     "build",
     "-p",
-    "vibex",
+    "dimo",
     "-p",
-    "vibex-mcp",
+    "dimo-mcp",
     "-p",
-    "vibex-workflow-mcp",
+    "dimo-workflow-mcp",
     "--bin",
-    "vibex-mcp",
+    "dimo-mcp",
     "--bin",
-    "vibex-workflow-mcp",
+    "dimo-workflow-mcp",
   ];
   if (!debug) {
     args.push("--release");
@@ -66,7 +66,7 @@ function main(env = process.env) {
   const nextEnv = {
     ...env,
     CARGO_PROFILE: env.CARGO_PROFILE || profile,
-    VIBEX_BUILD_TARGET: env.VIBEX_BUILD_TARGET || target,
+    DIMO_BUILD_TARGET: env.DIMO_BUILD_TARGET || target,
     TAURI_ENV_TARGET_TRIPLE: env.TAURI_ENV_TARGET_TRIPLE || target,
   };
 

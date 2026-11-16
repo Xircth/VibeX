@@ -102,7 +102,7 @@ export function encodePairingInvitation(input: {
       .filter((origin) => !isLoopbackOrigin(origin))
       .map((origin) => ({ origin, kind: 'lan' }));
 
-  return `vibex-pairing:${JSON.stringify({
+  return `dimo-pairing:${JSON.stringify({
     version: 1,
     host_id: input.hostId || undefined,
     preset: input.preset,

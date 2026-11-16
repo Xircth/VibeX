@@ -7,6 +7,7 @@ use application::{
 };
 use async_trait::async_trait;
 use conversations::ConversationContext;
+use deployment::Deployment;
 use plugins::PluginControlPlane;
 use services::services::agent_management_runtime::AgentManagementRuntimeState;
 use sqlx::SqlitePool;
@@ -174,7 +175,7 @@ impl ConversationExecutionPort for PluginAwareConversationExecution {
     }
 }
 
-/// Shared Application Core used by `vibex-server` and the desktop remote listener.
+/// Shared Application Core used by `dimo-server` and the desktop remote listener.
 #[allow(clippy::too_many_arguments)]
 pub fn host_application_core(
     pool: SqlitePool,
@@ -203,7 +204,7 @@ pub fn host_application_core(
         agents::rate_limit_recovery::UsageLimitRecovery::with_resume_callback(
             move |session_id, continuation_prompt| {
                 events_for_recovery.emit(
-                    "conversation-events",
+                    format!("conversation-rate-limit:{session_id}"),
                     serde_json::json!({
                         "conversationId": session_id,
                         "kind": "rate_limit_auto_resume",
@@ -273,8 +274,9 @@ pub fn host_application_core(
         pool.clone(),
         conversations,
     ));
+    let read_pool = domains.deployment.db().reader().as_pool().clone();
     ApplicationCore::with_all_ports(
-        SqliteConversationRepository::new(pool),
+        SqliteConversationRepository::new(pool).with_read_pool(read_pool),
         execution,
         domains,
         workflows,
@@ -325,6 +327,7 @@ async fn dispatch_rate_limit_auto_resume(
             queued_input_claim: None,
             operation_id: Some(uuid::Uuid::new_v4()),
             collaboration_origin: None,
+            provider_instance_id: None,
         })
         .await;
 }

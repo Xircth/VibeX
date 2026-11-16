@@ -238,7 +238,7 @@ fn explicit_cwd_is_kept_even_when_missing() {
     let dir = tempfile::tempdir().expect("temp dir");
     let missing = dir
         .path()
-        .join("vibex-nonexistent-cwd")
+        .join("dimo-nonexistent-cwd")
         .join("does")
         .join("not")
         .join("exist");
@@ -453,7 +453,7 @@ async fn has_running_for_session_is_true_only_while_the_child_is_alive() {
 
 #[test]
 fn trim_output_history_prefers_line_boundary_after_overflow() {
-    let mut history = vec![b'a'; DEFAULT_OUTPUT_BYTE_LIMIT + 10];
+    let mut history = std::collections::VecDeque::from(vec![b'a'; DEFAULT_OUTPUT_BYTE_LIMIT + 10]);
     history[12] = b'\n';
 
     assert!(trim_output_history(&mut history, DEFAULT_OUTPUT_BYTE_LIMIT));
@@ -464,17 +464,32 @@ fn trim_output_history_prefers_line_boundary_after_overflow() {
 
 #[test]
 fn trim_output_history_does_not_start_with_utf8_continuation_byte() {
-    let mut history = vec![b'a'; DEFAULT_OUTPUT_BYTE_LIMIT + 4];
+    let mut history = std::collections::VecDeque::from(vec![b'a'; DEFAULT_OUTPUT_BYTE_LIMIT + 4]);
     let bytes = [0xe5, 0xa5, 0xbd];
-    history[2..2 + bytes.len()].copy_from_slice(&bytes);
+    for (idx, byte) in bytes.iter().enumerate() {
+        history[2 + idx] = *byte;
+    }
 
     assert!(trim_output_history(&mut history, DEFAULT_OUTPUT_BYTE_LIMIT));
 
     assert!(
         history
-            .first()
+            .front()
             .is_none_or(|byte| is_utf8_boundary_byte(*byte))
     );
+}
+
+#[test]
+fn trim_output_history_preserves_recent_bytes_across_wrapped_ring_chunks() {
+    let mut history = std::collections::VecDeque::new();
+    history.extend(&vec![b'x'; 64]);
+    history.drain(..48);
+    history.extend(b"first-line\nsecond-line\nthird-line");
+
+    assert!(trim_output_history(&mut history, 20));
+    let contiguous = history.make_contiguous();
+    assert!(std::str::from_utf8(contiguous).is_ok());
+    assert!(contiguous.ends_with(b"third-line"));
 }
 
 #[tokio::test]
@@ -623,7 +638,7 @@ async fn kill_and_release_reap_spawned_background_grandchild_via_process_tree_jo
                 "-NoProfile".to_string(),
                 "-Command".to_string(),
                 "$p = Start-Process -PassThru -WindowStyle Hidden -FilePath ping.exe -ArgumentList '-n','60','127.0.0.1'; \
-                 [System.IO.File]::WriteAllText($env:VIBEX_TEST_PID_FILE, $p.Id.ToString()); \
+                 [System.IO.File]::WriteAllText($env:DIMO_TEST_PID_FILE, $p.Id.ToString()); \
                  Start-Sleep -Seconds 30"
                     .to_string(),
             ],
@@ -633,7 +648,7 @@ async fn kill_and_release_reap_spawned_background_grandchild_via_process_tree_jo
             "/bin/sh".to_string(),
             vec![
                 "-c".to_string(),
-                "sleep 60 </dev/null >/dev/null 2>&1 & echo $! > \"$VIBEX_TEST_PID_FILE\"; sleep 30"
+                "sleep 60 </dev/null >/dev/null 2>&1 & echo $! > \"$DIMO_TEST_PID_FILE\"; sleep 30"
                     .to_string(),
             ],
         )
@@ -645,7 +660,7 @@ async fn kill_and_release_reap_spawned_background_grandchild_via_process_tree_jo
             args: kill_args,
             cwd: None,
             env: vec![AgentTerminalEnvVar {
-                name: "VIBEX_TEST_PID_FILE".to_string(),
+                name: "DIMO_TEST_PID_FILE".to_string(),
                 value: pid_file_kill.to_string_lossy().into_owned(),
             }],
             output_byte_limit: Some(4096),
@@ -675,7 +690,7 @@ async fn kill_and_release_reap_spawned_background_grandchild_via_process_tree_jo
                 "-NoProfile".to_string(),
                 "-Command".to_string(),
                 "$p = Start-Process -PassThru -WindowStyle Hidden -FilePath ping.exe -ArgumentList '-n','60','127.0.0.1'; \
-                 [System.IO.File]::WriteAllText($env:VIBEX_TEST_PID_FILE, $p.Id.ToString())"
+                 [System.IO.File]::WriteAllText($env:DIMO_TEST_PID_FILE, $p.Id.ToString())"
                     .to_string(),
             ],
         )
@@ -684,7 +699,7 @@ async fn kill_and_release_reap_spawned_background_grandchild_via_process_tree_jo
             "/bin/sh".to_string(),
             vec![
                 "-c".to_string(),
-                "sleep 60 </dev/null >/dev/null 2>&1 & echo $! > \"$VIBEX_TEST_PID_FILE\""
+                "sleep 60 </dev/null >/dev/null 2>&1 & echo $! > \"$DIMO_TEST_PID_FILE\""
                     .to_string(),
             ],
         )
@@ -696,7 +711,7 @@ async fn kill_and_release_reap_spawned_background_grandchild_via_process_tree_jo
             args: rel_args,
             cwd: None,
             env: vec![AgentTerminalEnvVar {
-                name: "VIBEX_TEST_PID_FILE".to_string(),
+                name: "DIMO_TEST_PID_FILE".to_string(),
                 value: pid_file_release.to_string_lossy().into_owned(),
             }],
             output_byte_limit: Some(4096),

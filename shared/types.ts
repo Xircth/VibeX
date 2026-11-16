@@ -783,7 +783,7 @@ compact_context_enabled: boolean, default_terminal_shell: string | null, files_c
  */
 hide_model_thinking: boolean,
 /**
- * Opt-in entry for connecting a newly created VibeX conversation to an
+ * Opt-in entry for connecting a newly created Dimo conversation to an
  * existing Agent-managed ACP session in the selected workspace.
  */
 previous_session_continuation_enabled: boolean,
@@ -1240,10 +1240,10 @@ export type ResetMode = "soft" | "mixed" | "hard";
 // ─────────────────────────────────────────────────────────────────────
 
 export const DEFAULT_PR_DESCRIPTION_PROMPT =
-  'You write pull request titles and descriptions.\n\nRules:\n1. Be accurate: use only the provided git context and task context.\n2. Output JSON only, with exactly two top-level fields named Title and Body.\n3. Title is concise, descriptive, and ends with " (VibeX)".\n4. Body explains what changed, why, and important implementation details.\n5. End the body with: "This PR was written using [VibeX](https://vibex.com)"\n6. Do not return Markdown fences, commentary, or extra fields.\n\nOutput shape:\n{"Title":"...","Body":"..."}';
+  'You write pull request titles and descriptions.\n\nRules:\n1. Be accurate: use only the provided git context and task context.\n2. Output JSON only, with exactly two top-level fields named Title and Body.\n3. Title is concise, descriptive, and ends with " (Dimo)".\n4. Body explains what changed, why, and important implementation details.\n5. End the body with: "This PR was written using [Dimo](https://vibex.com)"\n6. Do not return Markdown fences, commentary, or extra fields.\n\nOutput shape:\n{"Title":"...","Body":"..."}';
 
 export const DEFAULT_MERGE_COMMIT_MESSAGE_TEMPLATE =
-  "{title} (VibeX {id})\n\n{description}";
+  "{title} (Dimo {id})\n\n{description}";
 
 export type CreateSession = { executor: string | null, agent_id: AgentId | null, task_id: string | null, name: string | null, initial_prompt: string | null, status: SessionStatus | null, };
 
@@ -1691,7 +1691,7 @@ export type ConversationTurnSnapshot = { conversationId: string, turnId: string,
 export type ConversationActiveBinding = { id: string, agent_type: string, working_dir: string, acp_session_id?: string | null, status: string, capabilities: AcpCapabilitySnapshot,
 /**
  * True when this binding was created while MultiAgent collaboration was on,
- * so Host delivered `vibex-delegation-mcp` on that session new/resume/rebind.
+ * so Host delivered `dimo-delegation-mcp` on that session new/resume/rebind.
  */
 delegation_mcp_delivered: boolean, };
 
@@ -2038,7 +2038,7 @@ export type AgentModelProviderSaveRequest = { id: string | null, name: string, a
 
 export type AgentModelProviderView = { id: string, name: string, agent_id: AgentId, api_url: string, model: string, api_key: string, credential_present: boolean, bound: boolean,
 /**
- * `true` 表示该 Provider 由 VibeX 的预设存储管理。
+ * `true` 表示该 Provider 由 Dimo 的预设存储管理。
  */
 managed: boolean, };
 
@@ -2182,7 +2182,11 @@ continuationPolicy?: ContinuationPolicy, expectedBindingRevision?: bigint, agent
  * `display_text`, and this origin labels the sender for group member
  * sessions.
  */
-collaborationOrigin?: CollaborationSpaceOrigin | null, };
+collaborationOrigin?: CollaborationSpaceOrigin | null,
+/**
+ * Selected provider instance (`provider_instances.instance_id`) for multi-instance routing.
+ */
+providerInstanceId?: string, };
 
 export type ConversationInputStatus = "queued" | "scheduled" | "claimed" | "dispatched" | "cancelled";
 

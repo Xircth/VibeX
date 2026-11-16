@@ -38,7 +38,7 @@ interface ReviewContextType {
   generateReviewMarkdown: () => string;
 }
 
-const GLOBAL_REVIEW_CONTEXT_KEY = '__VIBEX_REVIEW_CONTEXT__' as const;
+const GLOBAL_REVIEW_CONTEXT_KEY = '__DIMO_REVIEW_CONTEXT__' as const;
 const globalReviewScope = globalThis as typeof globalThis & {
   [GLOBAL_REVIEW_CONTEXT_KEY]?: Context<ReviewContextType | null>;
 };

@@ -61,7 +61,7 @@ fn platform() -> Platform {
 
 #[tokio::test]
 async fn enabling_builtin_resolves_dependencies() {
-    let manifest = include_str!("fixtures/office-presentation.vibex-plugin.json");
+    let manifest = include_str!("fixtures/office-presentation.dimo-plugin.json");
     let service = PluginService::with_runtime_and_capabilities(
         platform(),
         Arc::new(FakeToolRuntime {
@@ -78,7 +78,7 @@ async fn enabling_builtin_resolves_dependencies() {
         .expect("import Office plugin");
 
     let enabled = service
-        .enable("vibex.office.presentation")
+        .enable("dimo.office.presentation")
         .await
         .expect("enable Office plugin");
 
@@ -92,7 +92,7 @@ async fn enabling_builtin_resolves_dependencies() {
     assert_eq!(enabled.plugin.providers["officecli"], ProviderState::Ready);
     assert_eq!(enabled.plugin.readiness, PluginReadiness::Ready);
     let disabled = service
-        .disable("vibex.office.presentation")
+        .disable("dimo.office.presentation")
         .expect("disable Office plugin");
     assert_eq!(disabled.activation, PluginActivation::Disabled);
     assert_eq!(disabled.dependencies["officecli"], DependencyState::Missing);
@@ -114,7 +114,7 @@ async fn enabling_builtin_resolves_dependencies() {
         .import_manifest(manifest, ManifestSource::Bundled)
         .expect("import Office plugin");
     let failed = failed_service
-        .enable("vibex.office.presentation")
+        .enable("dimo.office.presentation")
         .await
         .expect("enable records dependency failure");
 
@@ -138,13 +138,13 @@ async fn installed_tool_does_not_imply_provider_health() {
     let service = PluginService::with_runtime(platform(), Arc::new(ToolOnlyRuntime));
     service
         .import_manifest(
-            include_str!("fixtures/office-presentation.vibex-plugin.json"),
+            include_str!("fixtures/office-presentation.dimo-plugin.json"),
             ManifestSource::Bundled,
         )
         .expect("import Office plugin");
 
     let enabled = service
-        .enable("vibex.office.presentation")
+        .enable("dimo.office.presentation")
         .await
         .expect("enable Office plugin");
 
@@ -167,13 +167,13 @@ async fn declared_bundled_skill_does_not_imply_availability() {
     let service = PluginService::with_runtime(platform(), Arc::new(ToolOnlyRuntime));
     service
         .import_manifest(
-            include_str!("fixtures/office-presentation.vibex-plugin.json"),
+            include_str!("fixtures/office-presentation.dimo-plugin.json"),
             ManifestSource::Bundled,
         )
         .expect("import Office plugin");
 
     let enabled = service
-        .enable("vibex.office.presentation")
+        .enable("dimo.office.presentation")
         .await
         .expect("enable Office plugin");
 

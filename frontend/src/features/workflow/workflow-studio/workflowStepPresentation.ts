@@ -163,7 +163,7 @@ export function formatWorkflowGroupDispatch(
 }
 
 export function formatOutboxActionLabel(
-  kind: OutboxActionKind | (string & {}) | undefined,
+  kind: OutboxActionKind | (string & NonNullable<unknown>) | undefined,
   t?: WorkflowTranslateFn
 ): string {
   const tr = getWorkflowTranslator(t);

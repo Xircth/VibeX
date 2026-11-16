@@ -408,7 +408,7 @@ async fn creating_a_bot_lists_hidden_bootstrap_and_greeting_once() {
     let bootstrap = format!(
         "{}\n你是用户刚创建的助手。立刻 post_to_space 问好。\n{}",
         crate::collaboration_sidebar::PRIVATE_BOOTSTRAP_PREFIX,
-        "</vibex-private-bootstrap>"
+        "</dimo-private-bootstrap>"
     );
     let (posted, _, _) = post_direct_message_with(
         &pool,
@@ -536,7 +536,7 @@ async fn first_turn_acp_then_space_post_does_not_duplicate_greeting() {
     let bootstrap = format!(
         "[协作空间消息]\n{}\n你是用户刚创建的助手。立刻 post_to_space 问好。\n{}",
         crate::collaboration_sidebar::PRIVATE_BOOTSTRAP_PREFIX,
-        "</vibex-private-bootstrap>"
+        "</dimo-private-bootstrap>"
     );
     let user_json = serde_json::to_string(&agents::ConversationEvent::UserTurnCreated {
         blocks: vec![agents::ConversationInputBlock::Text { text: bootstrap }],
@@ -4499,7 +4499,7 @@ async fn group_space_member_session_resolve_and_direct_session_reply_projection(
     finalize_space_turn_deliveries(
         &pool,
         group_cid,
-        "环境变量 VIBEX_PORT 已配置。",
+        "环境变量 DIMO_PORT 已配置。",
         &DeliveryContext::default(),
     )
     .await
@@ -4516,7 +4516,7 @@ async fn group_space_member_session_resolve_and_direct_session_reply_projection(
     .unwrap();
     assert!(
         messages.iter().any(|m| {
-            m.origin == "agent" && m.envelope["content"] == json!("环境变量 VIBEX_PORT 已配置。")
+            m.origin == "agent" && m.envelope["content"] == json!("环境变量 DIMO_PORT 已配置。")
         }),
         "Bot A's reply to a direct session-tab message must also be projected into the GroupSpace"
     );

@@ -309,7 +309,13 @@ pub(super) fn normalize_sidecar_event(
                 cache_read_tokens: raw.get("cacheReadInputTokens").and_then(Value::as_u64),
                 cache_write_tokens: raw.get("cacheCreationInputTokens").and_then(Value::as_u64),
                 cost_usd: raw.get("totalCostUsd").and_then(Value::as_f64),
+                context_used: raw.get("contextUsed").and_then(Value::as_u64),
                 context_window: raw.get("contextWindow").and_then(Value::as_u64),
+                is_turn_summary: raw
+                    .get("isTurnSummary")
+                    .or_else(|| event.get("isTurnSummary"))
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false),
                 model: str_opt(raw, "model"),
             })
         }
@@ -317,7 +323,8 @@ pub(super) fn normalize_sidecar_event(
             prompt_id,
             session_id,
             subagent_id: str_or(event, "subagentId", "subagent"),
-            parent_tool_use_id: str_opt(event, "parentToolUseId"),
+            parent_tool_use_id: str_opt(event, "parentToolUseId")
+                .or_else(|| str_opt(event, "parent_tool_use_id")),
             subagent_type: str_opt(event, "subagentType"),
             description: str_opt(event, "description"),
         }),
@@ -325,12 +332,16 @@ pub(super) fn normalize_sidecar_event(
             prompt_id,
             session_id,
             subagent_id: str_or(event, "subagentId", "subagent"),
+            parent_tool_use_id: str_opt(event, "parentToolUseId")
+                .or_else(|| str_opt(event, "parent_tool_use_id")),
             text_delta: str_opt(event, "textDelta").unwrap_or_else(|| str_or(event, "text", "")),
         }),
         "subagent/complete" => Some(EngineEvent::SubagentCompleted {
             prompt_id,
             session_id,
             subagent_id: str_or(event, "subagentId", "subagent"),
+            parent_tool_use_id: str_opt(event, "parentToolUseId")
+                .or_else(|| str_opt(event, "parent_tool_use_id")),
             status: str_or(event, "status", "completed"),
             summary: str_opt(event, "summary"),
         }),
@@ -472,14 +483,14 @@ pub fn resolve_claude_driver_script(spec: &EngineStartSpec) -> Result<PathBuf, E
     let mut candidates = Vec::new();
     if let Some(explicit) = spec
         .env
-        .get("VIBEX_CLAUDE_DRIVER_SCRIPT")
+        .get("DIMO_CLAUDE_DRIVER_SCRIPT")
         .map(String::as_str)
         .map(str::trim)
         .filter(|s| !s.is_empty())
     {
         candidates.push(PathBuf::from(explicit));
     }
-    if let Some(env_script) = std::env::var_os("VIBEX_CLAUDE_DRIVER_SCRIPT")
+    if let Some(env_script) = std::env::var_os("DIMO_CLAUDE_DRIVER_SCRIPT")
         .filter(|s| !s.is_empty())
     {
         candidates.push(PathBuf::from(env_script));
@@ -528,12 +539,12 @@ fn find_node_in_path_list(path_value: &str) -> Option<PathBuf> {
 }
 
 /// Resolves a usable Node.js executable for hosting `claude-native-driver.mjs`, checking:
-/// 1) Explicit `VIBEX_NODE_EXECUTABLE` / `VIBEX_NODE_PATH` overrides,
-/// 2) Pre-extracted VibeX managed Node (`default_managed_artifacts_dir`, `~/.vibex`, `%LOCALAPPDATA%/vibex`),
+/// 1) Explicit `DIMO_NODE_EXECUTABLE` / `DIMO_NODE_PATH` overrides,
+/// 2) Pre-extracted Dimo managed Node (`default_managed_artifacts_dir`, `~/.dimo`, `%LOCALAPPDATA%/dimo`),
 /// 3) `spec.env["PATH"]`, system `PATH`, and standard GUI-launch user Node directories,
 /// 4) On-demand `ensure_managed_node(None)` download/extraction fallback.
 pub async fn resolve_node_executable(spec: &EngineStartSpec) -> Result<PathBuf, EngineError> {
-    for key in ["VIBEX_NODE_EXECUTABLE", "VIBEX_NODE_PATH"] {
+    for key in ["DIMO_NODE_EXECUTABLE", "DIMO_NODE_PATH"] {
         if let Some(val) = spec.env.get(key).map(String::as_str).map(str::trim)
             && !val.is_empty()
         {
@@ -562,7 +573,7 @@ pub async fn resolve_node_executable(spec: &EngineStartSpec) -> Result<PathBuf, 
         .or_else(|| std::env::var("USERPROFILE").ok())
         .or_else(|| std::env::var("HOME").ok());
     if let Some(ref home_dir) = home {
-        managed_roots.push(PathBuf::from(home_dir).join(".vibex"));
+        managed_roots.push(PathBuf::from(home_dir).join(".dimo"));
     }
     if let Some(local_app_data) = spec
         .env
@@ -570,7 +581,7 @@ pub async fn resolve_node_executable(spec: &EngineStartSpec) -> Result<PathBuf, 
         .cloned()
         .or_else(|| std::env::var("LOCALAPPDATA").ok())
     {
-        managed_roots.push(PathBuf::from(&local_app_data).join("vibex"));
+        managed_roots.push(PathBuf::from(&local_app_data).join("dimo"));
     }
     for root in managed_roots {
         if let Some(rt) = managed_node_runtime(&root)
@@ -757,7 +768,7 @@ pub(super) fn prepare_claude_launch_env(
             .and_then(|s| s.to_str())
             .is_some_and(|stem| stem.eq_ignore_ascii_case("claude"))
         && !launch_env.contains_key("CLAUDE_CODE_EXECUTABLE")
-        && !launch_env.contains_key("VIBEX_CLAUDE_PATH")
+        && !launch_env.contains_key("DIMO_CLAUDE_PATH")
         && let Some(spawnable) =
             workspace_utils::process::node_spawnable_runtime_path(locked_program)
     {

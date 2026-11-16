@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
-import { createWorkerHarness } from '@vibex/plugin-sdk/testing';
+import { createWorkerHarness } from '@dimoai/plugin-sdk/testing';
 
 import { mkdtemp, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -180,7 +180,7 @@ test('ssh host config is a secret-free ssh config file', () => {
       jump: 'bastion',
     }),
     [
-      '# VibeX Host: Lab',
+      '# Dimo Host: Lab',
       'Host lab',
       '  HostName 203.0.113.8',
       '  User root',
@@ -229,7 +229,7 @@ test('every contributed handler is registered', async () => {
 test('plugin-owned askpass works on first connect without a system helper', () => {
   const unix = askpassScript('/usr/bin/node', 'darwin');
   assert.match(unix, /^#!\/bin\/sh\n/);
-  assert.match(unix, /VIBEX_SSH_SECRET/);
+  assert.match(unix, /DIMO_SSH_SECRET/);
   assert.equal(unix.includes('/bin/cat'), false);
   const windows = askpassScript('C:\\Program Files\\nodejs\\node.exe', 'win32');
   assert.match(windows, /^@echo off/);
@@ -316,9 +316,9 @@ test('password ssh does not try keys when a password is present', async () => {
     assert.equal(calls[0].env.SSH_AUTH_SOCK, undefined);
     assert.ok(calls[0].env.DISPLAY);
     assert.match(calls[0].env.SSH_ASKPASS, /askpass\.(sh|cmd)$/);
-    assert.match(calls[0].env.VIBEX_SSH_SECRET, /secret$/);
+    assert.match(calls[0].env.DIMO_SSH_SECRET, /secret$/);
     const script = await readFile(calls[0].env.SSH_ASKPASS, 'utf8');
-    assert.match(script, /VIBEX_SSH_SECRET/);
+    assert.match(script, /DIMO_SSH_SECRET/);
     assert.equal(script.includes('p@ss-word'), false);
     await session.close();
   } finally {
@@ -564,11 +564,11 @@ test('install ships the Host family script instead of curling GitHub raw', () =>
   assert.equal(/\|\s*sh/.test(executable), false);
   assert.equal(script.includes('--progress-bar'), false);
   assert.match(script, /curl -4 -fL --http1\.1/);
-  assert.match(script, /the vibex launcher is missing/);
+  assert.match(script, /the dimo launcher is missing/);
   assert.match(script, /--speed-limit 1024 --speed-time 15/);
   assert.match(script, /ghfast\.top/);
   assert.match(script, /downloaded %\{size_download\} bytes/);
-  assert.match(script, /vibex-server" serve/);
+  assert.match(script, /dimo-server" serve/);
   assert.match(script, /printf 'already-installed\\n'/);
 });
 
@@ -614,43 +614,43 @@ test('glibc older than 2.34 is rejected before install', async () => {
 test('existing source-built Hosts are reused instead of overwritten', () => {
   assert.equal(
     isPluginManagedInstallPath(
-      '/root/.vibex/host-family/v0.2.1/linux-x86_64/family/vibex-server'
+      '/root/.dimo/host-family/v0.2.1/linux-x86_64/family/dimo-server'
     ),
     true
   );
-  assert.equal(isPluginManagedInstallPath('/root/.local/bin/vibex'), true);
+  assert.equal(isPluginManagedInstallPath('/root/.local/bin/dimo'), true);
   assert.equal(
-    isPluginManagedInstallPath('/opt/VibeX/target/debug/vibex-server'),
+    isPluginManagedInstallPath('/opt/Dimo/target/debug/dimo-server'),
     false
   );
   assert.equal(
     execStartPath(
-      '{ path=/opt/VibeX/target/debug/vibex-server ; argv[]=/opt/VibeX/target/debug/vibex-server serve --port 17891 ; }'
+      '{ path=/opt/Dimo/target/debug/dimo-server ; argv[]=/opt/Dimo/target/debug/dimo-server serve --port 17891 ; }'
     ),
-    '/opt/VibeX/target/debug/vibex-server'
+    '/opt/Dimo/target/debug/dimo-server'
   );
   const running = parseProbeOutput(
     [
       'os=linux',
       'arch=x86_64',
       'glibc=2.35',
-      '/root/.local/bin/vibex',
+      '/root/.local/bin/dimo',
       'home=/root',
       'health={"status":"ok","version":"0.2.1"}',
-      'exe=/opt/VibeX/target/debug/vibex-server',
-      'execstart={ path=/opt/VibeX/target/debug/vibex-server ; argv[]=/opt/VibeX/target/debug/vibex-server serve --port 17891 ; }',
+      'exe=/opt/Dimo/target/debug/dimo-server',
+      'execstart={ path=/opt/Dimo/target/debug/dimo-server ; argv[]=/opt/Dimo/target/debug/dimo-server serve --port 17891 ; }',
       '',
     ].join('\n')
   );
   assert.equal(running.running, true);
-  assert.equal(running.exe, '/opt/VibeX/target/debug/vibex-server');
+  assert.equal(running.exe, '/opt/Dimo/target/debug/dimo-server');
   assert.equal(shouldReuseRemoteServer(running), true);
   assert.equal(
     shouldReuseRemoteServer({
       running: false,
       exe: '',
       execStart:
-        '{ path=/root/.vibex/host-family/v0.2.1/linux-x86_64/family/vibex-server ; }',
+        '{ path=/root/.dimo/host-family/v0.2.1/linux-x86_64/family/dimo-server ; }',
     }),
     false
   );
@@ -714,7 +714,7 @@ test('remote Node unpack writes user-environment shims', () => {
   assert.match(script, /agent-tools\/node\/22\.22\.3\/linux-x86_64/);
   assert.match(script, /write_shim node/);
   assert.match(script, /write_shim npm/);
-  assert.match(script, /VibeX toolchain/);
+  assert.match(script, /Dimo toolchain/);
   assert.match(script, /\$HOME\/\.local\/bin/);
 });
 
@@ -728,13 +728,13 @@ test('provision keeps a source-built remote Host that is already running', async
         'os=linux',
         'arch=x86_64',
         'glibc=2.35',
-        '/root/.local/bin/vibex',
+        '/root/.local/bin/dimo',
         'node=/usr/bin/node',
         'npm=/usr/bin/npm',
         'home=/root',
         'health={"status":"ok","version":"0.2.1"}',
-        'exe=/opt/VibeX/target/debug/vibex-server',
-        'execstart={ path=/opt/VibeX/target/debug/vibex-server ; argv[]=/opt/VibeX/target/debug/vibex-server serve --port 17891 ; }',
+        'exe=/opt/Dimo/target/debug/dimo-server',
+        'execstart={ path=/opt/Dimo/target/debug/dimo-server ; argv[]=/opt/Dimo/target/debug/dimo-server serve --port 17891 ; }',
         '',
       ].join('\n');
       onChunk?.({ stream: 'stdout', text: stdout });
@@ -817,11 +817,11 @@ test('provision installs Node.js when the remote has no node or npm', async () =
       if (String(url).includes('/releases/latest')) {
         return {
           ok: true,
-          url: 'https://github.com/Xircth/VibeX/releases/tag/v0.2.1',
+          url: 'https://github.com/DimoADE/Dimo/releases/tag/v0.2.1',
           headers: {
             get: (name) =>
               name.toLowerCase() === 'location'
-                ? 'https://github.com/Xircth/VibeX/releases/tag/v0.2.1'
+                ? 'https://github.com/DimoADE/Dimo/releases/tag/v0.2.1'
                 : '',
           },
         };
@@ -846,7 +846,7 @@ test('provision installs Node.js when the remote has no node or npm', async () =
   assert.deepEqual(nodeDownloads, ['linux-x86_64']);
   assert.equal(
     session.commands.some((command) =>
-      String(command).includes('VibeX toolchain')
+      String(command).includes('Dimo toolchain')
     ),
     true
   );
@@ -859,10 +859,10 @@ test('provision installs Node.js when the remote has no node or npm', async () =
 
 test('latest tag follows the GitHub release page when the API returns 403', async () => {
   assert.equal(
-    tagFromReleaseUrl('https://github.com/Xircth/VibeX/releases/tag/v0.2.0'),
+    tagFromReleaseUrl('https://github.com/DimoADE/Dimo/releases/tag/v0.2.0'),
     'v0.2.0'
   );
-  const tag = await resolveLatestTag('Xircth/VibeX', {
+  const tag = await resolveLatestTag('DimoADE/Dimo', {
     fetchImpl: async (url) => {
       if (String(url).includes('api.github.com')) {
         return { ok: false, status: 403, headers: { get: () => '' } };
@@ -870,11 +870,11 @@ test('latest tag follows the GitHub release page when the API returns 403', asyn
       return {
         ok: true,
         status: 302,
-        url: 'https://github.com/Xircth/VibeX/releases/tag/v0.2.0',
+        url: 'https://github.com/DimoADE/Dimo/releases/tag/v0.2.0',
         headers: {
           get: (name) =>
             String(name).toLowerCase() === 'location'
-              ? 'https://github.com/Xircth/VibeX/releases/tag/v0.2.0'
+              ? 'https://github.com/DimoADE/Dimo/releases/tag/v0.2.0'
               : '',
         },
       };
@@ -885,7 +885,7 @@ test('latest tag follows the GitHub release page when the API returns 403', asyn
 
 test('release urls try GitHub then download mirrors', () => {
   const urls = releaseUrls(
-    'https://github.com/Xircth/VibeX/releases/download/v0.2.0/VibeX-0.2.0-linux-x86_64-server.tar.gz'
+    'https://github.com/DimoADE/Dimo/releases/download/v0.2.0/Dimo-0.2.0-linux-x86_64-server.tar.gz'
   );
   assert.equal(urls[0].startsWith('https://github.com/'), true);
   assert.equal(urls.some((url) => url.includes('ghfast.top')), true);
@@ -893,8 +893,8 @@ test('release urls try GitHub then download mirrors', () => {
 
 test('remote output strips curl meters and keeps real lines', () => {
   assert.deepEqual(
-    sanitizeRemoteOutput('#=#=#                                                          \rDownloading VibeX Host family v0.2.0 for linux-x86_64...\n\x1b[32mok\x1b[0m\r'),
-    ['Downloading VibeX Host family v0.2.0 for linux-x86_64...', 'ok']
+    sanitizeRemoteOutput('#=#=#                                                          \rDownloading Dimo Host family v0.2.0 for linux-x86_64...\n\x1b[32mok\x1b[0m\r'),
+    ['Downloading Dimo Host family v0.2.0 for linux-x86_64...', 'ok']
   );
 });
 
@@ -982,7 +982,7 @@ test('ssh push pipes the local archive through ssh stdin', async () => {
     },
     async kill() {},
   };
-  const dir = await mkdtemp(join(tmpdir(), 'vibex-push-'));
+  const dir = await mkdtemp(join(tmpdir(), 'dimo-push-'));
   const localPath = join(dir, 'family.tar.gz');
   await writeFile(localPath, 'archive');
   const session = createSshSession(
@@ -1023,15 +1023,15 @@ test('ssh exec forwards live chunks to the caller', async () => {
 test('provision upserts an ssh Host and asks the Host to connect', async () => {
   const host = memoryHost();
   const session = fakeSession();
-  const dataDir = await mkdtemp(join(tmpdir(), 'vibex-hosts-'));
-  const previousDataDir = process.env.VIBEX_SSH_HOST_FILES_DIR;
-  process.env.VIBEX_SSH_HOST_FILES_DIR = dataDir;
+  const dataDir = await mkdtemp(join(tmpdir(), 'dimo-hosts-'));
+  const previousDataDir = process.env.DIMO_SSH_HOST_FILES_DIR;
+  process.env.DIMO_SSH_HOST_FILES_DIR = dataDir;
   const pipeline = createPipeline({
     createSession: () => session,
     downloadRelease: async ({ dest, onChunk }) => {
       onChunk?.({
         stream: 'stdout',
-        text: 'Downloading VibeX Host family v0.2.0\n',
+        text: 'Downloading Dimo Host family v0.2.0\n',
       });
       await writeFile(dest, 'fake-archive');
     },
@@ -1082,7 +1082,7 @@ test('provision upserts an ssh Host and asks the Host to connect', async () => {
   assert.equal(host.calls.some((call) => call.operation === 'profile.forget'), false);
   assert.equal(job.status, 'completed');
   assert.equal(
-    job.log.some((entry) => entry.text.includes('Downloading VibeX Host family')),
+    job.log.some((entry) => entry.text.includes('Downloading Dimo Host family')),
     true
   );
   assert.equal(job.steps.find((step) => step.id === 'install')?.detail, 'installed');
@@ -1124,8 +1124,8 @@ test('provision upserts an ssh Host and asks the Host to connect', async () => {
   );
   assert.match(hostFile, /HostName 203.0.113.8/);
   assert.equal(hostFile.includes('secret'), false);
-  if (previousDataDir === undefined) delete process.env.VIBEX_SSH_HOST_FILES_DIR;
-  else process.env.VIBEX_SSH_HOST_FILES_DIR = previousDataDir;
+  if (previousDataDir === undefined) delete process.env.DIMO_SSH_HOST_FILES_DIR;
+  else process.env.DIMO_SSH_HOST_FILES_DIR = previousDataDir;
   await pipeline.dispose();
 });
 

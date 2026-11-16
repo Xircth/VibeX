@@ -100,7 +100,7 @@ impl UserEnvironmentLayout {
 /// Arguments for writing an Agent CLI into the user npm prefix.
 ///
 /// `--force` is required: leftover shims in `~/.local/bin` (or `%APPDATA%\npm`)
-/// make a plain `npm install -g` fail with `EEXIST` even when VibeX is
+/// make a plain `npm install -g` fail with `EEXIST` even when Dimo is
 /// installing the locked version into the same prefix.
 pub fn npm_global_install_args(prefix: &Path, package: &str) -> Vec<String> {
     vec![
@@ -128,7 +128,7 @@ fn npm_bin_dir(prefix: &Path) -> PathBuf {
 }
 
 /// Windows npm global shims: prefer `.exe` (Node can spawn it), then `.cmd`
-/// for VibeX-side `cmd.exe` probes, then a bare name.
+/// for Dimo-side `cmd.exe` probes, then a bare name.
 pub fn npm_shim_candidates(bin_dir: &Path, command: &str) -> Vec<PathBuf> {
     let name = Path::new(command)
         .file_name()
@@ -177,7 +177,7 @@ fn first_existing_directory(path: &Path) -> Option<&Path> {
 }
 
 fn write_probe_file(dir: &Path) -> bool {
-    let probe = dir.join(format!(".vibex-write-{}", std::process::id()));
+    let probe = dir.join(format!(".dimo-write-{}", std::process::id()));
     match std::fs::OpenOptions::new()
         .write(true)
         .create_new(true)

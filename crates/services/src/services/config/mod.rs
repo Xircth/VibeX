@@ -16,9 +16,9 @@ pub const DEFAULT_PR_DESCRIPTION_PROMPT: &str = r#"You write pull request titles
 Rules:
 1. Be accurate: use only the provided git context and task context.
 2. Output JSON only, with exactly two top-level fields named Title and Body.
-3. Title is concise, descriptive, and ends with " (VibeX)".
+3. Title is concise, descriptive, and ends with " (Dimo)".
 4. Body explains what changed, why, and important implementation details.
-5. End the body with: "This PR was written using [VibeX](https://vibex.com)"
+5. End the body with: "This PR was written using [Dimo](https://vibex.com)"
 6. Do not return Markdown fences, commentary, or extra fields.
 
 Output shape:
@@ -39,7 +39,7 @@ Generate a commit message following this format:
 
 Base the commit message on the actual code changes shown in the diff."#;
 
-pub const DEFAULT_MERGE_COMMIT_MESSAGE_TEMPLATE: &str = "{title} (VibeX {id})\n\n{description}";
+pub const DEFAULT_MERGE_COMMIT_MESSAGE_TEMPLATE: &str = "{title} (Dimo {id})\n\n{description}";
 
 #[derive(Debug, Error)]
 pub enum ConfigError {

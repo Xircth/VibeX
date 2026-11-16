@@ -45,9 +45,9 @@ mod tests {
             );
             set_artifact_origin("http://127.0.0.1:1".to_owned());
         }
-        let rewritten = rewrite_remote_entry("vibex.host-surface", "dist/remoteEntry.js");
+        let rewritten = rewrite_remote_entry("dimo.host-surface", "dist/remoteEntry.js");
         assert!(
-            rewritten.ends_with("/vibex.host-surface/dist/remoteEntry.js"),
+            rewritten.ends_with("/dimo.host-surface/dist/remoteEntry.js"),
             "{rewritten}"
         );
         assert!(

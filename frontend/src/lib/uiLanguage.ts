@@ -20,7 +20,7 @@ export const LANGUAGE_LABELS: Record<UiLanguage, string> = {
   en: 'English',
 };
 
-export const LANGUAGE_KEY = 'vibex:ui-language';
+export const LANGUAGE_KEY = 'dimo:ui-language';
 export const DEFAULT_LANGUAGE: UiLanguage = 'en';
 
 function isSupported(value: string | null): value is UiLanguage {

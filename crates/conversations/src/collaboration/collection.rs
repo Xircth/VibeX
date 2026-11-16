@@ -116,14 +116,14 @@ pub struct AddSpaceCollectionItem {
     pub operation_id: Uuid,
 }
 
-pub(crate) fn vibex_team_spaces_root_dir() -> std::path::PathBuf {
-    if let Ok(custom) = std::env::var("VIBEX_TEAM_SPACES_ROOT") {
+pub(crate) fn dimo_team_spaces_root_dir() -> std::path::PathBuf {
+    if let Ok(custom) = std::env::var("DIMO_TEAM_SPACES_ROOT") {
         let trimmed = custom.trim();
         if !trimmed.is_empty() {
             return std::path::PathBuf::from(trimmed);
         }
     }
-    utils::path::expand_tilde("~/.vibex")
+    utils::path::expand_tilde("~/.dimo")
 }
 
 pub(crate) fn sanitize_collection_segment(raw: &str, fallback: &str) -> String {
@@ -147,10 +147,10 @@ pub(crate) fn sanitize_collection_segment(raw: &str, fallback: &str) -> String {
     }
 }
 
-/// Canonical shared folder: `~/.vibex/spaces/<space_id>/collection/`.
+/// Canonical shared folder: `~/.dimo/spaces/<space_id>/collection/`.
 pub fn space_collection_dir(space_id: &str) -> std::path::PathBuf {
     let safe_space = sanitize_collection_segment(space_id, "default-space");
-    vibex_team_spaces_root_dir()
+    dimo_team_spaces_root_dir()
         .join("spaces")
         .join(safe_space)
         .join("collection")
@@ -159,7 +159,7 @@ pub fn space_collection_dir(space_id: &str) -> std::path::PathBuf {
 pub fn legacy_space_collection_dir(project_id: &str, space_id: &str) -> std::path::PathBuf {
     let safe_project = sanitize_collection_segment(project_id, "default-project");
     let safe_space = sanitize_collection_segment(space_id, "default-space");
-    vibex_team_spaces_root_dir()
+    dimo_team_spaces_root_dir()
         .join(safe_project)
         .join("TeamSpaces")
         .join(safe_space)
@@ -199,13 +199,13 @@ pub fn collection_dir_display(dir: &std::path::Path) -> String {
 fn collection_item_id_for_file(space_id: &str, file_name: &str) -> String {
     Uuid::new_v5(
         &Uuid::NAMESPACE_URL,
-        format!("vibex://space-collection/{space_id}/{file_name}").as_bytes(),
+        format!("dimo://space-collection/{space_id}/{file_name}").as_bytes(),
     )
     .to_string()
 }
 
 fn collection_path_components(path: &std::path::Path) -> Vec<String> {
-    let root = vibex_team_spaces_root_dir();
+    let root = dimo_team_spaces_root_dir();
     let canonical_root = std::fs::canonicalize(&root).unwrap_or(root);
     let canonical_path = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
     let Ok(rel) = canonical_path.strip_prefix(&canonical_root) else {
@@ -444,7 +444,7 @@ async fn scan_collection_files(dir: &std::path::Path) -> Vec<ScannedCollectionFi
     out
 }
 
-const COLLECTION_NOTES_FILE: &str = ".vibex-collection-notes.json";
+const COLLECTION_NOTES_FILE: &str = ".dimo-collection-notes.json";
 
 async fn read_sidecar_notes(dir: &std::path::Path) -> std::collections::HashMap<String, String> {
     let raw = tokio::fs::read(dir.join(COLLECTION_NOTES_FILE))

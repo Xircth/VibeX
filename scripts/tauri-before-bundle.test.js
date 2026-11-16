@@ -12,8 +12,8 @@ test('sidecar cargo build uses the same release target as the desktop binary', (
   });
 
   assert.equal(args[0], 'build');
-  assert.ok(args.includes('vibex-mcp'));
-  assert.ok(args.includes('vibex-workflow-mcp'));
+  assert.ok(args.includes('dimo-mcp'));
+  assert.ok(args.includes('dimo-workflow-mcp'));
   assert.ok(args.includes('--release'));
   assert.deepEqual(
     args.slice(args.indexOf('--target'), args.indexOf('--target') + 2),

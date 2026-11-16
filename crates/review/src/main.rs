@@ -35,7 +35,7 @@ const BANNER: &str = r#"
 #[derive(Parser, Debug)]
 #[command(name = "review")]
 #[command(
-    about = "VibeX Review helps you review GitHub pull requests by turning them into a clear, story-driven summary instead of a wall of diffs. You provide a pull request URL, optionally link a Claude Code project for additional context, and it builds a narrative that highlights key events and important decisions, helping you prioritise what actually needs attention. It's particularly useful when reviewing large amounts of AI-generated code. Note that code is uploaded to and processed on VibeX servers using AI."
+    about = "Dimo Review helps you review GitHub pull requests by turning them into a clear, story-driven summary instead of a wall of diffs. You provide a pull request URL, optionally link a Claude Code project for additional context, and it builds a narrative that highlights key events and important decisions, helping you prioritise what actually needs attention. It's particularly useful when reviewing large amounts of AI-generated code. Note that code is uploaded to and processed on Dimo servers using AI."
 )]
 #[command(version)]
 struct Args {
@@ -163,7 +163,7 @@ async fn run(args: Args) -> Result<(), ReviewError> {
     };
 
     // 5. Clone repository to temp directory
-    let temp_dir = TempDir::new_in(utils::path::get_vibex_temp_dir())
+    let temp_dir = TempDir::new_in(utils::path::get_dimo_temp_dir())
         .map_err(|e| ReviewError::CloneFailed(e.to_string()))?;
     let repo_dir = temp_dir.path().join(&repo);
 

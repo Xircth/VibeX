@@ -64,7 +64,10 @@ impl AgentConnectionRunner {
 
         match outcome {
             PermissionLookup::Accepted(pending) => {
-                let persist = response.should_persist_auto_approve(&pending.options);
+                let is_plan_gate = Self::is_plan_approval_tool(&pending.title)
+                    || self.is_session_in_plan_mode(pending.session_id).await;
+                let persist =
+                    !is_plan_gate && response.should_persist_auto_approve(&pending.options);
                 let _ = pending.tx.send(response.clone());
                 self.emit(
                     Some(pending.session_id),
@@ -130,12 +133,29 @@ impl AgentConnectionRunner {
 
     pub(in crate::manager) async fn persist_connection_auto_approve(&self) {
         *self.auto_approve_mode.lock().await = AgentAutoApproveMode::Yolo;
-        let remaining = {
+        let candidates = {
             let mut pending = self.pending_permissions.lock().await;
-            pending.drain().map(|(_, entry)| entry).collect::<Vec<_>>()
+            pending.drain().collect::<Vec<_>>()
         };
         let mode = *self.auto_approve_mode.lock().await;
-        for pending in remaining {
+        let mut to_auto_approve = Vec::new();
+        let mut keep_manual = Vec::new();
+        for (key, entry) in candidates {
+            if Self::is_plan_approval_tool(&entry.title)
+                || self.is_session_in_plan_mode(entry.session_id).await
+            {
+                keep_manual.push((key, entry));
+            } else {
+                to_auto_approve.push(entry);
+            }
+        }
+        if !keep_manual.is_empty() {
+            let mut pending = self.pending_permissions.lock().await;
+            for (key, entry) in keep_manual {
+                pending.insert(key, entry);
+            }
+        }
+        for pending in to_auto_approve {
             let request = AgentPermissionRequest {
                 id: pending.permission_id,
                 session_id: pending.session_id,

@@ -75,12 +75,12 @@ impl HeadlessDelegationRuntime {
         }
         let features = Arc::new(InMemoryCompanionFeatures::new());
         let socket_path = process_socket_path();
-        runtime.install_delegation_injector(Arc::new(VibexDelegationInjector {
+        runtime.install_delegation_injector(Arc::new(DimoDelegationInjector {
             tokens: tokens.clone(),
             socket_path: socket_path.clone(),
             official_mcp: official_mcp.clone(),
             locate_binary: utils::host_bin::locate_runnable_host_family_binary,
-            space_session: VibexDelegationInjector::space_session_lookup(pool.clone()),
+            space_session: DimoDelegationInjector::space_session_lookup(pool.clone()),
         }));
         let runtime_features = Arc::new(delegation::HostCompanionFeatures::new(
             features.clone(),
@@ -475,7 +475,7 @@ impl DelegationMetaWriter for NoopMetaWriter {
     }
 }
 
-pub struct VibexDelegationInjector {
+pub struct DimoDelegationInjector {
     pub tokens: Arc<TokenRegistry>,
     pub socket_path: PathBuf,
     pub official_mcp: Arc<OfficialMcpRuntime>,
@@ -483,16 +483,16 @@ pub struct VibexDelegationInjector {
     pub space_session: Arc<dyn Fn(Uuid) -> bool + Send + Sync>,
 }
 
-impl std::fmt::Debug for VibexDelegationInjector {
+impl std::fmt::Debug for DimoDelegationInjector {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         formatter
-            .debug_struct("VibexDelegationInjector")
+            .debug_struct("DimoDelegationInjector")
             .field("socket_path", &self.socket_path)
             .finish_non_exhaustive()
     }
 }
 
-impl DelegationInjector for VibexDelegationInjector {
+impl DelegationInjector for DimoDelegationInjector {
     fn companion(&self, context: CompanionInjectionContext<'_>) -> CompanionInjection {
         match self.injected_stdio_servers(context) {
             CompanionInjectionList::Injected(mut servers) if !servers.is_empty() => {
@@ -524,8 +524,8 @@ impl DelegationInjector for VibexDelegationInjector {
                     let space = (self.space_session)(context.parent_conversation_id);
                     match self.product_server(
                         context,
-                        "vibex-delegation-mcp",
-                        "vibex-mcp",
+                        "dimo-delegation-mcp",
+                        "dimo-mcp",
                         plugins::delegation_mcp_features(space),
                         TokenPermissions {
                             delegation: true,
@@ -547,8 +547,8 @@ impl DelegationInjector for VibexDelegationInjector {
                     if !features.is_empty() {
                         match self.product_server(
                             context,
-                            "vibex-session-mcp",
-                            "vibex-mcp",
+                            "dimo-session-mcp",
+                            "dimo-mcp",
                             &features,
                             TokenPermissions {
                                 feedback: bits & SESSION_FEAT_FEEDBACK != 0,
@@ -566,8 +566,8 @@ impl DelegationInjector for VibexDelegationInjector {
                 }
                 "workflow" => match self.product_server(
                     context,
-                    "vibex-workflow-mcp",
-                    "vibex-workflow-mcp",
+                    "dimo-workflow-mcp",
+                    "dimo-workflow-mcp",
                     "",
                     TokenPermissions::default(),
                     "workflow",
@@ -639,7 +639,7 @@ impl DelegationInjector for VibexDelegationInjector {
             .filter(|(id, _)| {
                 !matches!(
                     id.as_str(),
-                    "vibex-delegation-mcp" | "vibex-session-mcp" | "vibex-workflow-mcp"
+                    "dimo-delegation-mcp" | "dimo-session-mcp" | "dimo-workflow-mcp"
                 )
             })
             .filter_map(|(id, spec)| {
@@ -682,7 +682,7 @@ impl DelegationInjector for VibexDelegationInjector {
     }
 }
 
-impl VibexDelegationInjector {
+impl DimoDelegationInjector {
     pub fn space_session_lookup(pool: SqlitePool) -> Arc<dyn Fn(Uuid) -> bool + Send + Sync> {
         let handle = tokio::runtime::Handle::current();
         Arc::new(move |conversation_id| {
@@ -734,7 +734,7 @@ impl VibexDelegationInjector {
         if let Some(url) = self.official_mcp.http_base() {
             args.push("--server-url".to_string());
             args.push(url);
-            if name == "vibex-delegation-mcp" {
+            if name == "dimo-delegation-mcp" {
                 args.push("--product".to_string());
                 args.push("delegation".to_string());
                 if let Some(plugin_token) = self.official_mcp.delegation_token() {
@@ -819,8 +819,8 @@ fn parse_connection(id: &str) -> Option<AgentConnectionId> {
 
 #[cfg(unix)]
 fn process_socket_path() -> PathBuf {
-    utils::path::get_vibex_temp_dir().join(format!(
-        "vibex-delegation-{}-{}.sock",
+    utils::path::get_dimo_temp_dir().join(format!(
+        "dimo-delegation-{}-{}.sock",
         std::process::id(),
         Uuid::new_v4()
     ))
@@ -829,7 +829,7 @@ fn process_socket_path() -> PathBuf {
 #[cfg(windows)]
 fn process_socket_path() -> PathBuf {
     PathBuf::from(format!(
-        r"\\.\pipe\vibex-delegation-{}-{}",
+        r"\\.\pipe\dimo-delegation-{}-{}",
         std::process::id(),
         Uuid::new_v4()
     ))
@@ -846,8 +846,8 @@ mod official_mcp_tests {
 
     fn binding(product: &str) -> OfficialMcpBinding {
         OfficialMcpBinding {
-            plugin_id: format!("vibex.{product}"),
-            binary_id: "vibex-mcp".into(),
+            plugin_id: format!("dimo.{product}"),
+            binary_id: "dimo-mcp".into(),
             product: product.into(),
             features: SESSION_FEAT_ALL,
             token: "test-token".into(),
@@ -857,9 +857,9 @@ mod official_mcp_tests {
     #[test]
     fn headless_companion_stays_off_until_a_host_family_binding_is_published() {
         let gate = Arc::new(OfficialMcpRuntime::default());
-        let injector = VibexDelegationInjector {
+        let injector = DimoDelegationInjector {
             tokens: Arc::new(TokenRegistry::new()),
-            socket_path: PathBuf::from("/tmp/vibex-delegation-test.sock"),
+            socket_path: PathBuf::from("/tmp/dimo-delegation-test.sock"),
             official_mcp: gate.clone(),
             locate_binary: utils::host_bin::locate_runnable_host_family_binary,
             space_session: Arc::new(|_| false),
@@ -883,7 +883,7 @@ mod official_mcp_tests {
         );
 
         gate.publish_binding(binding("delegation"));
-        if utils::host_bin::locate_runnable_host_family_binary("vibex-mcp").is_none() {
+        if utils::host_bin::locate_runnable_host_family_binary("dimo-mcp").is_none() {
             assert_eq!(
                 injector.companion(context),
                 CompanionInjection::Unsupported {
@@ -910,7 +910,7 @@ mod official_mcp_tests {
                 .iter()
                 .map(|server| server.name.as_str())
                 .collect::<Vec<_>>(),
-            ["vibex-delegation-mcp", "vibex-session-mcp"]
+            ["dimo-delegation-mcp", "dimo-session-mcp"]
         );
     }
 }

@@ -1,4 +1,4 @@
-import * as PluginSdk from '@vibex/plugin-sdk';
+import * as PluginSdk from '@dimoai/plugin-sdk';
 import {
   createPluginContext,
   type HostCallTransport,
@@ -7,7 +7,7 @@ import {
   setDefaultHostCallTransport,
   setDefaultWorkerInvokeTransport,
   type ThemeDefinition,
-} from '@vibex/plugin-sdk';
+} from '@dimoai/plugin-sdk';
 import * as MonacopilotModule from 'monacopilot';
 import * as ReactModule from 'react';
 import { createElement } from 'react';
@@ -124,19 +124,19 @@ const SHARED_HOST_MODULES: Record<string, unknown> = {
   'react/jsx-runtime': ReactJsxRuntime,
   'react/jsx-dev-runtime': ReactJsxRuntime,
   monacopilot: MonacopilotModule,
-  '@vibex/plugin-sdk': PluginSdk,
-  '@vibex/plugin-sdk/app': PluginSdk,
-  '@vibex/plugin-sdk/context': PluginSdk,
-  '@vibex/plugin-sdk/registry': PluginSdk,
-  '@vibex/plugin-sdk/services': PluginSdk,
-  '@vibex/plugin-sdk/hooks': PluginSdk,
-  '@vibex/plugin-sdk/volatile': PluginSdk,
-  '@vibex/plugin-sdk/testing': PluginSdk,
+  '@dimoai/plugin-sdk': PluginSdk,
+  '@dimoai/plugin-sdk/app': PluginSdk,
+  '@dimoai/plugin-sdk/context': PluginSdk,
+  '@dimoai/plugin-sdk/registry': PluginSdk,
+  '@dimoai/plugin-sdk/services': PluginSdk,
+  '@dimoai/plugin-sdk/hooks': PluginSdk,
+  '@dimoai/plugin-sdk/volatile': PluginSdk,
+  '@dimoai/plugin-sdk/testing': PluginSdk,
 };
 
 if (typeof globalThis !== 'undefined') {
   const g = globalThis as Record<string, unknown>;
-  g.__VIBEX_HOST_MODULES__ = SHARED_HOST_MODULES;
+  g.__DIMO_HOST_MODULES__ = SHARED_HOST_MODULES;
   if (!g.React) {
     g.React = ReactModule;
   }
@@ -164,7 +164,7 @@ export function rewriteSharedBareImports(code: string): string {
           return fullMatch;
         }
         const clause = rawClause.trim();
-        const modExpr = `globalThis.__VIBEX_HOST_MODULES__[${JSON.stringify(trimmedSpec)}]`;
+        const modExpr = `globalThis.__DIMO_HOST_MODULES__[${JSON.stringify(trimmedSpec)}]`;
         if (clause.startsWith('* as ')) {
           const nsName = clause.slice('* as '.length).trim();
           return `const ${nsName} = ${modExpr};`;
@@ -461,7 +461,7 @@ function consumeTopLevelExportList(
     if (!sharedKeys.has(fromSpec)) {
       return null;
     }
-    const modExpr = `globalThis.__VIBEX_HOST_MODULES__[${JSON.stringify(fromSpec)}]`;
+    const modExpr = `globalThis.__DIMO_HOST_MODULES__[${JSON.stringify(fromSpec)}]`;
     return {
       replacement: rewriteExportSpecifierList(inner, modExpr),
       end: k,
@@ -724,8 +724,8 @@ export function injectPluginCss(pluginId: string, cssText: string): () => void {
     return () => undefined;
   }
   const style = document.createElement('style');
-  style.setAttribute('data-vibex-plugin', pluginId);
-  style.textContent = `@layer vibex-plugins {\n${cssText}\n}`;
+  style.setAttribute('data-dimo-plugin', pluginId);
+  style.textContent = `@layer dimo-plugins {\n${cssText}\n}`;
   document.head.appendChild(style);
   activeStyleNodes.set(pluginId, style);
   return () => removePluginCss(pluginId);

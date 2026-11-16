@@ -11,7 +11,7 @@ import {
 } from './PluginActionEditor';
 
 const presentationAction = {
-  pluginId: 'vibex.office',
+  pluginId: 'dimo.office',
   actionId: 'create-presentation',
   label: '创建 PPT',
   requiredSkills: ['office-pptx'],
@@ -325,7 +325,7 @@ describe('PluginActionEditor', () => {
         }
         if (command === 'plugin_control_install_runtime') {
           expect(args).toMatchObject({
-            pluginId: 'vibex.office',
+            pluginId: 'dimo.office',
             runtimeId: 'officecli',
           });
           await install;
@@ -360,7 +360,7 @@ describe('PluginActionEditor', () => {
     await user.keyboard('{Enter}');
 
     expect(call).toHaveBeenCalledWith('plugin_control_install_runtime', {
-      pluginId: 'vibex.office',
+      pluginId: 'dimo.office',
       runtimeId: 'officecli',
     });
     finishInstall?.();

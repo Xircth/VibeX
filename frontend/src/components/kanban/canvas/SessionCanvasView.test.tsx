@@ -171,7 +171,7 @@ describe('SessionCanvasView', () => {
 
     await user.click(screen.getByRole('button', { name: '新建' }));
     await user.click(await screen.findByRole('menuitem', { name: '新建分组' }));
-    const raw = window.localStorage.getItem('vibex:kanban-canvas:p1');
+    const raw = window.localStorage.getItem('dimo:kanban-canvas:p1');
     expect(raw).toBeTruthy();
     const saved = JSON.parse(raw ?? '{}') as {
       nodes: Array<{
@@ -217,7 +217,7 @@ describe('SessionCanvasView', () => {
     });
 
     const saved = JSON.parse(
-      window.localStorage.getItem('vibex:kanban-canvas:p1') ?? '{}'
+      window.localStorage.getItem('dimo:kanban-canvas:p1') ?? '{}'
     ) as { nodes: Array<{ sessionId: string; expanded: boolean }> };
     expect(
       saved.nodes.some(
@@ -402,20 +402,20 @@ describe('SessionCanvasView', () => {
     await user.click(await screen.findByRole('menuitem', { name: '新建分组' }));
     expect(
       JSON.parse(
-        window.localStorage.getItem('vibex:kanban-canvas:p1') ?? '{}'
+        window.localStorage.getItem('dimo:kanban-canvas:p1') ?? '{}'
       ).nodes.some((node: { kind: string }) => node.kind === 'group')
     ).toBe(true);
 
     await user.click(screen.getByRole('button', { name: '后退' }));
     expect(
-      JSON.parse(window.localStorage.getItem('vibex:kanban-canvas:p1') ?? '{}')
+      JSON.parse(window.localStorage.getItem('dimo:kanban-canvas:p1') ?? '{}')
         .nodes
     ).toEqual([]);
 
     await user.click(screen.getByRole('button', { name: '前进' }));
     expect(
       JSON.parse(
-        window.localStorage.getItem('vibex:kanban-canvas:p1') ?? '{}'
+        window.localStorage.getItem('dimo:kanban-canvas:p1') ?? '{}'
       ).nodes.some((node: { kind: string }) => node.kind === 'group')
     ).toBe(true);
   });
@@ -464,7 +464,7 @@ describe('SessionCanvasView', () => {
 
   it('updates dashed session connection lines in real time while dragging a session node or parent group', () => {
     window.localStorage.setItem(
-      'vibex:kanban-canvas:p1',
+      'dimo:kanban-canvas:p1',
       JSON.stringify({
         version: 4,
         viewport: { x: 0, y: 0, zoom: 1 },
@@ -595,7 +595,7 @@ describe('SessionCanvasView', () => {
     await user.click(await screen.findByRole('menuitem', { name: '笔记' }));
 
     const storedAfterNote = JSON.parse(
-      window.localStorage.getItem('vibex:kanban-canvas:p1') ?? '{}'
+      window.localStorage.getItem('dimo:kanban-canvas:p1') ?? '{}'
     );
     expect(storedAfterNote.nodes).toHaveLength(1);
     expect(storedAfterNote.nodes[0]).toMatchObject({
@@ -631,7 +631,7 @@ describe('SessionCanvasView', () => {
 
     await waitFor(() => {
       const afterDisconnect = JSON.parse(
-        window.localStorage.getItem('vibex:kanban-canvas:p1') ?? '{}'
+        window.localStorage.getItem('dimo:kanban-canvas:p1') ?? '{}'
       );
       expect(afterDisconnect.links ?? []).toHaveLength(0);
     });
@@ -639,7 +639,7 @@ describe('SessionCanvasView', () => {
 
   it('opens a detached full panel node linked to a grouped minimized panel node when expanded', () => {
     window.localStorage.setItem(
-      'vibex:kanban-canvas:p1',
+      'dimo:kanban-canvas:p1',
       JSON.stringify({
         version: 4,
         viewport: { x: 0, y: 0, zoom: 1 },
@@ -702,7 +702,7 @@ describe('SessionCanvasView', () => {
     fireEvent.click(expandButton);
 
     const stored = JSON.parse(
-      window.localStorage.getItem('vibex:kanban-canvas:p1') ?? '{}'
+      window.localStorage.getItem('dimo:kanban-canvas:p1') ?? '{}'
     );
     const detached = stored.nodes.find(
       (node: { id: string; openedFromId?: string }) =>
@@ -747,7 +747,7 @@ describe('SessionCanvasView', () => {
     });
 
     const stored = JSON.parse(
-      window.localStorage.getItem('vibex:kanban-canvas:p1') ?? '{}'
+      window.localStorage.getItem('dimo:kanban-canvas:p1') ?? '{}'
     );
     const droppedSession = stored.nodes.find(
       (node: { sessionId?: string }) => node.sessionId === 'sess-drop-1'
@@ -769,6 +769,54 @@ describe('SessionCanvasView', () => {
       width: DETAIL_CARD_WIDTH,
       height: DETAIL_CARD_HEIGHT,
     });
+  });
+
+  it('syncs sibling SessionCanvasView instances and does not overwrite edits when a stale instance unmounts', () => {
+    const kanbanApi: { current: SessionCanvasApi | null } = { current: null };
+    const workspaceApi: { current: SessionCanvasApi | null } = { current: null };
+    const kanban = renderCanvas(
+      <SessionCanvasView
+        projectId="p1"
+        sessions={[session('s1', new Date().toISOString())]}
+        sessionsReady
+        listWidth={280}
+        list={<div>kanban-list</div>}
+        registerWorkspaceController={false}
+        onApiReady={(next) => {
+          kanbanApi.current = next;
+        }}
+      />
+    );
+    const workspace = renderCanvas(
+      <SessionCanvasView
+        projectId="p1"
+        sessions={[session('s1', new Date().toISOString())]}
+        sessionsReady
+        listWidth={280}
+        list={<div>workspace-list</div>}
+        onApiReady={(next) => {
+          workspaceApi.current = next;
+        }}
+      />
+    );
+
+    act(() => {
+      workspaceApi.current?.addSession('s1');
+    });
+
+    expect(kanbanApi.current?.presentSessionIds().has('s1')).toBe(true);
+
+    // Unmount the hidden Kanban instance (simulating KeepAliveSurface expiry)
+    kanban.unmount();
+
+    const storedAfterUnmount = JSON.parse(
+      window.localStorage.getItem('dimo:kanban-canvas:p1') ?? '{}'
+    ) as { nodes?: Array<{ sessionId?: string }> };
+    expect(
+      storedAfterUnmount.nodes?.some((node) => node.sessionId === 's1')
+    ).toBe(true);
+
+    workspace.unmount();
   });
 });
 

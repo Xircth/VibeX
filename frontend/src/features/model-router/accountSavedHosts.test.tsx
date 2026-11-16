@@ -82,8 +82,8 @@ vi.mock('./account', async (importOriginal) => {
   };
 });
 
-vi.mock('./useVibeXAccount', () => ({
-  useVibeXAccount: () => mocks.accountState,
+vi.mock('./useDimoAccount', () => ({
+  useDimoAccount: () => mocks.accountState,
 }));
 
 const userA: NonNullable<RouterOverview['user']> = {

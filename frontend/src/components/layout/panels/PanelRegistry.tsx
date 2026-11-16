@@ -12,8 +12,8 @@ import {
   type Disposer,
   panelRegistry,
   type PanelContribution,
-  type VibeXPluginContext,
-} from '@vibex/plugin-sdk';
+  type DimoPluginContext,
+} from '@dimoai/plugin-sdk';
 import { PluginBoundary } from '@/components/plugins/PluginBoundary';
 import { Button } from '@/components/ui/button';
 import { Loader } from '@/components/ui/loader';
@@ -187,7 +187,7 @@ export const BUILTIN_PANEL_CONTRIBUTIONS: readonly PanelContribution[] =
   BUILTIN_PANEL_MANIFESTS.map(builtinPanelContribution);
 
 export interface RegisterBuiltinPanelsOptions {
-  readonly ctx?: VibeXPluginContext;
+  readonly ctx?: DimoPluginContext;
   readonly panelIds?: readonly string[];
   readonly pluginId?: string;
 }

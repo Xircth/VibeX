@@ -4,7 +4,7 @@ use crate::PluginError;
 fn secret_stream_byte(plugin_id: &str, secret_key: &str, nonce: &[u8], counter: usize) -> u8 {
     use sha2::{Digest, Sha256};
     let mut hasher = Sha256::new();
-    hasher.update(b"vibex.plugin_secrets.v1:");
+    hasher.update(b"dimo.plugin_secrets.v1:");
     hasher.update(plugin_id.as_bytes());
     hasher.update([0u8]);
     hasher.update(secret_key.as_bytes());
@@ -18,7 +18,7 @@ fn secret_stream_byte(plugin_id: &str, secret_key: &str, nonce: &[u8], counter: 
 fn secret_auth_tag(plugin_id: &str, secret_key: &str, nonce: &[u8], ciphertext: &[u8]) -> [u8; 32] {
     use sha2::{Digest, Sha256};
     let mut hasher = Sha256::new();
-    hasher.update(b"vibex.plugin_secrets.mac.v1:");
+    hasher.update(b"dimo.plugin_secrets.mac.v1:");
     hasher.update(plugin_id.as_bytes());
     hasher.update([0u8]);
     hasher.update(secret_key.as_bytes());

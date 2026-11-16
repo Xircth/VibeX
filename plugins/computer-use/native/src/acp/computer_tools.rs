@@ -3,7 +3,7 @@
 //! `computer_verify`, and the actions `computer_click`, `computer_drag`,
 //! `computer_scroll`, `computer_type`, `computer_press_key`,
 //! `computer_hold_key`, `computer_set_value`, `computer_restore`,
-//! `computer_invoke_menu`) carried by vibex-mcp.
+//! `computer_invoke_menu`) carried by dimo-mcp.
 //!
 //! The same split as the browser tools: nothing here decides whether a window
 //! may be read. That is `crate::computer::agent` and the target table, and it
@@ -46,11 +46,11 @@ pub const ERROR_GRANT_REQUIRED: &str = "computer_grant_required";
 /// on the screen.
 pub const ERROR_NO_SUCH_TARGET: &str = "computer_no_such_target";
 
-/// The window can never be shared: vibex's own, or an application on the
+/// The window can never be shared: dimo's own, or an application on the
 /// blocklist. Permanent — asking again changes nothing.
 pub const ERROR_BLOCKED: &str = "computer_blocked";
 
-/// The OS has not given vibex's helper a permission the read needs. The user
+/// The OS has not given dimo's helper a permission the read needs. The user
 /// can fix it in System Settings; the agent cannot.
 pub const ERROR_PERMISSION_MISSING: &str = "computer_permission_missing";
 
@@ -85,7 +85,7 @@ pub const ERROR_BACKGROUND_UNAVAILABLE: &str = "computer_background_unavailable"
 
 /// The agent asked for the window to be brought to the front for an action
 /// (`delivery: "foreground"`), and the person has not allowed that. Theirs to
-/// change, in vibex's settings; asking again changes nothing.
+/// change, in dimo's settings; asking again changes nothing.
 pub const ERROR_FOREGROUND_NOT_ALLOWED: &str = "computer_foreground_not_allowed";
 
 /// The action was allowed and did not happen: a disabled control, no such
@@ -115,7 +115,7 @@ pub const NO_DESKTOP_NOTE: &str =
     "Computer use is not available in this session: there are no windows to read.";
 
 /// How to share a window, for every refusal that ends in "ask the user".
-const SHARE_HOW: &str = "Ask the user to share it: in vibex's status bar they open Computer use \
+const SHARE_HOW: &str = "Ask the user to share it: in dimo's status bar they open Computer use \
                          and press \"Share a window…\". Sharing is theirs to give — there is no \
                          way to take it, and no point retrying until they have.";
 
@@ -272,8 +272,8 @@ pub fn blocked_note(target_id: &str, why: &str) -> String {
 
 pub fn permission_missing_note(permission: &str) -> String {
     format!(
-        "vibex-computer-helper has not been granted {permission} by macOS. Ask the user to grant \
-         it: in vibex's status bar they open Computer use and follow the permission guide \
+        "dimo-computer-helper has not been granted {permission} by macOS. Ask the user to grant \
+         it: in dimo's status bar they open Computer use and follow the permission guide \
          (System Settings → Privacy & Security → {permission}). Only they can, and retrying will \
          not help until they have."
     )
@@ -282,7 +282,7 @@ pub fn permission_missing_note(permission: &str) -> String {
 pub fn control_required_note(target_id: &str) -> String {
     format!(
         "Window {target_id} is shared with you for reading only. Ask the user to let you act on \
-         it: in vibex's status bar they open Computer use and set that window to \"Read and \
+         it: in dimo's status bar they open Computer use and set that window to \"Read and \
          act\". Only they can; retrying will not change it. You can still read the window."
     )
 }
@@ -339,14 +339,14 @@ pub const SESSION_CHORD_NOTE: &str = "That key locks the screen, logs out, or sh
 pub const SCREEN_GRANT_REQUIRED_NOTE: &str =
     "The entire screen (d1) is not shared with agents, or \
      no longer is (that sharing ends after a while unused, or when the user takes it back or \
-     switches it off). Ask the user to share it: in vibex's status bar they open Computer use, \
+     switches it off). Ask the user to share it: in dimo's status bar they open Computer use, \
      press \"Share a window…\" and choose the entire screen — only they can, and it is offered \
-     only where they have switched it on in vibex's Computer use settings. Meanwhile, read the \
+     only where they have switched it on in dimo's Computer use settings. Meanwhile, read the \
      windows shared with you one by one.";
 
 /// Said when the entire screen is shared for reading and an action is asked.
 pub const SCREEN_CONTROL_REQUIRED_NOTE: &str = "The entire screen (d1) is shared with you for \
-     reading only. Ask the user to let you act on it: in vibex's Computer use panel they set the \
+     reading only. Ask the user to let you act on it: in dimo's Computer use panel they set the \
      entire screen to \"Read and act\". Only they can; retrying will not change it.";
 
 /// Said when a point on the entire screen is not from its latest picture.
@@ -365,7 +365,7 @@ pub const SCREEN_POINTER_ONLY_NOTE: &str = "The entire screen (d1) takes compute
 /// does not allow the front.
 pub const SCREEN_NEEDS_FRONT_NOTE: &str = "An action on the entire screen moves the user's own \
      pointer and goes to whatever is in front at that point, and the user has switched off \
-     bringing windows to the front in vibex's Computer use settings (\"Let agents bring windows \
+     bringing windows to the front in dimo's Computer use settings (\"Let agents bring windows \
      to the front\"), so nothing was sent. Act on a window in the background instead, or ask the \
      user whether to switch it back on — only they can.";
 
@@ -386,7 +386,7 @@ pub const SCREEN_RULES_CHANGED_NOTE: &str = "The user's never-share list changed
 pub fn app_grant_required_note(target_id: &str) -> String {
     format!(
         "Menus act on the whole application, and window {target_id} is shared on its own. Ask \
-         the user to share its application as a whole, for \"Read and act\", in vibex's Computer \
+         the user to share its application as a whole, for \"Read and act\", in dimo's Computer \
          use panel — only they can."
     )
 }
@@ -398,20 +398,20 @@ pub const MENUS_UNAVAILABLE_NOTE: &str = "Menus cannot be chosen by title on Win
 /// Said when a menu command is asked for and the person does not allow
 /// bringing windows to the front.
 pub const MENU_NEEDS_FRONT_NOTE: &str = "A menu command is chosen with its application brought to \
-     the front, and the user has switched that off in vibex's Computer use settings (\"Let agents \
+     the front, and the user has switched that off in dimo's Computer use settings (\"Let agents \
      bring windows to the front\"), so nothing was sent. Ask the user whether to switch it back \
      on — only they can.";
 
 /// Said when starting an application, or moving a window, is asked for and
 /// the person has not switched it on.
 pub const LAUNCH_OFF_NOTE: &str = "Starting applications and moving or sizing windows is \
-     switched off in vibex's Computer use settings (\"Let agents open applications and move \
+     switched off in dimo's Computer use settings (\"Let agents open applications and move \
      windows\"), so nothing was done. Ask the user whether to switch it on — only they can.";
 
 /// Said when the clipboard tools are asked for and the person has not
 /// switched them on.
 pub const CLIPBOARD_OFF_NOTE: &str = "Reading and writing the clipboard is switched off in \
-     vibex's Computer use settings (\"Let agents use the clipboard\"), so nothing was done. Ask \
+     dimo's Computer use settings (\"Let agents use the clipboard\"), so nothing was done. Ask \
      the user whether to switch it on — only they can.";
 
 /// Said when the clipboard does not hold what an agent put there.
@@ -494,12 +494,12 @@ pub fn no_pointing_note(target_id: &str) -> String {
     )
 }
 
-pub const STOPPED_NOTE: &str = "The user pressed Stop in vibex's Computer use panel: every \
+pub const STOPPED_NOTE: &str = "The user pressed Stop in dimo's Computer use panel: every \
      window stopped being shared, and whatever was under way was cut off. Do not retry on your \
      own — tell the user, and go on only once they share a window with you again.";
 
 pub const FOREGROUND_NOT_ALLOWED_NOTE: &str = "Bringing a window to the front for an action is \
-     not allowed: the user has switched it off in vibex's Computer use settings (\"Let agents \
+     not allowed: the user has switched it off in dimo's Computer use settings (\"Let agents \
      bring windows to the front\"), so nothing was sent. Leave `delivery` out to act in the \
      background; if only the front will do, ask the user whether to switch it back on — only \
      they can.";
@@ -507,7 +507,7 @@ pub const FOREGROUND_NOT_ALLOWED_NOTE: &str = "Bringing a window to the front fo
 /// Said when a window is to be restored on Linux — which takes bringing it
 /// to the front — and the person does not allow that.
 pub const RESTORE_NEEDS_FRONT_NOTE: &str = "On Linux a minimized window comes back on the screen \
-     only by being brought to the front, and the user has switched that off in vibex's Computer \
+     only by being brought to the front, and the user has switched that off in dimo's Computer \
      use settings (\"Let agents bring windows to the front\"), so nothing was sent. Ask the user \
      to restore the window, or whether to switch that back on — only they can.";
 
@@ -517,11 +517,11 @@ pub const RESTORE_NEEDS_FRONT_NOTE: &str = "On Linux a minimized window comes ba
 pub fn background_next_step(allow_foreground: bool) -> &'static str {
     if allow_foreground {
         "The user allows bringing a window to the front: call again with `delivery: \
-         \"foreground\"`, and vibex brings this window forward for that one action, then switches \
+         \"foreground\"`, and dimo brings this window forward for that one action, then switches \
          back to the window the user was in (on Linux it stays in front). They will see it \
          happen, and a click may move their pointer."
     } else {
-        "The user has switched off bringing windows to the front in vibex's Computer use \
+        "The user has switched off bringing windows to the front in dimo's Computer use \
          settings; if nothing else will do, ask them whether to switch it back on."
     }
 }
@@ -804,7 +804,7 @@ pub struct ComputerToolsConfig {
     /// Whether the person may share the entire screen at once. Off unless
     /// they turned it on; turning it off ends the screen's share.
     pub screen_enabled: bool,
-    /// How many times the group has been switched off since vibex started.
+    /// How many times the group has been switched off since dimo started.
     /// Kept by [`ComputerToolsRuntimeConfig::set`], never persisted: it is
     /// what lets a watcher that only sees the latest value — a quick off and
     /// on again arrives as one change — still see that there was an off, and
@@ -924,7 +924,7 @@ impl ComputerToolsRuntimeConfig {
     }
 
     /// Note that this process serves computer use — a computer service has
-    /// started: always in the desktop app, and in vibex-server where the
+    /// started: always in the desktop app, and in dimo-server where the
     /// person who runs it lets it share the screen it runs on. Until then
     /// the tools are offered to no agent, whatever the switch says.
     pub fn mark_served(&self) {
@@ -974,7 +974,7 @@ mod tests {
         let note = no_such_target_note("w9");
         assert!(note.contains("computer_list_windows"));
 
-        let note = blocked_note("w3", "vibex's own window: it can never be shared.");
+        let note = blocked_note("w3", "dimo's own window: it can never be shared.");
         assert!(note.contains("cannot be done"));
 
         let note = permission_missing_note("Screen Recording");

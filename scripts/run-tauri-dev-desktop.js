@@ -18,9 +18,9 @@ const WORKSPACE_ROOT = path.join(__dirname, '..');
 const SQLX_OFFLINE_DIR = path.join(WORKSPACE_ROOT, 'crates', 'db', '.sqlx');
 const LOCAL_ENV_FILE = path.join(WORKSPACE_ROOT, '.env.local');
 const DESKTOP_DEV_IDENTITY = {
-  deepLinkScheme: 'vibex-dev',
-  identifier: 'com.vibex.app.dev',
-  productName: 'VibeX Dev',
+  deepLinkScheme: 'dimo-dev',
+  identifier: 'com.dimo.app.dev',
+  productName: 'Dimo Dev',
 };
 
 function resolveDesktopDevIdentity(workspaceRoot = process.cwd()) {
@@ -60,12 +60,12 @@ function applyDesktopDevIdentity(config, identity = DESKTOP_DEV_IDENTITY) {
   next.identifier = identity.identifier;
   next.productName = identity.productName;
   for (const window of next.app?.windows ?? []) {
-    if (window.title === 'VibeX') {
+    if (window.title === 'Dimo') {
       window.title = identity.productName;
     }
   }
   // Skip config-created `main`. Tauri would give it
-  // `%LOCALAPPDATA%\com.vibex.app.dev`, which stays busy across cargo-watch
+  // `%LOCALAPPDATA%\com.dimo.app.dev`, which stays busy across cargo-watch
   // restarts (HRESULT 0x800700AA). Rust setup creates main under
   // `dev_assets/webview-profiles`.
   if (Array.isArray(next.app?.windows)) {
@@ -106,8 +106,8 @@ function createCargoLeanDevEnv(
       BACKEND_PORT: String(ports.backend),
       SQLX_OFFLINE: env.SQLX_OFFLINE || 'true',
       SQLX_OFFLINE_DIR: env.SQLX_OFFLINE_DIR || SQLX_OFFLINE_DIR,
-      VIBEX_DEV_APP_IDENTIFIER:
-        env.VIBEX_DEV_APP_IDENTIFIER || identity.identifier,
+      DIMO_DEV_APP_IDENTIFIER:
+        env.DIMO_DEV_APP_IDENTIFIER || identity.identifier,
     }),
     { repo: WORKSPACE_ROOT }
   );
@@ -220,16 +220,16 @@ function windowsStaleDesktopCleanupScript(
   identifier = DESKTOP_DEV_IDENTITY.identifier
 ) {
   // One line: multiline -Command scripts are truncated or ignored by
-  // CreateProcess, which left a running debug exe locking vibex.exe.
-  // WebView2 children are listed as Microsoft Edge WebView2, not VibeX, and
+  // CreateProcess, which left a running debug exe locking dimo.exe.
+  // WebView2 children are listed as Microsoft Edge WebView2, not Dimo, and
   // they keep %LOCALAPPDATA%\<identifier>\EBWebView busy (HRESULT 0x800700AA).
-  // Match `\<identifier>\EBWebView` so a main-repo `com.vibex.app.dev` cleanup
-  // never kills a linked worktree's `com.vibex.app.dev.<hash>` WebView2 or vice versa.
+  // Match `\<identifier>\EBWebView` so a main-repo `com.dimo.app.dev` cleanup
+  // never kills a linked worktree's `com.dimo.app.dev.<hash>` WebView2 or vice versa.
   const safeIdentifier = String(identifier).replace(/'/g, "''");
   const webview2Pattern = `*\\${safeIdentifier}\\EBWebView*`;
   return (
-    "$target = [System.IO.Path]::GetFullPath($env:VIBEX_STALE_EXE_PATH); " +
-    "Get-CimInstance Win32_Process -Filter \"Name = 'vibex.exe'\" | " +
+    "$target = [System.IO.Path]::GetFullPath($env:DIMO_STALE_EXE_PATH); " +
+    "Get-CimInstance Win32_Process -Filter \"Name = 'dimo.exe'\" | " +
     'Where-Object { $_.ExecutablePath -and ([System.IO.Path]::GetFullPath($_.ExecutablePath) -ieq $target) } | ' +
     'ForEach-Object { taskkill.exe /F /PID $_.ProcessId /T | Out-Null; ' +
     'Wait-Process -Id $_.ProcessId -Timeout 8 -ErrorAction SilentlyContinue }; ' +
@@ -320,7 +320,7 @@ function terminateStaleDesktopProcess(
     workspaceRoot,
     'target',
     'debug',
-    'vibex.exe'
+    'dimo.exe'
   );
 
   const powershellScript = windowsStaleDesktopCleanupScript(
@@ -333,7 +333,7 @@ function terminateStaleDesktopProcess(
     {
       env: {
         ...process.env,
-        VIBEX_STALE_EXE_PATH: executablePath,
+        DIMO_STALE_EXE_PATH: executablePath,
       },
       stdio: 'inherit',
       timeout: 15000,
@@ -385,7 +385,7 @@ function waitUntilDebugExeWritable(executablePath) {
   }
 
   console.error(
-    `Debug executable is still locked: ${executablePath}. Close the running VibeX Dev window and retry.`
+    `Debug executable is still locked: ${executablePath}. Close the running Dimo Dev window and retry.`
   );
   process.exit(1);
 }

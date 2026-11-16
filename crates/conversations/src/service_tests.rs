@@ -245,7 +245,7 @@
         );
         assert_eq!(binding.acp_session_id.as_deref(), Some("agy-session-1"));
         assert!(
-            binding.mcp_servers_json.contains("vibex-delegation-mcp"),
+            binding.mcp_servers_json.contains("dimo-delegation-mcp"),
             "remembering controls must not hide agent mentions"
         );
         let defaults = SessionDefaultRepository::new(pool.clone())
@@ -720,7 +720,7 @@
             None
         );
         assert_eq!(
-            resume_external_session_id(Some("vibex-new-session-abc".to_string()), false),
+            resume_external_session_id(Some("dimo-new-session-abc".to_string()), false),
             None
         );
         assert_eq!(
@@ -787,7 +787,7 @@
             Some("thread-new")
         );
 
-        let rebound = sample_binding(codex.clone(), "vibex-new-session-rebound", false);
+        let rebound = sample_binding(codex.clone(), "dimo-new-session-rebound", false);
         assert!(
             super::restorable_agent_binding(&[older, rebound], &codex).is_none(),
             "a rebind placeholder must not resume the abandoned older thread"

@@ -41,6 +41,67 @@ type AgentLiveTerminalView = {
   cwd?: string | null;
 };
 
+const MAX_FINISHED_TERMINAL_IDS = 500;
+const SESSION_LOOKUP_TTL_MS = 30_000;
+const MAX_SESSION_LOOKUP_CACHE = 128;
+
+type CachedSessionLookup = {
+  value: Awaited<ReturnType<typeof sessionsApi.getById>>;
+  expiresAt: number;
+};
+
+const sessionLookupCache = new Map<string, CachedSessionLookup>();
+const sessionLookupInflight = new Map<
+  string,
+  Promise<Awaited<ReturnType<typeof sessionsApi.getById>>>
+>();
+
+function getCachedSessionById(
+  sessionId: string
+): Promise<Awaited<ReturnType<typeof sessionsApi.getById>>> {
+  const now = Date.now();
+  const cached = sessionLookupCache.get(sessionId);
+  if (cached && cached.expiresAt > now) {
+    sessionLookupCache.delete(sessionId);
+    sessionLookupCache.set(sessionId, cached);
+    return Promise.resolve(cached.value);
+  }
+  if (cached) {
+    sessionLookupCache.delete(sessionId);
+  }
+  const inflight = sessionLookupInflight.get(sessionId);
+  if (inflight) {
+    return inflight;
+  }
+  const pending = sessionsApi
+    .getById(sessionId)
+    .then((session) => {
+      const writeNow = Date.now();
+      for (const [key, entry] of sessionLookupCache) {
+        if (entry.expiresAt <= writeNow) {
+          sessionLookupCache.delete(key);
+        }
+      }
+      sessionLookupCache.set(sessionId, {
+        value: session,
+        expiresAt: writeNow + SESSION_LOOKUP_TTL_MS,
+      });
+      while (sessionLookupCache.size > MAX_SESSION_LOOKUP_CACHE) {
+        const oldest = sessionLookupCache.keys().next().value;
+        if (oldest === undefined) break;
+        sessionLookupCache.delete(oldest);
+      }
+      return session;
+    })
+    .finally(() => {
+      if (sessionLookupInflight.get(sessionId) === pending) {
+        sessionLookupInflight.delete(sessionId);
+      }
+    });
+  sessionLookupInflight.set(sessionId, pending);
+  return pending;
+}
+
 function removeAgentTerminal(terminalId: string) {
   const store = useTerminalStore.getState();
   for (const [workspaceId, sessions] of Object.entries(
@@ -66,7 +127,7 @@ async function resolveAgentLabel(
     return 'Agent';
   }
   try {
-    const session = await sessionsApi.getById(agentSessionId);
+    const session = await getCachedSessionById(agentSessionId);
     return session.agent_id ?? session.executor ?? 'Agent';
   } catch {
     return eventLabel ?? 'Agent';
@@ -106,6 +167,18 @@ function upsertAgentTerminal(input: {
 
 const finishedTerminalIds = new Set<string>();
 
+function markTerminalFinished(terminalId: string) {
+  if (finishedTerminalIds.has(terminalId)) {
+    finishedTerminalIds.delete(terminalId);
+  }
+  finishedTerminalIds.add(terminalId);
+  while (finishedTerminalIds.size > MAX_FINISHED_TERMINAL_IDS) {
+    const oldest = finishedTerminalIds.values().next().value;
+    if (oldest === undefined) break;
+    finishedTerminalIds.delete(oldest);
+  }
+}
+
 function applyConversationBatch(batch: ConversationRowOpBatch) {
   for (const op of batch.ops) {
     if (op.op !== 'upsert' || op.row.row.kind !== 'message_turn') {
@@ -117,7 +190,7 @@ function applyConversationBatch(batch: ConversationRowOpBatch) {
     }
     const runningCaptures = captures.filter((capture) => {
       if (!capture.running) {
-        finishedTerminalIds.add(capture.toolUseId);
+        markTerminalFinished(capture.toolUseId);
         useAgentCommandOutputStore.getState().clear(capture.toolUseId);
         removeAgentTerminal(capture.toolUseId);
         return false;
@@ -127,8 +200,7 @@ function applyConversationBatch(batch: ConversationRowOpBatch) {
     if (runningCaptures.length === 0) {
       continue;
     }
-    void sessionsApi
-      .getById(batch.conversation_id)
+    void getCachedSessionById(batch.conversation_id)
       .then((session) => {
         for (const capture of runningCaptures) {
           if (finishedTerminalIds.has(capture.toolUseId)) {
@@ -185,7 +257,7 @@ export function useAgentLongRunningTerminals() {
         return;
       }
 
-      finishedTerminalIds.add(event.session_id);
+      markTerminalFinished(event.session_id);
       removeAgentTerminal(event.session_id);
     };
 
@@ -225,7 +297,7 @@ export function useAgentLongRunningTerminals() {
             continue;
           }
           try {
-            const session = await sessionsApi.getById(item.agentSessionId);
+            const session = await getCachedSessionById(item.agentSessionId);
             if (cancelled || finishedTerminalIds.has(item.terminalId)) {
               return;
             }

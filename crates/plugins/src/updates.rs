@@ -121,7 +121,7 @@ impl PluginUpdateResolver {
         Ok(Self {
             client: reqwest::Client::builder()
                 .timeout(std::time::Duration::from_secs(15))
-                .user_agent("VibeX")
+                .user_agent("Dimo")
                 .build()
                 .map_err(|e| PluginError::io("update client", e))?,
             github_api: github_api.trim_end_matches('/').to_owned(),
@@ -438,7 +438,7 @@ pub fn validate_update_package(
         if current < minimum {
             return Err(PluginError::coded(
                 "plugin_update_incompatible",
-                "release requires a newer VibeX version",
+                "release requires a newer Dimo version",
             ));
         }
     }

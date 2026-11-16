@@ -250,17 +250,17 @@ mod tests {
 
     #[test]
     fn extracts_title_and_body_from_plain_json() {
-        let raw = r#"{"Title":"Fix login timeout (VibeX)","Body":"Users can sign in again."}"#;
+        let raw = r#"{"Title":"Fix login timeout (Dimo)","Body":"Users can sign in again."}"#;
         let draft = extract_pr_description(raw).expect("draft");
-        assert_eq!(draft.title, "Fix login timeout (VibeX)");
+        assert_eq!(draft.title, "Fix login timeout (Dimo)");
         assert_eq!(draft.body, "Users can sign in again.");
     }
 
     #[test]
     fn extracts_title_and_body_from_nested_payload() {
-        let raw = r#"{"type":"assistant","content":"{\"Title\":\"Add retries (VibeX)\",\"Body\":\"Retry failed requests.\"}"}"#;
+        let raw = r#"{"type":"assistant","content":"{\"Title\":\"Add retries (Dimo)\",\"Body\":\"Retry failed requests.\"}"}"#;
         let draft = extract_pr_description(raw).expect("draft");
-        assert_eq!(draft.title, "Add retries (VibeX)");
+        assert_eq!(draft.title, "Add retries (Dimo)");
         assert_eq!(draft.body, "Retry failed requests.");
     }
 }

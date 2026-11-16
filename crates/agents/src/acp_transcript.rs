@@ -2,12 +2,12 @@
 //!
 //! Online JSONL writing is disabled by default (Step 3E) because `ConversationProjector`
 //! and SQLite (`conversation_events` / `conversation_turns` / `conversation_timeline_rows`)
-//! are the single source of truth. Setting `VIBEX_LEGACY_JSONL_SHADOW_WRITE=1` enables
+//! are the single source of truth. Setting `DIMO_LEGACY_JSONL_SHADOW_WRITE=1` enables
 //! opt-in write-only shadow logging for rollout diagnostics. Offline helpers (`*_in`)
 //! remain active for legacy backfill, external parsers (`crate::parsers::*`), and tests.
 
 use std::{
-    collections::{HashMap, HashSet},
+    collections::{HashMap, HashSet, VecDeque},
     future::Future,
     io::{Seek as _, Write as _},
     path::{Path, PathBuf},
@@ -24,6 +24,42 @@ pub use self::reader::*;
 /// Schema version of the transcript file.
 pub const TRANSCRIPT_SCHEMA_VERSION: u32 = 1;
 
+const MAX_IN_MEMORY_SESSION_KEYS: usize = 4_096;
+
+#[derive(Default)]
+struct BoundedKeySet {
+    keys: HashSet<(String, String)>,
+    order: VecDeque<(String, String)>,
+}
+
+impl BoundedKeySet {
+    fn insert(&mut self, key: (String, String)) -> bool {
+        if !self.keys.insert(key.clone()) {
+            return false;
+        }
+        self.order.push_back(key);
+        while self.keys.len() > MAX_IN_MEMORY_SESSION_KEYS {
+            if let Some(oldest) = self.order.pop_front() {
+                self.keys.remove(&oldest);
+            } else {
+                break;
+            }
+        }
+        true
+    }
+
+    fn remove(&mut self, key: &(String, String)) {
+        self.keys.remove(key);
+        if self.order.len() > self.keys.len().saturating_mul(2).max(16) {
+            self.order.retain(|k| self.keys.contains(k));
+        }
+    }
+
+    fn contains(&self, key: &(String, String)) -> bool {
+        self.keys.contains(key)
+    }
+}
+
 /// Async callback registered by the persistence layer to check whether SQLite
 /// already holds recorded turns/events for `(conversation_id, agent_dir, acp_session_id)`.
 pub type AsyncRecordedHistoryProbe = Arc<
@@ -36,12 +72,12 @@ static REGISTERED_HISTORY_PROBE: LazyLock<RwLock<Option<AsyncRecordedHistoryProb
     LazyLock::new(|| RwLock::new(None));
 
 /// Sessions that observed at least one live prompt/update/steer/turn-end in this process.
-static RECORDED_SESSIONS: LazyLock<Mutex<HashSet<(String, String)>>> =
-    LazyLock::new(|| Mutex::new(HashSet::new()));
+static RECORDED_SESSIONS: LazyLock<Mutex<BoundedKeySet>> =
+    LazyLock::new(|| Mutex::new(BoundedKeySet::default()));
 
 /// In-flight or completed `session/load` replay claims in this process.
-static CLAIMED_REPLAYS: LazyLock<Mutex<HashSet<(String, String)>>> =
-    LazyLock::new(|| Mutex::new(HashSet::new()));
+static CLAIMED_REPLAYS: LazyLock<Mutex<BoundedKeySet>> =
+    LazyLock::new(|| Mutex::new(BoundedKeySet::default()));
 
 /// Register the authoritative SQLite history probe used by `session/load` replay gating.
 pub fn register_recorded_history_probe(probe: AsyncRecordedHistoryProbe) {
@@ -50,9 +86,9 @@ pub fn register_recorded_history_probe(probe: AsyncRecordedHistoryProbe) {
     }
 }
 
-/// Whether opt-in legacy JSONL shadow writing (`VIBEX_LEGACY_JSONL_SHADOW_WRITE=1`) is enabled.
+/// Whether opt-in legacy JSONL shadow writing (`DIMO_LEGACY_JSONL_SHADOW_WRITE=1`) is enabled.
 pub fn legacy_jsonl_shadow_write_enabled() -> bool {
-    std::env::var("VIBEX_LEGACY_JSONL_SHADOW_WRITE").as_deref() == Ok("1")
+    std::env::var("DIMO_LEGACY_JSONL_SHADOW_WRITE").as_deref() == Ok("1")
 }
 
 /// Mark `(agent_dir, session_id)` as having live recorded history in memory.
@@ -617,9 +653,9 @@ fn run_writer(rx: std::sync::mpsc::Receiver<TranscriptJob>) {
 fn isolate_test_transcripts() {
     static ONCE: std::sync::Once = std::sync::Once::new();
     ONCE.call_once(|| {
-        if std::env::var_os("VIBEX_TRANSCRIPTS_ROOT").is_some()
-            || std::env::var_os("VIBEX_HOME").is_some()
-            || std::env::var_os("VIBEX_DATA_DIR").is_some()
+        if std::env::var_os("DIMO_TRANSCRIPTS_ROOT").is_some()
+            || std::env::var_os("DIMO_HOME").is_some()
+            || std::env::var_os("DIMO_DATA_DIR").is_some()
         {
             return;
         }
@@ -632,33 +668,33 @@ fn isolate_test_transcripts() {
         if !in_deps {
             return;
         }
-        let dir = workspace_utils::path::get_vibex_temp_dir()
+        let dir = workspace_utils::path::get_dimo_temp_dir()
             .join(format!("acp-transcripts-{}", std::process::id()));
         unsafe {
-            std::env::set_var("VIBEX_TRANSCRIPTS_ROOT", dir);
+            std::env::set_var("DIMO_TRANSCRIPTS_ROOT", dir);
         }
     });
 }
 
-/// ACP JSONL root. `$VIBEX_HOME` then `$VIBEX_DATA_DIR` then the platform data dir.
-pub fn vibex_acp_transcripts_root() -> PathBuf {
+/// ACP JSONL root. `$DIMO_HOME` then `$DIMO_DATA_DIR` then the platform data dir.
+pub fn dimo_acp_transcripts_root() -> PathBuf {
     isolate_test_transcripts();
-    if let Some(explicit) = std::env::var_os("VIBEX_TRANSCRIPTS_ROOT") {
+    if let Some(explicit) = std::env::var_os("DIMO_TRANSCRIPTS_ROOT") {
         return PathBuf::from(explicit);
     }
-    if let Some(home) = std::env::var_os("VIBEX_HOME") {
+    if let Some(home) = std::env::var_os("DIMO_HOME") {
         return PathBuf::from(home).join("acp-transcripts");
     }
-    if let Some(dir) = std::env::var_os("VIBEX_DATA_DIR") {
+    if let Some(dir) = std::env::var_os("DIMO_DATA_DIR") {
         return PathBuf::from(dir).join("acp-transcripts");
     }
     dirs::data_dir()
-        .unwrap_or_else(|| PathBuf::from(".vibex-data"))
-        .join("vibex")
+        .unwrap_or_else(|| PathBuf::from(".dimo-data"))
+        .join("dimo")
         .join("acp-transcripts")
 }
 
-/// Online session header recorder (no-op unless `VIBEX_LEGACY_JSONL_SHADOW_WRITE=1`).
+/// Online session header recorder (no-op unless `DIMO_LEGACY_JSONL_SHADOW_WRITE=1`).
 pub fn record_header(
     agent_dir: &str,
     header: &TranscriptHeader,
@@ -666,7 +702,7 @@ pub fn record_header(
     if !legacy_jsonl_shadow_write_enabled() {
         return resolved_ack();
     }
-    record_header_in(&vibex_acp_transcripts_root(), agent_dir, header)
+    record_header_in(&dimo_acp_transcripts_root(), agent_dir, header)
 }
 
 /// Root-injectable core of [`record_header`].
@@ -684,7 +720,7 @@ pub fn record_header_in(
 }
 
 /// Online entry recorder: marks in-memory replay history and skips JSONL disk I/O
-/// unless `VIBEX_LEGACY_JSONL_SHADOW_WRITE=1`.
+/// unless `DIMO_LEGACY_JSONL_SHADOW_WRITE=1`.
 pub fn record_entry(
     agent_dir: &str,
     session_id: &str,
@@ -696,7 +732,7 @@ pub fn record_entry(
         return resolved_ack();
     }
     record_entry_in(
-        &vibex_acp_transcripts_root(),
+        &dimo_acp_transcripts_root(),
         agent_dir,
         session_id,
         kind,
@@ -722,7 +758,7 @@ pub fn record_entry_in(
 }
 
 /// Online native-steer recorder: marks in-memory replay history and skips JSONL disk I/O
-/// unless `VIBEX_LEGACY_JSONL_SHADOW_WRITE=1`.
+/// unless `DIMO_LEGACY_JSONL_SHADOW_WRITE=1`.
 pub fn record_steer(
     agent_dir: &str,
     session_id: &str,
@@ -733,7 +769,7 @@ pub fn record_steer(
         return resolved_ack();
     }
     record_steer_in(
-        &vibex_acp_transcripts_root(),
+        &dimo_acp_transcripts_root(),
         agent_dir,
         session_id,
         payload,
@@ -820,7 +856,7 @@ pub fn append_line_in(root: &Path, agent_dir: &str, session_id: &str, line: &str
 /// Synchronous replay gate (in-memory live history + any existing on-disk archive).
 pub fn has_recorded_history(agent_dir: &str, session_id: &str) -> bool {
     is_session_recorded_in_memory(agent_dir, session_id)
-        || has_recorded_history_in(&vibex_acp_transcripts_root(), agent_dir, session_id)
+        || has_recorded_history_in(&dimo_acp_transcripts_root(), agent_dir, session_id)
 }
 
 /// Authoritative async replay gate: checks in-memory state, existing archives, AND SQLite
@@ -881,7 +917,7 @@ pub async fn claim_replay_for_session(
         return false;
     }
     if legacy_jsonl_shadow_write_enabled()
-        && !claim_replay_transcript_in(&vibex_acp_transcripts_root(), agent_dir, session_id, header)
+        && !claim_replay_transcript_in(&dimo_acp_transcripts_root(), agent_dir, session_id, header)
     {
         if let Ok(mut set) = CLAIMED_REPLAYS.lock() {
             set.remove(&key);
@@ -904,7 +940,7 @@ pub async fn release_unrecorded_replay_for_session(
         set.remove(&(agent_dir.to_string(), session_id.to_string()));
     }
     if legacy_jsonl_shadow_write_enabled() {
-        release_unrecorded_replay_claim_in(&vibex_acp_transcripts_root(), agent_dir, session_id);
+        release_unrecorded_replay_claim_in(&dimo_acp_transcripts_root(), agent_dir, session_id);
     }
 }
 
@@ -929,7 +965,7 @@ pub fn claim_replay_transcript(
         return false;
     }
     if legacy_jsonl_shadow_write_enabled()
-        && !claim_replay_transcript_in(&vibex_acp_transcripts_root(), agent_dir, session_id, header)
+        && !claim_replay_transcript_in(&dimo_acp_transcripts_root(), agent_dir, session_id, header)
     {
         if let Ok(mut set) = CLAIMED_REPLAYS.lock() {
             set.remove(&key);
@@ -978,7 +1014,7 @@ pub fn release_unrecorded_replay_claim(agent_dir: &str, session_id: &str) {
         set.remove(&(agent_dir.to_string(), session_id.to_string()));
     }
     if legacy_jsonl_shadow_write_enabled() {
-        release_unrecorded_replay_claim_in(&vibex_acp_transcripts_root(), agent_dir, session_id);
+        release_unrecorded_replay_claim_in(&dimo_acp_transcripts_root(), agent_dir, session_id);
     }
 }
 

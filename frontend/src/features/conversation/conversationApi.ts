@@ -3,7 +3,7 @@ import {
   promptContextRegistry,
   resolveBeforeTurnPromptContributions,
   serviceContainer,
-} from '@vibex/plugin-sdk';
+} from '@dimoai/plugin-sdk';
 import {
   callApplicationCommand,
   configuredBackendTransport,
@@ -368,12 +368,20 @@ export function normalizeConversationRowsSinceResult(
       const opRec = candidate as Record<string, unknown>;
       if (opRec.op === 'upsert' && opRec.row && typeof opRec.row === 'object') {
         ops.push({ op: 'upsert', row: opRec.row as TimelineRow });
-      } else if (opRec.op === 'delete' && typeof opRec.row_id === 'string') {
-        ops.push({
-          op: 'delete',
-          row_id: opRec.row_id,
-          revision: parseBigIntSequence(opRec.revision, lastSequence),
-        });
+      } else if (opRec.op === 'delete') {
+        const rowId =
+          typeof opRec.row_id === 'string'
+            ? opRec.row_id
+            : typeof opRec.rowId === 'string'
+              ? opRec.rowId
+              : null;
+        if (rowId) {
+          ops.push({
+            op: 'delete',
+            row_id: rowId,
+            revision: parseBigIntSequence(opRec.revision, lastSequence),
+          });
+        }
       }
     }
   }
@@ -472,10 +480,33 @@ const conversationDetailInflight = new Map<
 >();
 
 const PREFETCH_DETAIL_TTL_MS = 4000;
+const MAX_PREFETCH_DETAIL_ENTRIES = 32;
 const conversationDetailPrefetchCache = new Map<
   string,
   { promise: Promise<DbConversationDetail | null>; expiresAt: number }
 >();
+
+function storePrefetchedConversationDetail(
+  key: string,
+  promise: Promise<DbConversationDetail | null>
+) {
+  const now = Date.now();
+  for (const [entryKey, entry] of conversationDetailPrefetchCache) {
+    if (entry.expiresAt <= now) {
+      conversationDetailPrefetchCache.delete(entryKey);
+    }
+  }
+  conversationDetailPrefetchCache.delete(key);
+  conversationDetailPrefetchCache.set(key, {
+    promise,
+    expiresAt: now + PREFETCH_DETAIL_TTL_MS,
+  });
+  while (conversationDetailPrefetchCache.size > MAX_PREFETCH_DETAIL_ENTRIES) {
+    const oldestKey = conversationDetailPrefetchCache.keys().next().value;
+    if (oldestKey === undefined) break;
+    conversationDetailPrefetchCache.delete(oldestKey);
+  }
+}
 
 export type ConversationDetailWindow = {
   tailTurns?: number;
@@ -514,10 +545,7 @@ function fetchConversationDetail(
   const existing = conversationDetailInflight.get(key);
   if (existing) {
     if (isPrefetch) {
-      conversationDetailPrefetchCache.set(key, {
-        promise: existing,
-        expiresAt: Date.now() + PREFETCH_DETAIL_TTL_MS,
-      });
+      storePrefetchedConversationDetail(key, existing);
     }
     return existing;
   }
@@ -534,10 +562,7 @@ function fetchConversationDetail(
   });
   conversationDetailInflight.set(key, pending);
   if (isPrefetch) {
-    conversationDetailPrefetchCache.set(key, {
-      promise: pending,
-      expiresAt: Date.now() + PREFETCH_DETAIL_TTL_MS,
-    });
+    storePrefetchedConversationDetail(key, pending);
     void pending.catch(() => {
       if (conversationDetailPrefetchCache.get(key)?.promise === pending) {
         conversationDetailPrefetchCache.delete(key);
@@ -728,7 +753,11 @@ export function createConversationApi(transport: BackendTransport) {
         conversationId: string;
         expectedTurnId: string;
         text: string;
+        displayText?: string;
         images?: string[];
+        fileRefs?: ConversationInputPayload['fileRefs'];
+        modeOverride?: ConversationInputPayload['modeOverride'];
+        configOverrides?: ConversationInputPayload['configOverrides'];
         promotedInputId?: string;
         expectedRevision?: number;
         allowInterruptRestart?: boolean;

@@ -6,7 +6,7 @@ import {
   type PluginCategoryKey,
 } from './officialPlugins';
 
-export const OFFICIAL_MARKETPLACE_OWNER = 'vibex';
+export const OFFICIAL_MARKETPLACE_OWNER = 'dimo';
 
 export type MarketplaceListingIdentity = Pick<
   CatalogListing,

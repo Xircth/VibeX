@@ -1,4 +1,4 @@
-//! Versioned, transport-neutral DTOs shared by VibeX adapters.
+//! Versioned, transport-neutral DTOs shared by Dimo adapters.
 
 mod capabilities;
 mod command;

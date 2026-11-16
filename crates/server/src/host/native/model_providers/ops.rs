@@ -371,7 +371,7 @@ pub(super) fn provider_is_in_use(
         return false;
     };
     if let Some(native) = native_codex
-        && !native_uses_vibex_projection(Some(native))
+        && !native_uses_dimo_projection(Some(native))
         && native_active_matches_provider(
             native.active_provider.as_deref(),
             native
@@ -398,7 +398,7 @@ pub(super) fn provider_is_in_use(
         return true;
     }
     if let Some(native) = native_grok
-        && !native_uses_vibex_grok_projection(Some(native))
+        && !native_uses_dimo_grok_projection(Some(native))
         && native_active_matches_provider(
             native.active_provider.as_deref(),
             native
@@ -421,7 +421,7 @@ fn native_active_matches_provider<'a>(
     provider: &StoredProvider,
 ) -> bool {
     let native_providers: Vec<(&str, &str)> = native_providers.into_iter().collect();
-    let match_id = active_id.filter(|id| *id != "vibex");
+    let match_id = active_id.filter(|id| *id != "dimo");
     if match_id == Some(provider.id.as_str()) {
         return true;
     }
@@ -1084,7 +1084,7 @@ pub(super) fn reconcile_codex_store_bindings(
     if agent_id.as_str() != "codex" || !store.bindings.contains_key(agent_id.as_str()) {
         return false;
     }
-    if native_uses_vibex_projection(native) {
+    if native_uses_dimo_projection(native) {
         return false;
     }
     store.bindings.remove(agent_id.as_str());

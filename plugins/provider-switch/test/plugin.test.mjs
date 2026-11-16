@@ -13,7 +13,7 @@ import mimoCode from '../catalogs/mimo_code.json' with { type: 'json' };
 import openclaw from '../catalogs/openclaw.json' with { type: 'json' };
 import opencode from '../catalogs/opencode.json' with { type: 'json' };
 import pi from '../catalogs/pi.json' with { type: 'json' };
-import manifest from '../.vibex-plugin/plugin.json' with { type: 'json' };
+import manifest from '../.dimo-plugin/plugin.json' with { type: 'json' };
 
 const CATALOGS = [
   antigravity,
@@ -44,8 +44,8 @@ function walk(value, visit) {
 
 test('plugin.json is a v4 catalog package', () => {
   assert.equal(manifest.manifestVersion, 4);
-  assert.equal(manifest.id, 'vibex.provider-switch');
-  assert.equal(manifest.publisher, 'vibex');
+  assert.equal(manifest.id, 'dimo.provider-switch');
+  assert.equal(manifest.publisher, 'dimo');
   const kinds = new Set(manifest.integrations.map((item) => item.kind));
   assert.deepEqual([...kinds], ['provider.model.catalog']);
 });

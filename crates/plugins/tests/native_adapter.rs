@@ -11,7 +11,7 @@ fn write(path: &std::path::Path, contents: &str) {
 }
 
 #[tokio::test]
-async fn discovers_native_plugins_without_copying_them_into_vibex() {
+async fn discovers_native_plugins_without_copying_them_into_dimo() {
     let native_root = tempfile::tempdir().unwrap();
     let plugin_root = native_root.path().join("shared");
     write(

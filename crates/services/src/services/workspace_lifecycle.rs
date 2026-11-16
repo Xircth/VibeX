@@ -27,7 +27,7 @@ pub async fn initialization_status(
             ..Default::default()
         });
     };
-    let journal = std::path::Path::new(root).join(".vibex-initialization.json");
+    let journal = std::path::Path::new(root).join(".dimo-initialization.json");
     Ok(
         super::settings_store::read_section(&journal, "initialization")
             .await?

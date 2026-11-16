@@ -116,7 +116,7 @@ pub(super) const KIRO_PLATFORMS: &[&str] = &[
 pub(super) const AUGGIE_ACP_ARGS: &[&str] = &["--acp"];
 pub(super) const AUGGIE_CANDIDATES: &[ProfileExternalCandidate] = &[external_acp("auggie", AUGGIE_ACP_ARGS)];
 /// `acp serve` is the documented stdio server. Global flags, when present,
-/// must precede the subcommand; VibeX does not pass permission overrides.
+/// must precede the subcommand; Dimo does not pass permission overrides.
 pub(super) const TRAE_ACP_ARGS: &[&str] = &["acp", "serve"];
 pub(super) const TRAE_CANDIDATES: &[ProfileExternalCandidate] = &[
     external_acp("traex", TRAE_ACP_ARGS),

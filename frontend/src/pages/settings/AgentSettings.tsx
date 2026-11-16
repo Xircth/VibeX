@@ -429,7 +429,7 @@ export function AgentSettings() {
       status: 'running',
       progressPercent: 8,
       message: null,
-      logs: [`$ vibex agent update ${selectedAgentId}`],
+      logs: [`$ dimo agent update ${selectedAgentId}`],
       sequence: 0,
     });
     try {
@@ -833,7 +833,7 @@ export function AgentSettings() {
       status: 'running',
       progressPercent: 8,
       message: null,
-      logs: [`$ vibex agent repair ${selectedAgentId}`],
+      logs: [`$ dimo agent repair ${selectedAgentId}`],
       sequence: 0,
     });
     try {
@@ -871,7 +871,7 @@ export function AgentSettings() {
       status: 'running',
       progressPercent: 8,
       message: null,
-      logs: [`$ vibex agent install ${selectedAgentId}`],
+      logs: [`$ dimo agent install ${selectedAgentId}`],
       sequence: 0,
     });
     try {
@@ -927,7 +927,7 @@ export function AgentSettings() {
         progressPercent: 8,
         message: null,
         logs: [
-          `$ vibex agent install ${selectedAgentId}${version ? ` --version ${version}` : ''}`,
+          `$ dimo agent install ${selectedAgentId}${version ? ` --version ${version}` : ''}`,
         ],
         sequence: 0,
       });
@@ -1021,7 +1021,7 @@ export function AgentSettings() {
       status: 'running',
       progressPercent: 8,
       message: null,
-      logs: [`$ vibex agent update ${selectedAgentId}`],
+      logs: [`$ dimo agent update ${selectedAgentId}`],
       sequence: 0,
     });
     try {
@@ -1051,7 +1051,7 @@ export function AgentSettings() {
           status: 'running',
           progressPercent: 10,
           message: null,
-          logs: [`$ vibex agent enable ${selectedAgentId}`],
+          logs: [`$ dimo agent enable ${selectedAgentId}`],
           sequence: 0,
         });
       }
@@ -1079,7 +1079,7 @@ export function AgentSettings() {
                 message: null,
                 logs: [
                   ...(current.logs ?? []),
-                  `$ vibex agent preflight ${selectedAgentId}`,
+                  `$ dimo agent preflight ${selectedAgentId}`,
                 ],
               }
             : current

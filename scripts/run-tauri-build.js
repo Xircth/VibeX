@@ -130,10 +130,10 @@ function sanitizeReleaseSiteEnv(env) {
   }
   const cleaned = { ...env };
   for (const key of [
-    "VIBEX_SITE_URL",
-    "VITE_VIBEX_SITE_URL",
-    "VIBEX_MARKETPLACE_URL",
-    "VITE_VIBEX_MARKETPLACE_URL",
+    "DIMO_SITE_URL",
+    "VITE_DIMO_SITE_URL",
+    "DIMO_MARKETPLACE_URL",
+    "VITE_DIMO_MARKETPLACE_URL",
   ]) {
     if (isLoopbackSiteOrigin(cleaned[key])) {
       console.warn(
@@ -151,7 +151,7 @@ function withTauriBuildEnv(env, target) {
     ...withNativeBuildEnv(safeEnv),
     SQLX_OFFLINE: safeEnv.SQLX_OFFLINE || "true",
     SQLX_OFFLINE_DIR: safeEnv.SQLX_OFFLINE_DIR || sqlxOfflineDir,
-    ...(target ? { VIBEX_BUILD_TARGET: target } : {}),
+    ...(target ? { DIMO_BUILD_TARGET: target } : {}),
   };
 }
 
@@ -177,7 +177,7 @@ if (darwinDmgRequested) {
   bundleArgs = ["--bundles", defaultBundles];
 }
 
-const releaseConfig = process.env.VIBEX_TAURI_RELEASE_CONFIG;
+const releaseConfig = process.env.DIMO_TAURI_RELEASE_CONFIG;
 const configArgs =
   releaseConfig && !hasConfigArg(userArgs) ? ["--config", releaseConfig] : [];
 const buildArgs = [

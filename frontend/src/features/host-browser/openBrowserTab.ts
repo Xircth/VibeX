@@ -52,7 +52,7 @@ export function requestBrowserTabOpen(request: BrowserTabOpenRequest): boolean {
   if (!request.url && !request.nativeTabId) return false;
   if (isDuplicate(request)) return true;
   try {
-    console.info('[vibex-browser] open tab', request);
+    console.info('[dimo-browser] open tab', request);
   } catch {
     /* ignore */
   }
@@ -97,5 +97,5 @@ export function ensureBrowserTabOpenBridge(): void {
 }
 
 if (typeof window !== 'undefined') {
-  window.addEventListener('vibex-browser-tab-open', onBrowserTabOpenEvent);
+  window.addEventListener('dimo-browser-tab-open', onBrowserTabOpenEvent);
 }

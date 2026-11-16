@@ -1,7 +1,7 @@
 {
   "managedRuntime": {
     "kind": "hostFamilyBinary",
-    "binaryId": "vibex-workflow-mcp",
+    "binaryId": "dimo-workflow-mcp",
     "protocolRevision": "2026-07-28",
     "defaultBinding": "all-compatible-agents"
   }

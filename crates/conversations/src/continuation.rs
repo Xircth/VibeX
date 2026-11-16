@@ -105,46 +105,93 @@ pub fn visible_items(turns: &[MessageTurn]) -> Vec<HistoryItem> {
         .collect()
 }
 
-/// Rough token estimate: each char ≈ 1 token for CJK, ~0.25 for ASCII.
-/// Use `chars().count()` as a conservative upper bound (overestimates ASCII,
-/// but never underestimates).
-fn estimated_tokens(text: &str) -> usize {
-    text.chars().count()
-}
-
 const TOKEN_BUDGET: usize = 16_000;
 
-fn within_budget(text: &str, byte_budget: usize) -> bool {
-    text.len() <= byte_budget && estimated_tokens(text) <= TOKEN_BUDGET
+pub fn select_history(turns: &[MessageTurn], budget: usize) -> HistorySelection {
+    select_history_with_older_omitted(turns, Vec::new(), budget)
 }
 
-pub fn select_history(turns: &[MessageTurn], budget: usize) -> HistorySelection {
+pub fn select_history_with_older_omitted(
+    turns: &[MessageTurn],
+    older_omitted_ids: Vec<String>,
+    budget: usize,
+) -> HistorySelection {
+    use std::collections::HashSet;
+
     let all = visible_items(turns);
-    let groups = all
-        .iter()
-        .fold(Vec::<Vec<HistoryItem>>::new(), |mut groups, item| {
-            if item.role == TurnRole::User || groups.is_empty() {
-                groups.push(Vec::new());
-            }
-            groups.last_mut().unwrap().push(item.clone());
-            groups
-        });
-    let mut items = Vec::new();
+    struct SizedGroup {
+        items: Vec<HistoryItem>,
+        json_bytes: usize,
+        json_chars: usize,
+    }
+
+    let mut groups: Vec<SizedGroup> = Vec::new();
+    for item in all.iter().cloned() {
+        let json = serde_json::to_string(&item).expect("history item serialize");
+        let json_bytes = json.len();
+        let json_chars = json.chars().count();
+        if item.role == TurnRole::User || groups.is_empty() {
+            groups.push(SizedGroup {
+                items: Vec::new(),
+                json_bytes: 0,
+                json_chars: 0,
+            });
+        }
+        let group = groups.last_mut().unwrap();
+        if !group.items.is_empty() {
+            group.json_bytes += 1;
+            group.json_chars += 1;
+        }
+        group.json_bytes += json_bytes;
+        group.json_chars += json_chars;
+        group.items.push(item);
+    }
+
+    const PROMPT_WRAPPER_STATIC_OVERHEAD: &str = " Hidden reasoning, permissions and running tools are not transferred.  earlier items omitted; attachments may be omitted. Additional history is available in Dimo, but no Agent reading tool is assumed.\n[]\n";
+    let base_bytes = HANDOFF_MARKER.len()
+        + PROMPT_WRAPPER_STATIC_OVERHEAD.len()
+        + HANDOFF_END.len();
+    let base_chars = HANDOFF_MARKER.chars().count()
+        + PROMPT_WRAPPER_STATIC_OVERHEAD.chars().count()
+        + HANDOFF_END.chars().count();
+
+    let total_count = all.len() + older_omitted_ids.len();
+    let mut selected_groups_rev: Vec<&[HistoryItem]> = Vec::new();
+    let mut selected_count = 0usize;
+    let mut array_inner_bytes = 0usize;
+    let mut array_inner_chars = 0usize;
+
     // Keep complete dialogue groups; a single oversized entry remains readable
     // by ID rather than being represented as an unmarked partial quotation.
     for group in groups.iter().rev() {
-        let mut candidate = group.clone();
-        candidate.extend(items.clone());
-        let prompt_text = history_prompt(&candidate, all.len() - candidate.len());
-        if within_budget(&prompt_text, budget) {
-            items = candidate;
+        let next_count = selected_count + group.items.len();
+        let comma_len = usize::from(selected_count > 0);
+        let next_inner_bytes = array_inner_bytes + comma_len + group.json_bytes;
+        let next_inner_chars = array_inner_chars + comma_len + group.json_chars;
+        let omitted_count = total_count.saturating_sub(next_count);
+        let omitted_digits = omitted_count.to_string().len();
+        let total_bytes = base_bytes + omitted_digits + next_inner_bytes;
+        let total_chars = base_chars + omitted_digits + next_inner_chars;
+        if total_bytes <= budget && total_chars <= TOKEN_BUDGET {
+            selected_groups_rev.push(&group.items);
+            selected_count = next_count;
+            array_inner_bytes = next_inner_bytes;
+            array_inner_chars = next_inner_chars;
         }
     }
-    let omitted_ids = all
-        .iter()
-        .filter(|item| !items.iter().any(|chosen| chosen.id == item.id))
-        .map(|item| item.id.clone())
-        .collect::<Vec<_>>();
+
+    let items: Vec<HistoryItem> = selected_groups_rev
+        .into_iter()
+        .rev()
+        .flat_map(|slice| slice.iter().cloned())
+        .collect();
+    let chosen_ids: HashSet<&str> = items.iter().map(|item| item.id.as_str()).collect();
+    let mut omitted_ids = older_omitted_ids;
+    omitted_ids.extend(
+        all.iter()
+            .filter(|item| !chosen_ids.contains(item.id.as_str()))
+            .map(|item| item.id.clone()),
+    );
     let prompt = history_prompt(&items, omitted_ids.len());
     HistorySelection {
         omitted_items: omitted_ids.len(),
@@ -157,7 +204,7 @@ pub fn select_history(turns: &[MessageTurn], budget: usize) -> HistorySelection 
 
 fn history_prompt(items: &[HistoryItem], omitted: usize) -> String {
     format!(
-        "{HANDOFF_MARKER} Hidden reasoning, permissions and running tools are not transferred. {} earlier items omitted; attachments may be omitted. Additional history is available in VibeX, but no Agent reading tool is assumed.\n{}\n{HANDOFF_END}",
+        "{HANDOFF_MARKER} Hidden reasoning, permissions and running tools are not transferred. {} earlier items omitted; attachments may be omitted. Additional history is available in Dimo, but no Agent reading tool is assumed.\n{}\n{HANDOFF_END}",
         omitted,
         serde_json::to_string(items).expect("history items serialize")
     )

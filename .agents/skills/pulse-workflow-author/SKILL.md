@@ -1,15 +1,15 @@
 ---
 name: pulse-workflow-author
-description: Dual-Primitive Pulse workflow graph composition and patching. Use when authoring *.vibex-workflow.json graphs, mixing ephemeral Session and persistent Bot steps, adding BoundedLoop/WaitForEvent/UserGate/OutboxAction nodes, or calling workflow_graph_patch.
+description: Dual-Primitive Pulse workflow graph composition and patching. Use when authoring *.dimo-workflow.json graphs, mixing ephemeral Session and persistent Bot steps, adding BoundedLoop/WaitForEvent/UserGate/OutboxAction nodes, or calling workflow_graph_patch.
 ---
 
 # Pulse Workflow Author
 
-Compose and patch Dual-Primitive Pulse workflows (`*.vibex-workflow.json`) using `workflow_graph_patch` (or `pulseWorkflow(...)` in `@vibex/pulse-sdk`) and verify trigger bindings with `pulse_rule_dry_run`. For single-target event rules without a multi-step DAG, invoke [`pulse-automation-architect`](../pulse-automation-architect/SKILL.md).
+Compose and patch Dual-Primitive Pulse workflows (`*.dimo-workflow.json`) using `workflow_graph_patch` (or `pulseWorkflow(...)` in `@vibex/pulse-sdk`) and verify trigger bindings with `pulse_rule_dry_run`. For single-target event rules without a multi-step DAG, invoke [`pulse-automation-architect`](../pulse-automation-architect/SKILL.md).
 
 ## Composition sequence
 
-1. **Read or scaffold the graph** — For an existing `*.vibex-workflow.json`, call `workflow_source_read` first to capture its `sha256:<hex>` `revision`. For a new workflow, start with `workflow_graph_patch` `op: "apply_preset"` using the closest orchestrator preset below.
+1. **Read or scaffold the graph** — For an existing `*.dimo-workflow.json`, call `workflow_source_read` first to capture its `sha256:<hex>` `revision`. For a new workflow, start with `workflow_graph_patch` `op: "apply_preset"` using the closest orchestrator preset below.
    - *Done when*: Base `definition` (and `expectedRevision` if editing an existing file) is in hand.
 2. **Assign primitives per step** — Partition agent work strictly between `session` (ephemeral clean context + isolated worktree) and `bot` (persistent `memberId` + rolling memory without context reset). Bound every retry cycle with `bounded_loop` (`maxIterations` `1..=50`) and every external async pause with `wait_for_event` (`timeoutSeconds >= 5`).
    - *Done when*: Every step's primitive matches its context/isolation contract in the Node Reference below.
@@ -53,10 +53,10 @@ Scaffold with `{ "op": "apply_preset", "preset": "<kind>", "params": { "agentId"
 
 Read the closest example before authoring a new workflow so trigger metadata, loop guards (`not_bot_actor`), and human-readable summaries match the Workbench contract:
 
-- `examples/workflows/github-ci-autofix.vibex-workflow.json` — GitHub CI failure -> isolated `session` fix -> PR reply (`outbox_action`).
-- `examples/workflows/feishu-mention-triage.vibex-workflow.json` — Feishu `@mention` -> `bot` triage -> `session` code check -> Feishu reply.
-- `examples/workflows/daily-repo-digest.vibex-workflow.json` — Weekday cron `30 9 * * 1-5` -> `bot` digest -> desktop `notify` (`user_gate`).
-- `examples/workflows/pr-review-gate.vibex-workflow.json` — GitHub PR -> `bot` review -> `session` verification -> human `approval` (`user_gate`) -> PR comment.
+- `examples/workflows/github-ci-autofix.dimo-workflow.json` — GitHub CI failure -> isolated `session` fix -> PR reply (`outbox_action`).
+- `examples/workflows/feishu-mention-triage.dimo-workflow.json` — Feishu `@mention` -> `bot` triage -> `session` code check -> Feishu reply.
+- `examples/workflows/daily-repo-digest.dimo-workflow.json` — Weekday cron `30 9 * * 1-5` -> `bot` digest -> desktop `notify` (`user_gate`).
+- `examples/workflows/pr-review-gate.dimo-workflow.json` — GitHub PR -> `bot` review -> `session` verification -> human `approval` (`user_gate`) -> PR comment.
 
 ## Human-semantic card summaries & atomic trigger sync
 
@@ -68,4 +68,4 @@ Read the closest example before authoring a new workflow so trigger metadata, lo
 
 - **Keep `dependsOn` acyclic**: `workflow_graph_patch` runs Kahn topological validation across `dependsOn`; express iterative back-edges exclusively via `bounded_loop.bodyStepIds`, never cyclic `dependsOn`.
 - **Pass `inputBindings` explicitly**: When `connect_steps` links producer output to consumer input, specify `bindingKey` and `bindingExpr` (e.g. `"steps.triage_bot.output"`).
-- **Honor CAS `expectedRevision`**: Saving over an existing `*.vibex-workflow.json` requires the exact `sha256:<hex>` revision from the latest read/patch; on `cas_revision_mismatch`, re-read and reconcile before patching.
+- **Honor CAS `expectedRevision`**: Saving over an existing `*.dimo-workflow.json` requires the exact `sha256:<hex>` revision from the latest read/patch; on `cas_revision_mismatch`, re-read and reconcile before patching.

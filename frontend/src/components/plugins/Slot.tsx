@@ -2,7 +2,7 @@ import {
   useSlotContributions,
   type SlotContribution,
   type SlotName,
-} from '@vibex/plugin-sdk';
+} from '@dimoai/plugin-sdk';
 import type { ReactNode } from 'react';
 
 import {

@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use agents::conversation::{ConversationEvent, ConversationToolCallPatch};
+use agents::conversation::{ConversationEvent, ConversationToolCallPatch, ConversationUsage};
 use tokio::time::{Duration, Instant};
 use uuid::Uuid;
 
@@ -387,9 +387,95 @@ impl TurnSlotTracker {
     }
 }
 
+#[derive(Debug, Clone)]
+pub(super) struct PendingUsage {
+    buffered_at: Instant,
+    base: MappedConversationEventRecord,
+    usage: ConversationUsage,
+    update_count: usize,
+}
+
+impl PendingUsage {
+    fn from_record(
+        now: Instant,
+        base: MappedConversationEventRecord,
+        usage: ConversationUsage,
+    ) -> Self {
+        Self {
+            buffered_at: now,
+            base,
+            usage,
+            update_count: 1,
+        }
+    }
+
+    fn same_context(&self, record: &MappedConversationEventRecord) -> bool {
+        self.base.conversation_id == record.conversation_id
+            && self.base.turn_id == record.turn_id
+            && self.base.binding_id == record.binding_id
+            && self.base.connection_id == record.connection_id
+            && self.base.source == record.source
+    }
+
+    fn merge(&mut self, record: &MappedConversationEventRecord, incoming: &ConversationUsage) {
+        if incoming.context_used.is_some() {
+            self.usage.context_used = incoming.context_used;
+        }
+        if incoming.context_window_max.is_some() {
+            self.usage.context_window_max = incoming.context_window_max;
+        }
+        if incoming.input_tokens > 0
+            || incoming.output_tokens > 0
+            || incoming.cache_creation_input_tokens > 0
+            || incoming.cache_read_input_tokens > 0
+        {
+            self.usage.input_tokens = incoming.input_tokens;
+            self.usage.output_tokens = incoming.output_tokens;
+            self.usage.cache_creation_input_tokens = incoming.cache_creation_input_tokens;
+            self.usage.cache_read_input_tokens = incoming.cache_read_input_tokens;
+        }
+        if incoming.cost_amount.is_some() {
+            self.usage.cost_amount = incoming.cost_amount;
+        }
+        if incoming.cost_currency.is_some() {
+            self.usage.cost_currency = incoming.cost_currency.clone();
+        }
+        if incoming.model.is_some() {
+            self.usage.model = incoming.model.clone();
+        }
+        self.base.last_agent_sequence = record.last_agent_sequence;
+        self.update_count += 1;
+    }
+
+    fn into_record(mut self) -> MappedConversationEventRecord {
+        self.base.event = ConversationEvent::UsageUpdated { usage: self.usage };
+        if self.update_count > 1 {
+            self.base.idempotency_key = format!(
+                "agent:{}:{}-{}:{}",
+                self.base.connection_id,
+                self.base.first_agent_sequence,
+                self.base.last_agent_sequence,
+                self.base.event_kind
+            );
+            self.base.raw_json = Some(
+                serde_json::json!({
+                    "coalesced": true,
+                    "first_sequence": self.base.first_agent_sequence,
+                    "last_sequence": self.base.last_agent_sequence,
+                    "chunk_count": self.update_count,
+                    "kind": self.base.event_kind,
+                })
+                .to_string(),
+            );
+        }
+        self.base
+    }
+}
+
 #[derive(Debug)]
 pub(crate) struct StreamingThrottleCoalescer {
     pub(super) buffer: Vec<PendingEvent>,
+    pub(super) pending_usage: HashMap<Uuid, PendingUsage>,
     pub(super) buffer_bytes: usize,
     pub(super) last_flush: Instant,
     pub(super) scan_state: MarkdownScanState,
@@ -406,6 +492,7 @@ impl StreamingThrottleCoalescer {
     pub(crate) fn new() -> Self {
         Self {
             buffer: Vec::new(),
+            pending_usage: HashMap::new(),
             buffer_bytes: 0,
             last_flush: Instant::now(),
             scan_state: MarkdownScanState::default(),
@@ -417,6 +504,7 @@ impl StreamingThrottleCoalescer {
         self.buffer
             .iter()
             .map(|item| item.buffered_at)
+            .chain(self.pending_usage.values().map(|item| item.buffered_at))
             .min()
             .map(|oldest| oldest + IDLE_FLUSH_CEILING)
     }
@@ -434,6 +522,35 @@ impl StreamingThrottleCoalescer {
         now: Instant,
     ) -> Vec<MappedConversationEventRecord> {
         let conversation_id = record.conversation_id;
+
+        if let ConversationEvent::UsageUpdated { usage } = &record.event {
+            let incoming_usage = usage.clone();
+            if let Some(existing) = self.pending_usage.get_mut(&conversation_id) {
+                if existing.same_context(&record) {
+                    existing.merge(&record, &incoming_usage);
+                } else {
+                    let prev = self
+                        .pending_usage
+                        .insert(
+                            conversation_id,
+                            PendingUsage::from_record(now, record, incoming_usage),
+                        )
+                        .expect("just checked entry");
+                    return vec![prev.into_record()];
+                }
+            } else {
+                self.pending_usage.insert(
+                    conversation_id,
+                    PendingUsage::from_record(now, record, incoming_usage),
+                );
+            }
+            if let Some(pending) = self.pending_usage.get(&conversation_id)
+                && now.saturating_duration_since(pending.buffered_at) >= IDLE_FLUSH_CEILING
+            {
+                return self.flush_conversation_at(conversation_id, now);
+            }
+            return Vec::new();
+        }
 
         // Terminal ToolCallUpsert: merge into matching running ToolCallUpsert if it is the
         // tail item for this conversation, then IMMEDIATELY flush this conversation.
@@ -553,6 +670,13 @@ impl StreamingThrottleCoalescer {
                 due_conversations.push(cid);
             }
         }
+        for (&cid, usage) in &self.pending_usage {
+            if !due_conversations.contains(&cid)
+                && now.saturating_duration_since(usage.buffered_at) >= IDLE_FLUSH_CEILING
+            {
+                due_conversations.push(cid);
+            }
+        }
         let mut out = Vec::new();
         for cid in due_conversations {
             out.extend(self.flush_conversation_at(cid, now));
@@ -583,20 +707,31 @@ impl StreamingThrottleCoalescer {
             }
         }
         self.buffer = remaining;
-        if !drained.is_empty() {
+        drained.sort_by_key(|item| (item.slot, item.base.first_agent_sequence));
+        let mut out: Vec<MappedConversationEventRecord> =
+            drained.into_iter().map(PendingEvent::into_record).collect();
+        if let Some(usage) = self.pending_usage.remove(&conversation_id) {
+            out.push(usage.into_record());
+        }
+        if !out.is_empty() {
             self.last_flush = now;
         }
-        drained.sort_by_key(|item| (item.slot, item.base.first_agent_sequence));
-        drained.into_iter().map(PendingEvent::into_record).collect()
+        out
     }
 
     pub(super) fn flush_all(&mut self) -> Vec<MappedConversationEventRecord> {
         self.last_flush = Instant::now();
         self.buffer_bytes = 0;
-        self.buffer
+        let mut out: Vec<MappedConversationEventRecord> = self
+            .buffer
             .drain(..)
             .map(PendingEvent::into_record)
-            .collect()
+            .collect();
+        let mut usages: Vec<PendingUsage> =
+            self.pending_usage.drain().map(|(_, usage)| usage).collect();
+        usages.sort_by_key(|u| u.base.first_agent_sequence);
+        out.extend(usages.into_iter().map(PendingUsage::into_record));
+        out
     }
 }
 

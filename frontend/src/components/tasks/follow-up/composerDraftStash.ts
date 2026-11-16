@@ -1,14 +1,17 @@
 import { getSessionComposerStructuredTokenSegments } from './sessionComposerStructuredTokens';
 
 export const MAX_COMPOSER_STASH_ITEMS = 10;
-export const COMPOSER_STASH_STORAGE_PREFIX = 'vibex:composer-draft-stash:';
+export const COMPOSER_STASH_STORAGE_PREFIX = 'dimo:composer-draft-stash:';
 
 export type ComposerStashedDraft = {
   id: string;
   text: string;
   createdAt: number;
   attachmentCount: number;
+  images?: string[];
 };
+
+export type ComposerDraftStashItem = ComposerStashedDraft;
 
 const fallbackMemoryStore = new Map<string, ComposerStashedDraft[]>();
 
@@ -28,14 +31,38 @@ function getSafeLocalStorage(): Storage | null {
   return null;
 }
 
+function normalizeImagePaths(raw: unknown): string[] | undefined {
+  if (!Array.isArray(raw)) return undefined;
+  const cleaned = raw.filter(
+    (item): item is string => typeof item === 'string' && item.trim().length > 0
+  );
+  return cleaned.length > 0 ? cleaned : undefined;
+}
+
+function areImageListsEqual(
+  left: readonly string[] | undefined,
+  right: readonly string[] | undefined
+): boolean {
+  const a = left ?? [];
+  const b = right ?? [];
+  if (a.length !== b.length) return false;
+  return a.every((value, index) => value === b[index]);
+}
+
 function isValidStashedDraft(entry: unknown): entry is ComposerStashedDraft {
   if (!entry || typeof entry !== 'object') return false;
   const candidate = entry as Partial<ComposerStashedDraft>;
+  const hasImages = Boolean(normalizeImagePaths(candidate.images)?.length);
+  const hasAttachments =
+    hasImages ||
+    (typeof candidate.attachmentCount === 'number' &&
+      Number.isFinite(candidate.attachmentCount) &&
+      candidate.attachmentCount > 0);
   return (
     typeof candidate.id === 'string' &&
     candidate.id.length > 0 &&
     typeof candidate.text === 'string' &&
-    candidate.text.trim().length > 0 &&
+    (candidate.text.trim().length > 0 || hasAttachments) &&
     typeof candidate.createdAt === 'number' &&
     Number.isFinite(candidate.createdAt)
   );
@@ -46,16 +73,20 @@ function sanitizeStashList(raw: unknown): ComposerStashedDraft[] {
   const valid: ComposerStashedDraft[] = [];
   for (const item of raw) {
     if (!isValidStashedDraft(item)) continue;
+    const images = normalizeImagePaths(item.images);
+    const rawCount =
+      typeof item.attachmentCount === 'number' &&
+      Number.isFinite(item.attachmentCount) &&
+      item.attachmentCount > 0
+        ? Math.floor(item.attachmentCount)
+        : 0;
+    const attachmentCount = images ? images.length : rawCount;
     valid.push({
       id: item.id,
       text: item.text,
       createdAt: item.createdAt,
-      attachmentCount:
-        typeof item.attachmentCount === 'number' &&
-        Number.isFinite(item.attachmentCount) &&
-        item.attachmentCount > 0
-          ? Math.floor(item.attachmentCount)
-          : 0,
+      attachmentCount,
+      ...(images ? { images } : {}),
     });
     if (valid.length >= MAX_COMPOSER_STASH_ITEMS) break;
   }
@@ -127,27 +158,36 @@ export function pushComposerDraftStash(
   input: {
     text: string;
     attachmentCount?: number;
+    images?: string[];
     now?: number;
   }
 ): ComposerStashedDraft[] {
   const current = loadComposerDraftStash(scopeId);
-  if (!input.text.trim()) {
-    return current;
-  }
-
-  const now = input.now ?? Date.now();
-  const attachmentCount =
+  const images = normalizeImagePaths(input.images);
+  const rawCount =
     typeof input.attachmentCount === 'number' &&
     Number.isFinite(input.attachmentCount) &&
     input.attachmentCount > 0
       ? Math.floor(input.attachmentCount)
       : 0;
+  const attachmentCount = images ? images.length : rawCount;
+  if (!input.text.trim() && attachmentCount === 0) {
+    return current;
+  }
 
-  if (current[0]?.text === input.text) {
+  const now = input.now ?? Date.now();
+
+  if (
+    current[0] &&
+    current[0].text === input.text &&
+    areImageListsEqual(current[0].images, images)
+  ) {
+    const { images: _prevImages, ...restTop } = current[0];
     const updatedTop: ComposerStashedDraft = {
-      ...current[0],
+      ...restTop,
       createdAt: now,
       attachmentCount,
+      ...(images ? { images } : {}),
     };
     return persistComposerDraftStash(scopeId, [
       updatedTop,
@@ -160,6 +200,7 @@ export function pushComposerDraftStash(
     text: input.text,
     createdAt: now,
     attachmentCount,
+    ...(images ? { images } : {}),
   };
   return persistComposerDraftStash(scopeId, [entry, ...current]);
 }

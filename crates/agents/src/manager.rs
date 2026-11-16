@@ -866,18 +866,30 @@ impl AgentConnectionManager {
             return Err(AgentError::ConnectionNotFound(connection_id.to_string()));
         };
 
+        let is_connecting = *connection.status.lock().await == AgentConnectionStatus::Connecting;
         // A closed command channel means the process task is already exiting;
-        // it is still safe and necessary to join it.
-        let _ = connection
-            .cmd_tx
-            .send(AgentConnectionCommand::Disconnect)
-            .await;
+        // it is still safe and necessary to join it. When still in startup
+        // handshake (`Connecting`), `cmd_rx` is not polled yet, so skip the
+        // join timeout and abort immediately so `ready_rx` wakes without delay.
+        if !is_connecting {
+            let _ = connection
+                .cmd_tx
+                .send(AgentConnectionCommand::Disconnect)
+                .await;
+        }
         let mut task = connection.task;
-        match tokio::time::timeout(DISCONNECT_JOIN_TIMEOUT, &mut task).await {
-            Ok(result) => result.map_err(|error| {
+        let join_result = if is_connecting {
+            None
+        } else {
+            tokio::time::timeout(DISCONNECT_JOIN_TIMEOUT, &mut task)
+                .await
+                .ok()
+        };
+        match join_result {
+            Some(result) => result.map_err(|error| {
                 AgentError::Runtime(format!("agent connection task failed: {error}"))
             }),
-            Err(_) => {
+            None => {
                 task.abort();
                 let _ = task.await;
                 let _ = connection.child_pid.lock().unwrap().take();
@@ -1076,95 +1088,145 @@ impl AgentConnectionManager {
         idle_timeout: Duration,
         extended: Option<(HashSet<AgentSessionId>, Duration)>,
     ) -> usize {
+        let candidates = {
+            let mut connections = self.connections.lock().await;
+            let finished_ids: Vec<AgentConnectionId> = connections
+                .iter()
+                .filter_map(|(id, connection)| connection.task.is_finished().then_some(*id))
+                .collect();
+            for id in finished_ids {
+                connections.remove(&id);
+            }
+            connections
+                .iter()
+                .map(|(id, connection)| {
+                    (
+                        *id,
+                        connection.snapshot.clone(),
+                        connection.cmd_tx.clone(),
+                        Arc::clone(&connection.status),
+                        Arc::clone(&connection.active_prompt),
+                        Arc::clone(&connection.pending_permissions),
+                        Arc::clone(&connection.pending_elicitations),
+                        Arc::clone(&connection.session_map),
+                        Arc::clone(&connection.last_activity),
+                    )
+                })
+                .collect::<Vec<_>>()
+        };
+
         let mut stale = Vec::new();
         let now = Utc::now();
+        for (
+            id,
+            snapshot,
+            cmd_tx,
+            status,
+            active_prompt,
+            pending_permissions,
+            pending_elicitations,
+            session_map,
+            last_activity,
+        ) in candidates
         {
-            let connections = self.connections.lock().await;
-            for (id, connection) in connections.iter() {
-                if connection.task.is_finished() {
-                    continue;
-                }
-                if *connection.status.lock().await != AgentConnectionStatus::Ready {
-                    continue;
-                }
-                if connection.active_prompt.lock().await.is_some() {
-                    continue;
-                }
-                if !connection.pending_permissions.lock().await.is_empty() {
-                    continue;
-                }
-
-                // Evaluate official Claude Prompt Cache warm-preservation before
-                // deciding whether to evict an idle connection.
-                let bound_sessions: Vec<AgentSessionId> = connection
-                    .session_map
-                    .read()
-                    .await
-                    .keys()
-                    .copied()
-                    .collect();
-                let mut compacted_session = None;
-                for session_id in &bound_sessions {
-                    if let Some(snap) = self.idle_compaction.session_snapshot(session_id.0)
-                        && let Some(expires_at) = snap.cache_expires_at
-                        && matches!(
-                            self.idle_compaction.evaluate_at(
-                                session_id.0,
-                                snap.estimated_tokens,
-                                expires_at,
-                                now,
-                            ),
-                            crate::idle_compaction::CompactionDecision::Compact
-                        )
-                    {
-                        compacted_session = Some(*session_id);
-                        break;
-                    }
-                }
-                if let Some(session_id) = compacted_session {
-                    let prompt_id = AgentPromptId::new();
-                    if connection
-                        .cmd_tx
-                        .try_send(AgentConnectionCommand::Prompt {
-                            session_id,
-                            prompt_id,
-                            blocks: vec![AgentContentBlock::Text {
-                                text: "/compact".to_string(),
-                            }],
-                            display_blocks: None,
-                            mode_override: None,
-                            config_overrides: Vec::new(),
-                        })
-                        .is_ok()
-                    {
-                        *connection.last_activity.lock().await = Instant::now();
-                        continue;
-                    }
-                }
-
-                let timeout = match &extended {
-                    Some((ids, extended_timeout)) if !ids.is_empty() => {
-                        let is_hot = bound_sessions
-                            .iter()
-                            .any(|session_id| ids.contains(session_id));
-                        if is_hot {
-                            (*extended_timeout).max(idle_timeout)
-                        } else {
-                            idle_timeout
-                        }
-                    }
-                    _ => idle_timeout,
-                };
-                if connection.last_activity.lock().await.elapsed() < timeout {
-                    continue;
-                }
-                stale.push(*id);
+            if *status.lock().await != AgentConnectionStatus::Ready {
+                continue;
             }
+            if active_prompt.lock().await.is_some() {
+                continue;
+            }
+            if !pending_permissions.lock().await.is_empty() {
+                continue;
+            }
+            if !pending_elicitations.lock().await.is_empty() {
+                continue;
+            }
+
+            // Evaluate official Claude Prompt Cache warm-preservation before
+            // deciding whether to evict an idle connection.
+            let bound_sessions: Vec<AgentSessionId> =
+                session_map.read().await.keys().copied().collect();
+            let mut compacted_session = None;
+            for session_id in &bound_sessions {
+                if let Some(snap) = self.idle_compaction.session_snapshot(session_id.0)
+                    && let Some(expires_at) = snap.cache_expires_at
+                    && matches!(
+                        self.idle_compaction.evaluate_at(
+                            session_id.0,
+                            snap.estimated_tokens,
+                            expires_at,
+                            now,
+                        ),
+                        crate::idle_compaction::CompactionDecision::Compact
+                    )
+                {
+                    compacted_session = Some(*session_id);
+                    break;
+                }
+            }
+            if let Some(session_id) = compacted_session {
+                let prompt_id = AgentPromptId::new();
+                if cmd_tx
+                    .try_send(AgentConnectionCommand::Prompt {
+                        session_id,
+                        prompt_id,
+                        blocks: vec![AgentContentBlock::Text {
+                            text: "/compact".to_string(),
+                        }],
+                        display_blocks: None,
+                        mode_override: None,
+                        config_overrides: Vec::new(),
+                    })
+                    .is_ok()
+                {
+                    *last_activity.lock().await = Instant::now();
+                    continue;
+                }
+            }
+
+            let timeout = match &extended {
+                Some((ids, extended_timeout)) if !ids.is_empty() => {
+                    let is_hot = bound_sessions
+                        .iter()
+                        .any(|session_id| ids.contains(session_id));
+                    if is_hot {
+                        (*extended_timeout).max(idle_timeout)
+                    } else {
+                        idle_timeout
+                    }
+                }
+                _ => idle_timeout,
+            };
+            if last_activity.lock().await.elapsed() < timeout {
+                continue;
+            }
+            stale.push((id, snapshot));
         }
         let mut disconnected = 0;
-        for connection_id in stale {
+        for (connection_id, snapshot) in stale {
             if self.disconnect(connection_id).await.is_ok() {
                 disconnected += 1;
+                let event_now = Utc::now();
+                send_manager_event(
+                    &self.event_tx,
+                    AgentConnectionManagerEvent {
+                        connection_id,
+                        session_id: None,
+                        prompt_id: None,
+                        event: AgentEvent::ConnectionStatusChanged {
+                            snapshot: crate::state::AgentConnectionSnapshot {
+                                id: snapshot.connection_id,
+                                agent_id: snapshot.agent_id,
+                                workspace_id: snapshot.workspace_id,
+                                status: AgentConnectionStatus::Disconnected,
+                                working_dir: snapshot.working_dir.display().to_string(),
+                                status_message: None,
+                                created_at: event_now,
+                                updated_at: event_now,
+                            },
+                        },
+                    },
+                );
             }
         }
         disconnected

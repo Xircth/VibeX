@@ -2,7 +2,7 @@
 status: accepted
 date: 2026-08-14
 decision-makers:
-  - VibeX maintainers
+  - Dimo maintainers
 ---
 
 # Host 托管的插件域 MCP Runtime
@@ -10,17 +10,17 @@ decision-makers:
 ## Context
 
 当前 `content.mcp` 只保存并投影静态 MCP 配置，不能引用 Plugin managed Runtime、获得按会话短期
-凭据或绑定 Workspace。现有 `vibex-mcp` 是平台内置的多 Agent 协作 companion；把 Workflow 工具
+凭据或绑定 Workspace。现有 `dimo-mcp` 是平台内置的多 Agent 协作 companion；把 Workflow 工具
 继续加入其中会把两个可独立安装、启停和演进的产品绑定成平台基础能力。
 
 Workflow Creator 需要一个本地 MCP，而多 Agent 协作未来也要迁移为独立插件。因此平台需要的是
 通用 MCP Runtime 托管 seam，不是另一个内置业务 MCP。协作与会话增强的产品拆分、凭据寿命和
-`vibex-mcp` 退场已由 [ADR-0057](0057-session-enhance-and-multi-agent-plugins.md) 落地。
+`dimo-mcp` 退场已由 [ADR-0057](0057-session-enhance-and-multi-agent-plugins.md) 落地。
 
 ## Decision
 
 1. 每个产品 Plugin 独立拥有 MCP identity、tool catalog、protocol compatibility、Runtime 和 Agent
-   binding。Workflow Creator 使用 `vibex-workflow-mcp`；未来协作插件使用独立 MCP。
+   binding。Workflow Creator 使用 `dimo-workflow-mcp`；未来协作插件使用独立 MCP。
 2. Plugin manifest 的 `content.mcp` 扩展为可以引用 managed Runtime、声明 STDIO transport、支持的
    MCP protocol revisions 与所需 Host scopes。
 3. Host 解析并按 Agent session 启动 Runtime，注入绑定 Workspace 与 Plugin generation 的
@@ -41,12 +41,12 @@ Workflow Creator 需要一个本地 MCP，而多 Agent 协作未来也要迁移�
 
 - `content.mcp` 需要 managed/static 两种明确 descriptor，而不是靠 resource JSON 猜测。
 - 现有会话通常不能动态增加 STDIO MCP；binding 变化后 Host 必须提示重新建立 Agent session。
-- 平台 `vibex-mcp` 在 ADR-0057 落地的同一版本删除注入；Workflow 交付不依赖该迁移。
+- 平台 `dimo-mcp` 在 ADR-0057 落地的同一版本删除注入；Workflow 交付不依赖该迁移。
 - Full Trust 允许 Runtime 执行，但动态身份与 generation lifecycle 仍由 Host 管理以保证正确性。
 
 ## Considered options
 
-- **扩展现有 `vibex-mcp`。** 否决。它把多 Agent 协作和 Workflow Creator 变成不可独立演进的单一
+- **扩展现有 `dimo-mcp`。** 否决。它把多 Agent 协作和 Workflow Creator 变成不可独立演进的单一
   产品。
 - **插件保存 Server URL/token。** 否决。凭据生命周期、撤销与 Workspace scope 无法可靠管理。
 - **只提供远程 HTTP MCP。** 否决。首要场景是随本地 App 生命周期工作的 Agent STDIO MCP。

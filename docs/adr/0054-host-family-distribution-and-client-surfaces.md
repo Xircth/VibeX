@@ -2,12 +2,12 @@
 status: accepted
 date: 2026-08-17
 decision-makers:
-  - VibeX maintainers
+  - Dimo maintainers
 ---
 
 # Host 家族分发与三种客户端表面
 
-VibeX 只发行一个执行面：**VibeX Host**。手机 App、IM 渠道、其它桌面 VibeX
+Dimo 只发行一个执行面：**Dimo Host**。手机 App、IM 渠道、其它桌面 Dimo
 都连接这个 Host。本机桌面可以自己就是 Host，也可以作为工作站客户端连接另一
 个 Host。插件内核只活在拥有该数据目录的 Host 上。
 
@@ -21,20 +21,20 @@ SHA-256 校验仍然需要。
 
 ## 拓扑
 
-同一数据目录同一时刻只有一个 Host。Host 可以是 VibeX.app 或 `vibex-server`。
+同一数据目录同一时刻只有一个 Host。Host 可以是 Dimo.app 或 `dimo-server`。
 Agent、Git worktree、Automation、Plugin Worker、官方 MCP 和 Chat channel
 适配器都在 Host 上运行。
 
 ```text
 手机 Companion ──┐
 IM Channel ──────┤
-其它桌面 Workstation ┤── Remote Protocol / Chat channel ── VibeX Host
-本机桌面 ────────┘         （Desktop 或 vibex-server）
+其它桌面 Workstation ┤── Remote Protocol / Chat channel ── Dimo Host
+本机桌面 ────────┘         （Desktop 或 dimo-server）
 ```
 
-打开本机 VibeX.app 时，该进程就是 Local Host。只有需要被其它设备连接或无头
-常驻时，才打开远程监听或改跑 `vibex-server`。本机日常使用不强制 sidecar。
-同一数据目录被 `vibex-server` 占用时，本机桌面只能作为客户端连接，不能再
+打开本机 Dimo.app 时，该进程就是 Local Host。只有需要被其它设备连接或无头
+常驻时，才打开远程监听或改跑 `dimo-server`。本机日常使用不强制 sidecar。
+同一数据目录被 `dimo-server` 占用时，本机桌面只能作为客户端连接，不能再
 启动第二份 Host。
 
 ## 发行物
@@ -43,17 +43,17 @@ IM Channel ──────┤
 
 | 产物 | 形态 | 内容 |
 | --- | --- | --- |
-| VibeX Desktop | `.dmg` / NSIS / `.msi` / `.AppImage` / `.deb` | 壳 + Host + 前端 + `vibex-mcp` + 官方插件快照 |
-| VibeX Server | 跨平台目录 / 可选 Docker | `vibex-server`、`vibex-mcp`、`web/`、`plugins/bundled/` |
-| VibeX Companion | Android APK，后续 iOS | 薄客户端，不跑 Agent 或插件 |
+| Dimo Desktop | `.dmg` / NSIS / `.msi` / `.AppImage` / `.deb` | 壳 + Host + 前端 + `dimo-mcp` + 官方插件快照 |
+| Dimo Server | 跨平台目录 / 可选 Docker | `dimo-server`、`dimo-mcp`、`web/`、`plugins/bundled/` |
+| Dimo Companion | Android APK，后续 iOS | 薄客户端，不跑 Agent 或插件 |
 
 不单独发行 MCP 安装器、插件守护进程、第二套 Web 管理台或 IM 客户端。
 
 Server 目录形状：
 
 ```text
-vibex-server
-vibex-mcp
+dimo-server
+dimo-mcp
 web/
 plugins/bundled/
 ```
@@ -74,7 +74,7 @@ scope。新增 scope 不得自动进入旧预设。
 
 ### Workstation Device
 
-其它电脑上的 VibeX.app。近乎全接管 Host 上的工作：Project / Workspace /
+其它电脑上的 Dimo.app。近乎全接管 Host 上的工作：Project / Workspace /
 Conversation / Turn / 文件读写 / Git 写 / 终端 / Workflow / Automation /
 使用并启用已安装插件。不接管 Host 运维：监听与公网暴露、管理员 token、
 撤销他人设备、备份恢复、升级 Host 二进制。CEF 与本机 Office 自动化留在
@@ -92,7 +92,7 @@ Workstation 的 scope 集合是 `DEVICE_SCOPES` 加上 `application.call` 与
 ### Chat Channel
 
 不是 Paired device。Telegram / 飞书 / 微信等通道配置在 Host 上，只接受
-授权发送者的入站命令，并投递无 secret 摘要。VibeX 不发行这些 IM 的客户端。
+授权发送者的入站命令，并投递无 secret 摘要。Dimo 不发行这些 IM 的客户端。
 
 ## 插件绑定
 
@@ -116,12 +116,12 @@ capabilities 协商。缺 scope 或 capability 时 fail-closed。
 - `CreatePairingRequest` 携带可选 `preset`；有预设时 scopes 由预设展开。
 - 现有无预设、显式 scopes 的配对请求保持有效，但仍须是该设备等级允许的子集。
 - P0 文档中的 Developer Device 被 Workstation 取代，不再作为默认远程桌面预设。
-- Chat channel 适配器属于 Host，随 `vibex-server` 一起运行。
+- Chat channel 适配器属于 Host，随 `dimo-server` 一起运行。
 - 本阶段不把缺少 Apple / Windows 身份证书当作发布失败。
 
 ## Considered Options
 
-- **本机也强制独立 `vibex-server` sidecar。** 否决。增加端口、配对和双进程，
+- **本机也强制独立 `dimo-server` sidecar。** 否决。增加端口、配对和双进程，
   却不改变 Local Profile 语义。
 - **把 IM 做成第四种 Paired device。** 否决。IM 没有设备凭据存储，授权发送者
   已能表达入站信任。

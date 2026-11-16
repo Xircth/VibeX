@@ -938,11 +938,12 @@ impl ServerApplicationDomains {
                     ApplicationError::not_found(format!("Workspace {} not found", workspace.id))
                 })?
         };
+        let parsed_agent_id = AgentId::parse(&payload.executor_profile_id.executor).ok();
         let session = Session::create(
             &self.pool,
             &CreateSession {
                 executor: Some(payload.executor_profile_id.executor.to_string()),
-                agent_id: None,
+                agent_id: parsed_agent_id,
                 task_id: Some(task.id),
                 name: Some(task.title.clone()),
                 initial_prompt: task.description.clone(),
@@ -979,65 +980,34 @@ impl ServerApplicationDomains {
         task: &Task,
         profile: &ExecutorProfileId,
     ) -> Result<(), ApplicationError> {
-        let container_ref = self
-            .deployment
-            .container()
-            .ensure_container_exists(workspace)
-            .await
-            .map_err(internal_error)?;
-        let repos = WorkspaceRepo::find_repos_for_workspace(&self.pool, workspace.id)
-            .await
-            .map_err(internal_error)?;
-        let working_dir = conversations::resolve_absolute_workspace_agent_working_dir(
-            workspace,
-            &container_ref,
-            &repos,
-        );
-        let additional_directories = conversations::host::resolve_workspace_additional_directories(
-            workspace,
-            &container_ref,
-            &repos,
-            &working_dir,
-        );
         let agent_id = AgentId::parse(&profile.executor)
             .map_err(|error| ApplicationError::bad_request(error.to_string()))?;
-        let launch = self
-            .conversations
-            .host
-            .launch_settings(&self.pool, &agent_id)
-            .await
-            .map_err(|error| ApplicationError::bad_request(error.to_string()))?;
-        let agent_session = self
-            .conversations
-            .agent_runtime
-            .ensure_session(EnsureAgentSessionInput {
-                agent_id: agent_id.clone(),
-                launch_lock: launch.launch_lock,
+        let text = session
+            .initial_prompt
+            .clone()
+            .filter(|prompt| !prompt.trim().is_empty())
+            .unwrap_or_else(|| task.to_prompt());
+        let service = conversations::ConversationSessionService::new(self.conversations.clone());
+        service
+            .start_turn(conversations::ConversationStartTurnInput {
+                continuation_policy: Some(agents::conversation::ContinuationPolicy::Portable),
+                expected_binding_revision: None,
+                agent_id,
+                provider_instance_id: None,
                 workspace_id: workspace.id,
-                working_dir: PathBuf::from(&working_dir),
-                additional_directories,
-                session_id: AgentSessionId(session.id),
-                acp_session_id: session.id.to_string(),
-                auto_approve_mode: launch.auto_approve_mode,
-                env: launch.env,
-                preferences: Default::default(),
-            })
-            .await
-            .map_err(|error| ApplicationError::bad_request(error.to_string()))?;
-        self.conversations
-            .agent_runtime
-            .send_prompt(SendAgentPromptInput {
-                connection_id: agent_session.connection_id,
-                session_id: agent_session.id,
-                blocks: vec![AgentContentBlock::Text {
-                    text: session
-                        .initial_prompt
-                        .clone()
-                        .filter(|prompt| !prompt.trim().is_empty())
-                        .unwrap_or_else(|| task.to_prompt()),
-                }],
+                conversation_id: session.id,
+                executor_profile_id: Some(profile.clone()),
+                text,
+                display_text: None,
+                images: Vec::new(),
                 mode_override: None,
                 config_overrides: Vec::new(),
+                workflow_refs: Vec::new(),
+                file_refs: Vec::new(),
+                internal_prompt_contributions: Vec::new(),
+                queued_input_claim: None,
+                operation_id: Some(Uuid::new_v4()),
+                collaboration_origin: None,
             })
             .await
             .map_err(|error| ApplicationError::bad_request(error.to_string()))?;
@@ -1212,9 +1182,9 @@ async fn generate_pr_description_host(
     let runtime = &domains.conversations.agent_runtime;
     let events = runtime.subscribe_events();
     let working_dir =
-        utils::path::vibex_scratch_subdir("pr-description").map_err(internal_error)?;
-    let session = runtime
-        .ensure_session(EnsureAgentSessionInput {
+        utils::path::dimo_scratch_subdir("pr-description").map_err(internal_error)?;
+    let prepared = runtime
+        .prepare_session(EnsureAgentSessionInput {
             agent_id: agent_id.clone(),
             launch_lock: launch.launch_lock,
             workspace_id: Uuid::nil(),
@@ -1228,6 +1198,8 @@ async fn generate_pr_description_host(
         })
         .await
         .map_err(internal_error)?;
+    let session = prepared.session;
+    runtime.commit_prepared_session(session.id).await;
     runtime
         .send_prompt(SendAgentPromptInput {
             connection_id: session.connection_id,

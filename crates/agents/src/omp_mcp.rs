@@ -26,18 +26,55 @@ pub(crate) fn mcp_json_path(home: &Path, environment: &BTreeMap<String, String>)
 }
 
 pub(crate) fn session_servers(path: &Path) -> Vec<McpServer> {
-    let Ok(raw) = std::fs::read_to_string(path) else {
-        return Vec::new();
+    let raw = match std::fs::read_to_string(path) {
+        Ok(raw) => raw,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Vec::new(),
+        Err(error) => {
+            tracing::warn!(
+                path = %path.display(),
+                %error,
+                "failed to read OMP MCP configuration file; continuing without assigned MCP servers"
+            );
+            return Vec::new();
+        }
     };
-    let Ok(root) = serde_json::from_str::<Value>(&raw) else {
-        return Vec::new();
+    let root = match serde_json::from_str::<Value>(&raw) {
+        Ok(root) => root,
+        Err(error) => {
+            tracing::warn!(
+                path = %path.display(),
+                %error,
+                "invalid JSON in OMP MCP configuration file; ignoring malformed mcp.json"
+            );
+            return Vec::new();
+        }
     };
     let Some(servers) = root.get("mcpServers").and_then(Value::as_object) else {
+        if root.get("mcpServers").is_some() {
+            tracing::warn!(
+                path = %path.display(),
+                "OMP MCP configuration `mcpServers` field must be a JSON object"
+            );
+        }
         return Vec::new();
     };
     servers
         .iter()
-        .filter_map(|(name, spec)| to_session_server(name, spec))
+        .filter_map(|(name, spec)| {
+            let parsed = to_session_server(name, spec);
+            if parsed.is_none()
+                && !spec
+                    .as_object()
+                    .is_some_and(|obj| obj.get("enabled").and_then(Value::as_bool) == Some(false))
+            {
+                tracing::warn!(
+                    path = %path.display(),
+                    server = %name,
+                    "ignoring malformed OMP MCP server entry"
+                );
+            }
+            parsed
+        })
         .collect()
 }
 
@@ -223,7 +260,7 @@ mod tests {
 
     #[test]
     fn mcp_json_path_ignores_pi_agent_dir() {
-        let home = Path::new("/tmp/vibex-home");
+        let home = Path::new("/tmp/dimo-home");
         let pi = home.join(".pi").join("agent");
         let env = BTreeMap::from([(
             "PI_CODING_AGENT_DIR".to_string(),

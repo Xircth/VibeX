@@ -43,7 +43,7 @@ describe('validatePlugin product package', () => {
       })
     );
     await writeFile(
-      join(root, '.vibex-plugin/content.index.json'),
+      join(root, '.dimo-plugin/content.index.json'),
       JSON.stringify({
         schemaVersion: 1,
         items: [
@@ -100,7 +100,7 @@ describe('validatePlugin product package', () => {
       })
     );
     await writeFile(
-      join(root, '.vibex-plugin/content.index.json'),
+      join(root, '.dimo-plugin/content.index.json'),
       JSON.stringify({
         schemaVersion: 1,
         items: [
@@ -188,7 +188,7 @@ describe('validatePlugin product package', () => {
   it('rejects content index entries outside contents', async () => {
     const root = await fixture();
     await writeFile(
-      join(root, '.vibex-plugin/content.index.json'),
+      join(root, '.dimo-plugin/content.index.json'),
       JSON.stringify({
         schemaVersion: 1,
         items: [{ path: 'README.md', kind: 'skill', title: 'Escape' }],
@@ -601,11 +601,11 @@ describe('validatePlugin provider.model.catalog', () => {
 });
 
 async function fixture(extra: Record<string, unknown> = {}) {
-  const root = await mkdtemp(join(tmpdir(), 'vibex-plugin-'));
-  await mkdir(join(root, '.vibex-plugin'), { recursive: true });
+  const root = await mkdtemp(join(tmpdir(), 'dimo-plugin-'));
+  await mkdir(join(root, '.dimo-plugin'), { recursive: true });
   await mkdir(join(root, 'contents/skills/test'), { recursive: true });
   await writeFile(
-    join(root, '.vibex-plugin/plugin.json'),
+    join(root, '.dimo-plugin/plugin.json'),
     JSON.stringify({
       manifestVersion: 4,
       apiVersion: '2.0',
@@ -614,10 +614,10 @@ async function fixture(extra: Record<string, unknown> = {}) {
       version: '1.0.0',
       name: 'Test',
       readme: 'README.md',
-      engines: { vibex: '>=0.1.3', pluginSdk: '^2.0.0' },
+      engines: { dimo: '>=0.1.3', pluginSdk: '^2.0.0' },
       content: {
         root: 'contents',
-        index: '.vibex-plugin/content.index.json',
+        index: '.dimo-plugin/content.index.json',
       },
       config: {
         schema: {
@@ -639,11 +639,11 @@ async function fixture(extra: Record<string, unknown> = {}) {
   );
   await writeFile(
     join(root, 'README.md'),
-    '---\nsummary: Test one complete VibeX plugin.\n---\n# Test\n'
+    '---\nsummary: Test one complete Dimo plugin.\n---\n# Test\n'
   );
   await writeFile(join(root, 'config.json'), '{"enabled":true}\n');
   await writeFile(
-    join(root, '.vibex-plugin/content.index.json'),
+    join(root, '.dimo-plugin/content.index.json'),
     JSON.stringify({
       schemaVersion: 1,
       items: [

@@ -1,4 +1,4 @@
-export declare const DEV_REMOTE_SIDECAR = ".vibex-plugin/dev-remote.json";
+export declare const DEV_REMOTE_SIDECAR = ".dimo-plugin/dev-remote.json";
 export interface PluginRemoteDeclaration {
     name: string;
     entry: string;

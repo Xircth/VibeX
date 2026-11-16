@@ -82,7 +82,7 @@ export function ListDirToolCard({
               <FileIcon
                 filePath={item.name}
                 isFolder={item.kind === 'folder'}
-                className="vibex-tool-call-file-icon"
+                className="dimo-tool-call-file-icon"
               />
               <span className="conv-tool-dir-name">{item.name}</span>
             </li>

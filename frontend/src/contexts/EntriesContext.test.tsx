@@ -7,6 +7,7 @@ import {
   clearEntriesRuntimeForTests,
   EntriesProvider,
   useEntries,
+  useOptionalEntriesActions,
 } from './EntriesContext';
 
 const renderedUserEntry: PatchTypeWithKey = {
@@ -226,5 +227,62 @@ describe('EntriesProvider', () => {
     expect(screen.getByTestId('user-message-history')).toHaveTextContent(
       'first|second'
     );
+  });
+
+  it('does not re-render EntriesActionsContext consumers when entries update', () => {
+    let actionsRenderCount = 0;
+    function ActionWriter() {
+      actionsRenderCount += 1;
+      const actions = useOptionalEntriesActions();
+      return (
+        <button
+          type="button"
+          onClick={() => actions?.setEntries([renderedUserEntry])}
+        >
+          write
+        </button>
+      );
+    }
+
+    render(
+      <EntriesProvider runtimeKey="workspace-1:actions">
+        <ActionWriter />
+        <EntriesCount />
+      </EntriesProvider>
+    );
+
+    expect(actionsRenderCount).toBe(1);
+    act(() => {
+      screen.getByRole('button', { name: 'write' }).click();
+    });
+
+    expect(screen.getByTestId('entries-count')).toHaveTextContent('1');
+    expect(actionsRenderCount).toBe(1);
+  });
+
+  it('evicts oldest inactive keyed runtimes past the 24-entry cap', () => {
+    for (let index = 0; index < 26; index += 1) {
+      const rendered = render(
+        <EntriesProvider runtimeKey={`workspace-1:session-${index}`}>
+          <SaveEntriesOnMount entries={[renderedUserEntry]} />
+        </EntriesProvider>
+      );
+      rendered.unmount();
+    }
+
+    const evicted = render(
+      <EntriesProvider runtimeKey="workspace-1:session-0">
+        <EntriesCount />
+      </EntriesProvider>
+    );
+    expect(screen.getByTestId('entries-count')).toHaveTextContent('0');
+    evicted.unmount();
+
+    render(
+      <EntriesProvider runtimeKey="workspace-1:session-25">
+        <EntriesCount />
+      </EntriesProvider>
+    );
+    expect(screen.getByTestId('entries-count')).toHaveTextContent('1');
   });
 });

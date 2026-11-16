@@ -25,7 +25,7 @@ import { toast } from '@/components/ui/toast';
 import {
   useAccountHostConfigs,
   useAccountSavedHosts,
-  useVibeXAccount,
+  useDimoAccount,
   type AccountHostConfigSnapshot,
   type AccountHostKind,
 } from '@/features/model-router';
@@ -84,7 +84,7 @@ function formatPlatformBadge(osType: string, osArch: string): string | null {
 export function AccountHostConfigSection() {
   const { t } = useTranslation(['settings', 'common']);
   const navigate = useSafeNavigate();
-  const { isSignedIn } = useVibeXAccount();
+  const { isSignedIn } = useDimoAccount();
   const { currentHost, hostEntries, isImporting, importFromHost } =
     useAccountHostConfigs();
   const { savedHosts } = useAccountSavedHosts();

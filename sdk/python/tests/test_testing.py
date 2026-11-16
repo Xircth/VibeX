@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import unittest
 
-from vibex_plugin import PluginSdkError, define_plugin_worker
-from vibex_plugin.testing import MemoryHostClient, create_worker_harness
+from dimo_plugin import PluginSdkError, define_plugin_worker
+from dimo_plugin.testing import MemoryHostClient, create_worker_harness
 
 
 class TestingHarnessTests(unittest.IsolatedAsyncioTestCase):

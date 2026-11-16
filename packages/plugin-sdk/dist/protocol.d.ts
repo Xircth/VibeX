@@ -1,5 +1,5 @@
-export declare const VIBEX_PLUGIN_API_VERSION: "2.0";
-export declare const VIBEX_PLUGIN_PROTOCOL_VERSION: "1.1";
+export declare const DIMO_PLUGIN_API_VERSION: "2.0";
+export declare const DIMO_PLUGIN_PROTOCOL_VERSION: "1.1";
 export type PluginApiVersion = "1.0" | "2.0";
 export declare function isSupportedPluginApiVersion(version: unknown): version is PluginApiVersion;
 export declare const MIN_FRAME_BYTES: number;

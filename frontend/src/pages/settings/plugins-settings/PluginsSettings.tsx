@@ -99,7 +99,7 @@ export function PluginsSettings({
         icon={Puzzle}
         title={t('plugins.pageTitle')}
         description={t(
-          ecosystem === 'vibex'
+          ecosystem === 'dimo'
             ? 'plugins.productDescription'
             : ecosystem
               ? 'plugins.nativeDescription'
@@ -129,7 +129,7 @@ export function PluginsSettings({
                       setSelectedId(null);
                     }}
                   >
-                    {tab.id !== 'vibex' ? (
+                    {tab.id !== 'dimo' ? (
                       <AgentTypeIcon
                         agentType={tab.id}
                         className="plugin-ecosystem-tab-icon"
@@ -177,7 +177,7 @@ export function PluginsSettings({
           setSelectedId={setSelectedId}
         >
           {selected ? (
-            effectiveTab === 'vibex' ? (
+            effectiveTab === 'dimo' ? (
               <PluginDetail
                 key={selected.id}
                 plugin={selected}

@@ -12,7 +12,7 @@ impl PluginControlPlane {
         let Some(home) = dirs::home_dir() else {
             return Ok(Vec::new());
         };
-        let file = home.join(".vibex").join("imports").join("links.jsonl");
+        let file = home.join(".dimo").join("imports").join("links.jsonl");
         let Ok(text) = std::fs::read_to_string(&file) else {
             return Ok(Vec::new());
         };
@@ -100,8 +100,8 @@ impl PluginControlPlane {
         }
     }
 
-    /// Scans a user plugins directory (e.g. `~/.vibex/plugins`) for subdirectories containing
-    /// `.vibex-plugin/plugin.json` or root `plugin.json`, automatically importing, enabling,
+    /// Scans a user plugins directory (e.g. `~/.dimo/plugins`) for subdirectories containing
+    /// `.dimo-plugin/plugin.json` or root `plugin.json`, automatically importing, enabling,
     /// hot-reloading, and reconciling deleted user plugins.
     pub async fn discover_user_plugins_in(&self, dir: &Path) -> Result<Vec<String>, PluginError> {
         let installed = self.registry.list_plugins().await?;
@@ -131,7 +131,7 @@ impl PluginControlPlane {
         for entry in entries.flatten() {
             let path = entry.path();
             if !path.is_dir()
-                || (!path.join(".vibex-plugin").join("plugin.json").is_file()
+                || (crate::manifest::existing_manifest_path(&path).is_none()
                     && !path.join("plugin.json").is_file())
             {
                 continue;
@@ -353,7 +353,7 @@ impl PluginControlPlane {
         let Some(home) = dirs::home_dir() else {
             return;
         };
-        let file = home.join(".vibex").join("imports").join("links.jsonl");
+        let file = home.join(".dimo").join("imports").join("links.jsonl");
         let Ok(text) = std::fs::read_to_string(&file) else {
             return;
         };
@@ -497,13 +497,13 @@ impl PluginControlPlane {
             let mut package = plugin.package.clone();
             package.source.kind = crate::PluginSourceKind::Marketplace;
             package.source.origin = Some(crate::marketplace_listing_url(
-                package.publisher.as_deref().unwrap_or("vibex"),
+                package.publisher.as_deref().unwrap_or("dimo"),
                 package.id.as_str(),
             ));
             package.source.git_ref = Some(package.version.clone());
             package.source.locked = true;
             if let Some(root) = roots.iter().find(|root| {
-                root.join(".vibex-plugin/plugin.json").is_file()
+                crate::manifest::existing_manifest_path(root).is_some()
                     && crate::PluginPackage::inspect(root, crate::PluginSourceKind::Marketplace)
                         .ok()
                         .is_some_and(|candidate| candidate.id.as_str() == package.id.as_str())

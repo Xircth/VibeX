@@ -3,7 +3,7 @@ import ReactDOM from 'react-dom/client';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { HotkeysProvider } from 'react-hotkeys-hook';
 import { BrowserRouter } from 'react-router-dom';
-import { bindExternalStoreHook } from '@vibex/plugin-sdk';
+import { bindExternalStoreHook } from '@dimoai/plugin-sdk';
 import {
   EditorType,
   ThemeMode,
@@ -345,8 +345,8 @@ const transport: BackendTransport = {
           id === 'codex'
             ? [
                 {
-                  path: 'C:/Projects/VibeX',
-                  name: 'VibeX',
+                  path: 'C:/Projects/Dimo',
+                  name: 'Dimo',
                   project_id: projects.some((item) => item.id === 'imported')
                     ? 'imported'
                     : null,
@@ -359,7 +359,7 @@ const transport: BackendTransport = {
                       agent_id: 'codex',
                       external_session_id: 'fixture-session',
                       title: 'Build the new onboarding',
-                      workspace_path: 'C:/Projects/VibeX',
+                      workspace_path: 'C:/Projects/Dimo',
                       message_count: 12,
                       updated_at: new Date().toISOString(),
                       status: imported ? 'imported' : 'new',
@@ -388,15 +388,15 @@ const transport: BackendTransport = {
             id === 'codex'
               ? 'Build the new onboarding'
               : 'Review project architecture',
-          workspace_path: 'C:/Projects/VibeX',
+          workspace_path: 'C:/Projects/Dimo',
           message_count: 12,
           updated_at: new Date().toISOString(),
           status: 'new' as const,
         };
         page.folders = [
           {
-            path: id === 'codex' ? 'C:/Projects/VibeX' : 'c:\\projects\\vibex',
-            name: 'VibeX',
+            path: id === 'codex' ? 'C:/Projects/Dimo' : 'c:\\projects\\dimo',
+            name: 'Dimo',
             project_id: projects.some((item) => item.id === 'imported')
               ? 'imported'
               : null,

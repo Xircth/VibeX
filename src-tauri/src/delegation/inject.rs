@@ -1,4 +1,4 @@
-//! Concrete `DelegationInjector`: re-exports the unified `VibexDelegationInjector`
+//! Concrete `DelegationInjector`: re-exports the unified `DimoDelegationInjector`
 //! from `server` so desktop and headless runtimes share a single implementation.
 
 #[cfg(test)]
@@ -6,13 +6,13 @@ use std::{path::PathBuf, sync::Arc};
 
 #[cfg(test)]
 use delegation::TokenRegistry;
-pub(crate) use server::VibexDelegationInjector;
+pub(crate) use server::DimoDelegationInjector;
 #[cfg(test)]
 use uuid::Uuid;
 
 #[cfg(test)]
 fn test_locate(_base: &str) -> Option<PathBuf> {
-    Some(PathBuf::from("/opt/vibex-mcp"))
+    Some(PathBuf::from("/opt/dimo-mcp"))
 }
 
 #[cfg(test)]
@@ -31,8 +31,8 @@ mod tests {
         let runtime = Arc::new(OfficialMcpRuntime::default());
         for (product, features) in products {
             runtime.publish_binding(OfficialMcpBinding {
-                plugin_id: format!("vibex.{product}"),
-                binary_id: "vibex-mcp".into(),
+                plugin_id: format!("dimo.{product}"),
+                binary_id: "dimo-mcp".into(),
                 product: (*product).into(),
                 features: *features,
                 token: "test".into(),
@@ -56,9 +56,9 @@ mod tests {
     #[test]
     fn injects_two_named_servers_when_both_plugins_are_on() {
         let tokens = Arc::new(TokenRegistry::new());
-        let injector = VibexDelegationInjector {
+        let injector = DimoDelegationInjector {
             tokens,
-            socket_path: PathBuf::from("/tmp/vibex-delegation-test.sock"),
+            socket_path: PathBuf::from("/tmp/dimo-delegation-test.sock"),
             official_mcp: gate(&[
                 ("delegation", SESSION_FEAT_ALL),
                 ("session", SESSION_FEAT_ALL),
@@ -73,7 +73,7 @@ mod tests {
             panic!("expected injection");
         };
         let names: Vec<_> = servers.iter().map(|server| server.name.as_str()).collect();
-        assert_eq!(names, ["vibex-delegation-mcp", "vibex-session-mcp"]);
+        assert_eq!(names, ["dimo-delegation-mcp", "dimo-session-mcp"]);
         assert!(
             servers[0]
                 .args
@@ -86,9 +86,9 @@ mod tests {
     fn space_hidden_session_gets_space_feature_bit() {
         let conversation_id = Uuid::new_v4();
         let tokens = Arc::new(TokenRegistry::new());
-        let injector = VibexDelegationInjector {
+        let injector = DimoDelegationInjector {
             tokens: tokens.clone(),
-            socket_path: PathBuf::from("/tmp/vibex-delegation-test.sock"),
+            socket_path: PathBuf::from("/tmp/dimo-delegation-test.sock"),
             official_mcp: gate(&[("delegation", SESSION_FEAT_ALL)]),
             locate_binary: test_locate,
             space_session: Arc::new(move |id| id == conversation_id),
@@ -130,9 +130,9 @@ mod tests {
     fn session_plugin_can_inject_without_delegation() {
         let tokens = Arc::new(TokenRegistry::new());
         let official_mcp = gate(&[("session", SESSION_FEAT_ASK)]);
-        let injector = VibexDelegationInjector {
+        let injector = DimoDelegationInjector {
             tokens,
-            socket_path: PathBuf::from("/tmp/vibex-delegation-test.sock"),
+            socket_path: PathBuf::from("/tmp/dimo-delegation-test.sock"),
             official_mcp,
             locate_binary: test_locate,
             space_session: Arc::new(|_| false),
@@ -144,7 +144,7 @@ mod tests {
             panic!("expected session injection");
         };
         assert_eq!(servers.len(), 1);
-        assert_eq!(servers[0].name, "vibex-session-mcp");
+        assert_eq!(servers[0].name, "dimo-session-mcp");
         assert!(
             servers[0]
                 .args
@@ -155,9 +155,9 @@ mod tests {
 
     #[test]
     fn both_plugins_off_is_official_product_disabled() {
-        let injector = VibexDelegationInjector {
+        let injector = DimoDelegationInjector {
             tokens: Arc::new(TokenRegistry::new()),
-            socket_path: PathBuf::from("/tmp/vibex-delegation-test.sock"),
+            socket_path: PathBuf::from("/tmp/dimo-delegation-test.sock"),
             official_mcp: Arc::new(OfficialMcpRuntime::default()),
             locate_binary: test_locate,
             space_session: Arc::new(|_| false),
@@ -173,9 +173,9 @@ mod tests {
 
     #[test]
     fn grok_still_receives_acp_session_injection() {
-        let injector = VibexDelegationInjector {
+        let injector = DimoDelegationInjector {
             tokens: Arc::new(TokenRegistry::new()),
-            socket_path: PathBuf::from("/tmp/vibex-delegation-test.sock"),
+            socket_path: PathBuf::from("/tmp/dimo-delegation-test.sock"),
             official_mcp: gate(&[("delegation", SESSION_FEAT_ALL)]),
             locate_binary: test_locate,
             space_session: Arc::new(|_| false),
@@ -186,14 +186,14 @@ mod tests {
         else {
             panic!("expected ACP injection for Grok");
         };
-        assert_eq!(servers[0].name, "vibex-delegation-mcp");
+        assert_eq!(servers[0].name, "dimo-delegation-mcp");
     }
 
     #[test]
     fn parent_without_session_mcp_is_unsupported() {
-        let injector = VibexDelegationInjector {
+        let injector = DimoDelegationInjector {
             tokens: Arc::new(TokenRegistry::new()),
-            socket_path: PathBuf::from("/tmp/vibex-delegation-test.sock"),
+            socket_path: PathBuf::from("/tmp/dimo-delegation-test.sock"),
             official_mcp: gate(&[("delegation", SESSION_FEAT_ALL)]),
             locate_binary: test_locate,
             space_session: Arc::new(|_| false),
@@ -209,9 +209,9 @@ mod tests {
 
     #[test]
     fn missing_sidecar_does_not_inject_a_basename() {
-        let injector = VibexDelegationInjector {
+        let injector = DimoDelegationInjector {
             tokens: Arc::new(TokenRegistry::new()),
-            socket_path: PathBuf::from("/tmp/vibex-delegation-test.sock"),
+            socket_path: PathBuf::from("/tmp/dimo-delegation-test.sock"),
             official_mcp: gate(&[("delegation", SESSION_FEAT_ALL)]),
             locate_binary: |_| None,
             space_session: Arc::new(|_| false),
@@ -227,9 +227,9 @@ mod tests {
 
     #[test]
     fn injected_stdio_passes_parent_pid() {
-        let injector = VibexDelegationInjector {
+        let injector = DimoDelegationInjector {
             tokens: Arc::new(TokenRegistry::new()),
-            socket_path: PathBuf::from("/tmp/vibex-delegation-test.sock"),
+            socket_path: PathBuf::from("/tmp/dimo-delegation-test.sock"),
             official_mcp: gate(&[("delegation", SESSION_FEAT_ALL)]),
             locate_binary: test_locate,
             space_session: Arc::new(|_| false),

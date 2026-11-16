@@ -37,7 +37,7 @@ const RUNNABLE_AGENTS: AgentKind[] = [
 ];
 
 describe('onboarding equation slots', () => {
-  it('only advertises agents VibeX can run', () => {
+  it('only advertises agents Dimo can run', () => {
     const advertised = SLOT_B.map((item) => normalizeAgentIconKey(item.id));
     expect(advertised).toEqual(RUNNABLE_AGENTS);
   });

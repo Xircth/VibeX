@@ -2,10 +2,10 @@
 //!
 //! These parsers are explicit import tools for agent CLI session files keyed by
 //! `external_session_id` + `agent_type`. Product conversation history is stored
-//! in VibeX `conversation_events`; imported transcript records are converted into
+//! in Dimo `conversation_events`; imported transcript records are converted into
 //! the same event vocabulary before rendering.
 //!
-//! VibeX-authored. The on-disk session formats are the agents' own.
+//! Dimo-authored. The on-disk session formats are the agents' own.
 
 pub mod acp_native;
 pub mod claude;

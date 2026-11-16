@@ -1088,7 +1088,7 @@ describe('AgentDetail', () => {
 
     expect(toggle).not.toBeChecked();
     expect(screen.queryByText('启动前完整性验证失败')).not.toBeInTheDocument();
-    expect(localStorage.getItem('vibex:operation-diagnostics')).toBe('off');
+    expect(localStorage.getItem('dimo:operation-diagnostics')).toBe('off');
   });
 
   it('shows both silent ACP install and the official install guide button when Kiro ACP preflight fails', async () => {

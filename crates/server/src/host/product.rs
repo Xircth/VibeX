@@ -1,9 +1,6 @@
 use std::path::{Path, PathBuf};
 
-use agents::{
-    AgentContentBlock, AgentId, AgentSessionId, EnsureAgentSessionInput, SendAgentPromptInput,
-    terminal::agent_terminal_registry,
-};
+use agents::{AgentId, terminal::agent_terminal_registry};
 use application::{ApplicationError, DomainCommand};
 use base64::{Engine, engine::general_purpose::STANDARD as BASE64};
 use db::models::{
@@ -310,7 +307,7 @@ impl ServerApplicationDomains {
                 let mut logs = Vec::new();
                 if let Some(root) = workspace.container_ref.as_deref() {
                     for repo in repos {
-                        let log = Path::new(root).join(format!(".vibex-create-{}.log", repo.id));
+                        let log = Path::new(root).join(format!(".dimo-create-{}.log", repo.id));
                         match services::services::worktree_settings::read_command_log_tail(&log)
                             .await
                         {
@@ -1063,12 +1060,16 @@ impl ServerApplicationDomains {
         WorkspaceRepo::create_many(&self.pool, workspace.id, &workspace_repos)
             .await
             .map_err(internal_error)?;
-        let container_ref = self
+        let _ = self
             .deployment
             .container()
             .ensure_container_exists(&workspace)
             .await
             .map_err(internal_error)?;
+        let parsed_agent_id = args
+            .executor_profile_id
+            .as_ref()
+            .and_then(|profile| AgentId::parse(&profile.executor).ok());
         let session = Session::create(
             &self.pool,
             &CreateSession {
@@ -1076,7 +1077,7 @@ impl ServerApplicationDomains {
                     .executor_profile_id
                     .as_ref()
                     .map(|profile| profile.executor.clone()),
-                agent_id: None,
+                agent_id: parsed_agent_id.clone(),
                 task_id: Some(task.id),
                 name: Some(task.title.clone()),
                 initial_prompt: task.description.clone(),
@@ -1087,61 +1088,49 @@ impl ServerApplicationDomains {
         )
         .await
         .map_err(internal_error)?;
-        if let Some(profile) = args.executor_profile_id
-            && let Ok(agent_id) = AgentId::parse(&profile.executor)
-            && let Ok(launch) = self
-                .conversations
-                .host
-                .launch_settings(&self.pool, &agent_id)
-                .await
-        {
-            let repos = WorkspaceRepo::find_repos_for_workspace(&self.pool, workspace.id)
-                .await
-                .map_err(internal_error)?;
-            let working_dir = conversations::resolve_absolute_workspace_agent_working_dir(
-                &workspace,
-                &container_ref,
-                &repos,
-            );
-            let additional = self.conversations.host.resolve_additional_directories(
-                &workspace,
-                &container_ref,
-                &repos,
-                &working_dir,
-            );
-            if let Ok(agent_session) = self
-                .conversations
-                .agent_runtime
-                .ensure_session(EnsureAgentSessionInput {
-                    agent_id: agent_id.clone(),
-                    launch_lock: launch.launch_lock,
+        if let (Some(_profile), Some(agent_id)) = (args.executor_profile_id, parsed_agent_id) {
+            let text = session
+                .initial_prompt
+                .clone()
+                .filter(|prompt| !prompt.trim().is_empty())
+                .unwrap_or_else(|| task.title.clone());
+            let executor_profile_id = executors::profile::ExecutorProfileId {
+                executor: agent_id.clone(),
+                variant: None,
+                model: None,
+                fast_mode: None,
+                reasoning_effort: None,
+            };
+            let service = conversations::ConversationSessionService::new(self.conversations.clone());
+            if let Err(error) = service
+                .start_turn(conversations::ConversationStartTurnInput {
+                    continuation_policy: Some(agents::conversation::ContinuationPolicy::Portable),
+                    expected_binding_revision: None,
+                    agent_id,
+                    provider_instance_id: None,
                     workspace_id: workspace.id,
-                    working_dir: PathBuf::from(&working_dir),
-                    additional_directories: additional,
-                    session_id: AgentSessionId(session.id),
-                    acp_session_id: session.id.to_string(),
-                    auto_approve_mode: launch.auto_approve_mode,
-                    env: launch.env,
-                    preferences: Default::default(),
+                    conversation_id: session.id,
+                    executor_profile_id: Some(executor_profile_id),
+                    text,
+                    display_text: None,
+                    images: Vec::new(),
+                    mode_override: None,
+                    config_overrides: Vec::new(),
+                    workflow_refs: Vec::new(),
+                    file_refs: Vec::new(),
+                    internal_prompt_contributions: Vec::new(),
+                    queued_input_claim: None,
+                    operation_id: Some(Uuid::new_v4()),
+                    collaboration_origin: None,
                 })
                 .await
             {
-                let text = session
-                    .initial_prompt
-                    .clone()
-                    .filter(|prompt| !prompt.trim().is_empty())
-                    .unwrap_or_else(|| task.title.clone());
-                let _ = self
-                    .conversations
-                    .agent_runtime
-                    .send_prompt(SendAgentPromptInput {
-                        connection_id: agent_session.connection_id,
-                        session_id: agent_session.id,
-                        blocks: vec![AgentContentBlock::Text { text }],
-                        mode_override: None,
-                        config_overrides: Vec::new(),
-                    })
-                    .await;
+                tracing::warn!(
+                    conversation_id = %session.id,
+                    workspace_id = %workspace.id,
+                    %error,
+                    "failed to launch initial workspace conversation turn"
+                );
             }
         }
         serialize(self.require_workspace(workspace.id).await?)
@@ -1561,7 +1550,7 @@ fn resolve_workflow_source_path(path: &str) -> Result<PathBuf, ApplicationError>
             ApplicationError::internal("Unable to resolve the user home directory")
         })?;
         let expanded = home.join(path.trim_start_matches("~/"));
-        if path.starts_with("~/.vibex/workflows/")
+        if path.starts_with("~/.dimo/workflows/")
             && let Some(parent) = expanded.parent()
         {
             std::fs::create_dir_all(parent).map_err(internal_error)?;
@@ -1573,10 +1562,10 @@ fn resolve_workflow_source_path(path: &str) -> Result<PathBuf, ApplicationError>
     if !expanded
         .file_name()
         .and_then(|name| name.to_str())
-        .is_some_and(|name| name.ends_with(".vibex-workflow.json"))
+        .is_some_and(|name| name.ends_with(".dimo-workflow.json"))
     {
         return Err(ApplicationError::bad_request(
-            "Workflow source must end with .vibex-workflow.json",
+            "Workflow source must end with .dimo-workflow.json",
         ));
     }
     Ok(expanded)

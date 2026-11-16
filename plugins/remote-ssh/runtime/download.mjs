@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { readFile, writeFile } from 'node:fs/promises';
 
-export const GITHUB_REPO = 'Xircth/VibeX';
+export const GITHUB_REPO = 'DimoADE/Dimo';
 export const MIN_GLIBC = { major: 2, minor: 34 };
 
 export function glibcTooOld(version) {
@@ -22,7 +22,7 @@ export const DEFAULT_MIRRORS = [
 export function releaseUrls(canonical) {
   const source = String(canonical ?? '').trim();
   if (!source) return [];
-  const extra = String(process.env.VIBEX_DOWNLOAD_MIRRORS ?? '')
+  const extra = String(process.env.DIMO_DOWNLOAD_MIRRORS ?? '')
     .trim()
     .split(/\s+/)
     .filter(Boolean);
@@ -107,7 +107,7 @@ async function readTagFromResponse(response) {
 }
 
 export async function resolveLatestTag(repo = GITHUB_REPO, options = {}) {
-  const pinned = String(process.env.VIBEX_VERSION ?? '').trim();
+  const pinned = String(process.env.DIMO_VERSION ?? '').trim();
   if (pinned) return normalizeTag(pinned);
   const fetchImpl = options.fetchImpl ?? globalThis.fetch.bind(globalThis);
   const pages = [
@@ -121,7 +121,7 @@ export async function resolveLatestTag(repo = GITHUB_REPO, options = {}) {
         const response = await fetchImpl(url, {
           redirect: 'follow',
           headers: {
-            'user-agent': 'Mozilla/5.0 (compatible; vibex-remote-ssh)',
+            'user-agent': 'Mozilla/5.0 (compatible; dimo-remote-ssh)',
             accept: 'text/html,application/json;q=0.9,*/*;q=0.8',
           },
         });
@@ -148,7 +148,7 @@ export async function downloadToFile(url, dest, options = {}) {
     const response = await fetchImpl(url, {
       signal: controller.signal,
       redirect: 'follow',
-      headers: { 'user-agent': 'vibex-remote-ssh' },
+      headers: { 'user-agent': 'dimo-remote-ssh' },
     });
     if (!response?.ok) {
       throw new Error(`HTTP ${response?.status ?? 'network'} from ${url}`);

@@ -1,5 +1,5 @@
-export const VIBEX_PLUGIN_API_VERSION = "2.0" as const;
-export const VIBEX_PLUGIN_PROTOCOL_VERSION = "1.1" as const;
+export const DIMO_PLUGIN_API_VERSION = "2.0" as const;
+export const DIMO_PLUGIN_PROTOCOL_VERSION = "1.1" as const;
 export type PluginApiVersion = "1.0" | "2.0";
 
 export function isSupportedPluginApiVersion(

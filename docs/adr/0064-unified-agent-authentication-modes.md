@@ -2,14 +2,14 @@
 status: accepted
 date: 2026-08-26
 decision-makers:
-  - VibeX maintainers
+  - Dimo maintainers
 ---
 
 # 内置 Agent 鉴权统一为官方订阅、官方 API、供应商三种组合
 
 设置 → Agent 的鉴权区不再按各 Runtime 自造 Tab 名和混杂表单。所有内置 Agent
 共用同一组产品模式，档案只声明自己有其中哪几种；没有的模式不出现。三种模式
-互斥，当前生效的只有一个。原生配置仍是 Runtime 权威（ADR-0022）；VibeX 只投影
+互斥，当前生效的只有一个。原生配置仍是 Runtime 权威（ADR-0022）；Dimo 只投影
 档案已适配字段，不引入 CC Switch 本地代理或全量覆盖（ADR-0063）。
 
 ## 三种模式

@@ -1,4 +1,4 @@
-import type { ThemeScheme } from '@vibex/plugin-sdk';
+import type { ThemeScheme } from '@dimoai/plugin-sdk';
 
 import { mixHexColors, withAlpha } from '@/lib/theme/colorMath';
 import { resolveThemeColors } from '@/lib/theme/compileTheme';

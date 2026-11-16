@@ -2,14 +2,14 @@
 status: accepted
 date: 2026-07-29
 decision-makers:
-  - VibeX maintainers
+  - Dimo maintainers
 ---
 
 # 桌面与 Web 共用 Application Core 和版本化远程传输
 
-VibeX 采用 Codeg 的多端总体方式：同一 React 应用通过 `BackendTransport` 访问同一套
+Dimo 采用 Codeg 的多端总体方式：同一 React 应用通过 `BackendTransport` 访问同一套
 Application Core；Tauri 桌面和 Axum Web Server 只是不同适配器。未来移动端作为
-VibeX Server 的薄客户端，不在移动设备上运行本地 Agent、Git worktree 或 Artifact
+Dimo Server 的薄客户端，不在移动设备上运行本地 Agent、Git worktree 或 Artifact
 工具。
 
 ## 进程与模块边界
@@ -25,7 +25,7 @@ React UI ─ BackendTransport ┬─ TauriTransport ─ Tauri command adapter �
 
 Application Core 不依赖 `tauri::AppHandle`、窗口、WebView 或 Axum extractor。每项业务
 操作只有一个 core use case；Tauri command 与 HTTP handler 负责认证、参数转换和错误
-映射，不重复业务规则。独立 `vibex-server` 组装数据库、Agent runtime、Delegation
+映射，不重复业务规则。独立 `dimo-server` 组装数据库、Agent runtime、Delegation
 Broker、Plugin/Artifact runtime、Automation Engine 和事件总线，并托管静态 Web UI。
 
 前端不得继续在 feature 中直接散布 `tauriInvoke`。所有业务调用和订阅收敛到
@@ -78,7 +78,7 @@ CEF/CDP 浏览器、Office 本地应用控制、完整插件与高级 Agent 安�
 
 ## 所有权模型
 
-P0/P1 的 VibeX Server 是单一所有者、多台可信设备的本地优先服务，不是多用户或多租户
+P0/P1 的 Dimo Server 是单一所有者、多台可信设备的本地优先服务，不是多用户或多租户
 平台。桌面、浏览器与移动客户端都是同一个 Server owner 的 Paired device；每台设备有
 独立 credential、scopes、审计身份与撤销生命周期，但不因此成为独立 User。
 
@@ -97,7 +97,7 @@ Server 升级恢复备份，以及安装任意 Runtime、插件或系统组件�
 
 ## 远程协议
 
-VibeX Remote Protocol 从第一版起版本化并提供 capability negotiation：
+Dimo Remote Protocol 从第一版起版本化并提供 capability negotiation：
 
 - `/api/v1/capabilities` 返回 server 版本、协议版本、最低客户端版本和可用能力；
 - HTTP 使用稳定 error envelope 与 operation id；
@@ -153,12 +153,12 @@ Android P1 不提供文件编辑、Git 写操作、任意远程终端、Agent/�
 Server 运维或 Office、CEF/CDP 等桌面能力。Server 必须通过 scopes 和 capabilities
 共同约束这些边界，不能只依赖移动 UI 隐藏入口。
 
-Android 的所有实时与写操作都要求其 Server Profile 对应的 VibeX Host 在线。Host 可以
+Android 的所有实时与写操作都要求其 Server Profile 对应的 Dimo Host 在线。Host 可以
 是桌面应用或 Headless Server，但同一数据目录同一时刻只能有一个 Host；没有 Host 在线
 时，Android 仅展示带最后同步时间的只读离线缓存。客户端必须持续呈现正在连接、在线、
 正在恢复、离线、认证失效和版本不兼容等连接状态，并在非在线状态禁用所有写操作。
 
-P1 不接入 FCM、第三方推送或 VibeX 云中继。前台连接可以实时更新；用户显式开启持续
+P1 不接入 FCM、第三方推送或 Dimo 云中继。前台连接可以实时更新；用户显式开启持续
 监控时，Android 前台服务可以维持连接并根据不含 prompt、输出、文件路径或凭据的终态
 通知摘要生成本地通知。应用被系统彻底停止或 Host 离线后不承诺即时通知，恢复连接时由
 durable replay 补齐状态。任何云推送或自托管通知中继都需要后续独立决策。
@@ -171,7 +171,7 @@ durable replay 补齐状态。任何云推送或自托管通知中继都需要�
   数据目录同时各跑一份。
 - Web MVP 必须使用真实生产构建的同一前端，不维护第二套管理页面。
 - 可以参考和复用 Codeg 的 Transport、Axum adapter、attach/replay 以及 Office proxy
-  实现，但 VibeX 应优先使用自己的持久化 Conversation sequence，而不是只依赖内存
+  实现，但 Dimo 应优先使用自己的持久化 Conversation sequence，而不是只依赖内存
   replay buffer。
 - 直接复用 Codeg Apache-2.0 源码时，必须保留许可证和归属、标注修改文件，并维护
   来源/变更清单；架构参考不等于逐文件复制。

@@ -7,41 +7,41 @@ const test = require("node:test");
 const { packageHostFamily } = require("./package-host-family");
 
 test("packages server, companion, web UI, and official catalog without plugin packages", () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), "vibex-host-family-"));
-  const server = path.join(root, "vibex-server");
-  const mcp = path.join(root, "vibex-mcp");
-  const workflowMcp = path.join(root, "vibex-workflow-mcp");
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "dimo-host-family-"));
+  const server = path.join(root, "dimo-server");
+  const mcp = path.join(root, "dimo-mcp");
+  const workflowMcp = path.join(root, "dimo-workflow-mcp");
   fs.writeFileSync(server, "server-bin");
   fs.writeFileSync(mcp, "mcp-bin");
   fs.writeFileSync(workflowMcp, "workflow-mcp-bin");
   fs.mkdirSync(path.join(root, "web"));
   fs.writeFileSync(path.join(root, "web", "index.html"), "<html></html>");
   fs.writeFileSync(
-    path.join(root, "vibex-plugin.json"),
+    path.join(root, "dimo-plugin.json"),
     JSON.stringify({
       schemaVersion: 1,
       marketplace: { origin: "https://vibex.xforever.xin", path: "/marketplace" },
       official: [
         {
-          id: "vibex.session-enhance",
-          repository: "https://github.com/Xircth/vibex-plugin-session-enhance",
+          id: "dimo.session-enhance",
+          repository: "https://github.com/DimoADE/Dimo-plugin-session-enhance",
         },
       ],
     }),
   );
   const plugin = path.join(root, "plugins", "session-enhance");
-  fs.mkdirSync(path.join(plugin, ".vibex-plugin"), { recursive: true });
+  fs.mkdirSync(path.join(plugin, ".dimo-plugin"), { recursive: true });
   fs.writeFileSync(
-    path.join(plugin, ".vibex-plugin", "plugin.json"),
-    JSON.stringify({ id: "vibex.session-enhance" }),
+    path.join(plugin, ".dimo-plugin", "plugin.json"),
+    JSON.stringify({ id: "dimo.session-enhance" }),
   );
   fs.mkdirSync(path.join(root, "plugins", "scratch"));
   fs.writeFileSync(path.join(root, "plugins", "scratch", "notes.txt"), "ignore");
   const sample = path.join(root, "plugins", "host-chrome");
-  fs.mkdirSync(path.join(sample, ".vibex-plugin"), { recursive: true });
+  fs.mkdirSync(path.join(sample, ".dimo-plugin"), { recursive: true });
   fs.writeFileSync(
-    path.join(sample, ".vibex-plugin", "plugin.json"),
-    JSON.stringify({ id: "vibex.host-chrome" }),
+    path.join(sample, ".dimo-plugin", "plugin.json"),
+    JSON.stringify({ id: "dimo.host-chrome" }),
   );
 
   fs.mkdirSync(path.join(root, "scripts"), { recursive: true });
@@ -75,10 +75,10 @@ test("packages server, companion, web UI, and official catalog without plugin pa
     output: path.join(root, "out"),
   });
 
-  assert.equal(fs.readFileSync(path.join(output, "vibex-server"), "utf8"), "server-bin");
-  assert.equal(fs.readFileSync(path.join(output, "vibex-mcp"), "utf8"), "mcp-bin");
+  assert.equal(fs.readFileSync(path.join(output, "dimo-server"), "utf8"), "server-bin");
+  assert.equal(fs.readFileSync(path.join(output, "dimo-mcp"), "utf8"), "mcp-bin");
   assert.equal(
-    fs.readFileSync(path.join(output, "vibex-workflow-mcp"), "utf8"),
+    fs.readFileSync(path.join(output, "dimo-workflow-mcp"), "utf8"),
     "workflow-mcp-bin",
   );
   assert.equal(
@@ -105,7 +105,7 @@ test("packages server, companion, web UI, and official catalog without plugin pa
     fs.existsSync(path.join(output, "scripts", "claude-native-driver.test.mjs")),
     false,
   );
-  assert.ok(fs.existsSync(path.join(output, "vibex-plugin.json")));
+  assert.ok(fs.existsSync(path.join(output, "dimo-plugin.json")));
   assert.equal(fs.existsSync(path.join(output, "plugins", "bundled")), false);
   assert.equal(
     fs.existsSync(path.join(output, "plugins", "bundled", "session-enhance")),
@@ -117,9 +117,9 @@ test("packages server, companion, web UI, and official catalog without plugin pa
   );
 
   const checksums = fs.readFileSync(path.join(output, "SHA256SUMS"), "utf8");
-  assert.match(checksums, /  vibex-server\n/);
-  assert.match(checksums, /  vibex-mcp\n/);
-  assert.match(checksums, /  vibex-workflow-mcp\n/);
+  assert.match(checksums, /  dimo-server\n/);
+  assert.match(checksums, /  dimo-mcp\n/);
+  assert.match(checksums, /  dimo-workflow-mcp\n/);
   assert.match(checksums, /  web\/index\.html\n/);
   assert.match(checksums, /  scripts\/claude-native-driver\.mjs\n/);
   assert.match(checksums, /  scripts\/claude-native-events\.mjs\n/);

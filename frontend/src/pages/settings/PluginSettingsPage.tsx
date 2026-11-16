@@ -1,4 +1,4 @@
-import { useSettingsPages } from '@vibex/plugin-sdk';
+import { useSettingsPages } from '@dimoai/plugin-sdk';
 import { useMemo } from 'react';
 import { useParams } from 'react-router-dom';
 import { PluginBoundary } from '@/components/plugins/PluginBoundary';

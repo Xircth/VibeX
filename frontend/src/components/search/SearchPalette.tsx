@@ -21,8 +21,8 @@ import {
   type CommandContribution,
   type Disposer,
   useCommands,
-  type VibeXPluginContext,
-} from '@vibex/plugin-sdk';
+  type DimoPluginContext,
+} from '@dimoai/plugin-sdk';
 import {
   contributionMetadata,
   usePluginHostContributions,
@@ -67,7 +67,7 @@ function dispatchHostEvent(name: string, detail?: Record<string, unknown>) {
 export const BUILTIN_PALETTE_COMMANDS: readonly CommandContribution[] = [
   {
     id: 'builtin.project.switch',
-    pluginId: 'vibex.core.projects',
+    pluginId: 'dimo.core.projects',
     title: 'Switch Project',
     category: 'Projects',
     icon: 'folder-open',
@@ -78,172 +78,172 @@ export const BUILTIN_PALETTE_COMMANDS: readonly CommandContribution[] = [
   },
   {
     id: 'builtin.open-settings',
-    pluginId: 'vibex.core.settings',
+    pluginId: 'dimo.core.settings',
     title: 'Open Settings',
     category: 'Settings',
     icon: 'settings',
     order: 100,
     handler: () => {
-      dispatchHostEvent('vibex:open-settings');
+      dispatchHostEvent('dimo:open-settings');
     },
   },
   {
     id: 'builtin.manage-plugins',
-    pluginId: 'vibex.core.plugin-manager',
+    pluginId: 'dimo.core.plugin-manager',
     title: 'Manage Plugins',
     category: 'Plugins',
     icon: 'puzzle',
     order: 110,
     handler: () => {
-      dispatchHostEvent('vibex:open-settings', { section: 'plugins' });
+      dispatchHostEvent('dimo:open-settings', { section: 'plugins' });
     },
   },
   {
     id: 'builtin.hmr.reset-boundaries',
-    pluginId: 'vibex.core.hmr',
+    pluginId: 'dimo.core.hmr',
     title: 'Reset Plugin Crash Boundaries',
     category: 'System',
     icon: 'refresh-cw',
     order: 120,
     handler: () => {
-      dispatchHostEvent('vibex:hmr-reset-boundaries');
+      dispatchHostEvent('dimo:hmr-reset-boundaries');
     },
   },
   {
     id: 'builtin.credentials.probe-usage',
-    pluginId: 'vibex.core.credentials',
+    pluginId: 'dimo.core.credentials',
     title: 'Probe Agent Subscription Usage',
     category: 'Account',
     icon: 'activity',
     order: 130,
     handler: () => {
-      dispatchHostEvent('vibex:probe-usage');
+      dispatchHostEvent('dimo:probe-usage');
     },
   },
   {
     id: 'builtin.agent.configure',
-    pluginId: 'vibex.core.agent-runtime',
+    pluginId: 'dimo.core.agent-runtime',
     title: 'Configure Coding Agents',
     category: 'Agent',
     icon: 'bot',
     order: 140,
     handler: () => {
-      dispatchHostEvent('vibex:open-settings', { section: 'agents' });
+      dispatchHostEvent('dimo:open-settings', { section: 'agents' });
     },
   },
   {
     id: 'builtin.session.focus-list',
-    pluginId: 'vibex.core.session',
+    pluginId: 'dimo.core.session',
     title: 'Focus Session List',
     category: 'Session',
     icon: 'list',
     order: 150,
     handler: () => {
-      dispatchHostEvent('vibex:focus-panel', { panelId: 'session-list' });
+      dispatchHostEvent('dimo:focus-panel', { panelId: 'session-list' });
     },
   },
   {
     id: 'builtin.models.browse-catalog',
-    pluginId: 'vibex.core.llm-providers',
+    pluginId: 'dimo.core.llm-providers',
     title: 'Browse LLM Model Catalog',
     category: 'Models',
     icon: 'cpu',
     order: 160,
     handler: () => {
-      dispatchHostEvent('vibex:open-settings', { section: 'models' });
+      dispatchHostEvent('dimo:open-settings', { section: 'models' });
     },
   },
   {
     id: 'builtin.skills.manage',
-    pluginId: 'vibex.core.skills',
+    pluginId: 'dimo.core.skills',
     title: 'Manage Agent Skills',
     category: 'Skills',
     icon: 'book-open',
     order: 170,
     handler: () => {
-      dispatchHostEvent('vibex:open-settings', { section: 'skills' });
+      dispatchHostEvent('dimo:open-settings', { section: 'skills' });
     },
   },
   {
     id: 'builtin.mcp.manage',
-    pluginId: 'vibex.core.mcp',
+    pluginId: 'dimo.core.mcp',
     title: 'Manage MCP Servers',
     category: 'MCP',
     icon: 'plug-zap',
     order: 180,
     handler: () => {
-      dispatchHostEvent('vibex:open-settings', { section: 'mcp' });
+      dispatchHostEvent('dimo:open-settings', { section: 'mcp' });
     },
   },
   {
     id: 'builtin.delegation.subagents',
-    pluginId: 'vibex.core.delegation',
+    pluginId: 'dimo.core.delegation',
     title: 'Manage Subagent Delegation',
     category: 'Agent',
     icon: 'users',
     order: 190,
     handler: () => {
-      dispatchHostEvent('vibex:open-settings', { section: 'subagents' });
+      dispatchHostEvent('dimo:open-settings', { section: 'subagents' });
     },
   },
   {
     id: 'builtin.compaction.compact',
-    pluginId: 'vibex.core.compaction',
+    pluginId: 'dimo.core.compaction',
     title: 'Compact Session Context',
     category: 'Session',
     icon: 'minimize-2',
     order: 200,
     handler: () => {
-      dispatchHostEvent('vibex:compact-session');
+      dispatchHostEvent('dimo:compact-session');
     },
   },
   {
     id: 'builtin.approval.policies',
-    pluginId: 'vibex.core.approval',
+    pluginId: 'dimo.core.approval',
     title: 'Configure Tool Approval Gate',
     category: 'Approval',
     icon: 'shield-check',
     order: 210,
     handler: () => {
-      dispatchHostEvent('vibex:open-settings', { section: 'approval' });
+      dispatchHostEvent('dimo:open-settings', { section: 'approval' });
     },
   },
   {
     id: 'builtin.shell.new-terminal',
-    pluginId: 'vibex.core.shell',
+    pluginId: 'dimo.core.shell',
     title: 'New Terminal',
     category: 'Terminal',
     icon: 'terminal',
     order: 220,
     handler: () => {
-      dispatchHostEvent('vibex:new-terminal');
+      dispatchHostEvent('dimo:new-terminal');
     },
   },
   {
     id: 'builtin.git.status',
-    pluginId: 'vibex.core.workspace-git',
+    pluginId: 'dimo.core.workspace-git',
     title: 'Open Git Changes & Worktrees',
     category: 'Git',
     icon: 'git-branch',
     order: 230,
     handler: () => {
-      dispatchHostEvent('vibex:focus-panel', { panelId: 'git' });
+      dispatchHostEvent('dimo:focus-panel', { panelId: 'git' });
     },
   },
   {
     id: 'builtin.filesystem.explorer',
-    pluginId: 'vibex.core.filesystem',
+    pluginId: 'dimo.core.filesystem',
     title: 'Focus File Explorer',
     category: 'Files',
     icon: 'folder-tree',
     order: 240,
     handler: () => {
-      dispatchHostEvent('vibex:focus-panel', { panelId: 'file-tree' });
+      dispatchHostEvent('dimo:focus-panel', { panelId: 'file-tree' });
     },
   },
   {
     id: 'builtin.automation.schedules',
-    pluginId: 'vibex.core.automation',
+    pluginId: 'dimo.core.automation',
     title: 'Manage Scheduled Automations',
     category: 'Automation',
     icon: 'clock',
@@ -254,46 +254,46 @@ export const BUILTIN_PALETTE_COMMANDS: readonly CommandContribution[] = [
   },
   {
     id: 'builtin.channels.gateway',
-    pluginId: 'vibex.core.channels',
+    pluginId: 'dimo.core.channels',
     title: 'Configure Chat Channels Gateway',
     category: 'Channels',
     icon: 'send',
     order: 260,
     handler: () => {
-      dispatchHostEvent('vibex:open-settings', { section: 'chat-channels' });
+      dispatchHostEvent('dimo:open-settings', { section: 'chat-channels' });
     },
   },
   {
     id: 'builtin.layout.reset-workbench',
-    pluginId: 'vibex.webui.layout',
+    pluginId: 'dimo.webui.layout',
     title: 'Focus Workbench Welcome',
     category: 'View',
     icon: 'house',
     order: 270,
     handler: () => {
-      dispatchHostEvent('vibex:focus-panel', { panelId: 'welcome' });
+      dispatchHostEvent('dimo:focus-panel', { panelId: 'welcome' });
     },
   },
   {
     id: 'builtin.conversation.new-chat',
-    pluginId: 'vibex.webui.conversation',
+    pluginId: 'dimo.webui.conversation',
     title: 'Focus AI Conversation',
     category: 'Conversation',
     icon: 'message-square',
     order: 280,
     handler: () => {
-      dispatchHostEvent('vibex:focus-panel', { panelId: 'ai-chat' });
+      dispatchHostEvent('dimo:focus-panel', { panelId: 'ai-chat' });
     },
   },
   {
     id: 'builtin.kanban.open-board',
-    pluginId: 'vibex.webui.kanban',
+    pluginId: 'dimo.webui.kanban',
     title: 'Open Kanban Board',
     category: 'View',
     icon: 'columns-3',
     order: 290,
     handler: () => {
-      dispatchHostEvent('vibex:focus-panel', { panelId: 'kanban' });
+      dispatchHostEvent('dimo:focus-panel', { panelId: 'kanban' });
     },
   },
   {
@@ -320,30 +320,30 @@ export const BUILTIN_PALETTE_COMMANDS: readonly CommandContribution[] = [
   },
   {
     id: 'builtin.commands.shortcuts',
-    pluginId: 'vibex.webui.commands',
+    pluginId: 'dimo.webui.commands',
     title: 'Configure Keyboard Shortcuts',
     category: 'Shortcuts',
     icon: 'keyboard',
     order: 300,
     handler: () => {
-      dispatchHostEvent('vibex:open-settings', { section: 'shortcuts' });
+      dispatchHostEvent('dimo:open-settings', { section: 'shortcuts' });
     },
   },
   {
     id: 'builtin.theme.switch',
-    pluginId: 'vibex.webui.theme',
+    pluginId: 'dimo.webui.theme',
     title: 'Switch Appearance Theme',
     category: 'Appearance',
     icon: 'sun',
     order: 310,
     handler: () => {
-      dispatchHostEvent('vibex:toggle-theme');
+      dispatchHostEvent('dimo:toggle-theme');
     },
   },
 ];
 
 export interface RegisterBuiltinCommandsOptions {
-  readonly ctx?: VibeXPluginContext;
+  readonly ctx?: DimoPluginContext;
   readonly commandIds?: readonly string[];
   readonly pluginId?: string;
 }

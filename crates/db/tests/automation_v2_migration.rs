@@ -73,7 +73,7 @@ async fn automation_v2_migration_preserves_intent_safely() {
     .bind(now)
     .bind(now)
     .bind(now)
-    .bind(r#"{"pluginId":"vibex.office","actionId":"create-presentation"}"#)
+    .bind(r#"{"pluginId":"dimo.office","actionId":"create-presentation"}"#)
     .execute(&pool)
     .await
     .expect("legacy automation");

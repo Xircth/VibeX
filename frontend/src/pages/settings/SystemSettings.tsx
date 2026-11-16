@@ -209,7 +209,7 @@ export function SystemSettings() {
   const [backupPreviewPath, setBackupPreviewPath] = useState('');
   const [backupBusy, setBackupBusy] = useState(false);
   const [restoreBusy, setRestoreBusy] = useState(false);
-  const [settingsPath, setSettingsPath] = useState('~/.vibex/settings.json');
+  const [settingsPath, setSettingsPath] = useState('~/.dimo/settings.json');
   const [dataDir, setDataDir] = useState('');
   const [savedDataDir, setSavedDataDir] = useState('');
   const [dataDirBusy, setDataDirBusy] = useState(false);
@@ -586,7 +586,7 @@ export function SystemSettings() {
           title={t('system.dataDirTitle', '数据存储位置')}
           description={t(
             'system.dataDirDescription',
-            'VibeX 本地数据库、协作空间与附件统一保存在此目录。更改后将自动迁移现有数据。'
+            'Dimo 本地数据库、协作空间与附件统一保存在此目录。更改后将自动迁移现有数据。'
           )}
         >
           <div className="flex items-center gap-2">
@@ -594,7 +594,7 @@ export function SystemSettings() {
               label={t('system.dataDirTitle', '数据存储位置')}
               isLabelHidden
               value={dataDir}
-              placeholder="~/.vibex"
+              placeholder="~/.dimo"
               onChange={setDataDir}
               isDisabled={dataDirBusy}
               width="100%"
@@ -620,19 +620,29 @@ export function SystemSettings() {
             >
               {t('system.changeDataDir', '更改目录…')}
             </Button>
-            <Button
-              variant="outline"
-              className="shrink-0"
-              onClick={() => {
-                if (dataDir.trim()) {
-                  void desktopApi.revealInFileManager(dataDir.trim());
-                }
-              }}
-              disabled={!dataDir.trim() || dataDirBusy}
-            >
-              <FolderOpen className="mr-1 h-3.5 w-3.5" />
-              {t('system.openInFolder', '在文件夹中打开')}
-            </Button>
+            {localDesktopHost ? (
+              <Button
+                variant="outline"
+                className="shrink-0"
+                onClick={() => {
+                  const target = dataDir.trim();
+                  if (!target) return;
+                  void desktopApi
+                    .revealInFileManager(target)
+                    .catch((error) => {
+                      toast.error(
+                        error instanceof Error
+                          ? error.message
+                          : t('system.openInFolderFailed', '无法在文件夹中打开')
+                      );
+                    });
+                }}
+                disabled={!dataDir.trim() || dataDirBusy}
+              >
+                <FolderOpen className="mr-1 h-3.5 w-3.5" />
+                {t('system.openInFolder', '在文件夹中打开')}
+              </Button>
+            ) : null}
           </div>
         </SettingsSection>
 
@@ -775,10 +785,10 @@ export function SystemSettings() {
                   <Label className="text-sm">{t('system.exportBackup')}</Label>
                   <div className="flex gap-2">
                     <TextInput
-                      label="C:\\Users\\Administrator\\Desktop\\vibex-backup.vibexbak"
+                      label="C:\\Users\\Administrator\\Desktop\\dimo-backup.dimobak"
                       isLabelHidden
                       value={backupPath}
-                      placeholder="C:\\Users\\Administrator\\Desktop\\vibex-backup.vibexbak"
+                      placeholder="C:\\Users\\Administrator\\Desktop\\dimo-backup.dimobak"
                       onChange={setBackupPath}
                       isDisabled={backupBusy}
                       width="100%"

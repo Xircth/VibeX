@@ -136,11 +136,11 @@ export function AssistantDetailsCustomizeTab({
       loadConfig(false);
     };
 
-    window.addEventListener('vibex:session-agent-switched', onAgentSwitched);
+    window.addEventListener('dimo:session-agent-switched', onAgentSwitched);
     return () => {
       active = false;
       window.removeEventListener(
-        'vibex:session-agent-switched',
+        'dimo:session-agent-switched',
         onAgentSwitched
       );
     };

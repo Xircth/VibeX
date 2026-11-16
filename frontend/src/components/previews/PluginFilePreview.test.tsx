@@ -32,7 +32,7 @@ afterEach(() => {
 describe('PluginFilePreview', () => {
   it('renders the resolved generation lease through the transport capability URL', async () => {
     openFilePreview.mockResolvedValue({
-      pluginId: 'vibex.office',
+      pluginId: 'dimo.office',
       providerId: 'officecli',
       generation: 8,
       leaseId: 'lease-8',
@@ -43,7 +43,7 @@ describe('PluginFilePreview', () => {
       errorMessage: null,
     });
     const view = render(<PluginFilePreview filePath="/workspace/spec.docx" />);
-    const frame = await screen.findByTitle('vibex.office preview');
+    const frame = await screen.findByTitle('dimo.office preview');
     expect(frame).toHaveAttribute(
       'src',
       'https://host.test/api/v1/previews/lease-8/c/secret-capability/'
@@ -59,7 +59,7 @@ describe('PluginFilePreview', () => {
 
   it('prefers the desktop loopback previewUrl returned by the host without calling transport.artifactPreviewUrl', async () => {
     openFilePreview.mockResolvedValue({
-      pluginId: 'vibex.office',
+      pluginId: 'dimo.office',
       providerId: 'office-preview',
       generation: 1,
       leaseId: 'lease-desktop',
@@ -72,7 +72,7 @@ describe('PluginFilePreview', () => {
       errorMessage: null,
     });
     render(<PluginFilePreview filePath="/workspace/sheet.xlsx" />);
-    const frame = await screen.findByTitle('vibex.office preview');
+    const frame = await screen.findByTitle('dimo.office preview');
     expect(frame).toHaveAttribute(
       'src',
       'http://127.0.0.1:55123/api/v1/previews/lease-desktop/c/desktop-capability/'
@@ -81,7 +81,7 @@ describe('PluginFilePreview', () => {
 
   it('contains provider failure without taking down the preview panel', async () => {
     openFilePreview.mockResolvedValue({
-      pluginId: 'vibex.office',
+      pluginId: 'dimo.office',
       providerId: 'officecli',
       generation: 8,
       leaseId: null,
@@ -100,7 +100,7 @@ describe('PluginFilePreview', () => {
   it('keeps the preview alive with a renew heartbeat and surfaces expiry', async () => {
     vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
     openFilePreview.mockResolvedValue({
-      pluginId: 'vibex.office',
+      pluginId: 'dimo.office',
       providerId: 'officecli',
       generation: 8,
       leaseId: 'lease-8',
@@ -118,7 +118,7 @@ describe('PluginFilePreview', () => {
       .mockRejectedValueOnce(new Error('Preview lease is not active'));
 
     render(<PluginFilePreview filePath="/workspace/spec.docx" />);
-    await screen.findByTitle('vibex.office preview');
+    await screen.findByTitle('dimo.office preview');
     await vi.advanceTimersByTimeAsync(20_000);
     expect(renewFilePreview).toHaveBeenCalledWith('lease-8');
     await vi.advanceTimersByTimeAsync(20_000);

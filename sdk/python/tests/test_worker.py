@@ -3,8 +3,8 @@ from __future__ import annotations
 import asyncio
 import unittest
 
-from vibex_plugin import PluginSdkError, define_plugin_worker
-from vibex_plugin.testing import create_generation_harness, create_worker_harness
+from dimo_plugin import PluginSdkError, define_plugin_worker
+from dimo_plugin.testing import create_generation_harness, create_worker_harness
 
 
 class WorkerTests(unittest.IsolatedAsyncioTestCase):
@@ -54,7 +54,7 @@ class WorkerTests(unittest.IsolatedAsyncioTestCase):
         harness = await create_worker_harness(define_plugin_worker(setup))
         self.assertEqual(
             await harness.invoke("hello", None),
-            {"pluginId": "dev.vibex.test"},
+            {"pluginId": "dev.dimo.test"},
         )
         await harness.dispose()
 

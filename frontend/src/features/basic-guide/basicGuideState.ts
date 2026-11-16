@@ -1,11 +1,11 @@
 import type { SpotlightTarget } from './spotlightGeometry';
 
-export const BASIC_GUIDE_STORAGE_KEY = 'vibex:basic-guide';
-export const BASIC_GUIDE_CHANGED_EVENT = 'vibex:basic-guide-changed';
+export const BASIC_GUIDE_STORAGE_KEY = 'dimo:basic-guide';
+export const BASIC_GUIDE_CHANGED_EVENT = 'dimo:basic-guide-changed';
 export const BASIC_GUIDE_OPEN_AGENT_STATUS_EVENT =
-  'vibex:basic-guide-open-agent-status';
+  'dimo:basic-guide-open-agent-status';
 export const BASIC_GUIDE_SESSION_AGENT_EVENT =
-  'vibex:basic-guide-session-agent';
+  'dimo:basic-guide-session-agent';
 export const BASIC_GUIDE_HELLO = '你好';
 
 export type GuideSpotlightTarget = SpotlightTarget;
@@ -94,12 +94,6 @@ export const SUBSTEP_ORDER: readonly BasicGuideSubstep[] = [
 ];
 
 const SUBSTEPS = new Set<string>(SUBSTEP_ORDER);
-
-export const GUIDE_STEP_TITLES = [
-  'createProject',
-  'createSession',
-  'learnLayout',
-] as const;
 
 export type GuideStepTarget = {
   id: string;
@@ -449,10 +443,6 @@ export function restartBasicGuide(): PersistedBasicGuide {
 
 export function skipBasicGuide(): PersistedBasicGuide {
   return { ...COMPLETED_GUIDE };
-}
-
-export function mainStepIndex(substep: BasicGuideSubstep): 0 | 1 | 2 {
-  return (SUBSTEP_META[substep].mainStep - 1) as 0 | 1 | 2;
 }
 
 export function reachedStepAfter(

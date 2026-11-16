@@ -19,7 +19,7 @@ pub fn load_persisted_settings() -> LogSettings {
 }
 
 fn env_level_override() -> Option<String> {
-    ["VIBEX_LOG", "RUST_LOG"].iter().find_map(|key| {
+    ["DIMO_LOG", "RUST_LOG"].iter().find_map(|key| {
         std::env::var(key)
             .ok()
             .map(|v| v.trim().to_string())
@@ -28,7 +28,7 @@ fn env_level_override() -> Option<String> {
 }
 
 pub fn is_valid_target(target: &str) -> bool {
-    if target.is_empty() || target == "vibex::logging" || target.starts_with("vibex::logging::") {
+    if target.is_empty() || target == "dimo::logging" || target.starts_with("dimo::logging::") {
         return false;
     }
     target
@@ -55,7 +55,7 @@ pub fn build_env_filter(settings: &LogSettings) -> EnvFilter {
 const FIREHOSE_BACKSTOPS: &str = concat!(
     ",sqlx::query=warn,hyper=info,hyper_util=info,reqwest=info,h2=info,",
     "rustls=info,tokio=info,tower=info,want=info,mio=warn,notify=warn,",
-    "tonic=info,h2::codec=warn,vibex::logging=off"
+    "tonic=info,h2::codec=warn,dimo::logging=off"
 );
 
 fn init_file_writer(
@@ -67,7 +67,7 @@ fn init_file_writer(
     }
     let appender = match tracing_appender::rolling::Builder::new()
         .rotation(tracing_appender::rolling::Rotation::DAILY)
-        .filename_prefix("vibex")
+        .filename_prefix("dimo")
         .filename_suffix("log")
         .max_log_files(14)
         .build(dir)
@@ -138,8 +138,8 @@ mod tests {
         assert!(!is_valid_target(""));
         assert!(!is_valid_target("agents::"));
         assert!(!is_valid_target("agents/runtime"));
-        assert!(!is_valid_target("vibex::logging"));
-        assert!(!is_valid_target("vibex::logging::hub"));
+        assert!(!is_valid_target("dimo::logging"));
+        assert!(!is_valid_target("dimo::logging::hub"));
     }
 
     #[test]

@@ -2,7 +2,7 @@
 status: accepted
 date: 2026-08-31
 decision-makers:
-  - VibeX maintainers
+  - Dimo maintainers
 ---
 
 # Workspace 默认面、活动面与桌面通知

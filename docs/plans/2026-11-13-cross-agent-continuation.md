@@ -1,12 +1,12 @@
-# VibeX 跨 Agent / Provider 接续方案
+# Dimo 跨 Agent / Provider 接续方案
 
 日期：2026-11-13。状态：阶段 A、B、C 已实施（B/C 见 §13.3），阶段 D 仍为提案；已接受的基础决策见 [ADR-0086](../adr/0086-conversation-binding-generations-and-history-segments.md)。
 
-本文基于当前工作区源码分析。工作区存在其他并行修改，文中的函数名与职责比行号更稳定。T3 对照固定在 `pingdotgg/t3code@e0d6aadb88d229746be9503c510baaccbad84f4f`，完整对比见[研究报告](../research/2026-11-13-t3code-vibex-comparison.md)。
+本文基于当前工作区源码分析。工作区存在其他并行修改，文中的函数名与职责比行号更稳定。T3 对照固定在 `pingdotgg/t3code@e0d6aadb88d229746be9503c510baaccbad84f4f`，完整对比见[研究报告](../research/2026-11-13-t3code-dimo-comparison.md)。
 
 ## 1. 建议与目标
 
-建议沿用 VibeX 的 Conversation、持久输入队列和 Turn 控制面，补齐三项能力：**可返回的原生会话绑定、与当前 Agent 无关的历史读取、可核对的上下文交付记录**。在现有 `ConversationSessionService` 内完成编排，不另建 Provider 编排框架。
+建议沿用 Dimo 的 Conversation、持久输入队列和 Turn 控制面，补齐三项能力：**可返回的原生会话绑定、与当前 Agent 无关的历史读取、可核对的上下文交付记录**。在现有 `ConversationSessionService` 内完成编排，不另建 Provider 编排框架。
 
 目标体验：用户在同一个 Conversation 中先让 Claude 工作，下一条交给 Codex，之后再切回 Claude；面板、历史和工作目录连续，Agent 原生隐藏状态按各自能力恢复，缺失的可见历史通过有预算的交接补充。
 
@@ -18,7 +18,7 @@
 | 可见上下文 | 交付选中的历史原文，并提供遗漏内容的读取方式 | 全量历史一定进入上下文窗口 |
 | 原生会话 | 条件允许时恢复目标 Agent 自己的 native session | 思考、压缩状态、缓存、权限、工具句柄可跨 Agent 搬迁 |
 
-首个完整验收场景是 **Claude → Codex → Claude**。它在 VibeX 中首先是跨 Agent 接续；不能把设置里的 Model Provider 预设直接等同于 T3 的运行时 Provider thread。
+首个完整验收场景是 **Claude → Codex → Claude**。它在 Dimo 中首先是跨 Agent 接续；不能把设置里的 Model Provider 预设直接等同于 T3 的运行时 Provider thread。
 
 ## 2. 范围与术语
 
@@ -395,6 +395,6 @@ pnpm run lint
 
 ## 14. 最终取舍
 
-VibeX 已有持久 Conversation、按输入指定 Agent、队列和原生恢复基础，不需要照搬 T3 的技术栈。需要接受的核心改动是：**binding 从“最新连接信息”变成可保留和激活的原生代次；历史从“按当前 Agent 找文件”变成 Conversation 明确排序的文件集合；交接从 prompt 拼接变成有接受证据的持久执行事实。**
+Dimo 已有持久 Conversation、按输入指定 Agent、队列和原生恢复基础，不需要照搬 T3 的技术栈。需要接受的核心改动是：**binding 从“最新连接信息”变成可保留和激活的原生代次；历史从“按当前 Agent 找文件”变成 Conversation 明确排序的文件集合；交接从 prompt 拼接变成有接受证据的持久执行事实。**
 
 先完成通用 inline 路径与切回恢复，再扩展原生注入和多 Provider 配置隔离，能直接覆盖用户需要的 Claude ↔ Codex 接续，同时保持现有 rebind、队列、不自动重发和 JSONL 权威语义可解释。

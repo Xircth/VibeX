@@ -38,7 +38,7 @@ describe('assistant turn vertical rhythm', () => {
               Thinking
             </button>
           </div>
-          <div className="conv-entry-item vibex-turn-tool-calls">
+          <div className="conv-entry-item dimo-turn-tool-calls">
             <div className="astryx-chat-tool-calls">Read</div>
           </div>
           <div className="conv-markdown">
@@ -74,7 +74,7 @@ describe('assistant turn vertical rhythm', () => {
             <p>Before</p>
           </div>
           <div className="conv-activity-batch">Mixed fold</div>
-          <div className="astryx-chat-tool-calls vibex-tool-call-batch">
+          <div className="astryx-chat-tool-calls dimo-tool-call-batch">
             Grouped tools
           </div>
           <div className="astryx-chat-tool-calls">Single tool</div>
@@ -83,9 +83,9 @@ describe('assistant turn vertical rhythm', () => {
     );
 
     const mixed = container.querySelector('.conv-activity-batch');
-    const grouped = container.querySelector('.vibex-tool-call-batch');
+    const grouped = container.querySelector('.dimo-tool-call-batch');
     const single = container.querySelector(
-      '.astryx-chat-tool-calls:not(.vibex-tool-call-batch)'
+      '.astryx-chat-tool-calls:not(.dimo-tool-call-batch)'
     );
 
     expect(getComputedStyle(mixed as Element).marginBlockStart).toBe('8px');
@@ -100,7 +100,7 @@ describe('assistant turn vertical rhythm', () => {
       <div className="legacy-design">
         <style>{conversationStyles}</style>
         <div className="conv-assistant-body">
-          <div className="vibex-turn-tool-calls">
+          <div className="dimo-turn-tool-calls">
             <div className="conv-thinking">
               <button type="button" className="conv-thinking-header">
                 Thinking
@@ -109,7 +109,7 @@ describe('assistant turn vertical rhythm', () => {
           </div>
         </div>
         <div className="conv-nested-scroll">
-          <div className="vibex-turn-tool-calls">
+          <div className="dimo-turn-tool-calls">
             <div className="conv-thinking">Thought</div>
           </div>
           <div className="conv-markdown">
@@ -120,10 +120,10 @@ describe('assistant turn vertical rhythm', () => {
     );
 
     const lone = container.querySelector(
-      '.conv-assistant-body > .vibex-turn-tool-calls'
+      '.conv-assistant-body > .dimo-turn-tool-calls'
     );
     const wrapped = container.querySelector(
-      '.conv-nested-scroll > .vibex-turn-tool-calls'
+      '.conv-nested-scroll > .dimo-turn-tool-calls'
     );
     const after = container.querySelector('.conv-nested-scroll .conv-markdown');
 

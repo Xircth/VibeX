@@ -1,6 +1,6 @@
 import { settingsWindowApi } from '@/lib/api';
 
-export const AGENT_SETTINGS_FOCUS_KEY = 'vibex:settings-agent-focus';
+export const AGENT_SETTINGS_FOCUS_KEY = 'dimo:settings-agent-focus';
 
 export type AgentSettingsFocus = {
   agentId: string;

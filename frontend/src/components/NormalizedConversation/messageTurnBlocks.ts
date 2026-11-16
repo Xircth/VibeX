@@ -7,7 +7,7 @@ import type { ContentBlock, ImageData, PlanEntry } from 'shared/types';
  * `tool_use` block is paired with its matching `tool_result` (by `tool_use_id`)
  * into one tool item, while an unmatched `tool_result` renders standalone. Text,
  * thinking, and image blocks pass through in order. Kept pure so the pairing
- * logic is unit-testable without rendering. VibeX-authored.
+ * logic is unit-testable without rendering. Dimo-authored.
  */
 
 export type ToolUseBlock = Extract<ContentBlock, { type: 'tool_use' }>;

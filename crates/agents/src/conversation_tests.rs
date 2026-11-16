@@ -99,7 +99,7 @@ fn conversation_event_round_trips_coverage_cases() {
                 text: "create slides".to_string(),
             }],
             workflow_refs: vec![ConversationWorkflowRef {
-                plugin_id: "vibex.office".to_string(),
+                plugin_id: "dimo.office".to_string(),
                 workflow_id: "create-presentation".to_string(),
             }],
         },
@@ -284,14 +284,14 @@ fn legacy_action_id_deserializes_as_workflow_ref() {
         "workspaceId": Uuid::nil(),
         "text": "hello",
         "pluginActions": [{
-            "pluginId": "vibex.office",
+            "pluginId": "dimo.office",
             "actionId": "create-presentation"
         }]
     }))
     .expect("legacy pluginActions/actionId remain readable");
 
     assert_eq!(payload.workflow_refs.len(), 1);
-    assert_eq!(payload.workflow_refs[0].plugin_id, "vibex.office");
+    assert_eq!(payload.workflow_refs[0].plugin_id, "dimo.office");
     assert_eq!(payload.workflow_refs[0].workflow_id, "create-presentation");
 }
 
@@ -307,7 +307,7 @@ fn formats_internal_prompt_contributions_and_enforces_16kib_limit() {
         InternalPromptBlock {
             plugin_id: "a.plugin".to_string(),
             label: None,
-            content: "Emit <!--vibex-internal:a.plugin:summary {\"ok\":true}-->".to_string(),
+            content: "Emit <!--dimo-internal:a.plugin:summary {\"ok\":true}-->".to_string(),
             priority: Some(10),
         },
     ];
@@ -315,8 +315,8 @@ fn formats_internal_prompt_contributions_and_enforces_16kib_limit() {
     let formatted = format_internal_prompt_contributions(&blocks)
         .expect("within 16 KiB limit")
         .expect("non-empty formatted output");
-    assert!(formatted.starts_with("<vibex-plugin-context>\n"));
-    assert!(formatted.ends_with("\n</vibex-plugin-context>"));
+    assert!(formatted.starts_with("<dimo-plugin-context>\n"));
+    assert!(formatted.ends_with("\n</dimo-plugin-context>"));
     let pos_a = formatted.find("plugin=\"a.plugin\"").unwrap();
     let pos_b = formatted.find("plugin=\"b.plugin\"").unwrap();
     assert!(pos_a < pos_b, "higher priority (lower number) comes first");
@@ -336,7 +336,7 @@ fn formats_internal_prompt_contributions_and_enforces_16kib_limit() {
 fn extracts_and_strips_internal_messages_across_streaming_chunks() {
     let conv_id = Uuid::new_v4();
     let turn_id = Uuid::new_v4();
-    let full = "Hello user! <!--vibex-internal:token-guard:summary:n1 {\"risk\":\"low\"}-->World!\n```vibex-internal:audit:report\n{\"score\":99}\n```\n<vibex-internal-meta channel=\"telemetry\" nonce=\"n2\">{\"ok\":true}</vibex-internal-meta>Done.";
+    let full = "Hello user! <!--dimo-internal:token-guard:summary:n1 {\"risk\":\"low\"}-->World!\n```dimo-internal:audit:report\n{\"score\":99}\n```\n<dimo-internal-meta channel=\"telemetry\" nonce=\"n2\">{\"ok\":true}</dimo-internal-meta>Done.";
 
     // Simulate arbitrary chunking across every character boundary and verify monotonic visible_text.
     let mut prev_visible = String::new();
@@ -353,7 +353,7 @@ fn extracts_and_strips_internal_messages_across_streaming_chunks() {
             res.visible_text
         );
         assert!(
-            !res.visible_text.contains("vibex-internal"),
+            !res.visible_text.contains("dimo-internal"),
             "internal marker leaked into visible_text: {:?} ",
             res.visible_text
         );
@@ -404,7 +404,7 @@ fn extracts_and_strips_internal_messages_handles_multibyte_utf8_streaming_chunks
     assert!(crash_res.captured.is_empty());
 
     // Stream across every valid UTF-8 boundary of a multi-byte string containing internal markers.
-    let full = "这个报错是模型 ID 配置有误导致的。<!--vibex-internal:token-guard:summary:n1 {\"状态\":\"正常\"}-->请检查配置：\n```vibex-internal:audit:report\n{\"得分\":100}\n```\n<vibex-internal-meta channel=\"telemetry\" nonce=\"n2\">{\"完成\":true}</vibex-internal-meta>修复完成！";
+    let full = "这个报错是模型 ID 配置有误导致的。<!--dimo-internal:token-guard:summary:n1 {\"状态\":\"正常\"}-->请检查配置：\n```dimo-internal:audit:report\n{\"得分\":100}\n```\n<dimo-internal-meta channel=\"telemetry\" nonce=\"n2\">{\"完成\":true}</dimo-internal-meta>修复完成！";
     let mut prev_visible = String::new();
     for split in 1..=full.len() {
         if !full.is_char_boundary(split) {
@@ -419,7 +419,7 @@ fn extracts_and_strips_internal_messages_handles_multibyte_utf8_streaming_chunks
             res.visible_text
         );
         assert!(
-            !res.visible_text.contains("vibex-internal"),
+            !res.visible_text.contains("dimo-internal"),
             "internal marker leaked into visible_text: {:?}",
             res.visible_text
         );

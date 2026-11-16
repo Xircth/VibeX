@@ -11,7 +11,7 @@ export type ContactChromeState = {
 const EMPTY: ContactChromeState = { pinned: [], hidden: [] };
 
 export function contactChromeStorageKey(workspaceId: string): string {
-  return `vibex.collaboration.contactChrome.${workspaceId}`;
+  return `dimo.collaboration.contactChrome.${workspaceId}`;
 }
 
 function asIdList(value: unknown): string[] {

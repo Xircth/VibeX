@@ -2,12 +2,12 @@
 status: accepted
 date: 2026-08-13
 decision-makers:
-  - VibeX maintainers
+  - Dimo maintainers
 ---
 
 # Workflow 以持久 DAG 编排真实 Conversation 与 Turn
 
-VibeX 新建独立 Workflow 领域：版本化 Workflow Definition 描述无环步骤依赖，一次
+Dimo 新建独立 Workflow 领域：版本化 Workflow Definition 描述无环步骤依赖，一次
 Workflow Run 通过持久 Step Run 编排真实 Conversation 与 Turn。Automation 继续负责
 manual/schedule 触发与到期认领，但 target 扩展为单个 `TurnLaunchSpec` 或版本化
 Workflow；Workflow 不复制 Conversation 历史、Turn 状态机、Agent runtime 或权限系统。
@@ -25,11 +25,11 @@ Interrupted 和默认 worktree-per-run。它的 `RunSnapshot` 只关联一个 Co
 一个 Turn，因此它是可靠触发器和单 Turn runner，不是流程编排器。
 
 BB Workflow 已提供 sequence、parallel、pipeline、phase、结构化输出、共享并发预算、
-历史、停止和按调用摘要恢复。VibeX 若只在 Automation 配置中继续添加“下一步”“并行”
+历史、停止和按调用摘要恢复。Dimo 若只在 Automation 配置中继续添加“下一步”“并行”
 字段，会把调度、步骤状态和恢复规则塞进一个原本清晰的领域；若在插件内复制 BB 的
 QuickJS + 独立 SQLite，又会形成第二套执行事实、权限和恢复系统。
 
-VibeX 的机会不是逐项复制 BB，而是复用已有事件日志、四种 Turn 终态、Application Core、
+Dimo 的机会不是逐项复制 BB，而是复用已有事件日志、四种 Turn 终态、Application Core、
 版本证据、worktree 隔离和多端 Remote，在副作用安全、可解释恢复和多客户端一致性上
 超过 BB。
 
@@ -121,7 +121,7 @@ Definition 保存前必须验证稳定 ID 唯一、依赖存在、无环、引�
 不进入 v1；出现真实用例后，它们编译为同一 DAG snapshot，而不是创建第二执行器。
 
 Workflow Definition 的持久格式是版本化、transport-neutral 的数据。未来 TypeScript/
-Rust SDK 可以编译和验证该格式，但 SDK 代码不在 VibeX 主进程内执行。插件可以按
+Rust SDK 可以编译和验证该格式，但 SDK 代码不在 Dimo 主进程内执行。插件可以按
 ADR-0043 贡献 definition/template；导入后仍经过同一 validator、版本和信任规则。
 
 ### 3. Workflow Event Log 是运行权威
@@ -226,7 +226,7 @@ Host 启动时先 reconcile running Runs，再 dispatch ready Steps：
 - Definition 源码或最新版改变不会让已开始 Run “追上新版本”。修改后应启动新 Run。
 
 这比仅按 Agent call hash 重放更保守：摘要相同不足以证明文件或外部系统副作用相同。
-VibeX 优先保证不重复副作用，再讨论缓存命中率。
+Dimo 优先保证不重复副作用，再讨论缓存命中率。
 
 ### 9. 可观察性与多端行为来自同一投影
 
@@ -281,7 +281,7 @@ JSON 可存仓库并由 CI 调用 `validate`；可视化编辑器不是内核完
 
 ### 复制 BB 的 QuickJS 和插件 SQLite
 
-否决。它会新增代码执行信任面、第二数据库、第二调度器和第二运行事实。VibeX 首版用
+否决。它会新增代码执行信任面、第二数据库、第二调度器和第二运行事实。Dimo 首版用
 声明式 DAG；未来 SDK 编译为同一格式，动态逻辑在隔离进程内运行。
 
 ### Workflow Step 直接调用 Agent runtime

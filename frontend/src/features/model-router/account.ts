@@ -21,11 +21,11 @@ export type SavedHostDeleteSelector = {
 };
 
 /**
- * The VibeX account lives on the product site. The desktop talks to it
+ * The Dimo account lives on the product site. The desktop talks to it
  * straight from the webview with a device token, so the local Host stays
  * account-free and works unchanged offline or signed out.
  */
-export const ACCOUNT_TOKEN_STORAGE_KEY = 'vibex.account.token';
+export const ACCOUNT_TOKEN_STORAGE_KEY = 'dimo.account.token';
 const TOKEN_KEY = ACCOUNT_TOKEN_STORAGE_KEY;
 
 export type RouterModel = {
@@ -170,12 +170,12 @@ export class AccountError extends Error {
   }
 }
 
-export const ACCOUNT_TOKEN_EVENT = 'vibex:account-token-changed';
+export const ACCOUNT_TOKEN_EVENT = 'dimo:account-token-changed';
 export const DESKTOP_SHARED_ACCOUNT_TOKEN_KEY = '__account_token_v1';
 export const DESKTOP_SHARED_ACCOUNT_OWNER_KEY = '__account_owner_v1';
 export const HOST_BOUND_ACCOUNTS_STORAGE_KEY =
-  'vibex.account.hostBoundAccounts.v1';
-export const HOST_BOUND_ACCOUNTS_EVENT = 'vibex:host-bound-accounts-changed';
+  'dimo.account.hostBoundAccounts.v1';
+export const HOST_BOUND_ACCOUNTS_EVENT = 'dimo:host-bound-accounts-changed';
 let sharedTokenHydrationStarted = false;
 const EMPTY_HOST_BOUND_ACCOUNTS: Record<string, AccountOwnerSummary> =
   Object.freeze({});
@@ -449,7 +449,7 @@ export const accountApi = {
     return call('/api/auth/desktop/start', {
       method: 'POST',
       body: {
-        deviceName: resolved.deviceName?.trim() || 'VibeX Desktop',
+        deviceName: resolved.deviceName?.trim() || 'Dimo Desktop',
         hostId: resolved.hostId?.trim() || '',
         nextPath: normalizeNextPath(resolved.nextPath),
       },
@@ -483,7 +483,7 @@ export const accountApi = {
       void hostClientApi.setSyncAccount(null).catch(() => null);
     }
     if (typeof window !== 'undefined') {
-      window.dispatchEvent(new Event('vibex:host-tunnel-updated'));
+      window.dispatchEvent(new Event('dimo:host-tunnel-updated'));
     }
     if (!token) return;
     // The local token is already gone; a failed revoke only leaves a server

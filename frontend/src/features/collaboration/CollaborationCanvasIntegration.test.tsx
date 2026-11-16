@@ -24,7 +24,7 @@ import WorkspaceBotsDockPanel from './WorkspaceBotsDockPanel';
 const collaborationCall = vi.hoisted(() => vi.fn());
 
 vi.mock('./collaborationApi', () => ({
-  COLLABORATION_SPACE_CHANGED_EVENT: 'vibex://collaboration-space-changed',
+  COLLABORATION_SPACE_CHANGED_EVENT: 'dimo://collaboration-space-changed',
   collaborationCall,
   currentWindowLabel: vi.fn(async () => 'main'),
   listenCollaborationSpaceChanged: vi.fn(async () => () => undefined),

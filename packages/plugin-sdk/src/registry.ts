@@ -749,7 +749,7 @@ export async function applyBeforeTurnPromptContributions(
   }
   if (contributions.hiddenContexts.length > 0) {
     sections.push(
-      `<vibex-plugin-context>\n${contributions.hiddenContexts.join('\n\n')}\n</vibex-plugin-context>`
+      `<dimo-plugin-context>\n${contributions.hiddenContexts.join('\n\n')}\n</dimo-plugin-context>`
     );
   }
 
@@ -761,11 +761,11 @@ export async function applyBeforeTurnPromptContributions(
 }
 
 const INTERNAL_META_TAG_RE =
-  /<vibex-internal-meta\s+channel="([^"]+)"(?:\s+nonce="([^"]*)")?\s*>([\s\S]*?)<\/vibex-internal-meta>/g;
+  /<dimo-internal-meta\s+channel="([^"]+)"(?:\s+nonce="([^"]*)")?\s*>([\s\S]*?)<\/dimo-internal-meta>/g;
 const INTERNAL_COMMENT_RE =
-  /<!--\s*vibex-internal:([a-zA-Z0-9_.:-]+)\s+([\s\S]*?)\s*-->/g;
+  /<!--\s*dimo-internal:([a-zA-Z0-9_.:-]+)\s+([\s\S]*?)\s*-->/g;
 const INTERNAL_FENCE_RE =
-  /```vibex-internal:([a-zA-Z0-9_.:-]+)\r?\n([\s\S]*?)\r?\n```/g;
+  /```dimo-internal:([a-zA-Z0-9_.:-]+)\r?\n([\s\S]*?)\r?\n```/g;
 
 function tryParseJson(raw: string): unknown {
   const trimmed = raw.trim();
@@ -835,18 +835,18 @@ export function dispatchCapturedInternalMessage(
 }
 
 const INTERNAL_PARTIAL_PREFIXES = [
-  '<vibex-internal-meta',
-  '<!--vibex-internal:',
-  '<!-- vibex-internal:',
-  '```vibex-internal:',
+  '<dimo-internal-meta',
+  '<!--dimo-internal:',
+  '<!-- dimo-internal:',
+  '```dimo-internal:',
 ] as const;
 
 function findIncompleteInternalTail(text: string): number | null {
   const candidates: Array<{ open: string; close: string }> = [
-    { open: '<vibex-internal-meta', close: '</vibex-internal-meta>' },
-    { open: '<!--vibex-internal:', close: '-->' },
-    { open: '<!-- vibex-internal:', close: '-->' },
-    { open: '```vibex-internal:', close: '```' },
+    { open: '<dimo-internal-meta', close: '</dimo-internal-meta>' },
+    { open: '<!--dimo-internal:', close: '-->' },
+    { open: '<!-- dimo-internal:', close: '-->' },
+    { open: '```dimo-internal:', close: '```' },
   ];
   for (const { open, close } of candidates) {
     const idx = text.lastIndexOf(open);
@@ -874,8 +874,8 @@ function findIncompleteInternalTail(text: string): number | null {
 }
 
 /**
- * Strips `<vibex-internal-meta>`, `<!--vibex-internal:channel:nonce ...-->`, and
- * fenced `vibex-internal:channel:nonce` blocks from assistant text so internal
+ * Strips `<dimo-internal-meta>`, `<!--dimo-internal:channel:nonce ...-->`, and
+ * fenced `dimo-internal:channel:nonce` blocks from assistant text so internal
  * plugin protocol payloads never leak into the user-visible chat timeline, while
  * dispatching matching payloads to registered `InternalMessageCaptureContribution`s.
  */

@@ -3,7 +3,7 @@ import { readLocalStorage, writeLocalStorage } from '@/lib/safeStorage';
 
 export type CachedResolvedTheme = 'light' | 'dark';
 
-export const RESOLVED_THEME_KEY = 'vibex:resolved-theme';
+export const RESOLVED_THEME_KEY = 'dimo:resolved-theme';
 
 export function readCachedResolvedTheme(): CachedResolvedTheme | null {
   const value = readLocalStorage(RESOLVED_THEME_KEY);

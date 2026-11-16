@@ -1264,7 +1264,7 @@ window.__codegPicker && window.__codegPicker.start({id_json});
                     .native
                     .eval(
                         &tab_id,
-                        r#"(function(){var q=window.__vibexPickQueue||[];window.__vibexPickQueue=[];return q;})()"#,
+                        r#"(function(){var q=window.__dimoPickQueue||[];window.__dimoPickQueue=[];return q;})()"#,
                     )
                     .await
                     .unwrap_or_else(|_| "[]".into());
@@ -1297,7 +1297,7 @@ window.__codegPicker && window.__codegPicker.start({id_json});
                 .native
                 .eval(
                     &tab_id,
-                    r#"(function(){var q=window.__vibexPickQueue||[];window.__vibexPickQueue=[];return q;})()"#,
+                    r#"(function(){var q=window.__dimoPickQueue||[];window.__dimoPickQueue=[];return q;})()"#,
                 )
                 .await
                 .unwrap_or_else(|_| "[]".into());
@@ -1589,10 +1589,10 @@ async fn apply_preferences(
     let script = format!(
         r#"(function(rm, cs) {{
   try {{
-    var state = window.__vibexPreferState = window.__vibexPreferState || {{}};
+    var state = window.__dimoPreferState = window.__dimoPreferState || {{}};
     if (rm !== null) state.reducedMotion = !!rm;
     if (cs !== null) state.colorScheme = cs;
-    var styleId = "__vibex_prefer_reduced_motion__";
+    var styleId = "__dimo_prefer_reduced_motion__";
     var styleEl = document.getElementById(styleId);
     if (rm === true) {{
       if (!styleEl) {{
@@ -1619,12 +1619,12 @@ async fn apply_preferences(
         document.documentElement.setAttribute("data-theme", cs);
       }}
     }}
-    if (!window.__vibexOrigMatchMedia && typeof window.matchMedia === "function") {{
-      window.__vibexOrigMatchMedia = window.matchMedia.bind(window);
+    if (!window.__dimoOrigMatchMedia && typeof window.matchMedia === "function") {{
+      window.__dimoOrigMatchMedia = window.matchMedia.bind(window);
       window.matchMedia = function(query) {{
         var q = String(query || "");
-        var mql = window.__vibexOrigMatchMedia(q);
-        var st = window.__vibexPreferState || {{}};
+        var mql = window.__dimoOrigMatchMedia(q);
+        var st = window.__dimoPreferState || {{}};
         if (st.reducedMotion !== undefined && q.indexOf("prefers-reduced-motion") !== -1) {{
           var wantReduce = q.indexOf("reduce") !== -1 && q.indexOf("no-preference") === -1;
           var matches = st.reducedMotion ? wantReduce : !wantReduce;
@@ -2079,7 +2079,7 @@ mod tests {
         let service = BrowserService::new(Arc::new(MemoryNative), true);
         let tab = dispatch(
             &service,
-            "vibex.browser",
+            "dimo.browser",
             "tab.create",
             json!({ "url": "https://example.test/" }),
         )
@@ -2088,7 +2088,7 @@ mod tests {
         let tab_id = tab["tabId"].as_str().unwrap();
         let next = dispatch(
             &service,
-            "vibex.browser",
+            "dimo.browser",
             "tab.navigate",
             json!({ "tabId": tab_id, "url": "https://example.test/docs" }),
         )
@@ -2097,7 +2097,7 @@ mod tests {
         assert_eq!(next["url"], "https://example.test/docs");
         dispatch(
             &service,
-            "vibex.browser",
+            "dimo.browser",
             "grant.set",
             json!({ "tabId": tab_id, "level": "control" }),
         )
@@ -2105,7 +2105,7 @@ mod tests {
         .expect("grant");
         let same_origin = dispatch(
             &service,
-            "vibex.browser",
+            "dimo.browser",
             "tab.navigate",
             json!({ "tabId": tab_id, "url": "https://example.test/about" }),
         )
@@ -2114,7 +2114,7 @@ mod tests {
         assert_eq!(same_origin["grant"]["level"], "control");
         let other_origin = dispatch(
             &service,
-            "vibex.browser",
+            "dimo.browser",
             "tab.navigate",
             json!({ "tabId": tab_id, "url": "https://other.test/" }),
         )
@@ -2123,7 +2123,7 @@ mod tests {
         assert_eq!(other_origin["grant"]["level"], "control");
         dispatch(
             &service,
-            "vibex.browser",
+            "dimo.browser",
             "snapshot",
             json!({ "tabId": tab_id }),
         )
@@ -2136,7 +2136,7 @@ mod tests {
         let service = BrowserService::new(Arc::new(MemoryNative), true);
         let tab = dispatch(
             &service,
-            "vibex.browser",
+            "dimo.browser",
             "tab.create",
             json!({ "url": "https://example.test/", "grant": "control" }),
         )
@@ -2150,7 +2150,7 @@ mod tests {
         let service = BrowserService::new(Arc::new(MemoryNative), true);
         let tab = dispatch(
             &service,
-            "vibex.browser",
+            "dimo.browser",
             "tab.create",
             json!({ "url": "https://example.test/", "grant": "control" }),
         )
@@ -2190,7 +2190,7 @@ mod tests {
         let service = BrowserService::new(Arc::new(MemoryNative), true);
         let tab = dispatch(
             &service,
-            "vibex.browser",
+            "dimo.browser",
             "tab.create",
             json!({ "url": "https://example.test/" }),
         )
@@ -2204,7 +2204,7 @@ mod tests {
         let service = BrowserService::new(Arc::new(MemoryNative), true);
         let tab = dispatch(
             &service,
-            "vibex.browser",
+            "dimo.browser",
             "tab.create",
             json!({ "url": "https://example.test/", "grant": "control" }),
         )
@@ -2213,7 +2213,7 @@ mod tests {
         let tab_id = tab["tabId"].as_str().unwrap();
         dispatch(
             &service,
-            "vibex.browser",
+            "dimo.browser",
             "grant.set",
             json!({ "tabId": tab_id, "level": "none" }),
         )
@@ -2224,7 +2224,7 @@ mod tests {
         assert!(other.grant.is_none());
         let snap = dispatch(
             &service,
-            "vibex.browser",
+            "dimo.browser",
             "snapshot",
             json!({ "tabId": tab_id }),
         )
@@ -2337,7 +2337,7 @@ mod tests {
         let service = BrowserService::new(native.clone(), true);
         dispatch(
             &service,
-            "vibex.browser",
+            "dimo.browser",
             "tab.create",
             json!({
                 "url": "https://example.test/",
@@ -2371,7 +2371,7 @@ mod tests {
         let service = BrowserService::new(native.clone(), true);
         let tab = dispatch(
             &service,
-            "vibex.browser",
+            "dimo.browser",
             "tab.create",
             json!({ "url": "https://github.com/" }),
         )
@@ -2389,7 +2389,7 @@ mod tests {
         let service = BrowserService::new(Arc::new(MemoryNative), true);
         let error = dispatch(
             &service,
-            "vibex.browser",
+            "dimo.browser",
             "tab.create",
             json!({
                 "url": "https://example.test/",
@@ -2406,7 +2406,7 @@ mod tests {
         let service = BrowserService::new(Arc::new(MemoryNative), true);
         dispatch(
             &service,
-            "vibex.browser",
+            "dimo.browser",
             "tab.create",
             json!({ "url": "file:///etc/passwd" }),
         )
@@ -2414,7 +2414,7 @@ mod tests {
         .expect_err("file refused");
         let tab = dispatch(
             &service,
-            "vibex.browser",
+            "dimo.browser",
             "tab.create",
             json!({ "url": "https://example.test/", "grant": "none" }),
         )
@@ -2427,7 +2427,7 @@ mod tests {
         assert_eq!(denied.code(), "browser_provider_denied");
         let snap = dispatch(
             &service,
-            "vibex.browser",
+            "dimo.browser",
             "snapshot",
             json!({ "tabId": tab_id }),
         )
@@ -2436,7 +2436,7 @@ mod tests {
         assert_eq!(snap.code(), "browser_grant_required");
         dispatch(
             &service,
-            "vibex.browser",
+            "dimo.browser",
             "grant.set",
             json!({ "tabId": tab_id, "level": "read" }),
         )
@@ -2444,7 +2444,7 @@ mod tests {
         .expect("grant");
         let snap = dispatch(
             &service,
-            "vibex.browser",
+            "dimo.browser",
             "snapshot",
             json!({ "tabId": tab_id }),
         )
@@ -2454,7 +2454,7 @@ mod tests {
         assert_eq!(snap["generation"], "w.1.0");
         dispatch(
             &service,
-            "vibex.browser",
+            "dimo.browser",
             "grant.set",
             json!({ "tabId": tab_id, "level": "control" }),
         )
@@ -2462,7 +2462,7 @@ mod tests {
         .expect("control");
         let clicked = dispatch(
             &service,
-            "vibex.browser",
+            "dimo.browser",
             "act",
             json!({
                 "tabId": tab_id,
@@ -2476,7 +2476,7 @@ mod tests {
         assert_eq!(clicked["ok"], true);
         let stale = dispatch(
             &service,
-            "vibex.browser",
+            "dimo.browser",
             "act",
             json!({ "tabId": tab_id, "kind": "click", "ref": "e1" }),
         )
@@ -2552,7 +2552,7 @@ mod tests {
         let service = BrowserService::new(native.clone(), true);
         let tab = dispatch(
             &service,
-            "vibex.browser",
+            "dimo.browser",
             "tab.create",
             json!({ "url": "https://example.test/" }),
         )
@@ -2561,7 +2561,7 @@ mod tests {
         let tab_id = tab["tabId"].as_str().unwrap();
         dispatch(
             &service,
-            "vibex.browser",
+            "dimo.browser",
             "pick.start",
             json!({ "tabId": tab_id }),
         )
@@ -2577,7 +2577,7 @@ mod tests {
         let service = BrowserService::new(Arc::new(MemoryNative), true);
         let updated = dispatch(
             &service,
-            "vibex.browser",
+            "dimo.browser",
             "settings.set",
             json!({
                 "hostRules": [
@@ -2594,7 +2594,7 @@ mod tests {
 
         let blocked = dispatch(
             &service,
-            "vibex.browser",
+            "dimo.browser",
             "tab.create",
             json!({ "url": "https://blocked.example/path" }),
         )
@@ -2604,7 +2604,7 @@ mod tests {
 
         let created_profile = dispatch(
             &service,
-            "vibex.browser",
+            "dimo.browser",
             "profile.create",
             json!({ "label": "Work Account" }),
         )
@@ -2613,14 +2613,14 @@ mod tests {
         assert_eq!(created_profile["id"], "work-account");
         assert_eq!(created_profile["label"], "Work Account");
 
-        let listed = dispatch(&service, "vibex.browser", "profile.list", json!({}))
+        let listed = dispatch(&service, "dimo.browser", "profile.list", json!({}))
             .await
             .expect("profile.list");
         assert_eq!(listed["profiles"].as_array().unwrap().len(), 2);
 
         let default_remove = dispatch(
             &service,
-            "vibex.browser",
+            "dimo.browser",
             "profile.remove",
             json!({ "profileId": "default" }),
         )
@@ -2630,7 +2630,7 @@ mod tests {
 
         let removed = dispatch(
             &service,
-            "vibex.browser",
+            "dimo.browser",
             "profile.remove",
             json!({ "profileId": "work-account" }),
         )
@@ -2645,7 +2645,7 @@ mod tests {
         let service = BrowserService::new(Arc::new(MemoryNative), true);
         let updated = dispatch(
             &service,
-            "vibex.browser",
+            "dimo.browser",
             "settings.set",
             json!({
                 "newTabProfile": "ephemeral",
@@ -2666,7 +2666,7 @@ mod tests {
 
         let tab = dispatch(
             &service,
-            "vibex.browser",
+            "dimo.browser",
             "tab.create",
             json!({ "url": "https://example.test/" }),
         )
@@ -2677,7 +2677,7 @@ mod tests {
 
         let external = dispatch(
             &service,
-            "vibex.browser",
+            "dimo.browser",
             "tab.navigate",
             json!({ "tabId": tab["tabId"], "url": "https://a.example.com:8443/login" }),
         )
@@ -2687,7 +2687,7 @@ mod tests {
 
         dispatch(
             &service,
-            "vibex.browser",
+            "dimo.browser",
             "settings.set",
             json!({ "toolsEnabled": false, "evalEnabled": false }),
         )
@@ -2695,7 +2695,7 @@ mod tests {
         .expect("disable tools");
         let unshared = dispatch(
             &service,
-            "vibex.browser",
+            "dimo.browser",
             "tab.create",
             json!({ "url": "https://example.test/next", "grant": "control" }),
         )
@@ -2704,7 +2704,7 @@ mod tests {
         assert!(unshared["grant"].is_null());
         let refused = dispatch(
             &service,
-            "vibex.browser",
+            "dimo.browser",
             "snapshot",
             json!({ "tabId": unshared["tabId"] }),
         )
@@ -2714,7 +2714,7 @@ mod tests {
 
         dispatch(
             &service,
-            "vibex.browser",
+            "dimo.browser",
             "settings.set",
             json!({ "toolsEnabled": true, "evalEnabled": false, "defaultGrant": "control" }),
         )
@@ -2722,7 +2722,7 @@ mod tests {
         .expect("eval off");
         let shared = dispatch(
             &service,
-            "vibex.browser",
+            "dimo.browser",
             "tab.create",
             json!({ "url": "https://example.test/eval" }),
         )
@@ -2730,7 +2730,7 @@ mod tests {
         .expect("open shared");
         let eval_off = dispatch(
             &service,
-            "vibex.browser",
+            "dimo.browser",
             "eval.run",
             json!({
                 "tabId": shared["tabId"],
@@ -2744,7 +2744,7 @@ mod tests {
 
         dispatch(
             &service,
-            "vibex.browser",
+            "dimo.browser",
             "settings.set",
             json!({ "evalEnabled": true, "evalApproval": "silent" }),
         )
@@ -2752,7 +2752,7 @@ mod tests {
         .expect("silent eval");
         let ran = dispatch(
             &service,
-            "vibex.browser",
+            "dimo.browser",
             "eval.run",
             json!({
                 "tabId": shared["tabId"],
@@ -2770,7 +2770,7 @@ mod tests {
         let service = BrowserService::new(Arc::new(MemoryNative), true);
         let tab = dispatch(
             &service,
-            "vibex.browser",
+            "dimo.browser",
             "tab.create",
             json!({ "url": "https://example.test/" }),
         )
@@ -2780,7 +2780,7 @@ mod tests {
 
         dispatch(
             &service,
-            "vibex.browser",
+            "dimo.browser",
             "console.push",
             json!({
                 "tabId": tab_id,
@@ -2793,7 +2793,7 @@ mod tests {
         .expect("push warn");
         dispatch(
             &service,
-            "vibex.browser",
+            "dimo.browser",
             "console.push",
             json!({
                 "tabId": tab_id,
@@ -2808,7 +2808,7 @@ mod tests {
 
         let errors_only = dispatch(
             &service,
-            "vibex.browser",
+            "dimo.browser",
             "console.read",
             json!({ "tabId": tab_id, "minLevel": "error" }),
         )
@@ -2820,7 +2820,7 @@ mod tests {
 
         dispatch(
             &service,
-            "vibex.browser",
+            "dimo.browser",
             "tab.navigate",
             json!({ "tabId": tab_id, "url": "https://example.test/next" }),
         )
@@ -2828,7 +2828,7 @@ mod tests {
         .expect("navigate");
         let after_nav = dispatch(
             &service,
-            "vibex.browser",
+            "dimo.browser",
             "console.read",
             json!({ "tabId": tab_id }),
         )
@@ -2923,7 +2923,7 @@ mod tests {
         let service = BrowserService::new(native.clone(), true);
         let tab = dispatch(
             &service,
-            "vibex.browser",
+            "dimo.browser",
             "tab.create",
             json!({ "url": "https://example.test/" }),
         )
@@ -2933,7 +2933,7 @@ mod tests {
 
         let pref = dispatch(
             &service,
-            "vibex.browser",
+            "dimo.browser",
             "prefer",
             json!({
                 "tabId": tab_id,
@@ -2949,7 +2949,7 @@ mod tests {
 
         let burst = dispatch(
             &service,
-            "vibex.browser",
+            "dimo.browser",
             "screenshot",
             json!({
                 "tabId": tab_id,
@@ -2970,6 +2970,6 @@ mod tests {
         assert!(burst["data"].as_str().is_some_and(|s| !s.is_empty()));
 
         let evals = native.evals.lock().expect("evals");
-        assert!(evals.iter().any(|e| e.contains("__vibexPreferState")));
+        assert!(evals.iter().any(|e| e.contains("__dimoPreferState")));
     }
 }

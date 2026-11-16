@@ -86,8 +86,8 @@ impl ConversationTimelineRowRecord {
     }
 
     /// Insert a new row at the next free slot in `[lower_bound, upper_bound]`, or update
-    /// `(revision, row_json, deleted_sequence = NULL)` on conflict **without ever modifying
-    /// `sort_index`**.
+    /// `(revision, row_json, deleted_sequence = NULL)` on conflict while preserving `sort_index`
+    /// whenever it already resides in `[lower_bound, upper_bound]`.
     pub async fn upsert_row_on_conn(
         conn: &mut SqliteConnection,
         conversation_id: Uuid,
@@ -106,7 +106,10 @@ impl ConversationTimelineRowRecord {
                    COALESCE(
                        (SELECT sort_index
                           FROM conversation_timeline_rows
-                         WHERE conversation_id = ?1 AND row_id = ?2),
+                         WHERE conversation_id = ?1
+                           AND row_id = ?2
+                           AND sort_index >= ?3
+                           AND sort_index <= ?4),
                        COALESCE(
                            (SELECT MAX(sort_index)
                               FROM conversation_timeline_rows
@@ -122,6 +125,7 @@ impl ConversationTimelineRowRecord {
                    NULL
                )
                ON CONFLICT(conversation_id, row_id) DO UPDATE SET
+                   sort_index = excluded.sort_index,
                    revision = excluded.revision,
                    row_json = excluded.row_json,
                    deleted_sequence = NULL
@@ -254,6 +258,51 @@ impl ConversationTimelineRowRecord {
         .fetch_all(executor)
         .await?;
 
+        Self::decode_rows_since_rows(raw_rows)
+    }
+
+    /// Bounded incremental catch-up query: returns at most `limit` combined upserts and tombstones,
+    /// plus `truncated = true` when more rows exist beyond `limit`.
+    pub async fn rows_since_limited_executor<'e, E>(
+        executor: E,
+        conversation_id: Uuid,
+        after_sequence: i64,
+        limit: usize,
+    ) -> Result<(RowsSinceResult, bool), sqlx::Error>
+    where
+        E: Executor<'e, Database = Sqlite>,
+    {
+        let fetch_limit = i64::try_from(limit.saturating_add(1)).unwrap_or(i64::MAX);
+        let mut raw_rows = sqlx::query(
+            r#"SELECT conversation_id, sort_index, row_id, revision, row_json, deleted_sequence
+                 FROM conversation_timeline_rows
+                WHERE conversation_id = ?1
+                  AND revision > ?2
+                  AND deleted_sequence IS NULL
+               UNION ALL
+               SELECT conversation_id, sort_index, row_id, revision, '' AS row_json, deleted_sequence
+                 FROM conversation_timeline_rows
+                WHERE conversation_id = ?1
+                  AND deleted_sequence > ?2
+                ORDER BY sort_index ASC
+                LIMIT ?3"#,
+        )
+        .bind(conversation_id)
+        .bind(after_sequence)
+        .bind(fetch_limit)
+        .fetch_all(executor)
+        .await?;
+
+        let truncated = raw_rows.len() > limit;
+        if truncated {
+            raw_rows.truncate(limit);
+        }
+        Ok((Self::decode_rows_since_rows(raw_rows)?, truncated))
+    }
+
+    fn decode_rows_since_rows(
+        raw_rows: Vec<sqlx::sqlite::SqliteRow>,
+    ) -> Result<RowsSinceResult, sqlx::Error> {
         let mut out = RowsSinceResult::default();
         for row in raw_rows {
             let deleted_sequence: Option<i64> = row.try_get("deleted_sequence")?;
@@ -330,6 +379,29 @@ impl ConversationTimelineRowRecord {
         .await?;
         rows.reverse();
         Ok(rows)
+    }
+
+    /// Active session-level side rows (`sort_index < SORT_INDEX_SLOT_SPAN`) such as runtime
+    /// status banners and binding load-failure notices.
+    pub async fn list_slot_zero<'e, E>(
+        executor: E,
+        conversation_id: Uuid,
+    ) -> Result<Vec<Self>, sqlx::Error>
+    where
+        E: Executor<'e, Database = Sqlite>,
+    {
+        sqlx::query_as::<_, Self>(
+            r#"SELECT conversation_id, sort_index, row_id, revision, row_json, deleted_sequence
+               FROM conversation_timeline_rows
+               WHERE conversation_id = ?1
+                 AND sort_index < ?2
+                 AND deleted_sequence IS NULL
+               ORDER BY sort_index ASC"#,
+        )
+        .bind(conversation_id)
+        .bind(SORT_INDEX_SLOT_SPAN)
+        .fetch_all(executor)
+        .await
     }
 
     pub async fn list_changed_since<'e, E>(
@@ -470,6 +542,145 @@ impl ConversationTimelineRowRecord {
         )
         .bind(conversation_id)
         .fetch_one(executor)
+        .await
+    }
+
+    pub async fn count_visible_message_rows<'e, E>(
+        executor: E,
+        conversation_id: Uuid,
+    ) -> Result<i64, sqlx::Error>
+    where
+        E: Executor<'e, Database = Sqlite>,
+    {
+        sqlx::query_scalar::<_, i64>(
+            r#"SELECT COUNT(*)
+                 FROM conversation_timeline_rows
+                WHERE conversation_id = ?
+                  AND deleted_sequence IS NULL
+                  AND (
+                      row_id LIKE '%:user'
+                      OR row_id LIKE '%:assistant%'
+                      OR row_id LIKE '%:steer:%'
+                  )"#,
+        )
+        .bind(conversation_id)
+        .fetch_one(executor)
+        .await
+    }
+
+    pub async fn fetch_turn_assistant_rows<'e, E>(
+        executor: E,
+        conversation_id: Uuid,
+        turn_id: Uuid,
+    ) -> Result<Vec<Self>, sqlx::Error>
+    where
+        E: Executor<'e, Database = Sqlite>,
+    {
+        let exact = format!("{turn_id}:assistant");
+        let prefix = format!("{turn_id}:assistant:%");
+        sqlx::query_as::<_, Self>(
+            r#"SELECT conversation_id, sort_index, row_id, revision, row_json, deleted_sequence
+                 FROM conversation_timeline_rows
+                WHERE conversation_id = ?1
+                  AND deleted_sequence IS NULL
+                  AND (row_id = ?2 OR row_id LIKE ?3)
+                ORDER BY sort_index ASC, row_id ASC"#,
+        )
+        .bind(conversation_id)
+        .bind(exact)
+        .bind(prefix)
+        .fetch_all(executor)
+        .await
+    }
+
+    pub async fn fetch_by_row_ids(
+        pool: &sqlx::SqlitePool,
+        conversation_id: Uuid,
+        row_ids: &[String],
+    ) -> Result<Vec<Self>, sqlx::Error> {
+        if row_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+        let mut results = Vec::new();
+        for chunk in row_ids.chunks(200) {
+            let placeholders = std::iter::repeat_n("?", chunk.len())
+                .collect::<Vec<_>>()
+                .join(", ");
+            let sql = format!(
+                "SELECT conversation_id, sort_index, row_id, revision, row_json, deleted_sequence
+                   FROM conversation_timeline_rows
+                  WHERE conversation_id = ?
+                    AND deleted_sequence IS NULL
+                    AND row_id IN ({placeholders})"
+            );
+            let mut query = sqlx::query_as::<_, Self>(&sql).bind(conversation_id);
+            for row_id in chunk {
+                query = query.bind(row_id);
+            }
+            results.extend(query.fetch_all(pool).await?);
+        }
+        results.sort_by(|a, b| a.sort_index.cmp(&b.sort_index).then(a.row_id.cmp(&b.row_id)));
+        Ok(results)
+    }
+
+    pub async fn fetch_by_turn_id_prefixes(
+        pool: &sqlx::SqlitePool,
+        conversation_id: Uuid,
+        turn_ids: &[Uuid],
+    ) -> Result<Vec<Self>, sqlx::Error> {
+        if turn_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+        let mut results = Vec::new();
+        for chunk in turn_ids.chunks(50) {
+            let predicates = std::iter::repeat_n("(row_id = ? OR row_id LIKE ?)", chunk.len())
+                .collect::<Vec<_>>()
+                .join(" OR ");
+            let sql = format!(
+                "SELECT conversation_id, sort_index, row_id, revision, row_json, deleted_sequence
+                   FROM conversation_timeline_rows
+                  WHERE conversation_id = ?
+                    AND deleted_sequence IS NULL
+                    AND ({predicates})"
+            );
+            let mut query = sqlx::query_as::<_, Self>(&sql).bind(conversation_id);
+            for turn_id in chunk {
+                let exact = turn_id.to_string();
+                let prefix = format!("{turn_id}:%");
+                query = query.bind(exact).bind(prefix);
+            }
+            results.extend(query.fetch_all(pool).await?);
+        }
+        results.sort_by(|a, b| a.sort_index.cmp(&b.sort_index).then(a.row_id.cmp(&b.row_id)));
+        Ok(results)
+    }
+
+    pub async fn list_older_message_row_ids_before_keyset<'e, E>(
+        executor: E,
+        conversation_id: Uuid,
+        before_sort_index: i64,
+        before_row_id: &str,
+    ) -> Result<Vec<String>, sqlx::Error>
+    where
+        E: Executor<'e, Database = Sqlite>,
+    {
+        sqlx::query_scalar::<_, String>(
+            r#"SELECT row_id
+                 FROM conversation_timeline_rows
+                WHERE conversation_id = ?1
+                  AND deleted_sequence IS NULL
+                  AND (sort_index < ?2 OR (sort_index = ?2 AND row_id < ?3))
+                  AND (
+                      row_id LIKE '%:user'
+                      OR row_id LIKE '%:assistant%'
+                      OR row_id LIKE '%:steer:%'
+                  )
+                ORDER BY sort_index ASC, row_id ASC"#,
+        )
+        .bind(conversation_id)
+        .bind(before_sort_index)
+        .bind(before_row_id)
+        .fetch_all(executor)
         .await
     }
 }

@@ -330,7 +330,7 @@ fn host_listen_page(path: &str) -> Response {
     if !path.is_empty() && path != "index.html" {
         return StatusCode::NOT_FOUND.into_response();
     }
-    const HTML: &str = r#"<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>VibeX Host</title><style>html,body{margin:0;min-height:100%;background:#eef1f5;color:#46505b;font:16px/1.45 -apple-system,BlinkMacSystemFont,Segoe UI,sans-serif}main{box-sizing:border-box;max-width:22.5rem;margin:18vh auto 0;padding:28px 24px;border:1px solid #0b16280f;border-radius:14px;background:#fafbfc}h1{margin:0 0 8px;color:#1d2530;font-size:1.125rem;font-weight:600}p{margin:0;color:#727b85}</style><body><main><h1>VibeX Host</h1><p>远程协议已在运行。请在本机控制台出示配对邀请，不要扫描这个地址。</p></main></body></html>"#;
+    const HTML: &str = r#"<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Dimo Host</title><style>html,body{margin:0;min-height:100%;background:#eef1f5;color:#46505b;font:16px/1.45 -apple-system,BlinkMacSystemFont,Segoe UI,sans-serif}main{box-sizing:border-box;max-width:22.5rem;margin:18vh auto 0;padding:28px 24px;border:1px solid #0b16280f;border-radius:14px;background:#fafbfc}h1{margin:0 0 8px;color:#1d2530;font-size:1.125rem;font-weight:600}p{margin:0;color:#727b85}</style><body><main><h1>Dimo Host</h1><p>远程协议已在运行。请在本机控制台出示配对邀请，不要扫描这个地址。</p></main></body></html>"#;
     (
         [(
             header::CONTENT_TYPE,
@@ -638,12 +638,12 @@ fn apply_cors_headers(headers: &mut HeaderMap, origin: &str) {
     headers.insert(
         header::ACCESS_CONTROL_ALLOW_HEADERS,
         HeaderValue::from_static(
-            "authorization, content-type, x-vibex-protocol-version, x-vibex-e2ee, x-vibex-e2ee-client-pub, x-vibex-e2ee-server-pub, x-vibex-e2ee-session, x-vibex-e2ee-auth",
+            "authorization, content-type, x-dimo-protocol-version, x-dimo-e2ee, x-dimo-e2ee-client-pub, x-dimo-e2ee-server-pub, x-dimo-e2ee-session, x-dimo-e2ee-auth",
         ),
     );
     headers.insert(
         header::ACCESS_CONTROL_EXPOSE_HEADERS,
-        HeaderValue::from_static("x-vibex-e2ee, x-vibex-e2ee-server-pub, x-vibex-e2ee-session"),
+        HeaderValue::from_static("x-dimo-e2ee, x-dimo-e2ee-server-pub, x-dimo-e2ee-session"),
     );
     headers.insert(header::VARY, HeaderValue::from_static("Origin"));
 }
@@ -716,7 +716,7 @@ async fn capabilities<R>(
     headers: HeaderMap,
 ) -> Response {
     if let Some(requested) = headers
-        .get("x-vibex-protocol-version")
+        .get("x-dimo-protocol-version")
         .and_then(|value| value.to_str().ok())
     {
         let requested_major = requested
@@ -1252,7 +1252,7 @@ fn ws_token_from_protocols(protocols: &str) -> Option<String> {
     protocols
         .split(',')
         .map(str::trim)
-        .find_map(|protocol| protocol.strip_prefix("vibex.token."))
+        .find_map(|protocol| protocol.strip_prefix("dimo.token."))
         .and_then(|encoded| URL_SAFE_NO_PAD.decode(encoded).ok())
         .and_then(|bytes| String::from_utf8(bytes).ok())
 }

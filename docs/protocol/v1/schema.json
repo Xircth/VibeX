@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "VibeX Remote Protocol v1",
+  "title": "Dimo Remote Protocol v1",
   "type": "object",
   "properties": {
     "capabilities": {

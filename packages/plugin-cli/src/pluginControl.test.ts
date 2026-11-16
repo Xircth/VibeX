@@ -14,15 +14,15 @@ describe("plugin Host control commands", () => {
     expect(plugin.identity).toEqual({ publisher: "tests", id: "notes" });
     expect(plugin.packageDigest).toMatch(/^[a-f0-9]{64}$/);
     const manifest = JSON.parse(
-      await readFile(join(root, ".vibex-plugin", "plugin.json"), "utf8"),
+      await readFile(join(root, ".dimo-plugin", "plugin.json"), "utf8"),
     ) as { version: string };
     expect(plugin.manifest.version).toBe(manifest.version);
   });
 });
 
 async function fixture() {
-  const root = await mkdtemp(join(tmpdir(), "vibex-plugin-control-"));
-  await mkdir(join(root, ".vibex-plugin"), { recursive: true });
+  const root = await mkdtemp(join(tmpdir(), "dimo-plugin-control-"));
+  await mkdir(join(root, ".dimo-plugin"), { recursive: true });
   await mkdir(join(root, "contents", "workflows", "notes"), {
     recursive: true,
   });
@@ -36,7 +36,7 @@ async function fixture() {
     '{"label":"Notes","entrypoints":["action"],"promptBlocks":[{"type":"text","text":"Take notes."}]}\n',
   );
   await writeFile(
-    join(root, ".vibex-plugin", "content.index.json"),
+    join(root, ".dimo-plugin", "content.index.json"),
     JSON.stringify({
       schemaVersion: 1,
       items: [
@@ -49,7 +49,7 @@ async function fixture() {
     }),
   );
   await writeFile(
-    join(root, ".vibex-plugin", "plugin.json"),
+    join(root, ".dimo-plugin", "plugin.json"),
     JSON.stringify({
       manifestVersion: 4,
       apiVersion: "2.0",
@@ -58,10 +58,10 @@ async function fixture() {
       version: "1.0.0",
       name: "Notes",
       readme: "README.md",
-      engines: { vibex: ">=0.1.3", pluginSdk: "^2.0.0" },
+      engines: { dimo: ">=0.1.3", pluginSdk: "^2.0.0" },
       content: {
         root: "contents",
-        index: ".vibex-plugin/content.index.json",
+        index: ".dimo-plugin/content.index.json",
       },
       config: {
         schema: { type: "object", properties: {}, additionalProperties: false },

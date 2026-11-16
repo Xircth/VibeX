@@ -23,6 +23,7 @@ export type AgentRuntimeTurnInput = {
   fileRefs?: ConversationInputPayload['fileRefs'];
   operationId?: string;
   continuationPolicy?: 'portable' | 'fresh';
+  providerInstanceId?: string | null;
 };
 
 /**
@@ -47,6 +48,7 @@ export async function sendAgentRuntimeTurn({
   fileRefs,
   operationId,
   continuationPolicy,
+  providerInstanceId,
 }: AgentRuntimeTurnInput): Promise<ConversationInputSubmission> {
   const payload: ConversationInputPayload = {
     continuationPolicy,
@@ -61,6 +63,7 @@ export async function sendAgentRuntimeTurn({
     configOverrides: configOverrides ?? [],
     workflowRefs: workflowRefs ?? [],
     fileRefs: fileRefs ?? [],
+    ...(providerInstanceId ? { providerInstanceId } : {}),
   };
   return conversationApi.submitInput(sessionId, payload, operationId);
 }

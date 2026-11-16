@@ -1,4 +1,4 @@
-﻿import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { StrictMode } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -141,5 +141,52 @@ describe('onboarding projects', () => {
     fireEvent.click(await screen.findByRole('button', { name: t('next') }));
     expect(await screen.findByRole('alert')).toHaveTextContent('Disk full');
     expect(screen.getByRole('button', { name: t('next') })).toBeEnabled();
+  });
+  it('refreshes and selects newly imported projects when becoming active after mount', async () => {
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    const onFinish = vi.fn().mockResolvedValue(undefined);
+    const { rerender } = render(
+      <StrictMode>
+        <QueryClientProvider client={queryClient}>
+          <OnboardingProjects
+            initialProjectIds={[]}
+            active={false}
+            onBack={vi.fn()}
+            onFinish={onFinish}
+          />
+        </QueryClientProvider>
+      </StrictMode>
+    );
+    expect(api.getAll).not.toHaveBeenCalled();
+
+    const imported = project('imported-1');
+    api.getAll.mockResolvedValue([home, work, imported]);
+    rerender(
+      <StrictMode>
+        <QueryClientProvider client={queryClient}>
+          <OnboardingProjects
+            initialProjectIds={['imported-1']}
+            active
+            onBack={vi.fn()}
+            onFinish={onFinish}
+          />
+        </QueryClientProvider>
+      </StrictMode>
+    );
+
+    expect(
+      await screen.findByRole('checkbox', { name: 'imported-1' })
+    ).toHaveAttribute('aria-checked', 'true');
+    expect(screen.getByText(t('importedProjectBadge'))).toBeVisible();
+    expect(
+      screen.getByText(t('importedProjectsReceipt', { count: 1 }))
+    ).toBeVisible();
+
+    fireEvent.click(screen.getByRole('button', { name: t('next') }));
+    await waitFor(() =>
+      expect(onFinish).toHaveBeenCalledWith(['home', 'work', 'imported-1'])
+    );
   });
 });

@@ -2,7 +2,7 @@
 status: accepted
 date: 2026-07-29
 decision-makers:
-  - VibeX maintainers
+  - Dimo maintainers
 ---
 
 # 旧 Agent 按实际使用证据迁入开放集合

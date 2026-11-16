@@ -297,11 +297,11 @@ async fn codex_server_cache_key_tracks_codex_home_config_and_invalidate_clears_c
         "editing CODEX_HOME/auth.json must change CodexServerCacheKey"
     );
 
-    std::fs::write(codex_home.join("vibex-model-catalog.json"), "{\"models\":[]}").expect("write catalog");
+    std::fs::write(codex_home.join("dimo-model-catalog.json"), "{\"models\":[]}").expect("write catalog");
     let key4 = CodexServerCacheKey::from_spec(&spec);
     assert_ne!(
         key3, key4,
-        "editing vibex-model-catalog.json must change CodexServerCacheKey"
+        "editing dimo-model-catalog.json must change CodexServerCacheKey"
     );
 
     invalidate_codex_servers().await;
@@ -325,3 +325,162 @@ fn codex_driver_accepts_model_id_filters_foreign_models_unless_custom_base_url()
     );
     assert!(driver.accepts_model_id("claude-opus-4-6", &custom));
 }
+
+#[test]
+fn codex_error_with_will_retry_emits_non_terminal_hook_event_and_fatal_emits_turn_error() {
+    let rl = Arc::new(RwLock::new(None));
+    let comp = Arc::new(RwLock::new(HashMap::new()));
+
+    let retry_top = normalize_codex_notification(
+        "error",
+        &json!({
+            "threadId": "thr-1",
+            "turnId": "turn-1",
+            "willRetry": true,
+            "error": { "message": "429 rate limited, retrying in 2s" }
+        }),
+        &rl,
+        &comp,
+    );
+    assert_eq!(retry_top.len(), 1);
+    assert!(matches!(
+        &retry_top[0],
+        EngineEvent::HookEvent { hook_name, session_id: Some(sid), .. }
+            if hook_name == "codex/retry" && sid == "thr-1"
+    ));
+
+    let retry_nested = normalize_codex_notification(
+        "error",
+        &json!({
+            "threadId": "thr-1",
+            "error": { "message": "transient overload", "willRetry": true }
+        }),
+        &rl,
+        &comp,
+    );
+    assert!(matches!(&retry_nested[0], EngineEvent::HookEvent { .. }));
+
+    let fatal = normalize_codex_notification(
+        "error",
+        &json!({
+            "threadId": "thr-1",
+            "willRetry": false,
+            "error": { "message": "401 Unauthorized: invalid_api_key" }
+        }),
+        &rl,
+        &comp,
+    );
+    assert!(matches!(
+        &fatal[0],
+        EngineEvent::TurnError { message, .. } if message.contains("invalid_api_key")
+    ));
+}
+
+#[test]
+fn codex_turn_completed_maps_failed_interrupted_and_completed_statuses() {
+    let rl = Arc::new(RwLock::new(None));
+    let comp = Arc::new(RwLock::new(HashMap::new()));
+
+    let failed = normalize_codex_notification(
+        "turn/completed",
+        &json!({
+            "threadId": "thr-1",
+            "turn": {
+                "id": "turn-fail",
+                "status": "failed",
+                "error": { "message": "Model context length exceeded" }
+            }
+        }),
+        &rl,
+        &comp,
+    );
+    assert!(matches!(
+        failed.last(),
+        Some(EngineEvent::TurnError { message, .. })
+            if message == "Model context length exceeded"
+    ));
+
+    let interrupted = normalize_codex_notification(
+        "turn/completed",
+        &json!({
+            "threadId": "thr-1",
+            "turn": { "id": "turn-int", "status": "interrupted" }
+        }),
+        &rl,
+        &comp,
+    );
+    assert!(matches!(
+        interrupted.last(),
+        Some(EngineEvent::TurnInterrupted { reason, .. }) if reason == "interrupted"
+    ));
+
+    let completed = normalize_codex_notification(
+        "turn/completed",
+        &json!({
+            "threadId": "thr-1",
+            "turn": { "id": "turn-ok", "status": "completed", "model": "gpt-5.4" }
+        }),
+        &rl,
+        &comp,
+    );
+    assert!(matches!(
+        completed.last(),
+        Some(EngineEvent::TurnCompleted {
+            stop_reason: Some(sr),
+            served_model: Some(m),
+            ..
+        }) if sr == "end_turn" && m == "gpt-5.4"
+    ));
+}
+
+#[test]
+fn codex_token_usage_subtracts_cached_input_and_separates_total_spend_from_last_window() {
+    let rl = Arc::new(RwLock::new(None));
+    let comp = Arc::new(RwLock::new(HashMap::new()));
+
+    let events = normalize_codex_notification(
+        "thread/tokenUsage/updated",
+        &json!({
+            "threadId": "thr-1",
+            "turnId": "turn-1",
+            "tokenUsage": {
+                "total": {
+                    "inputTokens": 120_000,
+                    "cachedInputTokens": 100_000,
+                    "outputTokens": 5_000,
+                    "totalTokens": 125_000
+                },
+                "last": {
+                    "inputTokens": 45_000,
+                    "cachedInputTokens": 40_000,
+                    "outputTokens": 1_200,
+                    "totalTokens": 46_200
+                },
+                "modelContextWindow": 272_000
+            }
+        }),
+        &rl,
+        &comp,
+    );
+    assert_eq!(events.len(), 1);
+    match &events[0] {
+        EngineEvent::UsageUpdated {
+            input_tokens,
+            cache_read_tokens,
+            output_tokens,
+            context_used,
+            context_window,
+            is_turn_summary,
+            ..
+        } => {
+            assert_eq!(*input_tokens, Some(20_000));
+            assert_eq!(*cache_read_tokens, Some(100_000));
+            assert_eq!(*output_tokens, Some(5_000));
+            assert_eq!(*context_used, Some(46_200));
+            assert_eq!(*context_window, Some(272_000));
+            assert!(!is_turn_summary);
+        }
+        other => panic!("expected UsageUpdated, got {other:?}"),
+    }
+}
+

@@ -1,24 +1,31 @@
 {
-  "name": "@omnione/vibex",
+  "name": "dimoai",
   "private": false,
   "version": "0.4.4",
-  "main": "index.js",
+  "main": "bin/cli.js",
   "bin": {
-    "vibex": "bin/cli.js"
+    "dimo": "bin/cli.js",
+    "dimoai": "bin/cli.js"
   },
-  "keywords": [],
-  "author": "vibex",
+  "keywords": ["dimo", "cli", "agent", "plugin"],
+  "author": "dimo",
   "repository": {
     "type": "git",
-    "url": "https://github.com/Xircth/VibeX"
+    "url": "https://github.com/DimoADE/Dimo.git",
+    "directory": "npx-cli"
   },
-  "license": "",
-  "description": "NPX launcher for the VibeX Host family (vibex-server)",
+  "license": "Apache-2.0",
+  "publishConfig": {
+    "access": "public"
+  },
+  "description": "NPX launcher for the Dimo Host family (dimo-server) and Plugin CLI",
   "scripts": {
     "prepack": "node bin/prepare-plugin-cli.js",
     "postpack": "node bin/prepare-plugin-cli.js --clean"
   },
   "dependencies": {
+    "@dimoai/plugin-cli": "^2.0.0",
+    "@dimoai/plugin-sdk": "^2.0.0",
     "adm-zip": "^0.6.1"
   },
   "files": [

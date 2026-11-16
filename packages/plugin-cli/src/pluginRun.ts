@@ -35,11 +35,11 @@ export type RunInvocation = {
 export function parseRunInvocation(args: readonly string[]): RunInvocation {
   const script = args[0];
   if (!script) {
-    throw new Error("Usage: vibex plugin run <server|dev|build|test>");
+    throw new Error("Usage: dimo plugin run <server|dev|build|test>");
   }
   if (!isRunScript(script)) {
     throw new Error(
-      `Unknown plugin script: ${script}\nUsage: vibex plugin run <server|dev|build|test>`,
+      `Unknown plugin script: ${script}\nUsage: dimo plugin run <server|dev|build|test>`,
     );
   }
   const afterScript = args.slice(1);

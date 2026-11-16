@@ -16,7 +16,7 @@ vi.mock('@/lib/api/appWindow', () => ({
 vi.mock('@/hooks/useProjects', () => ({
   useProjects: () => ({
     projects: [
-      { id: 'p1', name: 'VibeX' },
+      { id: 'p1', name: 'Dimo' },
       { id: 'p2', name: 'Notes' },
     ],
   }),
@@ -66,7 +66,7 @@ describe('HomeLogoMenu', () => {
       screen.queryByRole('menuitem', { name: 'Projects' })
     ).not.toBeInTheDocument();
     expect(screen.getByText('已导入项目')).toBeInTheDocument();
-    expect(screen.getByRole('menuitem', { name: 'VibeX' })).toBeInTheDocument();
+    expect(screen.getByRole('menuitem', { name: 'Dimo' })).toBeInTheDocument();
     expect(screen.getByRole('menuitem', { name: 'Notes' })).toBeInTheDocument();
 
     await user.click(screen.getByRole('menuitem', { name: '切换项目…' }));

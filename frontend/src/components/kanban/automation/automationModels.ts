@@ -213,7 +213,7 @@ export function isReusableRuleTemplate(rule: PulseRuleView): boolean {
 }
 
 function mapCallbackKindToOutbox(
-  kind: PulseCallbackKind | (string & {})
+  kind: PulseCallbackKind | (string & NonNullable<unknown>)
 ): OutboxActionKind {
   switch (kind) {
     case 'github_comment':

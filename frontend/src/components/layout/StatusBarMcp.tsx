@@ -35,7 +35,7 @@ const POLL_MS = 60_000;
 export const pluginMcpStatusQueryKey = ['plugin-mcp-status'] as const;
 export const localMcpServersQueryKey = ['local-mcp-servers'] as const;
 export const LOCAL_MCP_SERVERS_CHANGED_EVENT =
-  'vibex:local-mcp-servers-changed';
+  'dimo:local-mcp-servers-changed';
 
 export function notifyLocalMcpServersChanged() {
   if (typeof window !== 'undefined') {
@@ -44,9 +44,9 @@ export function notifyLocalMcpServersChanged() {
 }
 
 const INTERNAL_MCP_SERVER_IDS = new Set([
-  'vibex-delegation-mcp',
-  'vibex-session-mcp',
-  'vibex-workflow-mcp',
+  'dimo-delegation-mcp',
+  'dimo-session-mcp',
+  'dimo-workflow-mcp',
 ]);
 
 const EMPTY_REPORT: PluginMcpStatusReport = {
@@ -176,7 +176,7 @@ export function StatusBarMcp() {
       const lower = server.id.toLowerCase();
       if (INTERNAL_MCP_SERVER_IDS.has(lower)) return false;
       if (pluginServerIds.has(lower)) return false;
-      if (lower.startsWith('vibex-plugin-')) return false;
+      if (lower.startsWith('dimo-plugin-')) return false;
       return true;
     });
   }, [localQuery.data, report.plugins]);

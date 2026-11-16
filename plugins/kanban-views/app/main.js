@@ -108,7 +108,7 @@ function createKanbanTriageMatrixComponent(kanbanService) {
     return createElement(
       'div',
       {
-        className: 'vibex-kanban-triage-view p-4 flex flex-col gap-3',
+        className: 'dimo-kanban-triage-view p-4 flex flex-col gap-3',
         'data-testid': 'kanban-triage-matrix-view',
       },
       createElement(
@@ -170,7 +170,7 @@ function createKanbanVelocityTimelineComponent(kanbanService) {
     return createElement(
       'div',
       {
-        className: 'vibex-kanban-velocity-view p-4 flex flex-col gap-2',
+        className: 'dimo-kanban-velocity-view p-4 flex flex-col gap-2',
         'data-testid': 'kanban-velocity-timeline-view',
       },
       createElement('strong', null, 'Sprint Velocity & Throughput'),
@@ -332,7 +332,7 @@ function createKanbanPulseDeckComponent(ctx) {
 
 export default {
   apiVersion: '2.0',
-  id: 'vibex.kanban-views',
+  id: 'dimo.kanban-views',
   activate(ctx) {
     const listeners = new Set();
     let activeFilterPreset = 'status';
@@ -439,11 +439,11 @@ export default {
       cycleFilterPreset,
       getFoundationStatus() {
         const currentFoundation =
-          foundationService ?? ctx.services.get('vibex.webui.kanban') ?? null;
+          foundationService ?? ctx.services.get('dimo.webui.kanban') ?? null;
         return {
           connected: Boolean(currentFoundation),
           foundationPluginId: currentFoundation?.pluginId ?? null,
-          serviceKey: 'vibex.webui.kanban',
+          serviceKey: 'dimo.webui.kanban',
         };
       },
       subscribe(listener) {
@@ -494,7 +494,7 @@ export default {
     });
 
     ctx.ui.registerCommand({
-      id: 'vibex.kanban.triage',
+      id: 'dimo.kanban.triage',
       title: 'Triage Kanban Board Tasks',
       category: 'Kanban',
       icon: 'layers',
@@ -525,7 +525,7 @@ export default {
       },
     });
 
-    ctx.services.inject(['vibex.webui.kanban'], ([webuiKanban]) => {
+    ctx.services.inject(['dimo.webui.kanban'], ([webuiKanban]) => {
       foundationService = webuiKanban;
       notifyListeners();
       return () => {
@@ -534,6 +534,6 @@ export default {
       };
     });
 
-    ctx.services.provide('vibex.kanban-views', kanbanService);
+    ctx.services.provide('dimo.kanban-views', kanbanService);
   },
 };

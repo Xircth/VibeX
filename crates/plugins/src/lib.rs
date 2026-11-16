@@ -108,9 +108,10 @@ pub use language_runtimes::{
     LanguageRuntimeLock, PLUGIN_WORKER_CPYTHON_VERSION, plugin_worker_cpython_lock,
 };
 pub use manifest::{
-    ActionId, ArtifactIntent, ConsoleBinding, Distribution, ManifestSource, PluginAction, PluginId,
-    PluginManifest, PluginMembership, PromptBlock, SkillDeclaration, SkillId, SkillSource,
-    ToolDependency, ToolId, ToolKind,
+    ActionId, ArtifactIntent, ConsoleBinding, Distribution, MANIFEST_DIRS, MANIFEST_DIR,
+    ManifestSource, PRE_RENAME_MANIFEST_DIR, PluginAction, PluginId, PluginManifest,
+    PluginMembership, PromptBlock, SkillDeclaration, SkillId, SkillSource, ToolDependency, ToolId,
+    ToolKind, existing_manifest_path, manifest_candidates, manifest_path,
 };
 pub use marketplace::{
     MarketplaceIndex, MarketplaceListing, PublisherTofu, archive_digest, default_index_path,

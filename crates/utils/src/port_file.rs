@@ -3,8 +3,8 @@ use std::path::PathBuf;
 use tokio::fs;
 
 pub async fn write_port_file(port: u16) -> std::io::Result<PathBuf> {
-    let dir = crate::path::get_vibex_temp_dir();
-    let path = dir.join("vibex.port");
+    let dir = crate::path::get_dimo_temp_dir();
+    let path = dir.join("dimo.port");
     tracing::debug!("Writing port {} to {:?}", port, path);
     fs::create_dir_all(&dir).await?;
     fs::write(&path, port.to_string()).await?;
@@ -12,7 +12,7 @@ pub async fn write_port_file(port: u16) -> std::io::Result<PathBuf> {
 }
 
 pub async fn read_port_file(app_name: &str) -> std::io::Result<u16> {
-    let dir = crate::path::get_vibex_temp_dir();
+    let dir = crate::path::get_dimo_temp_dir();
     let path = dir.join(format!("{app_name}.port"));
     tracing::debug!("Reading port from {:?}", path);
 

@@ -13,7 +13,7 @@ import {
   slotRegistry,
   themeRegistry,
   viewRegistry,
-} from '@vibex/plugin-sdk';
+} from '@dimoai/plugin-sdk';
 import { beforeEach, describe, expect, it } from 'vitest';
 
 import { PANEL_IDS } from '@/stores/useLayoutStore';
@@ -64,9 +64,9 @@ describe('System Bundle (coreFoundationPlugins) lifecycle & EffectScope isolatio
     expect(settingsPageRegistry.getAll()).toHaveLength(0);
     expect(kanbanViewRegistry.getAll()).toHaveLength(0);
     expect(commandRegistry.getAll()).toHaveLength(0);
-    expect(serviceContainer.has('vibex.model-catalog')).toBe(false);
-    expect(serviceContainer.has('vibex.usage')).toBe(false);
-    expect(serviceContainer.has('vibex.editor')).toBe(false);
+    expect(serviceContainer.has('dimo.model-catalog')).toBe(false);
+    expect(serviceContainer.has('dimo.usage')).toBe(false);
+    expect(serviceContainer.has('dimo.editor')).toBe(false);
   });
 
   it('marks all System Bundle plugins with bundle="system", locked=true, and a real onActivate implementation', async () => {
@@ -108,95 +108,95 @@ describe('System Bundle (coreFoundationPlugins) lifecycle & EffectScope isolatio
   it('decomposes panels, settings pages, commands, slash commands, and domain services across their respective System Bundle plugins', () => {
     ensureCoreFoundationPluginsBootstrapped();
 
-    // 1. vibex.core.workspace-git
+    // 1. dimo.core.workspace-git
     expect(panelRegistry.get(PANEL_IDS.GIT)?.pluginId).toBe(
-      'vibex.core.workspace-git'
+      'dimo.core.workspace-git'
     );
     expect(panelRegistry.get(PANEL_IDS.DIFFS)?.pluginId).toBe(
-      'vibex.core.workspace-git'
+      'dimo.core.workspace-git'
     );
     expect(panelRegistry.get(PANEL_IDS.MERGE)?.pluginId).toBe(
-      'vibex.core.workspace-git'
+      'dimo.core.workspace-git'
     );
     expect(
       settingsPageRegistry.get('builtin:/settings/version-control')?.pluginId
-    ).toBe('vibex.core.workspace-git');
+    ).toBe('dimo.core.workspace-git');
     expect(
       settingsPageRegistry.get('builtin:/settings/worktrees')?.pluginId
-    ).toBe('vibex.core.workspace-git');
+    ).toBe('dimo.core.workspace-git');
     const gitService = serviceContainer.get<{
       getGitPanelId: () => string;
       getWorktreeSettingsPath: () => string;
-    }>('vibex.core.workspace-git');
+    }>('dimo.core.workspace-git');
     expect(gitService?.getGitPanelId()).toBe(PANEL_IDS.GIT);
     expect(gitService?.getWorktreeSettingsPath()).toBe('/settings/worktrees');
 
-    // 2. vibex.core.shell
+    // 2. dimo.core.shell
     expect(panelRegistry.get(PANEL_IDS.TERMINAL)?.pluginId).toBe(
-      'vibex.core.shell'
+      'dimo.core.shell'
     );
     expect(panelRegistry.get(PANEL_IDS.PROCESSES)?.pluginId).toBe(
-      'vibex.core.shell'
+      'dimo.core.shell'
     );
     expect(commandRegistry.get('builtin.shell.new-terminal')?.pluginId).toBe(
-      'vibex.core.shell'
+      'dimo.core.shell'
     );
     const shellService = serviceContainer.get<{
       getTerminalPanelId: () => string;
       openNewTerminal: () => void;
-    }>('vibex.core.shell');
+    }>('dimo.core.shell');
     expect(shellService?.getTerminalPanelId()).toBe(PANEL_IDS.TERMINAL);
     expect(typeof shellService?.openNewTerminal).toBe('function');
 
-    // 3. vibex.core.filesystem
+    // 3. dimo.core.filesystem
     expect(panelRegistry.get(PANEL_IDS.FILE_TREE)?.pluginId).toBe(
-      'vibex.core.filesystem'
+      'dimo.core.filesystem'
     );
     expect(panelRegistry.get(PANEL_IDS.SEARCH)?.pluginId).toBe(
-      'vibex.core.filesystem'
+      'dimo.core.filesystem'
     );
     expect(panelRegistry.get(PANEL_IDS.PREVIEW)?.pluginId).toBe(
-      'vibex.core.filesystem'
+      'dimo.core.filesystem'
     );
     expect(panelRegistry.get(PANEL_IDS.EXTERNAL_DIRECTORY)?.pluginId).toBe(
-      'vibex.core.filesystem'
+      'dimo.core.filesystem'
     );
-    expect(serviceContainer.has('vibex.provider.editor-opener')).toBe(true);
+    expect(serviceContainer.has('dimo.provider.editor-opener')).toBe(true);
     expect(serviceContainer.has('provider.editor.opener')).toBe(true);
 
-    // 4. vibex.webui.conversation & vibex.core.session
+    // 4. dimo.webui.conversation & dimo.core.session
     expect(panelRegistry.get(PANEL_IDS.AI_CHAT)?.pluginId).toBe(
-      'vibex.webui.conversation'
+      'dimo.webui.conversation'
     );
     expect(panelRegistry.get(PANEL_IDS.SESSION_DETAILS)?.pluginId).toBe(
-      'vibex.webui.conversation'
+      'dimo.webui.conversation'
     );
     expect(panelRegistry.get(PANEL_IDS.SESSION_LIST)?.pluginId).toBe(
-      'vibex.core.session'
+      'dimo.core.session'
     );
     expect(
-      slashCommandRegistry.get('vibex.webui.conversation:clear')?.pluginId
-    ).toBe('vibex.webui.conversation');
+      slashCommandRegistry.get('dimo.webui.conversation:clear')?.pluginId
+    ).toBe('dimo.webui.conversation');
 
     // 5. Domain-specific Settings Pages split across core plugins
     const expectedSettingsPageOwners: ReadonlyArray<[string, string]> = [
-      ['builtin:/plugins', 'vibex.core.plugin-manager'],
-      ['builtin:/settings/logs', 'vibex.core.hmr'],
-      ['builtin:/settings/general', 'vibex.core.settings'],
-      ['builtin:/settings/system', 'vibex.core.settings'],
-      ['builtin:/settings/credentials', 'vibex.core.credentials'],
-      ['builtin:/settings/agents', 'vibex.core.agent-runtime'],
-      ['builtin:/settings/web-service', 'vibex.core.session'],
-      ['builtin:/settings/models', 'vibex.core.llm-providers'],
-      ['builtin:/settings/skills', 'vibex.core.skills'],
-      ['builtin:/settings/mcp', 'vibex.core.mcp'],
-      ['builtin:/settings/subagents', 'vibex.core.delegation'],
-      ['builtin:/settings/compaction', 'vibex.core.compaction'],
-      ['builtin:/settings/approval', 'vibex.core.approval'],
-      ['builtin:/settings/chat-channels', 'vibex.core.channels'],
-      ['builtin:/settings/instructions', 'vibex.webui.conversation'],
-      ['builtin:/settings/shortcuts', 'vibex.webui.commands'],
-      ['builtin:/settings/appearance', 'vibex.webui.theme'],
+      ['builtin:/plugins', 'dimo.core.plugin-manager'],
+      ['builtin:/settings/logs', 'dimo.core.hmr'],
+      ['builtin:/settings/general', 'dimo.core.settings'],
+      ['builtin:/settings/system', 'dimo.core.settings'],
+      ['builtin:/settings/credentials', 'dimo.core.credentials'],
+      ['builtin:/settings/agents', 'dimo.core.agent-runtime'],
+      ['builtin:/settings/web-service', 'dimo.core.session'],
+      ['builtin:/settings/models', 'dimo.core.llm-providers'],
+      ['builtin:/settings/skills', 'dimo.core.skills'],
+      ['builtin:/settings/mcp', 'dimo.core.mcp'],
+      ['builtin:/settings/subagents', 'dimo.core.delegation'],
+      ['builtin:/settings/compaction', 'dimo.core.compaction'],
+      ['builtin:/settings/approval', 'dimo.core.approval'],
+      ['builtin:/settings/chat-channels', 'dimo.core.channels'],
+      ['builtin:/settings/instructions', 'dimo.webui.conversation'],
+      ['builtin:/settings/shortcuts', 'dimo.webui.commands'],
+      ['builtin:/settings/appearance', 'dimo.webui.theme'],
     ];
 
     for (const [pageId, expectedOwner] of expectedSettingsPageOwners) {
@@ -209,29 +209,29 @@ describe('System Bundle (coreFoundationPlugins) lifecycle & EffectScope isolatio
       false
     );
 
-    // 6. vibex.webui.theme
+    // 6. dimo.webui.theme
     const themeService = serviceContainer.get<{
       listThemes: () => readonly unknown[];
       toggleTheme: () => void;
-    }>('vibex.webui.theme');
+    }>('dimo.webui.theme');
     expect(typeof themeService?.listThemes).toBe('function');
     expect(typeof themeService?.toggleTheme).toBe('function');
 
-    // 7. vibex.webui.layout owns welcome & logs panels, NOT notes (notes belongs to vibex.notes)
+    // 7. dimo.webui.layout owns welcome & logs panels, NOT notes (notes belongs to dimo.notes)
     expect(panelRegistry.get(PANEL_IDS.WELCOME)?.pluginId).toBe(
-      'vibex.webui.layout'
+      'dimo.webui.layout'
     );
     expect(panelRegistry.get(PANEL_IDS.LOGS)?.pluginId).toBe(
-      'vibex.webui.layout'
+      'dimo.webui.layout'
     );
     expect(panelRegistry.has(PANEL_IDS.NOTES)).toBe(false);
 
-    // 8. vibex.core.approval owns browser-eval-confirm overlay; vibex.core.delegation owns collaboration tab view
+    // 8. dimo.core.approval owns browser-eval-confirm overlay; dimo.core.delegation owns collaboration tab view
     expect(overlayRegistry.get('browser-eval-confirm')?.pluginId).toBe(
-      'vibex.core.approval'
+      'dimo.core.approval'
     );
     expect(viewRegistry.get('collaboration')?.pluginId).toBe(
-      'vibex.core.delegation'
+      'dimo.core.delegation'
     );
   });
 
@@ -336,47 +336,47 @@ describe('System Bundle (coreFoundationPlugins) lifecycle & EffectScope isolatio
     await bootstrapCoreFoundationPlugins();
 
     const conversationSvc = serviceContainer.get<CoreFoundationServiceBase>(
-      'vibex.webui.conversation'
+      'dimo.webui.conversation'
     );
     const agentRuntimeSvc = serviceContainer.get<CoreFoundationServiceBase>(
-      'vibex.core.agent-runtime'
+      'dimo.core.agent-runtime'
     );
 
     expect(conversationSvc?.isDependencyGraphReady()).toBe(true);
     expect(agentRuntimeSvc?.isDependencyGraphReady()).toBe(true);
     expect(
-      serviceContainer.has('vibex.dep-graph:vibex.webui.conversation')
+      serviceContainer.has('dimo.dep-graph:dimo.webui.conversation')
     ).toBe(true);
     expect(
-      serviceContainer.has('vibex.dep-graph:vibex.core.agent-runtime')
+      serviceContainer.has('dimo.dep-graph:dimo.core.agent-runtime')
     ).toBe(true);
 
-    // Unload vibex.core.llm-providers -> agent-runtime's injected sub-scope tears down
-    unloadPluginRuntime('vibex.core.llm-providers');
+    // Unload dimo.core.llm-providers -> agent-runtime's injected sub-scope tears down
+    unloadPluginRuntime('dimo.core.llm-providers');
     expect(agentRuntimeSvc?.isDependencyGraphReady()).toBe(false);
     expect(
-      serviceContainer.has('vibex.dep-graph:vibex.core.agent-runtime')
+      serviceContainer.has('dimo.dep-graph:dimo.core.agent-runtime')
     ).toBe(false);
 
-    // Reload vibex.core.llm-providers -> agent-runtime's injected sub-scope automatically recovers
-    await loadCoreFoundationPlugin('vibex.core.llm-providers');
+    // Reload dimo.core.llm-providers -> agent-runtime's injected sub-scope automatically recovers
+    await loadCoreFoundationPlugin('dimo.core.llm-providers');
     expect(agentRuntimeSvc?.isDependencyGraphReady()).toBe(true);
     expect(
-      serviceContainer.has('vibex.dep-graph:vibex.core.agent-runtime')
+      serviceContainer.has('dimo.dep-graph:dimo.core.agent-runtime')
     ).toBe(true);
 
-    // Unload vibex.core.session -> conversation's injected sub-scope tears down
-    unloadPluginRuntime('vibex.core.session');
+    // Unload dimo.core.session -> conversation's injected sub-scope tears down
+    unloadPluginRuntime('dimo.core.session');
     expect(conversationSvc?.isDependencyGraphReady()).toBe(false);
     expect(
-      serviceContainer.has('vibex.dep-graph:vibex.webui.conversation')
+      serviceContainer.has('dimo.dep-graph:dimo.webui.conversation')
     ).toBe(false);
 
-    // Reload vibex.core.session -> conversation's injected sub-scope automatically recovers
-    await loadCoreFoundationPlugin('vibex.core.session');
+    // Reload dimo.core.session -> conversation's injected sub-scope automatically recovers
+    await loadCoreFoundationPlugin('dimo.core.session');
     expect(conversationSvc?.isDependencyGraphReady()).toBe(true);
     expect(
-      serviceContainer.has('vibex.dep-graph:vibex.webui.conversation')
+      serviceContainer.has('dimo.dep-graph:dimo.webui.conversation')
     ).toBe(true);
   });
 });

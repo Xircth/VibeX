@@ -10,7 +10,7 @@ Use the `computer_*` MCP tools to inspect and interact with desktop application 
 ## Workflow
 
 1. **Discover Windows**: Call `computer_list_windows` (or `computer_list_apps`) first to obtain `targetId` (e.g. `"w1"`, or `"screen"` when the entire screen is shared) and check its grant `level` (`"read"` or `"control"`).
-   - If a window is marked `[not shared]`, ask the user to share it in **VibeX 设置 → 电脑控制 → 共享窗口…**.
+   - If a window is marked `[not shared]`, ask the user to share it in **Dimo 设置 → 电脑控制 → 共享窗口…**.
 2. **Read Before Acting**:
    - Prefer `computer_snapshot` to read the accessibility tree. It returns numbered element references `[N]` and a `generation` token (e.g. `"1.2"`).
    - Use `computer_screenshot` when visual layout or canvas content is needed, or when targeting `"screen"`. It also returns a `generation` token.

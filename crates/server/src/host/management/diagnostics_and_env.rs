@@ -352,7 +352,7 @@ async fn launch_management_terminal(
     }
     let home =
         dirs::home_dir().ok_or_else(|| ApplicationError::internal("home directory missing"))?;
-    let mutations = model_providers::prepare_kimi_vibex_configuration_cleanup(&home, environment)
+    let mutations = model_providers::prepare_kimi_dimo_configuration_cleanup(&home, environment)
         .await
         .map_err(internal_error)?;
     apply_config_transition_then(mutations, || spawn_agent_management_terminal(command)).await
@@ -524,7 +524,7 @@ pub(super) async fn terminal_path_probe(command: &str, app_path: &[PathBuf]) -> 
         };
     }
     let script =
-        format!("printf 'VIBEX_PATH=%s\\n' \"$PATH\"; command -v {command} 2>/dev/null || true");
+        format!("printf 'DIMO_PATH=%s\\n' \"$PATH\"; command -v {command} 2>/dev/null || true");
     let mut process =
         utils::process::new_hidden_tokio_command(&shell, ["-lic", script.as_str()].into_iter());
     process.kill_on_drop(true);
@@ -545,7 +545,7 @@ pub(super) async fn terminal_path_probe(command: &str, app_path: &[PathBuf]) -> 
         .map(str::trim)
         .filter(|line| !line.is_empty())
     {
-        if let Some(path) = line.strip_prefix("VIBEX_PATH=") {
+        if let Some(path) = line.strip_prefix("DIMO_PATH=") {
             shell_path = std::env::split_paths(path).collect();
         } else if command_path.is_none() && Path::new(line).is_absolute() {
             command_path = Some(line.to_string());
@@ -610,7 +610,7 @@ pub(super) fn render_plain_text(
     app_path: &[PathBuf],
 ) -> String {
     let mut lines = vec![
-        "===== VibeX Agent environment diagnostics =====".to_string(),
+        "===== Dimo Agent environment diagnostics =====".to_string(),
         format!("agent: {agent_id}"),
         format!("verdict: {verdict}"),
         format!("generated_at: {generated_at}"),
@@ -1211,7 +1211,7 @@ mod tests {
     async fn a_failed_launch_takes_the_configuration_transition_back() {
         let temp = tempfile::tempdir().unwrap();
         let path = temp.path().join("config.toml");
-        let original = b"default_model = \"vibex\"\n".to_vec();
+        let original = b"default_model = \"dimo\"\n".to_vec();
         tokio::fs::write(&path, &original).await.unwrap();
 
         let error = apply_config_transition_then(
@@ -1238,7 +1238,7 @@ mod tests {
     async fn a_failed_launch_recreates_a_credential_the_transition_removed() {
         let temp = tempfile::tempdir().unwrap();
         let path = temp.path().join("kimi-code.json");
-        let original = br#"{"access_token":"vibex-local-gate"}"#.to_vec();
+        let original = br#"{"access_token":"dimo-local-gate"}"#.to_vec();
         tokio::fs::write(&path, &original).await.unwrap();
 
         apply_config_transition_then(
@@ -1294,7 +1294,7 @@ mod tests {
     async fn a_transition_that_launches_stays_applied() {
         let temp = tempfile::tempdir().unwrap();
         let path = temp.path().join("config.toml");
-        let original = b"default_model = \"vibex\"\n".to_vec();
+        let original = b"default_model = \"dimo\"\n".to_vec();
         tokio::fs::write(&path, &original).await.unwrap();
 
         apply_config_transition_then(

@@ -2,7 +2,7 @@
 
 ## Objective
 
-重构 VibeX 的 worktree 创建和分发逻辑，解决三个核心问题：
+重构 Dimo 的 worktree 创建和分发逻辑，解决三个核心问题：
 
 1. **现有工作区选择器概念混淆**（module: `existing-workspace-restrict`）：当前新建会话时，"选择现有工作区"模式下 WorkspaceSelector 同时列出了 worktree workspace、project-root workspace 和所有本地分支。用户可能误选分支导致主目录被 `git checkout` 切换。需要将"选择现有工作区"严格限制为 worktree + 默认目录，分支仅在"新建工作区"模式下作为二级菜单出现。
 
@@ -72,7 +72,7 @@
 
 实际选择：**统一使用 shadcn `Dialog` 组件**。Tab 模式下 Dialog 渲染在 B 区 overlay 层（通过 portal 挂载到 `[data-overlay-root]`），Canvas 模式下同样使用 Dialog 但定位为左侧居中。通过 `useLayoutStore` 的 `activeTab` 判断模式。
 
-**表单字段**（对应 Orca 截图 + VibeX 已有能力）：
+**表单字段**（对应 Orca 截图 + Dimo 已有能力）：
 
 | 字段 | 类型 | 后端映射 | 必填 |
 |------|------|---------|------|
@@ -250,7 +250,7 @@ crates/
 
 ## Code Style
 
-遵循 VibeX 现有规范：
+遵循 Dimo 现有规范：
 - Rust: `cargo fmt`, `clippy -D warnings --features qa-mode`
 - TypeScript: ESLint (max-warnings 0), Prettier
 - 组件使用 shadcn/ui + Astryx 设计系统
@@ -299,7 +299,7 @@ crates/
 
 ## Open Questions
 
-1. **父工作树的语义**：Orca 的"父工作树"是 lineage 关系（用于侧边栏嵌套展示），VibeX 的 `parent_workspace_id` 也用于此目的。表单中选择父工作树时，是否需要在 UI 上展示 lineage 树结构，还是简单的 Select 下拉即可？
+1. **父工作树的语义**：Orca 的"父工作树"是 lineage 关系（用于侧边栏嵌套展示），Dimo 的 `parent_workspace_id` 也用于此目的。表单中选择父工作树时，是否需要在 UI 上展示 lineage 树结构，还是简单的 Select 下拉即可？
    → 建议：简单 Select 下拉，列出已有 worktree workspace 即可。
 
 2. **"等待设置完成后再启动智能体"**：此 toggle 当前无后端实现（因为独立创建 worktree 不启动 session）。是否需要为未来启动 session 预留此字段？

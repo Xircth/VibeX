@@ -40,7 +40,7 @@ describe('app icon preference', () => {
 
   it('persists a valid style and notifies live logo consumers', () => {
     const listener = vi.fn();
-    window.addEventListener('vibex:app-icon-changed', listener);
+    window.addEventListener('dimo:app-icon-changed', listener);
 
     setAppIconStyle('lite');
 
@@ -51,7 +51,7 @@ describe('app icon preference', () => {
     );
     expect(listener).toHaveBeenCalledOnce();
 
-    window.removeEventListener('vibex:app-icon-changed', listener);
+    window.removeEventListener('dimo:app-icon-changed', listener);
   });
 
   it('maps both icon styles to the matching light and dark assets', () => {

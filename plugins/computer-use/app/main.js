@@ -36,7 +36,7 @@ function createComputerUseSurfaceComponent(ctx, defaultSurfaceId, defaultSlot) {
 
 export default {
   apiVersion: '2.0',
-  id: 'vibex-plugin-computer-use',
+  id: 'dimo-plugin-computer-use',
   activate(ctx) {
     const ComputerUseSettingsComponent = createComputerUseSurfaceComponent(
       ctx,
@@ -78,7 +78,7 @@ export default {
     });
 
     ctx.ui.registerCommand({
-      id: 'vibex.computer-use.emergency-stop',
+      id: 'dimo.computer-use.emergency-stop',
       title: 'Computer Use: Emergency Stop',
       category: 'Computer Use',
       icon: 'monitor',
@@ -103,7 +103,7 @@ export default {
         'Use the Computer Use accessibility snapshot and window tools to:',
     });
 
-    ctx.services.provide('vibex.computer-use', {
+    ctx.services.provide('dimo.computer-use', {
       emergencyStopHotkey: 'Ctrl+Alt+Escape',
       async emergencyStop() {
         ctx.events.emit('computer-use:emergency-stop');

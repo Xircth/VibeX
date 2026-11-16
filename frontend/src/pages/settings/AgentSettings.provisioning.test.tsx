@@ -815,7 +815,7 @@ describe('AgentSettings (provisioning, preflight & updates)', () => {
     );
     expect(screen.queryByRole('progressbar')).not.toBeInTheDocument();
     expect(screen.getByRole('log', { name: '安装日志' })).toHaveTextContent(
-      '$ vibex agent update codex'
+      '$ dimo agent update codex'
     );
 
     await act(async () => {

@@ -1396,7 +1396,7 @@ export const useLayoutStore = create<LayoutState>()(
       },
     }),
     {
-      name: 'vibex-ide-layout',
+      name: 'dimo-ide-layout',
       version: 30,
       migrate: migratePersistedLayoutState,
       merge: mergePersistedLayoutState,

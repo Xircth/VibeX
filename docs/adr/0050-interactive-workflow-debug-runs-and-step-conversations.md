@@ -2,7 +2,7 @@
 status: accepted
 date: 2026-08-14
 decision-makers:
-  - VibeX maintainers
+  - Dimo maintainers
 ---
 
 # 交互式 Workflow 调试运行与步骤会话

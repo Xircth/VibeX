@@ -278,7 +278,7 @@ function ModelSchemaField({
 }
 
 export const CODE_COMPLETION_SHORTCUT_STORAGE_KEY =
-  'vibex:code-completion:manualShortcut';
+  'dimo:code-completion:manualShortcut';
 
 export function formatShortcutFromKeyboardEvent(
   event: KeyboardEvent
@@ -914,7 +914,7 @@ export async function savePluginConfigResilient(
     typeof window.dispatchEvent === 'function'
   ) {
     window.dispatchEvent(
-      new CustomEvent('vibex:plugin-config-updated', {
+      new CustomEvent('dimo:plugin-config-updated', {
         detail: { pluginId, config: effectiveConfig },
       })
     );
@@ -1155,10 +1155,10 @@ export function PluginConfigForm({
     [properties, draft, detail.configSchema]
   );
 
-  if (detail.configSchema['x-vibex-config-surface'] === 'settings') {
+  if (detail.configSchema['x-dimo-config-surface'] === 'settings') {
     const pageId =
-      typeof detail.configSchema['x-vibex-settings-page'] === 'string'
-        ? detail.configSchema['x-vibex-settings-page']
+      typeof detail.configSchema['x-dimo-settings-page'] === 'string'
+        ? detail.configSchema['x-dimo-settings-page']
         : 'settings';
     return (
       <div className="settings-surface product-plugin-config-shell">
@@ -1193,7 +1193,7 @@ export function PluginConfigForm({
     );
   }
   if (
-    detail.configSchema['x-vibex-config-form'] === false ||
+    detail.configSchema['x-dimo-config-form'] === false ||
     visibleProperties.length === 0
   ) {
     return <p className="product-plugin-muted">{t('plugins.noConfig')}</p>;

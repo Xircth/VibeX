@@ -555,4 +555,145 @@ describe('turn chronological ordering regressions (new turn never placed before 
     const entry = state.byConversationId[CONVERSATION_ID]!;
     expect(entry.optimisticTurns.map((t) => t.id)).toEqual(['optimistic-2']);
   });
+
+  it('does not let the {conversationId}:user session seed row strip optimistic images or drop the pending assistant bubble', () => {
+    let state = conversationStoreReducer(emptyConversationStoreState, {
+      type: 'optimistic_turn',
+      conversationId: CONVERSATION_ID,
+      turn: messageTurn(
+        'optimistic-seed-1',
+        'user',
+        [
+          { type: 'text', text: 'Inspect screenshot' },
+          {
+            type: 'image',
+            data: '',
+            mime_type: 'image/png',
+            uri: '.vibe-images/shot.png',
+          },
+        ],
+        '2026-07-03T10:00:00.000Z'
+      ),
+    });
+
+    // Session detail loads with only the text-only {conversationId}:user seed row before turn projection starts
+    const seedRow = timelineRow(`${CONVERSATION_ID}:user`, 1n, {
+      kind: 'message_turn',
+      phase: 'settled',
+      turn: messageTurn(
+        `${CONVERSATION_ID}:user`,
+        'user',
+        [{ type: 'text', text: 'Inspect screenshot' }],
+        '2026-07-03T10:00:00.000Z'
+      ),
+    });
+
+    state = conversationStoreReducer(state, {
+      type: 'load_success',
+      conversationId: CONVERSATION_ID,
+      detail: emptyDetail([seedRow], 1n),
+    });
+
+    const entry = state.byConversationId[CONVERSATION_ID]!;
+    expect(entry.optimisticTurns).toHaveLength(1);
+    const turns = timelineTurnsForEntry(entry);
+    const user = turns.find((t) => t.turn.role === 'user');
+    const assistant = turns.find((t) => t.turn.role === 'assistant');
+    expect(user?.turn.blocks).toEqual([
+      { type: 'text', text: 'Inspect screenshot' },
+      {
+        type: 'image',
+        data: '',
+        mime_type: 'image/png',
+        uri: '.vibe-images/shot.png',
+      },
+    ]);
+    expect(assistant?.phase).toBe('streaming');
+  });
+
+  it('matches image-only optimistic turns by image count and URI basename instead of blindly matching empty text', () => {
+    let state = conversationStoreReducer(emptyConversationStoreState, {
+      type: 'load_success',
+      conversationId: CONVERSATION_ID,
+      detail: emptyDetail([], 0n),
+    });
+
+    state = conversationStoreReducer(state, {
+      type: 'optimistic_turn',
+      conversationId: CONVERSATION_ID,
+      turn: messageTurn(
+        'opt-img-alpha',
+        'user',
+        [
+          {
+            type: 'image',
+            data: '',
+            mime_type: 'image/png',
+            uri: '.vibe-images/alpha.png',
+          },
+        ],
+        '2026-07-03T10:00:00.000Z'
+      ),
+    });
+    state = conversationStoreReducer(state, {
+      type: 'optimistic_turn',
+      conversationId: CONVERSATION_ID,
+      turn: messageTurn(
+        'opt-img-beta',
+        'user',
+        [
+          {
+            type: 'image',
+            data: '',
+            mime_type: 'image/png',
+            uri: '.vibe-images/beta.png',
+          },
+          {
+            type: 'image',
+            data: '',
+            mime_type: 'image/png',
+            uri: '.vibe-images/gamma.png',
+          },
+        ],
+        '2026-07-03T10:00:01.000Z'
+      ),
+    });
+
+    // Authoritative user row for the 2-image beta+gamma message arrives first
+    state = conversationStoreReducer(state, {
+      type: 'row_ops',
+      batch: {
+        conversation_id: CONVERSATION_ID,
+        last_sequence: 1n,
+        ops: [
+          {
+            op: 'upsert',
+            row: timelineRow('turn-beta:user', 1n, {
+              kind: 'message_turn',
+              phase: 'streaming',
+              turn: messageTurn('turn-beta:user', 'user', [
+                {
+                  type: 'image',
+                  data: '',
+                  mime_type: 'image/png',
+                  uri: 'file:///workspace/.vibe-images/beta.png',
+                },
+                {
+                  type: 'image',
+                  data: '',
+                  mime_type: 'image/png',
+                  uri: 'file:///workspace/.vibe-images/gamma.png',
+                },
+              ]),
+            }),
+          },
+        ],
+        session_modes: null,
+        session_config_options: null,
+      },
+    });
+
+    const entry = state.byConversationId[CONVERSATION_ID]!;
+    expect(entry.optimisticTurns.map((t) => t.id)).toEqual(['opt-img-alpha']);
+  });
 });

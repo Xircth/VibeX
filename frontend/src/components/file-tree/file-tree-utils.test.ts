@@ -374,21 +374,21 @@ describe('deriveFileTreeContextMenuPosition', () => {
 
 describe('deriveFileTreeContextMenuHeader', () => {
   it('uses the workspace root label for the root context menu', () => {
-    expect(deriveFileTreeContextMenuHeader('', 'VibeX')).toEqual({
-      title: 'VibeX',
+    expect(deriveFileTreeContextMenuHeader('', 'Dimo')).toEqual({
+      title: 'Dimo',
       subtitle: null,
     });
   });
 
   it('uses the path leaf as title and full relative path as subtitle', () => {
     expect(
-      deriveFileTreeContextMenuHeader('src/components/Button.tsx', 'VibeX')
+      deriveFileTreeContextMenuHeader('src/components/Button.tsx', 'Dimo')
     ).toEqual({
       title: 'Button.tsx',
       subtitle: 'src/components/Button.tsx',
     });
 
-    expect(deriveFileTreeContextMenuHeader('/tmp/file.txt', 'VibeX')).toEqual({
+    expect(deriveFileTreeContextMenuHeader('/tmp/file.txt', 'Dimo')).toEqual({
       title: 'file.txt',
       subtitle: '/tmp/file.txt',
     });

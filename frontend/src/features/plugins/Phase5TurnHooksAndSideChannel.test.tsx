@@ -9,7 +9,7 @@ import {
   promptContextRegistry,
   serviceContainer,
   slotRegistry,
-} from '@vibex/plugin-sdk';
+} from '@dimoai/plugin-sdk';
 import { createConversationApi } from '@/features/conversation/conversationApi';
 import {
   loadPluginRuntime,
@@ -40,8 +40,8 @@ describe('Phase 5: beforeTurn Implicit Prompt Contributions, InternalMessageCapt
       listen: vi.fn(async () => () => undefined),
     };
 
-    const ctxMemory = createPluginContext({ pluginId: 'vibex.memory' });
-    const ctxRules = createPluginContext({ pluginId: 'vibex.rules' });
+    const ctxMemory = createPluginContext({ pluginId: 'dimo.memory' });
+    const ctxRules = createPluginContext({ pluginId: 'dimo.rules' });
 
     ctxMemory.registerPromptContext({
       id: 'memory-recall',
@@ -49,7 +49,7 @@ describe('Phase 5: beforeTurn Implicit Prompt Contributions, InternalMessageCapt
       beforeTurn: async () => ({
         label: 'Memory Context',
         content:
-          'User prefers Rust 2024 edition.\nWhen storing facts emit <vibex-internal-meta channel="memory.save" nonce="n99">{"fact":"..."}</vibex-internal-meta>',
+          'User prefers Rust 2024 edition.\nWhen storing facts emit <dimo-internal-meta channel="memory.save" nonce="n99">{"fact":"..."}</dimo-internal-meta>',
       }),
     });
 
@@ -72,14 +72,14 @@ describe('Phase 5: beforeTurn Implicit Prompt Contributions, InternalMessageCapt
     expect(reqPayload?.text).toBe('Fix the parser bug');
     expect(reqPayload?.internalPromptContributions).toEqual([
       {
-        pluginId: 'vibex.memory',
+        pluginId: 'dimo.memory',
         label: 'Memory Context',
         content:
-          'User prefers Rust 2024 edition.\nWhen storing facts emit <vibex-internal-meta channel="memory.save" nonce="n99">{"fact":"..."}</vibex-internal-meta>',
+          'User prefers Rust 2024 edition.\nWhen storing facts emit <dimo-internal-meta channel="memory.save" nonce="n99">{"fact":"..."}</dimo-internal-meta>',
         priority: 10,
       },
       {
-        pluginId: 'vibex.rules',
+        pluginId: 'dimo.rules',
         label: null,
         content: 'Always run cargo check before finishing.',
         priority: 20,
@@ -91,7 +91,7 @@ describe('Phase 5: beforeTurn Implicit Prompt Contributions, InternalMessageCapt
   });
 
   it('strips internal side-channel frames across streaming chunks and routes validated payloads to plugins', async () => {
-    const ctx = createPluginContext({ pluginId: 'vibex.memory' });
+    const ctx = createPluginContext({ pluginId: 'dimo.memory' });
     const captured: Array<{ fact: string }> = [];
 
     ctx.hooks.captureInternalMessage({
@@ -111,7 +111,7 @@ describe('Phase 5: beforeTurn Implicit Prompt Contributions, InternalMessageCapt
 
     // Chunk 1: trailing incomplete internal tag is hidden from user-visible text
     const chunk1 =
-      'I fixed the parser bug.\n<vibex-internal-meta channel="memory.save" nonce="n99">{"fact":"parser';
+      'I fixed the parser bug.\n<dimo-internal-meta channel="memory.save" nonce="n99">{"fact":"parser';
     const res1 = extractAndStripInternalMessages(chunk1, {
       conversationId: 'conv-1',
       turnId: 'turn-1',
@@ -121,7 +121,7 @@ describe('Phase 5: beforeTurn Implicit Prompt Contributions, InternalMessageCapt
     expect(captured).toHaveLength(0);
 
     // Chunk 2: complete tag is stripped and dispatched
-    const fullText = `${chunk1} uses nom"}</vibex-internal-meta>\n\nAll tests pass.`;
+    const fullText = `${chunk1} uses nom"}</dimo-internal-meta>\n\nAll tests pass.`;
     const res2 = extractAndStripInternalMessages(fullText, {
       conversationId: 'conv-1',
       turnId: 'turn-1',
@@ -132,7 +132,7 @@ describe('Phase 5: beforeTurn Implicit Prompt Contributions, InternalMessageCapt
 
     // Host-pushed event via dispatchCapturedInternalMessage also validates nonce + schema
     dispatchCapturedInternalMessage({
-      pluginId: 'vibex.memory',
+      pluginId: 'dimo.memory',
       channel: 'memory.save',
       nonce: 'n99',
       rawPayload: '{"fact":"second fact"}',
@@ -149,7 +149,7 @@ describe('Phase 5: beforeTurn Implicit Prompt Contributions, InternalMessageCapt
   });
 
   it('invokes ctx.hooks.afterTurn when conversation-after-turn settles', async () => {
-    const ctx = createPluginContext({ pluginId: 'vibex.audit' });
+    const ctx = createPluginContext({ pluginId: 'dimo.audit' });
     const settled: string[] = [];
 
     ctx.hooks.afterTurn((event) => {
@@ -168,11 +168,11 @@ describe('Phase 5: beforeTurn Implicit Prompt Contributions, InternalMessageCapt
     ctx.dispose();
   });
 
-  it('hot-loads an AI-authored single-file ESM plugin (with bare react & @vibex/plugin-sdk imports) end-to-end', async () => {
+  it('hot-loads an AI-authored single-file ESM plugin (with bare react & @dimoai/plugin-sdk imports) end-to-end', async () => {
     slotRegistry.clear();
     const generatedMainJs = `
       import React, { createElement } from 'react';
-      import { serviceContainer } from '@vibex/plugin-sdk';
+      import { serviceContainer } from '@dimoai/plugin-sdk';
 
       export default function activate(ctx) {
         ctx.ui.registerStatusBarItem({
@@ -203,7 +203,7 @@ describe('Phase 5: beforeTurn Implicit Prompt Contributions, InternalMessageCapt
     );
 
     const extracted = extractAndStripInternalMessages(
-      'Pushing now.\n```vibex-internal:git.autoPush:n1\n{"branch":"feat/nextgen","pushed":3}\n```',
+      'Pushing now.\n```dimo-internal:git.autoPush:n1\n{"branch":"feat/nextgen","pushed":3}\n```',
       { conversationId: 'conv-ai', turnId: 'turn-ai' }
     );
     expect(extracted.cleanedText).toBe('Pushing now.');
@@ -291,10 +291,10 @@ describe('Phase 5: beforeTurn Implicit Prompt Contributions, InternalMessageCapt
 
     // Also verify single-file ESM with `import type` and inline `type` specifiers loads cleanly
     const tsFlavoredEsm = `
-      import type { PluginContext } from '@vibex/plugin-sdk';
-      import { type VibeXPlugin, defineVibeXPlugin } from '@vibex/plugin-sdk';
+      import type { PluginContext } from '@dimoai/plugin-sdk';
+      import { type DimoPlugin, defineDimoPlugin } from '@dimoai/plugin-sdk';
 
-      export default defineVibeXPlugin({
+      export default defineDimoPlugin({
         id: 'user.ts-esm',
         activate(ctx) {
           ctx.ui.registerStatusBarItem({ id: 'ts-chip', label: 'TS OK' });

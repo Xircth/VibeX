@@ -9,14 +9,14 @@ const {
   shouldSkipFrontendBuild,
 } = require('./tauri-before-build');
 
-test('frontend build is skipped only when VIBEX_SKIP_FRONTEND_BUILD=1', () => {
+test('frontend build is skipped only when DIMO_SKIP_FRONTEND_BUILD=1', () => {
   assert.equal(shouldSkipFrontendBuild({}), false);
-  assert.equal(shouldSkipFrontendBuild({ VIBEX_SKIP_FRONTEND_BUILD: '' }), false);
-  assert.equal(shouldSkipFrontendBuild({ VIBEX_SKIP_FRONTEND_BUILD: '1' }), true);
+  assert.equal(shouldSkipFrontendBuild({ DIMO_SKIP_FRONTEND_BUILD: '' }), false);
+  assert.equal(shouldSkipFrontendBuild({ DIMO_SKIP_FRONTEND_BUILD: '1' }), true);
 });
 
 test('skipped frontend build requires a prepared dist', () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'vibex-frontend-dist-'));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dimo-frontend-dist-'));
   const dist = path.join(root, 'frontend', 'dist');
 
   try {

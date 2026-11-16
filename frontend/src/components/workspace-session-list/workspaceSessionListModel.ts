@@ -11,8 +11,8 @@ import { dateTimestamp } from '@/utils/date';
 export { sanitizeSessionListTitle };
 
 export const WORKSPACE_SESSION_GROUPS_COLLAPSED_KEY =
-  'vibex-workspace-session-groups-collapsed';
-export const WORKSPACE_SESSION_ORDER_KEY = 'vibex-workspace-session-order';
+  'dimo-workspace-session-groups-collapsed';
+export const WORKSPACE_SESSION_ORDER_KEY = 'dimo-workspace-session-order';
 export const PINNED_SESSION_GROUP_ID = '__pinned__';
 
 export type WorkspaceSessionStatusTone =

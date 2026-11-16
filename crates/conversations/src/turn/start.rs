@@ -61,15 +61,7 @@ impl ConversationSessionService {
             let _turn_guard = turn_lock.lock().await;
             self.commit_new_turn(input, origin).await?
         };
-        let result = self.complete_committed_turn(committed).await;
-        if result
-            .as_ref()
-            .err()
-            .is_some_and(ConversationServiceError::should_retry_queued_dispatch)
-        {
-            self.spawn_next_queued_input_after_failure(conversation_id);
-        }
-        result
+        self.complete_committed_turn(committed).await
     }
 
     pub(super) async fn complete_committed_turn(
@@ -202,11 +194,32 @@ impl ConversationSessionService {
                             Some(format!("turn:{turn_id}:auth_required")),
                         )
                         .await?;
+                    if ConversationRecord::find_by_id(pool, input.conversation_id)
+                        .await?
+                        .and_then(|conversation| conversation.active_turn_id)
+                        == Some(turn_id)
+                    {
+                        ConversationRecord::update_active_turn(pool, input.conversation_id, None)
+                            .await?;
+                    }
                     self.update_runtime_state(input.conversation_id, |state| {
+                        state.turn_in_flight = false;
+                        if state.active_turn_id == Some(turn_id) {
+                            state.active_turn_id = None;
+                            state.active_prompt_id = None;
+                        }
+                        state.pending_permission_id = None;
+                        state.pending_question_id = None;
                         state.event_sequence = blocked.sequence;
                         state.recovery_status = Some("auth_required".to_string());
                     })
                     .await;
+                    spawn_turn_end_collaboration_cleanup(
+                        self.ctx.clone(),
+                        input.conversation_id,
+                        false,
+                        None,
+                    );
                     return Err(error);
                 }
                 let failed = self
@@ -222,8 +235,20 @@ impl ConversationSessionService {
                         Some(format!("turn:{turn_id}:send_failed")),
                     )
                     .await?;
+                if ConversationRecord::find_by_id(pool, input.conversation_id)
+                    .await?
+                    .and_then(|conversation| conversation.active_turn_id)
+                    == Some(turn_id)
+                {
+                    ConversationRecord::update_active_turn(pool, input.conversation_id, None)
+                        .await?;
+                }
                 self.update_runtime_state(input.conversation_id, |state| {
                     state.turn_in_flight = false;
+                    if state.active_turn_id == Some(turn_id) {
+                        state.active_turn_id = None;
+                        state.active_prompt_id = None;
+                    }
                     state.event_sequence = failed.sequence;
                     state.recovery_status = Some("send_failed".to_string());
                 })
@@ -243,6 +268,14 @@ impl ConversationSessionService {
                     false,
                     None,
                 );
+                if !matches!(
+                    error,
+                    ConversationServiceError::AuthenticationRequired(_)
+                        | ConversationServiceError::SessionUnavailable { .. }
+                        | ConversationServiceError::NotFound(_)
+                ) {
+                    self.spawn_next_queued_input_after_failure(input.conversation_id);
+                }
                 Err(error)
             }
         }
@@ -289,6 +322,7 @@ impl ConversationSessionService {
                 queued_input_claim: None,
                 operation_id: None,
                 collaboration_origin: None,
+                provider_instance_id: None,
             },
             crate::commit_reminder::USER_ORIGIN,
         )

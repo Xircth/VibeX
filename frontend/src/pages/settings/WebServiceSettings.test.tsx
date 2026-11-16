@@ -53,7 +53,11 @@ vi.mock('@/components/ui/toast', () => ({
   },
 }));
 
-const vibexAccountMock = vi.hoisted(() => ({
+vi.mock('@/utils/clipboard', () => ({
+  writeTextToClipboard: vi.fn(async () => true),
+}));
+
+const dimoAccountMock = vi.hoisted(() => ({
   isSignedIn: true,
   overview: {
     relayPermission: true,
@@ -84,7 +88,7 @@ vi.mock('@/features/model-router', async (importOriginal) => {
     await importOriginal<typeof import('@/features/model-router')>();
   return {
     ...actual,
-    useVibeXAccount: () => vibexAccountMock,
+    useDimoAccount: () => dimoAccountMock,
     syncCurrentHostRelayLease: vi.fn(async () => true),
   };
 });
@@ -127,7 +131,7 @@ function renderSettings(
       expires_at: '2026-08-17T00:00:00Z',
       requested_scopes: ['conversation.read'],
       invitation:
-        'vibex-pairing:{"pairing_token":"pair-once-secret","reachability":[{"origin":"http://192.168.1.20:17891","kind":"lan"}]}',
+        'dimo-pairing:{"pairing_token":"pair-once-secret","reachability":[{"origin":"http://192.168.1.20:17891","kind":"lan"}]}',
       reachability: [{ origin: 'http://192.168.1.20:17891', kind: 'lan' }],
     })),
   };
@@ -141,8 +145,8 @@ function renderSettings(
 
 describe('WebServiceSettings', () => {
   beforeEach(() => {
-    vibexAccountMock.isSignedIn = true;
-    vibexAccountMock.overview = {
+    dimoAccountMock.isSignedIn = true;
+    dimoAccountMock.overview = {
       relayPermission: true,
       assignedRelayServer: {
         id: 'relay-default-1',
@@ -578,7 +582,7 @@ describe('WebServiceSettings', () => {
     const tunnel = await screen.findByRole('switch', { name: '云服务' });
     expect(tunnel).toBeVisible();
     webServiceApiMock.getConfig.mockClear();
-    window.dispatchEvent(new Event('vibex://settings-file-changed'));
+    window.dispatchEvent(new Event('dimo://settings-file-changed'));
     await waitFor(() => expect(webServiceApiMock.getConfig).toHaveBeenCalled());
     expect(screen.getByRole('switch', { name: '云服务' })).toBe(tunnel);
   });
@@ -604,7 +608,7 @@ describe('WebServiceSettings', () => {
   });
 
   it('hides the Cloud Relay Service (Beta) section when the account does not have relay permission', async () => {
-    vibexAccountMock.overview = {
+    dimoAccountMock.overview = {
       relayPermission: false,
       assignedRelayServer: null,
     };
@@ -616,6 +620,41 @@ describe('WebServiceSettings', () => {
     expect(
       screen.queryByRole('switch', { name: '云服务' })
     ).not.toBeInTheDocument();
+  });
+
+  it('shows toast error and preserves actual tunnel state when selecting cloud mode fails', async () => {
+    const user = userEvent.setup();
+    const { toast } = await import('@/components/ui/toast');
+    hostTunnelApiMock.setEnabled
+      .mockResolvedValueOnce({
+        enabled: false,
+        saved: [],
+        active_id: null,
+        pending: null,
+        relay_state: 'idle',
+        last_error: null,
+      })
+      .mockRejectedValueOnce(new Error('Relay service unreachable'));
+    hostTunnelApiMock.get.mockResolvedValue({
+      enabled: false,
+      saved: [],
+      active_id: null,
+      pending: null,
+      relay_state: 'idle',
+      last_error: null,
+    });
+
+    renderSettings();
+
+    await user.click(await screen.findByRole('switch', { name: '启动' }));
+    const cloudBtn = await screen.findByRole('button', {
+      name: /使用云服务 Beta/,
+    });
+    await user.click(cloudBtn);
+
+    await waitFor(() =>
+      expect(toast.error).toHaveBeenCalledWith('Relay service unreachable')
+    );
   });
 });
 

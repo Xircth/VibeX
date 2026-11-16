@@ -1,6 +1,6 @@
 import { PANEL_IDS } from '@/stores/useLayoutStore';
 
-export const TERMINAL_LIST_PANE_STORAGE_KEY = 'vibex.terminal.listPaneWidth';
+export const TERMINAL_LIST_PANE_STORAGE_KEY = 'dimo.terminal.listPaneWidth';
 export const TERMINAL_LIST_PANE_DEFAULT_WIDTH = 96;
 export const TERMINAL_LIST_PANE_MIN_WIDTH = 72;
 export const TERMINAL_LIST_PANE_MAX_WIDTH = 280;

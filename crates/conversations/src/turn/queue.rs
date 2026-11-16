@@ -45,11 +45,29 @@ impl ConversationSessionService {
         let dispatched = match self.dispatch_next_queued_input(conversation_id).await {
             Ok(turn) => turn,
             Err(error) => {
+                let current = inputs.find(conversation_id, submitted.id).await?;
+                if current.turn_id.is_none() {
+                    if matches!(
+                        current.status,
+                        ConversationInputStatus::Queued | ConversationInputStatus::Scheduled
+                    ) {
+                        let _ = inputs
+                            .cancel(crate::CancelConversationInput {
+                                conversation_id,
+                                input_id: submitted.id,
+                                operation_id: Uuid::new_v4(),
+                                expected_revision: current.revision,
+                            })
+                            .await;
+                    }
+                    return Err(error);
+                }
                 tracing::warn!(
                     %conversation_id,
                     input_id = %submitted.id,
+                    turn_id = ?current.turn_id,
                     %error,
-                    "durable conversation input was accepted; dispatch will retry later"
+                    "committed turn failed during initial handshake"
                 );
                 None
             }
@@ -67,7 +85,7 @@ impl ConversationSessionService {
         let context = self.ctx.clone();
         tokio::spawn(async move {
             if let Err(dispatch_error) = ConversationSessionService::new(context)
-                .dispatch_one_queued_input(conversation_id)
+                .dispatch_next_queued_input(conversation_id)
                 .await
             {
                 tracing::warn!(
@@ -104,15 +122,7 @@ impl ConversationSessionService {
         &self,
         conversation_id: Uuid,
     ) -> Result<Option<ConversationTurnSnapshot>, ConversationServiceError> {
-        let result = self.dispatch_one_queued_input(conversation_id).await;
-        if result
-            .as_ref()
-            .err()
-            .is_some_and(ConversationServiceError::should_retry_queued_dispatch)
-        {
-            self.spawn_next_queued_input_after_failure(conversation_id);
-        }
-        result
+        self.dispatch_one_queued_input(conversation_id).await
     }
 
     pub(super) async fn dispatch_one_queued_input(
@@ -199,6 +209,7 @@ impl ConversationSessionService {
                     }),
                     operation_id: None,
                     collaboration_origin: payload.collaboration_origin,
+                    provider_instance_id: payload.provider_instance_id,
                 },
                 crate::commit_reminder::LOCAL_USER_ORIGIN,
             )
@@ -294,6 +305,7 @@ pub(super) fn start_turn_input_payload(
         file_refs: input.file_refs.clone(),
         internal_prompt_contributions: input.internal_prompt_contributions.clone(),
         collaboration_origin: input.collaboration_origin.clone(),
+        provider_instance_id: input.provider_instance_id.clone(),
     })
 }
 
@@ -517,9 +529,7 @@ pub async fn fork_visible_conversation(
     };
     drop(conn);
 
-    let copied = crate::ConversationProjector::project_turns_summary(pool, child_id)
-        .await?
-        .len();
+    let copied = crate::ConversationProjector::count_visible_turns(pool, child_id).await?;
     Ok((child_id, copied))
 }
 

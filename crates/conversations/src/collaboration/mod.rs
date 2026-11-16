@@ -56,10 +56,10 @@ pub use delivery::{
 };
 pub(crate) use delivery::{
     accept_space_replay, decode_replay, deliver_text, digest_text, finish_immediate, finish_tx,
-    last_completed_delivery_seq, load_stored_operation, parse_space_envelope,
-    parse_space_envelope_str, resolve_turn_trigger_seq_in_space, round_speaking_order_line,
-    seat_binding, split_missed_group_context, store_operation, sweep_round_grace_detach,
-    working_peers_line,
+    has_active_collaboration_rounds, last_completed_delivery_seq, load_stored_operation,
+    parse_space_envelope, parse_space_envelope_str, resolve_turn_trigger_seq_in_space,
+    round_speaking_order_line, round_sweep_notify, seat_binding, split_missed_group_context,
+    store_operation, sweep_round_grace_detach, working_peers_line,
 };
 pub use hot_group::HotGroupTracker;
 pub(crate) use prompt::{
@@ -132,7 +132,7 @@ pub use scheduled::{
     post_to_space_delayed_with, promote_due_delayed_inputs, promote_due_delayed_inputs_with,
     spawn_delayed_input_promoter, update_space_scheduled_message,
 };
-pub(crate) use scheduled::{schedule_input, scheduled_deadline};
+pub(crate) use scheduled::{notify_delayed_input_changed, schedule_input, scheduled_deadline};
 pub use warmup::{SessionProcessWarmup, SpaceWarmupResult, warmup_space_members};
 
 const ROLE_CAP: i64 = 100;

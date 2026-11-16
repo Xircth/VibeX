@@ -4,7 +4,7 @@ import {
   type ThemeDefinition,
   type ThemeIssue,
   type ThemeScheme,
-} from '@vibex/plugin-sdk';
+} from '@dimoai/plugin-sdk';
 import type { JsonValue } from 'shared/types';
 
 import { persistFrontendPreference } from '@/lib/frontendPreferences';
@@ -36,13 +36,13 @@ export interface ColorThemeSnapshot {
 }
 
 export const COLOR_THEME_KEYS = {
-  light: 'vibex:color-theme-light',
-  dark: 'vibex:color-theme-dark',
+  light: 'dimo:color-theme-light',
+  dark: 'dimo:color-theme-dark',
 } as const;
-export const USER_COLOR_THEMES_KEY = 'vibex:user-color-themes';
-export const COLOR_THEME_CHANGED_EVENT = 'vibex:color-theme-changed';
-const ACTIVE_CACHE_KEY = 'vibex:color-theme-active';
-const STYLE_ATTRIBUTE = 'data-vibex-color-theme';
+export const USER_COLOR_THEMES_KEY = 'dimo:user-color-themes';
+export const COLOR_THEME_CHANGED_EVENT = 'dimo:color-theme-changed';
+const ACTIVE_CACHE_KEY = 'dimo:color-theme-active';
+const STYLE_ATTRIBUTE = 'data-dimo-color-theme';
 const SCHEMES = ['light', 'dark'] as const;
 
 export const builtinThemeKey = (scheme: ThemeScheme) => `builtin:${scheme}`;

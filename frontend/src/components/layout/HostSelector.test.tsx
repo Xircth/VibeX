@@ -111,7 +111,7 @@ describe('HostSelector', () => {
     mocks.catalog.mockResolvedValue({
       plugins: [
         {
-          id: 'vibex.remote-ssh',
+          id: 'dimo.remote-ssh',
           name: 'Remote SSH',
           enabled: true,
           generation: 1,
@@ -121,7 +121,7 @@ describe('HostSelector', () => {
     mocks.contributionCatalog.mockResolvedValue({
       items: [
         {
-          pluginId: 'vibex.remote-ssh',
+          pluginId: 'dimo.remote-ssh',
           id: 'ssh',
           kind: 'remote_provisioner',
           label: 'SSH',
@@ -132,7 +132,7 @@ describe('HostSelector', () => {
           },
         },
         {
-          pluginId: 'vibex.remote-ssh',
+          pluginId: 'dimo.remote-ssh',
           id: 'connect-panel',
           kind: 'app_surface',
           label: 'Remote SSH',
@@ -329,7 +329,7 @@ describe('HostSelector', () => {
 
     await waitFor(() => {
       expect(mocks.hostCall).toHaveBeenCalledWith(
-        'vibex.remote-ssh',
+        'dimo.remote-ssh',
         'storage',
         'settings.put',
         {
@@ -360,7 +360,7 @@ describe('HostSelector', () => {
 
     const dialog = await screen.findByTestId('new-ssh-host-dialog');
     const surface = await within(dialog).findByTestId('mock-ssh-app-surface');
-    expect(surface).toHaveAttribute('data-plugin-id', 'vibex.remote-ssh');
+    expect(surface).toHaveAttribute('data-plugin-id', 'dimo.remote-ssh');
     expect(surface).toHaveAttribute('data-surface-id', 'connect-panel');
   });
 

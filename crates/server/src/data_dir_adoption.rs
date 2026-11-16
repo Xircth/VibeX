@@ -26,7 +26,7 @@ pub enum DataDirAdoptionOutcome {
         superseded: PathBuf,
     },
     /// The legacy directory could not be moved (usually still open by an
-    /// older VibeX). It is opened in place for this run and the move is
+    /// older Dimo). It is opened in place for this run and the move is
     /// retried on the next launch.
     OpenedInPlace { legacy_dir: PathBuf, error: String },
 }
@@ -79,7 +79,7 @@ pub fn log_data_dir_adoption(outcome: &DataDirAdoptionOutcome) {
             from = %legacy_dir.display(),
             to = %target_dir.display(),
             superseded = ?superseded,
-            "moved existing VibeX data into the install data directory"
+            "moved existing Dimo data into the install data directory"
         ),
         DataDirAdoptionOutcome::KeptTarget {
             target_dir,
@@ -92,7 +92,7 @@ pub fn log_data_dir_adoption(outcome: &DataDirAdoptionOutcome) {
         DataDirAdoptionOutcome::OpenedInPlace { legacy_dir, error } => tracing::warn!(
             data_dir = %legacy_dir.display(),
             %error,
-            "could not move existing VibeX data yet; opened it in place and will retry next launch"
+            "could not move existing Dimo data yet; opened it in place and will retry next launch"
         ),
     }
 }

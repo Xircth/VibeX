@@ -2,7 +2,7 @@
 status: accepted
 date: 2026-07-29
 decision-makers:
-  - VibeX maintainers
+  - Dimo maintainers
 ---
 
 # 自动化重放版本化 TurnLaunchSpec，并产生真实 Conversation 与 Turn
@@ -11,7 +11,7 @@ decision-makers:
 > [ADR-0045](0045-workflows-orchestrate-conversation-turns.md) 保留本 ADR 的 direct-Turn
 > target，并增加版本化 Workflow target 与对应的 target-specific recovery。
 
-VibeX 自动化按 Codeg 的产品语义重建：Automation 不是 cron 包装器，也不是后台
+Dimo 自动化按 Codeg 的产品语义重建：Automation 不是 cron 包装器，也不是后台
 执行一段自由 shell，而是一份保存并可重复解析的“发起 Turn”配置。每次触发创建
 AutomationRun、真实 Conversation 和真实 Turn；Conversation 事件日志是执行事实，
 AutomationRun 只是面向调度、列表和保留策略的索引/摘要。
@@ -56,7 +56,7 @@ Automation 都不永久锁定旧 Agent 安装，但每个 Turn 必须可解释�
 ## Engine 所有权
 
 同一数据目录同一时刻只能有一个 Automation Engine 所有者。桌面宿主与未来
-`vibex-server` 竞争同一 advisory lock；未取得锁的进程可以读写 Automation 配置，
+`dimo-server` 竞争同一 advisory lock；未取得锁的进程可以读写 Automation 配置，
 但不得调度。Engine 启动后先做 Run reconciliation，再开始认领。
 
 事件丢失不能让 Run 永久停在 running。Engine 既监听 Conversation 终态事件，也周期性

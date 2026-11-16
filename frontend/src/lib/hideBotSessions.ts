@@ -7,7 +7,7 @@ import { useSyncExternalStore } from 'react';
 import { persistFrontendPreference } from '@/lib/frontendPreferences';
 
 export const DEFAULT_HIDE_BOT_SESSIONS = false;
-export const HIDE_BOT_SESSIONS_KEY = 'vibex:hide-bot-sessions' as const;
+export const HIDE_BOT_SESSIONS_KEY = 'dimo:hide-bot-sessions' as const;
 
 const listeners = new Set<() => void>();
 let cachedRaw: string | null = null;
@@ -104,7 +104,7 @@ export function filterVisibleBotSessions<
 }
 
 const COLLABORATION_BOOTSTRAP_MARKERS = [
-  '<vibex-private-bootstrap>',
+  '<dimo-private-bootstrap>',
   '[协作空间',
   '[Space 身份与协作规则]',
 ] as const;

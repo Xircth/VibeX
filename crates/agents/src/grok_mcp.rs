@@ -16,12 +16,13 @@
 //! Sparse `tool_call_update` frames often omit `rawInput` and revert the title
 //! to `use_tool`; remembered inner names are re-asserted for those frames.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 
 use serde_json::Value;
 
 /// Generic MCP dispatcher Grok reports as the ACP tool title / vendor name.
 pub const USE_TOOL_NAME: &str = "use_tool";
+const MAX_TRACKED_TITLES: usize = 256;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct PeeledGrokMcpCall {
@@ -34,6 +35,7 @@ pub struct PeeledGrokMcpCall {
 #[derive(Debug, Default)]
 pub struct GrokMcpTracker {
     titles: HashMap<String, String>,
+    order: VecDeque<String>,
 }
 
 impl GrokMcpTracker {
@@ -47,7 +49,17 @@ impl GrokMcpTracker {
         let output_text = raw_output.and_then(grok_mcp_output_text);
         if let Some((name, inner)) = unwrap_grok_use_tool(raw_input) {
             let title = mcp_bare_tool_name(&name).to_string();
+            if !self.titles.contains_key(call_id) {
+                self.order.push_back(call_id.to_string());
+            }
             self.titles.insert(call_id.to_string(), title.clone());
+            while self.titles.len() > MAX_TRACKED_TITLES {
+                if let Some(oldest) = self.order.pop_front() {
+                    self.titles.remove(&oldest);
+                } else {
+                    break;
+                }
+            }
             return PeeledGrokMcpCall {
                 title,
                 raw_input: Some(inner),
@@ -147,13 +159,13 @@ mod tests {
     #[test]
     fn peels_the_use_tool_envelope_to_the_inner_mcp_name() {
         let peeled = unwrap_grok_use_tool(Some(&json!({
-            "tool_name": "vibex-delegation-mcp__delegate_to_agent",
+            "tool_name": "dimo-delegation-mcp__delegate_to_agent",
             "tool_input": { "agent_type": "codex", "task": "introduce yourself" }
         })));
         assert_eq!(
             peeled,
             Some((
-                "vibex-delegation-mcp__delegate_to_agent".into(),
+                "dimo-delegation-mcp__delegate_to_agent".into(),
                 json!({ "agent_type": "codex", "task": "introduce yourself" })
             ))
         );
@@ -200,7 +212,7 @@ mod tests {
             "call-1",
             Some("use_tool"),
             Some(&json!({
-                "tool_name": "vibex-delegation-mcp__delegate_to_agent",
+                "tool_name": "dimo-delegation-mcp__delegate_to_agent",
                 "tool_input": { "agent_type": "codex", "task": "hi" }
             })),
             None,
@@ -244,15 +256,15 @@ mod tests {
     #[test]
     fn strips_host_prefixes_from_mcp_tool_names() {
         assert_eq!(
-            mcp_bare_tool_name("vibex-delegation-mcp__delegate_to_agent"),
+            mcp_bare_tool_name("dimo-delegation-mcp__delegate_to_agent"),
             "delegate_to_agent"
         );
         assert_eq!(
-            mcp_bare_tool_name("mcp__vibex-delegation-mcp__get_delegation_status"),
+            mcp_bare_tool_name("mcp__dimo-delegation-mcp__get_delegation_status"),
             "get_delegation_status"
         );
         assert_eq!(
-            mcp_bare_tool_name("vibex-delegation-mcp/cancel_delegation"),
+            mcp_bare_tool_name("dimo-delegation-mcp/cancel_delegation"),
             "cancel_delegation"
         );
     }

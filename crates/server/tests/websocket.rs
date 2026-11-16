@@ -64,7 +64,7 @@ async fn connect(
     let encoded = URL_SAFE_NO_PAD.encode(token);
     request.headers_mut().insert(
         "sec-websocket-protocol",
-        HeaderValue::from_str(&format!("vibex.v1, vibex.token.{encoded}")).expect("protocol"),
+        HeaderValue::from_str(&format!("dimo.v1, dimo.token.{encoded}")).expect("protocol"),
     );
     let (socket, response) = connect_async(request).await.expect("websocket connect");
     assert_eq!(
@@ -72,7 +72,7 @@ async fn connect(
             .headers()
             .get("sec-websocket-protocol")
             .and_then(|value| value.to_str().ok()),
-        Some("vibex.v1")
+        Some("dimo.v1")
     );
     socket
 }

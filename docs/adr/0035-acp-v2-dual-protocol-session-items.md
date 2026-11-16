@@ -2,7 +2,7 @@
 status: accepted
 date: 2026-08-02
 decision-makers:
-  - VibeX maintainers
+  - Dimo maintainers
 ---
 
 # ACP V2 采用双协议适配器与 Session Item 语义核心
@@ -20,7 +20,7 @@ V2 同时删除了 `session/load`、Session Modes、客户端文件系统和客�
 Config Option，需要客户端提供的文件、编辑器和命令能力通过 MCP server 暴露，ACP
 中的 Terminal 变为 Agent 所有、只供显示的 Session Item。
 
-VibeX 当前已经具备有价值的基础：
+Dimo 当前已经具备有价值的基础：
 
 - Agent 运行统一经过 `AgentRuntime` 与连接管理器，并由经过验证的本地安装启动 stdio
   ACP 子进程；
@@ -74,7 +74,7 @@ ACP 官方明确把 V2 标为 Draft，要求实现同时使用版本协商和功
 
 ### 1. V1 与 V2 作为两个真实 Adapter 并行存在
 
-VibeX 在 ACP 连接处建立 `Protocol Session` seam，并提供两个 Adapter：
+Dimo 在 ACP 连接处建立 `Protocol Session` seam，并提供两个 Adapter：
 
 ```text
 ACP stdio connection
@@ -132,7 +132,7 @@ Conversation 或前端。
 
 ### 2. Turn 是前台用户意图，不再等同于整个 ACP 活动窗口
 
-VibeX 保留 CONTEXT 中的 Turn 产品语义：一次用户发起到 Agent 对该前台工作的应答
+Dimo 保留 CONTEXT 中的 Turn 产品语义：一次用户发起到 Agent 对该前台工作的应答
 结束；同一 Conversation 同时最多一个前台 Turn 在途。V2 的 Session 可以在没有
 active Turn 时继续产生后台更新，这些更新属于 Conversation，但不自动创建、重开或
 完成 Turn。
@@ -173,16 +173,16 @@ item_kind
 agent_owned_item_id
 ```
 
-`messageId`、`toolCallId`、`planId`、`terminalId` 都按 opaque string 保存，VibeX 不
+`messageId`、`toolCallId`、`planId`、`terminalId` 都按 opaque string 保存，Dimo 不
 解析其格式。Item 可以带 `foreground_turn_id`，但该关联是可选属性，不是身份的一部分。
 无 active Turn 的后台 Item 仍进入事件日志和投影。
 
 V2 Agent 对用户消息的 `user_message`/`user_message_chunk` 是 canonical
-acknowledgement。VibeX 使用本地 prompt id 与当次 acknowledgement 建立用户 Turn 到
+acknowledgement。Dimo 使用本地 prompt id 与当次 acknowledgement 建立用户 Turn 到
 Agent `messageId` 的映射，避免 replay 或多客户端观察时重复用户消息。
 
 V1 缺少 ID 的 Message、Thought 和单 Plan 使用带命名空间的本地合成 ID。合成 ID 只
-用于 VibeX 投影，标记 `identity_origin = synthesized_v1`，绝不发回 Agent，也不能被
+用于 Dimo 投影，标记 `identity_origin = synthesized_v1`，绝不发回 Agent，也不能被
 解释为 Agent 提供的跨连接稳定身份。
 
 ### 4. Patch 必须显式表示 Unchanged、Clear 与 Set
@@ -245,18 +245,18 @@ V2 `session/resume` 使用两种明确模式：
 1. 在发出带 `replayFrom` 的 Resume 时创建隔离 `ReplayEpoch`；
 2. 从空状态按正常 Item reducer 折叠 replay 通知，并记录 replay 顺序；
 3. 以 `session/resume` 响应作为 replay 完成屏障；
-4. 将 replay 结果按 Item ID 与 VibeX 当前语义状态协调，只为缺失或变化的事实追加
+4. 将 replay 结果按 Item ID 与 Dimo 当前语义状态协调，只为缺失或变化的事实追加
    reconciliation event；完全相同的 Item 不产生新事件；
 5. 屏障之后的通知进入 live reducer；
 6. replay 失败时丢弃未提交 epoch，不污染既有 Event Log。
 
 Replay epoch 中的历史 `state_update` 只用于恢复 Agent Session 的历史/当前观察，不能
-创建、完成或取消一个 VibeX 当前 Turn；历史 replay 也不能重新打开已经结束的
+创建、完成或取消一个 Dimo 当前 Turn；历史 replay 也不能重新打开已经结束的
 Permission/Elicitation。只有 replay barrier 之后的 live observation 可以推进新的前台
 Turn 和待决交互。
 
-VibeX Event Log 仍是可见 Conversation 历史的权威。Agent replay 用于恢复 Agent Session
-的 Item 状态和弥补缺失观察，不能覆盖用户明确标题、VibeX Turn 终态、权限决定、文件
+Dimo Event Log 仍是可见 Conversation 历史的权威。Agent replay 用于恢复 Agent Session
+的 Item 状态和弥补缺失观察，不能覆盖用户明确标题、Dimo Turn 终态、权限决定、文件
 checkpoint 或已经记录的本地事实。
 
 ### 7. Capability Snapshot 按 dialect 归一化但保留结构
@@ -307,8 +307,8 @@ Built-in identity 和安装版本只作为兼容性/诊断输入，不能声明 
 
 ### 9. V1 Client Terminal 与 V2 Display Terminal 是不同模块
 
-V1 Client Terminal 是 Agent 请求 VibeX 创建、等待、终止和释放的本地进程资源；V2
-Display Terminal 是 Agent 自己拥有、VibeX 只显示的 Session Item。二者不能共享一个
+V1 Client Terminal 是 Agent 请求 Dimo 创建、等待、终止和释放的本地进程资源；V2
+Display Terminal 是 Agent 自己拥有、Dimo 只显示的 Session Item。二者不能共享一个
 含控制方法的 interface。
 
 - V1 Adapter 可以继续使用现有 Client execution terminal，直到 V1 单独退役；
@@ -317,11 +317,11 @@ Display Terminal 是 Agent 自己拥有、VibeX 只显示的 Session Item。二�
   release 控件；
 - 每个 base64 chunk 独立解码为 bytes 后追加，不能先拼字符串再解码；
 - 渲染使用隔离终端 emulator 或净化 transcript，并对缓冲、单 chunk、总输出设置上限；
-- VibeX 产品自身的交互终端不因 ACP V2 而删除，但它不是 V2 ACP Client capability。
+- Dimo 产品自身的交互终端不因 ACP V2 而删除，但它不是 V2 ACP Client capability。
 
 ### 10. Client 工具统一通过有作用域的 MCP 暴露
 
-V2 Agent 若需要读取文件、编辑未保存 buffer 或运行由 Client 提供的命令，VibeX 通过
+V2 Agent 若需要读取文件、编辑未保存 buffer 或运行由 Client 提供的命令，Dimo 通过
 传入 `session/new`/`session/resume` 的 MCP servers 提供，而不是复活已删除的 FS/Terminal
 RPC。
 
@@ -333,14 +333,14 @@ RPC。
 - MCP token 绑定 connection、Agent、Conversation 和允许根，沿用 ADR-0031 的撤销与
   路径限制；
 - workspace-less Conversation 的 MCP 根目录仍受 ADR-0006 的专用 scratch 目录约束；
-- MCP 工具调用仍经过 VibeX 权限政策，不能因从 ACP Client RPC 改为 MCP 而扩大权限。
+- MCP 工具调用仍经过 Dimo 权限政策，不能因从 ACP Client RPC 改为 MCP 而扩大权限。
 
 ### 11. Diff 与 Permission 使用独立领域模型
 
 V2 Tool content 中的 Diff 映射为结构化 `FileChangeSet`：add、delete、modify、move、
 copy，以及 text、binary、directory、symlink file type、MIME 和可选 `git_patch`。
 
-ACP Diff 是“Agent 报告的修改”，VibeX checkpoint/git diff 是“工作区观测到的修改”。
+ACP Diff 是“Agent 报告的修改”，Dimo checkpoint/git diff 是“工作区观测到的修改”。
 二者分别保存并可核验，不互相覆盖，也不把 Agent 声明当作磁盘权威。
 
 Permission Request 使用必需 title、可选 description、选项和开放 subject：
@@ -387,7 +387,7 @@ AuthRequired 继续是当次 Session 的权威证据。
 - stdio decoder 接受 JSON-RPC batch array，限制 batch 长度、单消息和总字节数；
 - 生命周期消息不批量发送；请求取消与普通 RPC batch 分开处理；
 - 本 ADR 不启用远程 ACP URL、HTTP 或 WebSocket Transport。ADR-0010 的本地 stdio
-  启动边界保持不变；ADR-0033 的 VibeX Remote Protocol 也不是 ACP Transport。
+  启动边界保持不变；ADR-0033 的 Dimo Remote Protocol 也不是 ACP Transport。
 
 ### 15. Registry、安装和 Agent 身份与协议版本正交
 
@@ -407,7 +407,7 @@ ADR-0029 的显式 Session rebind，不能伪造上下文连续。
 | -------------- | ----------------------------------------------------------------------------------------------------------- |
 | ADR-0001       | 保留“不重放在途 Turn”；把 V1 `session/load` 实现假设替换为 dialect-specific Resume，并新增隔离 replay epoch |
 | ADR-0003       | 保留 `crates/conversations` 对 Event Log、Turn 与 Projection 的所有权                                       |
-| ADR-0005       | 保留 VibeX 复制事件的 Fork 语义；Agent `session/fork` 继续独立门控，不视为 V2 baseline                      |
+| ADR-0005       | 保留 Dimo 复制事件的 Fork 语义；Agent `session/fork` 继续独立门控，不视为 V2 baseline                      |
 | ADR-0006       | 保留 workspace-less scratch root；V2 MCP 必须服从相同路径范围                                               |
 | ADR-0010       | 保留 Native/Adapter-backed topology 和本地 stdio 限制                                                       |
 | ADR-0012、0021 | 保留安装/认证分离和认证状态观察；账号管理动作由 ADR-0037 补充                                                   |
@@ -437,7 +437,7 @@ ADR-0029 的显式 Session rebind，不能伪造上下文连续。
 
 ### Positive
 
-- VibeX 的核心围绕 Session 状态与 Item 事实，而不是某一版 ACP 方法，未来协议变化集中
+- Dimo 的核心围绕 Session 状态与 Item 事实，而不是某一版 ACP 方法，未来协议变化集中
   在 Adapter；
 - V2 后台工作、消息替换、流式工具内容、多计划、展示终端和结构化 Diff 可以完整进入
   Event Log 与 UI；
@@ -453,7 +453,7 @@ ADR-0029 的显式 Session rebind，不能伪造上下文连续。
   演进，不能只修改 ACP manager；
 - V2 Draft 变化可能导致重复适配工作，因此默认关闭且必须记录 schema/revision；
 - V1 缺少稳定 Message ID，只能使用有明确局限的合成身份；
-- Agent replay 与 VibeX 权威历史需要 reconciliation module，不能直接转发通知；
+- Agent replay 与 Dimo 权威历史需要 reconciliation module，不能直接转发通知；
 - 一旦 V2 Session 已产生隐藏上下文，发生协议问题时无法无损自动降为 V1。
 
 ## Considered options
@@ -520,7 +520,7 @@ Application Core 决策。变化只应存在于协议 Adapter。
 - 官方 Rust SDK 更改版本协商或移除 `unstable_protocol_v2`；
 - V2 Schema 改变 Prompt state、patch、replay 或 Terminal 的核心语义；
 - 主要内置 Agent 提供无法由本 semantic interface 表达的新 Session 模型；
-- VibeX 决定启用远程 ACP Transport；
+- Dimo 决定启用远程 ACP Transport；
 - 有足够遥测支持讨论 V1 退役。
 
 ## Protocol references

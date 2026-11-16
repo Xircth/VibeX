@@ -7,7 +7,7 @@ const path = require("path");
 const workspaceRoot = path.join(__dirname, "..");
 
 function shouldSkipFrontendBuild(env = process.env) {
-  return env.VIBEX_SKIP_FRONTEND_BUILD === "1";
+  return env.DIMO_SKIP_FRONTEND_BUILD === "1";
 }
 
 function frontendDistDir(root = workspaceRoot) {
@@ -50,7 +50,7 @@ function buildFrontend(env = process.env) {
 function main(env = process.env) {
   if (shouldSkipFrontendBuild(env)) {
     assertFrontendDistReady();
-    console.log("Skipping frontend build (VIBEX_SKIP_FRONTEND_BUILD=1)");
+    console.log("Skipping frontend build (DIMO_SKIP_FRONTEND_BUILD=1)");
     return;
   }
   buildFrontend(env);

@@ -1,6 +1,6 @@
 // Pure helpers (no DOM globals at import time) so they can be unit tested.
 
-export const PLUGIN_ID = 'vibex.tauri-ui-debugger';
+export const PLUGIN_ID = 'dimo.tauri-ui-debugger';
 
 export const CONTENT_LEVELS = [
   '源码位置',
@@ -161,8 +161,8 @@ export function buildMarkdown(info, level) {
 // ---------------------------------------------------------------------------
 
 const UI_ATTR = 'data-vx-debugger-ui';
-const CORNER_KEY = 'vibex.tauri-ui-debugger.corner';
-const CORNER_CONFIG_KEY = 'vibex.tauri-ui-debugger.corner-config';
+const CORNER_KEY = 'dimo.tauri-ui-debugger.corner';
+const CORNER_CONFIG_KEY = 'dimo.tauri-ui-debugger.corner-config';
 const BALL_SIZE = 40;
 const SIDE_INSET = 16;
 const STATUSBAR_GAP = 12;

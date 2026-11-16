@@ -215,7 +215,7 @@ pub fn build_rich_localized(
         } else {
             "🔄 Turn completed"
         }),
-        _ => RichMessage::info("VibeX").with_title("VibeX"),
+        _ => RichMessage::info("Dimo").with_title("Dimo"),
     }
 }
 
@@ -361,7 +361,7 @@ pub async fn telegram_create_forum_topic(
 ) -> Result<i64, NotificationError> {
     let mut name = title.trim().to_string();
     if name.is_empty() {
-        name = "VibeX".to_string();
+        name = "Dimo".to_string();
     }
     name = name.chars().take(128).collect();
     let response = http_client()
@@ -440,7 +440,7 @@ fn feishu_card(msg: &RichMessage) -> String {
             "template": template,
             "title": {
                 "tag": "plain_text",
-                "content": msg.title.clone().unwrap_or_else(|| "VibeX".to_string()),
+                "content": msg.title.clone().unwrap_or_else(|| "Dimo".to_string()),
             },
         },
         "elements": elements,
@@ -548,7 +548,7 @@ pub async fn ilink_send_text(
         "msg": {
             "from_user_id": "",
             "to_user_id": context.to_user_id,
-            "client_id": format!("vibex-{}", uuid::Uuid::new_v4()),
+            "client_id": format!("dimo-{}", uuid::Uuid::new_v4()),
             "message_type": 2,
             "message_state": 2,
             "context_token": context.context_token,
@@ -708,7 +708,7 @@ async fn webhook_send_rich(
         .map(|(key, value)| json!({ "key": key, "value": value }))
         .collect();
     let payload = json!({
-        "source": "vibex",
+        "source": "dimo",
         "title": msg.title,
         "body": msg.body,
         "fields": fields,
@@ -978,7 +978,7 @@ pub fn build_conversation_rich(
                 "🔌 Connection"
             })
         }
-        _ => RichMessage::info("VibeX").with_title("VibeX"),
+        _ => RichMessage::info("Dimo").with_title("Dimo"),
     }
 }
 
@@ -990,7 +990,7 @@ pub async fn post_event_webhooks(hooks: &[(String, bool)], event: &str, body: &s
         let payload = json!({
             "event": event,
             "body": body,
-            "source": "vibex",
+            "source": "dimo",
         });
         let _ = http_client().post(url).json(&payload).send().await;
     }
@@ -1094,7 +1094,7 @@ pub async fn load_channel_tokens(channel_ids: &[String]) -> HashMap<String, Stri
     out
 }
 
-/// One-time migration of legacy plaintext-JSON channel tokens into `~/.vibex/.env`
+/// One-time migration of legacy plaintext-JSON channel tokens into `~/.dimo/.env`
 /// (ADR-0004). Writes each `(channel_id, token)` and reports success so the caller can
 /// delete the old file. Idempotent: re-running just re-upserts the same values.
 pub async fn import_legacy_channel_tokens(

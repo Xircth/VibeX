@@ -1,18 +1,18 @@
-# VibeX Plugin Dev Control Protocol 1.0
+# Dimo Plugin Dev Control Protocol 1.0
 
 The Plugin CLI uses this loopback-only control protocol for linked development.
-It is separate from VibeX user/session authentication.
+It is separate from Dimo user/session authentication.
 
 ## Connection and authentication
 
 - The endpoint is an HTTP origin whose host is exactly `localhost`,
   `127.0.0.1`, or `::1`. Userinfo, paths, query strings, fragments, HTTPS, and
   non-loopback hosts are rejected by the CLI.
-- The CLI reads the endpoint only from `--host` or `VIBEX_PLUGIN_DEV_HOST`.
+- The CLI reads the endpoint only from `--host` or `DIMO_PLUGIN_DEV_HOST`.
 - The CLI reads the opaque token only from `--token` or
-  `VIBEX_PLUGIN_DEV_TOKEN`. It never reads or sends the main VibeX bearer.
-- Every request sends `X-VibeX-Plugin-Dev-Protocol: 1.0` and
-  `X-VibeX-Plugin-Dev-Token: <opaque token>`.
+  `DIMO_PLUGIN_DEV_TOKEN`. It never reads or sends the main Dimo bearer.
+- Every request sends `X-Dimo-Plugin-Dev-Protocol: 1.0` and
+  `X-Dimo-Plugin-Dev-Token: <opaque token>`.
 - The Host must bind the listener to loopback, compare the token without
   timing leaks, cap request bodies, reject non-JSON bodies, and never log the
   token.
@@ -48,8 +48,8 @@ same full-trust execution model while preserving generation rollback semantics.
 
 `packageDigest` uses the CLI package-lock algorithm: sort normalized relative
 file paths; exclude `.git`, `node_modules`, `.vxp` archives,
-`.vibex-plugin/package.lock.json`, and
-`.vibex-plugin/developer-link.json`; SHA-256 every file; then SHA-256 the UTF-8
+`.dimo-plugin/package.lock.json`, and
+`.dimo-plugin/developer-link.json`; SHA-256 every file; then SHA-256 the UTF-8
 rows `path + NUL + byte-size + NUL + file-sha256` joined with LF. The Host and
 CLI must reject symlinks rather than following them.
 

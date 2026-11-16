@@ -33,9 +33,9 @@ fn default_site_origin() -> &'static str {
 }
 
 pub fn site_origin() -> String {
-    std::env::var("VIBEX_SITE_URL")
+    std::env::var("DIMO_SITE_URL")
         .ok()
-        .or_else(|| option_env!("VIBEX_SITE_URL").map(str::to_owned))
+        .or_else(|| option_env!("DIMO_SITE_URL").map(str::to_owned))
         .map(|value| value.trim().trim_end_matches('/').to_owned())
         .filter(|value| !value.is_empty())
         .unwrap_or_else(|| default_site_origin().to_owned())
@@ -67,7 +67,7 @@ pub fn is_wsl2() -> bool {
 }
 
 pub fn cache_dir() -> std::path::PathBuf {
-    ProjectDirs::from("app", "vibex", "vibex")
+    ProjectDirs::from("app", "dimo", "dimo")
         .expect("OS didn't give us a home directory")
         .cache_dir()
         .to_path_buf()
@@ -78,12 +78,12 @@ mod tests {
     use super::cache_dir;
 
     #[test]
-    fn cache_dir_uses_the_vibex_project_identity() {
+    fn cache_dir_uses_the_dimo_project_identity() {
         let path = cache_dir();
         let rendered = path.to_string_lossy();
         assert!(
-            rendered.to_ascii_lowercase().contains("vibex"),
-            "cache directory should belong to VibeX, got {rendered}"
+            rendered.to_ascii_lowercase().contains("dimo"),
+            "cache directory should belong to Dimo, got {rendered}"
         );
         assert!(
             !rendered.to_ascii_lowercase().contains("bloop"),

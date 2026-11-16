@@ -189,8 +189,8 @@ mod tests {
             "INSERT INTO plugin_packages_v4
                 (publisher, plugin_id, version, package_digest, source_kind, source_path,
                  manifest_json, package_json, created_at)
-             VALUES ('legacy.local', 'vibex.office', '2.0.0', 'legacy:office', 'builtin',
-                     '/tmp/office', '{}', '{\"id\":\"vibex.office\"}', datetime('now'))",
+             VALUES ('legacy.local', 'dimo.office', '2.0.0', 'legacy:office', 'builtin',
+                     '/tmp/office', '{}', '{\"id\":\"dimo.office\"}', datetime('now'))",
         )
         .execute(&pool)
         .await
@@ -198,7 +198,7 @@ mod tests {
         sqlx::query(
             "INSERT INTO plugin_installations_v4
                 (plugin_id, publisher, current_package_digest, installed_at, updated_at)
-             VALUES ('vibex.office', 'legacy.local', 'legacy:office',
+             VALUES ('dimo.office', 'legacy.local', 'legacy:office',
                      datetime('now'), datetime('now'))",
         )
         .execute(&pool)
@@ -213,7 +213,7 @@ mod tests {
         .expect("publisher adoption");
 
         let publisher: String = sqlx::query_scalar(
-            "SELECT publisher FROM plugin_installations_v4 WHERE plugin_id = 'vibex.office'",
+            "SELECT publisher FROM plugin_installations_v4 WHERE plugin_id = 'dimo.office'",
         )
         .fetch_one(&pool)
         .await
@@ -221,21 +221,21 @@ mod tests {
         let package_publisher: String = sqlx::query_scalar(
             "SELECT json_extract(package_json, '$.publisher')
              FROM plugin_packages_v4
-             WHERE publisher = 'vibex' AND plugin_id = 'vibex.office'",
+             WHERE publisher = 'dimo' AND plugin_id = 'dimo.office'",
         )
         .fetch_one(&pool)
         .await
         .expect("package publisher");
         let legacy_packages: i64 = sqlx::query_scalar(
             "SELECT COUNT(*) FROM plugin_packages_v4
-             WHERE publisher = 'legacy.local' AND plugin_id = 'vibex.office'",
+             WHERE publisher = 'legacy.local' AND plugin_id = 'dimo.office'",
         )
         .fetch_one(&pool)
         .await
         .expect("legacy package count");
 
-        assert_eq!(publisher, "vibex");
-        assert_eq!(package_publisher, "vibex");
+        assert_eq!(publisher, "dimo");
+        assert_eq!(package_publisher, "dimo");
         assert_eq!(legacy_packages, 0);
     }
 
@@ -661,7 +661,7 @@ fn sqlite_write_connect_options(database_path: &Path) -> SqliteConnectOptions {
         .journal_mode(SqliteJournalMode::Wal)
         .synchronous(SqliteSynchronous::Normal)
         .busy_timeout(Duration::from_secs(10))
-        .pragma("cache_size", "-4000")
+        .pragma("cache_size", "-16000")
         .pragma("temp_store", "MEMORY")
         .pragma("journal_size_limit", "134217728")
         .pragma("wal_autocheckpoint", "1000")
@@ -673,7 +673,7 @@ fn sqlite_read_connect_options(database_path: &Path) -> SqliteConnectOptions {
         .read_only(true)
         .foreign_keys(true)
         .busy_timeout(Duration::from_secs(10))
-        .pragma("cache_size", "-4000")
+        .pragma("cache_size", "-16000")
         .pragma("temp_store", "MEMORY")
         .pragma("query_only", "ON")
 }
@@ -723,7 +723,7 @@ impl DBService {
         use std::str::FromStr;
 
         let uri = format!(
-            "sqlite:file:vibex_mem_{}?mode=memory&cache=shared",
+            "sqlite:file:dimo_mem_{}?mode=memory&cache=shared",
             uuid::Uuid::new_v4().simple()
         );
         let write_options = SqliteConnectOptions::from_str(&uri)?
@@ -771,7 +771,7 @@ impl DBService {
         Self::new_at(asset_dir()).await
     }
 
-    /// Open the canonical VibeX database beneath an explicit data directory.
+    /// Open the canonical Dimo database beneath an explicit data directory.
     ///
     /// Headless and desktop composition roots use this same initializer so
     /// migrations and SQLite concurrency settings cannot drift by host.

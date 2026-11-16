@@ -1,4 +1,4 @@
-//! VibeX plugin worker SDK.
+//! Dimo plugin worker SDK.
 //!
 //! MSRV 1.85. stdio uses a tokio current-thread runtime. Isolated builds should
 //! use `--no-default-features --features isolated` so filesystem and network

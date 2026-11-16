@@ -1,9 +1,9 @@
 {
-  "name": "vibex",
+  "name": "dimo",
   "version": "0.4.4",
   "private": true,
   "bin": {
-    "vibex": "npx-cli/bin/cli.js"
+    "dimo": "npx-cli/bin/cli.js"
   },
   "files": [
     "npx-cli/bin/cli.js",
@@ -26,7 +26,7 @@
     "generate-types:check": "node scripts/run-generate-types.js --check",
     "remote-protocol-schema": "node scripts/remote-protocol-schema.js",
     "remote-protocol-schema:check": "node scripts/remote-protocol-schema.js --check",
-    "server:package-smoke": "pnpm run frontend:build && node scripts/smoke-vibex-server-package.js",
+    "server:package-smoke": "pnpm run frontend:build && node scripts/smoke-dimo-server-package.js",
     "host-family:package": "node scripts/package-host-family.js",
     "test:host-family-package": "node --test scripts/package-host-family.test.js",
     "test:release-assets": "node --test scripts/release-assets.test.js npx-cli/bin/download.test.js",

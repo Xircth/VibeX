@@ -2,7 +2,7 @@
 status: accepted
 date: 2026-08-18
 decision-makers:
-  - VibeX maintainers
+  - Dimo maintainers
 ---
 
 # 客户端按 Host 身份与 Reachability 名单连接
@@ -39,7 +39,7 @@ Companion / Workstation 的能力面仍以 ADR-0054 为准；浏览器走 Workst
 - **维持手填 origin + 无 URL 的配对 QR。** 否决。做不到扫一次就连，出门后
   无法带上已发布的远程 origin。
 - **一个档案一条 URL，换网重配对。** 否决。这是 CodeG 的摩擦来源。
-- **VibeX 云中继或把 Tailscale/FRP 做成官方托管。** 否决。与 ADR-0033 的
+- **Dimo 云中继或把 Tailscale/FRP 做成官方托管。** 否决。与 ADR-0033 的
   P1 边界冲突；隧道所有权留在用户。
 - **远程 Workstation 复制本机控制台。** 否决。运维面只留在 Host。
 

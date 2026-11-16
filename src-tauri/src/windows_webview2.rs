@@ -27,8 +27,8 @@ pub fn additional_browser_arguments_to_install(existing: Option<&str>) -> Option
     }
 }
 
-pub const INTERACTIVE_DESKTOP_RELAUNCHED_ENV: &str = "VIBEX_INTERACTIVE_DESKTOP_RELAUNCHED";
-pub const SANDBOX_PARENT_PID_ENV: &str = "VIBEX_SANDBOX_PARENT_PID";
+pub const INTERACTIVE_DESKTOP_RELAUNCHED_ENV: &str = "DIMO_INTERACTIVE_DESKTOP_RELAUNCHED";
+pub const SANDBOX_PARENT_PID_ENV: &str = "DIMO_SANDBOX_PARENT_PID";
 
 /// Returns true when the process was launched inside an isolated `exebox-*`
 /// desktop (for example, an IDE agent terminal sandbox on Windows) and must
@@ -47,7 +47,7 @@ pub fn should_relaunch_on_interactive_desktop(
 }
 
 /// Returns true when the current process is running in an `exebox-*` sandbox
-/// desktop, was relaunched from a sandbox parent (`VIBEX_SANDBOX_PARENT_PID`),
+/// desktop, was relaunched from a sandbox parent (`DIMO_SANDBOX_PARENT_PID`),
 /// or is executing directly from a Cargo build directory (`target\debug` or
 /// `target\release`). Normal installed production builds skip SACL rewrites.
 pub fn should_apply_medium_integrity_sacl(
@@ -77,16 +77,16 @@ pub fn should_apply_medium_integrity_sacl(
     })
 }
 
-pub const DEV_APP_IDENTIFIER_ENV: &str = "VIBEX_DEV_APP_IDENTIFIER";
+pub const DEV_APP_IDENTIFIER_ENV: &str = "DIMO_DEV_APP_IDENTIFIER";
 
 pub fn is_dev_webview2_identifier(identifier: &str) -> bool {
-    identifier == "com.vibex.app.dev" || identifier.starts_with("com.vibex.app.dev.")
+    identifier == "com.dimo.app.dev" || identifier.starts_with("com.dimo.app.dev.")
 }
 
 /// WebView2 user-data folder identifier for this executable.
 ///
-/// `pnpm run dev` uses `com.vibex.app.dev` (or `com.vibex.app.dev.<worktree>`);
-/// the installed product uses `com.vibex.app`. The two must stay distinct so a
+/// `pnpm run dev` uses `com.dimo.app.dev` (or `com.dimo.app.dev.<worktree>`);
+/// the installed product uses `com.dimo.app`. The two must stay distinct so a
 /// running install or sibling worktree cannot busy-lock a debug restart.
 pub fn webview2_identifier_for_executable(exe: &std::path::Path) -> &'static str {
     let text = exe
@@ -94,9 +94,9 @@ pub fn webview2_identifier_for_executable(exe: &std::path::Path) -> &'static str
         .replace('/', "\\")
         .to_ascii_lowercase();
     if text.contains("\\target\\debug\\") {
-        "com.vibex.app.dev"
+        "com.dimo.app.dev"
     } else {
-        "com.vibex.app"
+        "com.dimo.app"
     }
 }
 
@@ -105,7 +105,7 @@ pub fn resolve_webview2_identifier_for_executable(
     env_override: Option<&str>,
 ) -> String {
     let base = webview2_identifier_for_executable(exe);
-    if base == "com.vibex.app.dev"
+    if base == "com.dimo.app.dev"
         && let Some(raw) = env_override.map(str::trim).filter(|raw| !raw.is_empty())
         && is_dev_webview2_identifier(raw)
         && raw
@@ -119,15 +119,15 @@ pub fn resolve_webview2_identifier_for_executable(
 
 /// PowerShell `-like` pattern for leftover `msedgewebview2.exe` command lines.
 ///
-/// `com.vibex.app` is a prefix of `com.vibex.app.dev`, so the product pattern
+/// `com.dimo.app` is a prefix of `com.dimo.app.dev`, so the product pattern
 /// matches the `EBWebView` path segment instead of the identifier alone.
 pub fn webview2_command_line_like_pattern(identifier: &str) -> String {
-    if identifier == "com.vibex.app.dev" {
-        "*com.vibex.app.dev*".to_string()
-    } else if identifier.starts_with("com.vibex.app.dev.") {
+    if identifier == "com.dimo.app.dev" {
+        "*com.dimo.app.dev*".to_string()
+    } else if identifier.starts_with("com.dimo.app.dev.") {
         format!("*\\{identifier}\\EBWebView*")
     } else {
-        "*\\com.vibex.app\\EBWebView*".to_string()
+        "*\\com.dimo.app\\EBWebView*".to_string()
     }
 }
 
@@ -140,7 +140,7 @@ pub fn webview2_user_data_dir(identifier: &str) -> Option<std::path::PathBuf> {
 
 /// Isolated debug WebView2 environment under the repo `dev_assets` tree.
 ///
-/// Tauri's default is `%LOCALAPPDATA%\com.vibex.app.dev`. That folder stays
+/// Tauri's default is `%LOCALAPPDATA%\com.dimo.app.dev`. That folder stays
 /// busy across cargo-watch restarts (`HRESULT 0x800700AA`), and creating a
 /// nested or sibling directory there can fail with access denied while the
 /// leftover Environment still holds it. Host windows already keep profiles
@@ -342,7 +342,7 @@ pub(crate) fn build_reclaim_orphaned_webview2_script(
         "$false"
     };
     format!(
-        "$self = {self_pid}; $parentPid = {parent_pid}; $exe = [System.IO.Path]::GetFullPath({exe_literal}); $force = {force_kill_predecessor}; $deadline = [DateTime]::UtcNow.AddMilliseconds({wait_ms}); $others = @(); do {{ $others = @(Get-CimInstance Win32_Process -Filter \"Name = 'vibex.exe'\" | Where-Object {{ $_.ProcessId -ne $self -and $_.ProcessId -ne $parentPid -and $_.ExecutablePath -and ([System.IO.Path]::GetFullPath($_.ExecutablePath) -ieq $exe) }}); if ($others.Count -eq 0) {{ break }}; Start-Sleep -Milliseconds 200 }} while ([DateTime]::UtcNow -lt $deadline); $wv2 = @(Get-CimInstance Win32_Process -Filter \"Name = 'msedgewebview2.exe'\" | Where-Object {{ $_.CommandLine -and $_.CommandLine -like '{like}' }}); if ($others.Count -gt 0) {{ if (-not $force -and $wv2.Count -gt 0) {{ exit 0 }}; $others | ForEach-Object {{ taskkill.exe /F /PID $_.ProcessId /T | Out-Null; Wait-Process -Id $_.ProcessId -Timeout 8 -ErrorAction SilentlyContinue }} }}; $wv2 | ForEach-Object {{ taskkill.exe /F /PID $_.ProcessId /T | Out-Null; Wait-Process -Id $_.ProcessId -Timeout 8 -ErrorAction SilentlyContinue }}; Start-Sleep -Milliseconds 400"
+        "$self = {self_pid}; $parentPid = {parent_pid}; $exe = [System.IO.Path]::GetFullPath({exe_literal}); $force = {force_kill_predecessor}; $deadline = [DateTime]::UtcNow.AddMilliseconds({wait_ms}); $others = @(); do {{ $others = @(Get-CimInstance Win32_Process -Filter \"Name = 'dimo.exe'\" | Where-Object {{ $_.ProcessId -ne $self -and $_.ProcessId -ne $parentPid -and $_.ExecutablePath -and ([System.IO.Path]::GetFullPath($_.ExecutablePath) -ieq $exe) }}); if ($others.Count -eq 0) {{ break }}; Start-Sleep -Milliseconds 200 }} while ([DateTime]::UtcNow -lt $deadline); $wv2 = @(Get-CimInstance Win32_Process -Filter \"Name = 'msedgewebview2.exe'\" | Where-Object {{ $_.CommandLine -and $_.CommandLine -like '{like}' }}); if ($others.Count -gt 0) {{ if (-not $force -and $wv2.Count -gt 0) {{ exit 0 }}; $others | ForEach-Object {{ taskkill.exe /F /PID $_.ProcessId /T | Out-Null; Wait-Process -Id $_.ProcessId -Timeout 8 -ErrorAction SilentlyContinue }} }}; $wv2 | ForEach-Object {{ taskkill.exe /F /PID $_.ProcessId /T | Out-Null; Wait-Process -Id $_.ProcessId -Timeout 8 -ErrorAction SilentlyContinue }}; Start-Sleep -Milliseconds 400"
     )
 }
 
@@ -591,8 +591,8 @@ mod win32_desktop {
     /// with a non-inheriting `Medium Mandatory Level` SACL (`S:P(ML;OICI;NW;;;ME)`).
     ///
     /// External Windows agent sandboxes (`exebox`) can stamp `Low Mandatory Level`
-    /// onto the workspace root; without `SE_SACL_PROTECTED`, `target\debug\vibex.exe`
-    /// inherits the `Low` label, causing Windows to launch `vibex.exe` and all
+    /// onto the workspace root; without `SE_SACL_PROTECTED`, `target\debug\dimo.exe`
+    /// inherits the `Low` label, causing Windows to launch `dimo.exe` and all
     /// ACP child agents (`codex`, `claude`, `grok`, `opencode`, `antigravity`)
     /// with a Low Mandatory Integrity token (`S-1-16-4096`) that fails with
     /// `os error 5` (`ERROR_ACCESS_DENIED`) when writing to `%USERPROFILE%`.
@@ -880,27 +880,27 @@ mod tests {
     fn debug_exe_uses_the_dev_webview2_identity() {
         assert_eq!(
             webview2_identifier_for_executable(std::path::Path::new(
-                r"C:\Users\18190\Documents\projects\VibeX\target\debug\vibex.exe"
+                r"C:\Users\18190\Documents\projects\Dimo\target\debug\dimo.exe"
             )),
-            "com.vibex.app.dev"
+            "com.dimo.app.dev"
         );
         assert_eq!(
             webview2_identifier_for_executable(std::path::Path::new(
-                r"C:\Users\18190\AppData\Local\VibeX\vibex.exe"
+                r"C:\Users\18190\AppData\Local\Dimo\dimo.exe"
             )),
-            "com.vibex.app"
+            "com.dimo.app"
         );
     }
 
     #[test]
     fn product_webview2_filter_does_not_match_the_dev_folder() {
         assert_eq!(
-            webview2_command_line_like_pattern("com.vibex.app.dev"),
-            "*com.vibex.app.dev*"
+            webview2_command_line_like_pattern("com.dimo.app.dev"),
+            "*com.dimo.app.dev*"
         );
-        let product = webview2_command_line_like_pattern("com.vibex.app");
-        assert!(product.contains(r"\com.vibex.app\EBWebView"));
-        assert!(!product.contains("com.vibex.app.dev"));
+        let product = webview2_command_line_like_pattern("com.dimo.app");
+        assert!(product.contains(r"\com.dimo.app\EBWebView"));
+        assert!(!product.contains("com.dimo.app.dev"));
     }
 
     #[test]
@@ -913,7 +913,7 @@ mod tests {
                 .map(|duration| duration.as_nanos())
                 .unwrap_or(0)
         ));
-        let dir = parent.join("com.vibex.app.dev");
+        let dir = parent.join("com.dimo.app.dev");
         std::fs::create_dir_all(dir.join("EBWebView").join("Default")).unwrap();
         std::fs::write(dir.join("EBWebView").join("Default").join("LOCK"), b"busy").unwrap();
 
@@ -925,7 +925,7 @@ mod tests {
             stale
                 .file_name()
                 .and_then(|name| name.to_str())
-                .is_some_and(|name| name.starts_with("com.vibex.app.dev.stale-"))
+                .is_some_and(|name| name.starts_with("com.dimo.app.dev.stale-"))
         );
         assert!(
             stale
@@ -943,10 +943,10 @@ mod tests {
 
     #[test]
     fn user_data_dir_appends_the_identifier() {
-        let Some(dir) = super::webview2_user_data_dir("com.vibex.app.dev") else {
+        let Some(dir) = super::webview2_user_data_dir("com.dimo.app.dev") else {
             return;
         };
-        assert!(dir.ends_with("com.vibex.app.dev"));
+        assert!(dir.ends_with("com.dimo.app.dev"));
     }
 
     #[test]
@@ -970,7 +970,7 @@ mod tests {
     fn debug_env_dir_lives_in_dev_assets_webview_profiles() {
         let dir = super::debug_webview2_environment_dir();
         assert!(dir.ends_with(std::path::Path::new("webview-profiles").join("main")));
-        if let Some(identity) = super::webview2_user_data_dir("com.vibex.app.dev") {
+        if let Some(identity) = super::webview2_user_data_dir("com.dimo.app.dev") {
             assert_ne!(dir, identity);
         }
     }
@@ -1000,8 +1000,8 @@ mod tests {
     #[test]
     fn reclaim_script_excludes_sandbox_parent_pid() {
         let script = super::build_reclaim_orphaned_webview2_script(
-            std::path::Path::new(r"C:\Users\18190\Documents\projects\VibeX\target\debug\vibex.exe"),
-            "com.vibex.app.dev",
+            std::path::Path::new(r"C:\Users\18190\Documents\projects\Dimo\target\debug\dimo.exe"),
+            "com.dimo.app.dev",
             2000,
             Some(1000),
             3000,
@@ -1017,35 +1017,35 @@ mod tests {
             Some("Default"),
             false,
             Some(std::path::Path::new(
-                r"C:\Users\18190\AppData\Local\VibeX\vibex.exe"
+                r"C:\Users\18190\AppData\Local\Dimo\dimo.exe"
             )),
         ));
         assert!(super::should_apply_medium_integrity_sacl(
             Some("exebox-123"),
             false,
             Some(std::path::Path::new(
-                r"C:\Users\18190\AppData\Local\VibeX\vibex.exe"
+                r"C:\Users\18190\AppData\Local\Dimo\dimo.exe"
             )),
         ));
         assert!(super::should_apply_medium_integrity_sacl(
             Some("Default"),
             true,
             Some(std::path::Path::new(
-                r"C:\Users\18190\AppData\Local\VibeX\vibex.exe"
+                r"C:\Users\18190\AppData\Local\Dimo\dimo.exe"
             )),
         ));
         assert!(super::should_apply_medium_integrity_sacl(
             Some("Default"),
             false,
             Some(std::path::Path::new(
-                r"C:\Users\18190\Documents\projects\VibeX\target\debug\vibex.exe"
+                r"C:\Users\18190\Documents\projects\Dimo\target\debug\dimo.exe"
             )),
         ));
         assert!(super::should_apply_medium_integrity_sacl(
             Some("Default"),
             false,
             Some(std::path::Path::new(
-                r"C:\Users\18190\Documents\projects\VibeX\target\release\vibex.exe"
+                r"C:\Users\18190\Documents\projects\Dimo\target\release\dimo.exe"
             )),
         ));
     }

@@ -156,7 +156,7 @@ pub(crate) fn parse_codex_models_response(result: &Value) -> Vec<EngineModelInfo
     out
 }
 
-/// Maps VibeX / Codex mode identifiers + workspace directories onto Codex `approvalPolicy`
+/// Maps Dimo / Codex mode identifiers + workspace directories onto Codex `approvalPolicy`
 /// and `turn/start` `sandboxPolicy` (`readOnly`, `workspaceWrite`, `dangerFullAccess`).
 pub(crate) fn build_codex_turn_policy(
     permission_mode: Option<&str>,
@@ -363,39 +363,92 @@ fn extract_agent_message_text(item: &Value) -> Option<String> {
     (!joined.trim().is_empty()).then_some(joined)
 }
 
+fn parse_codex_usage_bucket(
+    bucket: &Value,
+) -> (Option<u64>, Option<u64>, Option<u64>, Option<u64>) {
+    let raw_input = bucket
+        .get("inputTokens")
+        .or_else(|| bucket.get("input_tokens"))
+        .and_then(Value::as_u64);
+    let output_tokens = bucket
+        .get("outputTokens")
+        .or_else(|| bucket.get("output_tokens"))
+        .and_then(Value::as_u64);
+    let cache_read_tokens = bucket
+        .get("cachedInputTokens")
+        .or_else(|| bucket.get("cached_input_tokens"))
+        .or_else(|| bucket.get("cache_read_input_tokens"))
+        .and_then(Value::as_u64);
+    let input_includes_cached = bucket.get("cache_read_input_tokens").is_none()
+        || bucket.get("cachedInputTokens").is_some()
+        || bucket.get("cached_input_tokens").is_some();
+    let input_tokens = raw_input.map(|raw| {
+        if input_includes_cached {
+            raw.saturating_sub(cache_read_tokens.unwrap_or(0))
+        } else {
+            raw
+        }
+    });
+    let explicit_total = bucket
+        .get("totalTokens")
+        .or_else(|| bucket.get("total_tokens"))
+        .and_then(Value::as_u64);
+    let computed_total =
+        if input_tokens.is_some() || cache_read_tokens.is_some() || output_tokens.is_some() {
+            let sum = input_tokens.unwrap_or(0)
+                + cache_read_tokens.unwrap_or(0)
+                + output_tokens.unwrap_or(0);
+            (sum > 0).then_some(sum)
+        } else {
+            None
+        };
+    (
+        input_tokens,
+        output_tokens,
+        cache_read_tokens,
+        explicit_total.filter(|&t| t > 0).or(computed_total),
+    )
+}
+
 fn parse_codex_usage_event(
     params: &Value,
     prompt_id: Option<String>,
     session_id: Option<String>,
+    is_turn_completed: bool,
 ) -> Option<EngineEvent> {
     let token_usage = params
         .get("tokenUsage")
         .or_else(|| params.get("turn").and_then(|t| t.get("usage")))
         .or_else(|| params.get("usage"))?;
-    let breakdown = token_usage
-        .get("last")
-        .filter(|v| v.is_object())
-        .or_else(|| token_usage.get("total").filter(|v| v.is_object()))
-        .unwrap_or(token_usage);
+    let total_obj = token_usage.get("total").filter(|v| v.is_object());
+    let last_obj = token_usage.get("last").filter(|v| v.is_object());
+    let spend_bucket = total_obj.or(last_obj).unwrap_or(token_usage);
 
-    let input_tokens = breakdown
-        .get("inputTokens")
-        .or_else(|| breakdown.get("input_tokens"))
-        .and_then(Value::as_u64);
-    let output_tokens = breakdown
-        .get("outputTokens")
-        .or_else(|| breakdown.get("output_tokens"))
-        .and_then(Value::as_u64);
-    let cache_read_tokens = breakdown
-        .get("cachedInputTokens")
-        .or_else(|| breakdown.get("cache_read_input_tokens"))
-        .and_then(Value::as_u64);
+    let (input_tokens, output_tokens, cache_read_tokens, spend_total) =
+        parse_codex_usage_bucket(spend_bucket);
+    let context_used = if let Some(last) = last_obj {
+        parse_codex_usage_bucket(last).3
+    } else if total_obj.is_none() && !is_turn_completed {
+        spend_total
+    } else {
+        None
+    };
+    let is_turn_summary = is_turn_completed || (total_obj.is_some() && last_obj.is_none());
     let context_window = token_usage
         .get("modelContextWindow")
-        .or_else(|| breakdown.get("contextWindow"))
+        .or_else(|| spend_bucket.get("contextWindow"))
+        .or_else(|| {
+            last_obj
+                .and_then(|l| l.get("contextWindow"))
+                .or_else(|| token_usage.get("contextWindow"))
+        })
         .and_then(Value::as_u64);
 
-    if input_tokens.is_none() && output_tokens.is_none() && context_window.is_none() {
+    if input_tokens.is_none()
+        && output_tokens.is_none()
+        && cache_read_tokens.is_none()
+        && context_window.is_none()
+    {
         return None;
     }
 
@@ -407,7 +460,9 @@ fn parse_codex_usage_event(
         cache_read_tokens,
         cache_write_tokens: None,
         cost_usd: None,
+        context_used,
         context_window,
+        is_turn_summary,
         model: nested_or_str(params, "turn", "model", "model"),
     })
 }
@@ -508,7 +563,7 @@ pub(crate) fn normalize_codex_notification(
             }
         }
         "thread/tokenUsage/updated" => {
-            parse_codex_usage_event(params, prompt_id, session_id)
+            parse_codex_usage_event(params, prompt_id, session_id, false)
                 .into_iter()
                 .collect()
         }
@@ -593,7 +648,8 @@ pub(crate) fn normalize_codex_notification(
                     out.push(EngineEvent::SubagentCompleted {
                         prompt_id,
                         session_id,
-                        subagent_id: sub_id,
+                        subagent_id: sub_id.clone(),
+                        parent_tool_use_id: Some(sub_id),
                         status: status_str,
                         summary: str_any(item, &["prompt"]),
                     });
@@ -615,6 +671,10 @@ pub(crate) fn normalize_codex_notification(
             if let Some(ref tid) = session_id
                 && let Ok(mut map) = compaction_states.write()
             {
+                const MAX_COMPACTION_STATES: usize = 256;
+                if map.len() >= MAX_COMPACTION_STATES && !map.contains_key(tid) {
+                    map.retain(|_, state| state.in_progress);
+                }
                 let entry =
                     map.entry(tid.clone())
                         .or_insert_with(|| CodexAutoCompactionThreadState {
@@ -644,19 +704,58 @@ pub(crate) fn normalize_codex_notification(
         "turn/completed" => {
             let mut events = Vec::new();
             if let Some(usage_ev) =
-                parse_codex_usage_event(params, prompt_id.clone(), session_id.clone())
+                parse_codex_usage_event(params, prompt_id.clone(), session_id.clone(), true)
             {
                 events.push(usage_ev);
             }
-            let served_model = nested_or_str(params, "turn", "model", "model")
-                .or_else(|| str_any(params, &["served_model", "servedModel"]));
-            events.push(EngineEvent::TurnCompleted {
-                prompt_id,
-                turn_id: nested_or_str(params, "turn", "id", "turnId"),
-                session_id,
-                stop_reason: nested_or_str(params, "turn", "status", "status"),
-                served_model,
-            });
+            let turn_status = nested_or_str(params, "turn", "status", "status");
+            match turn_status
+                .as_deref()
+                .map(str::trim)
+                .map(str::to_ascii_lowercase)
+                .as_deref()
+            {
+                Some("failed" | "error") => {
+                    let message = params
+                        .pointer("/turn/error/message")
+                        .and_then(Value::as_str)
+                        .map(str::trim)
+                        .filter(|s| !s.is_empty())
+                        .map(str::to_string)
+                        .or_else(|| nested_or_str(params, "error", "message", "message"))
+                        .unwrap_or_else(|| "Codex turn failed".into());
+                    events.push(EngineEvent::TurnError {
+                        prompt_id,
+                        session_id,
+                        message,
+                    });
+                }
+                Some("interrupted" | "cancelled" | "canceled") => {
+                    events.push(EngineEvent::TurnInterrupted {
+                        prompt_id,
+                        session_id,
+                        reason: "interrupted".into(),
+                    });
+                }
+                _ => {
+                    let stop_reason = match turn_status.as_deref().map(str::trim) {
+                        None | Some("") => Some("end_turn".to_string()),
+                        Some(s) if s.eq_ignore_ascii_case("completed") => {
+                            Some("end_turn".to_string())
+                        }
+                        Some(other) => Some(other.to_string()),
+                    };
+                    let served_model = nested_or_str(params, "turn", "model", "model")
+                        .or_else(|| str_any(params, &["served_model", "servedModel"]));
+                    events.push(EngineEvent::TurnCompleted {
+                        prompt_id,
+                        turn_id: nested_or_str(params, "turn", "id", "turnId"),
+                        session_id,
+                        stop_reason,
+                        served_model,
+                    });
+                }
+            }
             events
         }
         "turn/interrupted" => vec![EngineEvent::TurnInterrupted {
@@ -664,10 +763,45 @@ pub(crate) fn normalize_codex_notification(
             session_id,
             reason: str_any(params, &["reason"]).unwrap_or_else(|| "interrupted".into()),
         }],
-        "turn/failed" | "error" => vec![EngineEvent::TurnError {
+        "error" => {
+            let will_retry = params
+                .get("willRetry")
+                .and_then(Value::as_bool)
+                .or_else(|| {
+                    params
+                        .get("error")
+                        .and_then(|e| e.get("willRetry"))
+                        .and_then(Value::as_bool)
+                })
+                .unwrap_or(false);
+            if will_retry {
+                vec![EngineEvent::HookEvent {
+                    prompt_id,
+                    session_id,
+                    hook_name: "codex/retry".into(),
+                    payload: params.clone(),
+                }]
+            } else {
+                vec![EngineEvent::TurnError {
+                    prompt_id,
+                    session_id,
+                    message: nested_or_str(params, "error", "message", "message")
+                        .unwrap_or_else(|| "Codex turn failed".into()),
+                }]
+            }
+        }
+        "turn/failed" => vec![EngineEvent::TurnError {
             prompt_id,
             session_id,
             message: nested_or_str(params, "error", "message", "message")
+                .or_else(|| {
+                    params
+                        .pointer("/turn/error/message")
+                        .and_then(Value::as_str)
+                        .map(str::trim)
+                        .filter(|s| !s.is_empty())
+                        .map(str::to_string)
+                })
                 .unwrap_or_else(|| "Codex turn failed".into()),
         }],
         _ => Vec::new(),
@@ -909,7 +1043,7 @@ pub(super) fn prepare_codex_launch_env(
             .file_stem()
             .and_then(|s| s.to_str())
             .is_some_and(|stem| stem.eq_ignore_ascii_case("codex"))
-        && !launch_env.contains_key("VIBEX_CODEX_PATH")
+        && !launch_env.contains_key("DIMO_CODEX_PATH")
         && !launch_env.contains_key("CODEX_PATH")
     {
         launch_env.insert(

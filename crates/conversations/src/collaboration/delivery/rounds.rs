@@ -14,6 +14,18 @@ pub const DEFAULT_COLLAB_ROUND_TIMEOUT_MINUTES: i64 = 30;
 pub const DEFAULT_COLLAB_ROUND_GRACE_SECS: i64 = 3;
 pub const DEFAULT_COLLAB_ROUND_TURN_WAIT_SECS: i64 = 15;
 
+static ROUND_SWEEP_NOTIFY: OnceLock<tokio::sync::Notify> = OnceLock::new();
+
+pub(crate) fn round_sweep_notify() -> &'static tokio::sync::Notify {
+    ROUND_SWEEP_NOTIFY.get_or_init(tokio::sync::Notify::new)
+}
+
+pub(crate) fn notify_round_sweep() {
+    if let Some(notify) = ROUND_SWEEP_NOTIFY.get() {
+        notify.notify_waiters();
+    }
+}
+
 static ACTIVE_TOOL_TURNS: OnceLock<Mutex<HashMap<Uuid, DateTime<Utc>>>> = OnceLock::new();
 
 fn active_tool_turns() -> &'static Mutex<HashMap<Uuid, DateTime<Utc>>> {
@@ -179,7 +191,7 @@ pub async fn notify_space_turn_streaming(
 
 pub fn collab_round_timeout_minutes() -> i64 {
     super::routing::env_i64(
-        "VIBEX_COLLAB_ROUND_TIMEOUT_MINUTES",
+        "DIMO_COLLAB_ROUND_TIMEOUT_MINUTES",
         DEFAULT_COLLAB_ROUND_TIMEOUT_MINUTES,
     )
     .max(1)
@@ -187,7 +199,7 @@ pub fn collab_round_timeout_minutes() -> i64 {
 
 pub fn collab_round_grace_secs() -> i64 {
     super::routing::env_i64(
-        "VIBEX_COLLAB_ROUND_GRACE_SECONDS",
+        "DIMO_COLLAB_ROUND_GRACE_SECONDS",
         DEFAULT_COLLAB_ROUND_GRACE_SECS,
     )
     .max(1)
@@ -195,7 +207,7 @@ pub fn collab_round_grace_secs() -> i64 {
 
 pub fn collab_round_turn_wait_secs() -> i64 {
     super::routing::env_i64(
-        "VIBEX_COLLAB_ROUND_TURN_WAIT_SECS",
+        "DIMO_COLLAB_ROUND_TURN_WAIT_SECS",
         DEFAULT_COLLAB_ROUND_TURN_WAIT_SECS,
     )
     .max(3)
@@ -927,6 +939,17 @@ async fn round_has_unfinished_slots(
     .await
     .map_err(db)?;
     Ok(open > 0)
+}
+
+pub(crate) async fn has_active_collaboration_rounds(pool: &SqlitePool) -> bool {
+    sqlx::query_scalar::<_, i64>(
+        "SELECT 1 FROM collaboration_rounds WHERE state IN ('open', 'closing') LIMIT 1",
+    )
+    .fetch_optional(pool)
+    .await
+    .ok()
+    .flatten()
+    .is_some()
 }
 
 pub async fn sweep_round_grace_detach(

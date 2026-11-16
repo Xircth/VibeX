@@ -2,7 +2,7 @@
 status: accepted
 date: 2026-08-17
 decision-makers:
-  - VibeX maintainers
+  - Dimo maintainers
 ---
 
 # 官方产品 MCP 随 Host 分发、由官方插件激活
@@ -15,11 +15,11 @@ decision-makers:
 > [ADR-0057](0057-session-enhance-and-multi-agent-plugins.md)。
 > 本决定中「官方 MCP 由官方插件激活、默认禁用、只影响新 session」仍然有效。
 
-> 2026-10-20：多智能体协同不再是官方插件。vibex-mcp 的 delegation 产品由设置 → 常规里的协作空间开关激活，默认关闭，只影响新会话。会话增强与工作流仍由各自官方插件激活。
+> 2026-10-20：多智能体协同不再是官方插件。dimo-mcp 的 delegation 产品由设置 → 常规里的协作空间开关激活，默认关闭，只影响新会话。会话增强与工作流仍由各自官方插件激活。
 >
 > 2026-10-28：界面文案改为「协作空间」，默认开启。MCP 状态栏列出同一套宿主 MCP。
 
-`vibex-mcp` 与 `vibex-workflow-mcp` 是 VibeX 官方产品 MCP。它们作为 Host 家族
+`dimo-mcp` 与 `dimo-workflow-mcp` 是 Dimo 官方产品 MCP。它们作为 Host 家族
 的原生文件随桌面和 Server 发行，但只有对应官方插件启用后才注入 Agent session。
 
 本决定落实 Plugin Kernel 对产品 MCP 的托管边界：官方 MCP 随 Host 分发，
@@ -32,8 +32,8 @@ decision-makers:
 
 Host 包始终带上官方 MCP 字节：
 
-- `vibex-mcp` 与 Host 可执行文件同目录，沿用现有 sibling / `VIBEX_MCP_BIN` 定位。
-- `vibex-workflow-mcp` 作为 `vibex.workflow-creator` 的 managed Runtime，由
+- `dimo-mcp` 与 Host 可执行文件同目录，沿用现有 sibling / `DIMO_MCP_BIN` 定位。
+- `dimo-workflow-mcp` 作为 `dimo.workflow-creator` 的 managed Runtime，由
   Host 解析，不依赖用户 PATH。
 
 用户不必单独下载或启动这两个进程。
@@ -42,8 +42,8 @@ Host 包始终带上官方 MCP 字节：
 
 | 产品 | 官方插件 | MCP | 生效条件 |
 | --- | --- | --- | --- |
-| 多智能体协同 | `vibex.collaboration` | `vibex-mcp` | 插件 Enabled，且 Agent 广告 `session/new.mcp_servers` |
-| 工作流开发 | `vibex.workflow-creator` | `vibex-workflow-mcp` | 同上，且 Agent binding 包含该 Agent |
+| 多智能体协同 | `dimo.collaboration` | `dimo-mcp` | 插件 Enabled，且 Agent 广告 `session/new.mcp_servers` |
+| 工作流开发 | `dimo.workflow-creator` | `dimo-workflow-mcp` | 同上，且 Agent binding 包含该 Agent |
 
 磁盘上有二进制不等于已注入。插件禁用、未导入或 Activation Generation 未发布时，
 Host 不得把对应 MCP 写入 `session/new`，设置页也不得显示为已配置。
@@ -53,12 +53,12 @@ Host 不得把对应 MCP 写入 `session/new`，设置页也不得显示为已�
 
 ### 3. 两条产品，两个 identity
 
-不得把 Workflow 工具并入 `vibex-mcp`。Delegation Broker 与 listener 可以随
+不得把 Workflow 工具并入 `dimo-mcp`。Delegation Broker 与 listener 可以随
 Host 常驻；没有协作插件时 companion 不会被注入，Broker 不会被 Agent 打到。
 
-`vibex.collaboration` 是随 Host 分发的 builtin 插件，默认 Disabled。它提供
+`dimo.collaboration` 是随 Host 分发的 builtin 插件，默认 Disabled。它提供
 协同 Skill 与 MCP 激活门，不要求 Worker。原生 Studio 与 Workflow Core 仍不
-依赖 `vibex.workflow-creator`；禁用该插件不删除源文件、版本、Automation 或
+依赖 `dimo.workflow-creator`；禁用该插件不删除源文件、版本、Automation 或
 Run。
 
 ### 4. Host 注入连接上下文
@@ -73,14 +73,14 @@ Plugin control plane 在导入、启用、禁用和启动恢复时更新。
 
 - 桌面与 Server 在安装 injector 前必须已有 Plugin control plane，并在 builtin
   导入后同步门状态。
-- `vibex.collaboration` 进入 `assets/plugins/`，走与 Office 相同的 materialize /
+- `dimo.collaboration` 进入 `assets/plugins/`，走与 Office 相同的 materialize /
   import 路径。
 - companion 注入新增稳定失败码 `official_product_mcp_disabled`。
-- 本决定取代“平台几乎总是注入 `vibex-mcp`”的隐含行为。
+- 本决定取代“平台几乎总是注入 `dimo-mcp`”的隐含行为。
 
 ## Considered Options
 
-- **继续把 `vibex-mcp` 当无门控平台能力。** 否决。用户无法独立关闭协同而不
+- **继续把 `dimo-mcp` 当无门控平台能力。** 否决。用户无法独立关闭协同而不
   伤害 Host。
 - **把两个 MCP 合成一个二进制。** 否决。产品生命周期与工具目录会绑死。
 - **让用户单独安装 MCP 服务。** 否决。没有 Host socket 与短期 token，进程
@@ -88,6 +88,6 @@ Plugin control plane 在导入、启用、禁用和启动恢复时更新。
 
 ## Amendment（2026-10-20）
 
-第 2 节里「多智能体协同由官方插件激活」不再成立。`vibex-mcp` 的 delegation 产品由「设置 → 常规 → 协作空间」激活，默认开启，只影响之后新开或重新绑定的会话。关掉之后，新会话不再注入工具，新的写操作失败；已经排队的输入仍会被送达。会话增强与工作流仍由各自官方插件激活。该 MCP 出现在主窗口 MCP 状态栏，启停与该设置是同一事实。
+第 2 节里「多智能体协同由官方插件激活」不再成立。`dimo-mcp` 的 delegation 产品由「设置 → 常规 → 协作空间」激活，默认开启，只影响之后新开或重新绑定的会话。关掉之后，新会话不再注入工具，新的写操作失败；已经排队的输入仍会被送达。会话增强与工作流仍由各自官方插件激活。该 MCP 出现在主窗口 MCP 状态栏，启停与该设置是同一事实。
 
-协作投递和会话、工作区表面必须与宿主锁版本，独立插件缝是假想的。因此放弃把 MultiAgent协同做成可独立发布、可从市场安装、或由第三方用同一 SDK 再做一份的插件。不要恢复「平台总是注入 `vibex-mcp`」。
+协作投递和会话、工作区表面必须与宿主锁版本，独立插件缝是假想的。因此放弃把 MultiAgent协同做成可独立发布、可从市场安装、或由第三方用同一 SDK 再做一份的插件。不要恢复「平台总是注入 `dimo-mcp`」。

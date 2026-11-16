@@ -7,9 +7,9 @@
 //! `[PYI-33104:ERROR] Could not create temporary directory!` with Windows
 //! status `-1` (`0xffffffff`).
 //!
-//! VibeX also kills ACP process groups (`kill_on_drop` / idle sweep) before
+//! Dimo also kills ACP process groups (`kill_on_drop` / idle sweep) before
 //! the bootloader can delete `_MEI*`, so the user TEMP fills with leftovers
-//! and later creates start failing. Host-managed `%LOCALAPPDATA%\VibeX\acp-tmp\<agent>`
+//! and later creates start failing. Host-managed `%LOCALAPPDATA%\Dimo\acp-tmp\<agent>`
 //! is short, writable, and isolated from that pollution. Prepare uses a unique
 //! write probe so concurrent connections for the same agent do not contend, retries
 //! ACCESS_DENIED / sharing violations (Defender scanning leftover `_MEI*`), and
@@ -24,7 +24,7 @@ use std::{
 
 use crate::AgentId;
 
-const ACP_TMP_ROOT: &str = "VibeX";
+const ACP_TMP_ROOT: &str = "Dimo";
 const ACP_TMP_LEAF: &str = "acp-tmp";
 const PREPARE_ATTEMPTS: u32 = 5;
 const PREPARE_RETRY_SLEEP: Duration = Duration::from_millis(30);
@@ -79,7 +79,7 @@ fn prepare_agent_runtime_temp_from_bases(
 
 fn runtime_temp_candidate_bases() -> Vec<PathBuf> {
     let primary = runtime_temp_base();
-    let scratch = workspace_utils::path::get_vibex_temp_dir();
+    let scratch = workspace_utils::path::get_dimo_temp_dir();
     if scratch == primary {
         vec![primary]
     } else {
@@ -193,7 +193,7 @@ mod tests {
 
         assert_eq!(
             agy_dir,
-            tmp.0.join("VibeX").join("acp-tmp").join("antigravity")
+            tmp.0.join("Dimo").join("acp-tmp").join("antigravity")
         );
         assert_ne!(agy_dir, grok_dir);
         assert!(agy_dir.is_dir());
@@ -296,7 +296,7 @@ mod tests {
         )
         .expect("must fall back to a writable ACP temp base");
 
-        assert!(dir.starts_with(fallback.join("VibeX").join("acp-tmp")));
+        assert!(dir.starts_with(fallback.join("Dimo").join("acp-tmp")));
         assert!(!dir.starts_with(&blocked));
         fs::create_dir(dir.join("_MEIprobe")).unwrap();
     }

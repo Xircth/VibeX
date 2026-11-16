@@ -2,16 +2,10 @@
 //! cross-engine context packing (`DeterministicHandoffService`) and `thread_read_history`
 //! retrieval without any hidden LLM summarization calls.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 
-use agents::conversation::{
-    ContentBlock, ContinuationPolicy, ConversationEvent, ConversationInputBlock,
-    ConversationTimelineRow, TimelineRow, TurnRole,
-};
-use db::models::{
-    conversation::ConversationAgentBindingRecord, conversation_event::ConversationEventRecord,
-    conversation_timeline_row::ConversationTimelineRowRecord, session::Session,
-};
+use agents::conversation::{ContinuationPolicy, ConversationEvent, TurnRole};
+use db::models::{conversation::ConversationAgentBindingRecord, session::Session};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use sqlx::SqlitePool;
@@ -20,6 +14,9 @@ use ts_rs::TS;
 use uuid::Uuid;
 
 use crate::{ConversationStartTurnInput, continuation::HistorySelection};
+
+mod candidates;
+use candidates::{CandidateItem, load_candidates, load_history_items_by_ids};
 
 pub(crate) async fn plan(
     pool: &SqlitePool,
@@ -110,6 +107,24 @@ pub(crate) async fn delivered_item_ids(
     Ok(ids)
 }
 
+pub async fn latest_agent_handoff_sequence(
+    pool: &SqlitePool,
+    conversation_id: Uuid,
+) -> Result<i64, sqlx::Error> {
+    let seq: Option<i64> = sqlx::query_scalar(
+        r#"SELECT MAX(sequence)
+           FROM conversation_events
+           WHERE conversation_id = ?
+             AND event_kind = 'raw_diagnostic_recorded'
+             AND normalized_json LIKE '%"agent_handoff"%'"#,
+    )
+    .bind(conversation_id)
+    .fetch_optional(pool)
+    .await?
+    .flatten();
+    Ok(seq.unwrap_or(0))
+}
+
 // ============================================================================
 // Deterministic Cross-Engine Handoff Service (Zero LLM Calls)
 // ============================================================================
@@ -119,9 +134,6 @@ pub const DEFAULT_HANDOFF_TOKEN_BUDGET: usize = 24_000;
 
 /// Number of most-recent complete turns prioritized immediately after active error diagnostics.
 pub const PRIORITY_RECENT_TURNS: usize = 3;
-
-/// Marker appended by preview-capping helpers when a timeline row's JSON preview was truncated.
-const TRUNCATION_SENTINEL: &str = "…[truncated]";
 
 #[derive(Debug, Error)]
 pub enum HandoffError {
@@ -199,26 +211,6 @@ pub struct ConversationEngineHandoffPreview {
 /// Domain alias matching the architecture spec (`HandoffContext`).
 pub type HandoffContext = ConversationEngineHandoffPreview;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-enum CandidatePriority {
-    UnresolvedError = 0,
-    RecentTurn = 1,
-    FileModification = 2,
-    HistoricalTurn = 3,
-}
-
-#[derive(Debug, Clone)]
-struct CandidateItem {
-    id: String,
-    turn_id: Option<Uuid>,
-    role: String,
-    content: String,
-    sort_index: i64,
-    created_at: Option<String>,
-    tokens: usize,
-    priority: CandidatePriority,
-}
-
 /// Deterministic, zero-LLM cross-engine context packer and `thread_read_history` reader.
 pub struct DeterministicHandoffService;
 
@@ -280,6 +272,154 @@ impl DeterministicHandoffService {
         ))
     }
 
+    /// Build a deterministic handoff selection for turn execution using the exact same
+    /// candidate prioritization, token estimation, and `<dimo-engine-handoff>` rendering
+    /// as [`Self::build_handoff_context`], excluding `exclude_turn_id` and any items
+    /// already known to the target binding (`known_prefixes` / `delivered_ids`).
+    ///
+    /// Gracefully degrades (shrinking or returning `Ok(None)`) when `byte_budget` is
+    /// tight instead of failing the turn with `handoff_budget_exceeded`.
+    pub async fn build_execution_handoff(
+        pool: &SqlitePool,
+        conversation_id: Uuid,
+        target_engine: &str,
+        exclude_turn_id: Uuid,
+        known_prefixes: &[String],
+        delivered_ids: &HashSet<String>,
+        byte_budget: usize,
+    ) -> Result<Option<crate::continuation::HistorySelection>, HandoffError> {
+        let session = Session::find_by_id(pool, conversation_id)
+            .await?
+            .ok_or(HandoffError::ConversationNotFound(conversation_id))?;
+
+        let latest_binding =
+            ConversationAgentBindingRecord::latest_for_conversation(pool, conversation_id).await?;
+        let source_engine = latest_binding
+            .as_ref()
+            .map(|b| b.agent_id.as_str().to_string())
+            .or_else(|| session.agent_id.as_ref().map(|a| a.as_str().to_string()))
+            .or_else(|| session.executor.clone())
+            .unwrap_or_else(|| "unknown".to_string());
+
+        let exclude_turn_str = exclude_turn_id.to_string();
+        let exclude_prefix = format!("{exclude_turn_id}:");
+        let candidates: Vec<CandidateItem> = load_candidates(pool, conversation_id)
+            .await?
+            .into_iter()
+            .filter(|c| {
+                if c.turn_id == Some(exclude_turn_id)
+                    || c.id == exclude_turn_str
+                    || c.id.starts_with(&exclude_prefix)
+                {
+                    return false;
+                }
+                if delivered_ids.contains(&c.id) {
+                    return false;
+                }
+                if known_prefixes.iter().any(|prefix| {
+                    let prefix_trimmed = prefix.trim_end_matches(':');
+                    c.id == prefix_trimmed
+                        || c.id.starts_with(prefix)
+                        || c.turn_id.is_some_and(|tid| {
+                            let tid_str = tid.to_string();
+                            tid_str == prefix_trimmed || format!("{tid}:") == *prefix
+                        })
+                }) {
+                    return false;
+                }
+                true
+            })
+            .collect();
+
+        if candidates.is_empty() || byte_budget == 0 {
+            if !candidates.is_empty() && byte_budget == 0 {
+                tracing::warn!(
+                    %conversation_id,
+                    %exclude_turn_id,
+                    "current input exhausts handoff byte budget; skipping inline history context"
+                );
+            }
+            return Ok(None);
+        }
+
+        let target = target_engine.trim();
+        let mut token_budget = ((byte_budget / 4).max(1)).min(DEFAULT_HANDOFF_TOKEN_BUDGET);
+        loop {
+            let ctx = pack_candidates(
+                &source_engine,
+                target,
+                token_budget,
+                conversation_id,
+                candidates.clone(),
+            );
+            if let Some(prompt_text) = ctx.handoff_prompt_text.as_ref()
+                && prompt_text.len() <= byte_budget
+            {
+                let items = ctx
+                    .packed_messages
+                    .iter()
+                    .map(|m| crate::continuation::HistoryItem {
+                        id: m.id.clone(),
+                        role: match m.role.as_str() {
+                            "user" => TurnRole::User,
+                            "system" => TurnRole::System,
+                            _ => TurnRole::Assistant,
+                        },
+                        text: m.content.clone(),
+                        omitted_blocks: 0,
+                    })
+                    .collect::<Vec<_>>();
+                return Ok(Some(crate::continuation::HistorySelection {
+                    omitted_items: ctx.omitted_ids.len(),
+                    omitted_ids: ctx.omitted_ids,
+                    omitted_blocks: 0,
+                    items,
+                    prompt: prompt_text.clone(),
+                }));
+            }
+            if token_budget <= 16 {
+                break;
+            }
+            token_budget = (token_budget / 2).max(16);
+        }
+
+        // Last-resort graceful fallback: omitted-only reference notice if it fits in byte_budget,
+        // otherwise omit the inline handoff block completely so the turn still proceeds.
+        let omitted_ids: Vec<String> = candidates.into_iter().map(|c| c.id).collect();
+        let minimal_prompt = format_handoff_prompt_text(
+            conversation_id,
+            &source_engine,
+            target,
+            &[],
+            &omitted_ids,
+            token_budget,
+        );
+        if minimal_prompt.len() <= byte_budget {
+            tracing::warn!(
+                %conversation_id,
+                %exclude_turn_id,
+                byte_budget,
+                "handoff items exceed byte budget; falling back to omitted-history reference"
+            );
+            return Ok(Some(crate::continuation::HistorySelection {
+                omitted_items: omitted_ids.len(),
+                omitted_ids,
+                omitted_blocks: 0,
+                items: Vec::new(),
+                prompt: minimal_prompt,
+            }));
+        }
+
+        tracing::warn!(
+            %conversation_id,
+            %exclude_turn_id,
+            byte_budget,
+            minimal_bytes = minimal_prompt.len(),
+            "current input leaves insufficient space for handoff wrapper; omitting inline history"
+        );
+        Ok(None)
+    }
+
     /// Retrieve full, untruncated historical items by `row_id` (or `turn_id`) to back the
     /// `thread_read_history` MCP tool when an agent inspects `omitted_ids`.
     pub async fn read_history_items_by_ids(
@@ -290,33 +430,7 @@ impl DeterministicHandoffService {
         if Session::find_by_id(pool, conversation_id).await?.is_none() {
             return Err(HandoffError::ConversationNotFound(conversation_id));
         }
-        if item_ids.is_empty() {
-            return Ok(Vec::new());
-        }
-
-        let requested: HashSet<&str> = item_ids
-            .iter()
-            .map(String::as_str)
-            .filter(|s| !s.is_empty())
-            .collect();
-        let all = load_candidates(pool, conversation_id).await?;
-        let mut results = Vec::new();
-        for item in all {
-            let turn_match = item
-                .turn_id
-                .map(|t| t.to_string())
-                .is_some_and(|s| requested.contains(s.as_str()));
-            if requested.contains(item.id.as_str()) || turn_match {
-                results.push(ConversationEngineHandoffPackedItem {
-                    id: item.id,
-                    role: item.role,
-                    content: item.content,
-                    sort_index: Some(item.sort_index),
-                    created_at: item.created_at,
-                });
-            }
-        }
-        Ok(results)
+        Ok(load_history_items_by_ids(pool, conversation_id, item_ids).await?)
     }
 }
 
@@ -408,7 +522,7 @@ fn pack_candidates(
     }
 }
 
-/// Render the portable `<vibex-engine-handoff>` context block with an explicit MCP
+/// Render the portable `<dimo-engine-handoff>` context block with an explicit MCP
 /// `thread_read_history` hint whenever historical items were omitted.
 pub fn format_handoff_prompt_text(
     conversation_id: Uuid,
@@ -420,7 +534,7 @@ pub fn format_handoff_prompt_text(
 ) -> String {
     let mut out = String::new();
     out.push_str(&format!(
-        "<vibex-engine-handoff conversation_id=\"{conversation_id}\" source_engine=\"{source_engine}\" target_engine=\"{target_engine}\">\n"
+        "<dimo-engine-handoff conversation_id=\"{conversation_id}\" source_engine=\"{source_engine}\" target_engine=\"{target_engine}\">\n"
     ));
     for item in packed_messages {
         out.push_str(&format!(
@@ -446,276 +560,8 @@ pub fn format_handoff_prompt_text(
             more_suffix
         ));
     }
-    out.push_str("</vibex-engine-handoff>");
+    out.push_str("</dimo-engine-handoff>");
     out
-}
-
-async fn load_candidates(
-    pool: &SqlitePool,
-    conversation_id: Uuid,
-) -> Result<Vec<CandidateItem>, sqlx::Error> {
-    let row_records =
-        ConversationTimelineRowRecord::fetch_all_active(pool, conversation_id).await?;
-    let event_records =
-        ConversationEventRecord::events_since(pool, conversation_id, 0, i64::MAX).await?;
-    let full_turn_texts = reconstruct_untruncated_texts_from_events(&event_records);
-
-    if row_records.is_empty() && !event_records.is_empty() {
-        let projected = crate::projection::ConversationProjector::project_records(
-            conversation_id,
-            &event_records,
-        )?;
-        return Ok(candidates_from_timeline_rows(
-            &projected
-                .rows
-                .into_iter()
-                .enumerate()
-                .map(|(i, r)| ((i as i64 + 1) * 1000, r))
-                .collect::<Vec<_>>(),
-            &full_turn_texts,
-        ));
-    }
-
-    let mut decoded = Vec::with_capacity(row_records.len());
-    for rec in row_records {
-        if let Ok(timeline_row) = serde_json::from_str::<TimelineRow>(&rec.row_json) {
-            decoded.push((rec.sort_index, timeline_row));
-        }
-    }
-    Ok(candidates_from_timeline_rows(&decoded, &full_turn_texts))
-}
-
-fn candidates_from_timeline_rows(
-    rows: &[(i64, TimelineRow)],
-    full_turn_texts: &HashMap<(Uuid, &'static str), String>,
-) -> Vec<CandidateItem> {
-    // Identify the newest `PRIORITY_RECENT_TURNS` distinct turns in chronological order.
-    let mut distinct_turns: Vec<Uuid> = Vec::new();
-    for (_, row) in rows {
-        if let Some(tid) = parse_turn_id_from_row_id(&row.row_id)
-            && distinct_turns.last().copied() != Some(tid)
-            && !distinct_turns.contains(&tid)
-        {
-            distinct_turns.push(tid);
-        }
-    }
-    let recent_cutoff = distinct_turns.len().saturating_sub(PRIORITY_RECENT_TURNS);
-    let recent_turn_ids: HashSet<Uuid> = distinct_turns[recent_cutoff..].iter().copied().collect();
-    let latest_turn_id = distinct_turns.last().copied();
-
-    let mut out = Vec::new();
-    for (sort_index, row) in rows {
-        let turn_id = parse_turn_id_from_row_id(&row.row_id);
-        match &row.row {
-            ConversationTimelineRow::MessageTurn { turn, phase, .. } => {
-                let role_str = match turn.role {
-                    TurnRole::User => "user",
-                    TurnRole::Assistant => "assistant",
-                    TurnRole::System => "system",
-                };
-                let mut content = format_message_turn_blocks(&turn.blocks);
-                // Reconstruct full untruncated text from `conversation_events` if capped.
-                if (content.contains(TRUNCATION_SENTINEL) || content.is_empty())
-                    && let Some(tid) = turn_id
-                    && let Some(full) = full_turn_texts.get(&(tid, role_str))
-                    && !full.trim().is_empty()
-                {
-                    content = full.clone();
-                }
-                let trimmed = content.trim();
-                if trimmed.is_empty() {
-                    continue;
-                }
-                let is_latest_failed = turn_id.is_some()
-                    && turn_id == latest_turn_id
-                    && matches!(phase.as_str(), "failed" | "interrupted");
-                let priority = if is_latest_failed {
-                    CandidatePriority::UnresolvedError
-                } else if turn_id.is_some_and(|tid| recent_turn_ids.contains(&tid)) {
-                    CandidatePriority::RecentTurn
-                } else if turn_has_file_modification(&turn.blocks) {
-                    CandidatePriority::FileModification
-                } else {
-                    CandidatePriority::HistoricalTurn
-                };
-                let tokens = DeterministicHandoffService::estimate_tokens(trimmed);
-                out.push(CandidateItem {
-                    id: row.row_id.clone(),
-                    turn_id,
-                    role: role_str.to_string(),
-                    content: trimmed.to_string(),
-                    sort_index: *sort_index,
-                    created_at: Some(turn.timestamp.to_rfc3339()),
-                    tokens,
-                    priority,
-                });
-            }
-            ConversationTimelineRow::TurnError { error } => {
-                let is_latest = error.turn_id.is_none() || error.turn_id == latest_turn_id;
-                let msg = format!(
-                    "[Turn Error{}]: {}",
-                    error
-                        .error
-                        .code
-                        .as_deref()
-                        .map(|c| format!(" ({c})"))
-                        .unwrap_or_default(),
-                    error.error.message.trim()
-                );
-                let tokens = DeterministicHandoffService::estimate_tokens(&msg);
-                out.push(CandidateItem {
-                    id: row.row_id.clone(),
-                    turn_id: error.turn_id,
-                    role: "error".to_string(),
-                    content: msg,
-                    sort_index: *sort_index,
-                    created_at: None,
-                    tokens,
-                    priority: if is_latest {
-                        CandidatePriority::UnresolvedError
-                    } else {
-                        CandidatePriority::HistoricalTurn
-                    },
-                });
-            }
-            ConversationTimelineRow::FileChangeSummary { summary, turn_id } => {
-                if !summary.files.is_empty() {
-                    let files_desc: Vec<String> = summary
-                        .files
-                        .iter()
-                        .map(|f| format!("{} ({})", f.path, f.change_kind))
-                        .collect();
-                    let text = format!("[Modified Files]: {}", files_desc.join(", "));
-                    let tokens = DeterministicHandoffService::estimate_tokens(&text);
-                    out.push(CandidateItem {
-                        id: row.row_id.clone(),
-                        turn_id: *turn_id,
-                        role: "file_changes".to_string(),
-                        content: text,
-                        sort_index: *sort_index,
-                        created_at: None,
-                        tokens,
-                        priority: CandidatePriority::FileModification,
-                    });
-                }
-            }
-            _ => {}
-        }
-    }
-    out
-}
-
-fn parse_turn_id_from_row_id(row_id: &str) -> Option<Uuid> {
-    let prefix = row_id.split(':').next()?;
-    Uuid::parse_str(prefix).ok()
-}
-
-fn turn_has_file_modification(blocks: &[ContentBlock]) -> bool {
-    blocks.iter().any(|block| match block {
-        ContentBlock::ToolUse {
-            kind, tool_name, ..
-        } => {
-            matches!(kind.as_deref(), Some("edit" | "write" | "delete"))
-                || tool_name.contains("edit")
-                || tool_name.contains("write")
-        }
-        _ => false,
-    })
-}
-
-fn format_message_turn_blocks(blocks: &[ContentBlock]) -> String {
-    let mut parts = Vec::new();
-    for block in blocks {
-        match block {
-            ContentBlock::Text { text } => {
-                let t = text.trim();
-                if !t.is_empty() {
-                    parts.push(t.to_string());
-                }
-            }
-            ContentBlock::ToolUse {
-                tool_name,
-                status,
-                input_preview,
-                ..
-            } => {
-                let status_label = status.as_deref().unwrap_or("completed");
-                if let Some(inp) = input_preview.as_deref().filter(|s| !s.trim().is_empty()) {
-                    parts.push(format!("[Tool `{tool_name}` ({status_label})]: {inp}"));
-                } else {
-                    parts.push(format!("[Tool `{tool_name}` ({status_label})]"));
-                }
-            }
-            ContentBlock::ToolResult {
-                output_preview,
-                is_error: true,
-                ..
-            } => {
-                if let Some(out) = output_preview.as_deref().filter(|s| !s.trim().is_empty()) {
-                    parts.push(format!("[Tool Error Output]: {out}"));
-                }
-            }
-            ContentBlock::Plan { entries } if !entries.is_empty() => {
-                let items: Vec<String> = entries
-                    .iter()
-                    .map(|e| format!("- [{}] {}", e.status, e.content))
-                    .collect();
-                parts.push(format!("[Plan]:\n{}", items.join("\n")));
-            }
-            _ => {}
-        }
-    }
-    parts.join("\n\n")
-}
-
-fn reconstruct_untruncated_texts_from_events(
-    records: &[ConversationEventRecord],
-) -> HashMap<(Uuid, &'static str), String> {
-    let mut map: HashMap<(Uuid, &'static str), String> = HashMap::new();
-    let mut last_turn_id: Option<Uuid> = None;
-
-    for record in records {
-        if record.turn_id.is_some() {
-            last_turn_id = record.turn_id;
-        }
-        let Some(turn_id) = record.turn_id.or(last_turn_id) else {
-            continue;
-        };
-        let Ok(event) = serde_json::from_str::<ConversationEvent>(&record.normalized_json) else {
-            continue;
-        };
-        match event {
-            ConversationEvent::UserTurnCreated { blocks, .. } => {
-                let texts: Vec<String> = blocks
-                    .into_iter()
-                    .filter_map(|b| match b {
-                        ConversationInputBlock::Text { text } => Some(text),
-                        _ => None,
-                    })
-                    .collect();
-                if !texts.is_empty() {
-                    map.insert((turn_id, "user"), texts.join("\n"));
-                }
-            }
-            ConversationEvent::AssistantTextDelta { text, .. } => {
-                map.entry((turn_id, "assistant"))
-                    .or_default()
-                    .push_str(&text);
-            }
-            ConversationEvent::AssistantContentAppended {
-                block: ContentBlock::Text { text },
-                ..
-            } => {
-                let entry = map.entry((turn_id, "assistant")).or_default();
-                if !entry.is_empty() {
-                    entry.push('\n');
-                }
-                entry.push_str(&text);
-            }
-            _ => {}
-        }
-    }
-    map
 }
 
 impl DeterministicHandoffService {
@@ -1135,7 +981,7 @@ impl crate::ConversationSessionService {
 
 #[cfg(test)]
 mod tests {
-    use agents::conversation::ConversationError;
+    use agents::conversation::{ConversationError, ConversationInputBlock};
     use db::{DBService, models::conversation_event::AppendConversationEvent};
 
     use super::*;
@@ -1484,7 +1330,7 @@ mod tests {
         let task_id = Uuid::new_v4();
         let workspace_id = Uuid::new_v4();
         let conversation_id = Uuid::new_v4();
-        let missing_dir = std::env::temp_dir().join(format!("vibex-missing-ws-{}", Uuid::new_v4()));
+        let missing_dir = std::env::temp_dir().join(format!("dimo-missing-ws-{}", Uuid::new_v4()));
 
         sqlx::query("INSERT INTO projects (id, name, root_path, created_at, updated_at) VALUES (?, 'P', '/tmp/p', datetime('now'), datetime('now'))")
             .bind(project_id)
@@ -1529,11 +1375,63 @@ mod tests {
             .await
             .expect("summary query")
             .expect("summary exists");
-        assert_eq!(
-            summary.agent_id,
-            Some(AgentId::parse("claude_code").unwrap())
-        );
+        assert_eq!(summary.agent_id, Some(AgentId::parse("claude_code").unwrap()));
         assert_eq!(summary.model.as_deref(), Some("claude-opus-4-6"));
         assert_eq!(summary.external_session_id.as_deref(), Some("ext-orig-1"));
+    }
+
+    #[tokio::test]
+    async fn read_history_items_by_ids_reconstructs_truncated_turn_from_targeted_events() {
+        let db = DBService::new_in_memory_for_tests()
+            .await
+            .expect("in-memory db");
+        let pool = db.writer().as_pool();
+        let conv_id = Uuid::new_v4();
+        let ws_id = Uuid::new_v4();
+
+        sqlx::query(
+            "INSERT INTO sessions (id, workspace_id, name, status, executor, created_at, updated_at) \
+             VALUES (?, ?, 'Handoff Large Test', 'todo', 'claude', datetime('now'), datetime('now'))",
+        )
+        .bind(conv_id)
+        .bind(ws_id)
+        .execute(pool)
+        .await
+        .expect("insert session");
+
+        let huge_tail = "UNIQUE_UNTRUNCATED_END_MARKER_987654321";
+        let huge_reply = format!("{} {huge_tail}", "Large paragraph content. ".repeat(1500));
+        let large_tid = append_turn(
+            pool,
+            conv_id,
+            "Explain architecture",
+            &huge_reply,
+            None,
+        )
+        .await;
+        let _small_tid = append_turn(
+            pool,
+            conv_id,
+            "Follow up",
+            "Short confirmation.",
+            None,
+        )
+        .await;
+
+        let assistant_row_id = format!("{large_tid}:assistant");
+        let items = DeterministicHandoffService::read_history_items_by_ids(
+            pool,
+            conv_id,
+            std::slice::from_ref(&assistant_row_id),
+        )
+        .await
+        .expect("read_history_items_by_ids");
+
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0].id, assistant_row_id);
+        assert!(
+            items[0].content.contains(huge_tail),
+            "targeted lookup must reconstruct full untruncated text via events_for_turn"
+        );
     }
 }

@@ -2,7 +2,7 @@
 status: accepted
 date: 2026-09-04
 decision-makers:
-  - VibeX maintainers
+  - Dimo maintainers
 ---
 
 # Host 能力面只有一个接缝：Host Command Registry 与 Host Event Bus
@@ -12,7 +12,7 @@ decision-makers:
 ADR-0033 规定桌面与 Server 共用同一 Application Core，Tauri command 与 HTTP handler
 只做认证与 DTO 转换。2026-09-04 的全局检查表明这条规则在代码里没有成立：
 
-- 前端通过 `BackendTransport` 调用 478 个后端命令；`vibex-server` 与桌面远程监听只
+- 前端通过 `BackendTransport` 调用 478 个后端命令；`dimo-server` 与桌面远程监听只
   注册了 173 个。其余 354 个在 WebUI 与远程 Workstation 下返回
   `command X is not registered`。
 - 桌面本机的 `application_call` 没有挂 `ApplicationDomainPort`，`ServerApplicationDomains`
@@ -124,7 +124,7 @@ WS 在附着时启动生产者、在分离时停止；桌面通过 Channel 承�
 
 ## Consequences
 
-- `vibex-server`、桌面作为 Host、桌面本机三种运行方式执行同一份命令实现；Server 不可能
+- `dimo-server`、桌面作为 Host、桌面本机三种运行方式执行同一份命令实现；Server 不可能
   再落后于桌面。
 - 桌面 IPC 的错误从 `AppError` 字符串统一为 `ErrorEnvelope`；`BackendTransport` 把它
   规范化为带 `code` 的 `Error`，前端按 `message` 匹配的既有逻辑不变。

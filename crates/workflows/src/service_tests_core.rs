@@ -115,7 +115,7 @@ async fn publish_and_start(core: &WorkflowCore) -> (WorkflowVersionView, Workflo
 #[tokio::test]
 async fn source_path_is_the_reusable_definition_identity() {
     let (core, _) = setup().await;
-    let source_path = "flows/repository-review.vibex-workflow.json";
+    let source_path = "flows/repository-review.dimo-workflow.json";
     let first = core
         .publish(PublishWorkflow {
             definition_id: None,
@@ -146,7 +146,7 @@ async fn source_path_is_the_reusable_definition_identity() {
 #[tokio::test]
 async fn debug_snapshot_stays_out_of_published_history_until_publish() {
     let (core, _) = setup().await;
-    let source_path = "flows/debug-only.vibex-workflow.json";
+    let source_path = "flows/debug-only.dimo-workflow.json";
     let debug = core
         .materialize_debug(PublishWorkflow {
             definition_id: None,

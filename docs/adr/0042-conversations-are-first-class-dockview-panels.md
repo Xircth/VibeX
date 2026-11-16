@@ -2,7 +2,7 @@
 status: accepted
 date: 2026-08-09
 decision-makers:
-  - VibeX maintainers
+  - Dimo maintainers
 ---
 
 # Conversation 是一等 Dockview 面板

@@ -14,17 +14,17 @@ pub const REPLACED_PLUGIN_IDS: &[(&str, &str)] = &[];
 
 /// Retired plugin ids absorbed into the Host (MultiAgent collaboration, Connector Marketplace) with no plugin successor.
 pub const RETIRED_PLUGIN_IDS: &[&str] = &[
-    "vibex.collaboration",
-    "vibex.multi-agent",
-    "vibex.open-connector",
+    "dimo.collaboration",
+    "dimo.multi-agent",
+    "dimo.open-connector",
 ];
 
 /// SDK authoring samples. They stay in-repo for templates and Host tests, but
 /// they are not product marketplace listings and must not ship in a release Host.
 pub const AUTHORING_SAMPLE_PLUGIN_IDS: &[&str] = &[
-    "vibex.host-chrome",
-    "vibex.provider-import",
-    "vibex.host-surface",
+    "dimo.host-chrome",
+    "dimo.provider-import",
+    "dimo.host-surface",
 ];
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
@@ -99,11 +99,11 @@ pub struct CatalogPluginDetail {
 }
 
 pub fn marketplace_origin() -> String {
-    std::env::var("VIBEX_MARKETPLACE_URL")
+    std::env::var("DIMO_MARKETPLACE_URL")
         .ok()
-        .or_else(|| std::env::var("VIBEX_SITE_URL").ok())
-        .or_else(|| option_env!("VIBEX_MARKETPLACE_URL").map(str::to_owned))
-        .or_else(|| option_env!("VIBEX_SITE_URL").map(str::to_owned))
+        .or_else(|| std::env::var("DIMO_SITE_URL").ok())
+        .or_else(|| option_env!("DIMO_MARKETPLACE_URL").map(str::to_owned))
+        .or_else(|| option_env!("DIMO_SITE_URL").map(str::to_owned))
         .map(|value| value.trim().trim_end_matches('/').to_owned())
         .filter(|value| !value.is_empty())
         .unwrap_or_else(|| {
@@ -145,7 +145,7 @@ pub fn listing_from_package(package: &PluginPackage, offline: bool) -> CatalogLi
     let owner = package
         .publisher
         .clone()
-        .unwrap_or_else(|| "vibex".to_owned());
+        .unwrap_or_else(|| "dimo".to_owned());
     let plugin_name = marketplace_plugin_slug(&owner, package.id.as_str());
     let opens = package
         .app
@@ -190,7 +190,7 @@ pub fn listing_from_package(package: &PluginPackage, offline: bool) -> CatalogLi
     }
 }
 
-/// Marketplace URL slug: `vibex.session-enhance` + owner `vibex` → `session-enhance`.
+/// Marketplace URL slug: `dimo.session-enhance` + owner `dimo` → `session-enhance`.
 pub fn marketplace_plugin_slug(owner: &str, plugin_id: &str) -> String {
     let id = plugin_id.trim();
     let owner = owner.trim();
@@ -242,7 +242,7 @@ pub fn package_matches_marketplace(package_id: &str, owner: &str, plugin_name: &
         })
 }
 
-/// GitHub tarball URLs for official plugins listed in `vibex-plugin.json`.
+/// GitHub tarball URLs for official plugins listed in `dimo-plugin.json`.
 pub fn official_github_archive_urls(owner: &str, plugin_name: &str) -> Vec<String> {
     if is_authoring_sample_plugin_id(plugin_name)
         || is_authoring_sample_plugin_id(&format!("{owner}.{plugin_name}"))
@@ -250,7 +250,7 @@ pub fn official_github_archive_urls(owner: &str, plugin_name: &str) -> Vec<Strin
         return Vec::new();
     }
     let owner_trimmed = owner.trim();
-    if !owner_trimmed.is_empty() && !owner_trimmed.eq_ignore_ascii_case("vibex") {
+    if !owner_trimmed.is_empty() && !owner_trimmed.eq_ignore_ascii_case("dimo") {
         return Vec::new();
     }
     for candidate in marketplace_plugin_ids(owner, plugin_name) {
@@ -457,7 +457,7 @@ fn listing_from_index_record(item: crate::MarketplaceListing) -> Option<CatalogL
     if qualified.is_empty() {
         return None;
     }
-    let owner = nonempty(&item.publisher).unwrap_or_else(|| "vibex".to_owned());
+    let owner = nonempty(&item.publisher).unwrap_or_else(|| "dimo".to_owned());
     let plugin_name = marketplace_plugin_slug(&owner, qualified);
     Some(CatalogListing {
         owner: owner.clone(),
@@ -739,7 +739,7 @@ pub fn origin_owner_name(origin: &str, fallback_id: &str) -> (String, String) {
     if let Some((owner, name)) = fallback_id.split_once('.') {
         return (owner.to_owned(), name.to_owned());
     }
-    ("vibex".to_owned(), fallback_id.to_owned())
+    ("dimo".to_owned(), fallback_id.to_owned())
 }
 
 fn utf8_percent_encode(value: &str) -> String {
@@ -1062,15 +1062,15 @@ mod tests {
     fn origin_lock_distinguishes_github_from_marketplace() {
         let _lock = ENV_LOCK.lock().expect("env lock");
         unsafe {
-            std::env::remove_var("VIBEX_MARKETPLACE_URL");
-            std::env::remove_var("VIBEX_SITE_URL");
+            std::env::remove_var("DIMO_MARKETPLACE_URL");
+            std::env::remove_var("DIMO_SITE_URL");
         }
         assert_eq!(
             origin_kind(Some("https://github.com/acme/notes")),
             Some("github")
         );
         assert_eq!(
-            origin_kind(Some("https://vibex.xforever.xin/marketplace/vibex/office")),
+            origin_kind(Some("https://vibex.xforever.xin/marketplace/dimo/office")),
             Some("marketplace")
         );
         assert!(source_allows_remote_update(
@@ -1084,23 +1084,23 @@ mod tests {
     }
 
     #[test]
-    fn marketplace_origin_and_origin_kind_respect_vibex_site_url_env() {
+    fn marketplace_origin_and_origin_kind_respect_dimo_site_url_env() {
         let _lock = ENV_LOCK.lock().expect("env lock");
         unsafe {
-            std::env::remove_var("VIBEX_MARKETPLACE_URL");
-            std::env::set_var("VIBEX_SITE_URL", "https://site.example.com/");
+            std::env::remove_var("DIMO_MARKETPLACE_URL");
+            std::env::set_var("DIMO_SITE_URL", "https://site.example.com/");
         }
         let site_origin = marketplace_origin();
         let custom_kind = origin_kind(Some("https://site.example.com/files/office.vxp"));
 
         unsafe {
-            std::env::set_var("VIBEX_MARKETPLACE_URL", "https://market.example.com/");
+            std::env::set_var("DIMO_MARKETPLACE_URL", "https://market.example.com/");
         }
         let market_override = marketplace_origin();
 
         unsafe {
-            std::env::remove_var("VIBEX_MARKETPLACE_URL");
-            std::env::remove_var("VIBEX_SITE_URL");
+            std::env::remove_var("DIMO_MARKETPLACE_URL");
+            std::env::remove_var("DIMO_SITE_URL");
         }
 
         assert_eq!(site_origin, "https://site.example.com");
@@ -1113,21 +1113,21 @@ mod tests {
         let record: PublishedRecord = serde_json::from_str(
             r#"{
                 "pluginId": "drawio",
-                "authorId": "vibex",
+                "authorId": "dimo",
                 "name": "Drawio",
-                "summary": "Drawio diagrams in VibeX.",
+                "summary": "Drawio diagrams in Dimo.",
                 "version": "1.0.0",
                 "category": "productivity",
                 "sourceKind": "github",
-                "repo": "https://github.com/Xircth/vibex-drawio",
-                "githubOwner": "Xircth",
-                "githubRepo": "vibex-drawio",
+                "repo": "https://github.com/DimoADE/Dimo-drawio",
+                "githubOwner": "DimoADE",
+                "githubRepo": "dimo-drawio",
                 "githubBranch": "main"
             }"#,
         )
         .unwrap();
         let listing = record.into_listing().unwrap();
-        assert_eq!(listing.owner, "vibex");
+        assert_eq!(listing.owner, "dimo");
         assert_eq!(listing.plugin_name, "drawio");
         assert_eq!(listing.display_name, "Drawio");
         assert_eq!(listing.tag, "main");
@@ -1137,19 +1137,19 @@ mod tests {
         assert_eq!(listing.show_tree, Some(true));
         assert_eq!(
             listing.repo.as_deref(),
-            Some("https://github.com/Xircth/vibex-drawio")
+            Some("https://github.com/DimoADE/Dimo-drawio")
         );
     }
 
     #[test]
     fn published_catalog_keeps_non_official_plugins_in_community() {
         let drawio = CatalogListing {
-            owner: "vibex".into(),
+            owner: "dimo".into(),
             plugin_name: "drawio".into(),
             tag: "main".into(),
             version: "1.0.0".into(),
             display_name: "Drawio".into(),
-            summary: "Drawio diagrams in VibeX.".into(),
+            summary: "Drawio diagrams in Dimo.".into(),
             category: "productivity".into(),
             source_kind: "github".into(),
             homepage: None,
@@ -1185,7 +1185,7 @@ mod tests {
     fn github_tarball_uses_tar_gz_suffix() {
         assert_eq!(
             marketplace_archive_suffix(
-                "https://codeload.github.com/Xircth/vibex-drawio/tar.gz/main"
+                "https://codeload.github.com/DimoADE/Dimo-drawio/tar.gz/main"
             ),
             "tar.gz"
         );
@@ -1197,7 +1197,7 @@ mod tests {
 
     fn listing(plugin_name: &str, display_name: &str, summary: &str) -> CatalogListing {
         CatalogListing {
-            owner: "vibex".into(),
+            owner: "dimo".into(),
             plugin_name: plugin_name.into(),
             tag: "v1.0.0".into(),
             version: "1.0.0".into(),
@@ -1224,14 +1224,14 @@ mod tests {
 
     #[test]
     fn retired_collaboration_ids_have_no_plugin_successor() {
-        assert!(successor_plugin_id("vibex.collaboration").is_none());
-        assert!(successor_plugin_id("vibex.multi-agent").is_none());
+        assert!(successor_plugin_id("dimo.collaboration").is_none());
+        assert!(successor_plugin_id("dimo.multi-agent").is_none());
     }
 
     #[test]
     fn official_listings_use_topic_categories_not_official_as_category() {
         let mut session = listing(
-            "vibex.session-enhance",
+            "dimo.session-enhance",
             "会话增强",
             "让父 Agent 把子任务委托给其它 Agent。",
         );
@@ -1239,27 +1239,27 @@ mod tests {
         normalize_listing_category(&mut session);
         assert_eq!(session.category, "ai-enhancement");
         assert_eq!(
-            bundled_topic_category("vibex.session-enhance"),
+            bundled_topic_category("dimo.session-enhance"),
             Some("ai-enhancement")
         );
-        assert!(bundled_topic_category("vibex.multi-agent").is_none());
+        assert!(bundled_topic_category("dimo.multi-agent").is_none());
         assert_eq!(
-            bundled_topic_category("vibex.workflow-creator"),
+            bundled_topic_category("dimo.workflow-creator"),
             Some("aigc")
         );
-        assert_eq!(bundled_topic_category("vibex.science"), Some("science"));
+        assert_eq!(bundled_topic_category("dimo.science"), Some("science"));
     }
 
     #[test]
     fn marketplace_omits_authoring_sample_plugins() {
-        let chrome = listing("vibex.host-chrome", "宿主界面示例", "chrome sample");
-        let surface = listing("vibex.host-surface", "结构面示例", "surface sample");
+        let chrome = listing("dimo.host-chrome", "宿主界面示例", "chrome sample");
+        let surface = listing("dimo.host-surface", "结构面示例", "surface sample");
         let providers = listing(
-            "vibex.provider-import",
+            "dimo.provider-import",
             "环境变量导入供应商",
             "provider sample",
         );
-        let office = listing("vibex.office", "办公套件", "Office files");
+        let office = listing("dimo.office", "办公套件", "Office files");
         let folded = fold_official_listings(
             vec![
                 chrome.clone(),
@@ -1274,7 +1274,7 @@ mod tests {
                 .iter()
                 .map(|item| item.plugin_name.as_str())
                 .collect::<Vec<_>>(),
-            vec!["vibex.office"]
+            vec!["dimo.office"]
         );
 
         let mut community_chrome = chrome.clone();
@@ -1293,7 +1293,7 @@ mod tests {
                 .iter()
                 .map(|item| item.plugin_name.as_str())
                 .collect::<Vec<_>>(),
-            vec!["vibex.office"]
+            vec!["dimo.office"]
         );
         assert_eq!(
             page.community
@@ -1303,15 +1303,15 @@ mod tests {
             vec!["notes"]
         );
         assert!(is_authoring_sample_plugin_id("host-chrome"));
-        assert!(is_authoring_sample_plugin_id("vibex.host-surface"));
+        assert!(is_authoring_sample_plugin_id("dimo.host-surface"));
         assert!(is_authoring_sample_plugin_id("provider-import"));
-        assert!(!is_authoring_sample_plugin_id("vibex.office"));
+        assert!(!is_authoring_sample_plugin_id("dimo.office"));
     }
 
     #[test]
     fn host_official_catalog_fills_gaps_left_by_a_short_remote_catalog() {
         let mut page = CatalogPage {
-            official: vec![listing("vibex.office", "办公套件", "Office files")],
+            official: vec![listing("dimo.office", "办公套件", "Office files")],
             ..CatalogPage::default()
         };
         crate::merge_host_official_catalog(&mut page);
@@ -1320,39 +1320,39 @@ mod tests {
             .iter()
             .map(|listing| listing.plugin_name.as_str())
             .collect::<Vec<_>>();
-        assert!(names.contains(&"office") || names.contains(&"vibex.office"));
-        assert!(names.contains(&"session-enhance") || names.contains(&"vibex.session-enhance"));
-        assert!(names.contains(&"workflow-creator") || names.contains(&"vibex.workflow-creator"));
+        assert!(names.contains(&"office") || names.contains(&"dimo.office"));
+        assert!(names.contains(&"session-enhance") || names.contains(&"dimo.session-enhance"));
+        assert!(names.contains(&"workflow-creator") || names.contains(&"dimo.workflow-creator"));
         assert!(names.len() >= 8);
     }
 
     #[test]
     fn marketplace_slug_strips_owner_prefix_for_install_urls() {
         assert_eq!(
-            marketplace_plugin_slug("vibex", "vibex.session-enhance"),
+            marketplace_plugin_slug("dimo", "dimo.session-enhance"),
             "session-enhance"
         );
         assert_eq!(
-            marketplace_plugin_ids("vibex", "vibex.session-enhance"),
+            marketplace_plugin_ids("dimo", "dimo.session-enhance"),
             vec![
                 "session-enhance".to_string(),
-                "vibex.session-enhance".to_string()
+                "dimo.session-enhance".to_string()
             ]
         );
         assert!(package_matches_marketplace(
-            "vibex.session-enhance",
-            "vibex",
+            "dimo.session-enhance",
+            "dimo",
             "session-enhance"
         ));
         assert!(package_matches_marketplace(
-            "vibex.session-enhance",
-            "vibex",
-            "vibex.session-enhance"
+            "dimo.session-enhance",
+            "dimo",
+            "dimo.session-enhance"
         ));
-        let urls = official_github_archive_urls("vibex", "vibex.session-enhance");
+        let urls = official_github_archive_urls("dimo", "dimo.session-enhance");
         assert!(
             urls.iter()
-                .any(|url| url.contains("Xircth/vibex-plugin-session-enhance"))
+                .any(|url| url.contains("DimoADE/Dimo-plugin-session-enhance"))
         );
         assert!(official_github_archive_urls("acme", "notes").is_empty());
     }
@@ -1360,7 +1360,7 @@ mod tests {
     #[test]
     fn canonical_listing_id_collapses_owner_and_qualified_plugin_name() {
         let short = listing("office", "办公套件", "Office files");
-        let qualified = listing("vibex.office", "办公套件", "Office files");
+        let qualified = listing("dimo.office", "办公套件", "Office files");
         assert_eq!(
             canonical_listing_id(&short),
             canonical_listing_id(&qualified)
@@ -1371,7 +1371,7 @@ mod tests {
 
     #[test]
     fn catalog_query_filters_official_and_community() {
-        let office = listing("vibex.office", "VibeX Office", "Office files");
+        let office = listing("dimo.office", "Dimo Office", "Office files");
         let mut notes = listing("notes", "Notes", "Take notes");
         notes.owner = "acme".into();
         notes.category = "community".into();
@@ -1386,12 +1386,12 @@ mod tests {
                 .iter()
                 .map(|item| item.plugin_name.as_str())
                 .collect::<Vec<_>>(),
-            vec!["vibex.office"]
+            vec!["dimo.office"]
         );
         assert!(page.community.is_empty());
 
         page = CatalogPage {
-            official: vec![listing("vibex.office", "VibeX Office", "Office files")],
+            official: vec![listing("dimo.office", "Dimo Office", "Office files")],
             community: vec![notes],
             ..CatalogPage::default()
         };

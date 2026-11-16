@@ -130,9 +130,9 @@ interface ArrangementPreference<S extends string, Z extends string> {
 }
 
 type ArrangementStorageKey =
-  | 'vibex:layout-arrangement'
-  | 'vibex:kanban-layout-arrangement'
-  | 'vibex:collaboration-layout-arrangement';
+  | 'dimo:layout-arrangement'
+  | 'dimo:kanban-layout-arrangement'
+  | 'dimo:collaboration-layout-arrangement';
 
 function createArrangementPreference<S extends string, Z extends string>(
   storageKey: ArrangementStorageKey,
@@ -238,21 +238,21 @@ function createArrangementPreference<S extends string, Z extends string>(
 }
 
 const workspacePreference = createArrangementPreference(
-  'vibex:layout-arrangement',
+  'dimo:layout-arrangement',
   LAYOUT_SLOTS,
   LAYOUT_ZONES,
   DEFAULT_LAYOUT_ARRANGEMENT
 );
 
 const kanbanPreference = createArrangementPreference(
-  'vibex:kanban-layout-arrangement',
+  'dimo:kanban-layout-arrangement',
   KANBAN_SLOTS,
   KANBAN_ZONES,
   DEFAULT_KANBAN_ARRANGEMENT
 );
 
 const collaborationPreference = createArrangementPreference(
-  'vibex:collaboration-layout-arrangement',
+  'dimo:collaboration-layout-arrangement',
   COLLABORATION_SLOTS,
   COLLABORATION_ZONES,
   DEFAULT_COLLABORATION_ARRANGEMENT

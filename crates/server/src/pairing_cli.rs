@@ -73,7 +73,7 @@ pub fn format_pairing_console(issued: &IssuedPairingInvitation) -> String {
 
 pub async fn run_pairing_command(command: PairingCommand) -> std::process::ExitCode {
     let data_dir = utils::assets::host_data_dir();
-    let port = std::env::var("VIBEX_SERVER_LISTEN")
+    let port = std::env::var("DIMO_SERVER_LISTEN")
         .ok()
         .and_then(|value| {
             value
@@ -128,6 +128,6 @@ mod tests {
         );
         let printed = format_pairing_console(&issued);
         assert!(printed.contains(&issued.connection_code));
-        assert!(printed.contains("vibex-pairing:"));
+        assert!(printed.contains("dimo-pairing:"));
     }
 }

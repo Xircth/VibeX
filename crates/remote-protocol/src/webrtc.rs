@@ -7,8 +7,8 @@ use crate::{
     SubscriptionClientMessage, SubscriptionServerMessage,
 };
 
-pub const CONTROL_CHANNEL_LABEL: &str = "vibex.control.v1";
-pub const BULK_CHANNEL_LABEL: &str = "vibex.bulk.v1";
+pub const CONTROL_CHANNEL_LABEL: &str = "dimo.control.v1";
+pub const BULK_CHANNEL_LABEL: &str = "dimo.bulk.v1";
 
 pub const CONTROL_MAX_FRAME_BYTES: usize = 64 * 1024;
 pub const BULK_CHUNK_MIN_BYTES: usize = 16 * 1024;
@@ -17,7 +17,7 @@ pub const BULK_BUFFERED_LOW_THRESHOLD_BYTES: usize = 64 * 1024;
 pub const BULK_BUFFERED_HIGH_WATER_BYTES: usize = 128 * 1024;
 pub const SIGNALING_PIGGYBACK_MAX_BYTES: usize = 32 * 1024;
 
-pub const CHANNEL_BINDING_PREFIX: &str = "vibex-webrtc-v1";
+pub const CHANNEL_BINDING_PREFIX: &str = "dimo-webrtc-v1";
 pub const CHANNEL_BINDING_MAX_SKEW_SECONDS: i64 = 60;
 
 /// Canonical claims bound to a WebRTC SDP offer/answer DTLS fingerprint and
@@ -33,7 +33,7 @@ pub struct ChannelBindingClaims {
 
 impl ChannelBindingClaims {
     /// Canonical signing string:
-    /// `vibex-webrtc-v1|<session_nonce>|<sender_device_id>|<recipient_device_id>|<unix_timestamp>|<dtls_fingerprint>`
+    /// `dimo-webrtc-v1|<session_nonce>|<sender_device_id>|<recipient_device_id>|<unix_timestamp>|<dtls_fingerprint>`
     pub fn signing_input(&self) -> String {
         format!(
             "{}|{}|{}|{}|{}|{}",
@@ -89,7 +89,7 @@ pub struct SignalingPiggybackEvents {
     pub high_water_mark: i64,
 }
 
-/// JSON envelope carried over the `vibex.control.v1` DataChannel.
+/// JSON envelope carried over the `dimo.control.v1` DataChannel.
 #[derive(Clone, Debug, Deserialize, JsonSchema, PartialEq, Serialize, TS)]
 #[serde(tag = "frame", rename_all = "snake_case")]
 pub enum ControlChannelFrame {
@@ -137,7 +137,7 @@ impl ControlChannelFrame {
     }
 }
 
-/// Chunked envelope carried over the `vibex.bulk.v1` DataChannel (`16KB ~ 32KB` per chunk).
+/// Chunked envelope carried over the `dimo.bulk.v1` DataChannel (`16KB ~ 32KB` per chunk).
 #[derive(Clone, Debug, Deserialize, Eq, JsonSchema, PartialEq, Serialize, TS)]
 #[serde(tag = "frame", rename_all = "snake_case")]
 pub enum BulkChannelFrame {

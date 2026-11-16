@@ -384,7 +384,7 @@ async fn run_prompt_unbinds_session_and_closes_connection_on_agent_connection_lo
     let runner_for_conn = runner.clone();
     let outcome = acp::Client
         .builder()
-        .name("VibeX")
+        .name("Dimo")
         .on_receive_notification(
             async move |notification: AgentNotification, _cx| {
                 bridge.handle_agent_notification(notification).await
@@ -582,7 +582,7 @@ async fn run_prompt_completes_cleanly_when_antigravity_emits_websocket_1000_ok_a
     let runner_for_conn = runner.clone();
     let outcome = acp::Client
         .builder()
-        .name("VibeX")
+        .name("Dimo")
         .on_receive_notification(
             async move |notification: AgentNotification, _cx| {
                 bridge.handle_agent_notification(notification).await
@@ -899,7 +899,7 @@ async fn run_prompt_settles_cleanly_on_incomplete_tool_call_error_after_output()
     let runner_for_conn = runner.clone();
     let outcome = acp::Client
         .builder()
-        .name("VibeX")
+        .name("Dimo")
         .on_receive_notification(
             async move |notification: AgentNotification, _cx| {
                 bridge.handle_agent_notification(notification).await
@@ -1011,7 +1011,7 @@ fn build_native_engine_launch_env_omits_windows_batch_shims_for_claude_native() 
         .build_native_engine_launch_env(&crate::engine::ClaudeNativeDriver::new())
         .expect("launch env");
     if std::env::var_os("CLAUDE_CODE_EXECUTABLE").is_none()
-        && std::env::var_os("VIBEX_CLAUDE_PATH").is_none()
+        && std::env::var_os("DIMO_CLAUDE_PATH").is_none()
     {
         assert_eq!(
             env_with_sibling.get("CLAUDE_CODE_EXECUTABLE").map(PathBuf::from),
@@ -1026,7 +1026,7 @@ fn build_native_engine_launch_env_omits_windows_batch_shims_for_claude_native() 
         .build_native_engine_launch_env(&crate::engine::ClaudeNativeDriver::new())
         .expect("launch env");
     if std::env::var_os("CLAUDE_CODE_EXECUTABLE").is_none()
-        && std::env::var_os("VIBEX_CLAUDE_PATH").is_none()
+        && std::env::var_os("DIMO_CLAUDE_PATH").is_none()
     {
         assert_eq!(
             env_from_bin.get("CLAUDE_CODE_EXECUTABLE").map(PathBuf::from),

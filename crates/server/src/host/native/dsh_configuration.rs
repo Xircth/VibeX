@@ -1637,11 +1637,11 @@ mod tests {
     fn plugin_list_does_not_include_skills() {
         let dir = tempfile::tempdir().unwrap();
         let home = dir.path();
-        let skill = home.join("skills").join("vibex-workflow-creator");
+        let skill = home.join("skills").join("dimo-workflow-creator");
         std::fs::create_dir_all(&skill).unwrap();
         std::fs::write(
             skill.join("SKILL.md"),
-            "---\nname: vibex-workflow-creator\ndescription: Create VibeX workflows\n---\n# Skill\n",
+            "---\nname: dimo-workflow-creator\ndescription: Create Dimo workflows\n---\n# Skill\n",
         )
         .unwrap();
         let demo = home.join("profiles").join("default");
@@ -1665,7 +1665,7 @@ mod tests {
             .collect::<Vec<_>>();
         assert!(names.contains(&"@deepseek-ai/dsh-base"));
         assert!(names.contains(&"dsh-hello-plugin"));
-        assert!(!names.contains(&"vibex-workflow-creator"));
+        assert!(!names.contains(&"dimo-workflow-creator"));
         assert!(
             view.plugins
                 .iter()

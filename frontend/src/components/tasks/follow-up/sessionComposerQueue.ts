@@ -25,6 +25,9 @@ export type QueuedMessage = {
     agentMessage?: string;
     images: string[];
     pluginActions: SessionComposerPluginActionInvocation[];
+    fileRefs?: ConversationInputPayload['fileRefs'];
+    modeOverride?: ConversationInputPayload['modeOverride'];
+    configOverrides?: ConversationInputPayload['configOverrides'];
   };
 };
 
@@ -71,6 +74,16 @@ export function inputViewToQueuedMessage(
         pluginId: reference.pluginId,
         actionId: reference.workflowId,
       })),
+      ...(input.payload.fileRefs && input.payload.fileRefs.length > 0
+        ? { fileRefs: input.payload.fileRefs }
+        : {}),
+      ...(input.payload.modeOverride != null
+        ? { modeOverride: input.payload.modeOverride }
+        : {}),
+      ...(input.payload.configOverrides &&
+      input.payload.configOverrides.length > 0
+        ? { configOverrides: input.payload.configOverrides }
+        : {}),
     },
   };
 }
@@ -82,7 +95,10 @@ export function waitingQueueMessages(
   const excludeOperationId = options.excludeOperationId ?? null;
   return inputs
     .filter(
-      (input) => input.status === 'queued' || input.status === 'scheduled'
+      (input) =>
+        input.status === 'queued' ||
+        input.status === 'claimed' ||
+        input.status === 'scheduled'
     )
     .filter(
       (input) =>
@@ -108,7 +124,7 @@ export function getQueueIndicatorState(
       excludeOperationId == null || message.operationId !== excludeOperationId
   );
   const queuedMessages = allMessages.filter(
-    (message) => message.status === 'queued'
+    (message) => message.status === 'queued' || message.status === 'claimed'
   );
   const delayedMessages = allMessages.filter(
     (message) => message.status === 'scheduled'

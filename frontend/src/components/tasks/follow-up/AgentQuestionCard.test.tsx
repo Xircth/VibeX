@@ -11,7 +11,7 @@ function delegatedQuestion(): ConversationQuestionRequest {
     asked_at: '2026-08-08T10:05:00+08:00',
     schema: {
       type: 'object',
-      'x-vibex-questions': [
+      'x-dimo-questions': [
         {
           id: 'approach',
           header: 'Approach',
@@ -264,7 +264,7 @@ describe('AgentQuestionCard', () => {
       options: [],
       schema: {
         type: 'object',
-        'x-vibex-questions': [
+        'x-dimo-questions': [
           {
             id: 'interaction_b8486ad3',
             header: '您倾向于哪种 HTML 课件视…',
@@ -307,5 +307,63 @@ describe('AgentQuestionCard', () => {
         ],
       },
     });
+  });
+
+  it('shows error and dismiss fallback when submit fails on orphaned question and auto-dismisses orphaned decline', async () => {
+    const onDismiss = vi.fn();
+    const onRespond = vi
+      .fn()
+      .mockRejectedValue(
+        new Error(
+          'Conversation has no active Agent connection for question response'
+        )
+      );
+
+    render(
+      <AgentQuestionCard
+        request={delegatedQuestion()}
+        onRespond={onRespond}
+        onDismiss={onDismiss}
+      />
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: '下一个' }));
+    fireEvent.click(screen.getByRole('radio', { name: /No extra constraints/ }));
+    fireEvent.click(screen.getByRole('button', { name: '提交回答' }));
+
+    const alert = await screen.findByTestId('agent-question-error');
+    expect(alert).toHaveTextContent(
+      'Conversation has no active Agent connection for question response'
+    );
+
+    fireEvent.click(screen.getByTestId('agent-question-dismiss'));
+    expect(onDismiss).toHaveBeenCalledWith('question-set-1');
+    expect(screen.queryByTestId('agent-question-card')).toBeNull();
+  });
+
+  it('auto-dismisses when declining an orphaned question with BadRequest/no active connection', async () => {
+    const onDismiss = vi.fn();
+    const onRespond = vi
+      .fn()
+      .mockRejectedValue(
+        new Error(
+          'Conversation has no active Agent connection for question response'
+        )
+      );
+
+    render(
+      <AgentQuestionCard
+        request={delegatedQuestion()}
+        onRespond={onRespond}
+        onDismiss={onDismiss}
+      />
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: '拒绝回答' }));
+
+    await vi.waitFor(() => {
+      expect(onDismiss).toHaveBeenCalledWith('question-set-1');
+    });
+    expect(screen.queryByTestId('agent-question-card')).toBeNull();
   });
 });

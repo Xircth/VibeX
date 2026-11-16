@@ -2,7 +2,7 @@ import type {
   ThemeColorRole,
   ThemeDefinition,
   ThemeScheme,
-} from '@vibex/plugin-sdk';
+} from '@dimoai/plugin-sdk';
 
 import { BUILTIN_THEMES } from './builtinThemes';
 import {

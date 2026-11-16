@@ -15,6 +15,7 @@ import {
   ToolCardShell,
   getToolStatusClassName,
   getToolStatusDotClassName,
+  useToolCallResultDetail,
 } from './ToolCardShell';
 
 function getCommandStatusClassName(
@@ -81,7 +82,8 @@ export function CommandToolCard({
     `command-tool-entry:${expansionKey}`,
     defaultExpanded
   );
-  const effectiveExpanded = forceExpanded || expanded;
+  const isResultDetail = useToolCallResultDetail();
+  const effectiveExpanded = forceExpanded || isResultDetail || expanded;
   const inlineText = entry.content.trim();
   const summary = getToolSummary(toolEntry, inlineText);
   const description = getToolCallDescription(entry);
@@ -139,31 +141,33 @@ export function CommandToolCard({
       expandable={hasDetails}
       onToggle={toggle}
     >
-      <ToolTerminal
-        command={command}
-        output={output}
-        exitStatus={actionType.result?.exit_status}
-        linkifyUrls={linkifyUrls}
-        language={
-          /powershell|pwsh|^Get-|^Set-|^\$/.test(command)
-            ? 'powershell'
-            : 'bash'
-        }
-        facts={jsonToFacts(entry.toolArguments, {
-          skipKeys: [
-            'command',
-            'cmd',
-            'script',
-            'shell_command',
-            'commandLine',
-            'command_line',
-            'CommandLine',
-            'description',
-            'toolSummary',
-            'toolAction',
-          ],
-        })}
-      />
+      {effectiveExpanded ? (
+        <ToolTerminal
+          command={command}
+          output={output}
+          exitStatus={actionType.result?.exit_status}
+          linkifyUrls={linkifyUrls}
+          language={
+            /powershell|pwsh|^Get-|^Set-|^\$/.test(command)
+              ? 'powershell'
+              : 'bash'
+          }
+          facts={jsonToFacts(entry.toolArguments, {
+            skipKeys: [
+              'command',
+              'cmd',
+              'script',
+              'shell_command',
+              'commandLine',
+              'command_line',
+              'CommandLine',
+              'description',
+              'toolSummary',
+              'toolAction',
+            ],
+          })}
+        />
+      ) : null}
     </ToolCardShell>
   );
 }

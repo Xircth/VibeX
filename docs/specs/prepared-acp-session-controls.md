@@ -8,7 +8,7 @@
 ## Decision
 
 The concrete ACP Session is the only authority for a Conversation's modes and
-configuration options. VibeX creates that Session as soon as the create form
+configuration options. Dimo creates that Session as soon as the create form
 has an Agent and an existing Workspace, renders the `session/new` response,
 and persists the Conversation with the same UUID. It does not copy the values
 to another Session and does not reconstruct them from profiles, probes,
@@ -31,11 +31,11 @@ catalogs, or browser storage.
 
 ## Protocol rules
 
-- When non-empty `configOptions` are advertised, VibeX ignores legacy modes as
+- When non-empty `configOptions` are advertised, Dimo ignores legacy modes as
   required by ACP instead of merging two representations.
 - Select values retain their raw IDs. Boolean options remain JSON booleans on
   the wire and render as switches.
-- VibeX advertises stable boolean config-option support in the ACP client
+- Dimo advertises stable boolean config-option support in the ACP client
   initialization capabilities.
 - The local CLI and ACP adapter selected by Settings are mandatory; launch
   never silently falls back to a runtime bundled inside an adapter package.

@@ -1,5 +1,5 @@
 //! Pluggable native engine registry for resolving [`NativeEngineDriver`] instances
-//! by agent identifier, engine identifier, or grayscale policy (`VIBEX_ENGINE_MODE`)
+//! by agent identifier, engine identifier, or grayscale policy (`DIMO_ENGINE_MODE`)
 //! without embedding vendor branches in the runner or runtime control plane.
 
 use std::sync::Arc;
@@ -32,7 +32,7 @@ impl EngineRegistry {
         }
     }
 
-    /// Creates a registry pre-populated with VibeX's built-in first-party native drivers
+    /// Creates a registry pre-populated with Dimo's built-in first-party native drivers
     /// (`ClaudeNativeDriver`, `CodexNativeDriver`).
     pub fn bundled() -> Self {
         Self::empty()
@@ -53,7 +53,7 @@ impl EngineRegistry {
     }
 
     /// Resolves the active native engine driver for `agent_kind_or_id`, honoring
-    /// `preference` and `VIBEX_ENGINE_MODE` (`acp` vs `native`) grayscale overrides.
+    /// `preference` and `DIMO_ENGINE_MODE` (`acp` vs `native`) grayscale overrides.
     pub fn resolve_driver_for_agent(
         &self,
         agent_kind_or_id: &str,
@@ -274,7 +274,7 @@ mod tests {
         assert_eq!(opencode.normalize_mode("build").as_deref(), Some("build"));
         assert_eq!(opencode.normalize_mode("yolo").as_deref(), Some("yolo"));
 
-        // Grayscale override still forces ACP when VIBEX_ENGINE_MODE=acp.
+        // Grayscale override still forces ACP when DIMO_ENGINE_MODE=acp.
         assert!(
             registry
                 .resolve_driver_for_agent(

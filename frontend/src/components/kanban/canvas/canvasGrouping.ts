@@ -89,11 +89,25 @@ export function worldRect(
 export function toRelativeChildCoords(
   nodes: readonly SessionCanvasNode[]
 ): SessionCanvasNode[] {
+  const cache = new Map<string, { x: number; y: number }>();
+  const resolve = (node: SessionCanvasNode): { x: number; y: number } => {
+    if (!node.parentId || node.expanded) return { x: 0, y: 0 };
+    const cached = cache.get(node.id);
+    if (cached) return cached;
+    const parent = nodeById(nodes, node.parentId);
+    if (!parent) return { x: 0, y: 0 };
+    const parentOffset = resolve(parent);
+    const result = {
+      x: parent.x + parentOffset.x,
+      y: parent.y + parentOffset.y,
+    };
+    cache.set(node.id, result);
+    return result;
+  };
   return nodes.map((node) => {
     if (!node.parentId || node.expanded) return node;
-    const parent = nodeById(nodes, node.parentId);
-    if (!parent) return node;
-    return { ...node, x: node.x - parent.x, y: node.y - parent.y };
+    const offset = resolve(node);
+    return { ...node, x: node.x - offset.x, y: node.y - offset.y };
   });
 }
 
@@ -1251,18 +1265,21 @@ export type CanvasFlowLookups = {
   groupReviewing: (groupId: string) => boolean;
 };
 
-export function buildCanvasFlowLookups(
+export type CanvasFlowData = {
+  index: CanvasNodeIndex;
+  sessionCount: Map<string, number>;
+  runningGroups: Set<string>;
+  reviewGroups: Set<string>;
+  containers: Set<string>;
+  minSizes: Map<string, { width: number; height: number }>;
+};
+
+export function buildCanvasFlowData(
   nodes: readonly SessionCanvasNode[],
-  options: {
-    draggedId?: string | null;
-    selectedIds?: ReadonlySet<string>;
-    runningSessionIds?: ReadonlySet<string>;
-    reviewSessionIds?: ReadonlySet<string>;
-  } = {}
-): CanvasFlowLookups {
+  runningSessionIds: ReadonlySet<string>,
+  reviewSessionIds: ReadonlySet<string>
+): CanvasFlowData {
   const index = canvasNodeIndex(nodes);
-  const running = options.runningSessionIds ?? new Set<string>();
-  const review = options.reviewSessionIds ?? new Set<string>();
   const sessionCount = new Map<string, number>();
   const runningGroups = new Set<string>();
   const reviewGroups = new Set<string>();
@@ -1284,10 +1301,10 @@ export function buildCanvasFlowLookups(
       if (!node.expanded) {
         sessionCount.set(current.id, (sessionCount.get(current.id) ?? 0) + 1);
       }
-      if (node.sessionId && running.has(node.sessionId)) {
+      if (node.sessionId && runningSessionIds.has(node.sessionId)) {
         runningGroups.add(current.id);
       }
-      if (node.sessionId && review.has(node.sessionId)) {
+      if (node.sessionId && reviewSessionIds.has(node.sessionId)) {
         reviewGroups.add(current.id);
       }
       current = current.parentId ? index.byId.get(current.parentId) : undefined;
@@ -1299,12 +1316,38 @@ export function buildCanvasFlowLookups(
     minSizes.set(groupId, containerMinSize(nodes, groupId));
   }
 
-  const draggedRoot = options.draggedId
-    ? (index.rootOf.get(options.draggedId) ?? options.draggedId)
+  return { index, sessionCount, runningGroups, reviewGroups, containers, minSizes };
+}
+
+export function buildCanvasFlowLookups(
+  nodes: readonly SessionCanvasNode[],
+  options: {
+    draggedId?: string | null;
+    selectedIds?: ReadonlySet<string>;
+    runningSessionIds?: ReadonlySet<string>;
+    reviewSessionIds?: ReadonlySet<string>;
+  } = {}
+): CanvasFlowLookups {
+  const data = buildCanvasFlowData(
+    nodes,
+    options.runningSessionIds ?? new Set(),
+    options.reviewSessionIds ?? new Set()
+  );
+  return flowLookupsFromData(data, options.draggedId ?? null, options.selectedIds);
+}
+
+export function flowLookupsFromData(
+  data: CanvasFlowData,
+  draggedId: string | null,
+  selectedIds: ReadonlySet<string> | undefined
+): CanvasFlowLookups {
+  const { index, sessionCount, runningGroups, reviewGroups, containers, minSizes } = data;
+  const draggedRoot = draggedId
+    ? (index.rootOf.get(draggedId) ?? draggedId)
     : null;
   const selectedRoots = new Set<string>();
-  if (options.selectedIds) {
-    for (const id of options.selectedIds) {
+  if (selectedIds) {
+    for (const id of selectedIds) {
       selectedRoots.add(index.rootOf.get(id) ?? id);
     }
   }

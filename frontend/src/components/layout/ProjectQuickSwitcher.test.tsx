@@ -41,8 +41,8 @@ const mockProjectsState = vi.hoisted(() => ({
     },
     {
       id: 'proj-running',
-      name: 'VibeX Core',
-      root_path: 'C:\\Users\\dev\\vibex\\core',
+      name: 'Dimo Core',
+      root_path: 'C:\\Users\\dev\\dimo\\core',
       is_git: true,
       is_home: false,
       parent_project_id: null,

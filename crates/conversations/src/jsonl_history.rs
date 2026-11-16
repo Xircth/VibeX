@@ -7,7 +7,7 @@ use std::collections::HashMap;
 use agents::{
     AgentKind,
     acp_transcript::{
-        self, EntryKind, TranscriptHeader, safe_component, vibex_acp_transcripts_root,
+        self, EntryKind, TranscriptHeader, safe_component, dimo_acp_transcripts_root,
     },
     conversation::{
         ContentBlock, ConversationEvent, ConversationTimeline, ConversationTimelineRow,
@@ -33,12 +33,6 @@ mod codec;
 pub use self::codec::encode_turns;
 
 const TAIL_TURNS_DEFAULT: usize = 120;
-
-/// Every VibeX conversation streams its live turn deltas into its canonical
-/// `acp-transcripts/<agent_dir>/<conversation_id>.jsonl` file.
-pub fn uses_acp_transcript(_kind: Option<AgentKind>) -> bool {
-    true
-}
 
 /// Content that lives in the transcript file. These events are not inserted
 /// into `conversation_events`; the live projector folds them in memory.
@@ -170,7 +164,7 @@ pub fn read_existing_transcript_turns_with_external(
     external_session_id: Option<&str>,
 ) -> Option<Vec<MessageTurn>> {
     isolate_test_transcripts();
-    let root = vibex_acp_transcripts_root();
+    let root = dimo_acp_transcripts_root();
     let candidates = transcript_session_id_candidates(conversation_id, external_session_id);
     let entries = std::fs::read_dir(&root).ok()?;
     let mut fallback_turns: Option<Vec<MessageTurn>> = None;
@@ -214,7 +208,7 @@ pub async fn flush_and_read_existing_transcript_turns(
     external_session_id: Option<&str>,
 ) -> Option<Vec<MessageTurn>> {
     isolate_test_transcripts();
-    let root = vibex_acp_transcripts_root();
+    let root = dimo_acp_transcripts_root();
     let candidates = transcript_session_id_candidates(conversation_id, external_session_id);
     if let Ok(entries) = std::fs::read_dir(&root) {
         for dir_entry in entries.flatten() {
@@ -276,7 +270,7 @@ pub fn timeline_from_turns(conversation_id: Uuid, turns: &[MessageTurn]) -> Conv
 fn isolate_test_transcripts() {
     static ONCE: std::sync::Once = std::sync::Once::new();
     ONCE.call_once(|| {
-        if std::env::var_os("VIBEX_TRANSCRIPTS_ROOT").is_some() {
+        if std::env::var_os("DIMO_TRANSCRIPTS_ROOT").is_some() {
             return;
         }
         let Ok(exe) = std::env::current_exe() else {
@@ -288,10 +282,10 @@ fn isolate_test_transcripts() {
         if !in_deps {
             return;
         }
-        let dir = utils::path::get_vibex_temp_dir()
+        let dir = utils::path::get_dimo_temp_dir()
             .join(format!("acp-transcripts-{}", std::process::id()));
         unsafe {
-            std::env::set_var("VIBEX_TRANSCRIPTS_ROOT", dir);
+            std::env::set_var("DIMO_TRANSCRIPTS_ROOT", dir);
         }
     });
 }
@@ -629,7 +623,7 @@ async fn load_turns(
     summary: &DbConversationSummary,
 ) -> Result<Vec<MessageTurn>, sqlx::Error> {
     if let Some(turns) =
-        crate::transcript_segments::read_in(pool, &vibex_acp_transcripts_root(), summary.id).await?
+        crate::transcript_segments::read_in(pool, &dimo_acp_transcripts_root(), summary.id).await?
     {
         return Ok(turns);
     }
@@ -642,7 +636,7 @@ async fn load_turns(
         .or_else(|| bindings.last().map(|binding| &binding.agent_id));
     let kind = effective_agent_id.and_then(|id| AgentKind::from_lenient(id.as_ref()));
     let (agent_dir, session_id) = transcript_identity_with_agent(summary, effective_agent_id, kind);
-    let root = vibex_acp_transcripts_root();
+    let root = dimo_acp_transcripts_root();
 
     let recovered_ancestors: Vec<String> = sqlx::query_scalar::<_, String>(
         r#"SELECT normalized_json
@@ -958,7 +952,7 @@ pub async fn preserve_transcript_before_detach(
     conversation_id: Uuid,
 ) -> Result<(), sqlx::Error> {
     isolate_test_transcripts();
-    let root = vibex_acp_transcripts_root();
+    let root = dimo_acp_transcripts_root();
     if !db::models::conversation_transcript::ConversationTranscriptSegment::list(
         pool,
         conversation_id,
@@ -1005,58 +999,6 @@ async fn exclude_unprompted_pending(
     Ok(())
 }
 
-/// A reserved input that never reached a runtime still belongs to product history.
-/// Stable Turn IDs make recovery safe after file publication but before settlement.
-#[allow(dead_code)]
-pub(crate) async fn preserve_unprompted_input(
-    pool: &SqlitePool,
-    conversation: Uuid,
-    turn_id: Uuid,
-) -> Result<(), sqlx::Error> {
-    let Some(turn) = ConversationTurnRecord::find_by_id(pool, turn_id).await? else {
-        return Ok(());
-    };
-    if turn.prompt_id.is_some() {
-        return Ok(());
-    }
-    let expected = format!("{turn_id}:user");
-    let existing = load_all_turns(pool, conversation)
-        .await?
-        .unwrap_or_default();
-    if existing.iter().any(|item| item.id.ends_with(&expected)) {
-        // Projection fallback is not yet file authority.
-        if !db::models::conversation_transcript::ConversationTranscriptSegment::list(
-            pool,
-            conversation,
-        )
-        .await?
-        .is_empty()
-        {
-            return Ok(());
-        }
-    }
-    let projected = message_turns(&ConversationProjector::project(pool, conversation).await?);
-    let Some(item) = projected.into_iter().find(|item| item.id == expected) else {
-        return Ok(());
-    };
-    preserve_transcript_before_detach(pool, conversation).await?;
-    let existing =
-        crate::transcript_segments::read_in(pool, &vibex_acp_transcripts_root(), conversation)
-            .await?
-            .unwrap_or_default();
-    if existing.iter().any(|item| item.id.ends_with(&expected)) {
-        return Ok(());
-    }
-    crate::transcript_segments::import_snapshot_in(
-        pool,
-        &vibex_acp_transcripts_root(),
-        conversation,
-        "session",
-        &[item],
-    )
-    .await
-}
-
 /// Bind a concrete runtime connection to the only product-history writer target.
 pub async fn prepare_binding_transcript(
     pool: &SqlitePool,
@@ -1064,7 +1006,7 @@ pub async fn prepare_binding_transcript(
     binding: &ConversationAgentBindingRecord,
     connection_id: agents::AgentConnectionId,
 ) -> Result<(), sqlx::Error> {
-    let root = vibex_acp_transcripts_root();
+    let root = dimo_acp_transcripts_root();
     let segments = db::models::conversation_transcript::ConversationTranscriptSegment::list(
         pool,
         conversation_id,
@@ -1099,7 +1041,7 @@ pub async fn truncate_transcript_to_user_ordinal(
     };
     let turns = load_turns(pool, &summary).await?;
     let kept = slice_turns_by_user_count(&turns, keep_user_turns);
-    let root = vibex_acp_transcripts_root();
+    let root = dimo_acp_transcripts_root();
     if !db::models::conversation_transcript::ConversationTranscriptSegment::list(
         pool,
         conversation_id,
@@ -1124,7 +1066,7 @@ pub async fn truncate_transcript_to_user_ordinal(
         .as_ref()
         .and_then(|id| AgentKind::from_lenient(id.as_ref()));
     let (agent_dir, session_id) = transcript_identity(&summary, kind);
-    let root = vibex_acp_transcripts_root();
+    let root = dimo_acp_transcripts_root();
     let serialized = serialize_transcript(&agent_dir, &session_id, &summary, &kept);
     let _ = acp_transcript::replace_in(&root, &agent_dir, &session_id, serialized).await;
     if let Some(legacy_sid) = legacy_external_session_id(&summary).as_deref()
@@ -1197,7 +1139,7 @@ pub async fn copy_transcript_snapshot(
     if source_has_manifest {
         crate::transcript_segments::replace_snapshot_in(
             pool,
-            &vibex_acp_transcripts_root(),
+            &dimo_acp_transcripts_root(),
             destination_id,
             destination
                 .agent_id
@@ -1214,7 +1156,7 @@ pub async fn copy_transcript_snapshot(
         .and_then(|id| AgentKind::from_lenient(id.as_ref()));
     let (agent_dir, session_id) = transcript_identity(&destination, kind);
     write_migrated_transcript(
-        &vibex_acp_transcripts_root(),
+        &dimo_acp_transcripts_root(),
         &agent_dir,
         &session_id,
         &destination,

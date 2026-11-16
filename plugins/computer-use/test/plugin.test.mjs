@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import readline from 'node:readline';
 import test from 'node:test';
-import { createWorkerHarness } from '@vibex/plugin-sdk/testing';
+import { createWorkerHarness } from '@dimoai/plugin-sdk/testing';
 import definition, { RPC_METHODS } from '../runtime/worker.mjs';
 
 const PLUGIN_ROOT = process.cwd();
@@ -13,7 +13,7 @@ const PLUGIN_ROOT = process.cwd();
 test('plugin.json and content.mcp contract are valid v4 declarations', () => {
   const manifest = JSON.parse(
     fs.readFileSync(
-      path.join(PLUGIN_ROOT, '.vibex-plugin', 'plugin.json'),
+      path.join(PLUGIN_ROOT, '.dimo-plugin', 'plugin.json'),
       'utf8'
     )
   );
@@ -40,9 +40,9 @@ test('plugin.json and content.mcp contract are valid v4 declarations', () => {
 
 test('worker registers all required handlers and talks to the native computer daemon', async () => {
   const tempDataDir = fs.mkdtempSync(
-    path.join(os.tmpdir(), 'vibex-computer-use-test-')
+    path.join(os.tmpdir(), 'dimo-computer-use-test-')
   );
-  process.env.VIBEX_PLUGIN_DATA_DIR = tempDataDir;
+  process.env.DIMO_PLUGIN_DATA_DIR = tempDataDir;
 
   const worker = await createWorkerHarness(definition);
   const rpc = (rpcMethod, rpcParams = {}) =>
@@ -123,7 +123,7 @@ test('packaged stdio MCP server responds to initialize, tools/list, and tools/ca
 
   const child = spawn(process.execPath, [mcpEntry], {
     cwd: PLUGIN_ROOT,
-    env: { ...process.env, VIBEX_COMPUTER_USE_STANDALONE_TEST: '1' },
+    env: { ...process.env, DIMO_COMPUTER_USE_STANDALONE_TEST: '1' },
     stdio: ['pipe', 'pipe', 'pipe'],
   });
 
@@ -181,14 +181,14 @@ test('packaged stdio MCP server responds to initialize, tools/list, and tools/ca
     assert.deepEqual(discoverRes.result.supportedVersions, ['2026-07-28']);
     assert.equal(
       discoverRes.result._meta['io.modelcontextprotocol/serverInfo'].name,
-      'vibex-computer-use'
+      'dimo-computer-use'
     );
 
     const initRes = await request(1, 'initialize', {
       protocolVersion: '2026-07-28',
     });
     assert.equal(initRes.result.protocolVersion, '2026-07-28');
-    assert.equal(initRes.result.serverInfo.name, 'vibex-computer-use');
+    assert.equal(initRes.result.serverInfo.name, 'dimo-computer-use');
 
     const listRes = await request(2, 'tools/list', {});
     assert.ok(Array.isArray(listRes.result.tools));
@@ -199,17 +199,17 @@ test('packaged stdio MCP server responds to initialize, tools/list, and tools/ca
   }
 });
 
-test('packaged stdio MCP server hides tools and rejects calls when VibeX Host authorization is invalid or plugin is disabled', async () => {
+test('packaged stdio MCP server hides tools and rejects calls when Dimo Host authorization is invalid or plugin is disabled', async () => {
   const mcpEntry = path.join(PLUGIN_ROOT, 'dist', 'mcp', 'computer-use.mjs');
   const child = spawn(process.execPath, [mcpEntry], {
     cwd: PLUGIN_ROOT,
     env: {
       ...process.env,
       NODE_TEST_CONTEXT: '',
-      VIBEX_COMPUTER_USE_STANDALONE_TEST: '',
-      VIBEX_HOST_CALL_URL: 'http://127.0.0.1:9/host-call',
-      VIBEX_HOST_CALL_TOKEN: 'revoked-token',
-      VIBEX_PLUGIN_ID: 'vibex-plugin-computer-use',
+      DIMO_COMPUTER_USE_STANDALONE_TEST: '',
+      DIMO_HOST_CALL_URL: 'http://127.0.0.1:9/host-call',
+      DIMO_HOST_CALL_TOKEN: 'revoked-token',
+      DIMO_PLUGIN_ID: 'dimo-plugin-computer-use',
     },
     stdio: ['pipe', 'pipe', 'pipe'],
   });
@@ -251,7 +251,7 @@ test('packaged stdio MCP server hides tools and rejects calls when VibeX Host au
     assert.equal(callRes.result.isError, true);
     assert.match(
       callRes.result.content[0].text,
-      /Computer Use plugin is not installed or enabled in VibeX/
+      /Computer Use plugin is not installed or enabled in Dimo/
     );
   } finally {
     rl.close();

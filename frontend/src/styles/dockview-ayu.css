@@ -1,5 +1,5 @@
 /*
- * VibeX workbench Dockview theme.
+ * Dimo workbench Dockview theme.
  *
  * Strategy: keep Dockview's structural contract, but map every visible surface
  * back to the shared workspace design tokens.
@@ -1417,4 +1417,52 @@
 [data-panel='terminal'].is-resizing-terminal-list {
   cursor: col-resize;
   user-select: none;
+}
+
+/*
+ * Tab drag drop-target overlay: the tab is always treated as a single unit —
+ * no quadrant splits. Show a full dashed outline around the entire tab with
+ * a subtle tinted fill. Override Dockview's per-edge rules which hide three
+ * of the four borders.
+ */
+[class*='dockview-theme-ayu']
+  .dv-drop-target
+  > .dv-drop-target-dropzone
+  > .dv-drop-target-selection {
+  background-color: hsl(var(--primary) / 0.08) !important;
+  border: 2px dashed hsl(var(--primary) / 0.64) !important;
+  border-radius: var(--radius, 6px);
+}
+
+/* Reset Dockview's per-edge overrides that hide three sides of the border.
+   Keep the full dashed outline regardless of quadrant. */
+[class*='dockview-theme-ayu']
+  .dv-drop-target
+  > .dv-drop-target-dropzone
+  > .dv-drop-target-selection.dv-drop-target-top,
+[class*='dockview-theme-ayu']
+  .dv-drop-target
+  > .dv-drop-target-dropzone
+  > .dv-drop-target-selection.dv-drop-target-bottom,
+[class*='dockview-theme-ayu']
+  .dv-drop-target
+  > .dv-drop-target-dropzone
+  > .dv-drop-target-selection.dv-drop-target-left,
+[class*='dockview-theme-ayu']
+  .dv-drop-target
+  > .dv-drop-target-dropzone
+  > .dv-drop-target-selection.dv-drop-target-right {
+  border: 2px dashed hsl(var(--primary) / 0.64) !important;
+  border-radius: var(--radius, 6px);
+  background-color: hsl(var(--primary) / 0.08) !important;
+}
+
+/* Center quadrant is the default — same full dashed outline. */
+[class*='dockview-theme-ayu']
+  .dv-drop-target
+  > .dv-drop-target-dropzone
+  > .dv-drop-target-selection.dv-drop-target-center {
+  border: 2px dashed hsl(var(--primary) / 0.64) !important;
+  border-radius: var(--radius, 6px);
+  background-color: hsl(var(--primary) / 0.08) !important;
 }

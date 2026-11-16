@@ -127,12 +127,18 @@ impl LiveRowOpCoalescer {
                 if immediate_barrier {
                     slot.next_allowed_at = None;
                 }
-                if let Some((mut pending_batch, pending_global)) = slot.take_pending_for_flush() {
+                let result = if let Some((mut pending_batch, pending_global)) =
+                    slot.take_pending_for_flush()
+                {
                     merge_into_batch(&mut pending_batch, batch);
                     (pending_batch, pending_global || emit_global)
                 } else {
                     (batch, emit_global)
+                };
+                if immediate_barrier {
+                    slots.remove(&conversation_id);
                 }
+                result
             };
             self.emit_now(conversation_id, &to_emit.0, to_emit.1);
             return;
@@ -146,6 +152,13 @@ impl LiveRowOpCoalescer {
                 .slots
                 .lock()
                 .unwrap_or_else(|poisoned| poisoned.into_inner());
+            if slots.len() > 64 {
+                slots.retain(|id, slot| {
+                    *id == conversation_id
+                        || slot.pending.is_some()
+                        || slot.next_allowed_at.is_some_and(|deadline| deadline > now)
+                });
+            }
             let slot = slots.entry(conversation_id).or_default();
 
             // Leading-edge emission when outside the 16ms window and nothing is buffered.
@@ -211,12 +224,9 @@ impl LiveRowOpCoalescer {
                 .slots
                 .lock()
                 .unwrap_or_else(|poisoned| poisoned.into_inner());
-            if let Some(slot) = slots.get_mut(&conversation_id) {
-                slot.next_allowed_at = None;
-                slot.take_pending_for_flush()
-            } else {
-                None
-            }
+            slots
+                .remove(&conversation_id)
+                .and_then(|mut slot| slot.take_pending_for_flush())
         };
         if let Some((batch, emit_global)) = pending {
             self.emit_now(conversation_id, &batch, emit_global);

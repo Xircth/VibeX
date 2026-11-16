@@ -1,16 +1,16 @@
 ---
-summary: Create, inspect, debug, and safely revise VibeX DAG Workflows from Agent conversations and editable file tabs.
+summary: Create, inspect, debug, and safely revise Dimo DAG Workflows from Agent conversations and editable file tabs.
 ---
 
 # Workflow Creator
 
-Author VibeX DAG workflows as real files, then validate, debug, and publish them without treating an in-memory graph as the source of truth.
+Author Dimo DAG workflows as real files, then validate, debug, and publish them without treating an in-memory graph as the source of truth.
 
 Once enabled, three surfaces work together:
 
-- the `vibex-workflow-creator` Skill, so an Agent can design a valid DAG;
-- `vibex-workflow-mcp`, for read/write, validation, publish, run inspection, pause/continue, and debug runs;
-- Workflow Studio, which opens `*.vibex-workflow.json` as an editable tab.
+- the `dimo-workflow-creator` Skill, so an Agent can design a valid DAG;
+- `dimo-workflow-mcp`, for read/write, validation, publish, run inspection, pause/continue, and debug runs;
+- Workflow Studio, which opens `*.dimo-workflow.json` as an editable tab.
 
 The source file is the authoring fact. Saving uses an artifact revision and refuses a stale overwrite. Publishing creates an immutable version. Automations stay on the version they already reference until you point them at a new one.
 
@@ -18,11 +18,11 @@ The source file is the authoring fact. Saving uses an artifact revision and refu
 
 This plugin ships with the Host, starts disabled, and cannot be uninstalled. Turn it on in Plugins. The first enable binds the Skill and MCP to compatible installed Agents. Later enable/disable cycles keep the selection you already made.
 
-VibeX Desktop must be running. The Host starts a loopback-only command gateway, launches the MCP with the managed Node.js runtime, and injects a per-app-lifetime bearer token. That token is never stored in this package or in `config.json`.
+Dimo Desktop must be running. The Host starts a loopback-only command gateway, launches the MCP with the managed Node.js runtime, and injects a per-app-lifetime bearer token. That token is never stored in this package or in `config.json`.
 
 ## Edit a workflow
 
-Create or open a `*.vibex-workflow.json` file in the project, or under `~/.vibex/workflows/`. The tab is Workflow Studio. Saving writes the source artifact; it does not publish a version and does not retarget Automations.
+Create or open a `*.dimo-workflow.json` file in the project, or under `~/.dimo/workflows/`. The tab is Workflow Studio. Saving writes the source artifact; it does not publish a version and does not retarget Automations.
 
 Model nodes as durable steps, not as “the Agent”. An Agent Step owns one child Conversation. Retries and continuation add Turns to that same Conversation. Encode order only through `dependsOn`. Do not create cycles.
 
@@ -47,11 +47,11 @@ This is an authoring default. It does not rewrite steps that already declare a c
 
 ## Offline and network
 
-The editor and MCP stay on the machine. MCP traffic uses a random loopback port between the managed process and VibeX. Agent Steps follow the selected Agent and project network policy; the plugin does not add its own outbound access.
+The editor and MCP stay on the machine. MCP traffic uses a random loopback port between the managed process and Dimo. Agent Steps follow the selected Agent and project network policy; the plugin does not add its own outbound access.
 
 ## Troubleshooting
 
-- MCP says VibeX is unavailable: keep Desktop open and re-enable the plugin so the Host can inject a fresh token.
+- MCP says Dimo is unavailable: keep Desktop open and re-enable the plugin so the Host can inject a fresh token.
 - Save conflict: the source changed outside the tab. Reload, reconcile, then save with the new revision.
 - An Automation did not pick up edits: it is pinned to one published version. Publish, then point that Automation at the new version.
 - Debug created a catalog version: stop. Source tests must use `workflow_debug_source`, not publish.

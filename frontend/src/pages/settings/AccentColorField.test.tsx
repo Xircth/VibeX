@@ -54,8 +54,8 @@ describe('AccentColorField', () => {
 
   it('offers to follow the theme only while an override is set', async () => {
     const user = userEvent.setup();
-    localStorage.setItem('vibex:accent-color', '#3f6cc4');
-    clearLocalStorageCache('vibex:accent-color');
+    localStorage.setItem('dimo:accent-color', '#3f6cc4');
+    clearLocalStorageCache('dimo:accent-color');
     render(<AccentColorField />);
 
     expect(screen.getByRole('textbox', { name: '色值' })).toHaveValue(
@@ -63,7 +63,7 @@ describe('AccentColorField', () => {
     );
     await user.click(screen.getByRole('button', { name: '跟随主题' }));
 
-    expect(localStorage.getItem('vibex:accent-color')).toBe('');
+    expect(localStorage.getItem('dimo:accent-color')).toBe('');
     expect(
       screen.queryByRole('button', { name: '跟随主题' })
     ).not.toBeInTheDocument();

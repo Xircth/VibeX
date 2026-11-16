@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 import {
   activatePluginWorker,
   normalizePluginContext,
-} from '@vibex/plugin-sdk';
+} from '@dimoai/plugin-sdk';
 import {
   buildFimContext,
   buildProtocolHttpRequest,
@@ -36,14 +36,14 @@ const pluginRoot = resolve(__dirname, '..');
 
 test('plugin manifest, README summary, and config.json conform to v4 / API 2.0 specification', async () => {
   const manifest = JSON.parse(
-    await readFile(join(pluginRoot, '.vibex-plugin/plugin.json'), 'utf8'),
+    await readFile(join(pluginRoot, '.dimo-plugin/plugin.json'), 'utf8'),
   );
-  assert.equal(manifest.id, 'vibex.code-completion');
+  assert.equal(manifest.id, 'dimo.code-completion');
   assert.equal(manifest.name, 'AI代码补全');
   assert.equal(manifest.manifestVersion, 4);
   assert.equal(manifest.apiVersion, '2.0');
   assert.deepEqual(manifest.engines, {
-    vibex: '>=0.1.3 <1.0.0',
+    dimo: '>=0.1.3 <1.0.0',
     pluginSdk: '^2.0.0',
   });
   assert.equal(manifest.interface?.icon, 'assets/icon.svg');
@@ -305,7 +305,7 @@ test('worker runtime handles completion.complete (OpenAI & Anthropic) and cancel
 
   const activated = await activatePluginWorker(workerDefinition, {
     context: normalizePluginContext({
-      pluginId: 'vibex.code-completion',
+      pluginId: 'dimo.code-completion',
       pluginVersion: '2.0.0',
       generation: 1,
     }),
@@ -371,7 +371,7 @@ test('app entrypoint supports adaptive debounce, forward-typing prefix cache, an
   const instance = await appPlugin.activate({
     services: {
       get(serviceId) {
-        if (serviceId === 'vibex.code-editor') {
+        if (serviceId === 'dimo.code-editor') {
           return {
             registerInlineCompletionProvider(_selector, provider) {
               registeredProvider = provider;
@@ -434,7 +434,7 @@ test('app entrypoint supports adaptive debounce, forward-typing prefix cache, an
   instance.dispose();
 });
 
-test('handles comment + Enter newline framing in Python files and late vibex.code-editor registration', async () => {
+test('handles comment + Enter newline framing in Python files and late dimo.code-editor registration', async () => {
   assert.equal(
     postProcessCompletion('<COMPLETION>\nimport pygame\nimport random\n</COMPLETION>', {
       prefix: '//贪吃蛇游戏\n',
@@ -462,7 +462,7 @@ test('handles comment + Enter newline framing in Python files and late vibex.cod
         return null;
       },
       onChange(serviceId, cb) {
-        if (serviceId === 'vibex.code-editor') {
+        if (serviceId === 'dimo.code-editor') {
           changeListener = cb;
         }
         return () => {};
@@ -841,7 +841,7 @@ test('App re-activation disposes previous singleton instance and clears Monaco I
       },
       triggerInlineCompletion: async (ed) => {
         ed.getContribution('editor.contrib.inlineCompletionsController')?.model?.get?.()?.stop?.();
-        ed.trigger('vibex.code-editor', 'editor.action.inlineSuggest.trigger', {});
+        ed.trigger('dimo.code-editor', 'editor.action.inlineSuggest.trigger', {});
       },
     },
   });
@@ -884,7 +884,7 @@ test('Monacopilot registerCompletion and CompletionCopilot end-to-end flow', asy
   assert.match(capturedPrompt.user, /<\|developer_cursor_is_here\|>/);
   assert.equal(directRes.completion, 'return x + y');
 
-  // 2. Verify CodeCompletionEngine.complete() wraps CompletionCopilot with VibeX multi-protocol + FIM indentation
+  // 2. Verify CodeCompletionEngine.complete() wraps CompletionCopilot with Dimo multi-protocol + FIM indentation
   const engine = new CodeCompletionEngine({
     config: {
       enabled: true,
@@ -979,7 +979,7 @@ test('Monacopilot registerCompletion and CompletionCopilot end-to-end flow', asy
   };
 
   let capturedEditorInMonacopilot = null;
-  globalThis.__VIBEX_HOST_MODULES__ = {
+  globalThis.__DIMO_HOST_MODULES__ = {
     monacopilot: {
       registerCompletion: (monacoArg, editorArg, optsArg) => {
         capturedEditorInMonacopilot = editorArg;
@@ -1103,7 +1103,7 @@ test('Monacopilot registerCompletion and CompletionCopilot end-to-end flow', asy
 
     appInstance.dispose();
   } finally {
-    delete globalThis.__VIBEX_HOST_MODULES__;
+    delete globalThis.__DIMO_HOST_MODULES__;
   }
 });
 

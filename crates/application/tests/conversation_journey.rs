@@ -114,7 +114,11 @@ async fn steering_binds_operation_expected_turn_and_principal_in_the_core() {
                 conversation_id,
                 expected_turn_id,
                 text: "Prioritize the failing test".to_string(),
+                display_text: None,
                 images: Vec::new(),
+                file_refs: Vec::new(),
+                mode_override: None,
+                config_overrides: Vec::new(),
                 promoted_input_id: Some(promoted_input_id),
                 expected_revision: Some(3),
                 allow_interrupt_restart: true,
@@ -438,6 +442,7 @@ async fn start_turn_is_launched_through_the_injected_execution_port() {
                 workflow_refs: Vec::new(),
                 internal_prompt_contributions: Vec::new(),
                 operation_id: None,
+                provider_instance_id: None,
             },
         )
         .await

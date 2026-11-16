@@ -751,4 +751,30 @@ describe('AgentConfigurationAndDiagnostics', () => {
       null
     );
   });
+
+  it('clears a saved secret field with null when emptied without touching other fields', async () => {
+    const onSave = vi.fn();
+    render(
+      <AgentConfigurationAndDiagnostics
+        config={config}
+        fieldSurface="authentication"
+        embedded
+        saving={false}
+        onSave={onSave}
+      />
+    );
+
+    const keyInput = screen.getByLabelText('OpenAI API Key');
+    expect(keyInput).toHaveValue('••••••••');
+
+    await userEvent.clear(keyInput);
+    expect(keyInput).toHaveValue('');
+
+    await userEvent.tab();
+    expect(onSave).toHaveBeenCalledWith({
+      agent_id: 'codex',
+      base_field_revisions: { openai_api_key: 'revision-key' },
+      fields: { openai_api_key: null },
+    });
+  });
 });

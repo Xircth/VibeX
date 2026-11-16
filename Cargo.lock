@@ -1557,6 +1557,125 @@ dependencies = [
 ]
 
 [[package]]
+name = "dimo"
+version = "0.4.4"
+dependencies = [
+ "aes-gcm",
+ "agents",
+ "anyhow",
+ "api-types",
+ "application",
+ "argon2",
+ "artifacts",
+ "async-trait",
+ "automation",
+ "axum",
+ "base64 0.22.1",
+ "block2",
+ "browser-host",
+ "chrono",
+ "conversations",
+ "db",
+ "delegation",
+ "deployment",
+ "dirs",
+ "executors",
+ "flate2",
+ "futures",
+ "gio",
+ "git",
+ "git2",
+ "ignore",
+ "javascriptcore-rs",
+ "local-deployment",
+ "muda",
+ "notify",
+ "objc2",
+ "objc2-app-kit",
+ "objc2-foundation",
+ "objc2-web-kit",
+ "os_info",
+ "plugins",
+ "rand 0.8.6",
+ "regex",
+ "remote-protocol",
+ "reqwest 0.12.28",
+ "rustls",
+ "semver",
+ "serde",
+ "serde_json",
+ "server",
+ "services",
+ "sha2",
+ "sqlx",
+ "tar",
+ "tauri",
+ "tauri-build",
+ "tauri-plugin-deep-link",
+ "tauri-plugin-dialog",
+ "tauri-plugin-dimo-inspector",
+ "tauri-plugin-fs",
+ "tauri-plugin-process",
+ "tauri-plugin-redline",
+ "tauri-plugin-shell",
+ "tauri-plugin-single-instance",
+ "tauri-plugin-updater",
+ "tauri-runtime-wry",
+ "tempfile",
+ "thiserror 2.0.18",
+ "tokio",
+ "tokio-tungstenite",
+ "tokio-util",
+ "toml 0.8.2",
+ "tracing",
+ "tracing-appender",
+ "tracing-subscriber",
+ "ts-rs",
+ "url",
+ "utils",
+ "uuid",
+ "webkit2gtk",
+ "webview2-com",
+ "which",
+ "windows 0.61.3",
+ "workflows",
+ "zip 2.4.2",
+]
+
+[[package]]
+name = "dimo-mcp"
+version = "0.4.4"
+dependencies = [
+ "delegation-proto",
+ "reqwest 0.12.28",
+ "rustls",
+ "serde_json",
+ "tokio",
+ "uuid",
+]
+
+[[package]]
+name = "dimo-plugin-sdk"
+version = "2.0.0"
+dependencies = [
+ "async-trait",
+ "base64 0.22.1",
+ "futures",
+ "regex",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+ "tokio",
+]
+
+[[package]]
+name = "dimo-workflow-mcp"
+version = "0.4.4"
+dependencies = [
+ "utils",
+]
+
+[[package]]
 name = "directories"
 version = "6.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4656,6 +4775,7 @@ dependencies = [
  "axum",
  "base64 0.22.1",
  "browser-host",
+ "dimo-plugin-sdk",
  "dirs",
  "flate2",
  "libc",
@@ -4677,7 +4797,6 @@ dependencies = [
  "url",
  "utils",
  "uuid",
- "vibex-plugin-sdk",
  "xattr",
  "zip 4.6.1",
 ]
@@ -6862,6 +6981,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "tauri-plugin-dimo-inspector"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+ "tauri",
+ "tauri-plugin",
+]
+
+[[package]]
 name = "tauri-plugin-fs"
 version = "2.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6979,15 +7107,6 @@ dependencies = [
  "url",
  "windows-sys 0.60.2",
  "zip 4.6.1",
-]
-
-[[package]]
-name = "tauri-plugin-vibex-inspector"
-version = "0.1.0"
-dependencies = [
- "serde_json",
- "tauri",
- "tauri-plugin",
 ]
 
 [[package]]
@@ -7932,125 +8051,6 @@ name = "version_check"
 version = "0.9.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
-
-[[package]]
-name = "vibex"
-version = "0.4.4"
-dependencies = [
- "aes-gcm",
- "agents",
- "anyhow",
- "api-types",
- "application",
- "argon2",
- "artifacts",
- "async-trait",
- "automation",
- "axum",
- "base64 0.22.1",
- "block2",
- "browser-host",
- "chrono",
- "conversations",
- "db",
- "delegation",
- "deployment",
- "dirs",
- "executors",
- "flate2",
- "futures",
- "gio",
- "git",
- "git2",
- "ignore",
- "javascriptcore-rs",
- "local-deployment",
- "muda",
- "notify",
- "objc2",
- "objc2-app-kit",
- "objc2-foundation",
- "objc2-web-kit",
- "os_info",
- "plugins",
- "rand 0.8.6",
- "regex",
- "remote-protocol",
- "reqwest 0.12.28",
- "rustls",
- "semver",
- "serde",
- "serde_json",
- "server",
- "services",
- "sha2",
- "sqlx",
- "tar",
- "tauri",
- "tauri-build",
- "tauri-plugin-deep-link",
- "tauri-plugin-dialog",
- "tauri-plugin-fs",
- "tauri-plugin-process",
- "tauri-plugin-redline",
- "tauri-plugin-shell",
- "tauri-plugin-single-instance",
- "tauri-plugin-updater",
- "tauri-plugin-vibex-inspector",
- "tauri-runtime-wry",
- "tempfile",
- "thiserror 2.0.18",
- "tokio",
- "tokio-tungstenite",
- "tokio-util",
- "toml 0.8.2",
- "tracing",
- "tracing-appender",
- "tracing-subscriber",
- "ts-rs",
- "url",
- "utils",
- "uuid",
- "webkit2gtk",
- "webview2-com",
- "which",
- "windows 0.61.3",
- "workflows",
- "zip 2.4.2",
-]
-
-[[package]]
-name = "vibex-mcp"
-version = "0.4.4"
-dependencies = [
- "delegation-proto",
- "reqwest 0.12.28",
- "rustls",
- "serde_json",
- "tokio",
- "uuid",
-]
-
-[[package]]
-name = "vibex-plugin-sdk"
-version = "2.0.0"
-dependencies = [
- "async-trait",
- "base64 0.22.1",
- "futures",
- "regex",
- "serde",
- "serde_json",
- "thiserror 2.0.18",
- "tokio",
-]
-
-[[package]]
-name = "vibex-workflow-mcp"
-version = "0.4.4"
-dependencies = [
- "utils",
-]
 
 [[package]]
 name = "vswhom"

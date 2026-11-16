@@ -12,7 +12,7 @@ workspace="$(cd "$script_dir/.." && pwd)"
 executable_dir="$(cd "$(dirname "$executable")" && pwd)"
 export LD_LIBRARY_PATH="${executable_dir}:${workspace}/target/release${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}"
 
-log_file="${RUNNER_TEMP:-/tmp}/vibex-linux-startup.log"
+log_file="${RUNNER_TEMP:-/tmp}/dimo-linux-startup.log"
 set +e
 GDK_BACKEND=x11 timeout --signal=TERM 10s xvfb-run -a "$executable" >"$log_file" 2>&1
 exit_code=$?
@@ -20,7 +20,7 @@ set -e
 
 if [[ "$exit_code" -ne 124 && "$exit_code" -ne 143 ]]; then
   cat "$log_file"
-  echo "VibeX exited during the Linux desktop startup smoke test (code $exit_code)." >&2
+  echo "Dimo exited during the Linux desktop startup smoke test (code $exit_code)." >&2
   exit 1
 fi
 

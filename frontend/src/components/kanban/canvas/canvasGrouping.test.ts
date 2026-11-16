@@ -97,9 +97,9 @@ describe('grouping', () => {
   it('groups two free cards and numbers groups by creation order', () => {
     const a = createCanvasNode('sess-a', { x: 0, y: 0 }, 'a');
     const b = createCanvasNode('sess-b', { x: 40, y: 0 }, 'b');
-    const grouped = groupSelection([a, b], new Set(['a', 'b']), 'VibeX');
+    const grouped = groupSelection([a, b], new Set(['a', 'b']), 'Dimo');
     const group = grouped.find((node) => node.kind === 'group');
-    expect(group?.name).toBe('VibeX');
+    expect(group?.name).toBe('Dimo');
     expect(grouped.filter((node) => node.parentId === group?.id)).toHaveLength(
       2
     );

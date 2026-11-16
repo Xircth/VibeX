@@ -1,6 +1,6 @@
 import React from 'react';
 import { createRoot } from 'react-dom/client';
-import { definePluginApp } from '@vibex/plugin-sdk/app';
+import { definePluginApp } from '@dimoai/plugin-sdk/app';
 import BrowserSettingsRemoteView from '../src/views/view.tsx';
 import './app.css';
 

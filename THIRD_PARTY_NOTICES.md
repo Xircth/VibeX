@@ -2,7 +2,7 @@
 
 ## GSAP
 
-VibeX uses GSAP and its React integration to animate the onboarding
+Dimo uses GSAP and its React integration to animate the onboarding
 experience.
 
 - Projects: GreenSock/GSAP and GreenSock/react
@@ -26,9 +26,9 @@ Automation scheduling behavior were adapted from Codeg at commit
 
 ## OfficeCLI
 
-VibeX's built-in Office plugin downloads a version-locked OfficeCLI binary
+Dimo's built-in Office plugin downloads a version-locked OfficeCLI binary
 from the upstream GitHub release and verifies its published SHA-256 before
-execution. VibeX does not execute OfficeCLI's remote installation scripts.
+execution. Dimo does not execute OfficeCLI's remote installation scripts.
 
 - Project: iOfficeAI/OfficeCLI
 - Version pinned by the bundled manifest: `v1.0.140`
@@ -38,7 +38,7 @@ execution. VibeX does not execute OfficeCLI's remote installation scripts.
 
 ## K-Dense scientific-agent-skills
 
-VibeX's built-in "科学研究" (Scientific Research) plugin bundles Skill content
+Dimo's built-in "科学研究" (Scientific Research) plugin bundles Skill content
 vendored byte-identically from K-Dense's scientific Agent Skills library.
 
 - Project: K-Dense-AI/scientific-agent-skills
@@ -49,7 +49,7 @@ vendored byte-identically from K-Dense's scientific Agent Skills library.
 - Bundled: 146 of the upstream 163 Skills
 
 The upstream library is license-heterogeneous: the repository's own MIT license
-does not cover every Skill. VibeX verified each Skill's declared license when
+does not cover every Skill. Dimo verified each Skill's declared license when
 vendoring and excluded 17 that cannot be redistributed (GPL, non-commercial,
 proprietary, or undeclared). The bundled set is 99 MIT, 20 Apache-2.0,
 19 BSD-3-Clause, 1 BSD-2-Clause, and 2 CC-BY-4.0.

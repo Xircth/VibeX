@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * MCP stdio server for built-in browser tools.
- * Host injects VIBEX_HOST_CALL_* when projecting this content.mcp.
+ * Host injects DIMO_HOST_CALL_* when projecting this content.mcp.
  * Framing accepts MCP NDJSON and LSP Content-Length. Tools are advertised
  * only while config.json toolsEnabled is true; eval is a separate switch.
  * Grant checks stay in Host BrowserService.
@@ -29,7 +29,7 @@ const allTools = [
     name: 'browser_list_tabs',
     operation: 'tab.list',
     description:
-      "List pages in VibeX's built-in browser. Reading a page requires the user to share that tab.",
+      "List pages in Dimo's built-in browser. Reading a page requires the user to share that tab.",
     inputSchema: { type: 'object', properties: {} },
   },
   {
@@ -419,8 +419,8 @@ function fail(id, message, code = -32000) {
 }
 
 async function callHost(capability, operation, input) {
-  const url = process.env.VIBEX_HOST_CALL_URL ?? '';
-  const token = process.env.VIBEX_HOST_CALL_TOKEN ?? '';
+  const url = process.env.DIMO_HOST_CALL_URL ?? '';
+  const token = process.env.DIMO_HOST_CALL_TOKEN ?? '';
   if (!url || !token) {
     throw new Error(
       'host_call_unavailable: Host did not inject a plugin host.call connection; restart the Agent session after enabling the plugin'
@@ -685,7 +685,7 @@ function formatToolOutput(toolName, result) {
 }
 
 const MODERN_MCP_PROTOCOL = '2026-07-28';
-const SERVER_INFO = { name: 'vibex-browser', version: '1.0.0' };
+const SERVER_INFO = { name: 'dimo-browser', version: '1.0.0' };
 
 function negotiateProtocol(requested) {
   if (typeof requested === 'string' && SUPPORTED_PROTOCOLS.includes(requested)) {
@@ -765,7 +765,7 @@ function buildPreferEvalScript(args) {
   return `(function(){
     var rm = ${JSON.stringify(reducedMotion)};
     var cs = ${JSON.stringify(colorScheme)};
-    var styleId = '__vibex_prefer_reduced_motion';
+    var styleId = '__dimo_prefer_reduced_motion';
     if (rm === true) {
       var el = document.getElementById(styleId);
       if (!el) {
@@ -797,16 +797,16 @@ function buildPreferEvalScript(args) {
         document.documentElement.classList.add(cs);
       }
     }
-    window.__vibexPreferences = Object.assign({}, window.__vibexPreferences || {}, {
-      reducedMotion: rm !== null ? rm : (window.__vibexPreferences && window.__vibexPreferences.reducedMotion),
-      colorScheme: cs !== null ? cs : (window.__vibexPreferences && window.__vibexPreferences.colorScheme)
+    window.__dimoPreferences = Object.assign({}, window.__dimoPreferences || {}, {
+      reducedMotion: rm !== null ? rm : (window.__dimoPreferences && window.__dimoPreferences.reducedMotion),
+      colorScheme: cs !== null ? cs : (window.__dimoPreferences && window.__dimoPreferences.colorScheme)
     });
-    if (!window.__vibexMatchMediaPatched && typeof window.matchMedia === 'function') {
+    if (!window.__dimoMatchMediaPatched && typeof window.matchMedia === 'function') {
       var origMatchMedia = window.matchMedia.bind(window);
       window.matchMedia = function(query) {
         var mql = origMatchMedia(query);
         var q = String(query || '').toLowerCase();
-        var prefs = window.__vibexPreferences || {};
+        var prefs = window.__dimoPreferences || {};
         var override = null;
         if (typeof prefs.reducedMotion === 'boolean' && q.indexOf('prefers-reduced-motion') !== -1) {
           if (q.indexOf('reduce') !== -1) override = prefs.reducedMotion;
@@ -819,7 +819,7 @@ function buildPreferEvalScript(args) {
         if (override === null) return mql;
         return Object.assign({}, mql, { matches: override, media: mql.media });
       };
-      window.__vibexMatchMediaPatched = true;
+      window.__dimoMatchMediaPatched = true;
     }
     if (${JSON.stringify(settle)} && typeof window.requestAnimationFrame === 'function') {
       window.requestAnimationFrame(function() {
@@ -829,8 +829,8 @@ function buildPreferEvalScript(args) {
     return JSON.stringify({
       ok: true,
       url: location.href,
-      reducedMotion: Boolean(window.__vibexPreferences && window.__vibexPreferences.reducedMotion),
-      colorScheme: (window.__vibexPreferences && window.__vibexPreferences.colorScheme) || 'no-preference',
+      reducedMotion: Boolean(window.__dimoPreferences && window.__dimoPreferences.reducedMotion),
+      colorScheme: (window.__dimoPreferences && window.__dimoPreferences.colorScheme) || 'no-preference',
       settled: ${JSON.stringify(settle)}
     });
   })()`;
@@ -1144,7 +1144,7 @@ function onStdin(chunk) {
 process.stdin.on('data', onStdin);
 process.stdin.on('error', (error) => {
   try {
-    process.stderr.write(`[vibex-browser] stdin ${error}\n`);
+    process.stderr.write(`[dimo-browser] stdin ${error}\n`);
   } catch {
     // stderr may already be closed with the parent.
   }
@@ -1152,7 +1152,7 @@ process.stdin.on('error', (error) => {
 process.on('uncaughtException', (error) => {
   try {
     process.stderr.write(
-      `[vibex-browser] ${error instanceof Error ? error.stack : String(error)}\n`
+      `[dimo-browser] ${error instanceof Error ? error.stack : String(error)}\n`
     );
   } catch {
     // Keep the MCP process alive for the next request.

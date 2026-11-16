@@ -2,8 +2,8 @@ import {
   type Disposer,
   Registry,
   serviceContainer,
-  type VibeXPluginContext,
-} from '@vibex/plugin-sdk';
+  type DimoPluginContext,
+} from '@dimoai/plugin-sdk';
 import { attemptsApi, configApi, projectsApi } from '@/lib/api';
 import { createPluginControlApi } from '@/lib/api/plugins';
 import {
@@ -1542,7 +1542,7 @@ export const defaultCodeEditorProviderService: CodeEditorProviderService = {
         // ignore
       }
       editorLike.trigger(
-        'vibex.code-editor',
+        'dimo.code-editor',
         'editor.action.inlineSuggest.trigger',
         {}
       );
@@ -1590,63 +1590,63 @@ interface BuiltinHostProviderBinding {
 
 const BUILTIN_HOST_PROVIDER_BINDINGS: readonly BuiltinHostProviderBinding[] = [
   {
-    serviceKey: 'vibex.model-catalog',
-    pluginId: 'vibex.core.llm-providers',
+    serviceKey: 'dimo.model-catalog',
+    pluginId: 'dimo.core.llm-providers',
     implementation: defaultModelCatalogProviderService,
   },
   {
     serviceKey: 'provider.model.catalog',
-    pluginId: 'vibex.core.llm-providers',
+    pluginId: 'dimo.core.llm-providers',
     implementation: defaultModelCatalogProviderService,
   },
   {
-    serviceKey: 'vibex.provider.model-catalog',
-    pluginId: 'vibex.core.llm-providers',
+    serviceKey: 'dimo.provider.model-catalog',
+    pluginId: 'dimo.core.llm-providers',
     implementation: defaultModelCatalogProviderService,
   },
   {
-    serviceKey: 'vibex.usage',
-    pluginId: 'vibex.core.credentials',
+    serviceKey: 'dimo.usage',
+    pluginId: 'dimo.core.credentials',
     implementation: defaultUsageProviderService,
   },
   {
     serviceKey: 'provider.usage',
-    pluginId: 'vibex.core.credentials',
+    pluginId: 'dimo.core.credentials',
     implementation: defaultUsageProviderService,
   },
   {
-    serviceKey: 'vibex.provider.usage',
-    pluginId: 'vibex.core.credentials',
+    serviceKey: 'dimo.provider.usage',
+    pluginId: 'dimo.core.credentials',
     implementation: defaultUsageProviderService,
   },
   {
-    serviceKey: 'vibex.editor',
-    pluginId: 'vibex.core.filesystem',
+    serviceKey: 'dimo.editor',
+    pluginId: 'dimo.core.filesystem',
     implementation: defaultEditorOpenerProviderService,
   },
   {
     serviceKey: 'provider.editor.opener',
-    pluginId: 'vibex.core.filesystem',
+    pluginId: 'dimo.core.filesystem',
     implementation: defaultEditorOpenerProviderService,
   },
   {
-    serviceKey: 'vibex.provider.editor-opener',
-    pluginId: 'vibex.core.filesystem',
+    serviceKey: 'dimo.provider.editor-opener',
+    pluginId: 'dimo.core.filesystem',
     implementation: defaultEditorOpenerProviderService,
   },
   {
-    serviceKey: 'vibex.code-editor',
-    pluginId: 'vibex.core.filesystem',
+    serviceKey: 'dimo.code-editor',
+    pluginId: 'dimo.core.filesystem',
     implementation: defaultCodeEditorProviderService,
   },
   {
     serviceKey: 'provider.editor.monaco',
-    pluginId: 'vibex.core.filesystem',
+    pluginId: 'dimo.core.filesystem',
     implementation: defaultCodeEditorProviderService,
   },
   {
-    serviceKey: 'vibex.provider.code-editor',
-    pluginId: 'vibex.core.filesystem',
+    serviceKey: 'dimo.provider.code-editor',
+    pluginId: 'dimo.core.filesystem',
     implementation: defaultCodeEditorProviderService,
   },
 ];
@@ -1655,7 +1655,7 @@ let builtinsRegistered = false;
 let disposeBuiltins: Array<() => void> = [];
 
 export interface RegisterBuiltinHostProviderServicesOptions {
-  readonly ctx?: VibeXPluginContext;
+  readonly ctx?: DimoPluginContext;
   readonly serviceKeys?: readonly string[];
   readonly pluginId?: string;
 }
@@ -1755,12 +1755,12 @@ export function getModelCatalogService(): ModelCatalogProviderService {
     ensureHostProviderServicesRegistered();
   }
   return (
-    serviceContainer.get<ModelCatalogProviderService>('vibex.model-catalog') ??
+    serviceContainer.get<ModelCatalogProviderService>('dimo.model-catalog') ??
     serviceContainer.get<ModelCatalogProviderService>(
       'provider.model.catalog'
     ) ??
     serviceContainer.get<ModelCatalogProviderService>(
-      'vibex.provider.model-catalog'
+      'dimo.provider.model-catalog'
     ) ??
     defaultModelCatalogProviderService
   );
@@ -1771,9 +1771,9 @@ export function getUsageProviderService(): UsageProviderService {
     ensureHostProviderServicesRegistered();
   }
   return (
-    serviceContainer.get<UsageProviderService>('vibex.usage') ??
+    serviceContainer.get<UsageProviderService>('dimo.usage') ??
     serviceContainer.get<UsageProviderService>('provider.usage') ??
-    serviceContainer.get<UsageProviderService>('vibex.provider.usage') ??
+    serviceContainer.get<UsageProviderService>('dimo.provider.usage') ??
     defaultUsageProviderService
   );
 }
@@ -1783,12 +1783,12 @@ export function getEditorOpenerService(): EditorOpenerProviderService {
     ensureHostProviderServicesRegistered();
   }
   return (
-    serviceContainer.get<EditorOpenerProviderService>('vibex.editor') ??
+    serviceContainer.get<EditorOpenerProviderService>('dimo.editor') ??
     serviceContainer.get<EditorOpenerProviderService>(
       'provider.editor.opener'
     ) ??
     serviceContainer.get<EditorOpenerProviderService>(
-      'vibex.provider.editor-opener'
+      'dimo.provider.editor-opener'
     ) ??
     defaultEditorOpenerProviderService
   );
@@ -1799,10 +1799,10 @@ export function getCodeEditorService(): CodeEditorProviderService {
     ensureHostProviderServicesRegistered();
   }
   return (
-    serviceContainer.get<CodeEditorProviderService>('vibex.code-editor') ??
+    serviceContainer.get<CodeEditorProviderService>('dimo.code-editor') ??
     serviceContainer.get<CodeEditorProviderService>('provider.editor.monaco') ??
     serviceContainer.get<CodeEditorProviderService>(
-      'vibex.provider.code-editor'
+      'dimo.provider.code-editor'
     ) ??
     defaultCodeEditorProviderService
   );

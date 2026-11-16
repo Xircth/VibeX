@@ -1,17 +1,17 @@
 export default {
   apiVersion: '2.0',
-  id: 'vibex.plugin-development',
+  id: 'dimo.plugin-development',
   activate(ctx) {
     ctx.ui.registerSlashCommand({
       name: 'plugin-dev',
-      description: 'Scaffold, validate, or hot-reload a VibeX v2.0 plugin',
+      description: 'Scaffold, validate, or hot-reload a Dimo v2.0 plugin',
       prompt:
-        'Use the VibeX Plugin SDK v2.0 conventions to design or validate this plugin:',
+        'Use the Dimo Plugin SDK v2.0 conventions to design or validate this plugin:',
     });
 
     ctx.ui.registerCommand({
       id: 'reload-plugins',
-      title: 'Reload VibeX Plugins',
+      title: 'Reload Dimo Plugins',
       category: 'Developer',
       icon: 'refresh-cw',
       async handler() {
@@ -21,7 +21,7 @@ export default {
       },
     });
 
-    ctx.services.provide('vibex.plugin-dev', {
+    ctx.services.provide('dimo.plugin-dev', {
       version: '2.0.0',
       async reloadPlugins() {
         const timestamp = Date.now();

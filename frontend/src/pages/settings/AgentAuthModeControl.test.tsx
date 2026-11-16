@@ -1098,6 +1098,74 @@ describe('AgentAuthModeControl', () => {
       screen.queryByRole('button', { name: '登录 Grok' })
     ).not.toBeInTheDocument();
   });
+
+  it('allows switching from bound model_provider back to official_api for native-config agents', async () => {
+    vi.spyOn(agentManagementApi, 'authMode').mockResolvedValue({
+      agent_id: 'codex',
+      mode: 'model_provider',
+      credential_env: 'OPENAI_API_KEY',
+      credential_present: true,
+      modes: ['chatgpt_subscription', 'api_key', 'model_provider'],
+      options: [
+        authOption(
+          'chatgpt_subscription',
+          'subscription',
+          'authModeChatGpt',
+          'authDescCodexChatGpt'
+        ),
+        authOption(
+          'api_key',
+          'official_api',
+          'authModeApiKey',
+          'authDescCodexApiKey',
+          'OPENAI_API_KEY',
+          'openai_api_key'
+        ),
+        authOption(
+          'model_provider',
+          'provider',
+          'authModeProvider',
+          'authDescCodexProvider'
+        ),
+      ],
+    });
+    const setAuthMode = vi
+      .spyOn(agentManagementApi, 'setAuthMode')
+      .mockResolvedValue({
+        agent_id: 'codex',
+        mode: 'api_key',
+        credential_env: 'OPENAI_API_KEY',
+        credential_present: true,
+        modes: ['chatgpt_subscription', 'api_key', 'model_provider'],
+        options: [],
+      });
+    const onChanged = vi.fn();
+    const user = userEvent.setup();
+
+    render(
+      <AgentAuthModeControl
+        agentId="codex"
+        configuration={<input aria-label="Native OpenAI key" />}
+        nativeCredentialPresent={(fieldId) => fieldId === 'openai_api_key'}
+        onChanged={onChanged}
+      />
+    );
+
+    await screen.findByRole('tab', { name: '供应商' });
+    await pickAuthModeTab(user, '官方 API');
+
+    // Browsing away from model_provider does not auto-persist until Save is clicked.
+    expect(setAuthMode).not.toHaveBeenCalled();
+
+    const saveButton = screen.getByRole('button', { name: '保存' });
+    expect(saveButton).toBeEnabled();
+    await user.click(saveButton);
+
+    await waitFor(() =>
+      expect(setAuthMode).toHaveBeenCalledWith('codex', 'api_key', null)
+    );
+    expect(onChanged).toHaveBeenCalled();
+  });
 });
 
 function authOption(

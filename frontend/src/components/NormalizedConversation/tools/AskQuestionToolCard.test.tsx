@@ -98,10 +98,10 @@ describe('AskQuestionToolCard', () => {
         use={{
           type: 'tool_use',
           tool_use_id: 'call-mcp-ask',
-          tool_name: 'vibex-delegation-mcp__ask_user_question',
+          tool_name: 'dimo-delegation-mcp__ask_user_question',
           kind: 'other',
           input_preview: JSON.stringify({
-            server: 'vibex-delegation-mcp',
+            server: 'dimo-delegation-mcp',
             tool: 'ask_user_question',
             arguments: { questions: QUESTIONS },
           }),
@@ -124,7 +124,7 @@ describe('AskQuestionToolCard', () => {
         use={{
           type: 'tool_use',
           tool_use_id: 'call-empty-ask',
-          tool_name: 'vibex-delegation-mcp__ask_user_question',
+          tool_name: 'dimo-delegation-mcp__ask_user_question',
           kind: 'other',
           input_preview: '{}',
           meta: null,
@@ -134,7 +134,7 @@ describe('AskQuestionToolCard', () => {
     );
 
     expect(screen.getByTestId('ask-question-title')).not.toHaveTextContent(
-      'vibex-delegation-mcp__ask_user_question'
+      'dimo-delegation-mcp__ask_user_question'
     );
     expect(
       screen.queryByRole('button', { name: '查看详情' })

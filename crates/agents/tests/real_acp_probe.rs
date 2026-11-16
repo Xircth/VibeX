@@ -10,33 +10,33 @@ use tokio_util::compat::{TokioAsyncReadCompatExt, TokioAsyncWriteCompatExt};
 /// Manual release gate for a locally installed ACP executable.
 ///
 /// Example:
-/// VIBEX_REAL_ACP_COMMAND=/absolute/path/to/opencode
-/// VIBEX_REAL_ACP_ARGS='["acp"]'
-/// VIBEX_REAL_ACP_TIMEOUT_SECS=120 # optional for cold package installs
+/// DIMO_REAL_ACP_COMMAND=/absolute/path/to/opencode
+/// DIMO_REAL_ACP_ARGS='["acp"]'
+/// DIMO_REAL_ACP_TIMEOUT_SECS=120 # optional for cold package installs
 /// cargo test -p agents --test real_acp_probe -- --ignored --nocapture
 #[tokio::test]
 #[ignore = "requires an explicitly selected local ACP executable"]
 async fn installed_agent_completes_a_real_acp_initialize_handshake() {
     let command =
-        std::env::var("VIBEX_REAL_ACP_COMMAND").expect("VIBEX_REAL_ACP_COMMAND is required");
+        std::env::var("DIMO_REAL_ACP_COMMAND").expect("DIMO_REAL_ACP_COMMAND is required");
     assert!(
         std::path::Path::new(&command).is_absolute(),
         "the release probe must use an absolute executable path"
     );
     let args: Vec<String> = serde_json::from_str(
-        &std::env::var("VIBEX_REAL_ACP_ARGS").unwrap_or_else(|_| "[]".to_string()),
+        &std::env::var("DIMO_REAL_ACP_ARGS").unwrap_or_else(|_| "[]".to_string()),
     )
-    .expect("VIBEX_REAL_ACP_ARGS must be a JSON string array");
-    let timeout_seconds = std::env::var("VIBEX_REAL_ACP_TIMEOUT_SECS")
+    .expect("DIMO_REAL_ACP_ARGS must be a JSON string array");
+    let timeout_seconds = std::env::var("DIMO_REAL_ACP_TIMEOUT_SECS")
         .map(|value| {
             value
                 .parse::<u64>()
-                .expect("VIBEX_REAL_ACP_TIMEOUT_SECS must be a positive integer")
+                .expect("DIMO_REAL_ACP_TIMEOUT_SECS must be a positive integer")
         })
         .unwrap_or(20);
     assert!(
         timeout_seconds > 0,
-        "VIBEX_REAL_ACP_TIMEOUT_SECS must be positive"
+        "DIMO_REAL_ACP_TIMEOUT_SECS must be positive"
     );
 
     let mut child = Command::new(&command)

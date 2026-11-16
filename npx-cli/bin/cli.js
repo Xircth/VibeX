@@ -117,7 +117,7 @@ async function main() {
   }
 
   const platformDir = getPlatformDir();
-  console.error(`Fetching VibeX Host family ${familyTag()} for ${platformDir}...`);
+  console.error(`Fetching Dimo Host family ${familyTag()} for ${platformDir}...`);
   let family;
   try {
     family = await ensureHostFamily(platformDir, showProgress);
@@ -131,7 +131,7 @@ async function main() {
 
   const isMcpMode = args.includes("--mcp");
   const serverArgs = args.filter((arg) => arg !== "--mcp");
-  const binName = isMcpMode ? "vibex-mcp" : "vibex-server";
+  const binName = isMcpMode ? "dimo-mcp" : "dimo-server";
   const binPath = hostBinary(family.root, binName);
   if (!fs.existsSync(binPath)) {
     console.error(`Host family is missing ${binName} at ${binPath}`);
@@ -142,7 +142,7 @@ async function main() {
   if (!isMcpMode) {
     const staticRoot = path.join(family.root, "web");
     if (fs.existsSync(staticRoot)) {
-      env.VIBEX_STATIC_ROOT = staticRoot;
+      env.DIMO_STATIC_ROOT = staticRoot;
     }
   }
 
@@ -152,14 +152,14 @@ async function main() {
     hostCommand === "install" ||
     hostCommand === "agents";
   if (!isMcpMode && !isHostUtility) {
-    console.error(`Starting VibeX Host ${CLI_VERSION} (${family.source})...`);
+    console.error(`Starting Dimo Host ${CLI_VERSION} (${family.source})...`);
   }
   runBinary(binPath, serverArgs, env);
 }
 
 main().catch((err) => {
   console.error("Fatal error:", err.message);
-  if (process.env.VIBEX_DEBUG) {
+  if (process.env.DIMO_DEBUG) {
     console.error(err.stack);
   }
   process.exit(1);

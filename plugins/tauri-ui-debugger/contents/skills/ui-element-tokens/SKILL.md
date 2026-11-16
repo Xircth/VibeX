@@ -4,7 +4,7 @@ description: How to read "[UI 元素]" tokens inserted by the TauriUI调试器 p
 ---
 # UI element tokens
 
-A `[UI 元素]` token describes a UI element the user picked in the running VibeX dev window:
+A `[UI 元素]` token describes a UI element the user picked in the running Dimo dev window:
 
 - `源码` is `relative/path:line:col` from the dev-only `data-vx-source` annotation; open that file first.
 - `组件链` lists React components from innermost to outermost.

@@ -1,4 +1,4 @@
-//! Headless VibeX server composition and transport adapters.
+//! Headless Dimo server composition and transport adapters.
 
 mod agent_install;
 mod artifact_sink;
@@ -58,9 +58,9 @@ pub use cli::{
 pub use companion_session::CompanionSessionAdapter;
 pub use composition::{HeadlessServer, ServerBootstrapConfig, ServerBootstrapError};
 pub use config::{EmbeddedAsset, ListenPolicyError, ServerConfig, StaticAssetResolver};
-pub use conversations as vibex_conversations;
+pub use conversations as dimo_conversations;
 pub use data_dir_adoption::{DataDirAdoptionOutcome, adopt_legacy_data_dir, log_data_dir_adoption};
-pub use delegation_runtime::VibexDelegationInjector;
+pub use delegation_runtime::DimoDelegationInjector;
 pub use domains::ServerApplicationDomains;
 pub use host::{
     HostEvent, HostEventBus, account_flow,
@@ -70,7 +70,7 @@ pub use host::{
         current_host_events,
     },
     local_history::assemble_local_history_scan_page,
-    native, patch_stream_channel, patch_stream_subscribe_command,
+    native, patch_stream_channel, patch_stream_subscribe_command, patch_stream_task_key,
     plugin_conversation::HostPluginConversationHost,
     provider_bind::HostProviderPresetHost,
     remote_profiles::FileRemoteProfileHost,
@@ -95,7 +95,7 @@ pub fn start_chat_inbound(
     pool: sqlx::SqlitePool,
     conversations: conversations::ConversationContext,
 ) -> tokio::task::JoinHandle<()> {
-    vibex_conversations::member_memory::spawn_memory_distiller(
+    dimo_conversations::member_memory::spawn_memory_distiller(
         pool.clone(),
         std::time::Duration::from_secs(120),
     );

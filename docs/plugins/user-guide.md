@@ -1,4 +1,4 @@
-# VibeX 插件指南
+# Dimo 插件指南
 
 本文对照当前 Host（`v0.4.x`）以及 [ADR-0066](../adr/0066-plugin-marketplace-authoring-and-session-honesty.md) / [ADR-0069](../adr/0069-everything-is-a-plugin-platform.md) 的产品行为。插件发现与管理入口位于「设置 → 插件」的「已安装 / 插件市场」两个 Tab。
 
@@ -8,9 +8,9 @@
 
 内部可能带着 Skill、MCP、Workflow、文件预览、编辑页或后台 Worker。那些是接线，不是给你分类用的。Office 在目录里就是 Office，不会拆成「文档 Skill」和「预览扩展」两套产品。
 
-VibeX 自己的会话日志、Agent 连接、工作区隔离和窗口布局仍由 Host 负责。插件往这些面上挂能力，不替代它们。
+Dimo 自己的会话日志、Agent 连接、工作区隔离和窗口布局仍由 Host 负责。插件往这些面上挂能力，不替代它们。
 
-官方包在市场官方分类里，不随 Host 预装进 catalog。磁盘上有官方 MCP 二进制，不等于已经安装插件，更不等于已经注入 Agent。在设置里确认 Full Trust 后，插件会立即启用；能力仍在新建会话后生效，已有会话不会热挂。`vibex plugin add --web` / `--profile` 仍默认禁用。
+官方包在市场官方分类里，不随 Host 预装进 catalog。磁盘上有官方 MCP 二进制，不等于已经安装插件，更不等于已经注入 Agent。在设置里确认 Full Trust 后，插件会立即启用；能力仍在新建会话后生效，已有会话不会热挂。`dimo plugin add --web` / `--profile` 仍默认禁用。
 
 ## 从哪里打开
 
@@ -30,22 +30,22 @@ Agent 自己的原生插件（Codex、Claude Code 那一套）仍在「设置 �
 
 ## 怎么安装
 
-设置里确认 Full Trust 后立即启用。`vibex plugin add --web` / `--profile` 仍默认禁用，避免无确认的 CLI 直接进 Agent。
+设置里确认 Full Trust 后立即启用。`dimo plugin add --web` / `--profile` 仍默认禁用，避免无确认的 CLI 直接进 Agent。
 
-### `vibex plugin add`
+### `dimo plugin add`
 
-本机已安装 Desktop 或 `vibex-server` 时，CLI 会发现 Host 并写入同一套控制面。Host 没在跑时，发布包进入 `~/.vibex/imports`，链接开发目录进入 `~/.vibex/imports/links.jsonl`，下次启动再导入。
+本机已安装 Desktop 或 `dimo-server` 时，CLI 会发现 Host 并写入同一套控制面。Host 没在跑时，发布包进入 `~/.dimo/imports`，链接开发目录进入 `~/.dimo/imports/links.jsonl`，下次启动再导入。
 
 ```bash
-vibex plugin add --web https://github.com/Xircth/vibex-plugin-office#v1.0.0 -y
-vibex plugin add --web github:Xircth/vibex-plugin-office#v1.0.0 -y
-vibex plugin add --profile ~/plugins/search.vxp
-vibex plugin add --dev ~/Projects/office
-vibex plugin list
-vibex plugin update acme.search --ref v1.3.0
-vibex plugin remove acme.search
-vibex plugin remove acme.search --delete-data
-vibex plugin gc-runtimes
+dimo plugin add --web https://github.com/DimoADE/Dimo-plugin-office#v1.0.0 -y
+dimo plugin add --web github:DimoADE/Dimo-plugin-office#v1.0.0 -y
+dimo plugin add --profile ~/plugins/search.vxp
+dimo plugin add --dev ~/Projects/office
+dimo plugin list
+dimo plugin update acme.search --ref v1.3.0
+dimo plugin remove acme.search
+dimo plugin remove acme.search --delete-data
+dimo plugin gc-runtimes
 ```
 
 `--web` 接受 Git 仓库、GitHub、市场 URL 或归档 URL。`#tag`、`#branch`、`#commit` 钉住所装 tree，不再跟随默认分支。`--profile` 接受本地 `.vxp` / `.zip`。`--dev` 把目录链到 Host；源码变化后 Host 重新发布候选代，CLI 默认停在前台监视并在需要时 rebuild。`--detach` 只链接，由 Host 继续监视。
@@ -54,7 +54,7 @@ vibex plugin gc-runtimes
 
 ### 拖入或选择 `.vxp`
 
-桌面且具备 `plugin.write` 时，目录页可以「添加插件」，也可以把 `.vxp` 拖到页面上。只接受带 `.vibex-plugin/plugin.json` 并且通过校验的包。
+桌面且具备 `plugin.write` 时，目录页可以「添加插件」，也可以把 `.vxp` 拖到页面上。只接受带 `.dimo-plugin/plugin.json` 并且通过校验的包。
 
 同 ID 已经存在时，界面会停下来让你保留当前源或替换。同一身份不能同时挂两份源。
 
@@ -81,8 +81,8 @@ Host 启动约 30 秒后检查一次，之后每 6 小时检查。发现新版�
 CLI 使用同一条 Host 更新路径：
 
 ```bash
-vibex plugin update acme.search
-vibex plugin update acme.search --ref v1.3.0 --yes
+dimo plugin update acme.search
+dimo plugin update acme.search --ref v1.3.0 --yes
 ```
 
 无 `--ref` 时选择更大的稳定 semver 版本；GitHub 支持 Release 包和稳定 tag 的源码归档，
@@ -94,7 +94,7 @@ GitHub 插件不会改从市场更新。开发链接和没有远端来源的本�
 
 ### 开发者链接目录
 
-`vibex plugin add --dev` 与 `vibex-plugin install --link` 都把同一份源目录登记为 linked development。VibeX 跟着那个目录走，不会删你的源码。
+`dimo plugin add --dev` 与 `dimo-plugin install --link` 都把同一份源目录登记为 linked development。Dimo 跟着那个目录走，不会删你的源码。
 
 ## 怎么启用
 
@@ -114,8 +114,8 @@ GitHub 插件不会改从市场更新。开发链接和没有远端来源的本�
 
 - **Office** 启用后，在工作区直接点击 `.docx` / `.xlsx` / `.pptx` 预览，或在对话里通过 Workflow / Skill 生成、修改与分析文档。
 - **会话增强** 启用后，之后新建或重绑定的会话里 Agent 可以向你提问、读取实时纠偏备注、查询 `@会话` 引用以及受控编排子会话；配置页提供四个独立开关。
-- **Workflow Creator** 启用后，打开 `*.vibex-workflow.json` 即进入可视化编辑页，也可让 Agent 调用其 Skill 与 `vibex-workflow-mcp`；显式发布才会生成不可变版本。
-- **插件开发** 启用后，自动向兼容 Agent 投影 `vibex-plugin-development` Skill，配合本机 `vibex-plugin` CLI 完成初始化、校验、构建与 `--dev` 链接。
+- **Workflow Creator** 启用后，打开 `*.dimo-workflow.json` 即进入可视化编辑页，也可让 Agent 调用其 Skill 与 `dimo-workflow-mcp`；显式发布才会生成不可变版本。
+- **插件开发** 启用后，自动向兼容 Agent 投影 `dimo-plugin-development` Skill，配合本机 `dimo-plugin` CLI 完成初始化、校验、构建与 `--dev` 链接。
 - 注意：**协作空间**与 `&Agent` 委派现为宿主内置能力（位于「设置 → 常规 → 协作空间」，默认开启），无需安装插件。
 
 ## 怎么关掉
@@ -131,15 +131,15 @@ Host 会按反序原子拆除这一代对外的投影：停止后台 `host.servi
 详情里选卸载，或：
 
 ```bash
-vibex plugin remove <插件ID>
-vibex plugin remove <插件ID> --delete-data
+dimo plugin remove <插件ID>
+dimo plugin remove <插件ID> --delete-data
 ```
 
 确认后会去掉 membership、Agent 绑定、Skill 投影和相关信任。全局 Runtime 字节、产物、会话和自动化历史会留着。默认留下用户 `config.json`；`--delete-data` 删除 Host 管理的 snapshot。
 
 随 Host 带来的官方包不要按第三方包那样卸掉。目录里它们标成随 Host 安装。你能禁用，不能当普通快照删掉。
 
-链接开发插件卸的是 VibeX 这一侧的引用。你的开发目录还在。
+链接开发插件卸的是 Dimo 这一侧的引用。你的开发目录还在。
 
 卸载时可以选是否保留 `config.json` 这类用户数据。默认倾向保留，除非你明确要删。
 

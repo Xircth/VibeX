@@ -36,7 +36,7 @@ import {
   protectMemberMentions,
   useCollaborationMemberMention,
 } from '@/features/collaboration/MemberMentionChip';
-import { findMarkdownRenderer, useMarkdownRenderers } from '@vibex/plugin-sdk';
+import { findMarkdownRenderer, useMarkdownRenderers } from '@dimoai/plugin-sdk';
 import { PluginBoundary } from '@/components/plugins/PluginBoundary';
 import { CodeBlock, CompactCodeBlock } from './CodeBlock';
 import { HtmlPreviewBlock, isHtmlPreviewLanguage } from './HtmlPreviewBlock';

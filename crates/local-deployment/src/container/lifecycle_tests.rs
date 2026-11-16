@@ -9,7 +9,7 @@ async fn initialization_runs_in_repo_subdirectory_even_when_parent_already_exist
     fs::create_dir_all(source.join("app")).unwrap();
     fs::write(source.join("app/input.txt"), "prepared").unwrap();
     git.commit(&source, "app").unwrap();
-    let root = temp.path().join(".vibex-workspaces/test");
+    let root = temp.path().join(".dimo-workspaces/test");
     fs::create_dir_all(&root).unwrap();
     let workspace = sample_workspace(root.to_str(), true, Some("repo/app"));
     let mut repo = sample_repo("repo", source.to_str().unwrap());
@@ -58,7 +58,7 @@ async fn failed_initialization_keeps_workspace_and_only_explicit_retry_runs_it_a
     let temp = TempDir::new().unwrap();
     let source = temp.path().join("source");
     seed_committed_repo(&GitService::new(), &source);
-    let root = temp.path().join(".vibex-workspaces/test");
+    let root = temp.path().join(".dimo-workspaces/test");
     let workspace = sample_workspace(root.to_str(), true, Some("repo"));
     let repo = sample_repo("repo", source.to_str().unwrap());
     let pool = workspace_path_test_pool().await;
@@ -123,7 +123,7 @@ async fn source_changes_are_available_to_initialization() {
     seed_committed_repo(&GitService::new(), &source);
     fs::write(source.join("README.md"), "changed\n").unwrap();
     fs::write(source.join("new.txt"), "untracked\n").unwrap();
-    let root = temp.path().join(".vibex-workspaces/test");
+    let root = temp.path().join(".dimo-workspaces/test");
     let workspace = sample_workspace(root.to_str(), true, Some("repo"));
     let repo = sample_repo("repo", source.to_str().unwrap());
     let pool = workspace_path_test_pool().await;
@@ -164,7 +164,7 @@ async fn delete_hook_failure_preserves_registered_path_and_files() {
     let temp = TempDir::new().unwrap();
     let source = temp.path().join("source");
     seed_committed_repo(&GitService::new(), &source);
-    let root = temp.path().join(".vibex-workspaces/test");
+    let root = temp.path().join(".dimo-workspaces/test");
     let workspace = sample_workspace(root.to_str(), true, Some("repo"));
     let repo = sample_repo("repo", source.to_str().unwrap());
     let pool = workspace_path_test_pool().await;
@@ -209,7 +209,7 @@ async fn delete_hook_failure_preserves_registered_path_and_files() {
 async fn multi_repository_initialization_rebuilds_only_the_missing_repository() {
     use services::services::worktree_settings::{ProjectWorktreeSettings, save_project_settings};
     let temp = TempDir::new().unwrap();
-    let root = temp.path().join(".vibex-workspaces/test");
+    let root = temp.path().join(".dimo-workspaces/test");
     let workspace = sample_workspace(root.to_str(), true, None);
     let source_a = temp.path().join("source-a");
     let source_b = temp.path().join("source-b");
@@ -271,7 +271,7 @@ async fn initialization_can_be_cancelled_and_retains_output_for_review() {
     let temp = TempDir::new().unwrap();
     let source = temp.path().join("source");
     seed_committed_repo(&GitService::new(), &source);
-    let root = temp.path().join(".vibex-workspaces/test");
+    let root = temp.path().join(".dimo-workspaces/test");
     let workspace = sample_workspace(root.to_str(), true, Some("repo"));
     let repo = sample_repo("repo", source.to_str().unwrap());
     let pool = workspace_path_test_pool().await;

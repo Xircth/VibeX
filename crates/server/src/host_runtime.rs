@@ -92,6 +92,7 @@ impl HostRuntime {
         {
             let db_service = parts.deployment.db();
             conversations::register_acp_replay_history_probe(db_service.reader().clone());
+            conversations::register_projection_repair_hook(db_service.writer().clone());
             if tokio::runtime::Handle::try_current().is_ok() {
                 let _ = conversations::spawn_legacy_jsonl_backfill_worker(
                     db_service.reader().clone(),

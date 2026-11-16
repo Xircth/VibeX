@@ -1,7 +1,7 @@
-//! Zero-index-pollution Git checkpoint refs (`refs/vibex/checkpoints/{conversation_id}/{turn_ordinal}`).
+//! Zero-index-pollution Git checkpoint refs (`refs/dimo/checkpoints/{conversation_id}/{turn_ordinal}`).
 //!
 //! Captures dirty working-tree edits plus untracked files before each turn using an
-//! isolated temporary `GIT_INDEX_FILE` inside `<git_dir>/vibex-tmp-index-{uuid}`
+//! isolated temporary `GIT_INDEX_FILE` inside `<git_dir>/dimo-tmp-index-{uuid}`
 //! (supporting both standard repositories and linked git worktrees where `.git` is
 //! a gitfile). Never mutates `.git/index`, `HEAD`, or user branches.
 
@@ -14,7 +14,7 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 use workspace_utils::process::new_hidden_tokio_command;
 
-pub const CHECKPOINT_REF_PREFIX: &str = "refs/vibex/checkpoints";
+pub const CHECKPOINT_REF_PREFIX: &str = "refs/dimo/checkpoints";
 
 #[derive(Debug, thiserror::Error)]
 pub enum CheckpointRefError {
@@ -31,7 +31,7 @@ pub enum CheckpointRefError {
     Io(#[from] std::io::Error),
 }
 
-/// Handle to an immutable hidden Git commit stored under `refs/vibex/checkpoints/...`.
+/// Handle to an immutable hidden Git commit stored under `refs/dimo/checkpoints/...`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CheckpointRefHandle {
@@ -61,7 +61,7 @@ struct TempIndexGuard {
 impl TempIndexGuard {
     fn new(git_dir: &Path) -> Self {
         Self {
-            path: git_dir.join(format!("vibex-tmp-index-{}", Uuid::new_v4())),
+            path: git_dir.join(format!("dimo-tmp-index-{}", Uuid::new_v4())),
         }
     }
 
@@ -90,7 +90,7 @@ impl CheckpointRef {
     }
 
     /// Captures all tracked modifications, deletions, and non-ignored untracked files
-    /// in `worktree` into `refs/vibex/checkpoints/{conversation_id}/{turn_ordinal}`
+    /// in `worktree` into `refs/dimo/checkpoints/{conversation_id}/{turn_ordinal}`
     /// without touching `.git/index` or `HEAD`.
     pub async fn capture(
         &self,
@@ -113,7 +113,7 @@ impl CheckpointRef {
         let tree_out = run_git(worktree, Some(idx), &["write-tree"], &[]).await?;
         let tree_oid = String::from_utf8_lossy(&tree_out).trim().to_string();
 
-        let message = format!("vibex checkpoint {conversation_id} turn-{turn_ordinal}");
+        let message = format!("dimo checkpoint {conversation_id} turn-{turn_ordinal}");
         let mut commit_args = vec!["commit-tree", tree_oid.as_str()];
         if let Some(ref head) = head_oid {
             commit_args.push("-p");
@@ -127,10 +127,10 @@ impl CheckpointRef {
             Some(idx),
             &commit_args,
             &[
-                ("GIT_AUTHOR_NAME", "VibeX Checkpoint"),
-                ("GIT_AUTHOR_EMAIL", "checkpoint@vibex.local"),
-                ("GIT_COMMITTER_NAME", "VibeX Checkpoint"),
-                ("GIT_COMMITTER_EMAIL", "checkpoint@vibex.local"),
+                ("GIT_AUTHOR_NAME", "Dimo Checkpoint"),
+                ("GIT_AUTHOR_EMAIL", "checkpoint@dimo.local"),
+                ("GIT_COMMITTER_NAME", "Dimo Checkpoint"),
+                ("GIT_COMMITTER_EMAIL", "checkpoint@dimo.local"),
             ],
         )
         .await?;
@@ -210,7 +210,7 @@ impl CheckpointRef {
         Ok(summary)
     }
 
-    /// Convenience helper resolving `refs/vibex/checkpoints/{conversation_id}/{turn_ordinal}`
+    /// Convenience helper resolving `refs/dimo/checkpoints/{conversation_id}/{turn_ordinal}`
     /// directly and restoring `worktree` to that checkpoint.
     pub async fn restore_by_ordinal(
         &self,

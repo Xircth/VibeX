@@ -31,17 +31,17 @@ test('主题提供器会监听系统主题切换，预览编辑器跟随明暗�
   assert.match(previewPanel, /resolvedTheme === 'dark' \? 'vs-dark' : 'vs'/);
 });
 
-test('Windows 通知显式使用 VibeX 的 AppId 作为 toast sender', () => {
+test('Windows 通知显式使用 Dimo 的 AppId 作为 toast sender', () => {
   const notificationService = readRepoFile(
     'crates/services/src/services/notification.rs'
   );
   const toastScript = readRepoFile('assets/scripts/toast-notification.ps1');
 
   assert.match(notificationService, /WINDOWS_TOAST_APP_ID/);
-  assert.match(notificationService, /com\.vibex\.app/);
+  assert.match(notificationService, /com\.dimo\.app/);
   assert.match(notificationService, /\.arg\("-AppId"\)/);
   assert.match(notificationService, /\.arg\("-AppName"\)/);
-  assert.match(toastScript, /\[string\]\$AppId = "com\.vibex\.app"/);
+  assert.match(toastScript, /\[string\]\$AppId = "com\.dimo\.app"/);
   assert.match(toastScript, /CreateToastNotifier\(\$AppId\)/);
 });
 

@@ -11,7 +11,7 @@ import {
 const collaborationCall = vi.hoisted(() => vi.fn());
 
 vi.mock('./collaborationApi', () => ({
-  COLLABORATION_SPACE_CHANGED_EVENT: 'vibex://collaboration-space-changed',
+  COLLABORATION_SPACE_CHANGED_EVENT: 'dimo://collaboration-space-changed',
   collaborationCall,
   listenCollaborationSpaceChanged: vi.fn(async () => () => undefined),
 }));
@@ -25,7 +25,7 @@ vi.mock('./AssistantDetailsSessionTab', () => ({
 }));
 
 vi.mock('./GroupDetailsMembersTab', () => ({
-  COLLABORATION_MEMBERS_CHANGED_EVENT: 'vibex://collaboration-members-changed',
+  COLLABORATION_MEMBERS_CHANGED_EVENT: 'dimo://collaboration-members-changed',
   GroupDetailsMembersTab: () => <div data-testid="members-tab" />,
 }));
 
@@ -72,7 +72,7 @@ describe('CollaborationSpaceCollectionDockviewPanel (Assets: Memory / Topics / C
         }
         if (method === 'space.listCollection') {
           return {
-            collectionDir: '~/.vibex/spaces/s1/collection',
+            collectionDir: '~/.dimo/spaces/s1/collection',
             items: [
               {
                 id: 'col-1',
@@ -80,7 +80,7 @@ describe('CollaborationSpaceCollectionDockviewPanel (Assets: Memory / Topics / C
                 name: 'api-spec.md',
                 relative_path: 'api-spec.md',
                 file_path:
-                  'C:/Users/test/.vibex/spaces/s1/collection/api-spec.md',
+                  'C:/Users/test/.dimo/spaces/s1/collection/api-spec.md',
                 text_content:
                   '### 接口规范说明\n\n- 统一使用 **camelCase** 命名字段',
                 note: 'API 约定',
@@ -123,7 +123,7 @@ describe('CollaborationSpaceCollectionDockviewPanel (Assets: Memory / Topics / C
                 charCount: 64,
                 updatedAt: '2026-10-30T09:06:00Z',
                 filePath:
-                  'C:/Users/test/.vibex/spaces/s1/topics/deploy-flow.md',
+                  'C:/Users/test/.dimo/spaces/s1/topics/deploy-flow.md',
               },
             ],
             journal: [
@@ -285,7 +285,7 @@ describe('CollaborationSpaceCollectionDockviewPanel (Assets: Memory / Topics / C
 
     await user.click(openTabBtn);
     expect(openFilePreviewMock).toHaveBeenCalledWith(
-      'C:/Users/test/.vibex/spaces/s1/collection/api-spec.md',
+      'C:/Users/test/.dimo/spaces/s1/collection/api-spec.md',
       { displayPath: 'api-spec.md' }
     );
 

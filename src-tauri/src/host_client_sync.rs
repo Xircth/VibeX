@@ -961,7 +961,7 @@ mod tests {
                         "host": "10.0.1.50",
                         "port": 22,
                         "password": "DO_NOT_EXPORT_PASSWORD",
-                        "dataDir": "/root/.vibex"
+                        "dataDir": "/root/.dimo"
                     })),
                     ..StoredProfile::default()
                 },

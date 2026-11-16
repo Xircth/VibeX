@@ -23,7 +23,7 @@ impl AgentConnectionRunner {
         // session/new is only for PrepareSession (a conversation that does not
         // yet own a thread) and for fork, which creates a new Conversation.
         // Prompt must never reach here: that would stuff a new Codex thread
-        // into an existing VibeX Conversation.
+        // into an existing Dimo Conversation.
         let acp_session_id = self
             .new_acp_session(conn, working_dir, session_id, companion_capabilities, None)
             .await?;
@@ -70,8 +70,9 @@ impl AgentConnectionRunner {
             }
         }
 
-        let session_working_dir =
-            self.resolve_session_working_dir(working_dir, &external_session_id);
+        let session_working_dir = self
+            .resolve_session_working_dir(working_dir, &external_session_id)
+            .await;
         let wants_prompt_suggestions = self.wants_prompt_suggestions(session_id).await;
         let mut resume_auth_error: Option<acp::Error> = None;
         {
@@ -564,11 +565,13 @@ impl AgentConnectionRunner {
         Err(last_contention.expect("load contention retry records an error"))
     }
 
-    fn resolve_session_working_dir(
+    async fn resolve_session_working_dir(
         &self,
         default_working_dir: &Path,
         external_session_id: &str,
     ) -> PathBuf {
+        let default_working_dir = default_working_dir.to_path_buf();
+        let external_session_id = external_session_id.to_string();
         match self.snapshot.agent_id.as_str() {
             "grok" => {
                 let grok_home = self
@@ -580,11 +583,16 @@ impl AgentConnectionRunner {
                     .filter(|value| !value.is_empty())
                     .map(PathBuf::from)
                     .or_else(crate::grok_usage::grok_home_dir);
-                resolve_grok_session_working_dir_in_home(
-                    grok_home.as_deref(),
-                    default_working_dir,
-                    external_session_id,
-                )
+                let fallback = default_working_dir.clone();
+                tokio::task::spawn_blocking(move || {
+                    resolve_grok_session_working_dir_in_home(
+                        grok_home.as_deref(),
+                        &default_working_dir,
+                        &external_session_id,
+                    )
+                })
+                .await
+                .unwrap_or(fallback)
             }
             "claude_code" => {
                 let claude_home = self
@@ -601,13 +609,18 @@ impl AgentConnectionRunner {
                             .map(PathBuf::from)
                     })
                     .or_else(|| dirs::home_dir().map(|home| home.join(".claude")));
-                resolve_claude_session_working_dir_in_home(
-                    claude_home.as_deref(),
-                    default_working_dir,
-                    external_session_id,
-                )
+                let fallback = default_working_dir.clone();
+                tokio::task::spawn_blocking(move || {
+                    resolve_claude_session_working_dir_in_home(
+                        claude_home.as_deref(),
+                        &default_working_dir,
+                        &external_session_id,
+                    )
+                })
+                .await
+                .unwrap_or(fallback)
             }
-            _ => default_working_dir.to_path_buf(),
+            _ => default_working_dir,
         }
     }
 }

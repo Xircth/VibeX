@@ -23,7 +23,7 @@ describe('browser account sign-in', () => {
       requestId: 'request',
       verifier: 'secret',
       userCode: 'unused',
-      verifyUrl: 'https://vibex.example/desktop/authorize?request=request',
+      verifyUrl: 'https://dimo.example/desktop/authorize?request=request',
       expiresIn: 30,
       interval: 1,
     });
@@ -42,7 +42,7 @@ describe('browser account sign-in', () => {
     );
     await act(() => result.current.startLogin());
     expect(api.openExternal).toHaveBeenCalledWith(
-      'https://vibex.example/desktop/authorize?request=request'
+      'https://dimo.example/desktop/authorize?request=request'
     );
     await act(() => vi.advanceTimersByTimeAsync(1000));
     expect(refresh).toHaveBeenCalledTimes(1);

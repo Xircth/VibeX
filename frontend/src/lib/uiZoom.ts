@@ -12,7 +12,7 @@ import { isTauriDesktopShell } from '@/utils/platform';
  * Desktop uses the webview's native page zoom (same CSS-pixel space for layout
  * and overlays). Other runtimes scale the rem root instead.
  */
-export const UI_ZOOM_KEY = 'vibex:ui-zoom';
+export const UI_ZOOM_KEY = 'dimo:ui-zoom';
 export const UI_ZOOM_LEVELS = [0.8, 0.9, 1, 1.1, 1.25] as const;
 const DEFAULT_ZOOM = 1;
 

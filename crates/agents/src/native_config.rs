@@ -445,16 +445,14 @@ impl NativeConfigProvider {
         }
         let override_directory = binding
             .directory_override_env
-            .and_then(|name| {
-                self.environment
-                    .get(name)
-                    .filter(|value| !value.trim().is_empty())
-                    .map(|value| PathBuf::from(value.trim()))
-                    .or_else(|| {
-                        std::env::var_os(name)
-                            .filter(|value| !value.is_empty())
-                            .map(PathBuf::from)
-                    })
+            .and_then(|name| match self.environment.get(name) {
+                Some(value) => {
+                    let trimmed = value.trim();
+                    (!trimmed.is_empty()).then(|| PathBuf::from(trimmed))
+                }
+                None => std::env::var_os(name)
+                    .filter(|value| !value.is_empty())
+                    .map(PathBuf::from),
             })
             .map(|directory| expand_home_path(&self.home, directory));
         override_directory
@@ -1055,13 +1053,13 @@ fn grok_auth_field_value<'a>(document: &'a Value, field_id: &str) -> Option<&'a 
     {
         return Some(value);
     }
-    value_at_path(document, &["model", "vibex", key])
+    value_at_path(document, &["model", "dimo", key])
 }
 
 fn grok_write_table_id(document: &Value) -> String {
     grok_active_model_id(document)
         .map(str::to_string)
-        .unwrap_or_else(|| "vibex".to_string())
+        .unwrap_or_else(|| "dimo".to_string())
 }
 
 fn finalize_grok_shape(
@@ -1187,8 +1185,8 @@ fn finalize_kimi_shape(
     }
 
     for (field, path) in [
-        ("kimi_base_url", &["providers", "vibex", "base_url"][..]),
-        ("kimi_api_key", &["providers", "vibex", "api_key"][..]),
+        ("kimi_base_url", &["providers", "dimo", "base_url"][..]),
+        ("kimi_api_key", &["providers", "dimo", "api_key"][..]),
     ] {
         if value_at_path(document, path)
             .and_then(Value::as_str)
@@ -1199,7 +1197,7 @@ fn finalize_kimi_shape(
             )));
         }
     }
-    if value_at_path(document, &["providers", "vibex", "env"])
+    if value_at_path(document, &["providers", "dimo", "env"])
         .is_some_and(|value| !value.is_object())
     {
         return Err(NativeConfigError::Invalid(
@@ -1207,13 +1205,13 @@ fn finalize_kimi_shape(
         ));
     }
 
-    let model = value_at_path(document, &["models", "vibex", "model"])
+    let model = value_at_path(document, &["models", "dimo", "model"])
         .and_then(Value::as_str)
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .map(str::to_string);
     let Some(model) = model else {
-        if value_at_path(document, &["default_model"]).and_then(Value::as_str) == Some("vibex") {
+        if value_at_path(document, &["default_model"]).and_then(Value::as_str) == Some("dimo") {
             remove_value_at_path(document, &["default_model"]);
         }
         return Ok(());
@@ -1221,33 +1219,33 @@ fn finalize_kimi_shape(
 
     set_value_at_path(
         document,
-        &["models", "vibex", "model"],
+        &["models", "dimo", "model"],
         Value::String(model),
     )?;
     set_value_at_path(
         document,
-        &["models", "vibex", "provider"],
-        Value::String("vibex".to_string()),
+        &["models", "dimo", "provider"],
+        Value::String("dimo".to_string()),
     )?;
     set_value_at_path(
         document,
         &["default_model"],
-        Value::String("vibex".to_string()),
+        Value::String("dimo".to_string()),
     )?;
 
-    let context = value_at_path(document, &["models", "vibex", "max_context_size"])
+    let context = value_at_path(document, &["models", "dimo", "max_context_size"])
         .and_then(Value::as_i64)
         .filter(|value| *value > 0)
         .unwrap_or(262_144);
     set_value_at_path(
         document,
-        &["models", "vibex", "max_context_size"],
+        &["models", "dimo", "max_context_size"],
         Value::Number(Number::from(context)),
     )?;
 
-    normalize_kimi_string_array(document, &["models", "vibex", "capabilities"])?;
-    let efforts = normalize_kimi_string_array(document, &["models", "vibex", "support_efforts"])?;
-    let default_effort = value_at_path(document, &["models", "vibex", "default_effort"])
+    normalize_kimi_string_array(document, &["models", "dimo", "capabilities"])?;
+    let efforts = normalize_kimi_string_array(document, &["models", "dimo", "support_efforts"])?;
+    let default_effort = value_at_path(document, &["models", "dimo", "default_effort"])
         .and_then(Value::as_str)
         .map(str::trim)
         .filter(|value| !value.is_empty())
@@ -1258,11 +1256,11 @@ fn finalize_kimi_shape(
     {
         set_value_at_path(
             document,
-            &["models", "vibex", "default_effort"],
+            &["models", "dimo", "default_effort"],
             Value::String(default_effort.expect("checked above")),
         )?;
     } else {
-        remove_value_at_path(document, &["models", "vibex", "default_effort"]);
+        remove_value_at_path(document, &["models", "dimo", "default_effort"]);
     }
     Ok(())
 }
@@ -1738,7 +1736,7 @@ mod tests {
 
     #[test]
     fn omp_config_path_ignores_pi_agent_dir() {
-        let home = Path::new("/tmp/vibex-home");
+        let home = Path::new("/tmp/dimo-home");
         let environment = BTreeMap::from([(
             "PI_CODING_AGENT_DIR".to_string(),
             home.join(".pi")

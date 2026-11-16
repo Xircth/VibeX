@@ -235,7 +235,7 @@ async fn revoking_a_device_invalidates_http_and_an_existing_websocket() {
     let encoded = URL_SAFE_NO_PAD.encode(&device.access_token);
     request.headers_mut().insert(
         "sec-websocket-protocol",
-        HeaderValue::from_str(&format!("vibex.v1, vibex.token.{encoded}"))
+        HeaderValue::from_str(&format!("dimo.v1, dimo.token.{encoded}"))
             .expect("WebSocket protocol"),
     );
     let (mut socket, _) = connect_async(request).await.expect("device WebSocket");

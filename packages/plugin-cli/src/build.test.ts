@@ -18,7 +18,7 @@ afterEach(async () => {
 
 describe("clean-room App + Agent build", () => {
   it("builds its own scaffold into a self-contained surface document", async () => {
-    const parent = await mkdtemp(join(tmpdir(), "vibex-plugin-build-"));
+    const parent = await mkdtemp(join(tmpdir(), "dimo-plugin-build-"));
     roots.push(parent);
     const root = await scaffoldPlugin(
       join(parent, "hello-surface"),
@@ -41,7 +41,7 @@ describe("clean-room App + Agent build", () => {
     const validation = await validatePlugin(root);
     const html = await readFile(join(root, "dist/app/index.html"), "utf8");
     const manifest = JSON.parse(
-      await readFile(join(root, ".vibex-plugin/plugin.json"), "utf8"),
+      await readFile(join(root, ".dimo-plugin/plugin.json"), "utf8"),
     ) as { integrations: Array<{ kind: string }> };
     expect(validation.valid).toBe(true);
     expect(
@@ -51,7 +51,7 @@ describe("clean-room App + Agent build", () => {
     expect(html).toContain("<style>");
     expect(html).toContain("color-scheme:light dark");
     expect(html).toContain("data:image/png;base64,");
-    expect(html).toContain("vibexSurface");
+    expect(html).toContain("dimoSurface");
     expect(html).not.toMatch(/<script\b[^>]*\bsrc=/iu);
     expect(html).not.toMatch(/<link\b[^>]*\bhref=/iu);
     expect(html).not.toContain("/Users/");
@@ -61,7 +61,7 @@ describe("clean-room App + Agent build", () => {
   it.each(["file-tab", "skill"] as const)(
     "builds and validates the %s template without undeclared surfaces",
     async (template) => {
-      const parent = await mkdtemp(join(tmpdir(), "vibex-plugin-template-"));
+      const parent = await mkdtemp(join(tmpdir(), "dimo-plugin-template-"));
       roots.push(parent);
       const root = await scaffoldPlugin(
         join(parent, `${template}-plugin`),
@@ -73,7 +73,7 @@ describe("clean-room App + Agent build", () => {
 
       const validation = await validatePlugin(root);
       const manifest = JSON.parse(
-        await readFile(join(root, ".vibex-plugin/plugin.json"), "utf8"),
+        await readFile(join(root, ".dimo-plugin/plugin.json"), "utf8"),
       ) as {
         entrypoints?: { app?: unknown };
         integrations: Array<{ kind: string }>;
@@ -91,10 +91,10 @@ describe("clean-room App + Agent build", () => {
   );
 
   it("bundles a protocol 2.0 app source to the declared entry", async () => {
-    const parent = await mkdtemp(join(tmpdir(), "vibex-plugin-app20-"));
+    const parent = await mkdtemp(join(tmpdir(), "dimo-plugin-app20-"));
     roots.push(parent);
     const root = await scaffoldPlugin(join(parent, "v2-app"), "cleanroom", "skill");
-    const manifestPath = join(root, ".vibex-plugin/plugin.json");
+    const manifestPath = join(root, ".dimo-plugin/plugin.json");
     const manifest = JSON.parse(await readFile(manifestPath, "utf8")) as {
       integrations?: unknown;
       entrypoints?: unknown;
@@ -122,14 +122,14 @@ describe("clean-room App + Agent build", () => {
   });
 
   it("keeps an already-built protocol 2.0 app entry without a source tree", async () => {
-    const parent = await mkdtemp(join(tmpdir(), "vibex-plugin-app20-ready-"));
+    const parent = await mkdtemp(join(tmpdir(), "dimo-plugin-app20-ready-"));
     roots.push(parent);
     const root = await scaffoldPlugin(
       join(parent, "prebuilt-app"),
       "cleanroom",
       "skill",
     );
-    const manifestPath = join(root, ".vibex-plugin/plugin.json");
+    const manifestPath = join(root, ".dimo-plugin/plugin.json");
     const manifest = JSON.parse(await readFile(manifestPath, "utf8")) as {
       integrations?: unknown;
       entrypoints?: unknown;
@@ -153,10 +153,10 @@ describe("clean-room App + Agent build", () => {
   });
 
   it("bundles a Host-managed MCP into its declared package entrypoint", async () => {
-    const parent = await mkdtemp(join(tmpdir(), "vibex-plugin-mcp-"));
+    const parent = await mkdtemp(join(tmpdir(), "dimo-plugin-mcp-"));
     roots.push(parent);
     const root = await scaffoldPlugin(join(parent, "managed-mcp"), "cleanroom");
-    const manifestPath = join(root, ".vibex-plugin/plugin.json");
+    const manifestPath = join(root, ".dimo-plugin/plugin.json");
     const manifest = JSON.parse(await readFile(manifestPath, "utf8")) as {
       integrations: Array<Record<string, unknown>>;
     };

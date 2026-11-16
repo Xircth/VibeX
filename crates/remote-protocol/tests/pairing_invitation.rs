@@ -26,7 +26,7 @@ fn invitation_encodes_host_identity_and_drops_loopback() {
     );
     let invitation = payload.encode();
 
-    assert!(invitation.starts_with("vibex-pairing:"));
+    assert!(invitation.starts_with("dimo-pairing:"));
     assert!(invitation.contains("\"host_id\":\"host-stable-1\""));
     assert!(invitation.contains("http://192.168.1.20:17891"));
     assert!(!invitation.contains("127.0.0.1"));

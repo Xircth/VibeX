@@ -1,6 +1,6 @@
 ---
 name: remote-ssh-provisioning
-description: Configure SSH host profiles, provision remote VibeX Servers, and manage port forwarding.
+description: Configure SSH host profiles, provision remote Dimo Servers, and manage port forwarding.
 ---
 # Remote SSH Provisioning Skill
 

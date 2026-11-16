@@ -145,7 +145,7 @@ const WEBHOOK_PAYLOAD_EXAMPLES = [
     value: `{
   "event": "prompt_started",
   "body": "🚀 Turn started\\nThe agent started a turn.",
-  "source": "vibex"
+  "source": "dimo"
 }`,
   },
   {
@@ -154,7 +154,7 @@ const WEBHOOK_PAYLOAD_EXAMPLES = [
     value: `{
   "event": "prompt_finished",
   "body": "✅ Turn complete\\nThe agent finished this turn.",
-  "source": "vibex"
+  "source": "dimo"
 }`,
   },
   {
@@ -163,7 +163,7 @@ const WEBHOOK_PAYLOAD_EXAMPLES = [
     value: `{
   "event": "permission_requested",
   "body": "🔐 Permission request\\nThe agent is waiting for approval.",
-  "source": "vibex"
+  "source": "dimo"
 }`,
   },
   {
@@ -172,7 +172,7 @@ const WEBHOOK_PAYLOAD_EXAMPLES = [
     value: `{
   "event": "error",
   "body": "❌ Agent error\\nThe agent reported an error.",
-  "source": "vibex"
+  "source": "dimo"
 }`,
   },
 ] as const;
@@ -465,8 +465,8 @@ export function ChatChannelSettings() {
 
   const [eventFilter, setEventFilter] = useState<string[]>([]);
   const [savedEventFilter, setSavedEventFilter] = useState<string[]>([]);
-  const [prefix, setPrefix] = useState('/vibex');
-  const [savedPrefix, setSavedPrefix] = useState('/vibex');
+  const [prefix, setPrefix] = useState('/dimo');
+  const [savedPrefix, setSavedPrefix] = useState('/dimo');
   const [includePromptText, setIncludePromptText] = useState(false);
   const [savingPrefix, setSavingPrefix] = useState(false);
   const [webhooks, setWebhooks] = useState<
@@ -1081,7 +1081,7 @@ export function ChatChannelSettings() {
                   isLabelHidden
                   value={prefix}
                   onChange={setPrefix}
-                  placeholder="/vibex"
+                  placeholder="/dimo"
                   width="100%"
                   className="[&_input]:text-sm"
                 />
@@ -1247,7 +1247,7 @@ export function ChatChannelSettings() {
                 isLabelHidden
                 value={webhookDraft}
                 onChange={setWebhookDraft}
-                placeholder="https://example.com/hooks/vibex"
+                placeholder="https://example.com/hooks/dimo"
                 width="100%"
                 className="[&_input]:text-sm"
               />

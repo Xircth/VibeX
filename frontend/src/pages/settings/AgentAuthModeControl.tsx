@@ -549,6 +549,34 @@ export function AgentAuthModeControl({
               </label>
             ) : null}
 
+            {panel === 'configuration' &&
+            view &&
+            view.mode !== mode &&
+            (Boolean(nativeConfigFieldId) || !requiresCredential) ? (
+              <div className="flex justify-end">
+                <Button
+                  className="h-8 shrink-0"
+                  disabled={
+                    saving ||
+                    locked ||
+                    (requiresCredential && !credentialAvailable)
+                  }
+                  size="sm"
+                  onClick={() => void saveCredential()}
+                >
+                  {saving ? (
+                    <Loader2
+                      aria-hidden="true"
+                      className="h-3.5 w-3.5 animate-spin"
+                    />
+                  ) : null}
+                  {saving
+                    ? t('settings:agents.saving')
+                    : t('settings:agents.authSave')}
+                </Button>
+              </div>
+            ) : null}
+
             <div className="agent-auth-mode-panel" hidden={panel !== 'account'}>
               {showCodexDeviceLogin && panel === 'account' ? (
                 <CodexDeviceLogin onAuthenticated={onAuthenticated} />

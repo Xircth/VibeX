@@ -96,7 +96,7 @@ pub(crate) fn build_delegation(
     runtime_features.set_space_changed_listener(move |event| {
         events.emit(server::COLLABORATION_SPACE_CHANGED_EVENT, event);
     });
-    let socket_path = default_socket_path(&utils::path::get_vibex_temp_dir());
+    let socket_path = default_socket_path(&utils::path::get_dimo_temp_dir());
 
     spawn_resolver(broker.clone(), runtime.clone(), map);
     spawn_parent_teardown(
@@ -108,14 +108,14 @@ pub(crate) fn build_delegation(
     spawn_parent_tool_call_binder(broker.clone(), runtime.clone());
 
     // Install the companion injector so capable ACP parents auto-launch
-    // vibex-mcp with a session-scoped token.
+    // dimo-mcp with a session-scoped token.
     runtime.install_delegation_injector(Arc::new(
-        crate::delegation::inject::VibexDelegationInjector {
+        crate::delegation::inject::DimoDelegationInjector {
             tokens: tokens.clone(),
             socket_path: socket_path.clone(),
             official_mcp,
             locate_binary: utils::host_bin::locate_runnable_host_family_binary,
-            space_session: server::VibexDelegationInjector::space_session_lookup(
+            space_session: server::DimoDelegationInjector::space_session_lookup(
                 feature_pool.clone(),
             ),
         },

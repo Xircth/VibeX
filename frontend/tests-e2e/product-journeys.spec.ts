@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test';
 
 function serverBaseUrl(): string {
-  const baseUrl = process.env.VIBEX_E2E_BASE_URL;
+  const baseUrl = process.env.DIMO_E2E_BASE_URL;
   if (!baseUrl) throw new Error('Web E2E server was not started');
   return baseUrl;
 }

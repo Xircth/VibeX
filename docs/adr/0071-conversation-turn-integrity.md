@@ -2,7 +2,7 @@
 status: accepted
 date: 2026-09-04
 decision-makers:
-  - VibeX maintainers
+  - Dimo maintainers
 ---
 
 # Conversation Turn 完整性：取消、恢复回放、连接隔离与终态可达

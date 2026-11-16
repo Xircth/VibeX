@@ -21,16 +21,41 @@ import {
 } from '@/components/tasks/follow-up/sessionComposerStructuredTokens';
 import { fileExtension, mimeForMediaExtension } from '@/utils/mediaAttachments';
 
+function formatOptimisticFileRefLabel(ref: {
+  path: string;
+  startLine?: number;
+  endLine?: number;
+}): string {
+  if (ref.startLine == null) return ref.path;
+  return ref.endLine != null
+    ? `${ref.path}:${ref.startLine}-${ref.endLine}`
+    : `${ref.path}:${ref.startLine}`;
+}
+
 export function buildOptimisticUserTurnBlocks({
   displayText,
   images,
+  fileRefs = [],
 }: {
   displayText: string;
   images: string[];
+  fileRefs?: Array<{ path: string; startLine?: number; endLine?: number }>;
 }): ContentBlock[] {
   const blocks: ContentBlock[] = [];
   if (displayText.trim()) {
     blocks.push({ type: 'text', text: displayText });
+  }
+  const inlineFilePaths = new Set(
+    getSessionComposerFileRefs(displayText).map((ref) => ref.path)
+  );
+  for (const ref of fileRefs) {
+    if (!ref.path || inlineFilePaths.has(ref.path)) continue;
+    const label = formatOptimisticFileRefLabel(ref);
+    blocks.push({
+      type: 'resource',
+      uri: label,
+      title: ref.path.split(/[\\/]/).pop() || ref.path,
+    });
   }
   for (const uri of images) {
     const mime = mimeForMediaExtension(fileExtension(uri));
@@ -65,6 +90,7 @@ type Args = {
   modeOverride?: string | null;
   /** Pending agent-advertised config overrides (model / permission …) for this turn. */
   configOverrides?: AgentSessionConfigOverride[];
+  providerInstanceId?: string | null;
   clearComments: () => void;
   onBeforeSend?: () => void;
   onSendFailure?: (message: string) => void;
@@ -89,6 +115,7 @@ export function useFollowUpSend({
   executorProfileId,
   modeOverride,
   configOverrides,
+  providerInstanceId,
   clearComments,
   onBeforeSend,
   onSendFailure,
@@ -127,7 +154,7 @@ export function useFollowUpSend({
         reviewMarkdown?.trim(),
       ]);
 
-      if (!prompt && images.length === 0) return;
+      if (!prompt && images.length === 0 && fileRefs.length === 0) return;
 
       isSendingRef.current = true;
       const abandonedOperationId =
@@ -143,10 +170,6 @@ export function useFollowUpSend({
       onPendingOperationIdChange?.(operationId);
       let turnAccepted = false;
       try {
-        onBeforeSend?.();
-        setIsSendingFollowUp(true);
-        setFollowUpError(null);
-
         let targetSessionId = sessionId;
         let targetWorkspaceId = workspaceId;
         const shouldCreateNewSession =
@@ -155,12 +178,17 @@ export function useFollowUpSend({
         if (shouldCreateNewSession && isSessionScopedSlashCommand(prompt)) {
           throw new Error(t('followUpSend.sessionScopedSlashCommandError'));
         }
+        if (!targetWorkspaceId) {
+          throw new Error('No workspace available for ACP agent turn');
+        }
+
+        onBeforeSend?.();
+        setIsSendingFollowUp(true);
+        setFollowUpError(null);
 
         if (shouldCreateNewSession) {
-          if (!workspaceId) return;
-
           const session = await sessionsApi.create({
-            workspace_id: workspaceId,
+            workspace_id: targetWorkspaceId,
             executor: executorProfileId.executor,
             name: newSessionName?.trim() ? newSessionName.trim() : null,
             initial_prompt: displayPrompt,
@@ -214,12 +242,13 @@ export function useFollowUpSend({
             blocks: buildOptimisticUserTurnBlocks({
               displayText: displayPrompt,
               images,
+              fileRefs,
             }),
             timestamp: new Date().toISOString(),
           },
         });
         try {
-          await sendAgentRuntimeTurn({
+          const submission = await sendAgentRuntimeTurn({
             workspaceId: targetWorkspaceId,
             sessionId: targetSessionId,
             executorProfileId,
@@ -229,6 +258,7 @@ export function useFollowUpSend({
             images,
             modeOverride,
             configOverrides,
+            providerInstanceId,
             workflowRefs: pluginActions.map((action) => ({
               pluginId: action.pluginId,
               workflowId: action.actionId,
@@ -236,6 +266,21 @@ export function useFollowUpSend({
             fileRefs,
             operationId,
           });
+          if (
+            submission &&
+            typeof submission === 'object' &&
+            ('turn' in submission || 'input' in submission) &&
+            submission.turn == null
+          ) {
+            publishOptimisticConversationTurn({
+              type: 'remove',
+              conversationId: targetSessionId,
+              turnId: optimisticTurnId,
+            });
+            void queryClient.invalidateQueries({
+              queryKey: ['conversation-inputs', targetSessionId],
+            });
+          }
           turnAccepted = true;
           operationIdRef.current = null;
         } catch (error) {
@@ -297,6 +342,7 @@ export function useFollowUpSend({
       executorProfileId,
       modeOverride,
       configOverrides,
+      providerInstanceId,
       clearComments,
       onBeforeSend,
       onSendFailure,

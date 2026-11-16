@@ -78,7 +78,7 @@ jobs:
         id: version
         run: |
           # Get the latest version from npm registry
-          latest_npm_version=$(npm view vibex version 2>/dev/null || echo "0.0.0")
+          latest_npm_version=$(npm view dimoai version 2>/dev/null || echo "0.0.0")
           echo "Latest npm version: $latest_npm_version"
 
           # Get current repo version
@@ -303,7 +303,7 @@ jobs:
       - name: Build backend (Linux)
         if: runner.os == 'Linux' && !contains(matrix.target, 'windows')
         run: |
-          cargo zigbuild --release --target ${{ matrix.target }} -p server -p vibex-mcp -p review --bin vibex-server --bin vibex-mcp --bin review
+          cargo zigbuild --release --target ${{ matrix.target }} -p server -p dimo-mcp -p review --bin dimo-server --bin dimo-mcp --bin review
         env:
           VK_SHARED_API_BASE: ${{ secrets.VK_SHARED_API_BASE }}
 
@@ -313,7 +313,7 @@ jobs:
           if [[ "${{ matrix.target }}" == "aarch64-apple-darwin" ]]; then
             export MACOSX_DEPLOYMENT_TARGET=11.0
           fi
-          cargo build --release --target ${{ matrix.target }} -p server -p vibex-mcp -p review --bin vibex-server --bin vibex-mcp --bin review
+          cargo build --release --target ${{ matrix.target }} -p server -p dimo-mcp -p review --bin dimo-server --bin dimo-mcp --bin review
         env:
           VK_SHARED_API_BASE: ${{ secrets.VK_SHARED_API_BASE }}
 
@@ -328,7 +328,7 @@ jobs:
             export DEFAULT_CC=clang-cl
             export CC_aarch64_pc_windows_msvc="${{ github.workspace }}/scripts/ring-cc-wrapper.sh"
           fi
-          cargo xwin build --cross-compiler clang-cl --release --target ${{ matrix.target }} -p server -p vibex-mcp -p review --bin vibex-server --bin vibex-mcp --bin review
+          cargo xwin build --cross-compiler clang-cl --release --target ${{ matrix.target }} -p server -p dimo-mcp -p review --bin dimo-server --bin dimo-mcp --bin review
         env:
           VK_SHARED_API_BASE: ${{ secrets.VK_SHARED_API_BASE }}
           # Avoid aws-lc-sys CMake failures when Rust's `release` profile includes debug info.
@@ -341,13 +341,13 @@ jobs:
         run: |
           mkdir -p dist
           if [[ "${{ matrix.name }}" == *"windows"* ]]; then
-            cp target/${{ matrix.target }}/release/vibex-server.exe dist/vibex-${{ matrix.name }}.exe
-            cp target/${{ matrix.target }}/release/vibex-mcp.exe dist/vibex-mcp-${{ matrix.name }}.exe
-            cp target/${{ matrix.target }}/release/review.exe dist/vibex-review-${{ matrix.name }}.exe
+            cp target/${{ matrix.target }}/release/dimo-server.exe dist/dimo-${{ matrix.name }}.exe
+            cp target/${{ matrix.target }}/release/dimo-mcp.exe dist/dimo-mcp-${{ matrix.name }}.exe
+            cp target/${{ matrix.target }}/release/review.exe dist/dimo-review-${{ matrix.name }}.exe
           else
-            cp target/${{ matrix.target }}/release/vibex-server dist/vibex-${{ matrix.name }}
-            cp target/${{ matrix.target }}/release/vibex-mcp dist/vibex-mcp-${{ matrix.name }}
-            cp target/${{ matrix.target }}/release/review dist/vibex-review-${{ matrix.name }}
+            cp target/${{ matrix.target }}/release/dimo-server dist/dimo-${{ matrix.name }}
+            cp target/${{ matrix.target }}/release/dimo-mcp dist/dimo-mcp-${{ matrix.name }}
+            cp target/${{ matrix.target }}/release/review dist/dimo-review-${{ matrix.name }}
           fi
 
       # Code signing for macOS only
@@ -366,8 +366,8 @@ jobs:
         if: runner.os == 'macOS'
         uses: BloopAI/apple-code-sign-action@v1
         with:
-          input_path: target/${{ matrix.target }}/release/vibex-server
-          output_path: vibex
+          input_path: target/${{ matrix.target }}/release/dimo-server
+          output_path: dimo
           p12_file: certificate.p12
           p12_password: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
           sign: true
@@ -375,14 +375,14 @@ jobs:
 
       - name: Package main binary (macOS)
         if: runner.os == 'macOS'
-        run: zip vibex.zip vibex
+        run: zip dimo.zip dimo
 
       - name: Sign MCP binary (macOS)
         if: runner.os == 'macOS'
         uses: BloopAI/apple-code-sign-action@v1
         with:
-          input_path: target/${{ matrix.target }}/release/vibex-mcp
-          output_path: vibex-mcp
+          input_path: target/${{ matrix.target }}/release/dimo-mcp
+          output_path: dimo-mcp
           p12_file: certificate.p12
           p12_password: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
           sign: true
@@ -390,14 +390,14 @@ jobs:
 
       - name: Package MCP binary (macOS)
         if: runner.os == 'macOS'
-        run: zip vibex-mcp.zip vibex-mcp
+        run: zip dimo-mcp.zip dimo-mcp
 
       - name: Sign Review binary (macOS)
         if: runner.os == 'macOS'
         uses: BloopAI/apple-code-sign-action@v1
         with:
           input_path: target/${{ matrix.target }}/release/review
-          output_path: vibex-review
+          output_path: dimo-review
           p12_file: certificate.p12
           p12_password: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
           sign: true
@@ -405,7 +405,7 @@ jobs:
 
       - name: Package Review binary (macOS)
         if: runner.os == 'macOS'
-        run: zip vibex-review.zip vibex-review
+        run: zip dimo-review.zip dimo-review
 
       - name: Notarize signed binaries (macOS)
         if: runner.os == 'macOS'
@@ -413,9 +413,9 @@ jobs:
         continue-on-error: true
         with:
           input_path: |
-            vibex.zip
-            vibex-mcp.zip
-            vibex-review.zip
+            dimo.zip
+            dimo-mcp.zip
+            dimo-review.zip
           sign: false
           notarize: true
           app_store_connect_api_key_json_file: app_store_key.json
@@ -424,9 +424,9 @@ jobs:
         if: runner.os == 'macOS'
         run: |
           mkdir -p dist
-          cp vibex.zip dist/vibex-${{ matrix.name }}.zip
-          cp vibex-mcp.zip dist/vibex-mcp-${{ matrix.name }}.zip
-          cp vibex-review.zip dist/vibex-review-${{ matrix.name }}.zip
+          cp dimo.zip dist/dimo-${{ matrix.name }}.zip
+          cp dimo-mcp.zip dist/dimo-mcp-${{ matrix.name }}.zip
+          cp dimo-review.zip dist/dimo-review-${{ matrix.name }}.zip
 
       - name: Clean up certificates (macOS)
         if: runner.os == 'macOS'
@@ -458,29 +458,29 @@ jobs:
         include:
           - target: x86_64-unknown-linux-musl
             name: linux-x64
-            binary: vibex
-            mcp_binary: vibex-mcp
-            review_binary: vibex-review
+            binary: dimo
+            mcp_binary: dimo-mcp
+            review_binary: dimo-review
           - target: x86_64-pc-windows-msvc
             name: windows-x64
-            binary: vibex.exe
-            mcp_binary: vibex-mcp.exe
-            review_binary: vibex-review.exe
+            binary: dimo.exe
+            mcp_binary: dimo-mcp.exe
+            review_binary: dimo-review.exe
           - target: aarch64-apple-darwin
             name: macos-arm64
-            binary: vibex
-            mcp_binary: vibex-mcp
-            review_binary: vibex-review
+            binary: dimo
+            mcp_binary: dimo-mcp
+            review_binary: dimo-review
           - target: aarch64-pc-windows-msvc
             name: windows-arm64
-            binary: vibex.exe
-            mcp_binary: vibex-mcp.exe
-            review_binary: vibex-review.exe
+            binary: dimo.exe
+            mcp_binary: dimo-mcp.exe
+            review_binary: dimo-review.exe
           - target: aarch64-unknown-linux-musl
             name: linux-arm64
-            binary: vibex
-            mcp_binary: vibex-mcp
-            review_binary: vibex-review
+            binary: dimo
+            mcp_binary: dimo-mcp
+            review_binary: dimo-review
     steps:
       - uses: actions/checkout@v6
         with:
@@ -508,26 +508,26 @@ jobs:
         if: matrix.name != 'macos-arm64'
         run: |
           mkdir -p npx-cli/dist/${{ matrix.name }}
-          mkdir vibex-${{ matrix.name }}
-          mkdir vibex-mcp-${{ matrix.name }}
-          mkdir vibex-review-${{ matrix.name }}
+          mkdir dimo-${{ matrix.name }}
+          mkdir dimo-mcp-${{ matrix.name }}
+          mkdir dimo-review-${{ matrix.name }}
 
-          cp dist/vibex-${{ matrix.name }}* vibex-${{ matrix.name }}/${{ matrix.binary }}
-          cp dist/vibex-mcp-${{ matrix.name }}* vibex-mcp-${{ matrix.name }}/${{ matrix.mcp_binary }}
-          cp dist/vibex-review-${{ matrix.name }}* vibex-review-${{ matrix.name }}/${{ matrix.review_binary }}
+          cp dist/dimo-${{ matrix.name }}* dimo-${{ matrix.name }}/${{ matrix.binary }}
+          cp dist/dimo-mcp-${{ matrix.name }}* dimo-mcp-${{ matrix.name }}/${{ matrix.mcp_binary }}
+          cp dist/dimo-review-${{ matrix.name }}* dimo-review-${{ matrix.name }}/${{ matrix.review_binary }}
 
-          zip -j npx-cli/dist/${{ matrix.name }}/vibex.zip vibex-${{ matrix.name }}/${{ matrix.binary }}
-          zip -j npx-cli/dist/${{ matrix.name }}/vibex-mcp.zip vibex-mcp-${{ matrix.name }}/${{ matrix.mcp_binary }}
-          zip -j npx-cli/dist/${{ matrix.name }}/vibex-review.zip vibex-review-${{ matrix.name }}/${{ matrix.review_binary }}
+          zip -j npx-cli/dist/${{ matrix.name }}/dimo.zip dimo-${{ matrix.name }}/${{ matrix.binary }}
+          zip -j npx-cli/dist/${{ matrix.name }}/dimo-mcp.zip dimo-mcp-${{ matrix.name }}/${{ matrix.mcp_binary }}
+          zip -j npx-cli/dist/${{ matrix.name }}/dimo-review.zip dimo-review-${{ matrix.name }}/${{ matrix.review_binary }}
 
       - name: Create platform package (macOS)
         if: matrix.name == 'macos-arm64'
         run: |
           mkdir -p npx-cli/dist/${{ matrix.name }}
-          mkdir vibex-${{ matrix.name }}
-          cp dist/vibex-${{ matrix.name }}* npx-cli/dist/${{ matrix.name }}/vibex.zip
-          cp dist/vibex-mcp-${{ matrix.name }}* npx-cli/dist/${{ matrix.name }}/vibex-mcp.zip
-          cp dist/vibex-review-${{ matrix.name }}* npx-cli/dist/${{ matrix.name }}/vibex-review.zip
+          mkdir dimo-${{ matrix.name }}
+          cp dist/dimo-${{ matrix.name }}* npx-cli/dist/${{ matrix.name }}/dimo.zip
+          cp dist/dimo-mcp-${{ matrix.name }}* npx-cli/dist/${{ matrix.name }}/dimo-mcp.zip
+          cp dist/dimo-review-${{ matrix.name }}* npx-cli/dist/${{ matrix.name }}/dimo-review.zip
 
       - name: Upload platform package artifact
         uses: actions/upload-artifact@v6
@@ -575,7 +575,7 @@ jobs:
             const crypto = require('crypto');
             const manifest = { version: '$TAG', platforms: {} };
             const platforms = ['linux-x64', 'linux-arm64', 'windows-x64', 'windows-arm64', 'macos-arm64'];
-            const binaries = ['vibex', 'vibex-mcp', 'vibex-review'];
+            const binaries = ['dimo', 'dimo-mcp', 'dimo-review'];
 
             for (const platform of platforms) {
               manifest.platforms[platform] = {};
@@ -597,7 +597,7 @@ jobs:
 
           # Upload binaries (use full tag for path, allows multiple pre-releases to coexist)
           for platform in linux-x64 linux-arm64 windows-x64 windows-arm64 macos-arm64; do
-            for binary in vibex vibex-mcp vibex-review; do
+            for binary in dimo dimo-mcp dimo-review; do
               if [ -f "binaries/$platform/$binary.zip" ]; then
                 echo "Uploading binaries/$platform/$binary.zip..."
                 aws s3 cp "binaries/$platform/$binary.zip" \
@@ -653,9 +653,9 @@ jobs:
 
       - name: Zip frontend
         run: |
-          mkdir vibex-${{ needs.bump-version.outputs.new_tag }}
-          mv frontend/dist vibex-${{ needs.bump-version.outputs.new_tag }}
-          zip -r vibex-${{ needs.bump-version.outputs.new_tag }}.zip vibex-${{ needs.bump-version.outputs.new_tag }}
+          mkdir dimo-${{ needs.bump-version.outputs.new_tag }}
+          mv frontend/dist dimo-${{ needs.bump-version.outputs.new_tag }}
+          zip -r dimo-${{ needs.bump-version.outputs.new_tag }}.zip dimo-${{ needs.bump-version.outputs.new_tag }}
 
       - name: Setup Node for npm pack
         uses: ./.github/actions/setup-node
@@ -676,5 +676,5 @@ jobs:
           prerelease: true
           generate_release_notes: true
           files: |
-            vibex-${{ needs.bump-version.outputs.new_tag }}.zip
-            npx-cli/vibex-*.tgz
+            dimo-${{ needs.bump-version.outputs.new_tag }}.zip
+            npx-cli/dimo-*.tgz

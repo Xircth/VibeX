@@ -1,5 +1,5 @@
-//! `vibex://` deep links (P2-5). Opens the app on a specific project/session from
-//! an OS URL. Recognizes `vibex://<any>?project=<id>&workspace=<id>&session=<id>`
+//! `dimo://` deep links (P2-5). Opens the app on a specific project/session from
+//! an OS URL. Recognizes `dimo://<any>?project=<id>&workspace=<id>&session=<id>`
 //! and reuses the existing project-session activation channel
 //! (`desktop-toast-activated`, handled by ProjectWindowManager).
 //!
@@ -19,7 +19,7 @@ use tauri::{AppHandle, Emitter};
 use crate::{commands::settings_window::open_local_settings_window_at, tray::show_main_window};
 
 const ACTIVATION_EVENT: &str = "desktop-toast-activated";
-pub const MODEL_ROUTER_IMPORT_EVENT: &str = "vibex://modelrouter-import";
+pub const MODEL_ROUTER_IMPORT_EVENT: &str = "dimo://modelrouter-import";
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
@@ -60,15 +60,15 @@ pub fn take_pending_model_router_import() -> Option<PendingModelRouterImport> {
         .and_then(|mut guard| guard.take())
 }
 
-pub fn is_vibex_scheme(scheme: &str) -> bool {
+pub fn is_dimo_scheme(scheme: &str) -> bool {
     let normalized = scheme.to_ascii_lowercase();
-    normalized == "vibex"
-        || normalized == "vibex-dev"
-        || normalized.starts_with("vibex-dev-")
+    normalized == "dimo"
+        || normalized == "dimo-dev"
+        || normalized.starts_with("dimo-dev-")
 }
 
 pub fn parse_model_router_import(url: &url::Url) -> Option<(String, Option<String>)> {
-    if !is_vibex_scheme(url.scheme()) {
+    if !is_dimo_scheme(url.scheme()) {
         return None;
     }
     let host = url.host_str().unwrap_or_default();
@@ -116,7 +116,7 @@ pub fn route_deep_link_args(app: &AppHandle, args: &[String]) {
     let urls: Vec<url::Url> = args
         .iter()
         .filter_map(|arg| url::Url::parse(arg).ok())
-        .filter(|url| is_vibex_scheme(url.scheme()))
+        .filter(|url| is_dimo_scheme(url.scheme()))
         .collect();
     if urls.is_empty() {
         // A plain second launch (no deep link) — just surface the window.
@@ -126,11 +126,11 @@ pub fn route_deep_link_args(app: &AppHandle, args: &[String]) {
     }
 }
 
-/// Route any `vibex://` deep links present in initial startup args.
+/// Route any `dimo://` deep links present in initial startup args.
 pub fn route_startup_deep_link_args(app: &AppHandle) {
     let urls: Vec<url::Url> = std::env::args()
         .filter_map(|arg| url::Url::parse(&arg).ok())
-        .filter(|url| is_vibex_scheme(url.scheme()))
+        .filter(|url| is_dimo_scheme(url.scheme()))
         .collect();
     if !urls.is_empty() {
         route_deep_link_urls(app, &urls);
@@ -138,10 +138,10 @@ pub fn route_startup_deep_link_args(app: &AppHandle) {
 }
 
 fn route_one(app: &AppHandle, url: &url::Url) {
-    if !is_vibex_scheme(url.scheme()) {
+    if !is_dimo_scheme(url.scheme()) {
         return;
     }
-    // Always bring the app forward for any vibex:// link.
+    // Always bring the app forward for any dimo:// link.
     show_main_window(app);
 
     if let Some((ticket, agent_id)) = parse_model_router_import(url) {
@@ -190,7 +190,7 @@ mod tests {
     #[test]
     fn parses_model_router_import_deep_link_with_ticket_and_agent() {
         let url =
-            url::Url::parse("vibex://modelrouter/import?ticket=tkt_123&agent=claude_code").unwrap();
+            url::Url::parse("dimo://modelrouter/import?ticket=tkt_123&agent=claude_code").unwrap();
         assert_eq!(
             parse_model_router_import(&url),
             Some(("tkt_123".to_string(), Some("claude_code".to_string())))
@@ -199,14 +199,14 @@ mod tests {
 
     #[test]
     fn parses_model_router_import_deep_link_without_agent() {
-        let url = url::Url::parse("vibex://modelrouter/import?ticket=tkt_456").unwrap();
+        let url = url::Url::parse("dimo://modelrouter/import?ticket=tkt_456").unwrap();
         assert_eq!(
             parse_model_router_import(&url),
             Some(("tkt_456".to_string(), None))
         );
 
         let dev_url =
-            url::Url::parse("vibex-dev://modelrouter/import?ticket=tkt_dev_789&agent=codex")
+            url::Url::parse("dimo-dev://modelrouter/import?ticket=tkt_dev_789&agent=codex")
                 .unwrap();
         assert_eq!(
             parse_model_router_import(&dev_url),
@@ -217,11 +217,11 @@ mod tests {
     #[test]
     fn ignores_non_import_deep_links_or_missing_tickets() {
         let missing_ticket =
-            url::Url::parse("vibex://modelrouter/import?agent=claude_code").unwrap();
+            url::Url::parse("dimo://modelrouter/import?agent=claude_code").unwrap();
         assert_eq!(parse_model_router_import(&missing_ticket), None);
 
         let project_url =
-            url::Url::parse("vibex://open?project=p1&workspace=w1&session=s1").unwrap();
+            url::Url::parse("dimo://open?project=p1&workspace=w1&session=s1").unwrap();
         assert_eq!(parse_model_router_import(&project_url), None);
     }
 

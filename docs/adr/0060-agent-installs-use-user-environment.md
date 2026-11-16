@@ -2,13 +2,13 @@
 status: accepted
 date: 2026-08-18
 decision-makers:
-  - VibeX maintainers
+  - Dimo maintainers
 supersedes: 0011
 ---
 
 # Agent 安装只写入并绑定用户环境
 
-VibeX 不再为 Agent 维护独立的托管产物树。本地 Runtime 与 ACP 的唯一真相源是用户环境：PATH、npm 全局前缀、uv tools 与用户 bin。
+Dimo 不再为 Agent 维护独立的托管产物树。本地 Runtime 与 ACP 的唯一真相源是用户环境：PATH、npm 全局前缀、uv tools 与用户 bin。
 
 平台上的「安装 Runtime / ACP」必须把官方分发写进该环境（`npm install -g --prefix <可写 npm prefix>`、`uv tool install`、Binary 写入 `~/.local/bin`），再按 PATH 探测并记录 Installation lock。锁是对用户环境的观察，不是另一份安装物。live `npm prefix -g` 仅在当前用户可写时使用；macOS 上常见的 `/usr/local` 不可写，则写入 `~/.local`。安装仍遇到 EACCES 时重试用户前缀，不要求 sudo。适配器型 Agent 按组件写入：PATH 上已有的 vendor CLI（`agent_runtime`）直接复用；ACP 在显式安装或更新时按计划版本写入。安装目标优先解析 npm `dist-tags.latest`（Runtime 与 ACP 各自解析）；用户可指定具体版本，CLI 与 ACP 不匹配只提示风险，不阻止安装。
 

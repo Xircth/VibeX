@@ -30,7 +30,7 @@ const PROXY_URL_ENV_KEYS: [&str; 6] = [
     "https_proxy",
     "all_proxy",
 ];
-const DEFAULT_UPDATE_REPOSITORY: &str = "Xircth/VibeX";
+const DEFAULT_UPDATE_REPOSITORY: &str = "DimoADE/Dimo";
 const RELEASE_CHECK_TIMEOUT: Duration = Duration::from_secs(15);
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -194,7 +194,7 @@ fn crashes_dir() -> std::path::PathBuf {
 }
 
 fn env_level_is_set() -> bool {
-    ["VIBEX_LOG", "RUST_LOG"].iter().any(|key| {
+    ["DIMO_LOG", "RUST_LOG"].iter().any(|key| {
         std::env::var(key)
             .ok()
             .map(|value| !value.trim().is_empty())
@@ -386,7 +386,7 @@ pub(super) async fn update_rendering(args: Value) -> Result<Value, ApplicationEr
 
 pub(super) async fn check_app_release() -> Result<Value, ApplicationError> {
     let current_version = utils::version::APP_VERSION.to_string();
-    let repository = std::env::var("VIBEX_UPDATE_REPOSITORY")
+    let repository = std::env::var("DIMO_UPDATE_REPOSITORY")
         .ok()
         .filter(|value| !value.trim().is_empty())
         .unwrap_or_else(|| DEFAULT_UPDATE_REPOSITORY.to_string());
@@ -397,7 +397,7 @@ pub(super) async fn check_app_release() -> Result<Value, ApplicationError> {
         .map_err(internal_error)?;
     match client
         .get(url)
-        .header(reqwest::header::USER_AGENT, "VibeX")
+        .header(reqwest::header::USER_AGENT, "Dimo")
         .send()
         .await
     {
@@ -475,15 +475,15 @@ pub(super) async fn apply_host_upgrade() -> Result<Value, ApplicationError> {
     }
     let platform = host_family_platform()?;
     let version = utils::version::normalize(&latest).to_string();
-    let archive = format!("VibeX-{version}-{platform}-server.tar.gz");
+    let archive = format!("Dimo-{version}-{platform}-server.tar.gz");
     let tag = format!("v{version}");
-    let repository = std::env::var("VIBEX_UPDATE_REPOSITORY")
+    let repository = std::env::var("DIMO_UPDATE_REPOSITORY")
         .ok()
         .filter(|value| !value.trim().is_empty())
         .unwrap_or_else(|| DEFAULT_UPDATE_REPOSITORY.to_string());
     let canonical = format!("https://github.com/{repository}/releases/download/{tag}/{archive}");
     let bytes = download_release_bytes(&canonical).await?;
-    let tmp = utils::path::unique_vibex_scratch_dir("upgrade").map_err(internal_error)?;
+    let tmp = utils::path::unique_dimo_scratch_dir("upgrade").map_err(internal_error)?;
     let archive_path = tmp.join(&archive);
     tokio::fs::write(&archive_path, bytes)
         .await
@@ -502,7 +502,7 @@ pub(super) async fn apply_host_upgrade() -> Result<Value, ApplicationError> {
         .parent()
         .ok_or_else(|| ApplicationError::internal("Host executable has no parent directory"))?
         .to_path_buf();
-    let data_dir = std::env::var("VIBEX_DATA_DIR")
+    let data_dir = std::env::var("DIMO_DATA_DIR")
         .ok()
         .filter(|value| !value.trim().is_empty())
         .map(std::path::PathBuf::from)
@@ -578,7 +578,7 @@ async fn download_release_bytes(canonical: &str) -> Result<Vec<u8>, ApplicationE
         };
         match client
             .get(&url)
-            .header(reqwest::header::USER_AGENT, "VibeX")
+            .header(reqwest::header::USER_AGENT, "Dimo")
             .send()
             .await
         {
@@ -627,10 +627,10 @@ fn schedule_host_restart() {
     tokio::spawn(async {
         tokio::time::sleep(Duration::from_secs(1)).await;
         let _ = std::process::Command::new("systemctl")
-            .args(["restart", "vibex-server.service"])
+            .args(["restart", "dimo-server.service"])
             .status();
         let _ = std::process::Command::new("systemctl")
-            .args(["--user", "restart", "vibex-server.service"])
+            .args(["--user", "restart", "dimo-server.service"])
             .status();
     });
 }
@@ -879,7 +879,7 @@ pub(super) async fn update_data_dir_settings(
     })
 }
 
-/// A target that already holds a VibeX database is opened as-is: copying the
+/// A target that already holds a Dimo database is opened as-is: copying the
 /// current directory over it would destroy that user data.
 fn open_existing_data_dir(
     target_dir: &Path,
@@ -999,7 +999,7 @@ fn copy_dir_recursive_inner(src: &Path, dst: &Path) -> Result<(), ApplicationErr
         let entry = entry.map_err(internal_error)?;
         let file_name = entry.file_name();
         let name = file_name.to_string_lossy();
-        if name.starts_with(".vibex-write-probe-")
+        if name.starts_with(".dimo-write-probe-")
             || name == "db.sqlite-wal"
             || name == "db.sqlite-shm"
         {
@@ -1145,10 +1145,10 @@ mod tests {
         std::fs::write(target.join("db.sqlite"), b"existing").unwrap();
 
         // SAFETY: no other test in this crate reads the bootstrap override.
-        unsafe { std::env::set_var("VIBEX_BOOTSTRAP_CONFIG_PATH", &bootstrap) };
+        unsafe { std::env::set_var("DIMO_BOOTSTRAP_CONFIG_PATH", &bootstrap) };
         let skipped = open_existing_data_dir(&empty_target).expect("empty target");
         let opened = open_existing_data_dir(&target).expect("existing target");
-        unsafe { std::env::remove_var("VIBEX_BOOTSTRAP_CONFIG_PATH") };
+        unsafe { std::env::remove_var("DIMO_BOOTSTRAP_CONFIG_PATH") };
 
         assert!(
             skipped.is_none(),

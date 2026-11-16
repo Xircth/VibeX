@@ -290,7 +290,7 @@ describe('WorkspaceTabAddMenu', () => {
   it('opens a plugin panel from the tab creation menu', () => {
     usePluginHostContributions.mockReturnValue([
       {
-        pluginId: 'vibex.host-surface',
+        pluginId: 'dimo.host-surface',
         id: 'sample-panel',
         label: '示例面板',
         kind: 'app_panel',
@@ -309,7 +309,7 @@ describe('WorkspaceTabAddMenu', () => {
 
     expect(openPluginPanel).toHaveBeenCalledWith({
       title: '示例面板',
-      pluginId: 'vibex.host-surface',
+      pluginId: 'dimo.host-surface',
       contributionId: 'sample-panel',
       icon: 'bookmark',
       multiInstance: false,

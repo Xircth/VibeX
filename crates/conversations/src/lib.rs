@@ -63,12 +63,14 @@ pub use export::{render_html, render_markdown};
 pub use handoff::{
     ConversationEngineHandoffPackedItem, ConversationEngineHandoffPreview,
     DEFAULT_HANDOFF_TOKEN_BUDGET, DeterministicHandoffService, EngineHandoffConfirmation,
-    HandoffContext, HandoffError,
+    HandoffContext, HandoffError, latest_agent_handoff_sequence,
 };
 pub use host::{
     DefaultConversationHost, resolve_absolute_workspace_agent_working_dir,
-    resolve_agent_runtime_launch_settings, resolve_workspace_agent_working_dir,
-    session_launch_rejection_from_pool, workspace_prompt_blocks,
+    resolve_agent_runtime_launch_settings,
+    resolve_agent_runtime_launch_settings_for_provider_instance,
+    resolve_workspace_agent_working_dir, session_launch_rejection_from_pool,
+    workspace_prompt_blocks,
 };
 pub use input::{
     CancelConversationInput, ConversationInputClaim, ConversationInputControl,
@@ -91,8 +93,8 @@ pub use projection::{
     decode_timeline_cursor, encode_timeline_cursor, ensure_legacy_jsonl_migrated,
     ensure_legacy_jsonl_migrated_on_pool, evict_least_recently_used_projectors,
     extend_coalesced_row_ops, register_acp_replay_history_probe,
-    register_internal_message_listener, spawn_legacy_jsonl_backfill_worker,
-    subscribe_internal_messages,
+    register_internal_message_listener, register_projection_repair_hook,
+    spawn_legacy_jsonl_backfill_worker, subscribe_internal_messages,
 };
 pub use relation::{
     ConversationChildSummaryView, ConversationRelationControl, ConversationRelationView,

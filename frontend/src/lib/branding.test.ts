@@ -28,10 +28,10 @@ describe('getSiteUrl', () => {
     expect(getSiteHost()).toBe('localhost');
   });
 
-  it('prefers explicit VIBEX_SITE_URL even in dev mode', () => {
+  it('prefers explicit DIMO_SITE_URL even in dev mode', () => {
     vi.stubEnv('DEV', true);
     vi.stubEnv('MODE', 'development');
-    vi.stubEnv('VIBEX_SITE_URL', 'http://127.0.0.1:4100/');
+    vi.stubEnv('DIMO_SITE_URL', 'http://127.0.0.1:4100/');
     expect(getSiteUrl('/desktop/authorize')).toBe(
       'http://127.0.0.1:4100/desktop/authorize'
     );

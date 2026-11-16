@@ -1,6 +1,6 @@
 //! In-memory Host harness for plugin Worker unit tests.
 //!
-//! Fidelity gap versus a real VibeX Host:
+//! Fidelity gap versus a real Dimo Host:
 //! - `storage.database` is an in-memory SQL subset, not the Host-owned plugin file.
 //! - `artifact.preview` leases are tokens only; no TCP port or capability process.
 //! - `plugin.self.doctor` reports harness state, not Host-persisted crashes.
@@ -186,7 +186,7 @@ impl MemoryHost {
             "artifact.readText" => artifact_read(&state, input),
             "artifact.writeText" => artifact_write(&mut state, input),
             "plugin.self.doctor" => Ok(json!({
-                "pluginId": "dev.vibex.test",
+                "pluginId": "dev.dimo.test",
                 "diagnostics": [],
                 "recentCrashes": [],
                 "implemented": IMPLEMENTED,
@@ -264,7 +264,7 @@ pub fn create_worker_harness(
 ) -> Result<WorkerHarness, PluginSdkError> {
     let host = host.unwrap_or_else(|| Arc::new(MemoryHost::new()));
     let context = context.unwrap_or(PluginContext {
-        plugin_id: "dev.vibex.test".to_owned(),
+        plugin_id: "dev.dimo.test".to_owned(),
         plugin_version: "0.0.0-test".to_owned(),
         generation: 1,
         package_class: crate::protocol::PackageClass::FullTrust,
@@ -301,7 +301,7 @@ impl GenerationHarness {
     ) -> Result<u64, PluginSdkError> {
         let next = self.generation + 1;
         let mut context = self.context.clone().unwrap_or(PluginContext {
-            plugin_id: "dev.vibex.test".to_owned(),
+            plugin_id: "dev.dimo.test".to_owned(),
             plugin_version: "0.0.0-test".to_owned(),
             generation: next,
             package_class: crate::protocol::PackageClass::FullTrust,
@@ -971,7 +971,7 @@ fn required_string(input: &Value, field: &str) -> Result<String, PluginSdkError>
 
 pub fn redact(value: Value) -> Value {
     let key_pattern = Regex::new(
-        r"(?i)(token|authorization|secret|password|VIBEX_SERVER_TOKEN|VIBEX_PLUGIN_DEV_GRANT)",
+        r"(?i)(token|authorization|secret|password|DIMO_SERVER_TOKEN|DIMO_PLUGIN_DEV_GRANT)",
     )
     .expect("redact regex");
     let bearer = Regex::new(r"(?i)Bearer\s+\S+").expect("bearer regex");

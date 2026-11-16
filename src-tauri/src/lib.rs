@@ -137,7 +137,7 @@ fn try_build_debug_main(app: &tauri::AppHandle, data_dir: PathBuf) -> Option<tau
     );
     let builder = window_chrome::apply_app_window_chrome(
         tauri::WebviewWindowBuilder::new(app, "main", tauri::WebviewUrl::App("/".into()))
-            .title("VibeX Dev")
+            .title("Dimo Dev")
             .inner_size(1400.0, 900.0)
             .min_inner_size(800.0, 600.0)
             .resizable(true)
@@ -182,7 +182,7 @@ fn create_main_window_with_fallback(app: &tauri::App) -> Option<tauri::WebviewWi
             .join("webview-profiles")
             .join("main"),
         std::env::temp_dir()
-            .join("vibex-webview2-profiles")
+            .join("dimo-webview2-profiles")
             .join(format!("main-{}", std::process::id())),
     ];
     for data_dir in candidates {
@@ -200,7 +200,7 @@ fn create_main_window_with_fallback(app: &tauri::App) -> Option<tauri::WebviewWi
         );
         let builder = window_chrome::apply_app_window_chrome(
             tauri::WebviewWindowBuilder::new(app, "main", tauri::WebviewUrl::App("/".into()))
-                .title("VibeX")
+                .title("Dimo")
                 .inner_size(1400.0, 900.0)
                 .min_inner_size(800.0, 600.0)
                 .resizable(true)
@@ -416,12 +416,12 @@ pub fn run() {
         if cfg!(debug_assertions) {
             builder = builder
                 .plugin(tauri_plugin_redline::init())
-                .plugin(tauri_plugin_vibex_inspector::init());
+                .plugin(tauri_plugin_dimo_inspector::init());
         }
         builder
     }
     // single-instance MUST come first and before deep-link (P2-5): it forwards
-    // a second launch's args (carrying the vibex:// URL on Windows/Linux) into
+    // a second launch's args (carrying the dimo:// URL on Windows/Linux) into
     // the running instance.
     .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
         if app_chrome::apply_forwarded_launch_args(app, &args) {
@@ -844,11 +844,11 @@ fn kill_companion_processes_on_exit() {
             .args([
                 "/F",
                 "/IM",
-                "vibex-mcp.exe",
+                "dimo-mcp.exe",
                 "/IM",
-                "vibex-workflow-mcp.exe",
+                "dimo-workflow-mcp.exe",
                 "/IM",
-                "vibex-computer-helper.exe",
+                "dimo-computer-helper.exe",
             ])
             .creation_flags(CREATE_NO_WINDOW)
             .stdin(std::process::Stdio::null())
@@ -911,9 +911,9 @@ mod tests {
         let tray_source = include_str!("tray.rs");
         assert!(source.contains("if let tauri::RunEvent::Exit = event"));
         assert!(source.contains("kill_companion_processes_on_exit();"));
-        assert!(source.contains("vibex-mcp.exe"));
-        assert!(source.contains("vibex-workflow-mcp.exe"));
-        assert!(source.contains("vibex-computer-helper.exe"));
+        assert!(source.contains("dimo-mcp.exe"));
+        assert!(source.contains("dimo-workflow-mcp.exe"));
+        assert!(source.contains("dimo-computer-helper.exe"));
         assert!(source.contains("graceful_exit_app"));
         assert!(source.contains("reveal_main_window"));
         assert!(tray_source.contains("crate::graceful_exit_app(app)"));

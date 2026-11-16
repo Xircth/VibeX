@@ -3,8 +3,8 @@ import { expect, test } from '@playwright/test';
 test('production Web UI authenticates and exposes only Server capabilities', async ({
   page,
 }) => {
-  const baseUrl = process.env.VIBEX_E2E_BASE_URL;
-  const token = process.env.VIBEX_E2E_TOKEN;
+  const baseUrl = process.env.DIMO_E2E_BASE_URL;
+  const token = process.env.DIMO_E2E_TOKEN;
   if (!baseUrl || !token) throw new Error('Web E2E server was not started');
 
   const pageErrors: string[] = [];
@@ -12,7 +12,7 @@ test('production Web UI authenticates and exposes only Server capabilities', asy
 
   await page.goto(`${baseUrl}/settings/automations`);
   await expect(
-    page.getByRole('form', { name: /Connect to VibeX|连接到 VibeX/ })
+    page.getByRole('form', { name: /Connect to Dimo|连接到 Dimo/ })
   ).toBeVisible();
   await page.getByLabel(/Access token|访问 Token|Server token/).fill(token);
   await page.getByRole('button', { name: /Connect|连接/ }).click();

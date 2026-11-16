@@ -30,7 +30,7 @@ describe('parseToolHitItems', () => {
     const payload = {
       action: {
         type: 'search',
-        query: 'site:github.com vibex workflow creator plugin',
+        query: 'site:github.com dimo workflow creator plugin',
         sources: [
           { type: 'url', url: '' },
           {
@@ -47,7 +47,7 @@ describe('parseToolHitItems', () => {
     };
 
     expect(parseSearchQuery(payload)).toBe(
-      'site:github.com vibex workflow creator plugin'
+      'site:github.com dimo workflow creator plugin'
     );
     expect(parseToolHitItems(JSON.stringify(payload))).toEqual([
       {

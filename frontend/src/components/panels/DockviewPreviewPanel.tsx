@@ -54,6 +54,7 @@ import {
   MAX_VIDEO_PREVIEW_BYTES,
 } from '@/utils/filePreviewKind';
 import { isMac, isTauriDesktopShell } from '@/utils/platform';
+import { useLocalDesktopHost } from '@/lib/desktopShell';
 import { ZoomableImagePreview } from '@/components/previews/ZoomableImagePreview';
 import { toast } from '@/components/ui/toast';
 import { useAppContextMenu } from '@/components/context-menu';
@@ -280,6 +281,7 @@ const markdownViewStateMap = new Map<string, MarkdownPreviewMode>();
 
 function DockviewPreviewPanel(props: IDockviewPanelProps) {
   const { t } = useTranslation(['conversation', 'common', 'settings']);
+  const localDesktopHost = useLocalDesktopHost();
   const { openSurfaceMenu } = useAppContextMenu();
   const markdownScrollRef = useRef<HTMLDivElement>(null);
   const params = (props.params ?? {}) as Partial<PreviewPanelParams>;
@@ -1189,19 +1191,32 @@ function DockviewPreviewPanel(props: IDockviewPanelProps) {
                 '当前文件格式暂不支持预览'
               )}
             </p>
-            <button
-              type="button"
-              className="raised-control inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium text-foreground"
-              onClick={() => {
-                const targetPath = resolvedFilePath ?? filePath;
-                if (targetPath) {
-                  void desktopApi.revealInFileManager(targetPath);
-                }
-              }}
-            >
-              <FolderOpen className="h-3.5 w-3.5" />
-              {i18n.t('panels:ui.preview.openInFolder', '在文件夹中打开')}
-            </button>
+            {localDesktopHost ? (
+              <button
+                type="button"
+                className="raised-control inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium text-foreground"
+                onClick={() => {
+                  const targetPath = resolvedFilePath ?? filePath;
+                  if (targetPath) {
+                    void desktopApi
+                      .revealInFileManager(targetPath)
+                      .catch((error) => {
+                        toast.error(
+                          error instanceof Error
+                            ? error.message
+                            : i18n.t(
+                                'panels:ui.preview.openInFolderFailed',
+                                '无法在文件夹中打开'
+                              )
+                        );
+                      });
+                  }
+                }}
+              >
+                <FolderOpen className="h-3.5 w-3.5" />
+                {i18n.t('panels:ui.preview.openInFolder', '在文件夹中打开')}
+              </button>
+            ) : null}
           </div>
         ) : effectivePreviewKind === 'image' ? (
           isLoadingBinaryAsset ? (
@@ -1245,19 +1260,32 @@ function DockviewPreviewPanel(props: IDockviewPanelProps) {
                     )
               }
               action={
-                <button
-                  type="button"
-                  className="raised-control inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium text-foreground"
-                  onClick={() => {
-                    const targetPath = resolvedFilePath ?? filePath;
-                    if (targetPath) {
-                      void desktopApi.revealInFileManager(targetPath);
-                    }
-                  }}
-                >
-                  <FolderOpen className="h-3.5 w-3.5" />
-                  {i18n.t('panels:ui.preview.openInFolder', '在文件夹中打开')}
-                </button>
+                localDesktopHost ? (
+                  <button
+                    type="button"
+                    className="raised-control inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium text-foreground"
+                    onClick={() => {
+                      const targetPath = resolvedFilePath ?? filePath;
+                      if (targetPath) {
+                        void desktopApi
+                          .revealInFileManager(targetPath)
+                          .catch((error) => {
+                            toast.error(
+                              error instanceof Error
+                                ? error.message
+                                : i18n.t(
+                                    'panels:ui.preview.openInFolderFailed',
+                                    '无法在文件夹中打开'
+                                  )
+                            );
+                          });
+                      }
+                    }}
+                  >
+                    <FolderOpen className="h-3.5 w-3.5" />
+                    {i18n.t('panels:ui.preview.openInFolder', '在文件夹中打开')}
+                  </button>
+                ) : undefined
               }
             />
           ) : fileAssetSrc ? (

@@ -262,10 +262,10 @@ mod tests {
     #[test]
     fn managed_artifacts_use_an_executable_user_directory_on_macos() {
         let home = Path::new("/Users/developer");
-        let app_data = home.join("Library/Application Support/com.vibex.app");
+        let app_data = home.join("Library/Application Support/com.dimo.app");
         let root = managed_artifacts_directory(home, &app_data);
 
-        assert_eq!(root, home.join(".local/share/vibex"));
+        assert_eq!(root, home.join(".local/share/dimo"));
         assert_ne!(root, app_data);
     }
 }

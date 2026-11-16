@@ -38,15 +38,15 @@ function operationId(flags) {
 }
 
 async function call(command, args, flags) {
-  const baseUrl = (process.env.VIBEX_URL || 'http://127.0.0.1:17891').replace(/\/+$/, '');
-  const token = process.env.VIBEX_TOKEN;
-  if (!token) throw new Error('VIBEX_TOKEN is required');
+  const baseUrl = (process.env.DIMO_URL || 'http://127.0.0.1:17891').replace(/\/+$/, '');
+  const token = process.env.DIMO_TOKEN;
+  if (!token) throw new Error('DIMO_TOKEN is required');
   const response = await fetch(`${baseUrl}/api/v1/call/${encodeURIComponent(command)}`, {
     method: 'POST',
     headers: {
       authorization: `Bearer ${token}`,
       'content-type': 'application/json',
-      'x-vibex-protocol-version': '1.0',
+      'x-dimo-protocol-version': '1.0',
     },
     body: JSON.stringify({ operation_id: operationId(flags), args }),
   });

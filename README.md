@@ -1,7 +1,7 @@
 <div align="center">
-  <img src="./src-tauri/icons/icon.png" alt="VibeX Logo" width="108" height="108" />
+  <img src="./src-tauri/icons/icon.png" alt="Dimo Logo" width="108" height="108" />
 
-  <h1>VibeX</h1>
+  <h1>Dimo</h1>
 
   <p>
     <strong>English</strong> · <a href="./README.zh-CN.md">简体中文</a>
@@ -19,17 +19,17 @@
     <a href="https://vibex.xforever.xin/#download"><img src="https://img.shields.io/badge/Download-macOS%20%7C%20Windows%20%7C%20Linux-0F172A?style=for-the-badge" alt="Download" /></a>
     <a href="https://vibex.xforever.xin/docs"><img src="https://img.shields.io/badge/Docs-vibex.xforever.xin%2Fdocs-4F46E5?style=for-the-badge" alt="Docs" /></a>
     <a href="https://vibex.xforever.xin/marketplace"><img src="https://img.shields.io/badge/Marketplace-Plugins-059669?style=for-the-badge" alt="Marketplace" /></a>
-    <a href="https://www.npmjs.com/package/@omnione/vibex"><img src="https://img.shields.io/npm/v/@omnione/vibex?style=for-the-badge&label=CLI&color=7C3AED" alt="npm version" /></a>
+    <a href="https://www.npmjs.com/package/dimoai"><img src="https://img.shields.io/npm/v/dimoai?style=for-the-badge&label=CLI&color=7C3AED" alt="npm version" /></a>
   </p>
 </div>
 
 ---
 
-## Why VibeX?
+## Why Dimo?
 
 Modern Vibe Coding rarely relies on a single model. Developers mix Claude Code, Codex, Cursor, OpenCode, and Antigravity every day—yet end up juggling fragmented terminal windows, branch collisions across concurrent tasks, single-vendor editor lock-in, and sessions stranded on a desk the moment they step away.
 
-**VibeX** brings a visual multi-agent development environment and a complete Vibe Coding toolkit together in one platform:
+**Dimo** brings a visual multi-agent development environment and a complete Vibe Coding toolkit together in one platform:
 
 - **Every top agent in one visual cockpit**: Run 20+ coding agents side by side with shared workspace context, tools, and skills—and hand off active sessions across different agents whenever the task shifts.
 - **Creative flow meets real engineering discipline**: Flip effortlessly between focused split tabs and a panoramic Infinite Canvas, while isolated Git worktrees, live diffs, and visual merge tools keep parallel coding clean.
@@ -78,7 +78,7 @@ Built on a lightweight native Rust core where **everything is a plugin**. Equip 
 </p>
 
 <p align="center">
-  <img src="./assets/images/readme/VibeX-Bot.png" alt="AI Team Collaboration Space" width="100%" />
+  <img src="./assets/images/readme/Dimo-Bot.png" alt="AI Team Collaboration Space" width="100%" />
 </p>
 
 <p align="center">
@@ -106,10 +106,10 @@ Built on a lightweight native Rust core where **everything is a plugin**. Equip 
 ## Platform Overview & Comparison
 
 <p align="center">
-  <img src="./docs/readme/iade-architecture.en.svg" alt="VibeX Agent-Native Development Platform Overview" width="100%" />
+  <img src="./docs/readme/iade-architecture.en.svg" alt="Dimo Agent-Native Development Platform Overview" width="100%" />
 </p>
 
-| Dimension | Juggling Terminal CLIs | Single-Agent AI Editor | VibeX Agent-Native Platform |
+| Dimension | Juggling Terminal CLIs | Single-Agent AI Editor | Dimo Agent-Native Platform |
 | :--- | :--- | :--- | :--- |
 | **Agents** | Isolated terminal tabs | Locked to one built-in agent | **20+ visual agents orchestrated together** |
 | **Workspace** | Scrolling text buffers | Fixed single-window layout | **Free Split Tabs ↔ Infinite Canvas in one click** |
@@ -134,22 +134,22 @@ Download the native installer (with built-in auto-updates) from the [Official Do
 
 ### 2. CLI / Server / WebUI in One Command
 
-Run VibeX headless with full WebUI on your workstation, remote dev server, cloud VM, or NAS:
+Run Dimo headless with full WebUI on your workstation, remote dev server, cloud VM, or NAS:
 
 ```bash
 # macOS / Linux one-line install
-curl -fsSL https://raw.githubusercontent.com/Xircth/VibeX/master/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/DimoADE/Dimo/master/install.sh | sh
 
 # Windows PowerShell one-line install
-irm https://raw.githubusercontent.com/Xircth/VibeX/master/install.ps1 | iex
+irm https://raw.githubusercontent.com/DimoADE/Dimo/master/install.ps1 | iex
 ```
 
 Or launch directly with `npx`:
 
 ```bash
-npx @omnione/vibex          # Launch locally
-npx @omnione/vibex serve    # Serve WebUI for LAN / remote access
-npx @omnione/vibex list     # List coding agents available for one-click install
+npx dimoai          # Launch locally
+npx dimoai serve    # Serve WebUI for LAN / remote access
+npx dimoai list     # List coding agents available for one-click install
 ```
 
 Docker Compose is also ready out of the box: `docker compose up -d` (see [Headless Server Guide](./docs/deployment/headless-server.md)).
@@ -177,17 +177,17 @@ pnpm run check    # Run frontend & Rust type/compile checks
 - **Downloads**: [https://vibex.xforever.xin/#download](https://vibex.xforever.xin/#download)
 - **Online Docs**: [https://vibex.xforever.xin/docs](https://vibex.xforever.xin/docs)
 - **Plugin Marketplace**: [https://vibex.xforever.xin/marketplace](https://vibex.xforever.xin/marketplace)
-- **CLI Package**: [https://www.npmjs.com/package/@omnione/vibex](https://www.npmjs.com/package/@omnione/vibex)
+- **CLI Package**: [https://www.npmjs.com/package/dimoai](https://www.npmjs.com/package/dimoai)
 
 <div align="center">
   <table>
     <tr>
       <td align="center" width="260">
-        <img src="./assets/images/readme/VibeX交流群3.png" alt="VibeX WeChat Community" width="200" /><br />
+        <img src="./assets/images/readme/Dimo交流群3.png" alt="Dimo WeChat Community" width="200" /><br />
         <sub><b>WeChat Community</b> (Scan to Join)</sub>
       </td>
       <td align="center" width="260">
-        <img src="./assets/images/readme/QQ-VibeX交流群3.png" alt="VibeX QQ Community" width="200" /><br />
+        <img src="./assets/images/readme/QQ-Dimo交流群3.png" alt="Dimo QQ Community" width="200" /><br />
         <sub><b>QQ Community</b> (Scan to Join)</sub>
       </td>
     </tr>

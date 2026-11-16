@@ -10,7 +10,7 @@ import {
 } from 'react';
 import { useTranslation } from 'react-i18next';
 import { type ChatComposerInputHandle } from '@astryxdesign/core/Chat';
-import { useSlotContributions } from '@vibex/plugin-sdk';
+import { useSlotContributions } from '@dimoai/plugin-sdk';
 import { configuredBackendTransport } from '@/lib/backendTransport';
 import { toast } from '@/components/ui/toast';
 import { materializeMentionedHostFiles } from '@/lib/materializeHostReferences';

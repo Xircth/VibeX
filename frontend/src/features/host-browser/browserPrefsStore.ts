@@ -102,7 +102,7 @@ export const DEFAULT_BROWSER_SETTINGS: BrowserSettings = {
   newTabProfile: 'default',
 };
 
-const STORAGE_KEY = 'vibex:host-browser-prefs:v1';
+const STORAGE_KEY = 'dimo:host-browser-prefs:v1';
 
 export type HostRuleValidationError =
   | 'empty'
@@ -590,7 +590,7 @@ export function useBrowserPrefs(): BrowserPrefsSnapshot {
 }
 
 if (typeof window !== 'undefined') {
-  window.addEventListener('vibex:browser-prefs-changed', (event) => {
+  window.addEventListener('dimo:browser-prefs-changed', (event) => {
     const custom = event as CustomEvent<unknown>;
     if (custom.detail && typeof custom.detail === 'object') {
       const normalized = normalizeBrowserSettings(custom.detail);

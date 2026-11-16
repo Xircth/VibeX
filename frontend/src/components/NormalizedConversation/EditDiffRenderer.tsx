@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { memo, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { DiffView, DiffModeEnum, parseInstance } from '@git-diff-view/react';
 import { useUserSystem } from '@/components/ConfigProvider';
@@ -161,4 +161,4 @@ function EditDiffRenderer({
   );
 }
 
-export default EditDiffRenderer;
+export default memo(EditDiffRenderer);

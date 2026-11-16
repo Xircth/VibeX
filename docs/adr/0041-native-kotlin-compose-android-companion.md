@@ -2,13 +2,13 @@
 status: accepted
 date: 2026-08-09
 decision-makers:
-  - VibeX maintainers
+  - Dimo maintainers
 ---
 
 # Android Mobile Companion 采用原生 Kotlin 与 Jetpack Compose
 
 P1 的首个移动客户端使用原生 Kotlin 与 Jetpack Compose，而不为尚未进入交付范围的
-iOS 提前引入跨平台 UI。VibeX 在移动端之间共享版本化 Remote Protocol schema、生成
+iOS 提前引入跨平台 UI。Dimo 在移动端之间共享版本化 Remote Protocol schema、生成
 模型、事件 fixture 与兼容性验收，不把 UI、导航和平台生命周期抽象成共享运行时。
 
 ## Consequences

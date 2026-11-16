@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useEffect, useRef, useCallback } from 'react';
 import { Copy, Check } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useTemporaryFlag } from '@/hooks/useTemporaryFlag';
@@ -14,13 +14,17 @@ interface LoadingCardProps {
 
 export const LoadingCard = ({ label, shimmer = true }: LoadingCardProps) => {
   const { t } = useTranslation(['conversation', 'common']);
-  const [elapsedMs, setElapsedMs] = useState(0);
   const startRef = useRef(Date.now());
+  const elapsedRef = useRef<HTMLSpanElement | null>(null);
   const displayLabel = label ?? t('loadingCard.thinking');
 
   useEffect(() => {
     const interval = setInterval(() => {
-      setElapsedMs(Date.now() - startRef.current);
+      if (elapsedRef.current) {
+        elapsedRef.current.textContent = formatLoadingElapsed(
+          Date.now() - startRef.current
+        );
+      }
     }, 100);
     return () => clearInterval(interval);
   }, []);
@@ -33,8 +37,11 @@ export const LoadingCard = ({ label, shimmer = true }: LoadingCardProps) => {
       >
         {displayLabel}
       </span>
-      <span className="ml-auto font-mono text-xs tabular-nums text-muted-foreground">
-        {formatLoadingElapsed(elapsedMs)}
+      <span
+        ref={elapsedRef}
+        className="ml-auto font-mono text-xs tabular-nums text-muted-foreground"
+      >
+        {formatLoadingElapsed(0)}
       </span>
     </div>
   );

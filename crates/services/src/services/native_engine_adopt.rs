@@ -11,7 +11,7 @@ use sqlx::SqlitePool;
 use uuid::Uuid;
 
 pub fn is_native_engine_profile(agent_id: &AgentId) -> bool {
-    let engine_mode = std::env::var("VIBEX_ENGINE_MODE").ok();
+    let engine_mode = std::env::var("DIMO_ENGINE_MODE").ok();
     BuiltInProfileCatalog::bundled()
         .profile(agent_id)
         .is_some_and(|profile| {
@@ -29,7 +29,7 @@ pub fn is_native_engine_profile(agent_id: &AgentId) -> bool {
 /// `NativeEngine` profile (`claude_code`, `codex`, ...) when a valid non-legacy
 /// CLI executable exists on disk, so `AgentManagementApplicationService::list()`,
 /// preflight, and session launch all agree without requiring an artificial
-/// VibeX-managed reinstall.
+/// Dimo-managed reinstall.
 ///
 /// Never resurrects an installation when `agent_membership.enabled == false` or
 /// `retired == true` (preserving explicit "Disable & Uninstall"), and acts as a
@@ -41,7 +41,7 @@ pub async fn adopt_native_engine_if_needed(
     probed_version: Option<&str>,
     sha256: Option<&str>,
 ) -> anyhow::Result<bool> {
-    let engine_mode = std::env::var("VIBEX_ENGINE_MODE").ok();
+    let engine_mode = std::env::var("DIMO_ENGINE_MODE").ok();
     let catalog = BuiltInProfileCatalog::bundled();
     let Some(profile) = catalog.profile(agent_id) else {
         return Ok(false);

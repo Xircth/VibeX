@@ -7,6 +7,8 @@ const mocks = vi.hoisted(() => ({
   cancelConversation: vi.fn(),
   cancelPrompt: vi.fn(),
   setIsStopping: vi.fn(),
+  isStopping: false,
+  isAttemptRunningVisible: true,
 }));
 
 vi.mock('@tanstack/react-query', () => ({
@@ -29,14 +31,14 @@ vi.mock('@/features/agents/useAgentWorkbench', () => ({
 vi.mock('@/contexts/ExecutionProcessesContext', () => ({
   useExecutionProcessesContext: () => ({
     executionProcessesVisible: [],
-    isAttemptRunningVisible: true,
+    isAttemptRunningVisible: mocks.isAttemptRunningVisible,
     isLoading: false,
   }),
 }));
 
 vi.mock('@/stores/useTaskDetailsUiStore', () => ({
   useTaskStopping: () => ({
-    isStopping: false,
+    isStopping: mocks.isStopping,
     setIsStopping: mocks.setIsStopping,
   }),
   useStopToastSuppression: () => ({
@@ -53,6 +55,8 @@ vi.mock('@/lib/api', () => ({
 describe('useAttemptExecution', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mocks.isStopping = false;
+    mocks.isAttemptRunningVisible = true;
     mocks.cancelConversation.mockResolvedValue(undefined);
   });
 
@@ -70,5 +74,23 @@ describe('useAttemptExecution', () => {
       reason: '用户请求停止',
     });
     expect(mocks.cancelPrompt).not.toHaveBeenCalled();
+  });
+
+  it('keeps isStopping active during cold-start when only isConversationTurnInFlight is true until the turn settles', () => {
+    mocks.isAttemptRunningVisible = false;
+    mocks.isStopping = true;
+
+    const { result, rerender } = renderHook(
+      ({ turnInFlight }: { turnInFlight: boolean }) =>
+        useAttemptExecution(undefined, 'task-1', 'conversation-1', turnInFlight),
+      { initialProps: { turnInFlight: true } }
+    );
+
+    expect(result.current.isAttemptRunning).toBe(true);
+    expect(mocks.setIsStopping).not.toHaveBeenCalledWith(false);
+
+    rerender({ turnInFlight: false });
+    expect(result.current.isAttemptRunning).toBe(false);
+    expect(mocks.setIsStopping).toHaveBeenCalledWith(false);
   });
 });

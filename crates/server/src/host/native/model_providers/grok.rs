@@ -8,7 +8,7 @@ use super::common::*;
 use crate::host::native::model_provider_import::ImportDraft;
 
 /// Grok `config.toml` 的 Provider 状态。`[models] default` 与 `[model.*]` 是
-/// 当前启用项的唯一真相源；VibeX 预设只在 default 指向 `vibex` 时才算启用。
+/// 当前启用项的唯一真相源；Dimo 预设只在 default 指向 `dimo` 时才算启用。
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct NativeGrokProvider {
     pub id: String,
@@ -35,7 +35,7 @@ pub(super) fn project_with_grok_native(
     let Some(native) = native else {
         return view;
     };
-    // `models.default` is the enabled Provider. The `vibex` table is still a
+    // `models.default` is the enabled Provider. The `dimo` table is still a
     // real endpoint: skipping it left BeeAPI-style configs looking unbound
     // even while Grok was already routing through that table.
     let active_id = native.active_provider.as_deref();
@@ -45,7 +45,7 @@ pub(super) fn project_with_grok_native(
         .find(|provider| Some(provider.id.as_str()) == active_id)
         .map(|provider| provider.api_url.as_str())
         .filter(|url| !url.is_empty());
-    let match_id = active_id.filter(|id| *id != "vibex");
+    let match_id = active_id.filter(|id| *id != "dimo");
     apply_native_active_binding(
         &mut view,
         match_id,
@@ -79,8 +79,8 @@ pub(super) fn grok_native_drafts(native: Option<&NativeGrokState>) -> Vec<Native
         .collect()
 }
 
-pub(super) fn native_uses_vibex_grok_projection(native: Option<&NativeGrokState>) -> bool {
-    native.is_some_and(|state| state.active_provider.as_deref() == Some("vibex"))
+pub(super) fn native_uses_dimo_grok_projection(native: Option<&NativeGrokState>) -> bool {
+    native.is_some_and(|state| state.active_provider.as_deref() == Some("dimo"))
 }
 
 pub(super) fn is_native_grok_channel(
@@ -90,13 +90,13 @@ pub(super) fn is_native_grok_channel(
     let Some(native) = native else {
         return false;
     };
-    if is_vibex_grok_table(&provider.id) {
+    if is_dimo_grok_table(&provider.id) {
         return false;
     }
     native
         .providers
         .iter()
-        .any(|candidate| candidate.id == provider.id && !is_vibex_grok_table(&candidate.id))
+        .any(|candidate| candidate.id == provider.id && !is_dimo_grok_table(&candidate.id))
 }
 
 pub(super) async fn activate_native_grok_provider(
@@ -119,7 +119,7 @@ pub(super) async fn remove_native_grok_provider(
     grok_home: &Path,
     provider: &StoredProvider,
 ) -> Result<(), crate::host::native::NativeError> {
-    if is_vibex_grok_table(&provider.id) {
+    if is_dimo_grok_table(&provider.id) {
         return Ok(());
     }
     let path = grok_home.join("config.toml");
@@ -135,7 +135,7 @@ pub(super) async fn remove_native_grok_provider(
         None
     } else {
         models.iter().find_map(|(id, value)| {
-            if is_vibex_grok_table(id) {
+            if is_dimo_grok_table(id) {
                 return None;
             }
             value
@@ -196,8 +196,8 @@ pub(super) fn native_grok_state_from_table(table: &toml::Table) -> NativeGrokSta
         };
     };
     let mut providers = Vec::new();
-    let mut vibex_models: Vec<String> = Vec::new();
-    let mut vibex_entry: Option<(&str, &toml::Table)> = None;
+    let mut dimo_models: Vec<String> = Vec::new();
+    let mut dimo_entry: Option<(&str, &toml::Table)> = None;
     for (id, value) in models {
         let Some(entry) = value.as_table() else {
             continue;
@@ -222,13 +222,13 @@ pub(super) fn native_grok_state_from_table(table: &toml::Table) -> NativeGrokSta
             .and_then(toml::Value::as_str)
             .unwrap_or(id)
             .to_string();
-        if is_vibex_grok_table(id) {
-            if id == "vibex" {
-                vibex_models.insert(0, model_id);
-                vibex_entry = Some((id.as_str(), entry));
+        if is_dimo_grok_table(id) {
+            if id == "dimo" {
+                dimo_models.insert(0, model_id);
+                dimo_entry = Some((id.as_str(), entry));
             } else {
-                vibex_models.push(model_id);
-                vibex_entry.get_or_insert((id.as_str(), entry));
+                dimo_models.push(model_id);
+                dimo_entry.get_or_insert((id.as_str(), entry));
             }
             continue;
         }
@@ -256,8 +256,8 @@ pub(super) fn native_grok_state_from_table(table: &toml::Table) -> NativeGrokSta
             .to_string(),
         });
     }
-    if let Some((id, entry)) = vibex_entry {
-        let primary = vibex_models.first().cloned().unwrap_or_default();
+    if let Some((id, entry)) = dimo_entry {
+        let primary = dimo_models.first().cloned().unwrap_or_default();
         let mut model = serde_json::json!({
             "id": primary,
             "api_backend": entry
@@ -268,14 +268,14 @@ pub(super) fn native_grok_state_from_table(table: &toml::Table) -> NativeGrokSta
                 .get("context_window")
                 .and_then(toml::Value::as_integer),
         });
-        if !vibex_models.is_empty() {
-            model["models"] = serde_json::json!(vibex_models);
+        if !dimo_models.is_empty() {
+            model["models"] = serde_json::json!(dimo_models);
         }
         providers.insert(
             0,
             NativeGrokProvider {
-                id: if id == "vibex" {
-                    "vibex".to_string()
+                id: if id == "dimo" {
+                    "dimo".to_string()
                 } else {
                     id.to_string()
                 },
@@ -304,8 +304,8 @@ pub(super) fn native_grok_state_from_table(table: &toml::Table) -> NativeGrokSta
     let active_provider = default
         .as_deref()
         .and_then(|id| {
-            if is_vibex_grok_table(id) {
-                return Some("vibex".to_string());
+            if is_dimo_grok_table(id) {
+                return Some("dimo".to_string());
             }
             providers
                 .iter()
@@ -314,7 +314,7 @@ pub(super) fn native_grok_state_from_table(table: &toml::Table) -> NativeGrokSta
         })
         .or_else(|| {
             let only = providers.first()?;
-            (default.is_none() && providers.len() == 1 && !is_vibex_grok_table(&only.id))
+            (default.is_none() && providers.len() == 1 && !is_dimo_grok_table(&only.id))
                 .then(|| only.id.clone())
         });
     NativeGrokState {
@@ -386,7 +386,7 @@ pub(super) async fn restore_grok_projection(
     }
     let mut table = parse_toml_table_bytes(&path, original.as_deref())?;
     if let Some(models) = table.get_mut("model").and_then(toml::Value::as_table_mut) {
-        models.retain(|name, _| !is_vibex_grok_table(name));
+        models.retain(|name, _| !is_dimo_grok_table(name));
         if models.is_empty() {
             table.remove("model");
         }
@@ -417,7 +417,7 @@ pub(super) async fn restore_grok_projection(
         .and_then(toml::Value::as_str)
         .map(str::trim)
         .filter(|value| {
-            !value.is_empty() && !is_vibex_grok_table(value) && !custom_ids.contains(*value)
+            !value.is_empty() && !is_dimo_grok_table(value) && !custom_ids.contains(*value)
         });
     if let Some(default) = restored_default {
         let models = toml_table_entry(&mut table, "models")?;
@@ -430,7 +430,7 @@ pub(super) async fn restore_grok_projection(
             .get("default")
             .and_then(toml::Value::as_str)
             .unwrap_or("");
-        if is_vibex_grok_table(current) || custom_ids.contains(current) {
+        if is_dimo_grok_table(current) || custom_ids.contains(current) {
             models.remove("default");
         }
         if models.is_empty() {
@@ -457,20 +457,20 @@ pub(super) struct GrokProviderSpec {
     pub(super) context_window: Option<i64>,
 }
 
-/// Whether VibeX mints this `[model.*]` name. Only these get swept, so a table
+/// Whether Dimo mints this `[model.*]` name. Only these get swept, so a table
 /// the user added by hand never disappears.
-pub(super) fn is_vibex_grok_table(name: &str) -> bool {
-    name == "vibex" || name.starts_with("vibex-")
+pub(super) fn is_dimo_grok_table(name: &str) -> bool {
+    name == "dimo" || name.starts_with("dimo-")
 }
 
-/// Table name for one model. The first keeps `vibex`, so an existing
-/// single-model config is rewritten in place and `[models] default = "vibex"`
+/// Table name for one model. The first keeps `dimo`, so an existing
+/// single-model config is rewritten in place and `[models] default = "dimo"`
 /// keeps naming the default however often the user changes it. The rest get a
 /// suffix derived from the model id, which survives that reordering.
 pub(super) fn grok_model_table(taken: &mut HashSet<String>, index: usize, id: &str) -> String {
     if index == 0 {
-        taken.insert("vibex".to_string());
-        return "vibex".to_string();
+        taken.insert("dimo".to_string());
+        return "dimo".to_string();
     }
     let mut slug = String::new();
     for character in id.chars() {
@@ -481,9 +481,9 @@ pub(super) fn grok_model_table(taken: &mut HashSet<String>, index: usize, id: &s
         }
     }
     let base = if slug.trim_end_matches('-').is_empty() {
-        format!("vibex-{index}")
+        format!("dimo-{index}")
     } else {
-        format!("vibex-{}", slug.trim_end_matches('-'))
+        format!("dimo-{}", slug.trim_end_matches('-'))
     };
     let mut table = base.clone();
     let mut suffix = 2;
@@ -498,7 +498,7 @@ pub(super) fn grok_model_table(taken: &mut HashSet<String>, index: usize, id: &s
 ///
 /// Grok resolves a model to a whole table and `[models] default` names one, so
 /// a provider that enables several models has to write one table per model.
-/// Writing only the first — as this used to — left the others checked in VibeX
+/// Writing only the first — as this used to — left the others checked in Dimo
 /// but unreachable in grok.
 pub(super) fn grok_spec(raw: &str, provider_name: &str) -> GrokProviderSpec {
     let object = serde_json::from_str::<Value>(raw)
@@ -569,7 +569,7 @@ pub(super) async fn apply_grok(
     let models = toml_table_entry(&mut table, "models")?;
     models.insert(
         "default".to_string(),
-        toml::Value::String("vibex".to_string()),
+        toml::Value::String("dimo".to_string()),
     );
     let owned: HashSet<&str> = spec
         .models
@@ -579,12 +579,12 @@ pub(super) async fn apply_grok(
     let model_root = toml_table_entry(&mut table, "model")?;
     // Drop the tables an earlier save projected but this one does not, so
     // unchecking a model takes it out of grok's picker instead of leaving it
-    // reachable forever. `vibex` always leads the list, so it is always kept.
-    model_root.retain(|name, _| !is_vibex_grok_table(name) || owned.contains(name));
+    // reachable forever. `dimo` always leads the list, so it is always kept.
+    model_root.retain(|name, _| !is_dimo_grok_table(name) || owned.contains(name));
     for model in &spec.models {
         let entry = toml_table_entry(model_root, &model.table)?;
         // Rebuild rather than merge: a field the user cleared (`context_window`,
-        // say) has to go away, and the table holds nothing VibeX does not own.
+        // say) has to go away, and the table holds nothing Dimo does not own.
         entry.clear();
         entry.insert("model".to_string(), toml::Value::String(model.id.clone()));
         entry.insert(

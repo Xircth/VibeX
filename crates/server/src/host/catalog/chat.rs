@@ -132,7 +132,7 @@ fn default_event_filter() -> Vec<String> {
 }
 
 fn default_command_prefix() -> String {
-    "/vibex".to_string()
+    "/dimo".to_string()
 }
 
 async fn load_store() -> Result<ChatChannelStore, ApplicationError> {
@@ -427,8 +427,8 @@ pub(super) async fn test_channel(args: Value) -> Result<Value, ApplicationError>
             ApplicationError::not_found(format!("Chat channel not found: {}", args.channel_id))
         })?;
     let token = load_channel_token(&channel.id).await;
-    let msg = RichMessage::info("这是一条来自 VibeX 设置页的测试消息。")
-        .with_title("🔔 VibeX 测试通知")
+    let msg = RichMessage::info("这是一条来自 Dimo 设置页的测试消息。")
+        .with_title("🔔 Dimo 测试通知")
         .with_field("渠道", channel.name.clone());
     match deliver_rich(
         &channel.id,

@@ -23,23 +23,23 @@ pub use crate::browser::agent::GrantLevel;
 use super::keys::Platform;
 use super::protocol::RawApp;
 
-/// VibeX's own bundle identifiers (`tauri.conf.json`), matched on any process
-/// so a second VibeX — a development build next to the installed one — is as
+/// Dimo's own bundle identifiers (`tauri.conf.json`), matched on any process
+/// so a second Dimo — a development build next to the installed one — is as
 /// out of reach as this one.
-pub const VIBEX_BUNDLE_ID: &str = "com.vibex.desktop";
-pub const VIBEX_ALT_BUNDLE_ID: &str = "app.vibex";
+pub const DIMO_BUNDLE_ID: &str = "com.dimo.desktop";
+pub const DIMO_ALT_BUNDLE_ID: &str = "app.dimo";
 
-/// The file names VibeX's executable goes by, matched on any process's path
+/// The file names Dimo's executable goes by, matched on any process's path
 /// for the same reason, where an application has no bundle identifier to
 /// know it by: on Windows, a development build next to the installed one is
 /// otherwise just another executable.
-pub const VIBEX_EXECUTABLES: &[&str] = &[
-    "vibex.exe",
-    "vibex",
-    "vibex-desktop.exe",
-    "vibex-desktop",
-    "vibex-server.exe",
-    "vibex-server",
+pub const DIMO_EXECUTABLES: &[&str] = &[
+    "dimo.exe",
+    "dimo",
+    "dimo-desktop.exe",
+    "dimo-desktop",
+    "dimo-server.exe",
+    "dimo-server",
 ];
 
 /// A grant in force on one window.
@@ -158,16 +158,16 @@ pub fn generation(epoch: u64, seq: u64) -> String {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum NotGrantable {
-    /// One of VibeX's own windows. Not a setting: an agent that could read
-    /// VibeX's windows could read the grant dialog and the stop button, and
+    /// One of Dimo's own windows. Not a setting: an agent that could read
+    /// Dimo's windows could read the grant dialog and the stop button, and
     /// the only thing keeping a person in charge of what an agent may see is
     /// that those are out of its reach.
-    Vibex,
+    Dimo,
     /// The application is on the person's never-share list — one of the
     /// defaults they kept (credential managers, the system settings), or one
     /// they added.
     Blocklisted,
-    /// VibeX cannot tell which application this is, or which run of it: the
+    /// Dimo cannot tell which application this is, or which run of it: the
     /// platform gave no start time for its process (so a later process under
     /// the same pid could not be told apart), or nothing a blocklist could
     /// match (no bundle identifier, no path).
@@ -179,16 +179,16 @@ impl NotGrantable {
     /// a read of one is refused.
     pub fn note(self) -> &'static str {
         match self {
-            NotGrantable::Vibex => {
-                "VibeX's own window: it can never be shared with an agent. For web pages use \
+            NotGrantable::Dimo => {
+                "Dimo's own window: it can never be shared with an agent. For web pages use \
                  the browser_* tools."
             }
             NotGrantable::Blocklisted => {
                 "on the user's list of applications never shared with agents: it cannot be \
-                 shared unless they take it off that list in VibeX's settings."
+                 shared unless they take it off that list in Dimo's settings."
             }
             NotGrantable::Unidentified => {
-                "VibeX cannot tell which application owns this window, so it cannot be shared \
+                "Dimo cannot tell which application owns this window, so it cannot be shared \
                  with an agent."
             }
         }
@@ -524,7 +524,7 @@ impl Blocklist {
     }
 }
 
-/// Enough about this VibeX process to recognise its windows in a listing.
+/// Enough about this Dimo process to recognise its windows in a listing.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SelfIdentity {
@@ -547,15 +547,15 @@ impl SelfIdentity {
         }
     }
 
-    /// Whether `app` is VibeX: this process, any process calling itself
-    /// VibeX's bundle, any executable named as VibeX's is, or anything run
-    /// from this VibeX's executable or bundle.
+    /// Whether `app` is Dimo: this process, any process calling itself
+    /// Dimo's bundle, any executable named as Dimo's is, or anything run
+    /// from this Dimo's executable or bundle.
     pub fn owns(&self, app: &RawApp) -> bool {
         if app.pid == self.pid {
             return true;
         }
         if app.bundle_id.as_deref().is_some_and(|b| {
-            b.eq_ignore_ascii_case(VIBEX_BUNDLE_ID) || b.eq_ignore_ascii_case(VIBEX_ALT_BUNDLE_ID)
+            b.eq_ignore_ascii_case(DIMO_BUNDLE_ID) || b.eq_ignore_ascii_case(DIMO_ALT_BUNDLE_ID)
         }) {
             return true;
         }
@@ -568,7 +568,7 @@ impl SelfIdentity {
             .rsplit(['/', '\\'])
             .find(|part| !part.is_empty())
             .is_some_and(|file| {
-                VIBEX_EXECUTABLES
+                DIMO_EXECUTABLES
                     .iter()
                     .any(|name| file.eq_ignore_ascii_case(name))
             })
@@ -582,7 +582,7 @@ impl SelfIdentity {
             .any(|mine| same_path(mine, path))
     }
 
-    /// Whether any word of a launch command is VibeX: its bundle
+    /// Whether any word of a launch command is Dimo: its bundle
     /// identifier, an executable of its name, or this very executable or
     /// bundle.
     pub fn owns_command(&self, command: &str) -> bool {
@@ -628,7 +628,7 @@ pub fn grantable(
     blocklist: &Blocklist,
 ) -> Result<(), NotGrantable> {
     if me.owns(app) {
-        return Err(NotGrantable::Vibex);
+        return Err(NotGrantable::Dimo);
     }
     if blocklist.matches(app) {
         return Err(NotGrantable::Blocklisted);
@@ -774,7 +774,7 @@ mod tests {
     use super::*;
 
     /// A launch command is read word by word, quotes kept together, and any
-    /// word naming VibeX or an application on the list is enough: the
+    /// word naming Dimo or an application on the list is enough: the
     /// executable, an argument, a wrapper's application id.
     #[test]
     fn a_launch_command_is_judged_by_every_word() {
@@ -797,11 +797,11 @@ mod tests {
         assert!(!list.matches_command("/usr/bin/gnome-calculator"));
         let me = SelfIdentity {
             pid: 1,
-            exe: Some(PathBuf::from("/opt/vibex/vibex")),
+            exe: Some(PathBuf::from("/opt/dimo/dimo")),
             bundle: None,
         };
-        assert!(me.owns_command(r#""C:\Program Files\vibex\vibex.exe" --flag"#));
-        assert!(me.owns_command("/opt/vibex/vibex"));
+        assert!(me.owns_command(r#""C:\Program Files\dimo\dimo.exe" --flag"#));
+        assert!(me.owns_command("/opt/dimo/dimo"));
         assert!(!me.owns_command("/usr/bin/gnome-calculator"));
     }
 
@@ -816,51 +816,51 @@ mod tests {
         }
     }
 
-    /// VibeX is recognised by pid, by its bundle identifier on any pid, and
+    /// Dimo is recognised by pid, by its bundle identifier on any pid, and
     /// by its executable or bundle path — the last is what a development build
     /// (which has no bundle identifier) is recognised by. A path in another
-    /// case is VibeX's only where the filesystem ignores case: on Linux it
+    /// case is Dimo's only where the filesystem ignores case: on Linux it
     /// names another file.
     #[test]
-    fn vibex_is_never_grantable_however_it_is_described() {
+    fn dimo_is_never_grantable_however_it_is_described() {
         let me = SelfIdentity {
             pid: 100,
             exe: Some(PathBuf::from(
-                "/Applications/vibex.app/Contents/MacOS/vibex",
+                "/Applications/dimo.app/Contents/MacOS/dimo",
             )),
-            bundle: Some(PathBuf::from("/Applications/vibex.app")),
+            bundle: Some(PathBuf::from("/Applications/dimo.app")),
         };
         let list = Blocklist::new(&[]);
-        for vibex in [
+        for dimo in [
             app(100, None, None),
-            app(200, Some("com.vibex.desktop"), None),
-            app(200, Some("COM.VIBEX.DESKTOP"), None),
-            app(300, None, Some("/Applications/vibex.app")),
+            app(200, Some("com.dimo.desktop"), None),
+            app(200, Some("COM.DIMO.DESKTOP"), None),
+            app(300, None, Some("/Applications/dimo.app")),
             app(
                 300,
                 None,
-                Some("/Applications/vibex.app/Contents/MacOS/vibex"),
+                Some("/Applications/dimo.app/Contents/MacOS/dimo"),
             ),
-            // Any other VibeX, wherever it runs from, by its executable's
+            // Any other Dimo, wherever it runs from, by its executable's
             // name: Windows gives no bundle identifier to know it by.
             app(
                 400,
                 None,
-                Some(r"C:\Users\me\vibex\src-tauri\target\debug\vibex.exe"),
+                Some(r"C:\Users\me\dimo\src-tauri\target\debug\dimo.exe"),
             ),
-            app(400, None, Some(r"C:\Program Files\vibex\VIBEX.EXE")),
-            app(400, None, Some("/usr/bin/vibex")),
+            app(400, None, Some(r"C:\Program Files\dimo\DIMO.EXE")),
+            app(400, None, Some("/usr/bin/dimo")),
         ] {
             assert_eq!(
-                grantable(&vibex, &me, &list),
-                Err(NotGrantable::Vibex),
-                "{vibex:?}"
+                grantable(&dimo, &me, &list),
+                Err(NotGrantable::Dimo),
+                "{dimo:?}"
             );
         }
         assert_eq!(
-            grantable(&app(300, None, Some("/applications/VIBEX.app")), &me, &list),
+            grantable(&app(300, None, Some("/applications/DIMO.app")), &me, &list),
             if cfg!(any(windows, target_os = "macos")) {
-                Err(NotGrantable::Vibex)
+                Err(NotGrantable::Dimo)
             } else {
                 Ok(())
             }
@@ -870,9 +870,9 @@ mod tests {
             Ok(())
         );
         for other in [
-            r"C:\Tools\vibexgen.exe",
-            r"C:\vibex\WindowsTerminal.exe",
-            r"C:\Tools\vibex.exe.old",
+            r"C:\Tools\dimogen.exe",
+            r"C:\dimo\WindowsTerminal.exe",
+            r"C:\Tools\dimo.exe.old",
         ] {
             assert_eq!(
                 grantable(&app(400, None, Some(other)), &me, &list),
@@ -980,7 +980,7 @@ mod tests {
     /// name a blocklist could match, cannot be shared: the grant could not be
     /// held to it.
     #[test]
-    fn an_application_vibex_cannot_identify_is_not_grantable() {
+    fn an_application_dimo_cannot_identify_is_not_grantable() {
         let me = SelfIdentity::default();
         let list = Blocklist::new(&[]);
         let mut no_start = app(1, Some("com.apple.TextEdit"), None);

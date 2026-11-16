@@ -138,7 +138,7 @@ fn slugify_instance_id(display_name: &str) -> String {
     }
 }
 
-fn to_wire_view(record: ProviderInstanceRecord) -> ProviderInstanceWireView {
+fn to_wire_view(record: ProviderInstanceRecord, has_active_sessions: bool) -> ProviderInstanceWireView {
     let auth_mode = serde_json::from_str::<Value>(&record.auth_mode)
         .unwrap_or_else(|_| json!({ "mode": "OfficialOAuth" }));
     ProviderInstanceWireView {
@@ -148,9 +148,33 @@ fn to_wire_view(record: ProviderInstanceRecord) -> ProviderInstanceWireView {
         display_name: record.display_name,
         auth_mode,
         is_default: record.is_default,
-        has_active_sessions: false,
+        has_active_sessions,
         created_at: record.created_at,
         updated_at: record.updated_at,
+    }
+}
+
+async fn agent_has_active_sessions(domains: &ServerApplicationDomains, raw_agent_id: &str) -> bool {
+    let Ok(agent_id) = agents::AgentId::parse(raw_agent_id.trim()) else {
+        return false;
+    };
+    domains
+        .conversations
+        .agent_runtime
+        .has_active_sessions_for_agent(&agent_id)
+        .await
+}
+
+async fn mark_provider_agent_sessions_stale(
+    domains: &ServerApplicationDomains,
+    raw_agent_id: &str,
+) {
+    if let Ok(agent_id) = agents::AgentId::parse(raw_agent_id.trim()) {
+        domains
+            .conversations
+            .agent_runtime
+            .mark_agent_sessions_config_stale(&agent_id, "provider_instance_changed")
+            .await;
     }
 }
 
@@ -263,7 +287,11 @@ pub(crate) async fn list(
             .await
             .map_err(map_store_error)?,
     };
-    let views: Vec<ProviderInstanceWireView> = rows.into_iter().map(to_wire_view).collect();
+    let mut views = Vec::with_capacity(rows.len());
+    for row in rows {
+        let active = agent_has_active_sessions(domains, &row.agent_id).await;
+        views.push(to_wire_view(row, active));
+    }
     serialize(views)
 }
 
@@ -310,7 +338,11 @@ pub(crate) async fn create(
     .await
     .map_err(map_store_error)?;
 
-    serialize(to_wire_view(created))
+    if created.is_default {
+        mark_provider_agent_sessions_stale(domains, &created.agent_id).await;
+    }
+    let active = agent_has_active_sessions(domains, &created.agent_id).await;
+    serialize(to_wire_view(created, active))
 }
 
 pub(crate) async fn update(
@@ -351,7 +383,9 @@ pub(crate) async fn update(
     .await
     .map_err(map_store_error)?;
 
-    serialize(to_wire_view(updated))
+    mark_provider_agent_sessions_stale(domains, &updated.agent_id).await;
+    let active = agent_has_active_sessions(domains, &updated.agent_id).await;
+    serialize(to_wire_view(updated, active))
 }
 
 pub(crate) async fn set_default(
@@ -363,6 +397,7 @@ pub(crate) async fn set_default(
         ProviderInstanceRecord::set_default(domains.writer_pool(), &input.agent_id, &input.instance_id)
             .await
             .map_err(map_store_error)?;
+    mark_provider_agent_sessions_stale(domains, &input.agent_id).await;
     Ok(Value::Null)
 }
 
@@ -374,6 +409,7 @@ pub(crate) async fn delete(
     ProviderInstanceRecord::delete(domains.writer_pool(), &input.agent_id, &input.instance_id)
         .await
         .map_err(map_store_error)?;
+    mark_provider_agent_sessions_stale(domains, &input.agent_id).await;
     Ok(Value::Null)
 }
 

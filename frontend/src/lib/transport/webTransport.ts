@@ -14,6 +14,7 @@ export const WEB_SOCKET_KEEPALIVE_MS = 15_000;
 export interface WebTransportOptions {
   baseUrl: string;
   token: string;
+  onAuthError?: (error: WebTransportError) => void;
 }
 
 type CommandResponse = {
@@ -33,7 +34,8 @@ export class WebTransportError extends Error {
     message: string,
     readonly code: string,
     readonly retryable: boolean,
-    readonly operationId?: string
+    readonly operationId?: string,
+    readonly status?: number
   ) {
     super(message);
     this.name = 'WebTransportError';
@@ -68,16 +70,21 @@ type WireServerMessage =
 
 class AsyncEventQueue {
   private readonly values: RemoteEvent[] = [];
-  private readonly waiters: Array<
-    (result: IteratorResult<RemoteEvent>) => void
-  > = [];
+  private readonly waiters: Array<{
+    resolve: (result: IteratorResult<RemoteEvent>) => void;
+    reject: (error: unknown) => void;
+  }> = [];
   private ended = false;
+  private failure: unknown = null;
 
   push(value: RemoteEvent): void {
+    if (this.ended || this.failure !== null) {
+      return;
+    }
     const waiter = this.waiters.shift();
     if (waiter) {
-      waiter({ done: false, value });
-    } else if (!this.ended) {
+      waiter.resolve({ done: false, value });
+    } else {
       this.values.push(value);
     }
   }
@@ -87,16 +94,40 @@ class AsyncEventQueue {
     if (value) {
       return Promise.resolve({ done: false, value });
     }
+    if (this.failure !== null) {
+      const err = this.failure;
+      this.failure = null;
+      this.ended = true;
+      return Promise.reject(err);
+    }
     if (this.ended) {
       return Promise.resolve({ done: true, value: undefined });
     }
-    return new Promise((resolve) => this.waiters.push(resolve));
+    return new Promise((resolve, reject) =>
+      this.waiters.push({ resolve, reject })
+    );
+  }
+
+  error(err: unknown): void {
+    if (this.ended || this.failure !== null) {
+      return;
+    }
+    const normalized =
+      err instanceof Error ? err : new Error(String(err ?? 'Stream error'));
+    if (this.waiters.length > 0) {
+      this.ended = true;
+      for (const waiter of this.waiters.splice(0)) {
+        waiter.reject(normalized);
+      }
+      return;
+    }
+    this.failure = normalized;
   }
 
   close(): void {
     this.ended = true;
     for (const waiter of this.waiters.splice(0)) {
-      waiter({ done: true, value: undefined });
+      waiter.resolve({ done: true, value: undefined });
     }
   }
 }
@@ -111,6 +142,7 @@ export class WebTransport implements BackendTransport {
   readonly environment = 'web' as const;
   private readonly baseUrl: string;
   private readonly token: string;
+  private readonly onAuthError?: (error: WebTransportError) => void;
   private socket: WebSocket | undefined;
   private reconnectTimer: ReturnType<typeof setTimeout> | undefined;
   private pingTimer: ReturnType<typeof setInterval> | undefined;
@@ -124,6 +156,7 @@ export class WebTransport implements BackendTransport {
   constructor(options: WebTransportOptions) {
     this.baseUrl = options.baseUrl.replace(/\/+$/, '');
     this.token = options.token;
+    this.onAuthError = options.onAuthError;
   }
 
   get origin(): string {
@@ -224,12 +257,17 @@ export class WebTransport implements BackendTransport {
                 this.sendAttach(subscription);
               }
             }
-            const next = await subscription.queue.next();
-            if (next.done || closed) {
+            try {
+              const next = await subscription.queue.next();
+              if (next.done || closed) {
+                cleanup();
+                return { value: undefined, done: true };
+              }
+              return next;
+            } catch (err) {
               cleanup();
-              return { value: undefined, done: true };
+              throw err;
             }
-            return next;
           },
           async return(): Promise<IteratorResult<RemoteEvent>> {
             cleanup();
@@ -272,7 +310,7 @@ export class WebTransport implements BackendTransport {
       headers: {
         Authorization: `Bearer ${this.token}`,
         'Content-Type': 'application/json',
-        'X-VibeX-Protocol-Version': PROTOCOL_VERSION,
+        'X-Dimo-Protocol-Version': PROTOCOL_VERSION,
       },
     });
     if (!response.ok) {
@@ -282,12 +320,17 @@ export class WebTransport implements BackendTransport {
       } catch {
         // Preserve a stable local error even if an intermediary returned HTML.
       }
-      throw new WebTransportError(
-        envelope.message ?? `VibeX Server returned HTTP ${response.status}`,
+      const err = new WebTransportError(
+        envelope.message ?? `Dimo Server returned HTTP ${response.status}`,
         envelope.code ?? 'remote_http_error',
         envelope.retryable ?? false,
-        envelope.operation_id
+        envelope.operation_id,
+        response.status
       );
+      if (response.status === 401 || err.code === 'unauthorized') {
+        this.onAuthError?.(err);
+      }
+      throw err;
     }
     return response;
   }
@@ -297,8 +340,8 @@ export class WebTransport implements BackendTransport {
       return;
     }
     const socket = new WebSocket(this.webSocketUrl(), [
-      'vibex.v1',
-      `vibex.token.${base64UrlEncode(this.token)}`,
+      'dimo.v1',
+      `dimo.token.${base64UrlEncode(this.token)}`,
     ]);
     this.socket = socket;
     this.attachLifecycleListeners();
@@ -358,7 +401,24 @@ export class WebTransport implements BackendTransport {
       return;
     }
     if (message.type === 'error') {
+      const envelope =
+        typeof message.error === 'object' && message.error !== null
+          ? (message.error as ErrorEnvelope)
+          : undefined;
+      const err = new WebTransportError(
+        envelope?.message ?? 'Subscription stream failed',
+        envelope?.code ?? 'subscription_error',
+        envelope?.retryable ?? false,
+        envelope?.operation_id
+      );
+      if (err.code === 'unauthorized') {
+        this.onAuthError?.(err);
+      }
       if (!message.subscription_id) {
+        for (const [id, active] of this.subscriptions.entries()) {
+          this.subscriptions.delete(id);
+          active.queue.error(err);
+        }
         return;
       }
       const failed = this.subscriptions.get(message.subscription_id);
@@ -366,7 +426,7 @@ export class WebTransport implements BackendTransport {
         return;
       }
       this.subscriptions.delete(message.subscription_id);
-      failed.queue.close();
+      failed.queue.error(err);
       return;
     }
     const subscription = this.subscriptions.get(message.subscription_id);
@@ -375,7 +435,13 @@ export class WebTransport implements BackendTransport {
     }
     if (message.type === 'detached') {
       this.subscriptions.delete(message.subscription_id);
-      subscription.queue.close();
+      subscription.queue.error(
+        new WebTransportError(
+          `Subscription detached: ${message.reason || 'unknown reason'}`,
+          'subscription_detached',
+          true
+        )
+      );
       return;
     }
     if (message.type === 'snapshot') {
@@ -409,24 +475,84 @@ export class WebTransport implements BackendTransport {
     channel: string,
     handler: (payload: T) => void
   ): Promise<() => void> {
-    const request = {
-      subscription_id: randomUUID(),
-      resource: 'host_event',
-      channel,
-      after_sequence: 0n,
-    } as SubscriptionRequest;
-    const iterator = this.subscribe(request)[Symbol.asyncIterator]();
     let stopped = false;
-    void (async () => {
-      while (!stopped) {
-        const next = await iterator.next();
-        if (next.done || stopped) return;
-        handler(next.value.payload as T);
+    let retryTimer: ReturnType<typeof setTimeout> | undefined;
+    let retryAttempts = 0;
+    let currentIterator: AsyncIterator<RemoteEvent> | undefined;
+
+    const createIterator = () =>
+      this.subscribe({
+        subscription_id: randomUUID(),
+        resource: 'host_event',
+        channel,
+        after_sequence: 0n,
+      } as SubscriptionRequest)[Symbol.asyncIterator]();
+
+    currentIterator = createIterator();
+
+    const run = async (initialIterator: AsyncIterator<RemoteEvent>) => {
+      let iterator: AsyncIterator<RemoteEvent> | undefined = initialIterator;
+      while (!stopped && !this.destroyed) {
+        try {
+          if (!iterator) {
+            iterator = createIterator();
+            currentIterator = iterator;
+          }
+          const next = await iterator.next();
+          if (stopped || this.destroyed) {
+            return;
+          }
+          if (next.done) {
+            throw new WebTransportError(
+              `Host event stream "${channel}" ended unexpectedly`,
+              'stream_ended',
+              true
+            );
+          }
+          retryAttempts = 0;
+          handler(next.value.payload as T);
+        } catch (err) {
+          if (stopped || this.destroyed) {
+            return;
+          }
+          void iterator?.return?.();
+          if (currentIterator === iterator) {
+            currentIterator = undefined;
+          }
+          iterator = undefined;
+          console.warn(
+            `[WebTransport] Host event listener "${channel}" interrupted:`,
+            err
+          );
+          if (
+            err instanceof WebTransportError &&
+            (err.code === 'unauthorized' || err.status === 401)
+          ) {
+            return;
+          }
+          const delay = Math.min(500 * 2 ** retryAttempts, 8_000);
+          retryAttempts += 1;
+          await new Promise<void>((resolve) => {
+            retryTimer = setTimeout(() => {
+              retryTimer = undefined;
+              resolve();
+            }, delay);
+          });
+        }
       }
-    })();
+    };
+
+    void run(currentIterator);
+
     return () => {
       stopped = true;
-      void iterator.return?.();
+      if (retryTimer !== undefined) {
+        clearTimeout(retryTimer);
+        retryTimer = undefined;
+      }
+      const active = currentIterator;
+      currentIterator = undefined;
+      void active?.return?.();
     };
   }
 

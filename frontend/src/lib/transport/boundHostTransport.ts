@@ -14,6 +14,7 @@ const DESKTOP_SHELL_COMMAND_SET = new Set<string>(DESKTOP_SHELL_COMMANDS);
 
 const HOST_PUSH_EVENT_PREFIXES = [
   'conversation-events',
+  'conversation-rate-limit',
   'workspace-sessions-changed',
   'workspace-focus-conversation',
   'agent-management-event',
@@ -30,9 +31,9 @@ const HOST_PUSH_EVENT_PREFIXES = [
   'scratch-stream',
   'slash-commands-stream',
   'log-stream',
-  'vibex://settings-file-changed',
-  'vibex://collaboration-space-changed',
-  'vibex://collaboration-receipts-changed',
+  'dimo://settings-file-changed',
+  'dimo://collaboration-space-changed',
+  'dimo://collaboration-receipts-changed',
   'vibex://pulse-deck-changed',
   'theme-changed',
   'log-settings://changed',

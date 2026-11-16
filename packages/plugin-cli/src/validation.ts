@@ -4,8 +4,8 @@ import { isAbsolute, join, relative, resolve } from "node:path";
 import {
   CONTRIBUTION_ICONS as ICON_NAMES,
   validateThemeContributions,
-} from "@vibex/plugin-sdk";
-import type { VibeXPluginManifest } from "@vibex/plugin-sdk";
+} from "@dimoai/plugin-sdk";
+import type { DimoPluginManifest } from "@dimoai/plugin-sdk";
 
 const CONTRIBUTION_ICONS = new Set<string>(ICON_NAMES);
 
@@ -18,7 +18,7 @@ export interface Diagnostic {
 
 export interface ValidationResult {
   valid: boolean;
-  manifest?: VibeXPluginManifest;
+  manifest?: DimoPluginManifest;
   diagnostics: Diagnostic[];
 }
 
@@ -81,7 +81,7 @@ const CAPABILITIES = new Set(["runtime.execute", "artifact.preview"]);
 export async function validatePlugin(root: string): Promise<ValidationResult> {
   const pluginRoot = resolve(root);
   const diagnostics: Diagnostic[] = [];
-  const manifestPath = join(pluginRoot, ".vibex-plugin/plugin.json");
+  const manifestPath = join(pluginRoot, ".dimo-plugin/plugin.json");
   let manifest: Record<string, unknown>;
   try {
     const raw = JSON.parse(await readFile(manifestPath, "utf8")) as unknown;
@@ -123,20 +123,20 @@ export async function validatePlugin(root: string): Promise<ValidationResult> {
   if (!isObject(manifest.engines)) {
     diagnostics.push(error("engines_invalid", "engines is required"));
   } else if (
-    typeof manifest.engines.vibex !== "string" ||
+    typeof manifest.engines.dimo !== "string" ||
     typeof manifest.engines.pluginSdk !== "string"
   ) {
     diagnostics.push(
       error(
         "engines_invalid",
-        "engines.vibex and engines.pluginSdk are required",
+        "engines.dimo and engines.pluginSdk are required",
       ),
     );
   }
 
   return {
     valid: diagnostics.every((item) => item.severity !== "error"),
-    manifest: manifest as unknown as VibeXPluginManifest,
+    manifest: manifest as unknown as DimoPluginManifest,
     diagnostics,
   };
 }
@@ -272,7 +272,7 @@ async function validateContent(
   if (
     !isObject(declaration) ||
     declaration.root !== "contents" ||
-    declaration.index !== ".vibex-plugin/content.index.json"
+    declaration.index !== ".dimo-plugin/content.index.json"
   ) {
     diagnostics.push(
       error(
@@ -282,7 +282,7 @@ async function validateContent(
     );
     return;
   }
-  const path = join(root, ".vibex-plugin/content.index.json");
+  const path = join(root, ".dimo-plugin/content.index.json");
   try {
     const index = JSON.parse(await readFile(path, "utf8")) as unknown;
     if (
@@ -697,7 +697,7 @@ function validateHostChrome(
     diagnostics.push(
       error(
         "contribution_icon_unknown",
-        `Icon must be one of @vibex/plugin-contract/catalog/icons`,
+        `Icon must be one of @dimo/plugin-contract/catalog/icons`,
       ),
     );
   }

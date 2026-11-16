@@ -46,7 +46,7 @@ describe('annotated image drag', () => {
     document.elementFromPoint = () => zone;
 
     const dropped: File[] = [];
-    zone.addEventListener('vibex-annotated-image-drop', (event) => {
+    zone.addEventListener('dimo-annotated-image-drop', (event) => {
       dropped.push((event as CustomEvent<File>).detail);
     });
 

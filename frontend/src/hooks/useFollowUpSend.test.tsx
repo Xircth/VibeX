@@ -487,7 +487,7 @@ describe('useFollowUpSend', () => {
       <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
     );
     const message =
-      'Compare [&Codex](vibex://agent/codex) and [&Claude Code](vibex://agent/claude_code)';
+      'Compare [&Codex](dimo://agent/codex) and [&Claude Code](dimo://agent/claude_code)';
     const { result } = renderHook(
       () =>
         useFollowUpSend({
@@ -557,7 +557,7 @@ describe('useFollowUpSend', () => {
     );
     const action = formatSessionComposerCommand({
       type: '!',
-      key: 'vibex.office/create-presentation|创建 PPT',
+      key: 'dimo.office/create-presentation|创建 PPT',
       value: '',
     });
     const { result } = renderHook(
@@ -584,7 +584,7 @@ describe('useFollowUpSend', () => {
         text: '请把重点改成季度复盘',
         workflowRefs: [
           {
-            pluginId: 'vibex.office',
+            pluginId: 'dimo.office',
             workflowId: 'create-presentation',
           },
         ],
@@ -680,5 +680,142 @@ describe('useFollowUpSend', () => {
 
     expect(listInputsMock).toHaveBeenCalled();
     expect(onSendFailure).not.toHaveBeenCalled();
+  });
+
+  it('validates missing workspaceId before calling onBeforeSend so drafts and attachments are never wiped without recovery', async () => {
+    const onBeforeSend = vi.fn();
+    const onSendFailure = vi.fn();
+    const queryClient = new QueryClient();
+    const wrapper = ({ children }: { children: React.ReactNode }) => (
+      <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+    );
+    const { result } = renderHook(
+      () =>
+        useFollowUpSend({
+          sessionId: undefined,
+          workspaceId: undefined,
+          isNewSessionMode: true,
+          message: 'preserve me',
+          images: ['.vibe-images/keep.png'],
+          executorProfileId: { executor: 'codex' as const } as never,
+          conflictMarkdown: null,
+          reviewMarkdown: '',
+          clearComments: vi.fn(),
+          onBeforeSend,
+          onSendFailure,
+          onAfterSendCleanup: vi.fn(),
+        }),
+      { wrapper }
+    );
+
+    await act(async () => {
+      await result.current.onSendFollowUp();
+    });
+
+    expect(onBeforeSend).not.toHaveBeenCalled();
+    expect(createMock).not.toHaveBeenCalled();
+    expect(sendTurnMock).not.toHaveBeenCalled();
+    expect(onSendFailure).toHaveBeenCalledWith('preserve me');
+  });
+
+  it('removes the optimistic turn immediately when submitInput queues behind a concurrent turn (turn == null)', async () => {
+    sendTurnMock.mockResolvedValue({
+      input: { id: 'input-queued-1', status: 'queued' },
+      turn: null,
+    });
+    const events: OptimisticConversationTurnEvent[] = [];
+    const unsubscribe = subscribeToOptimisticConversationTurns((event) =>
+      events.push(event)
+    );
+    const queryClient = new QueryClient();
+    const wrapper = ({ children }: { children: React.ReactNode }) => (
+      <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+    );
+    const { result } = renderHook(
+      () =>
+        useFollowUpSend({
+          sessionId: 'conversation-1',
+          workspaceId: 'ws-1',
+          message: 'queued behind concurrent turn',
+          executorProfileId: { executor: 'codex' as const } as never,
+          conflictMarkdown: null,
+          reviewMarkdown: '',
+          clearComments: vi.fn(),
+          onAfterSendCleanup: vi.fn(),
+        }),
+      { wrapper }
+    );
+
+    try {
+      await act(async () => {
+        await result.current.onSendFollowUp();
+      });
+
+      expect(events).toHaveLength(2);
+      expect(events[0]).toMatchObject({
+        type: 'add',
+        conversationId: 'conversation-1',
+      });
+      const addedTurnId =
+        events[0]?.type === 'add' ? events[0].turn.id : undefined;
+      expect(events[1]).toEqual({
+        type: 'remove',
+        conversationId: 'conversation-1',
+        turnId: addedTurnId,
+      });
+    } finally {
+      unsubscribe();
+    }
+  });
+
+  it('includes standalone fileRefs as resource blocks in buildOptimisticUserTurnBlocks', async () => {
+    const { buildOptimisticUserTurnBlocks } = await import('./useFollowUpSend');
+    expect(
+      buildOptimisticUserTurnBlocks({
+        displayText: 'Check this file',
+        images: [],
+        fileRefs: [{ path: 'src/Main.tsx', startLine: 10, endLine: 25 }],
+      })
+    ).toEqual([
+      { type: 'text', text: 'Check this file' },
+      {
+        type: 'resource',
+        uri: 'src/Main.tsx:10-25',
+        title: 'Main.tsx',
+      },
+    ]);
+  });
+
+  it('forwards providerInstanceId to sendAgentRuntimeTurn', async () => {
+    sendTurnMock.mockResolvedValue({ input: { id: 'in-1', status: 'dispatched' } });
+    const queryClient = new QueryClient();
+    const wrapper = ({ children }: { children: React.ReactNode }) => (
+      <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+    );
+    const { result } = renderHook(
+      () =>
+        useFollowUpSend({
+          sessionId: 'conversation-1',
+          workspaceId: 'ws-1',
+          message: 'hello provider',
+          executorProfileId: { executor: 'codex' as const } as never,
+          providerInstanceId: 'inst-custom-9',
+          conflictMarkdown: null,
+          reviewMarkdown: '',
+          clearComments: vi.fn(),
+          onAfterSendCleanup: vi.fn(),
+        }),
+      { wrapper }
+    );
+
+    await act(async () => {
+      await result.current.onSendFollowUp();
+    });
+
+    expect(sendTurnMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        providerInstanceId: 'inst-custom-9',
+      })
+    );
   });
 });

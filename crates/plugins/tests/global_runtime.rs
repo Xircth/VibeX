@@ -74,7 +74,7 @@ async fn verified_binary_installer_publishes_before_agent_visible_probe() {
     };
 
     let lock = GlobalRuntimeInstaller::new(&host)
-        .install("dev.vibex.example", &runtime)
+        .install("dev.dimo.example", &runtime)
         .await
         .unwrap();
 

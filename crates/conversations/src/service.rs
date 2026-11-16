@@ -227,6 +227,24 @@ pub trait ConversationHost: Send + Sync {
         agent_id: &agents::AgentId,
     ) -> Result<AgentRuntimeLaunchSettings, ConversationServiceError>;
 
+    async fn launch_settings_with_provider_instance(
+        &self,
+        pool: &SqlitePool,
+        agent_id: &agents::AgentId,
+        provider_instance_id: Option<&str>,
+    ) -> Result<AgentRuntimeLaunchSettings, ConversationServiceError> {
+        let mut settings = self.launch_settings(pool, agent_id).await?;
+        if let Some(instance_id) = provider_instance_id
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        {
+            settings
+                .env
+                .insert("DIMO_PROVIDER_INSTANCE_ID".to_string(), instance_id.to_string());
+        }
+        Ok(settings)
+    }
+
     /// Product MCP identities Host will deliver on this session new/resume/rebind.
     fn product_mcp_server_names(&self) -> Vec<String> {
         Vec::new()
@@ -361,7 +379,7 @@ pub struct ConversationStartTurnInput {
     pub workflow_refs: Vec<ConversationWorkflowRef>,
     pub file_refs: Vec<agents::ConversationFileRef>,
     /// Implicit plugin prompt contributions injected into the Agent prompt under
-    /// `<vibex-plugin-context>` while hidden from the user-facing timeline.
+    /// `<dimo-plugin-context>` while hidden from the user-facing timeline.
     pub internal_prompt_contributions: Vec<agents::InternalPromptBlock>,
     /// Present only when this turn was claimed from the durable input queue.
     /// InputDispatched(input -> turn) is persisted before any Agent prompt send.
@@ -370,6 +388,8 @@ pub struct ConversationStartTurnInput {
     pub operation_id: Option<Uuid>,
     /// Present when this turn was delivered from a collaboration space.
     pub collaboration_origin: Option<agents::CollaborationSpaceOrigin>,
+    /// Selected provider instance (`provider_instances.instance_id`) for multi-instance routing.
+    pub provider_instance_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -430,7 +450,11 @@ pub struct ConversationSteerInput {
     pub operation_id: Uuid,
     pub expected_turn_id: Uuid,
     pub text: String,
+    pub display_text: Option<String>,
     pub images: Vec<String>,
+    pub file_refs: Vec<agents::ConversationFileRef>,
+    pub mode_override: Option<String>,
+    pub config_overrides: Vec<AgentSessionConfigOverride>,
     pub principal: serde_json::Value,
     pub promoted_input_id: Option<Uuid>,
     pub promoted_input_expected_revision: Option<u64>,
@@ -503,6 +527,9 @@ impl ConversationSessionService {
 
     pub(self) async fn turn_lock(&self, conversation_id: Uuid) -> Arc<tokio::sync::Mutex<()>> {
         let mut locks = self.ctx.turn_locks.lock().await;
+        if locks.len() > 128 {
+            locks.retain(|id, lock| *id == conversation_id || Arc::strong_count(lock) > 1);
+        }
         Arc::clone(
             locks
                 .entry(conversation_id)
@@ -560,6 +587,17 @@ impl ConversationSessionService {
         update: impl FnOnce(&mut ConversationRuntimeState),
     ) {
         let mut states = self.ctx.runtime_states.lock().await;
+        if states.len() > 256 {
+            states.retain(|id, s| {
+                *id == conversation_id
+                    || s.turn_in_flight
+                    || s.active_turn_id.is_some()
+                    || s.active_prompt_id.is_some()
+                    || s.pending_permission_id.is_some()
+                    || s.pending_question_id.is_some()
+                    || !s.active_delegation_ids.is_empty()
+            });
+        }
         let state = states.entry(conversation_id).or_default();
         update(state);
     }
@@ -614,6 +652,30 @@ async fn append_and_publish_conversation_event(
     Ok(record)
 }
 
+pub(crate) async fn turn_is_auth_blocked(
+    pool: &SqlitePool,
+    turn_id: Uuid,
+) -> Result<bool, sqlx::Error> {
+    let normalized_json: Option<String> = sqlx::query_scalar(
+        r#"SELECT normalized_json
+           FROM conversation_events
+           WHERE turn_id = ? AND event_kind = 'turn_blocked'
+           ORDER BY sequence DESC
+           LIMIT 1"#,
+    )
+    .bind(turn_id)
+    .fetch_optional(pool)
+    .await?;
+    Ok(normalized_json.is_some_and(|raw| {
+        matches!(
+            serde_json::from_str::<ConversationEvent>(&raw),
+            Ok(ConversationEvent::TurnBlocked {
+                reason: agents::conversation::TurnBlockedReason::Authentication { .. },
+            })
+        )
+    }))
+}
+
 async fn ensure_conversation_has_no_in_flight_turn(
     pool: &SqlitePool,
     conversation: &ConversationRecord,
@@ -626,6 +688,9 @@ async fn ensure_conversation_has_no_in_flight_turn(
     };
 
     if is_in_flight_turn_status(&active_turn.status) {
+        if active_turn.status == "blocked" && turn_is_auth_blocked(pool, active_turn_id).await? {
+            return Ok(());
+        }
         return Err(ConversationServiceError::Conflict(format!(
             "Conversation {} already has an active turn",
             conversation.id

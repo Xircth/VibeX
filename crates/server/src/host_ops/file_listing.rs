@@ -385,7 +385,7 @@ mod tests {
             .duration_since(UNIX_EPOCH)
             .unwrap_or_default()
             .as_nanos();
-        let path = std::env::temp_dir().join(format!("vibex-host-listing-{prefix}-{unique}"));
+        let path = std::env::temp_dir().join(format!("dimo-host-listing-{prefix}-{unique}"));
         fs::create_dir_all(&path).unwrap();
         path
     }
@@ -476,7 +476,7 @@ mod tests {
     #[test]
     fn missing_root_returns_empty_listing() {
         let listing =
-            list_directory_children_at_path(Path::new("/definitely-missing-vibex-listing"), "")
+            list_directory_children_at_path(Path::new("/definitely-missing-dimo-listing"), "")
                 .unwrap();
         assert_eq!(listing, super::empty_listing());
     }

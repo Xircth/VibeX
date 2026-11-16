@@ -1,7 +1,7 @@
 import {
   type ConversationModeContribution,
   useConversationModes,
-} from '@vibex/plugin-sdk';
+} from '@dimoai/plugin-sdk';
 import { MessageSquare, Puzzle } from 'lucide-react';
 import {
   type ReactNode,

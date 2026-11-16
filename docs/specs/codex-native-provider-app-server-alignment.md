@@ -2,14 +2,14 @@
 
 ## Requirements
 
-**User Story:** As a VibeX user running Codex through the native provider, I want the provider to match the official `codex app-server` protocol, so that supported Codex features behave predictably instead of appearing available but failing at runtime.
+**User Story:** As a Dimo user running Codex through the native provider, I want the provider to match the official `codex app-server` protocol, so that supported Codex features behave predictably instead of appearing available but failing at runtime.
 
 ### Acceptance Criteria
 
-1. WHEN VibeX sends a JSON-RPC request to `codex app-server` THEN the native provider SHALL treat a JSON-RPC `error` response as a failed request, not as a healthy success.
-2. WHEN VibeX checks a reusable Codex app-server process THEN the health probe SHALL only pass on a successful `model/list` response.
-3. WHEN VibeX lists Codex models THEN the native provider SHALL query `model/list` from `codex app-server` and only fall back to local defaults when the app-server cannot provide models.
-4. WHEN VibeX reports Codex provider capabilities THEN capabilities SHALL reflect the currently implemented native-provider surface, not the full upstream app-server surface.
+1. WHEN Dimo sends a JSON-RPC request to `codex app-server` THEN the native provider SHALL treat a JSON-RPC `error` response as a failed request, not as a healthy success.
+2. WHEN Dimo checks a reusable Codex app-server process THEN the health probe SHALL only pass on a successful `model/list` response.
+3. WHEN Dimo lists Codex models THEN the native provider SHALL query `model/list` from `codex app-server` and only fall back to local defaults when the app-server cannot provide models.
+4. WHEN Dimo reports Codex provider capabilities THEN capabilities SHALL reflect the currently implemented native-provider surface, not the full upstream app-server surface.
 5. WHEN a user sends a follow-up while a Codex turn is running THEN the native provider SHALL use the official `turn/steer` path when a thread id and turn id are available.
 6. WHEN a Codex executor profile defines prompt/instruction fields THEN the native provider SHALL pass official `turn/start` instruction fields where the app-server supports them.
 7. IF an upstream app-server feature is intentionally not wired yet THEN the spec SHALL mark it as out of this implementation slice rather than advertising it as fully available.
@@ -19,9 +19,9 @@
 
 ### Overview
 
-The native-provider already owns the Codex app-server process lifecycle and basic `thread/start`, `thread/resume`, `thread/fork`, `thread/compact/start`, `turn/start`, and `turn/interrupt` calls. This change tightens the protocol boundary and adds small, official app-server features that map cleanly to the current VibeX backend.
+The native-provider already owns the Codex app-server process lifecycle and basic `thread/start`, `thread/resume`, `thread/fork`, `thread/compact/start`, `turn/start`, and `turn/interrupt` calls. This change tightens the protocol boundary and adds small, official app-server features that map cleanly to the current Dimo backend.
 
-This implementation slice adds the official skills/apps/hooks app-server surfaces requested for VibeX. It does not build account login, dynamic tools, or full Codex history browsing.
+This implementation slice adds the official skills/apps/hooks app-server surfaces requested for Dimo. It does not build account login, dynamic tools, or full Codex history browsing.
 
 ### Components and Interfaces
 
@@ -58,7 +58,7 @@ No shared TypeScript type changes are required for this slice. Existing `provide
 
 - JSON-RPC responses containing `error` are converted to an `Err` with the server message.
 - `model/list` failures fall back to a small local model list to preserve settings-page resilience, but the model source detail remains app-server-oriented in code comments and tests.
-- `turn/steer` is best-effort only when both `thread_id` and `turn_id` are supplied. If unavailable, VibeX falls back to the existing `turn/start` continuation path.
+- `turn/steer` is best-effort only when both `thread_id` and `turn_id` are supplied. If unavailable, Dimo falls back to the existing `turn/start` continuation path.
 
 ### Out Of Scope For This Slice
 
@@ -66,7 +66,7 @@ No shared TypeScript type changes are required for this slice. Existing `provide
 - `account/*` login/rate-limit UI.
 - `thread/list`, `thread/read`, `thread/turns/list`, archive/unarchive UX.
 - Dynamic tools.
-- Host command/process/fs app-server APIs as standalone VibeX surfaces.
+- Host command/process/fs app-server APIs as standalone Dimo surfaces.
 
 ## Tasks
 

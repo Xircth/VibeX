@@ -40,7 +40,7 @@ afterEach(() => {
 
 describe('watchPluginSources missing files', () => {
   it('keeps watching when a listed file disappears before it is read', async () => {
-    const root = await mkdtemp(join(tmpdir(), 'vibex-plugin-watch-'));
+    const root = await mkdtemp(join(tmpdir(), 'dimo-plugin-watch-'));
     const source = join(root, 'worker.mjs');
     await writeFile(source, 'export default 1;');
     await writeFile(join(root, 'fleeting.tmp'), 'temp');
@@ -69,7 +69,7 @@ describe('watchPluginSources missing files', () => {
   });
 
   it('reports a digest failure and leaves the watcher running', async () => {
-    const root = await mkdtemp(join(tmpdir(), 'vibex-plugin-watch-'));
+    const root = await mkdtemp(join(tmpdir(), 'dimo-plugin-watch-'));
     const source = join(root, 'worker.mjs');
     await writeFile(source, 'export default 1;');
     await writeFile(join(root, 'locked.tmp'), 'temp');

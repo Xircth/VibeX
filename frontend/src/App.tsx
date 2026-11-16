@@ -108,6 +108,9 @@ function MainAppContent({ children }: { children: ReactNode }) {
   const postUpdateRestoreHandledRef = useRef(false);
   const isTauri = useTauriClient();
   const isMainDesktopWindow = isTauri && getCurrentWindow().label === 'main';
+  const shouldManageProjectWindows = !isTauri || isMainDesktopWindow;
+  const configRef = useRef(config);
+  configRef.current = config;
   const startupPromptStep = getStartupPromptStep({
     config,
     pathname: location.pathname,
@@ -134,14 +137,20 @@ function MainAppContent({ children }: { children: ReactNode }) {
         writeBasicGuide(skipBasicGuide());
         return;
       }
-      const saved = await updateAndSaveConfig({
+      const baseConfig =
+        configRef.current ??
+        (await configApi.getConfig().then((info) => info.config));
+      if (!baseConfig) throw new Error(i18n.t('dialogs:onboarding.setupFailed'));
+      const saved = await configApi.saveConfig({
+        ...baseConfig,
         editor,
         ...(theme ? { theme } : {}),
         executor_profile: { executor: defaultAgentId, variant: null },
       });
-      if (!saved) throw new Error(i18n.t('dialogs:onboarding.setupFailed'));
+      configRef.current = saved;
+      updateConfig(saved);
     },
-    [updateAndSaveConfig]
+    [updateConfig]
   );
 
   const finishFirstRun = useCallback(
@@ -149,12 +158,17 @@ function MainAppContent({ children }: { children: ReactNode }) {
       const store = useWindowProjectsStore.getState();
       for (const projectId of [...projectIds].reverse())
         store.ensureProjectOpen(projectId);
-      if (!config) throw new Error(i18n.t('dialogs:onboarding.setupFailed'));
+      const latestConfig =
+        configRef.current ??
+        (await configApi.getConfig().then((info) => info.config));
+      if (!latestConfig)
+        throw new Error(i18n.t('dialogs:onboarding.setupFailed'));
       const saved = await configApi.saveConfig({
-        ...config,
+        ...latestConfig,
         disclaimer_acknowledged: true,
         onboarding_acknowledged: true,
       });
+      configRef.current = saved;
       updateConfig(saved);
       const current = readBasicGuide();
       if (current?.phase !== 'completed')
@@ -164,7 +178,7 @@ function MainAppContent({ children }: { children: ReactNode }) {
         replace: true,
       });
     },
-    [config, navigate, updateConfig]
+    [navigate, updateConfig]
   );
 
   // Track previous path for back navigation
@@ -292,7 +306,7 @@ function MainAppContent({ children }: { children: ReactNode }) {
     <ThemeProvider initialTheme={config?.theme || ThemeMode.SYSTEM}>
       <SearchProvider>
         <AgentWorkbenchProvider>
-          {isMainDesktopWindow ? <ProjectWindowManager /> : null}
+          {shouldManageProjectWindows ? <ProjectWindowManager /> : null}
           {isTauri ? <TrayBadgeSync /> : null}
           {isTauri ? <DesktopWindowControls /> : null}
           <ThemedToaster />

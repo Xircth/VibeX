@@ -2,7 +2,7 @@
 status: accepted
 date: 2026-08-14
 decision-makers:
-  - VibeX maintainers
+  - Dimo maintainers
 ---
 
 # 共享 Workflow Studio 与 Workflow Creator Plugin
@@ -26,10 +26,10 @@ decision-makers:
    waiting/completed/failed 与事件到达，遵守 reduced-motion，不制造与事件无关的装饰动画。
 6. 选中 Agent step 打开锚定节点的持久 Inspector，包含“信息”和“对话”两个 Tab；节点移出视口时
    Inspector 停靠右侧，小窗口使用 Sheet。
-7. Workflow Creator 是官方、可选、随 VibeX 分发的产品插件。原生 Studio 不依赖插件；插件禁用
+7. Workflow Creator 是官方、可选、随 Dimo 分发的产品插件。原生 Studio 不依赖插件；插件禁用
    不删除源文件、版本、Automation 或 Run。
-8. Plugin 包含 `vibex-workflow-creator` Skill、`vibex-workflow-mcp`、`workflow.definition` content、
-   `*.vibex-workflow.json` file opener 和 `artifact.editor` App surface，并且只消费公共 SDK。
+8. Plugin 包含 `dimo-workflow-creator` Skill、`dimo-workflow-mcp`、`workflow.definition` content、
+   `*.dimo-workflow.json` file opener 和 `artifact.editor` App surface，并且只消费公共 SDK。
 9. `workflow.binding` 保留现有 invocation 语义；Core DAG 使用新的 `workflow.definition`，不能重载同名
    contribution。
 10. Workflow Creator 默认绑定全部兼容 Agent；用户可在插件设置或 MCP 设置修改同一 binding。

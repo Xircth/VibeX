@@ -42,7 +42,7 @@ export function normalizeHostUrl(value) {
     return trimmed;
 }
 export function hostSessionPath(home = homedir()) {
-    return join(home, ".vibex", PLUGIN_RC_NAME);
+    return join(home, ".dimo", PLUGIN_RC_NAME);
 }
 export function saveHostSession(session, file = hostSessionPath()) {
     mkdirSync(dirname(file), { recursive: true });
@@ -81,25 +81,25 @@ export function mergeHostSession(flags, saved, discovered = {}) {
 export function requireHostSession(session) {
     if (session)
         return session;
-    throw new Error("No Host is bound. Run `vibex plugin run server --http://127.0.0.1:17891 --token <token>`.");
+    throw new Error("No Host is bound. Run `dimo plugin run server --http://127.0.0.1:17891 --token <token>`.");
 }
 export function hostDataDirs(home = homedir(), environment = process.env) {
     const dirs = [];
-    if (environment.VIBEX_DATA_DIR)
-        dirs.push(environment.VIBEX_DATA_DIR);
+    if (environment.DIMO_DATA_DIR)
+        dirs.push(environment.DIMO_DATA_DIR);
     if (process.platform === "darwin") {
         const support = join(home, "Library", "Application Support");
-        dirs.push(join(support, "com.vibex.app.dev"), join(support, "com.vibex.app"), join(support, "com.xircth.vibex"), join(support, "vibex"), join(support, "app.vibex.vibex"));
+        dirs.push(join(support, "com.dimo.app.dev"), join(support, "com.dimo.app"), join(support, "com.xircth.dimo"), join(support, "dimo"), join(support, "app.dimo.dimo"));
     }
     else if (process.platform === "win32") {
         const appData = environment.APPDATA || join(home, "AppData", "Roaming");
-        dirs.push(join(appData, "com.vibex.app.dev"), join(appData, "com.vibex.app"), join(appData, "vibex"));
+        dirs.push(join(appData, "com.dimo.app.dev"), join(appData, "com.dimo.app"), join(appData, "dimo"));
     }
     else {
         const dataHome = environment.XDG_DATA_HOME || join(home, ".local", "share");
-        dirs.push(join(dataHome, "com.vibex.app.dev"), join(dataHome, "com.vibex.app"), join(dataHome, "vibex"));
+        dirs.push(join(dataHome, "com.dimo.app.dev"), join(dataHome, "com.dimo.app"), join(dataHome, "dimo"));
     }
-    dirs.push(join(home, ".vibex-data"), join(home, ".vibex"));
+    dirs.push(join(home, ".dimo-data"), join(home, ".dimo"));
     return dirs;
 }
 export function discoverHostFiles(home = homedir(), environment = process.env) {
@@ -135,8 +135,8 @@ export function discoverHostFiles(home = homedir(), environment = process.env) {
     return {};
 }
 export function resolveHostSession(flags = {}, environment = process.env, options = {}) {
-    const envUrl = (environment.VIBEX_URL || "").trim();
-    const envToken = (environment.VIBEX_TOKEN || "").trim();
+    const envUrl = (environment.DIMO_URL || "").trim();
+    const envToken = (environment.DIMO_TOKEN || "").trim();
     const files = discoverHostFiles(options.home, environment);
     return mergeHostSession(flags, loadHostSession(options.sessionFile), {
         url: envUrl ? normalizeHostUrl(envUrl) : files.url,

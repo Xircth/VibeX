@@ -15,15 +15,15 @@ fn write(path: &std::path::Path, contents: &str) {
 fn product_package(integrations: &str) -> PluginPackage {
     let root = tempfile::tempdir().expect("package root");
     write(
-        &root.path().join(".vibex-plugin/plugin.json"),
+        &root.path().join(".dimo-plugin/plugin.json"),
         &format!(
             r#"{{
               "manifestVersion":4,"apiVersion":"1.0",
-              "id":"dev.vibex.surface","publisher":"dev.vibex","name":"Surface","version":"1.0.0",
+              "id":"dev.dimo.surface","publisher":"dev.dimo","name":"Surface","version":"1.0.0",
               "readme":"README.md",
-              "content":{{"root":"contents","index":".vibex-plugin/content.index.json"}},
+              "content":{{"root":"contents","index":".dimo-plugin/content.index.json"}},
               "config":{{"schema":{{"type":"object","additionalProperties":false}}}},
-              "engines":{{"vibex":">=0.1.3 <1.0.0","pluginSdk":"^1.0.0"}},
+              "engines":{{"dimo":">=0.1.3 <1.0.0","pluginSdk":"^1.0.0"}},
               "entrypoints":{{
                 "worker":{{"path":"dist/worker.mjs","runtime":"node","protocol":"1.1"}},
                 "app":{{"root":"dist/app","document":"index.html","protocol":"1.0"}}
@@ -38,7 +38,7 @@ fn product_package(integrations: &str) -> PluginPackage {
     );
     write(&root.path().join("config.json"), "{}");
     write(
-        &root.path().join(".vibex-plugin/content.index.json"),
+        &root.path().join(".dimo-plugin/content.index.json"),
         r#"{"schemaVersion":1,"items":[]}"#,
     );
     write(&root.path().join("dist/worker.mjs"), "export default {};");

@@ -193,8 +193,8 @@ mod tests {
     }
 
     /// See the module note: a webview holding the plugin's commands could
-    /// register a media key, and vibex would open an event tap for it. The
-    /// release gate lets vibex import `CGEventTapCreate` on the strength of
+    /// register a media key, and dimo would open an event tap for it. The
+    /// release gate lets dimo import `CGEventTapCreate` on the strength of
     /// this test and `StopShortcut`'s closed list. A webview gets a plugin
     /// command only from a capability — in `capabilities/`, or inline in
     /// tauri.conf.json — naming the plugin's permission or a set of the app's

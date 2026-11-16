@@ -2,10 +2,10 @@
 //!
 //! Environment switches deliberately cover protocol failure modes that typed
 //! happy-path mocks tend to erase:
-//! - `VIBEX_FIXTURE_AUTH_STATUS=true|false|unsupported|method-not-found|malformed|timeout`
-//! - `VIBEX_FIXTURE_SESSION_AUTH_REQUIRED=1`
-//! - `VIBEX_FIXTURE_ADDITIONAL_DIRECTORIES=advertised|absent`
-//! - `VIBEX_FIXTURE_MCP_HTTP=advertised|absent`
+//! - `DIMO_FIXTURE_AUTH_STATUS=true|false|unsupported|method-not-found|malformed|timeout`
+//! - `DIMO_FIXTURE_SESSION_AUTH_REQUIRED=1`
+//! - `DIMO_FIXTURE_ADDITIONAL_DIRECTORIES=advertised|absent`
+//! - `DIMO_FIXTURE_MCP_HTTP=advertised|absent`
 
 use std::{sync::Arc, time::Duration};
 
@@ -29,10 +29,10 @@ async fn main() -> std::io::Result<()> {
     let mut lines = BufReader::new(tokio::io::stdin()).lines();
     let stdout = Arc::new(Mutex::new(tokio::io::stdout()));
     let auth_mode =
-        std::env::var("VIBEX_FIXTURE_AUTH_STATUS").unwrap_or_else(|_| "unsupported".into());
-    let session_discovery = std::env::var_os("VIBEX_FIXTURE_SESSION_DISCOVERY").is_some();
-    let additional_directories_mode = std::env::var("VIBEX_FIXTURE_ADDITIONAL_DIRECTORIES").ok();
-    let mcp_http_mode = std::env::var("VIBEX_FIXTURE_MCP_HTTP").ok();
+        std::env::var("DIMO_FIXTURE_AUTH_STATUS").unwrap_or_else(|_| "unsupported".into());
+    let session_discovery = std::env::var_os("DIMO_FIXTURE_SESSION_DISCOVERY").is_some();
+    let additional_directories_mode = std::env::var("DIMO_FIXTURE_ADDITIONAL_DIRECTORIES").ok();
+    let mcp_http_mode = std::env::var("DIMO_FIXTURE_MCP_HTTP").ok();
 
     while let Some(line) = lines.next_line().await? {
         let Ok(message) = serde_json::from_str::<Value>(&line) else {
@@ -73,7 +73,7 @@ async fn main() -> std::io::Result<()> {
                         "agentCapabilities": agent_capabilities,
                         "authMethods": [],
                         "agentInfo": {
-                            "name": "vibex-management-fixture",
+                            "name": "dimo-management-fixture",
                             "version": "1.0.0-test"
                         }
                     }
@@ -110,7 +110,7 @@ async fn main() -> std::io::Result<()> {
                 "id": id,
                 "result": {"authenticated": auth_mode == "true"}
             }),
-            "session/new" if std::env::var_os("VIBEX_FIXTURE_SESSION_AUTH_REQUIRED").is_some() => {
+            "session/new" if std::env::var_os("DIMO_FIXTURE_SESSION_AUTH_REQUIRED").is_some() => {
                 json!({
                     "jsonrpc": "2.0",
                     "id": id,
@@ -179,9 +179,9 @@ async fn main() -> std::io::Result<()> {
                 "id": id,
                 "result": {"sessionId": "fixture-session"}
             }),
-            "session/prompt" if std::env::var_os("VIBEX_FIXTURE_PROMPT_SIDE_EFFECT").is_some() => {
+            "session/prompt" if std::env::var_os("DIMO_FIXTURE_PROMPT_SIDE_EFFECT").is_some() => {
                 use std::io::Write;
-                let path = std::env::var_os("VIBEX_FIXTURE_PROMPT_SIDE_EFFECT").unwrap();
+                let path = std::env::var_os("DIMO_FIXTURE_PROMPT_SIDE_EFFECT").unwrap();
                 let mut file = std::fs::OpenOptions::new()
                     .create(true)
                     .append(true)

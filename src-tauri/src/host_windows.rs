@@ -52,9 +52,9 @@ pub fn settings_window_label_for_caller(caller: &str) -> String {
 pub fn host_window_title(name: &str) -> String {
     let name = name.trim();
     if name.is_empty() {
-        "VibeX".to_string()
+        "Dimo".to_string()
     } else {
-        format!("VibeX — {name}")
+        format!("Dimo — {name}")
     }
 }
 
@@ -140,8 +140,8 @@ mod tests {
 
     #[test]
     fn host_window_title_uses_the_saved_name() {
-        assert_eq!(host_window_title("root@lab"), "VibeX — root@lab");
-        assert_eq!(host_window_title("  "), "VibeX");
+        assert_eq!(host_window_title("root@lab"), "Dimo — root@lab");
+        assert_eq!(host_window_title("  "), "Dimo");
         assert_eq!(
             host_settings_window_title("设置", "root@lab"),
             "设置 — root@lab"

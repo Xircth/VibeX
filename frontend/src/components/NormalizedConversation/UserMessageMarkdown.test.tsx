@@ -51,7 +51,7 @@ function StyledUserMessage({
     <QueryClientProvider client={queryClient}>
       <div className={`legacy-design${dark ? ' dark' : ''}`}>
         <style>{userMessageStyles}</style>
-        <div className="vibex-user-message">
+        <div className="dimo-user-message">
           <div className="conv-user-bubble" data-testid="styled-user-bubble">
             <UserMessageMarkdown value={value} workspacePath={workspacePath} />
           </div>
@@ -95,7 +95,7 @@ describe('UserMessageMarkdown', () => {
 
   it('renders agent mentions with the real agent icon and composer token tone', () => {
     render(
-      <StyledUserMessage value="Ask [&Codex](vibex://agent/codex) to review" />
+      <StyledUserMessage value="Ask [&Codex](dimo://agent/codex) to review" />
     );
 
     const chip = screen
@@ -168,19 +168,19 @@ describe('UserMessageMarkdown', () => {
   it('renders a project reference as @name with the absolute path on hover', () => {
     render(
       <UserMessageMarkdown
-        value={`[VibeX](${projectReferenceUri(
+        value={`[Dimo](${projectReferenceUri(
           'proj-1',
-          '/Users/mac/Projects/VibeX'
+          '/Users/mac/Projects/Dimo'
         )})`}
       />
     );
 
     const chip = screen
-      .getByText('@VibeX')
+      .getByText('@Dimo')
       .closest('[data-testid="session-composer-token-chip"]');
     expect(chip).toHaveAttribute('data-token-kind', 'project');
-    expect(chip).toHaveAttribute('title', '/Users/mac/Projects/VibeX');
-    expect(chip).not.toHaveTextContent('/Users/mac/Projects/VibeX');
+    expect(chip).toHaveAttribute('title', '/Users/mac/Projects/Dimo');
+    expect(chip).not.toHaveTextContent('/Users/mac/Projects/Dimo');
   });
 
   it('renders a quote token as a truncated @ chip and shows full text on hover', async () => {

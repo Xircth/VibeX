@@ -34,7 +34,7 @@ pub(super) fn is_native_engine_profile(agent_id: &AgentId) -> bool {
         matches!(
             profile.effective_topology(
                 agents::engine::EngineRuntimePreference::NativeFirst,
-                std::env::var("VIBEX_ENGINE_MODE").ok().as_deref(),
+                std::env::var("DIMO_ENGINE_MODE").ok().as_deref(),
             ),
             ProfileTopology::NativeEngine(_)
         )

@@ -44,4 +44,4 @@ ALTER TABLE collaboration_space_messages
 
 UPDATE collaboration_space_messages
   SET origin = 'agent'
-  WHERE json_extract(envelope_json, '$.actor') LIKE 'vibex://space/%/member/%';
+  WHERE json_extract(envelope_json, '$.actor') LIKE 'dimo://space/%/member/%';

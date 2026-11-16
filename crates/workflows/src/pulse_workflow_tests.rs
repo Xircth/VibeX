@@ -1392,19 +1392,19 @@ fn canonical_workflow_examples_deserialize_and_normalize_cleanly() {
     let examples = [
         (
             "github-ci-autofix",
-            include_str!("../../../examples/workflows/github-ci-autofix.vibex-workflow.json"),
+            include_str!("../../../examples/workflows/github-ci-autofix.dimo-workflow.json"),
         ),
         (
             "feishu-mention-triage",
-            include_str!("../../../examples/workflows/feishu-mention-triage.vibex-workflow.json"),
+            include_str!("../../../examples/workflows/feishu-mention-triage.dimo-workflow.json"),
         ),
         (
             "daily-repo-digest",
-            include_str!("../../../examples/workflows/daily-repo-digest.vibex-workflow.json"),
+            include_str!("../../../examples/workflows/daily-repo-digest.dimo-workflow.json"),
         ),
         (
             "pr-review-gate",
-            include_str!("../../../examples/workflows/pr-review-gate.vibex-workflow.json"),
+            include_str!("../../../examples/workflows/pr-review-gate.dimo-workflow.json"),
         ),
     ];
 

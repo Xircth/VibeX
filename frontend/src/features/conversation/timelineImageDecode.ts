@@ -1,7 +1,7 @@
 /** Decoded timeline images, capped per panel. Bytes stay out of the row. */
 
 export const MAX_DECODED_TIMELINE_IMAGES = 2;
-const VIBEX_IMAGE_PREFIX = 'vibex-image:';
+const DIMO_IMAGE_PREFIX = 'dimo-image:';
 
 type Slot = { url: string; owned: boolean };
 
@@ -11,8 +11,8 @@ const listeners = new Set<() => void>();
 export function timelineImageHash(
   uri: string | null | undefined
 ): string | null {
-  if (!uri?.startsWith(VIBEX_IMAGE_PREFIX)) return null;
-  const hash = uri.slice(VIBEX_IMAGE_PREFIX.length).toLowerCase();
+  if (!uri?.startsWith(DIMO_IMAGE_PREFIX)) return null;
+  const hash = uri.slice(DIMO_IMAGE_PREFIX.length).toLowerCase();
   return /^[0-9a-f]{64}$/.test(hash) ? hash : null;
 }
 

@@ -2,14 +2,14 @@ use std::path::Path;
 
 use super::{
     EntryKind, TRANSCRIPT_SCHEMA_VERSION, Transcript, TranscriptEntry, TranscriptHeader,
-    safe_component, transcript_path_in, vibex_acp_transcripts_root,
+    safe_component, transcript_path_in, dimo_acp_transcripts_root,
 };
 
 /// Read one session's transcript. Missing file → empty transcript. Malformed
 /// lines are skipped so a single truncated write (e.g. a hard kill mid-append)
 /// cannot poison the rest of the history.
 pub fn read_transcript(agent_dir: &str, session_id: &str) -> Transcript {
-    read_transcript_in(&vibex_acp_transcripts_root(), agent_dir, session_id)
+    read_transcript_in(&dimo_acp_transcripts_root(), agent_dir, session_id)
 }
 
 /// Root-injectable core of [`read_transcript`].
@@ -268,7 +268,7 @@ pub fn continuation_ancestors_in(root: &Path, agent_dir: &str, session_id: &str)
 
 /// [`continuation_ancestors_in`] against the real transcripts root.
 pub fn continuation_ancestors(agent_dir: &str, session_id: &str) -> Vec<String> {
-    continuation_ancestors_in(&vibex_acp_transcripts_root(), agent_dir, session_id)
+    continuation_ancestors_in(&dimo_acp_transcripts_root(), agent_dir, session_id)
 }
 
 /// Session ids under `<root>/<agent_dir>/` that some other transcript continues.

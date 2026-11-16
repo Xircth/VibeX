@@ -140,7 +140,7 @@ pub(crate) fn apply_windows_taskbar_icon(
         .config()
         .product_name
         .clone()
-        .unwrap_or_else(|| "VibeX".to_string());
+        .unwrap_or_else(|| "Dimo".to_string());
     let exe_command = std::env::current_exe()
         .map(|p| p.to_string_lossy().into_owned())
         .unwrap_or_default();

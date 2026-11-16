@@ -2,7 +2,7 @@
 status: accepted
 date: 2026-08-26
 decision-makers:
-  - VibeX maintainers
+  - Dimo maintainers
 ---
 
 # Composer 以 `@` 承载引用面板，`&` 在新会话即可用
@@ -14,7 +14,7 @@ Composer 同时用 `@`、`/`、`$`、`#`、`!`、`&` 六种触发符。用户要
 多智能体协同插件启用后还有两处产品缺口：
 
 1. 配置页把每个已启用 Agent 的会话控件全部展开。Agent 一多就无法扫读。
-2. 新建 Conversation 后输入 `&` 没有候选项，手打 `&Codex` 也不会变成 Mention Token。根因不是插件包缺配置，而是 Host Composer 把 `&` 绑在「当前 binding 已经投递过 `vibex-delegation-mcp`」上。新 Conversation 在第一次 `session/new` 之前没有 binding，因此永远看不到 `&`。ADR-0057 要挡住的是插件启用前就已存在的旧会话，不是启用后新建的会话。
+2. 新建 Conversation 后输入 `&` 没有候选项，手打 `&Codex` 也不会变成 Mention Token。根因不是插件包缺配置，而是 Host Composer 把 `&` 绑在「当前 binding 已经投递过 `dimo-delegation-mcp`」上。新 Conversation 在第一次 `session/new` 之前没有 binding，因此永远看不到 `&`。ADR-0057 要挡住的是插件启用前就已存在的旧会话，不是启用后新建的会话。
 
 ## Decision
 
@@ -29,14 +29,14 @@ Composer 同时用 `@`、`/`、`$`、`#`、`!`、`&` 六种触发符。用户要
 | `#` | 不再作为独立触发符。原指令/标签进入 `@` 的「指令」Tab |
 | `!` | 保留兼容触发符，不进入 `@` 面板 |
 
-`&` 继续只表示「请父 LLM 考虑委派」，序列化为 `[&Name](vibex://agent/<id>)`。不把 Agent 放进 `@` 面板。ADR-0031 否决用 `@` 做 Agent Mention 的决定仍然有效。
+`&` 继续只表示「请父 LLM 考虑委派」，序列化为 `[&Name](dimo://agent/<id>)`。不把 Agent 放进 `@` 面板。ADR-0031 否决用 `@` 做 Agent Mention 的决定仍然有效。
 
 ### 2. `@` 引用面板
 
 输入 `@` 后弹出与 Composer 同宽的面板。Tab 顺序固定：
 
 1. **文件** — 现有工作区/仓库文件引用
-2. **项目** — VibeX 中仍存在的 Project（用户已删除的不出现）
+2. **项目** — Dimo 中仍存在的 Project（用户已删除的不出现）
 3. **会话** — 可点名的 Conversation，参考 Codeg
 4. **提交** — 当前仓库 git log
 5. **指令** — 原 `#` 标签/内置指令
@@ -48,12 +48,12 @@ Composer 同时用 `@`、`/`、`$`、`#`、`!`、`&` 六种触发符。用户要
 | 种类 | 写入 Composer 的值 | Agent 看到的意义 |
 |---|---|---|
 | 文件 | `[@:name](relative/path)` | 现有文件引用 |
-| 项目 | `[name](vibex://project/<uuid>@<encoded-path>)` | Token 为 `@name`，Hover 为绝对路径；发给 Agent 的消息为绝对路径 |
-| 会话 | `[title](vibex://conversation/<uuid>)` | 会话增强 `get_session_info` 已认识的 URI |
-| 提交 | `[shortSha](vibex://commit/<repoId>@<sha>)` | 提交身份；正文带短 SHA 与说明 |
+| 项目 | `[name](dimo://project/<uuid>@<encoded-path>)` | Token 为 `@name`，Hover 为绝对路径；发给 Agent 的消息为绝对路径 |
+| 会话 | `[title](dimo://conversation/<uuid>)` | 会话增强 `get_session_info` 已认识的 URI |
+| 提交 | `[shortSha](dimo://commit/<repoId>@<sha>)` | 提交身份；正文带短 SHA 与说明 |
 | 指令 | `[#:name]([[tag:...]])` | 现有标签附录展开 |
 
-会话 URI 使用已有的 `vibex://conversation/<uuid>`，不另造 `vibex://session/`。已保存的 `[#:…]` 与 `#` 草稿继续解析，不要求用户改历史。
+会话 URI 使用已有的 `dimo://conversation/<uuid>`，不另造 `dimo://session/`。已保存的 `[#:…]` 与 `#` 草稿继续解析，不要求用户改历史。
 
 ### 3. `&` 出现条件（修订 ADR-0057 第 7 节）
 

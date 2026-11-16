@@ -276,7 +276,7 @@ mod tests {
 
     #[test]
     fn agent_dir_ignores_pi_home_and_process_env() {
-        let home = Path::new("/tmp/vibex-home");
+        let home = Path::new("/tmp/dimo-home");
         let pi = home.join(".pi").join("agent");
         let mut env = BTreeMap::from([(
             "PI_CODING_AGENT_DIR".to_string(),

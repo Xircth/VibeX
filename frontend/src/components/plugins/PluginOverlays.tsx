@@ -1,4 +1,4 @@
-import { useOverlays } from '@vibex/plugin-sdk';
+import { useOverlays } from '@dimoai/plugin-sdk';
 import type { ReactNode } from 'react';
 
 import { PluginBoundary } from '@/components/plugins/PluginBoundary';

@@ -1,6 +1,6 @@
 import type { AgentAuthModeKind, AgentId } from 'shared/types';
 
-const STORAGE_KEY = 'vibex:agent-auth-kind-tab';
+const STORAGE_KEY = 'dimo:agent-auth-kind-tab';
 const AUTH_KINDS: readonly AgentAuthModeKind[] = [
   'subscription',
   'official_api',

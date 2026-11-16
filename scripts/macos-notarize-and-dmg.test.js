@@ -20,7 +20,7 @@ const {
 
 test("notarytool submit returns an id instead of waiting on Apple", () => {
   const args = notarytoolSubmitArgs({
-    zipPath: "/tmp/VibeX.zip",
+    zipPath: "/tmp/Dimo.zip",
     keyPath: "/tmp/AuthKey.p8",
     keyId: "KEYID",
     issuer: "ISSUER",
@@ -72,21 +72,21 @@ test("maps Apple triples onto Tauri DMG file names", () => {
     x64.appPath,
     path.join(
       workspaceRoot,
-      "target/x86_64-apple-darwin/release/bundle/macos/VibeX.app",
+      "target/x86_64-apple-darwin/release/bundle/macos/Dimo.app",
     ),
   );
   assert.equal(
     x64.dmgPath,
     path.join(
       workspaceRoot,
-      "target/x86_64-apple-darwin/release/bundle/dmg/VibeX_0.1.6_x64.dmg",
+      "target/x86_64-apple-darwin/release/bundle/dmg/Dimo_0.1.6_x64.dmg",
     ),
   );
   assert.equal(
     arm.dmgPath,
     path.join(
       workspaceRoot,
-      "target/aarch64-apple-darwin/release/bundle/dmg/VibeX_0.1.6_aarch64.dmg",
+      "target/aarch64-apple-darwin/release/bundle/dmg/Dimo_0.1.6_aarch64.dmg",
     ),
   );
 });
@@ -126,14 +126,14 @@ test("keeps the app bundle for Tauri and takes DMG creation in-process", () => {
 
 test("creates a compressed DMG from a staging folder", () => {
   const args = hdiutilCreateArgs({
-    volname: "VibeX",
+    volname: "Dimo",
     srcfolder: "/tmp/stage",
-    dest: "/tmp/VibeX.dmg",
+    dest: "/tmp/Dimo.dmg",
   });
   assert.deepEqual(args, [
     "create",
     "-volname",
-    "VibeX",
+    "Dimo",
     "-srcfolder",
     "/tmp/stage",
     "-ov",
@@ -141,7 +141,7 @@ test("creates a compressed DMG from a staging folder", () => {
     "UDZO",
     "-imagekey",
     "zlib-level=9",
-    "/tmp/VibeX.dmg",
+    "/tmp/Dimo.dmg",
   ]);
 });
 
@@ -151,23 +151,23 @@ test("host Apple target follows process.arch", () => {
   assert.equal(hostAppleTarget("x64"), "x86_64-apple-darwin");
 });
 
-test("places VibeX on the left and Applications on the right in DMG Finder layout", () => {
+test("places Dimo on the left and Applications on the right in DMG Finder layout", () => {
   assert.ok(
     DMG_LAYOUT.appPosition.x < DMG_LAYOUT.applicationFolderPosition.x,
-    "VibeX must sit to the left of Applications",
+    "Dimo must sit to the left of Applications",
   );
   assert.equal(
     DMG_LAYOUT.appPosition.y,
     DMG_LAYOUT.applicationFolderPosition.y,
-    "VibeX and Applications must share the same vertical alignment",
+    "Dimo and Applications must share the same vertical alignment",
   );
   const script = dmgFinderAppleScript({
-    volname: "VibeX",
-    appName: "VibeX.app",
+    volname: "Dimo",
+    appName: "Dimo.app",
   });
   assert.match(
     script,
-    /set position of item "VibeX\.app" of container window to \{150, 175\}/,
+    /set position of item "Dimo\.app" of container window to \{150, 175\}/,
   );
   assert.match(
     script,

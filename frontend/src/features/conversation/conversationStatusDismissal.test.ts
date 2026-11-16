@@ -48,7 +48,7 @@ describe('conversationStatusDismissal announcements', () => {
     rememberSessionAnnouncement('session-1', notice);
     rememberSessionAnnouncement('session-1', notice);
 
-    expect(localStorage.getItem('vibex:seen-session-announcements')).toBe(
+    expect(localStorage.getItem('dimo:seen-session-announcements')).toBe(
       JSON.stringify({ 'grok-4-6': 'session-1' })
     );
   });

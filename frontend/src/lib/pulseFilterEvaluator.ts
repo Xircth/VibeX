@@ -885,7 +885,7 @@ export function renderPulseTemplate(
   let output = '';
   let rest = template;
 
-  while (true) {
+  while (rest.length > 0) {
     const openIdx = rest.indexOf('{{');
     if (openIdx < 0) {
       output += rest;
@@ -904,6 +904,8 @@ export function renderPulseTemplate(
     output += resolveTemplateToken(rawKey, envelope);
     rest = afterOpen.slice(closeIdx + 2);
   }
+
+  return output;
 }
 
 export function evaluatePulseRuleLocally(

@@ -1048,7 +1048,7 @@ mod tests {
     #[test]
     fn repo_path_keeps_repo_subdirectory_for_managed_workspace_container() {
         let workspace = sample_workspace(
-            Some("C:/Users/test/.vibex-workspaces/ws-123"),
+            Some("C:/Users/test/.dimo-workspaces/ws-123"),
             true,
             Some("repo-feature-a/frontend"),
         );
@@ -1057,14 +1057,14 @@ mod tests {
         assert_eq!(
             workspace.repo_path(&repo),
             Some(PathBuf::from(
-                "C:/Users/test/.vibex-workspaces/ws-123/repo-feature-a"
+                "C:/Users/test/.dimo-workspaces/ws-123/repo-feature-a"
             ))
         );
     }
 
     #[test]
     fn container_ref_gitdir_path_is_normalized_to_worktree_root() {
-        let root = std::env::temp_dir().join(format!("vibex-workspace-{}", Uuid::new_v4()));
+        let root = std::env::temp_dir().join(format!("dimo-workspace-{}", Uuid::new_v4()));
         let gitdir = root.join("repo_git_meta");
         std::fs::create_dir_all(&gitdir).unwrap();
         std::fs::write(root.join(".git"), format!("gitdir: {}\n", gitdir.display())).unwrap();

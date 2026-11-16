@@ -169,4 +169,45 @@ describe('TauriTransport application command adapter', () => {
     });
     expect(unlisten).toHaveBeenCalledTimes(1);
   });
+
+  it('scopes durable conversation subscriptions to conversation-events:{id}', async () => {
+    const unlisten = vi.fn();
+    tauriListen.mockResolvedValue(unlisten);
+    tauriInvoke.mockResolvedValue({
+      operation_id: '0195d6f4-8c37-7b28-a982-6a9e60142f55',
+      data: {
+        subscription_id: 'sub-conv-1',
+        ready: true,
+        replay: [],
+        high_water_mark: 1,
+      },
+    });
+
+    const events = new TauriTransport().subscribe({
+      subscription_id: 'sub-conv-1',
+      resource: 'conversation',
+      conversation_id: 'conv-42',
+      after_sequence: 0n,
+    });
+
+    const iterator = events[Symbol.asyncIterator]();
+    const pendingNext = iterator.next();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(tauriListen).toHaveBeenCalledWith(
+      'conversation-events:conv-42',
+      expect.any(Function)
+    );
+    expect(tauriListen).not.toHaveBeenCalledWith(
+      'conversation-events',
+      expect.any(Function)
+    );
+
+    await iterator.return?.();
+    await expect(pendingNext).resolves.toEqual({
+      value: undefined,
+      done: true,
+    });
+    expect(unlisten).toHaveBeenCalledTimes(1);
+  });
 });

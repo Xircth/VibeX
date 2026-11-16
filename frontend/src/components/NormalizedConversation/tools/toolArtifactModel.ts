@@ -51,6 +51,23 @@ export function formatFactValue(value: JsonValue): string {
   return JSON.stringify(value);
 }
 
+export function hasJsonFacts(
+  value: JsonValue | null | undefined,
+  options?: { skipKeys?: Iterable<string> }
+): boolean {
+  if (value == null || value === '') return false;
+  if (typeof value !== 'object') return true;
+  if (Array.isArray(value)) {
+    return value.some((item) => item != null && item !== '');
+  }
+  const skip = options?.skipKeys ? new Set(options.skipKeys) : null;
+  for (const [key, item] of Object.entries(value)) {
+    if (skip?.has(key) || item == null || item === '') continue;
+    return true;
+  }
+  return false;
+}
+
 export function jsonToFacts(
   value: JsonValue | null | undefined,
   options?: { skipKeys?: Iterable<string> }

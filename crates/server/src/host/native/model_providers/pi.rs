@@ -248,7 +248,7 @@ pub(super) async fn apply_pi(
     if api_key.is_empty() {
         // A present-but-empty entry is not "no credential" to pi: it shadows the
         // provider's inline `apiKey`, so leaving one behind silently disables a
-        // provider that pi can otherwise reach. VibeX never writes an empty key,
+        // provider that pi can otherwise reach. Dimo never writes an empty key,
         // so this only ever clears one left by an earlier keyless save.
         if auth.get(&native_id).is_some_and(is_empty_pi_api_key_entry) {
             auth.remove(&native_id);
@@ -263,7 +263,7 @@ pub(super) async fn apply_pi(
         );
     }
     // Merge into the existing node rather than replacing it. `models.json`
-    // carries fields VibeX has no UI for and does not own — cc-switch writes the
+    // carries fields Dimo has no UI for and does not own — cc-switch writes the
     // key inline as `apiKey`, and users hand-tune `name` / `headers` / `compat`.
     // Replacing the node would drop them on every save.
     let node = providers
@@ -411,7 +411,7 @@ pub(super) fn pi_auth_key(entry: &Value) -> String {
 /// The API key pi itself would use for one provider node.
 ///
 /// pi resolves credentials as `--api-key` -> `auth.json` -> environment -> the
-/// provider node's inline `apiKey` in `models.json`. VibeX only sees the two
+/// provider node's inline `apiKey` in `models.json`. Dimo only sees the two
 /// file-backed slots, so mirror them in that order. Reading `auth.json` alone
 /// drops a working credential: cc-switch and hand-edited configs keep the key
 /// inline in `models.json` and never write `auth.json` at all.
@@ -462,9 +462,9 @@ pub(super) fn pi_native_id(provider: &StoredProvider) -> String {
     }
     let slug = slug.trim_matches('-').to_string();
     if slug.is_empty() {
-        "vibex-provider".to_string()
+        "dimo-provider".to_string()
     } else if PI_RESERVED_PROVIDER_IDS.contains(&slug.as_str()) {
-        format!("vibex-{slug}")
+        format!("dimo-{slug}")
     } else {
         slug
     }

@@ -24,7 +24,7 @@ export const DEFAULT_VOICE_CONFIG = Object.freeze({
   shortcut: 'Alt+V',
   cleanupMode: 'auto-clean',
   vocabulary:
-    'VibeX, Tauri, Monaco, TypeScript, Rust, React, MCP, Skill, Worktree, Claude, Codex',
+    'Dimo, Tauri, Monaco, TypeScript, Rust, React, MCP, Skill, Worktree, Claude, Codex',
   audioDeviceId: 'default',
   showFloatingHud: true,
 });
@@ -73,7 +73,7 @@ export function buildWhisperPrompt(vocabulary, language = 'auto') {
 }
 
 const PHONETIC_TERM_ALIASES = Object.freeze({
-  VibeX: [/\bvibe\s*[-_]?\s*x\b/gi, /\bvibex\b/gi],
+  Dimo: [/\bvibe\s*[-_]?\s*x\b/gi, /\bdimo\b/gi],
   Tauri: [/\btauri\b/gi, /淘瑞/g],
   Monaco: [/\bmonaco\b/gi],
   TypeScript: [/\btype\s*script\b/gi, /\btypescript\b/gi],
@@ -249,7 +249,7 @@ export function buildMultipartAudioRequest({
       ? 'whisper-large-v3-turbo'
       : model || 'whisper-1';
 
-  const boundary = `----VibeXVoiceBoundary${Date.now().toString(16)}`;
+  const boundary = `----DimoVoiceBoundary${Date.now().toString(16)}`;
   const audioBytes = decodeAudioPayload(audioBase64);
   const ext = mimeType.includes('wav')
     ? 'wav'
@@ -386,7 +386,7 @@ export function buildCleanupChatRequest({
       ? `Preferred technical glossary: ${terms.join(', ')}.`
       : '';
   const systemPrompt = [
-    'You are an intelligent voice dictation post-processor for a software engineering IDE (VibeX).',
+    'You are an intelligent voice dictation post-processor for a software engineering IDE (Dimo).',
     'Clean up the raw speech-to-text transcript:',
     '1. Remove spoken filler words, hesitations, and stutters (e.g. 嗯, 啊, 呃, 那个, 就是说, um, uh, you know).',
     '2. Preserve the speaker’s exact intent, language, and tone — do NOT answer questions or expand the prompt.',
@@ -439,7 +439,7 @@ export async function transcribeWithNativeOsSpeech(
 
   const tempWavPath = join(
     tmpdir(),
-    `vibex-voice-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.wav`,
+    `dimo-voice-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.wav`,
   );
   try {
     await writeFile(tempWavPath, bytes);
@@ -448,8 +448,8 @@ export async function transcribeWithNativeOsSpeech(
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName System.Speech
-$wavPath = $env:VIBEX_VOICE_WAV_PATH
-$cultureName = $env:VIBEX_VOICE_CULTURE
+$wavPath = $env:DIMO_VOICE_WAV_PATH
+$cultureName = $env:DIMO_VOICE_CULTURE
 $recognizers = [System.Speech.Recognition.SpeechRecognitionEngine]::InstalledRecognizers()
 if (-not $recognizers -or $recognizers.Count -eq 0) { exit 0 }
 $selected = $recognizers | Where-Object { $_.Culture.Name -eq $cultureName } | Select-Object -First 1
@@ -495,8 +495,8 @@ Write-Output ($segments -join ' ')
           signal,
           env: {
             ...process.env,
-            VIBEX_VOICE_WAV_PATH: tempWavPath,
-            VIBEX_VOICE_CULTURE: bcp47,
+            DIMO_VOICE_WAV_PATH: tempWavPath,
+            DIMO_VOICE_CULTURE: bcp47,
           },
         },
         (err, stdout) => {
@@ -597,8 +597,8 @@ export class VoiceInputEngine {
       if (process.env.OPENAI_API_KEY) {
         return String(process.env.OPENAI_API_KEY).trim();
       }
-      if (process.env.VIBEX_API_KEY) {
-        return String(process.env.VIBEX_API_KEY).trim();
+      if (process.env.DIMO_API_KEY) {
+        return String(process.env.DIMO_API_KEY).trim();
       }
     }
     return '';
@@ -981,7 +981,7 @@ const defaultWorker = createVoiceInputWorkerDefinition();
 export const engine = defaultWorker.engine;
 export default defaultWorker.workerDefinition;
 
-// Standalone stdio protocol 1.1 loop when executed as a child worker process by the VibeX Host
+// Standalone stdio protocol 1.1 loop when executed as a child worker process by the Dimo Host
 async function runStdioLoopIfMain(definition) {
   if (typeof process === 'undefined' || !process.argv?.[1]) return;
   let isMain = false;

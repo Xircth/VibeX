@@ -1,5 +1,5 @@
-/** Public authoring contract for a VibeX v2 product plugin. */
-export interface VibeXPluginManifest {
+/** Public authoring contract for a Dimo v2 product plugin. */
+export interface DimoPluginManifest {
     $schema?: string;
     manifestVersion: 4;
     apiVersion: '1.0' | '2.0';
@@ -11,12 +11,12 @@ export interface VibeXPluginManifest {
     /** Always points to the required root README. Its frontmatter owns `summary`. */
     readme?: 'README.md';
     engines?: {
-        vibex?: string;
+        dimo?: string;
         pluginSdk?: string;
     };
     content?: {
         root: 'contents';
-        index: '.vibex-plugin/content.index.json';
+        index: '.dimo-plugin/content.index.json';
     };
     /** Values live in root config.json; this schema only describes and validates them. */
     config?: {
@@ -91,7 +91,7 @@ export interface PluginMcpToolDeclaration {
     name: string;
     group?: string;
 }
-/** Package-relative MCP process supervised and credentialed by the VibeX Host. */
+/** Package-relative MCP process supervised and credentialed by the Dimo Host. */
 export interface ManagedMcpRuntimeResource {
     managedRuntime: {
         /** Authoring source bundled by the Plugin CLI into `entrypoint`. */
@@ -151,7 +151,7 @@ export interface AppSurfaceIntegrationManifest extends IntegrationBase {
 /**
  * Icon names the Host is willing to render for plugin chrome. Plugins name an
  * icon instead of shipping markup, so no plugin asset reaches Host DOM.
- * Mirrored by `@vibex/plugin-contract/catalog/icons` and the Rust
+ * Mirrored by `@dimo/plugin-contract/catalog/icons` and the Rust
  * `CONTRIBUTION_ICONS`; all three are asserted equal by tests.
  */
 export declare const CONTRIBUTION_ICONS: readonly ["activity", "alert-triangle", "bell", "bookmark", "bot", "calendar", "chart-bar", "check-circle", "clock", "cloud", "code", "database", "file-text", "filter", "flag", "folder", "gauge", "git-branch", "globe", "info", "key", "layers", "link", "list", "message-square", "monitor", "package", "play", "plug", "puzzle", "refresh-cw", "search", "settings", "shield", "sparkles", "star", "tag", "terminal", "timer", "user", "zap"];
@@ -413,7 +413,7 @@ export declare const pluginManifestSchema: {
             readonly type: "object";
             readonly additionalProperties: false;
             readonly properties: {
-                readonly vibex: {
+                readonly dimo: {
                     readonly type: "string";
                     readonly minLength: 1;
                 };
@@ -432,7 +432,7 @@ export declare const pluginManifestSchema: {
                     readonly const: "contents";
                 };
                 readonly index: {
-                    readonly const: ".vibex-plugin/content.index.json";
+                    readonly const: ".dimo-plugin/content.index.json";
                 };
             };
         };
@@ -628,7 +628,7 @@ export interface SafeFetchUrlValidationResult {
     hostname?: string;
 }
 /**
- * Validates a network fetch URL against VibeX declarative grant security rules:
+ * Validates a network fetch URL against Dimo declarative grant security rules:
  * - Only `http:` and `https:` protocols are permitted
  * - Rejects deceptive URLs containing `@` (`username` / `password` userinfo, e.g. `https://api.example.com@evil.com`)
  * - Blocks link-local / cloud metadata endpoints (`169.254.169.254`, `169.254.0.0/16`, `fe80::/10`, `fd00:ec2::254`, `metadata.google.internal`)

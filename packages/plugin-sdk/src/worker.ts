@@ -1,6 +1,6 @@
 import {
   isSupportedPluginApiVersion,
-  VIBEX_PLUGIN_API_VERSION,
+  DIMO_PLUGIN_API_VERSION,
   type JsonValue,
   type PluginApiVersion,
   type PluginContext,
@@ -192,7 +192,7 @@ export function definePluginWorker(
     | PluginWorkerDefinition
 ): PluginWorkerDefinition {
   if (typeof setupOrDefinition === 'function') {
-    return { apiVersion: VIBEX_PLUGIN_API_VERSION, setup: setupOrDefinition };
+    return { apiVersion: DIMO_PLUGIN_API_VERSION, setup: setupOrDefinition };
   }
   assertSupportedWorkerApi(setupOrDefinition.apiVersion);
   return {

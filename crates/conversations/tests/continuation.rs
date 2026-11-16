@@ -176,6 +176,7 @@ impl Fixture {
             queued_input_claim: None,
             operation_id: Some(Uuid::new_v4()),
             collaboration_origin: None,
+            provider_instance_id: None,
         }
     }
 }
@@ -661,5 +662,499 @@ async fn persisting_switched_session_agent_before_turn_still_delivers_portable_h
         .unwrap()
         .unwrap();
     assert_eq!(active.agent_id.as_str(), "codex");
+    f.service.cancel_turn(f.conversation, None).await.unwrap();
+}
+
+#[tokio::test]
+async fn placeholder_binding_upgrade_via_link_native_session_preserves_a_b_a_context_and_preferences()
+{
+    let f = Fixture::new().await;
+    let pool = &f.ctx.deployment.db().pool;
+    let claude_id = AgentId::parse("claude_code").unwrap();
+
+    // Step 1: Start Turn 1 on Claude.
+    f.service
+        .submit_and_dispatch(f.input("claude_code", "remember the cobalt token"), "user")
+        .await
+        .unwrap();
+
+    let initial_binding =
+        ConversationAgentBindingRecord::active_for_conversation(pool, f.conversation)
+            .await
+            .unwrap()
+            .unwrap();
+    let real_claude_acp_session = initial_binding
+        .acp_session_id
+        .clone()
+        .expect("in-memory driver assigned native session id");
+    let orig_working_dir = initial_binding.working_dir.clone();
+    let orig_continuation_key = initial_binding.continuation_key.clone();
+    assert!(!orig_working_dir.is_empty());
+
+    // Simulate pre-SessionLinked state where prepare_session initially stored a `prepared-*`
+    // placeholder ID and remembered user-selected controls (`plan` + `claude-opus-4-6`).
+    sqlx::query(
+        "UPDATE conversation_agent_bindings
+         SET acp_session_id = 'prepared-turn-1',
+             current_mode = 'plan',
+             config_selection_json = '{\"model\":\"claude-opus-4-6\"}'
+         WHERE id = ?",
+    )
+    .bind(initial_binding.id)
+    .execute(pool)
+    .await
+    .unwrap();
+
+    // Simulate `AgentLifecycleEvent::SessionLinked` arriving with `working_dir = ""`.
+    let linked = ConversationAgentBindingRecord::link_native_session(
+        pool,
+        f.conversation,
+        &claude_id,
+        "",
+        &real_claude_acp_session,
+        "conn-linked-1",
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(
+        linked.id, initial_binding.id,
+        "placeholder binding must upgrade in place instead of splitting a second row"
+    );
+    assert_eq!(
+        linked.acp_session_id.as_deref(),
+        Some(real_claude_acp_session.as_str())
+    );
+    assert_eq!(
+        linked.working_dir, orig_working_dir,
+        "empty working_dir on SessionLinked must preserve existing working_dir"
+    );
+    assert_eq!(linked.continuation_key, orig_continuation_key);
+    assert!(linked.is_resume_head);
+
+    let claude_row_count: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM conversation_agent_bindings WHERE conversation_id = ? AND agent_id = 'claude_code'",
+    )
+    .bind(f.conversation)
+    .fetch_one(pool)
+    .await
+    .unwrap();
+    assert_eq!(claude_row_count, 1);
+
+    f.service.cancel_turn(f.conversation, None).await.unwrap();
+    if let Some(conn_id) = f
+        .ctx
+        .agent_runtime
+        .live_connection_id(AgentSessionId(f.conversation))
+        .await
+    {
+        let _ = f.ctx.agent_runtime.disconnect(conn_id).await;
+    }
+    tokio::time::sleep(Duration::from_millis(50)).await;
+
+    // Seed a conflicting global default (`default`) for Claude so Stage C must read `Some(&resume)`
+    // (`plan`) rather than falling back to global agent defaults.
+    db::models::agent_management::SessionDefaultRepository::new(pool.clone())
+        .upsert(&claude_id, "mode", "\"default\"")
+        .await
+        .unwrap();
+
+    // Step 2: Switch to Codex (Stage B).
+    f.service
+        .submit_and_dispatch(f.input("codex", "codex gap message"), "user")
+        .await
+        .unwrap();
+    f.service.cancel_turn(f.conversation, None).await.unwrap();
+    if let Some(conn_id) = f
+        .ctx
+        .agent_runtime
+        .live_connection_id(AgentSessionId(f.conversation))
+        .await
+    {
+        let _ = f.ctx.agent_runtime.disconnect(conn_id).await;
+    }
+    tokio::time::sleep(Duration::from_millis(50)).await;
+
+    let max_ready_seq_before: i64 = sqlx::query_scalar(
+        "SELECT COALESCE(MAX(sequence), 0) FROM conversation_events
+         WHERE conversation_id = ? AND event_kind = 'agent_binding_ready'",
+    )
+    .bind(f.conversation)
+    .fetch_one(pool)
+    .await
+    .unwrap();
+
+    // Step 3: Switch back to Claude (Stage C resume).
+    let mut events = f.ctx.agent_runtime.subscribe_events();
+    let third = f
+        .service
+        .submit_and_dispatch(f.input("claude_code", "resume claude"), "user")
+        .await
+        .unwrap();
+    assert!(third.turn.is_some());
+
+    let resumed_binding =
+        ConversationAgentBindingRecord::active_for_conversation(pool, f.conversation)
+            .await
+            .unwrap()
+            .unwrap();
+    assert_eq!(resumed_binding.id, initial_binding.id);
+    assert_eq!(
+        resumed_binding.acp_session_id.as_deref(),
+        Some(real_claude_acp_session.as_str())
+    );
+    assert_eq!(resumed_binding.current_mode.as_deref(), Some("plan"));
+    assert!(
+        resumed_binding
+            .config_selection_json
+            .contains("claude-opus-4-6")
+    );
+
+    let ready_events_after: Vec<String> = sqlx::query_scalar(
+        "SELECT normalized_json FROM conversation_events
+         WHERE conversation_id = ? AND event_kind = 'agent_binding_ready' AND sequence > ?
+         ORDER BY sequence ASC",
+    )
+    .bind(f.conversation)
+    .bind(max_ready_seq_before)
+    .fetch_all(pool)
+    .await
+    .unwrap();
+    assert!(
+        ready_events_after
+            .iter()
+            .any(|raw| raw.contains(&real_claude_acp_session)),
+        "Stage C resume must emit AgentBindingReady for the resumed session: {ready_events_after:?}"
+    );
+
+    let mut replayed_mode = None;
+    let mut replayed_model = None;
+    let mut delivered_prompt = None;
+    for _ in 0..40 {
+        let event: AgentEventEnvelope = tokio::time::timeout(Duration::from_secs(2), events.recv())
+            .await
+            .unwrap()
+            .unwrap();
+        match event.event {
+            agents::AgentEvent::ModeChanged { mode_id } => {
+                replayed_mode = Some(mode_id);
+            }
+            agents::AgentEvent::ConfigChanged { key, value } if key == "model" => {
+                replayed_model = value.as_str().map(str::to_string);
+            }
+            agents::AgentEvent::MessageChunk {
+                content: AgentContentBlock::Text { text },
+            } => {
+                delivered_prompt = Some(text);
+                break;
+            }
+            _ => {}
+        }
+    }
+    assert_eq!(
+        replayed_mode.as_deref(),
+        Some("plan"),
+        "Stage C resume must replay Agent A's remembered mode over global defaults"
+    );
+    assert_eq!(
+        replayed_model.as_deref(),
+        Some("claude-opus-4-6"),
+        "Stage C resume must replay Agent A's remembered model config selection"
+    );
+    let prompt = delivered_prompt.expect("Claude receives delta prompt after resume");
+    assert!(
+        prompt.contains("codex gap message"),
+        "Claude must receive Codex gap turn: {prompt}"
+    );
+    assert!(
+        prompt.contains("resume claude"),
+        "Claude must receive current turn prompt: {prompt}"
+    );
+    assert!(
+        !prompt.contains("remember the cobalt token"),
+        "Turn 1 stayed owned by upgraded binding row and must not be re-delivered: {prompt}"
+    );
+
+    f.service.cancel_turn(f.conversation, None).await.unwrap();
+}
+
+#[tokio::test]
+async fn unlinked_placeholder_binding_is_excluded_from_stage_c_resume_and_cold_starts_with_full_history()
+{
+    let f = Fixture::new().await;
+    let pool = &f.ctx.deployment.db().pool;
+
+    f.service
+        .submit_and_dispatch(f.input("claude_code", "remember the sapphire token"), "user")
+        .await
+        .unwrap();
+    let placeholder_binding =
+        ConversationAgentBindingRecord::active_for_conversation(pool, f.conversation)
+            .await
+            .unwrap()
+            .unwrap();
+    sqlx::query(
+        "UPDATE conversation_agent_bindings SET acp_session_id = 'prepared-never-linked' WHERE id = ?",
+    )
+    .bind(placeholder_binding.id)
+    .execute(pool)
+    .await
+    .unwrap();
+
+    f.service.cancel_turn(f.conversation, None).await.unwrap();
+    if let Some(conn_id) = f
+        .ctx
+        .agent_runtime
+        .live_connection_id(AgentSessionId(f.conversation))
+        .await
+    {
+        let _ = f.ctx.agent_runtime.disconnect(conn_id).await;
+    }
+    tokio::time::sleep(Duration::from_millis(50)).await;
+
+    // Switch to Codex for Turn 2.
+    f.service
+        .submit_and_dispatch(f.input("codex", "codex second turn"), "user")
+        .await
+        .unwrap();
+    f.service.cancel_turn(f.conversation, None).await.unwrap();
+    if let Some(conn_id) = f
+        .ctx
+        .agent_runtime
+        .live_connection_id(AgentSessionId(f.conversation))
+        .await
+    {
+        let _ = f.ctx.agent_runtime.disconnect(conn_id).await;
+    }
+    tokio::time::sleep(Duration::from_millis(50)).await;
+
+    // Switch back to Claude: `prepared-never-linked` must NOT be selected as a Stage C resume candidate;
+    // Stage B cold-starts a fresh binding and carries full portable history including Turn 1.
+    let mut events = f.ctx.agent_runtime.subscribe_events();
+    f.service
+        .submit_and_dispatch(f.input("claude_code", "back on claude"), "user")
+        .await
+        .unwrap();
+
+    let new_binding = ConversationAgentBindingRecord::active_for_conversation(pool, f.conversation)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_ne!(
+        new_binding.id, placeholder_binding.id,
+        "unlinked placeholder binding must not be resumed via Stage C"
+    );
+
+    let mut delivered_prompt = None;
+    for _ in 0..30 {
+        let event: AgentEventEnvelope = tokio::time::timeout(Duration::from_secs(2), events.recv())
+            .await
+            .unwrap()
+            .unwrap();
+        if let agents::AgentEvent::MessageChunk {
+            content: AgentContentBlock::Text { text },
+        } = event.event
+        {
+            delivered_prompt = Some(text);
+            break;
+        }
+    }
+    let prompt = delivered_prompt.expect("Claude receives cold-start portable history");
+    assert!(
+        prompt.contains("remember the sapphire token"),
+        "Stage B cold start must include Turn 1 portable history: {prompt}"
+    );
+    assert!(
+        prompt.contains("codex second turn"),
+        "Stage B cold start must include Turn 2 portable history: {prompt}"
+    );
+
+    f.service.cancel_turn(f.conversation, None).await.unwrap();
+}
+#[tokio::test]
+async fn handoff_budget_exceeded_degrades_gracefully_instead_of_blocking_switch() {
+    let f = Fixture::new().await;
+
+    f.service
+        .submit_and_dispatch(f.input("claude_code", "remember the amber key"), "user")
+        .await
+        .unwrap();
+    f.service.cancel_turn(f.conversation, None).await.unwrap();
+    if let Some(conn_id) = f
+        .ctx
+        .agent_runtime
+        .live_connection_id(AgentSessionId(f.conversation))
+        .await
+    {
+        let _ = f.ctx.agent_runtime.disconnect(conn_id).await;
+    }
+    tokio::time::sleep(Duration::from_millis(50)).await;
+
+    // A >128 KiB current prompt leaves zero byte budget for quoted history.
+    // Switching to Codex must still succeed by gracefully omitting inline history
+    // instead of failing with `handoff_budget_exceeded`.
+    let oversized_request = "z".repeat(130 * 1024);
+    let mut events = f.ctx.agent_runtime.subscribe_events();
+    let second = f
+        .service
+        .submit_and_dispatch(f.input("codex", &oversized_request), "user")
+        .await
+        .expect("oversized switch turn must degrade gracefully instead of failing");
+    assert!(second.turn.is_some());
+
+    let mut delivered_prompt = None;
+    for _ in 0..30 {
+        let event: AgentEventEnvelope = tokio::time::timeout(Duration::from_secs(2), events.recv())
+            .await
+            .unwrap()
+            .unwrap();
+        if let agents::AgentEvent::MessageChunk {
+            content: AgentContentBlock::Text { text },
+        } = event.event
+        {
+            delivered_prompt = Some(text);
+            break;
+        }
+    }
+
+    let prompt = delivered_prompt.expect("Codex receives current request");
+    assert!(prompt.contains(&oversized_request));
+    f.service.cancel_turn(f.conversation, None).await.unwrap();
+}
+
+#[tokio::test]
+async fn provider_instance_id_isolates_continuation_key_and_switches_binding() {
+    let f = Fixture::new().await;
+    let pool = &f.ctx.deployment.db().pool;
+
+    let mut first_input = f.input("codex", "first on instance a");
+    first_input.provider_instance_id = Some("inst-a".to_string());
+    f.service
+        .submit_and_dispatch(first_input, "user")
+        .await
+        .unwrap();
+    f.service.cancel_turn(f.conversation, None).await.unwrap();
+    if let Some(conn_id) = f
+        .ctx
+        .agent_runtime
+        .live_connection_id(AgentSessionId(f.conversation))
+        .await
+    {
+        let _ = f.ctx.agent_runtime.disconnect(conn_id).await;
+    }
+    tokio::time::sleep(Duration::from_millis(50)).await;
+
+    let binding_a = ConversationAgentBindingRecord::active_for_conversation(pool, f.conversation)
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(
+        binding_a
+            .continuation_key
+            .as_deref()
+            .is_some_and(|k| k.contains("|inst-a|")),
+        "binding continuation_key must include provider_instance_id: {:?}",
+        binding_a.continuation_key
+    );
+
+    let mut second_input = f.input("codex", "second on instance b");
+    second_input.provider_instance_id = Some("inst-b".to_string());
+    f.service
+        .submit_and_dispatch(second_input, "user")
+        .await
+        .unwrap();
+    f.service.cancel_turn(f.conversation, None).await.unwrap();
+
+    let binding_b = ConversationAgentBindingRecord::active_for_conversation(pool, f.conversation)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_ne!(
+        binding_a.id, binding_b.id,
+        "switching provider_instance_id on the same agent must isolate bindings"
+    );
+    assert!(
+        binding_b
+            .continuation_key
+            .as_deref()
+            .is_some_and(|k| k.contains("|inst-b|")),
+        "binding_b continuation_key must include inst-b: {:?}",
+        binding_b.continuation_key
+    );
+}
+
+#[tokio::test]
+async fn auth_blocked_turn_does_not_deadlock_rebind_or_next_turn() {
+    let f = Fixture::new().await;
+    let pool = &f.ctx.deployment.db().pool;
+
+    // Seed an active turn and emit TurnBlocked(Authentication) through the applier.
+    let turn_id = Uuid::new_v4();
+    let mut conn = pool.acquire().await.unwrap();
+    db::models::conversation_turn::ConversationTurnRecord::create_pending_on_connection(
+        &mut *conn,
+        turn_id,
+        db::models::conversation_turn::CreateConversationTurn {
+            conversation_id: f.conversation,
+            prompt_id: None,
+            text_preview: Some("blocked prompt"),
+            input_blocks_json: "[]",
+        },
+    )
+    .await
+    .unwrap();
+    drop(conn);
+    ConversationRecord::update_active_turn(pool, f.conversation, Some(turn_id))
+        .await
+        .unwrap();
+    let blocked_event = agents::conversation::ConversationEvent::TurnBlocked {
+        reason: agents::conversation::TurnBlockedReason::Authentication {
+            message: "login required".to_string(),
+        },
+    };
+    conversations::ConversationEventAppender::append(
+        pool,
+        db::models::conversation_event::AppendConversationEvent {
+            id: Uuid::new_v4(),
+            conversation_id: f.conversation,
+            turn_id: Some(turn_id),
+            binding_id: None,
+            connection_id: None,
+            prompt_id: None,
+            source: "runtime",
+            event_kind: "turn_blocked",
+            normalized_json: &serde_json::to_string(&blocked_event).unwrap(),
+            raw_json: None,
+            idempotency_key: None,
+        },
+    )
+    .await
+    .unwrap();
+
+    // `conversations.active_turn_id` is cleared while the turn retains `"blocked"` status.
+    let conversation = ConversationRecord::find_by_id(pool, f.conversation)
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(
+        conversation.active_turn_id.is_none(),
+        "auth TurnBlocked must clear active_turn_id"
+    );
+
+    // Even if an older DB row still has `active_turn_id` pointing at an auth-blocked turn,
+    // `rebind_session` and starting a new turn must both succeed without Conflict.
+    ConversationRecord::update_active_turn(pool, f.conversation, Some(turn_id))
+        .await
+        .unwrap();
+    let rebound = f.service.rebind_session(f.conversation).await;
+    assert!(
+        rebound.is_ok(),
+        "rebind_session must not Conflict on auth-blocked turn: {rebound:?}"
+    );
+    let next = f
+        .service
+        .submit_and_dispatch(f.input("claude_code", "retry after login"), "user")
+        .await;
+    assert!(next.is_ok(), "next turn after auth block must succeed: {next:?}");
     f.service.cancel_turn(f.conversation, None).await.unwrap();
 }

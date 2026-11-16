@@ -17,14 +17,14 @@ fn node_executable() -> Option<PathBuf> {
 }
 
 fn write_sandbox_probe(root: &std::path::Path) {
-    std::fs::create_dir_all(root.join(".vibex-plugin")).unwrap();
+    std::fs::create_dir_all(root.join(".dimo-plugin")).unwrap();
     std::fs::write(
-        root.join(".vibex-plugin/plugin.json"),
+        root.join(".dimo-plugin/plugin.json"),
         r#"{
           "manifestVersion":4,"apiVersion":"1.0",
           "id":"security.sandbox-probe","publisher":"security",
           "name":"Sandbox Probe","version":"1.0.0",
-          "engines":{"vibex":">=0.1.3 <1.0.0","pluginSdk":"^1.0.0"},
+          "engines":{"dimo":">=0.1.3 <1.0.0","pluginSdk":"^1.0.0"},
           "entrypoints":{"worker":{"path":"worker.mjs","runtime":"node","protocol":"1.1"}},
           "permissions":[],
           "contributes":{"agent.invocations":[
@@ -75,14 +75,14 @@ for await (const line of createInterface({ input: process.stdin, crlfDelay: Infi
 }
 
 fn write_busy_worker(root: &std::path::Path) {
-    std::fs::create_dir_all(root.join(".vibex-plugin")).unwrap();
+    std::fs::create_dir_all(root.join(".dimo-plugin")).unwrap();
     std::fs::write(
-        root.join(".vibex-plugin/plugin.json"),
+        root.join(".dimo-plugin/plugin.json"),
         r#"{
           "manifestVersion":4,"apiVersion":"1.0",
           "id":"security.busy-worker","publisher":"security",
           "name":"Busy Worker","version":"1.0.0",
-          "engines":{"vibex":">=0.1.3 <1.0.0","pluginSdk":"^1.0.0"},
+          "engines":{"dimo":">=0.1.3 <1.0.0","pluginSdk":"^1.0.0"},
           "entrypoints":{"worker":{"path":"worker.mjs","runtime":"node","protocol":"1.1"}},
           "permissions":[],
           "contributes":{"agent.invocations":[
@@ -189,14 +189,14 @@ async fn windows_node_worker_initializes_from_canonicalized_verbatim_entrypoint(
 }
 
 fn write_limit_worker(root: &std::path::Path) {
-    std::fs::create_dir_all(root.join(".vibex-plugin")).unwrap();
+    std::fs::create_dir_all(root.join(".dimo-plugin")).unwrap();
     std::fs::write(
-        root.join(".vibex-plugin/plugin.json"),
+        root.join(".dimo-plugin/plugin.json"),
         r#"{
           "manifestVersion":4,"apiVersion":"1.0",
           "id":"studio.draw","publisher":"studio",
           "name":"Draw","version":"1.0.0",
-          "engines":{"vibex":">=0.1.3 <1.0.0","pluginSdk":"^1.0.0"},
+          "engines":{"dimo":">=0.1.3 <1.0.0","pluginSdk":"^1.0.0"},
           "entrypoints":{"worker":{"path":"worker.mjs","runtime":"node","protocol":"1.1","maxFrameMiB":8}},
           "permissions":[],
           "contributes":{"agent.invocations":[
@@ -254,14 +254,14 @@ async fn manifest_frame_size_is_advertised_to_the_worker() {
 }
 
 fn write_draw_worker(root: &std::path::Path) {
-    std::fs::create_dir_all(root.join(".vibex-plugin")).unwrap();
+    std::fs::create_dir_all(root.join(".dimo-plugin")).unwrap();
     std::fs::write(
-        root.join(".vibex-plugin/plugin.json"),
+        root.join(".dimo-plugin/plugin.json"),
         r#"{
           "manifestVersion":4,"apiVersion":"1.0",
           "id":"studio.draw","publisher":"studio",
           "name":"Draw","version":"1.0.0",
-          "engines":{"vibex":">=0.1.3 <1.0.0","pluginSdk":"^1.0.0"},
+          "engines":{"dimo":">=0.1.3 <1.0.0","pluginSdk":"^1.0.0"},
           "entrypoints":{"worker":{"path":"worker.mjs","runtime":"node","protocol":"1.1"}},
           "permissions":[],
           "contributes":{"agent.invocations":[

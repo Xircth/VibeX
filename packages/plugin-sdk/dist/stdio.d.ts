@@ -15,7 +15,7 @@ export interface SharedNodePluginHostRuntime {
 }
 /**
  * Returns the shared Node plugin host runtime if the current worker is
- * executing inside VibeX's multiplexed `SharedNodeWorkerHost` process, or
+ * executing inside Dimo's multiplexed `SharedNodeWorkerHost` process, or
  * `null` when running in a standalone single-plugin process.
  */
 export declare function getSharedNodePluginHost(): SharedNodePluginHostRuntime | null;

@@ -2,33 +2,33 @@ import type { TFunction } from 'i18next';
 
 import type { PluginControlItem } from '@/lib/api/plugins';
 
-export const PLUGIN_DEVELOPMENT_PLUGIN_ID = 'vibex.plugin-development';
+export const PLUGIN_DEVELOPMENT_PLUGIN_ID = 'dimo.plugin-development';
 export const PLUGIN_DEVELOPMENT_DOCS_URL =
   'https://vibex.xforver.xin/docs/developers';
 
 export const FEATURED_OFFICIAL_PRIORITY_IDS = [
-  'vibex.office',
-  'vibex.science',
-  'vibex-plugin-computer-use',
-  'vibex.workflow-creator',
-  'vibex.browser',
-  'vibex.session-enhance',
+  'dimo.office',
+  'dimo.science',
+  'dimo-plugin-computer-use',
+  'dimo.workflow-creator',
+  'dimo.browser',
+  'dimo.session-enhance',
 ] as const;
 
 export const OFFICIAL_PLUGIN_I18N_KEY = {
-  'vibex.browser': 'browser',
-  'vibex.office': 'office',
-  'vibex.workflow-creator': 'workflowCreator',
-  'vibex.session-enhance': 'sessionEnhance',
-  'vibex.plugin-development': 'pluginDevelopment',
-  'vibex.provider-switch': 'providerSwitch',
-  'vibex.remote-ssh': 'remoteSsh',
-  'vibex.science': 'science',
-  'vibex-plugin-computer-use': 'computerUse',
-  'vibex.computer-use': 'computerUse',
-  'vibex.code-completion': 'codeCompletion',
+  'dimo.browser': 'browser',
+  'dimo.office': 'office',
+  'dimo.workflow-creator': 'workflowCreator',
+  'dimo.session-enhance': 'sessionEnhance',
+  'dimo.plugin-development': 'pluginDevelopment',
+  'dimo.provider-switch': 'providerSwitch',
+  'dimo.remote-ssh': 'remoteSsh',
+  'dimo.science': 'science',
+  'dimo-plugin-computer-use': 'computerUse',
+  'dimo.computer-use': 'computerUse',
+  'dimo.code-completion': 'codeCompletion',
   'code-completion': 'codeCompletion',
-  'vibex.voice-input': 'voiceInput',
+  'dimo.voice-input': 'voiceInput',
   'voice-input': 'voiceInput',
 } as const;
 
@@ -168,7 +168,7 @@ export function resolveOfficialPluginKey(
     return OFFICIAL_PLUGIN_I18N_KEY[trimmed];
   }
   const lowerOwner = (publisherOrOwner ?? '').trim().toLowerCase();
-  if (!lowerOwner || lowerOwner === 'vibex') {
+  if (!lowerOwner || lowerOwner === 'dimo') {
     const bare = BARE_OFFICIAL_ID_TO_KEY[trimmed.toLowerCase()];
     if (bare) return bare;
   }
@@ -185,7 +185,7 @@ export function resolvePluginCategory(
 ): PluginCategoryKey {
   const officialKey = resolveOfficialPluginKey(
     pluginId,
-    options?.publisher ?? (options?.builtin ? 'vibex' : undefined)
+    options?.publisher ?? (options?.builtin ? 'dimo' : undefined)
   );
   if (officialKey) {
     return OFFICIAL_PLUGIN_CATEGORY_BY_KEY[officialKey];

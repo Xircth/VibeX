@@ -26,7 +26,7 @@ import {
   X,
   type LucideIcon,
 } from 'lucide-react';
-import { panelRegistry } from '@vibex/plugin-sdk';
+import { panelRegistry } from '@dimoai/plugin-sdk';
 import { contributionIconComponent } from '@/components/plugins/contributionIcon';
 import FileIcon from '@/components/FileIcon';
 import { cn } from '@/lib/utils';

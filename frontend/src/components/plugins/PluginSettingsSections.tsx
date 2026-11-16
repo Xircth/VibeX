@@ -1,4 +1,4 @@
-import { useSettingSections, useSlotContributions } from '@vibex/plugin-sdk';
+import { useSettingSections, useSlotContributions } from '@dimoai/plugin-sdk';
 import { AppSurfaceHost } from '@/components/plugins/AppSurfaceHost';
 import { PluginBoundary } from '@/components/plugins/PluginBoundary';
 import { Slot } from '@/components/plugins/Slot';

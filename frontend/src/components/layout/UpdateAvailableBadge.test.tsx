@@ -93,7 +93,7 @@ const sampleSnapshot: AppUpdateSnapshot = {
     version: '0.39.0',
     body: '## 中文\n\n- 修复状态栏更新提示',
     date: '2026-10-22T00:00:00.000Z',
-    releaseUrl: 'https://github.com/Xircth/VibeX/releases/tag/v0.39.0',
+    releaseUrl: 'https://github.com/DimoADE/Dimo/releases/tag/v0.39.0',
     canInstall: true,
   },
 };

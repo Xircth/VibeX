@@ -19,7 +19,7 @@ use tokio::{
     sync::Mutex,
     time::timeout,
 };
-use vibex_plugin_sdk::protocol::{
+use dimo_plugin_sdk::protocol::{
     FrameCodec, FrameDecode, FrameReassembler, MAX_FRAME_BYTES, MAX_LOGICAL_MESSAGE_BYTES,
 };
 
@@ -1941,8 +1941,8 @@ class SharedServiceContainer {
 }
 
 const sharedServiceContainer = new SharedServiceContainer();
-globalThis[Symbol.for("vibex.plugin-sdk.serviceContainer")] = sharedServiceContainer;
-globalThis.__VIBEX_SHARED_PLUGIN_HOST__ = {
+globalThis[Symbol.for("dimo.plugin-sdk.serviceContainer")] = sharedServiceContainer;
+globalThis.__DIMO_SHARED_PLUGIN_HOST__ = {
   slots,
   services: servicesMap,
   serviceContainer: sharedServiceContainer,
@@ -2473,7 +2473,7 @@ for await (const rawLine of hostInput) {
     };
     slots.set(key, slot);
     try {
-      const entryUrl = `${pathToFileURL(msg.entrypoint).href}?vibexGen=${msg.generation}&m=${++mountCounter}`;
+      const entryUrl = `${pathToFileURL(msg.entrypoint).href}?dimoGen=${msg.generation}&m=${++mountCounter}`;
       const importPromise = als.run(slot, () => import(entryUrl));
       importPromise.catch((err) => {
         const text = err instanceof Error ? err.stack || err.message : String(err);
@@ -2696,8 +2696,8 @@ fn spawn_shared_node_runner(
         .arg(SHARED_NODE_RUNNER_SCRIPT)
         .current_dir(&cwd)
         .env("NO_COLOR", "1")
-        .env("VIBEX_PACKAGE_CLASS", "full-trust")
-        .env("VIBEX_HOST_DATA_DIR", utils::assets::host_data_dir())
+        .env("DIMO_PACKAGE_CLASS", "full-trust")
+        .env("DIMO_HOST_DATA_DIR", utils::assets::host_data_dir())
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -3097,8 +3097,8 @@ fn hosted_worker_command(
     command
         .current_dir(&package_root)
         .env("NO_COLOR", "1")
-        .env("VIBEX_PACKAGE_CLASS", "full-trust")
-        .env("VIBEX_HOST_DATA_DIR", utils::assets::host_data_dir())
+        .env("DIMO_PACKAGE_CLASS", "full-trust")
+        .env("DIMO_HOST_DATA_DIR", utils::assets::host_data_dir())
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -3368,26 +3368,26 @@ mod worker_host_tests {
     #[test]
     fn node_worker_command_strips_windows_verbatim_entrypoint() {
         let command = hosted_worker_command(
-            Path::new(r"\\?\C:\vibex\plugins\worker-runtimes\node.exe"),
-            Path::new(r"\\?\C:\Users\user\AppData\Roaming\vibex\plugin"),
-            Path::new(r"\\?\C:\Users\user\AppData\Roaming\vibex\plugin\dist\worker.mjs"),
+            Path::new(r"\\?\C:\dimo\plugins\worker-runtimes\node.exe"),
+            Path::new(r"\\?\C:\Users\user\AppData\Roaming\dimo\plugin"),
+            Path::new(r"\\?\C:\Users\user\AppData\Roaming\dimo\plugin\dist\worker.mjs"),
             "node",
         );
         let command = command.as_std();
         assert_eq!(
             command.get_program(),
-            OsStr::new(r"C:\vibex\plugins\worker-runtimes\node.exe")
+            OsStr::new(r"C:\dimo\plugins\worker-runtimes\node.exe")
         );
         assert_eq!(
             command.get_args().collect::<Vec<_>>(),
             vec![
                 OsStr::new("--max-old-space-size=128"),
-                OsStr::new(r"C:\Users\user\AppData\Roaming\vibex\plugin\dist\worker.mjs"),
+                OsStr::new(r"C:\Users\user\AppData\Roaming\dimo\plugin\dist\worker.mjs"),
             ]
         );
         assert_eq!(
             command.get_current_dir().map(Path::as_os_str),
-            Some(OsStr::new(r"C:\Users\user\AppData\Roaming\vibex\plugin"))
+            Some(OsStr::new(r"C:\Users\user\AppData\Roaming\dimo\plugin"))
         );
     }
 
@@ -3420,16 +3420,16 @@ mod worker_host_tests {
     #[test]
     fn python_worker_command_strips_windows_verbatim_script_path() {
         let command = hosted_worker_command(
-            Path::new(r"\\?\C:\vibex\python.exe"),
-            Path::new(r"\\?\C:\vibex\plugin"),
-            Path::new(r"\\?\C:\vibex\plugin\worker.py"),
+            Path::new(r"\\?\C:\dimo\python.exe"),
+            Path::new(r"\\?\C:\dimo\plugin"),
+            Path::new(r"\\?\C:\dimo\plugin\worker.py"),
             "python",
         );
         let command = command.as_std();
-        assert_eq!(command.get_program(), OsStr::new(r"C:\vibex\python.exe"));
+        assert_eq!(command.get_program(), OsStr::new(r"C:\dimo\python.exe"));
         assert_eq!(
             command.get_args().collect::<Vec<_>>(),
-            vec![OsStr::new(r"C:\vibex\plugin\worker.py")]
+            vec![OsStr::new(r"C:\dimo\plugin\worker.py")]
         );
     }
 

@@ -13,7 +13,7 @@ const EMPTY_RECORD: WorkflowTestWorkspaceRecord = {
 };
 
 export function workflowTestWorkspaceKey(scope: string) {
-  return `vibex.workflow.test-workspace:${scope}`;
+  return `dimo.workflow.test-workspace:${scope}`;
 }
 
 export function loadWorkflowTestWorkspace(

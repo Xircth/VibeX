@@ -14,7 +14,7 @@ vi.mock('@/components/plugins/AppSurfaceHost', () => ({
 }));
 
 const opener = {
-  pluginId: 'vibex.workflow-creator',
+  pluginId: 'dimo.workflow-creator',
   contributionId: 'workflow-source-opener',
   label: 'Workflow Studio',
   handler: 'workflow-studio',
@@ -28,12 +28,12 @@ describe('PluginArtifactEditor', () => {
     render(
       <PluginArtifactEditor
         opener={{ ...opener, nativeRenderer: 'workflow.studio' }}
-        filePath="/workspace/review.vibex-workflow.json"
+        filePath="/workspace/review.dimo-workflow.json"
       />
     );
 
     expect(screen.getByTestId('native-workflow-studio')).toHaveTextContent(
-      '/workspace/review.vibex-workflow.json'
+      '/workspace/review.dimo-workflow.json'
     );
     expect(screen.queryByTestId('plugin-app-surface')).not.toBeInTheDocument();
   });

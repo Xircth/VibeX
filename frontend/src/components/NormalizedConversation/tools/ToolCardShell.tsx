@@ -155,7 +155,7 @@ export function ToolCardShell({
 
   if (isResultDetail) {
     return (
-      <div className="vibex-tool-call-result-detail">
+      <div className="dimo-tool-call-result-detail">
         {actions ? (
           <div className="conv-tool-artifact-actions">{actions}</div>
         ) : null}

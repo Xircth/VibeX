@@ -2,12 +2,12 @@
 status: accepted
 date: 2026-08-17
 decision-makers:
-  - VibeX maintainers
+  - Dimo maintainers
 ---
 
 # 聊天通道与远程访问对标 CodeG 的完整产品闭环
 
-VibeX 的聊天通道和远程访问必须达到与 CodeG 同等的端到端可用性，并在
+Dimo 的聊天通道和远程访问必须达到与 CodeG 同等的端到端可用性，并在
 安全默认值、Host 绑定和设备模型上超过它。半套命令、假 LAN 开关、只读
 token 或「设置页能开但手机连不上」都不算完成。
 
@@ -24,12 +24,12 @@ CodeG 的完成标准是用户能走完这两条路：
 2. **远程：** 打开监听 → 看到可达地址和二维码 → 浏览器打开同一套 UI，
    或手机用 URL + 凭据接入并工作。
 
-VibeX 必须走出同样的路，并保留这些超过 CodeG 的点：
+Dimo 必须走出同样的路，并保留这些超过 CodeG 的点：
 
 - 授权发送者 fail-closed；空名单禁用入站。
 - 默认 loopback；局域网必须二次确认，TLS 仍在外部。
 - 远程鉴权是 Host 管理员 token + 可撤销 device credential，不是长期共享口令一种模型。
-- 入站适配器属于 Host，`vibex-server` 与桌面同一套循环。
+- 入站适配器属于 Host，`dimo-server` 与桌面同一套循环。
 - 继续支持 QQ OneBot 与通用 Webhook 通道。
 
 ## 聊天通道
@@ -82,7 +82,7 @@ HTTP Webhook 汇点。提示词默认不外发。IM 文案至少中英，可在�
 Companion 连上。** 它启动的是 Remote Protocol 的 `ServerRuntime`，并托管
 与 Host 家族相同的 `web/` 前端。不再提供第二套业务 REST 作为产品入口。
 
-- 默认端口 `17891`，与 `vibex-server` / Host 家族一致。
+- 默认端口 `17891`，与 `dimo-server` / Host 家族一致。
 - 默认绑定 loopback。打开「允许局域网」后才绑定 `0.0.0.0`，并列出本机
   可达地址。开关必须改变真实监听，不能只改配置。
 - 启动时解析或轮换 Host 管理员 token（`SqliteTokenHashStore`）。设置页

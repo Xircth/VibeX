@@ -266,7 +266,7 @@ mod tests {
              42434445313233343530180c1376616c69646174696f6e2d63617465676f727902010630\
              090c0476657273020101",
         );
-        assert_eq!(signed_by("ABCDE12345", "vibex-computer-helper"), apple);
+        assert_eq!(signed_by("ABCDE12345", "dimo-computer-helper"), apple);
     }
 
     #[test]

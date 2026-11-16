@@ -122,7 +122,7 @@ pub fn merge_paths(primary: impl AsRef<OsStr>, secondary: impl AsRef<OsStr>) -> 
 }
 
 /// Expose a user-global binary directory to subsequently launched Agent
-/// processes without adding any VibeX-private directory.
+/// processes without adding any Dimo-private directory.
 pub fn expose_user_bin_to_process_path(directory: &Path) {
     let existing = std::env::var_os("PATH").unwrap_or_default();
     let merged = merge_paths(directory.as_os_str(), &existing);
@@ -204,7 +204,7 @@ pub async fn refresh_process_path() -> bool {
     refresh_path_once().await
 }
 
-/// Re-read PATH after VibeX itself has installed or updated a tool. Unlike
+/// Re-read PATH after Dimo itself has installed or updated a tool. Unlike
 /// normal resolution this must not be cached: npm/fnm/nvm layouts can expose a
 /// new global-bin directory only after the install finishes.
 pub async fn refresh_process_path_after_install() -> bool {
@@ -858,7 +858,7 @@ mod tests {
         use super::super::find_executable_in_user_bin;
 
         #[test]
-        fn resolves_vibex_stable_user_command_without_a_login_shell() {
+        fn resolves_dimo_stable_user_command_without_a_login_shell() {
             let home = tempfile::tempdir().unwrap();
             let bin = home.path().join(".local/bin");
             std::fs::create_dir_all(&bin).unwrap();

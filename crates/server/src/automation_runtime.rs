@@ -742,7 +742,7 @@ impl TurnLauncherPort for ServerTurnLauncher {
                 },
             },
             acp_adapter: ComponentVersionEvidence {
-                id: "vibex-acp".to_string(),
+                id: "dimo-acp".to_string(),
                 version: env!("CARGO_PKG_VERSION").to_string(),
             },
             plugins,
@@ -844,6 +844,7 @@ impl TurnLauncherPort for ServerTurnLauncher {
                         queued_input_claim: None,
                         operation_id: None,
                         collaboration_origin: None,
+                        provider_instance_id: None,
                     },
                     conversations::commit_reminder::AUTOMATION_ORIGIN,
                 )

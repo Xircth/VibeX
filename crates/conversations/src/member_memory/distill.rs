@@ -103,7 +103,7 @@ pub fn schedule_post_turn_memory_review(pool: SqlitePool, conversation_id: Uuid)
 }
 
 /// One distillation pass over every member with new activity, persisting cursor in
-/// `~/.vibex/spaces/direct_<member_id>/reviewed.json` and writing facts to `MEMORY.md`.
+/// `~/.dimo/spaces/direct_<member_id>/reviewed.json` and writing facts to `MEMORY.md`.
 pub async fn distill_member_memory(
     pool: &SqlitePool,
     distiller: &dyn FactDistiller,
@@ -525,7 +525,7 @@ pub async fn tool_write_with_options(
 }
 
 // ---------------------------------------------------------------------------
-// Unified Space Memory & Collection Index File Engine (DS-Bot + VibeX Collection)
+// Unified Space Memory & Collection Index File Engine (DS-Bot + Dimo Collection)
 // ---------------------------------------------------------------------------
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

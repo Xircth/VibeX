@@ -1022,14 +1022,14 @@
   align-self: flex-end;
 }
 
-.collaboration-message .vibex-user-message {
+.collaboration-message .dimo-user-message {
   width: fit-content;
   max-width: 100%;
   margin-left: auto;
   align-self: flex-end;
 }
 
-.collaboration-message .vibex-user-message .conv-user-bubble {
+.collaboration-message .dimo-user-message .conv-user-bubble {
   width: fit-content;
   max-width: 100%;
   background: hsl(var(--primary));

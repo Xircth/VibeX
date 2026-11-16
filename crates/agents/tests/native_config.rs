@@ -14,6 +14,26 @@ use agents::{
 use async_trait::async_trait;
 use support::management::MemoryNativeFileSystem;
 
+fn isolated_bundled(
+    filesystem: Arc<dyn NativeFileSystem>,
+    home: PathBuf,
+) -> NativeConfigProvider {
+    let environment = [
+        "CODEX_HOME",
+        "CLAUDE_CONFIG_DIR",
+        "PI_CODING_AGENT_DIR",
+        "PI_HOME",
+        "GROK_HOME",
+        "OPENCLAW_HOME",
+        "XDG_CONFIG_HOME",
+        "GEMINI_HOME",
+    ]
+    .into_iter()
+    .map(|key| (key.to_string(), String::new()))
+    .collect();
+    NativeConfigProvider::with_environment(filesystem, home, environment)
+}
+
 #[derive(Default)]
 struct FailSecondWriteFileSystem {
     files: Mutex<std::collections::HashMap<PathBuf, Vec<u8>>>,
@@ -120,7 +140,7 @@ async fn raw_native_config_edit_validates_path_format_revision_and_sensitivity()
         .write_atomic(&auth_path, br#"{"OPENAI_API_KEY":"secret"}"#, true)
         .await
         .unwrap();
-    let provider = NativeConfigProvider::bundled(filesystem.clone(), PathBuf::from("/home/user"));
+    let provider = isolated_bundled(filesystem.clone(), PathBuf::from("/home/user"));
     let agent_id = AgentId::parse("codex").unwrap();
     let initial = provider.read(&agent_id, false).await.unwrap();
     let config_revision = initial
@@ -240,7 +260,7 @@ async fn raw_native_config_edit_validates_path_format_revision_and_sensitivity()
 #[tokio::test]
 async fn raw_native_config_edit_preserves_the_submitted_document() {
     let filesystem = Arc::new(MemoryNativeFileSystem::default());
-    let provider = NativeConfigProvider::bundled(filesystem.clone(), PathBuf::from("/home/user"));
+    let provider = isolated_bundled(filesystem.clone(), PathBuf::from("/home/user"));
     let agent_id = AgentId::parse("codex").unwrap();
     let initial = provider.read(&agent_id, false).await.unwrap();
     let file = initial.files.iter().find(|file| !file.sensitive).unwrap();
@@ -312,7 +332,7 @@ async fn native_config_multi_file_failure_rolls_back_every_original() {
         .lock()
         .unwrap()
         .insert(auth_path.clone(), original_auth.clone());
-    let provider = NativeConfigProvider::bundled(filesystem.clone(), PathBuf::from("/home/user"));
+    let provider = isolated_bundled(filesystem.clone(), PathBuf::from("/home/user"));
     let agent_id = AgentId::parse("codex").unwrap();
     let initial = provider.read(&agent_id, false).await.unwrap();
 
@@ -351,7 +371,7 @@ async fn codex_api_key_mode_removes_chatgpt_auth_mode() {
         br#"{"auth_mode":"chatgpt","OPENAI_API_KEY":null,"tokens":{"access_token":"keep"}}"#
             .to_vec(),
     );
-    let provider = NativeConfigProvider::bundled(filesystem.clone(), PathBuf::from("/home/user"));
+    let provider = isolated_bundled(filesystem.clone(), PathBuf::from("/home/user"));
     let agent_id = AgentId::parse("codex").unwrap();
     let initial = provider.read(&agent_id, true).await.unwrap();
 
@@ -384,7 +404,7 @@ async fn codex_api_key_mode_removes_chatgpt_auth_mode() {
 #[tokio::test]
 async fn native_config_preserves_unknown_fields_and_reports_auth_status() {
     let filesystem = Arc::new(MemoryNativeFileSystem::default());
-    let provider = NativeConfigProvider::bundled(filesystem.clone(), PathBuf::from("/home/user"));
+    let provider = isolated_bundled(filesystem.clone(), PathBuf::from("/home/user"));
     let codex = AgentId::parse("codex").unwrap();
     let path = PathBuf::from("/home/user/.codex/auth.json");
 
@@ -443,7 +463,7 @@ async fn native_config_preserves_unknown_fields_and_reports_auth_status() {
                     .collect(),
                 values: BTreeMap::from([(
                     "openai_api_key".to_string(),
-                    Some("not-validated-by-vibex".to_string()),
+                    Some("not-validated-by-dimo".to_string()),
                 )]),
             },
             false,
@@ -458,7 +478,7 @@ async fn native_config_preserves_unknown_fields_and_reports_auth_status() {
     let persisted: serde_json::Value =
         serde_json::from_slice(filesystem.files.lock().unwrap().get(&path).unwrap()).unwrap();
     assert_eq!(persisted["unknown"]["external"], 1);
-    assert_eq!(persisted["OPENAI_API_KEY"], "not-validated-by-vibex");
+    assert_eq!(persisted["OPENAI_API_KEY"], "not-validated-by-dimo");
 
     let stale = provider.read(&codex, false).await.unwrap();
     filesystem.files.lock().unwrap().insert(
@@ -503,7 +523,7 @@ async fn native_config_preserves_unknown_fields_and_reports_auth_status() {
 #[tokio::test]
 async fn pi_custom_provider_api_key_counts_as_authenticated() {
     let filesystem = Arc::new(MemoryNativeFileSystem::default());
-    let provider = NativeConfigProvider::bundled(filesystem.clone(), PathBuf::from("/home/user"));
+    let provider = isolated_bundled(filesystem.clone(), PathBuf::from("/home/user"));
     let pi = AgentId::parse("pi").unwrap();
     let path = PathBuf::from("/home/user/.pi/agent/auth.json");
 
@@ -552,7 +572,7 @@ async fn pi_custom_provider_api_key_counts_as_authenticated() {
 #[tokio::test]
 async fn opencode_inline_provider_api_key_is_api_key_login() {
     let filesystem = Arc::new(MemoryNativeFileSystem::default());
-    let provider = NativeConfigProvider::bundled(filesystem.clone(), PathBuf::from("/home/user"));
+    let provider = isolated_bundled(filesystem.clone(), PathBuf::from("/home/user"));
     let opencode = AgentId::parse("opencode").unwrap();
 
     filesystem.files.lock().unwrap().insert(
@@ -594,7 +614,7 @@ async fn opencode_inline_provider_api_key_is_api_key_login() {
 #[tokio::test]
 async fn bundled_profiles_manage_runtime_settings_across_all_declared_files() {
     let filesystem = Arc::new(MemoryNativeFileSystem::default());
-    let provider = NativeConfigProvider::bundled(filesystem.clone(), PathBuf::from("/home/user"));
+    let provider = isolated_bundled(filesystem.clone(), PathBuf::from("/home/user"));
     let codex = AgentId::parse("codex").unwrap();
 
     filesystem.files.lock().unwrap().insert(
@@ -696,7 +716,7 @@ network_access = false
 #[tokio::test]
 async fn codex_api_url_reads_and_writes_the_active_provider_table() {
     let filesystem = Arc::new(MemoryNativeFileSystem::default());
-    let provider = NativeConfigProvider::bundled(filesystem.clone(), PathBuf::from("/home/user"));
+    let provider = isolated_bundled(filesystem.clone(), PathBuf::from("/home/user"));
     let codex = AgentId::parse("codex").unwrap();
     filesystem.files.lock().unwrap().insert(
         PathBuf::from("/home/user/.codex/config.toml"),
@@ -760,7 +780,7 @@ wire_api = "responses"
 #[tokio::test]
 async fn clearing_codex_api_url_removes_the_active_provider_table_value() {
     let filesystem = Arc::new(MemoryNativeFileSystem::default());
-    let provider = NativeConfigProvider::bundled(filesystem.clone(), PathBuf::from("/home/user"));
+    let provider = isolated_bundled(filesystem.clone(), PathBuf::from("/home/user"));
     let codex = AgentId::parse("codex").unwrap();
     filesystem.files.lock().unwrap().insert(
         PathBuf::from("/home/user/.codex/config.toml"),
@@ -813,15 +833,15 @@ wire_api = "responses"
 #[tokio::test]
 async fn codex_websockets_reads_custom_provider_default_false() {
     let filesystem = Arc::new(MemoryNativeFileSystem::default());
-    let provider = NativeConfigProvider::bundled(filesystem.clone(), PathBuf::from("/home/user"));
+    let provider = isolated_bundled(filesystem.clone(), PathBuf::from("/home/user"));
     let codex = AgentId::parse("codex").unwrap();
     filesystem.files.lock().unwrap().insert(
         PathBuf::from("/home/user/.codex/config.toml"),
         br#"model = "gpt-5.6-sol"
-model_provider = "vibex"
+model_provider = "dimo"
 
-[model_providers.vibex]
-name = "vibex"
+[model_providers.dimo]
+name = "dimo"
 base_url = "https://beeapi.ai/v1"
 wire_api = "responses"
 requires_openai_auth = true
@@ -847,7 +867,7 @@ async fn codex_websockets_reads_effective_support_by_provider_kind() {
 
     // 未指定 provider → 默认 openai，支持 WebSocket（开关关闭）。
     let filesystem = Arc::new(MemoryNativeFileSystem::default());
-    let provider = NativeConfigProvider::bundled(filesystem.clone(), PathBuf::from("/home/user"));
+    let provider = isolated_bundled(filesystem.clone(), PathBuf::from("/home/user"));
     filesystem.files.lock().unwrap().insert(
         PathBuf::from("/home/user/.codex/config.toml"),
         br#"model = "gpt-5.6-sol""#.to_vec(),
@@ -862,7 +882,7 @@ async fn codex_websockets_reads_effective_support_by_provider_kind() {
 
     // openai 内置硬编码支持 WebSocket，配置表无法覆盖。
     let filesystem = Arc::new(MemoryNativeFileSystem::default());
-    let provider = NativeConfigProvider::bundled(filesystem.clone(), PathBuf::from("/home/user"));
+    let provider = isolated_bundled(filesystem.clone(), PathBuf::from("/home/user"));
     filesystem.files.lock().unwrap().insert(
         PathBuf::from("/home/user/.codex/config.toml"),
         br#"model = "gpt-5.6-sol"
@@ -886,7 +906,7 @@ supports_websockets = false
 
     // ollama 内置不支持 WebSocket → 开关显示为开启。
     let filesystem = Arc::new(MemoryNativeFileSystem::default());
-    let provider = NativeConfigProvider::bundled(filesystem.clone(), PathBuf::from("/home/user"));
+    let provider = isolated_bundled(filesystem.clone(), PathBuf::from("/home/user"));
     filesystem.files.lock().unwrap().insert(
         PathBuf::from("/home/user/.codex/config.toml"),
         br#"model = "gpt-5.6-sol"
@@ -906,7 +926,7 @@ model_provider = "ollama"
 #[tokio::test]
 async fn codex_websockets_default_openai_save_round_trips_disable() {
     let filesystem = Arc::new(MemoryNativeFileSystem::default());
-    let provider = NativeConfigProvider::bundled(filesystem.clone(), PathBuf::from("/home/user"));
+    let provider = isolated_bundled(filesystem.clone(), PathBuf::from("/home/user"));
     let codex = AgentId::parse("codex").unwrap();
     filesystem.files.lock().unwrap().insert(
         PathBuf::from("/home/user/.codex/config.toml"),
@@ -953,15 +973,15 @@ async fn codex_websockets_default_openai_save_round_trips_disable() {
 #[tokio::test]
 async fn codex_websockets_writes_active_custom_provider_and_legacy_features() {
     let filesystem = Arc::new(MemoryNativeFileSystem::default());
-    let provider = NativeConfigProvider::bundled(filesystem.clone(), PathBuf::from("/home/user"));
+    let provider = isolated_bundled(filesystem.clone(), PathBuf::from("/home/user"));
     let codex = AgentId::parse("codex").unwrap();
     filesystem.files.lock().unwrap().insert(
         PathBuf::from("/home/user/.codex/config.toml"),
         br#"model = "gpt-5.6-sol"
-model_provider = "vibex"
+model_provider = "dimo"
 
-[model_providers.vibex]
-name = "vibex"
+[model_providers.dimo]
+name = "dimo"
 base_url = "https://beeapi.ai/v1"
 wire_api = "responses"
 requires_openai_auth = true
@@ -1007,7 +1027,7 @@ requires_openai_auth = true
     .unwrap();
     // 开启 WebSocket：写进活跃自定义 provider 表，并同步 legacy features 键。
     assert_eq!(
-        config["model_providers"]["vibex"]["supports_websockets"].as_bool(),
+        config["model_providers"]["dimo"]["supports_websockets"].as_bool(),
         Some(true)
     );
     assert_eq!(
@@ -1052,7 +1072,7 @@ requires_openai_auth = true
     )
     .unwrap();
     assert_eq!(
-        config["model_providers"]["vibex"]["supports_websockets"].as_bool(),
+        config["model_providers"]["dimo"]["supports_websockets"].as_bool(),
         Some(false)
     );
     assert_eq!(
@@ -1088,7 +1108,7 @@ requires_openai_auth = true
     )
     .unwrap();
     assert!(
-        config["model_providers"]["vibex"]
+        config["model_providers"]["dimo"]
             .get("supports_websockets")
             .is_none()
     );
@@ -1103,7 +1123,7 @@ requires_openai_auth = true
 #[tokio::test]
 async fn codex_websockets_write_to_reserved_provider_is_ignored() {
     let filesystem = Arc::new(MemoryNativeFileSystem::default());
-    let provider = NativeConfigProvider::bundled(filesystem.clone(), PathBuf::from("/home/user"));
+    let provider = isolated_bundled(filesystem.clone(), PathBuf::from("/home/user"));
     let codex = AgentId::parse("codex").unwrap();
     filesystem.files.lock().unwrap().insert(
         PathBuf::from("/home/user/.codex/config.toml"),
@@ -1168,7 +1188,7 @@ name = "Local OSS"
 #[tokio::test]
 async fn codex_api_url_falls_back_to_top_level_base_url_keys_and_writes_them_back() {
     let filesystem = Arc::new(MemoryNativeFileSystem::default());
-    let provider = NativeConfigProvider::bundled(filesystem.clone(), PathBuf::from("/home/user"));
+    let provider = isolated_bundled(filesystem.clone(), PathBuf::from("/home/user"));
     let codex = AgentId::parse("codex").unwrap();
     filesystem.files.lock().unwrap().insert(
         PathBuf::from("/home/user/.codex/config.toml"),
@@ -1225,7 +1245,7 @@ api_base_url = "https://gateway.example/v1"
 #[tokio::test]
 async fn advanced_codeg_parity_fields_write_their_native_shapes() {
     let filesystem = Arc::new(MemoryNativeFileSystem::default());
-    let provider = NativeConfigProvider::bundled(filesystem.clone(), PathBuf::from("/home/user"));
+    let provider = isolated_bundled(filesystem.clone(), PathBuf::from("/home/user"));
 
     let claude = AgentId::parse("claude_code").unwrap();
     let claude_initial = provider.read(&claude, false).await.unwrap();
@@ -1311,7 +1331,7 @@ async fn advanced_codeg_parity_fields_write_their_native_shapes() {
         Some("always-approve")
     );
     assert_eq!(
-        grok_config["model"]["vibex"]["api_backend"].as_str(),
+        grok_config["model"]["dimo"]["api_backend"].as_str(),
         Some("responses")
     );
     assert_eq!(
@@ -1400,7 +1420,7 @@ async fn grok_reads_bypass_permissions_as_always_approve() {
         PathBuf::from("/home/user/.grok/config.toml"),
         b"[ui]\npermission_mode = \"bypassPermissions\"\n".to_vec(),
     );
-    let provider = NativeConfigProvider::bundled(filesystem, PathBuf::from("/home/user"));
+    let provider = isolated_bundled(filesystem, PathBuf::from("/home/user"));
     let snapshot = provider
         .read(&AgentId::parse("grok").unwrap(), false)
         .await
@@ -1427,13 +1447,13 @@ api_key = "sk-gateway"
 model = "grok-4"
 api_backend = "chat_completions"
 
-[model.vibex]
+[model.dimo]
 base_url = "https://stale.example/v1"
 api_key = "sk-stale"
 "#
         .to_vec(),
     );
-    let provider = NativeConfigProvider::bundled(filesystem, PathBuf::from("/home/user"));
+    let provider = isolated_bundled(filesystem, PathBuf::from("/home/user"));
     let snapshot = provider
         .read(&AgentId::parse("grok").unwrap(), false)
         .await
@@ -1457,7 +1477,7 @@ async fn grok_permission_save_does_not_rewrite_the_active_model() {
         PathBuf::from("/home/user/.grok/config.toml"),
         b"[models]\ndefault = \"gateway\"\n\n[model.gateway]\nbase_url = \"https://gateway.example/v1\"\napi_key = \"sk-gateway\"\n".to_vec(),
     );
-    let provider = NativeConfigProvider::bundled(filesystem.clone(), PathBuf::from("/home/user"));
+    let provider = isolated_bundled(filesystem.clone(), PathBuf::from("/home/user"));
     let grok = AgentId::parse("grok").unwrap();
     let initial = provider.read(&grok, false).await.unwrap();
     provider
@@ -1488,7 +1508,7 @@ async fn grok_permission_save_does_not_rewrite_the_active_model() {
         Some("always-approve")
     );
     assert_eq!(grok_config["models"]["default"].as_str(), Some("gateway"));
-    assert!(grok_config["model"].get("vibex").is_none());
+    assert!(grok_config["model"].get("dimo").is_none());
     assert_eq!(
         grok_config["model"]["gateway"]["base_url"].as_str(),
         Some("https://gateway.example/v1")
@@ -1498,7 +1518,7 @@ async fn grok_permission_save_does_not_rewrite_the_active_model() {
 #[tokio::test]
 async fn kimi_managed_model_is_normalized_to_the_native_schema() {
     let filesystem = Arc::new(MemoryNativeFileSystem::default());
-    let provider = NativeConfigProvider::bundled(filesystem.clone(), PathBuf::from("/home/user"));
+    let provider = isolated_bundled(filesystem.clone(), PathBuf::from("/home/user"));
     let kimi = AgentId::parse("kimi_code").unwrap();
     let initial = provider.read(&kimi, false).await.unwrap();
 
@@ -1537,21 +1557,21 @@ async fn kimi_managed_model_is_normalized_to_the_native_schema() {
     let path = PathBuf::from("/home/user/.kimi-code/config.toml");
     let config = String::from_utf8(filesystem.files.lock().unwrap()[&path].clone()).unwrap();
     let config: toml::Value = toml::from_str(&config).unwrap();
-    assert_eq!(config["default_model"].as_str(), Some("vibex"));
+    assert_eq!(config["default_model"].as_str(), Some("dimo"));
     assert_eq!(
-        config["models"]["vibex"]["provider"].as_str(),
-        Some("vibex")
+        config["models"]["dimo"]["provider"].as_str(),
+        Some("dimo")
     );
     assert_eq!(
-        config["models"]["vibex"]["model"].as_str(),
+        config["models"]["dimo"]["model"].as_str(),
         Some("demo-model")
     );
     assert_eq!(
-        config["models"]["vibex"]["max_context_size"].as_integer(),
+        config["models"]["dimo"]["max_context_size"].as_integer(),
         Some(262_144)
     );
     assert_eq!(
-        config["models"]["vibex"]["capabilities"]
+        config["models"]["dimo"]["capabilities"]
             .as_array()
             .unwrap(),
         &[
@@ -1560,7 +1580,7 @@ async fn kimi_managed_model_is_normalized_to_the_native_schema() {
         ]
     );
     assert_eq!(
-        config["models"]["vibex"]["support_efforts"]
+        config["models"]["dimo"]["support_efforts"]
             .as_array()
             .unwrap(),
         &[
@@ -1568,7 +1588,7 @@ async fn kimi_managed_model_is_normalized_to_the_native_schema() {
             toml::Value::String("high".to_string()),
         ]
     );
-    assert!(config["models"]["vibex"].get("default_effort").is_none());
+    assert!(config["models"]["dimo"].get("default_effort").is_none());
 
     provider
         .save(
@@ -1592,7 +1612,7 @@ async fn kimi_managed_model_is_normalized_to_the_native_schema() {
     let config = String::from_utf8(filesystem.files.lock().unwrap()[&path].clone()).unwrap();
     let config: toml::Value = toml::from_str(&config).unwrap();
     assert_eq!(
-        config["models"]["vibex"]["default_effort"].as_str(),
+        config["models"]["dimo"]["default_effort"].as_str(),
         Some("high")
     );
 }
@@ -1607,7 +1627,7 @@ async fn kimi_provider_environment_rejects_non_object_json_without_writing() {
         .lock()
         .unwrap()
         .insert(path.clone(), original.clone());
-    let provider = NativeConfigProvider::bundled(filesystem.clone(), PathBuf::from("/home/user"));
+    let provider = isolated_bundled(filesystem.clone(), PathBuf::from("/home/user"));
     let kimi = AgentId::parse("kimi_code").unwrap();
     let initial = provider.read(&kimi, false).await.unwrap();
 
@@ -1636,7 +1656,7 @@ async fn kimi_provider_environment_rejects_non_object_json_without_writing() {
 #[tokio::test]
 async fn structured_json_fields_enforce_their_native_container_shapes() {
     let filesystem = Arc::new(MemoryNativeFileSystem::default());
-    let provider = NativeConfigProvider::bundled(filesystem.clone(), PathBuf::from("/home/user"));
+    let provider = isolated_bundled(filesystem.clone(), PathBuf::from("/home/user"));
 
     for (agent, field, value) in [
         ("pi", "pi_custom_providers", r#"["not-an-object"]"#),
@@ -1674,7 +1694,7 @@ async fn structured_json_fields_enforce_their_native_container_shapes() {
 #[tokio::test]
 async fn codex_granular_approval_is_mutually_exclusive_with_simple_policy() {
     let filesystem = Arc::new(MemoryNativeFileSystem::default());
-    let provider = NativeConfigProvider::bundled(filesystem.clone(), PathBuf::from("/home/user"));
+    let provider = isolated_bundled(filesystem.clone(), PathBuf::from("/home/user"));
     let codex = AgentId::parse("codex").unwrap();
     let path = PathBuf::from("/home/user/.codex/config.toml");
     filesystem.files.lock().unwrap().insert(
@@ -1775,7 +1795,7 @@ unknown_setting = "preserve-me"
 #[tokio::test]
 async fn hermes_yaml_dotenv_and_cursor_json_fields_round_trip() {
     let filesystem = Arc::new(MemoryNativeFileSystem::default());
-    let provider = NativeConfigProvider::bundled(filesystem.clone(), PathBuf::from("/home/user"));
+    let provider = isolated_bundled(filesystem.clone(), PathBuf::from("/home/user"));
     let hermes = AgentId::parse("hermes").unwrap();
     let hermes_config = PathBuf::from("/home/user/.hermes/config.yaml");
     let hermes_env = PathBuf::from("/home/user/.hermes/.env");
@@ -1867,7 +1887,7 @@ async fn hermes_yaml_dotenv_and_cursor_json_fields_round_trip() {
 #[tokio::test]
 async fn tagged_provider_keys_preserve_the_official_auth_shape() {
     let filesystem = Arc::new(MemoryNativeFileSystem::default());
-    let provider = NativeConfigProvider::bundled(filesystem.clone(), PathBuf::from("/home/user"));
+    let provider = isolated_bundled(filesystem.clone(), PathBuf::from("/home/user"));
     let pi = AgentId::parse("pi").unwrap();
     let initial = provider.read(&pi, false).await.unwrap();
 
@@ -1918,7 +1938,7 @@ async fn tagged_provider_keys_preserve_the_official_auth_shape() {
 #[tokio::test]
 async fn codebuddy_routes_private_and_hosted_environments_exclusively() {
     let filesystem = Arc::new(MemoryNativeFileSystem::default());
-    let provider = NativeConfigProvider::bundled(filesystem.clone(), PathBuf::from("/home/user"));
+    let provider = isolated_bundled(filesystem.clone(), PathBuf::from("/home/user"));
     let agent_id = AgentId::parse("codebuddy").unwrap();
     let initial = provider.read(&agent_id, false).await.unwrap();
 
@@ -1982,7 +2002,7 @@ async fn codebuddy_routes_private_and_hosted_environments_exclusively() {
 #[tokio::test]
 async fn claude_api_key_reads_and_writes_the_auth_token_source() {
     let filesystem = Arc::new(MemoryNativeFileSystem::default());
-    let provider = NativeConfigProvider::bundled(filesystem.clone(), PathBuf::from("/home/user"));
+    let provider = isolated_bundled(filesystem.clone(), PathBuf::from("/home/user"));
     let claude = AgentId::parse("claude_code").unwrap();
     filesystem.files.lock().unwrap().insert(
         PathBuf::from("/home/user/.claude/settings.json"),
@@ -2031,7 +2051,7 @@ async fn claude_api_key_reads_and_writes_the_auth_token_source() {
 #[tokio::test]
 async fn clearing_claude_api_key_removes_both_credential_keys() {
     let filesystem = Arc::new(MemoryNativeFileSystem::default());
-    let provider = NativeConfigProvider::bundled(filesystem.clone(), PathBuf::from("/home/user"));
+    let provider = isolated_bundled(filesystem.clone(), PathBuf::from("/home/user"));
     let claude = AgentId::parse("claude_code").unwrap();
     filesystem.files.lock().unwrap().insert(
         PathBuf::from("/home/user/.claude/settings.json"),
@@ -2067,7 +2087,7 @@ async fn clearing_claude_api_key_removes_both_credential_keys() {
 #[tokio::test]
 async fn native_config_saves_codex_max_and_ultra_reasoning_effort() {
     let filesystem = Arc::new(MemoryNativeFileSystem::default());
-    let provider = NativeConfigProvider::bundled(filesystem.clone(), PathBuf::from("/home/user"));
+    let provider = isolated_bundled(filesystem.clone(), PathBuf::from("/home/user"));
     let codex = AgentId::parse("codex").unwrap();
     let initial = provider.read(&codex, false).await.unwrap();
     let field = initial

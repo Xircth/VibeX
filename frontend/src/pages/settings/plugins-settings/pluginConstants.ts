@@ -4,20 +4,20 @@ import type {
 } from '@/lib/api/plugins';
 
 export const FORMAT_LABELS: Record<string, string> = {
-  vibex: 'VibeX',
+  dimo: 'Dimo',
   codex: 'Codex',
   claude_code: 'Claude Code',
 };
 
-export type PluginEcosystem = 'codex' | 'claude_code' | 'vibex';
+export type PluginEcosystem = 'codex' | 'claude_code' | 'dimo';
 
 export const PLUGIN_TABS: Array<{ id: PluginEcosystem; label: string }> = [
   { id: 'codex', label: 'Codex' },
   { id: 'claude_code', label: 'Claude Code' },
-  { id: 'vibex', label: 'VibeX' },
+  { id: 'dimo', label: 'Dimo' },
 ];
 
-export const PLUGIN_LIST_PANE_STORAGE_KEY = 'vibex.pluginHub.listPanePercent';
+export const PLUGIN_LIST_PANE_STORAGE_KEY = 'dimo.pluginHub.listPanePercent';
 export const PLUGIN_LIST_PANE_DEFAULT = 31;
 export const PLUGIN_LIST_PANE_MIN = 22;
 export const PLUGIN_LIST_PANE_MAX = 52;
@@ -43,7 +43,7 @@ export function initialPluginListPanePercent() {
 export function pluginEcosystem(plugin: PluginControlItem): PluginEcosystem {
   if (plugin.sourceKind === 'codex_native') return 'codex';
   if (plugin.sourceKind === 'claude_code_native') return 'claude_code';
-  return 'vibex';
+  return 'dimo';
 }
 
 export function runtimeLockIsReady(

@@ -199,7 +199,7 @@ describe('WorktreeSettings', () => {
     // 未设置过前缀、也未编辑时不报错。
     expect(screen.queryByText('分支前缀不能为空')).not.toBeInTheDocument();
 
-    const prefixInput = await screen.findByPlaceholderText('vibex');
+    const prefixInput = await screen.findByPlaceholderText('dimo');
     await user.type(prefixInput, 'a/');
     expect(prefixInput).toHaveValue('a/');
     expect(

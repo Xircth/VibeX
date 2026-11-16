@@ -25,8 +25,9 @@ import {
   ToolCardShell,
   getToolStatusClassName,
   getToolStatusDotClassName,
+  useToolCallResultDetail,
 } from './ToolCardShell';
-import { jsonToFacts } from './toolArtifactModel';
+import { hasJsonFacts, jsonToFacts } from './toolArtifactModel';
 
 function GenericToolDetail({
   arguments: args,
@@ -126,7 +127,8 @@ export function GenericToolCard({
     `generic-tool-entry:${expansionKey}`,
     defaultExpanded
   );
-  const effectiveExpanded = forceExpanded || expanded;
+  const isResultDetail = useToolCallResultDetail();
+  const effectiveExpanded = forceExpanded || isResultDetail || expanded;
 
   if (!isNormalizedEntry) {
     const processDetail = getProcessActionDetail(entry);
@@ -196,11 +198,17 @@ export function GenericToolCard({
         : // Raw tool identifiers are developer-facing noise — fall back to the
           // inline text instead of exposing `tool_name`.
           summary.detail || meaningfulInlineText;
-  const argumentFacts = isGenericTool
-    ? jsonToFacts(actionType.arguments, {
-        skipKeys: ['description', 'toolSummary', 'toolAction'],
-      })
-    : [];
+  const hasArgumentFacts =
+    isGenericTool &&
+    hasJsonFacts(actionType.arguments, {
+      skipKeys: ['description', 'toolSummary', 'toolAction'],
+    });
+  const argumentFacts =
+    effectiveExpanded && isGenericTool
+      ? jsonToFacts(actionType.arguments, {
+          skipKeys: ['description', 'toolSummary', 'toolAction'],
+        })
+      : [];
   const hasGenericResult =
     isGenericTool &&
     (actionType.result != null || meaningfulInlineText.length > 0);
@@ -208,7 +216,7 @@ export function GenericToolCard({
     isTaskCreate ||
     isTodo ||
     isOther ||
-    (isGenericTool && (argumentFacts.length > 0 || hasGenericResult));
+    (isGenericTool && (hasArgumentFacts || hasGenericResult));
   const icon = isTaskCreate ? (
     <Plus className="h-3 w-3" />
   ) : isTodo ? (
@@ -231,67 +239,74 @@ export function GenericToolCard({
       expandable={hasDetails}
       onToggle={toggle}
     >
-      {isTaskCreate ? (
-        <ToolArtifact
-          badge={actionType.subagent_type || t('genericTool.subagent')}
-          title={actionType.description}
-        >
-          {actionType.result ? (
-            <ToolProse>
-              <ToolResultView
-                result={actionType.result}
-                taskAttemptId={taskAttemptId}
-              />
-            </ToolProse>
-          ) : null}
-        </ToolArtifact>
-      ) : null}
-
-      {isTodo ? (
-        <ToolArtifact>
-          <ToolTodoList todos={actionType.todos} />
-        </ToolArtifact>
-      ) : null}
-
-      {isGenericTool ? (
+      {effectiveExpanded ? (
         <>
-          {argumentFacts.length > 0 ? (
-            <ToolArtifact badge={t('genericTool.arguments')}>
-              <ToolFacts facts={argumentFacts} />
+          {isTaskCreate ? (
+            <ToolArtifact
+              badge={actionType.subagent_type || t('genericTool.subagent')}
+              title={actionType.description}
+            >
+              {actionType.result ? (
+                <ToolProse>
+                  <ToolResultView
+                    result={actionType.result}
+                    taskAttemptId={taskAttemptId}
+                  />
+                </ToolProse>
+              ) : null}
             </ToolArtifact>
           ) : null}
-          {hasGenericResult ? (
-            <ToolArtifact
-              badge={actionType.result ? t('genericTool.result') : undefined}
-            >
-              <GenericToolDetail
-                arguments={actionType.arguments}
-                result={actionType.result}
-                fallbackText={meaningfulInlineText}
-                taskAttemptId={taskAttemptId}
-                openLink={openLink}
-                openPath={(path, line) => {
-                  const resolved = resolveToolFilePath(path);
-                  const title = deriveRelativeFilePath(resolved, null) ?? path;
-                  panelActions?.openFilePreview(resolved, {
-                    displayPath: title,
-                    title,
-                    location: fileReadLocation(line, line),
-                  });
-                }}
-                openDirectory={(path) => {
-                  panelActions?.revealInFileTree(path, { nodeType: 'folder' });
-                }}
-              />
+
+          {isTodo ? (
+            <ToolArtifact>
+              <ToolTodoList todos={actionType.todos} />
+            </ToolArtifact>
+          ) : null}
+
+          {isGenericTool ? (
+            <>
+              {argumentFacts.length > 0 ? (
+                <ToolArtifact badge={t('genericTool.arguments')}>
+                  <ToolFacts facts={argumentFacts} />
+                </ToolArtifact>
+              ) : null}
+              {hasGenericResult ? (
+                <ToolArtifact
+                  badge={actionType.result ? t('genericTool.result') : undefined}
+                >
+                  <GenericToolDetail
+                    arguments={actionType.arguments}
+                    result={actionType.result}
+                    fallbackText={meaningfulInlineText}
+                    taskAttemptId={taskAttemptId}
+                    openLink={openLink}
+                    openPath={(path, line) => {
+                      const resolved = resolveToolFilePath(path);
+                      const title =
+                        deriveRelativeFilePath(resolved, null) ?? path;
+                      panelActions?.openFilePreview(resolved, {
+                        displayPath: title,
+                        title,
+                        location: fileReadLocation(line, line),
+                      });
+                    }}
+                    openDirectory={(path) => {
+                      panelActions?.revealInFileTree(path, {
+                        nodeType: 'folder',
+                      });
+                    }}
+                  />
+                </ToolArtifact>
+              ) : null}
+            </>
+          ) : null}
+
+          {isOther ? (
+            <ToolArtifact>
+              <ToolProse>{actionType.description}</ToolProse>
             </ToolArtifact>
           ) : null}
         </>
-      ) : null}
-
-      {isOther ? (
-        <ToolArtifact>
-          <ToolProse>{actionType.description}</ToolProse>
-        </ToolArtifact>
       ) : null}
     </ToolCardShell>
   );

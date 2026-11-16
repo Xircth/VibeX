@@ -352,7 +352,7 @@ pub async fn dispatch_model_provider_save(
     let store_path = provider_store_path();
     // Editing a Provider never changes which one is bound, so it must not touch
     // the mode: re-asserting Provider routing here would silently undo a mode
-    // the user chose in VibeX. Binding and deleting keep the two in step.
+    // the user chose in Dimo. Binding and deleting keep the two in step.
     let view = model_providers::save(&store_path, &home, &env, request)
         .await
         .map_err(bad)?;

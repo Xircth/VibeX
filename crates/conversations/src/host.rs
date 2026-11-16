@@ -88,6 +88,20 @@ impl ConversationHost for DefaultConversationHost {
         resolve_agent_runtime_launch_settings(pool, agent_id).await
     }
 
+    async fn launch_settings_with_provider_instance(
+        &self,
+        pool: &SqlitePool,
+        agent_id: &AgentId,
+        provider_instance_id: Option<&str>,
+    ) -> Result<AgentRuntimeLaunchSettings, ConversationServiceError> {
+        resolve_agent_runtime_launch_settings_for_provider_instance(
+            pool,
+            agent_id,
+            provider_instance_id,
+        )
+        .await
+    }
+
     fn product_mcp_server_names(&self) -> Vec<String> {
         self.product_mcp_server_names
             .as_ref()
@@ -122,9 +136,9 @@ pub async fn session_launch_rejection_from_pool(
 
 fn is_native_engine_launch(agent_id: &AgentId, setting_env: &HashMap<String, String>) -> bool {
     let env_mode_owned = setting_env
-        .get("VIBEX_ENGINE_MODE")
+        .get("DIMO_ENGINE_MODE")
         .cloned()
-        .or_else(|| std::env::var("VIBEX_ENGINE_MODE").ok());
+        .or_else(|| std::env::var("DIMO_ENGINE_MODE").ok());
     if EngineRegistry::bundled()
         .resolve_driver_for_agent(
             agent_id.as_str(),
@@ -251,13 +265,33 @@ pub async fn resolve_agent_runtime_launch_settings(
     pool: &SqlitePool,
     agent_id: &AgentId,
 ) -> Result<AgentRuntimeLaunchSettings, ConversationServiceError> {
-    resolve_agent_runtime_launch_settings_with_resolver(pool, agent_id, &SecretResolver::new())
-        .await
+    resolve_agent_runtime_launch_settings_with_resolver(
+        pool,
+        agent_id,
+        None,
+        &SecretResolver::new(),
+    )
+    .await
+}
+
+pub async fn resolve_agent_runtime_launch_settings_for_provider_instance(
+    pool: &SqlitePool,
+    agent_id: &AgentId,
+    provider_instance_id: Option<&str>,
+) -> Result<AgentRuntimeLaunchSettings, ConversationServiceError> {
+    resolve_agent_runtime_launch_settings_with_resolver(
+        pool,
+        agent_id,
+        provider_instance_id,
+        &SecretResolver::new(),
+    )
+    .await
 }
 
 pub(crate) async fn resolve_agent_runtime_launch_settings_with_resolver(
     pool: &SqlitePool,
     agent_id: &AgentId,
+    provider_instance_id: Option<&str>,
     secret_resolver: &SecretResolver,
 ) -> Result<AgentRuntimeLaunchSettings, ConversationServiceError> {
     let row = sqlx::query(
@@ -291,6 +325,15 @@ pub(crate) async fn resolve_agent_runtime_launch_settings_with_resolver(
         .map(|value| serde_json::from_str::<HashMap<String, String>>(&value))
         .transpose()?
         .unwrap_or_default();
+    if let Some(instance_id) = provider_instance_id
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        env.insert(
+            "DIMO_PROVIDER_INSTANCE_ID".to_string(),
+            instance_id.to_string(),
+        );
+    }
     let explicit_env_keys = env
         .keys()
         .cloned()
@@ -609,25 +652,25 @@ async fn apply_provider_instance_launch_env(
     {
         resolve_secret_bindings_value(&serde_json::Value::String(col_bindings), env, resolver).await?;
     }
-    if let Some(raw_bindings) = env.remove("VIBEX_SECRET_BINDINGS_JSON") {
+    if let Some(raw_bindings) = env.remove("DIMO_SECRET_BINDINGS_JSON") {
         resolve_secret_bindings_value(&serde_json::Value::String(raw_bindings), env, resolver).await?;
     }
 
-    let requested_instance_id = env.get("VIBEX_PROVIDER_INSTANCE_ID").cloned();
+    let requested_instance_id = env.get("DIMO_PROVIDER_INSTANCE_ID").cloned();
     let Some(record) =
         find_selected_provider_instance(pool, agent_id, requested_instance_id.as_deref()).await?
     else {
         return Ok(());
     };
 
-    env.insert("VIBEX_PROVIDER_INSTANCE_ID".to_string(), record.instance_id.clone());
+    env.insert("DIMO_PROVIDER_INSTANCE_ID".to_string(), record.instance_id.clone());
     let instances_root = env
-        .get("VIBEX_PROVIDER_INSTANCES_ROOT")
+        .get("DIMO_PROVIDER_INSTANCES_ROOT")
         .map(|v| v.trim())
         .filter(|v| !v.is_empty())
         .map(PathBuf::from)
         .unwrap_or_else(|| utils::assets::asset_dir().join("provider-instances"));
-    env.entry("VIBEX_PROVIDER_INSTANCES_ROOT".to_string())
+    env.entry("DIMO_PROVIDER_INSTANCES_ROOT".to_string())
         .or_insert_with(|| instances_root.to_string_lossy().into_owned());
 
     let auth_json = serde_json::from_str::<serde_json::Value>(&record.auth_mode)
@@ -739,7 +782,7 @@ async fn apply_provider_instance_launch_env(
             ))
         })?;
         env.insert(config_env_var.to_string(), isolated_dir.to_string_lossy().into_owned());
-        env.insert("VIBEX_ISOLATE_PROVIDER_PROFILE".to_string(), "1".to_string());
+        env.insert("DIMO_ISOLATE_PROVIDER_PROFILE".to_string(), "1".to_string());
     }
     Ok(())
 }
@@ -1371,17 +1414,17 @@ mod working_dir_tests {
 
     #[test]
     fn managed_worktree_cwd_joins_the_repo_folder_to_the_container() {
-        let workspace = sample_workspace(true, Some("VibeX"));
-        let repo = sample_repo("VibeX", "/Users/mac/Projects/VibeX");
-        let container = "/Users/mac/.vibex-workspaces/workflow-debug";
+        let workspace = sample_workspace(true, Some("Dimo"));
+        let repo = sample_repo("Dimo", "/Users/mac/Projects/Dimo");
+        let container = "/Users/mac/.dimo-workspaces/workflow-debug";
 
         assert_eq!(
             resolve_workspace_agent_working_dir(&workspace, container, std::slice::from_ref(&repo))
                 .as_deref(),
-            Some("VibeX")
+            Some("Dimo")
         );
         let expected = std::path::Path::new(container)
-            .join("VibeX")
+            .join("Dimo")
             .to_string_lossy()
             .into_owned();
         assert_eq!(
@@ -1403,24 +1446,24 @@ mod working_dir_tests {
     #[test]
     fn project_root_cwd_stays_the_repository_path() {
         let workspace = sample_workspace(false, None);
-        let repo = sample_repo("VibeX", "/Users/mac/Projects/VibeX");
+        let repo = sample_repo("Dimo", "/Users/mac/Projects/Dimo");
 
         assert_eq!(
             resolve_absolute_workspace_agent_working_dir(
                 &workspace,
-                "/Users/mac/Projects/VibeX",
+                "/Users/mac/Projects/Dimo",
                 std::slice::from_ref(&repo)
             ),
-            "/Users/mac/Projects/VibeX"
+            "/Users/mac/Projects/Dimo"
         );
     }
 
     #[test]
     fn worktree_additional_directories_include_the_primary_checkout() {
-        let workspace = sample_workspace(true, Some("VibeX"));
-        let repo = sample_repo("VibeX", "/Users/mac/Projects/VibeX");
-        let container = "/Users/mac/.vibex-workspaces/workflow-debug";
-        let cwd = format!("{container}/VibeX");
+        let workspace = sample_workspace(true, Some("Dimo"));
+        let repo = sample_repo("Dimo", "/Users/mac/Projects/Dimo");
+        let container = "/Users/mac/.dimo-workspaces/workflow-debug";
+        let cwd = format!("{container}/Dimo");
 
         let directories = resolve_workspace_additional_directories(
             &workspace,
@@ -1430,7 +1473,7 @@ mod working_dir_tests {
         );
         assert_eq!(
             directories,
-            vec![std::path::PathBuf::from("/Users/mac/Projects/VibeX")]
+            vec![std::path::PathBuf::from("/Users/mac/Projects/Dimo")]
         );
     }
 
@@ -1462,14 +1505,14 @@ mod working_dir_tests {
             .unwrap();
 
         let mut env = std::collections::HashMap::from([
-            ("VIBEX_PROVIDER_INSTANCE_ID".to_string(), "work-oauth".to_string()),
-            ("VIBEX_PROVIDER_INSTANCES_ROOT".to_string(), temp.path().to_string_lossy().into_owned()),
+            ("DIMO_PROVIDER_INSTANCE_ID".to_string(), "work-oauth".to_string()),
+            ("DIMO_PROVIDER_INSTANCES_ROOT".to_string(), temp.path().to_string_lossy().into_owned()),
         ]);
         let agent_id = agents::AgentId::parse("claude_code").unwrap();
         super::apply_provider_instance_launch_env(
             &pool, &agent_id, &mut env, &std::collections::HashSet::new(), &agents::secret_resolution::SecretResolver::new(),
         ).await.unwrap();
-        assert_eq!(env.get("VIBEX_PROVIDER_INSTANCE_ID").map(String::as_str), Some("work-oauth"));
+        assert_eq!(env.get("DIMO_PROVIDER_INSTANCE_ID").map(String::as_str), Some("work-oauth"));
         assert_eq!(env.get("CUSTOM_EXTRA_TOKEN").map(String::as_str), Some("bound-token-value"));
         let config_dir = env.get("CLAUDE_CONFIG_DIR").expect("isolated CLAUDE_CONFIG_DIR");
         assert!(std::path::Path::new(config_dir).is_dir() && config_dir.contains("work-oauth"));

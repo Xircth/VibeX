@@ -203,7 +203,7 @@ function createDerivedVolatile<T, U>(
 }
 
 const VOLATILE_CONFIG_STORE_KEY = Symbol.for(
-  'vibex.plugin-sdk.volatileConfigStore'
+  'dimo.plugin-sdk.volatileConfigStore'
 );
 
 type VolatileConfigMap = Map<string, MutableVolatile<Record<string, JsonValue>>>;

@@ -135,70 +135,70 @@ mod tests {
         let pool = setup_pool().await;
 
         assert_eq!(
-            PluginKvStorage::get(&pool, "vibex.git", "branch")
+            PluginKvStorage::get(&pool, "dimo.git", "branch")
                 .await
                 .unwrap(),
             None
         );
 
-        PluginKvStorage::put(&pool, "vibex.git", "branch", &json!("main"))
+        PluginKvStorage::put(&pool, "dimo.git", "branch", &json!("main"))
             .await
             .unwrap();
-        PluginKvStorage::put(&pool, "vibex.git", "branch", &json!("feat/next"))
+        PluginKvStorage::put(&pool, "dimo.git", "branch", &json!("feat/next"))
             .await
             .unwrap();
-        PluginKvStorage::put(&pool, "vibex.git", "stash.1", &json!({ "id": 1 }))
+        PluginKvStorage::put(&pool, "dimo.git", "stash.1", &json!({ "id": 1 }))
             .await
             .unwrap();
-        PluginKvStorage::put(&pool, "vibex.other", "branch", &json!("other"))
+        PluginKvStorage::put(&pool, "dimo.other", "branch", &json!("other"))
             .await
             .unwrap();
 
         assert_eq!(
-            PluginKvStorage::get(&pool, "vibex.git", "branch")
+            PluginKvStorage::get(&pool, "dimo.git", "branch")
                 .await
                 .unwrap(),
             Some(json!("feat/next"))
         );
         assert_eq!(
-            PluginKvStorage::get(&pool, "vibex.other", "branch")
+            PluginKvStorage::get(&pool, "dimo.other", "branch")
                 .await
                 .unwrap(),
             Some(json!("other"))
         );
 
-        let all_keys = PluginKvStorage::list_keys(&pool, "vibex.git", None)
+        let all_keys = PluginKvStorage::list_keys(&pool, "dimo.git", None)
             .await
             .unwrap();
         assert_eq!(all_keys, vec!["branch".to_string(), "stash.1".to_string()]);
 
-        let prefixed = PluginKvStorage::list_keys(&pool, "vibex.git", Some("stash."))
+        let prefixed = PluginKvStorage::list_keys(&pool, "dimo.git", Some("stash."))
             .await
             .unwrap();
         assert_eq!(prefixed, vec!["stash.1".to_string()]);
 
-        PluginKvStorage::delete(&pool, "vibex.git", "branch")
+        PluginKvStorage::delete(&pool, "dimo.git", "branch")
             .await
             .unwrap();
         assert_eq!(
-            PluginKvStorage::get(&pool, "vibex.git", "branch")
+            PluginKvStorage::get(&pool, "dimo.git", "branch")
                 .await
                 .unwrap(),
             None
         );
 
-        let removed = PluginKvStorage::clear_plugin(&pool, "vibex.git")
+        let removed = PluginKvStorage::clear_plugin(&pool, "dimo.git")
             .await
             .unwrap();
         assert_eq!(removed, 1);
         assert!(
-            PluginKvStorage::list_keys(&pool, "vibex.git", None)
+            PluginKvStorage::list_keys(&pool, "dimo.git", None)
                 .await
                 .unwrap()
                 .is_empty()
         );
         assert_eq!(
-            PluginKvStorage::get(&pool, "vibex.other", "branch")
+            PluginKvStorage::get(&pool, "dimo.other", "branch")
                 .await
                 .unwrap(),
             Some(json!("other"))

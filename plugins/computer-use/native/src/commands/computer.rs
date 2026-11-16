@@ -1,17 +1,17 @@
 //! Computer use on the desktop: the service that owns the helper and the
 //! window table, the agent-facing reads behind the `computer_*` tools, and
-//! the commands behind vibex's own Computer use panel.
+//! the commands behind dimo's own Computer use panel.
 //!
 //! Every agent read goes through the same five steps, in this order, because
 //! a read cannot be taken back:
 //!
 //! 1. **Switch.** The group is on (re-read now, not at injection).
-//! 2. **Grant.** The window is one vibex named, it is shared, the grant has
+//! 2. **Grant.** The window is one dimo named, it is shared, the grant has
 //!    not lapsed, and its application is not (or no longer) blocklisted.
 //! 3. **Identity.** The process that owned the window when it was shared is
 //!    still the one running under that pid — a relaunched application is a
 //!    different process whose windows nobody shared. Asked of the kernel by
-//!    vibex itself (a process's start time is not TCC-governed), not of the
+//!    dimo itself (a process's start time is not TCC-governed), not of the
 //!    helper.
 //! 4. **Read, then check again.** The helper reads; then everything above is
 //!    checked once more — no Stop since, the grant under the same epoch, the
@@ -29,7 +29,7 @@
 //! read of the window (`targets::TargetTable::begin_act`); the helper checks
 //! again at the moment of delivery what only it can see.
 //!
-//! **One driver call at a time, in vibex.** The driver answers one call at a
+//! **One driver call at a time, in dimo.** The driver answers one call at a
 //! time anyway; the queue is kept here so that an action's checks run when its
 //! turn has come, not before it waited behind a twenty-second snapshot —
 //! time in which the person could have taken the window back.
@@ -118,23 +118,23 @@ fn now_ms() -> i64 {
         .unwrap_or(0)
 }
 
-/// What VibeX knows about its own TCC standing (macOS only). Shown to the
-/// person, never acted on: a permission VibeX itself holds is one every
+/// What Dimo knows about its own TCC standing (macOS only). Shown to the
+/// person, never acted on: a permission Dimo itself holds is one every
 /// agent's shell holds too, outside anything computer use decides — refusing
 /// to run would not take it back.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct VibexTccStatus {
+pub struct DimoTccStatus {
     pub accessibility: bool,
     pub screen_recording: bool,
-    /// Whether VibeX is its own responsible process. When it is not (a
+    /// Whether Dimo is its own responsible process. When it is not (a
     /// development build run from a terminal), the two flags above are the
     /// terminal's, which every process in that terminal already has.
     pub self_responsible: bool,
 }
 
-impl VibexTccStatus {
-    /// VibeX itself has been granted a permission that every agent's shell
+impl DimoTccStatus {
+    /// Dimo itself has been granted a permission that every agent's shell
     /// inherits.
     pub fn is_leaking(&self) -> bool {
         self.self_responsible && (self.accessibility || self.screen_recording)
@@ -142,10 +142,10 @@ impl VibexTccStatus {
 }
 
 #[cfg(target_os = "macos")]
-fn vibex_tcc() -> Option<VibexTccStatus> {
+fn dimo_tcc() -> Option<DimoTccStatus> {
     use crate::computer::tcc;
     let me = std::process::id();
-    Some(VibexTccStatus {
+    Some(DimoTccStatus {
         accessibility: tcc::accessibility_granted(),
         screen_recording: tcc::screen_recording_granted(),
         self_responsible: tcc::responsible_pid(me) == Some(me),
@@ -153,7 +153,7 @@ fn vibex_tcc() -> Option<VibexTccStatus> {
 }
 
 #[cfg(not(target_os = "macos"))]
-fn vibex_tcc() -> Option<VibexTccStatus> {
+fn dimo_tcc() -> Option<DimoTccStatus> {
     None
 }
 
@@ -294,7 +294,7 @@ fn delivery_on(
 /// An action the application would not take in the background, ended with
 /// what the person's settings leave the agent to try next: the front, or
 /// asking them for it — for an action that can come to the front at all.
-/// The helper's words say what happened; only vibex knows the settings.
+/// The helper's words say what happened; only dimo knows the settings.
 fn with_next_step(
     refusal: Refusal,
     request: &ComputerActRequest,
@@ -342,7 +342,7 @@ fn denied(target_id: &str, why: ActDenied) -> Refusal {
         ActDenied::Secret => Refusal::refused(ERROR_BLOCKED, SECRET_FIELD_NOTE.into()),
         ActDenied::ChordBeyond => Refusal::refused(ERROR_CONTROL_REQUIRED, chord_beyond_note()),
         // The source of what is on the clipboard is what a paste would need
-        // a grant for; vibex does not know it.
+        // a grant for; dimo does not know it.
         ActDenied::Paste => Refusal::refused(ERROR_GRANT_REQUIRED, PASTE_NOTE.into()),
         ActDenied::NeedsElement => Refusal::failed(ERROR_ACTION_FAILED, NEEDS_ELEMENT_NOTE.into()),
         ActDenied::NoPointing => Refusal::failed(ERROR_ACTION_FAILED, no_pointing_note(target_id)),
@@ -436,15 +436,15 @@ struct Admitted {
 }
 
 /// The computer-use service: one per process — the desktop app's, managed as
-/// Tauri state, or vibex-server's where it is let share the screen it runs
-/// on (`VIBEX_COMPUTER_USE`).
+/// Tauri state, or dimo-server's where it is let share the screen it runs
+/// on (`DIMO_COMPUTER_USE`).
 pub struct ComputerService {
     /// Where what changes is told (see `computer::events`).
     events: ComputerEvents,
     /// Where a settings change the service makes itself is told — removing
     /// the driver switches computer use off.
     settings_events: EventEmitter,
-    /// What only the desktop app has; `None` in vibex-server.
+    /// What only the desktop app has; `None` in dimo-server.
     #[cfg(feature = "tauri-runtime")]
     desktop: Option<DesktopUi>,
     backend: Arc<LocalBackend>,
@@ -489,7 +489,7 @@ pub struct ComputerService {
 /// What the desktop app adds to computer use: the stop shortcut, held with
 /// the OS while computer use is on; the strip above every window while
 /// anything is shared; and the mark an action leaves where it landed.
-/// vibex-server has none of them — its Stop is in its web clients' panel.
+/// dimo-server has none of them — its Stop is in its web clients' panel.
 #[cfg(feature = "tauri-runtime")]
 struct DesktopUi {
     app: AppHandle,
@@ -504,7 +504,7 @@ pub enum ComputerHost {
     /// marker and the stop shortcut.
     #[cfg(feature = "tauri-runtime")]
     Desktop(AppHandle),
-    /// vibex-server, let share the screen it runs on: its web clients are
+    /// dimo-server, let share the screen it runs on: its web clients are
     /// told, through `broadcaster`; `emitter` is where it tells of settings.
     Server {
         broadcaster: Arc<WebEventBroadcaster>,
@@ -512,9 +512,9 @@ pub enum ComputerHost {
     },
 }
 
-/// Run `task` on the runtime vibex runs on: Tauri's in the desktop app,
+/// Run `task` on the runtime dimo runs on: Tauri's in the desktop app,
 /// which starts the service before any task of its own runs; the process's
-/// own in vibex-server.
+/// own in dimo-server.
 fn spawn_task(task: impl std::future::Future<Output = ()> + Send + 'static) {
     #[cfg(feature = "tauri-runtime")]
     tauri::async_runtime::spawn(task);
@@ -552,7 +552,7 @@ fn may_paste(request: &ComputerActRequest) -> bool {
 }
 
 /// Applications that only show every window at once — never-shared ones
-/// included, drawn by the system where vibex cannot paint them over — which
+/// included, drawn by the system where dimo cannot paint them over — which
 /// are never started for an agent: macOS's Mission Control.
 const SHOWS_EVERY_WINDOW: &[&str] = &["com.apple.exposelauncher"];
 
@@ -1427,7 +1427,7 @@ impl ComputerService {
             native_width: raw.native_width,
             native_height: raw.native_height,
             // Only the helper's own measure of the window says whether the
-            // capture is its full size; bounds vibex fills in from the
+            // capture is its full size; bounds dimo fills in from the
             // listing are not that.
             full_size: raw.full_size && !raw.window_bounds.is_empty(),
             window_bounds: raw.window_bounds,
@@ -1864,7 +1864,7 @@ impl ComputerService {
 
     /// Start an installed application for an agent — the one listed under
     /// `key`, or else `name` — in the background, where the person allows
-    /// it. Never vibex, nor an application on the blocklist. Its windows are
+    /// it. Never dimo, nor an application on the blocklist. Its windows are
     /// not shared by it: the person shares them, as any other.
     pub async fn agent_launch_app(
         &self,
@@ -1892,7 +1892,7 @@ impl ComputerService {
         let blocklist = blocklist_of(&config);
         let command = found.launch_path.as_deref().unwrap_or_default();
         let blocked = if self.me.owns(&found.app) || self.me.owns_command(command) {
-            Some(NotGrantable::Vibex)
+            Some(NotGrantable::Dimo)
         } else if blocklist.matches(&found.app) || blocklist.matches_command(command) {
             Some(NotGrantable::Blocklisted)
         } else {
@@ -2098,7 +2098,7 @@ impl ComputerService {
             if let (Some(desktop), Some(at)) = (&self.desktop, press.aim.landing(&press.raw)) {
                 desktop.marker.mark(at, action);
             }
-            // No marker in vibex-server: nothing on its screen of vibex's.
+            // No marker in dimo-server: nothing on its screen of dimo's.
             #[cfg(not(feature = "tauri-runtime"))]
             let _ = (press.aim, action);
         };
@@ -2316,7 +2316,7 @@ impl ComputerToolAccess for McpComputerTools {
     }
 }
 
-// -------- The person's side: VibeX's Computer use panel ----------------------
+// -------- The person's side: Dimo's Computer use panel ----------------------
 
 /// Everything the panel shows at a glance.
 #[derive(Debug, Clone, Serialize)]
@@ -2325,16 +2325,16 @@ pub struct ComputerStatus {
     pub enabled: bool,
     /// `macos` / `windows` / `linux`.
     pub platform: &'static str,
-    /// Whether this platform's driver has passed VibeX's release matrix.
+    /// Whether this platform's driver has passed Dimo's release matrix.
     /// `false` everywhere until it has; the panel says "preview".
     pub verified_platform: bool,
     pub backend: BackendStatus,
     /// The helper's own permissions, when the helper could be asked.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub permissions: Option<PermissionReport>,
-    /// VibeX's own TCC standing (macOS only).
+    /// Dimo's own TCC standing (macOS only).
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub vibex: Option<VibexTccStatus>,
+    pub dimo: Option<DimoTccStatus>,
     pub shared: Vec<SharedWindow>,
     /// Whether the share picker offers the entire screen: macOS and
     /// Windows, with its switch on.
@@ -2393,7 +2393,7 @@ fn backend_error(e: BackendError) -> AppCommandError {
 }
 
 // The panel's commands. Each is a `_core` function the desktop app's Tauri
-// command and vibex-server's HTTP handler (`web::handlers::computer`) both
+// command and dimo-server's HTTP handler (`web::handlers::computer`) both
 // call; what only one of them can do — open System Settings, show a file in
 // the Finder, size the strip — is the command's own.
 
@@ -2415,7 +2415,7 @@ pub async fn computer_status_core(
         verified_platform: false,
         backend: service.backend.status().await,
         permissions,
-        vibex: vibex_tcc(),
+        dimo: dimo_tcc(),
         shared: service.targets.shared(),
         screen_offered: cfg!(any(target_os = "macos", windows)) && config.screen_enabled,
     })
@@ -2493,7 +2493,7 @@ pub async fn computer_open_permission_settings(
         .map_err(|e| AppCommandError::configuration_invalid(e.to_string()))
 }
 
-/// Show vibex-computer-helper in the Finder — for dragging it into System
+/// Show dimo-computer-helper in the Finder — for dragging it into System
 /// Settings' list by hand, should it not be listed there after a request.
 #[cfg(feature = "tauri-runtime")]
 #[tauri::command]
@@ -2689,7 +2689,7 @@ pub async fn computer_share_windows(
     computer_share_windows_core(&*service(&app)?, &target_ids, level).await
 }
 
-/// The shared windows — vibex's own state, with no helper to start, for a
+/// The shared windows — dimo's own state, with no helper to start, for a
 /// window that has just loaded.
 pub fn computer_shared_state_core(service: &ComputerService) -> SharedState {
     service.shared_state()
@@ -2803,7 +2803,7 @@ pub async fn computer_stop(app: AppHandle) -> Result<(), AppCommandError> {
 
 /// Whether the stop shortcut is in force — the same status
 /// `computer://stop-key` carries when it changes. Empty where there is none
-/// (vibex-server).
+/// (dimo-server).
 pub fn computer_stop_key_status_core(service: &ComputerService) -> StopKeyStatus {
     service.stop_key_status()
 }
@@ -2814,7 +2814,7 @@ pub async fn computer_stop_key_status(app: AppHandle) -> Result<StopKeyStatus, A
     Ok(computer_stop_key_status_core(&*service(&app)?))
 }
 
-/// cua-driver as Settings shows it: the release this vibex runs, what the
+/// cua-driver as Settings shows it: the release this dimo runs, what the
 /// cache holds, and anything under way.
 pub fn computer_driver_info_core(service: &ComputerService) -> DriverInfo {
     service.drivers.info()
@@ -2826,7 +2826,7 @@ pub async fn computer_driver_info(app: AppHandle) -> Result<DriverInfo, AppComma
     Ok(computer_driver_info_core(&*service(&app)?))
 }
 
-/// Fetch the release this vibex runs, and clear older ones. Progress travels
+/// Fetch the release this dimo runs, and clear older ones. Progress travels
 /// on `computer://driver`.
 pub async fn computer_driver_install_core(
     service: &ComputerService,
@@ -2880,12 +2880,12 @@ mod tests {
         assert_eq!(cut_tree(wide, 5), ("- 保存\n".to_string(), true));
     }
 
-    /// Only a VibeX that is its own responsible process can leak a grant to
+    /// Only a Dimo that is its own responsible process can leak a grant to
     /// its agents; a development build under a terminal reports the
     /// terminal's grants, which the agents already have.
     #[test]
-    fn only_a_self_responsible_vibex_leaks() {
-        let status = |a, s, own| VibexTccStatus {
+    fn only_a_self_responsible_dimo_leaks() {
+        let status = |a, s, own| DimoTccStatus {
             accessibility: a,
             screen_recording: s,
             self_responsible: own,

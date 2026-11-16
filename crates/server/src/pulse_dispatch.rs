@@ -270,6 +270,14 @@ impl ServerApplicationDomains {
                     return Ok(());
                 }
 
+                let mut config_overrides = Vec::new();
+                if let Some(model) = model_override.as_deref().filter(|s| !s.trim().is_empty()) {
+                    config_overrides.push(AgentSessionConfigOverride {
+                        key: "model".to_string(),
+                        value: model.to_string(),
+                    });
+                }
+
                 let port = ConversationSessionExecutionPort::new(self.conversations.clone());
                 if *delivery_strategy == SessionDeliveryStrategy::Steer {
                     let active_turn_id = find_active_turn_id(&self.pool, conversation_id).await;
@@ -280,7 +288,11 @@ impl ServerApplicationDomains {
                                 expected_turn_id,
                                 operation_id: Uuid::new_v4(),
                                 text: prompt.clone(),
+                                display_text: None,
                                 images: Vec::new(),
+                                file_refs: Vec::new(),
+                                mode_override: None,
+                                config_overrides: config_overrides.clone(),
                                 principal: json!({ "source": "pulse_session_steer" }),
                                 promoted_input_id: None,
                                 promoted_input_expected_revision: None,
@@ -293,13 +305,6 @@ impl ServerApplicationDomains {
                     }
                 }
 
-                let mut config_overrides = Vec::new();
-                if let Some(model) = model_override.as_deref().filter(|s| !s.trim().is_empty()) {
-                    config_overrides.push(AgentSessionConfigOverride {
-                        key: "model".to_string(),
-                        value: model.to_string(),
-                    });
-                }
                 port.submit_input(SubmitConversationInput {
                     conversation_id,
                     operation_id: Uuid::new_v4(),
@@ -309,6 +314,7 @@ impl ServerApplicationDomains {
                         agent_id: parsed_agent,
                         workspace_id: target_workspace_id,
                         executor_profile_id: None,
+                        provider_instance_id: None,
                         text: prompt.clone(),
                         display_text: None,
                         images: Vec::new(),
@@ -657,6 +663,7 @@ impl ServerApplicationDomains {
                         agent_id,
                         workspace_id: bot_session.workspace_id,
                         executor_profile_id: None,
+                        provider_instance_id: None,
                         text: claimed.combined_prompt,
                         display_text: None,
                         images: Vec::new(),

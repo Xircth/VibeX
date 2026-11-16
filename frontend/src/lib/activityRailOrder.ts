@@ -42,7 +42,7 @@ export const ACTIVITY_RAIL_PANEL_TITLES: Record<ActivityRailItemId, string> = {
   [PANEL_IDS.BOTS]: 'Bots',
 };
 
-export const ACTIVITY_RAIL_ORDER_KEY = 'vibex:activity-rail-order' as const;
+export const ACTIVITY_RAIL_ORDER_KEY = 'dimo:activity-rail-order' as const;
 
 const listeners = new Set<() => void>();
 let cachedRaw: string | null = null;

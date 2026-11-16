@@ -119,7 +119,7 @@ export async function insertPastedImagesAsMarkdown({
     endLineNumber: 1,
     endColumn: 1,
   };
-  editor.executeEdits('vibex-paste-image', [
+  editor.executeEdits('dimo-paste-image', [
     { range, text, forceMoveMarkers: true },
   ]);
   editor.pushUndoStop();

@@ -31,7 +31,7 @@ use uuid::Uuid;
 
 const CODEX_GOLDEN_JSONL: &str = include_str!("fixtures/codex_app_server_golden.jsonl");
 const CLAUDE_GOLDEN_JSONL: &str = include_str!("fixtures/claude_sidecar_golden.jsonl");
-const FULL_GATE_FIXTURE_PROMPT: &str = "__vibex_agent_full_gate_fixture__";
+const FULL_GATE_FIXTURE_PROMPT: &str = "__dimo_agent_full_gate_fixture__";
 
 fn sample_spec(model: &str) -> EngineStartSpec {
     EngineStartSpec {
@@ -234,7 +234,7 @@ pub fn validate_golden_fixture_exhaustively(fixture_name: &str, content: &str) -
 
 #[tokio::test]
 async fn handshake_capability_negotiation_engine_mode_and_multi_instance_isolation() {
-    // 1. `VIBEX_ENGINE_MODE` grayscale routing (`native` vs `acp`).
+    // 1. `DIMO_ENGINE_MODE` grayscale routing (`native` vs `acp`).
     assert_eq!(
         resolve_native_engine_kind_with_env(
             "claude_code",
@@ -1021,7 +1021,7 @@ async fn bidirectional_server_request_approval_and_expected_revision_stale_rejec
             agent_id: agent_id.clone(),
             launch_lock: SessionLaunchLock {
                 agent_id: agent_id.clone(),
-                absolute_acp_program: PathBuf::from("/tmp/vibex-fixture-acp"),
+                absolute_acp_program: PathBuf::from("/tmp/dimo-fixture-acp"),
                 args: Vec::new(),
                 env: BTreeMap::new(),
                 runtime_version: "fixture".into(),
@@ -1332,7 +1332,7 @@ fn golden_jsonl_fixtures_pass_and_exhaustive_validator_reports_all_defects_witho
 
 #[tokio::test]
 async fn native_runner_e2e_routing_session_linking_controls_elicitation_deny_and_rollback() {
-    let temp_dir = std::env::temp_dir().join(format!("vibex-native-e2e-{}", Uuid::new_v4()));
+    let temp_dir = std::env::temp_dir().join(format!("dimo-native-e2e-{}", Uuid::new_v4()));
     std::fs::create_dir_all(&temp_dir).unwrap();
     let mock_js = temp_dir.join("mock-codex.mjs");
     std::fs::write(&mock_js, r#"import readline from 'node:readline';
@@ -1372,7 +1372,7 @@ readline.createInterface({ input: process.stdin, crlfDelay: Infinity }).on('line
     let runtime = AgentRuntime::new(Arc::new(ChannelSink { tx }));
     let codex_id = AgentId::parse("codex").unwrap();
     let make_input = |program: PathBuf, bin_override: &std::path::Path| {
-        let env = HashMap::from([("VIBEX_CODEX_PATH".into(), bin_override.display().to_string())]);
+        let env = HashMap::from([("DIMO_CODEX_PATH".into(), bin_override.display().to_string())]);
         EnsureAgentSessionInput {
             agent_id: codex_id.clone(),
             launch_lock: SessionLaunchLock { agent_id: codex_id.clone(), absolute_acp_program: program, args: Vec::new(), env: BTreeMap::new(), runtime_version: "test".into(), acp_version: "test".into() },
@@ -1443,7 +1443,7 @@ readline.createInterface({ input: process.stdin, crlfDelay: Infinity }).on('line
                         .unwrap();
                 }
                 AgentEvent::ElicitationRequested { request } => {
-                    assert!(request.requested_schema.get("x-vibex-questions").is_some());
+                    assert!(request.requested_schema.get("x-dimo-questions").is_some());
                     runtime
                         .respond_elicitation(RespondAgentElicitationInput {
                             connection_id: prepared.session.connection_id,
@@ -1454,7 +1454,8 @@ readline.createInterface({ input: process.stdin, crlfDelay: Infinity }).on('line
                         .unwrap();
                 }
                 AgentEvent::Usage { usage } => {
-                    assert_eq!(usage.input_tokens, Some(120));
+                    assert_eq!(usage.input_tokens, Some(100));
+                    assert_eq!(usage.cache_read_tokens, Some(20));
                     saw_usage = true;
                 }
                 AgentEvent::MessageChunk { content: AgentContentBlock::Text { text } } => {

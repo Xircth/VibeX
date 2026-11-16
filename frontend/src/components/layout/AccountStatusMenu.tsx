@@ -29,7 +29,7 @@ import {
   openExternal,
   resolveAccountAvatarLabel,
   resolveAccountDisplayName,
-  useVibeXAccount,
+  useDimoAccount,
 } from '@/features/model-router';
 import { openSettingsSurface } from '@/lib/api/settingsWindow';
 import { getSiteUrl } from '@/lib/branding';
@@ -48,7 +48,7 @@ export function AccountStatusMenu({ className }: AccountStatusMenuProps) {
   const navigate = useNavigate();
   const location = useLocation();
   const basicGuide = useOptionalBasicGuide();
-  const { isSignedIn, user, signingOut, signOut } = useVibeXAccount();
+  const { isSignedIn, user, signingOut, signOut } = useDimoAccount();
   const [open, setOpen] = useState(false);
 
   const displayName = resolveAccountDisplayName(user);

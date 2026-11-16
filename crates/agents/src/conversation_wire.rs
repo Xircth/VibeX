@@ -401,7 +401,7 @@ fn cap_tool_preview_fields(block: &mut ContentBlock) {
     crate::timeline_images::spill_content_block(block);
 }
 
-/// Validates and formats `internal_prompt_contributions` into an `<vibex-plugin-context>`
+/// Validates and formats `internal_prompt_contributions` into an `<dimo-plugin-context>`
 /// block to append to the Agent prompt.
 ///
 /// Returns `Err(total_bytes)` if the total UTF-8 byte length of all contribution
@@ -453,7 +453,7 @@ pub fn format_internal_prompt_contributions(
     }
 
     Ok(Some(format!(
-        "<vibex-plugin-context>\n{}\n</vibex-plugin-context>",
+        "<dimo-plugin-context>\n{}\n</dimo-plugin-context>",
         sections.join("\n\n")
     )))
 }
@@ -489,11 +489,11 @@ pub struct InternalMessageExtraction {
     pub has_pending_tail: bool,
 }
 
-const COMMENT_OPEN: &str = "<!--vibex-internal:";
-const COMMENT_SPACED_OPEN: &str = "<!-- vibex-internal:";
-const FENCE_OPEN: &str = "```vibex-internal:";
-const META_OPEN: &str = "<vibex-internal-meta";
-const META_CLOSE: &str = "</vibex-internal-meta>";
+const COMMENT_OPEN: &str = "<!--dimo-internal:";
+const COMMENT_SPACED_OPEN: &str = "<!-- dimo-internal:";
+const FENCE_OPEN: &str = "```dimo-internal:";
+const META_OPEN: &str = "<dimo-internal-meta";
+const META_CLOSE: &str = "</dimo-internal-meta>";
 
 fn parse_internal_header(header: &str) -> (String, String, String) {
     let trimmed = header.trim();
@@ -555,23 +555,40 @@ fn trailing_partial_marker_start(tail: &str) -> Option<usize> {
     None
 }
 
-/// Scans `raw_text` and strips all `<!--vibex-internal:...-->`,
-/// ```` ```vibex-internal:...\n...\n``` ````, and `<vibex-internal-meta ...>...</vibex-internal-meta>`
-/// frames while capturing their structured payloads.
-///
-/// When `is_streaming` is `true`, any incomplete frame or partial opening marker at the
-/// end of `raw_text` is held back from `visible_text` so streaming deltas never flash
-/// raw `<!--vibex-internal` tags in the chat UI.
-pub fn extract_and_strip_internal_messages(
+const MAX_OPEN_MARKER_LEN: usize = 24;
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct InternalMessageScanCursor {
+    pub raw_offset: usize,
+    pub visible_offset: usize,
+    pub total_captured: usize,
+    pub emitted_raw_end: usize,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct IncrementalInternalMessageUpdate {
+    pub visible_delta: String,
+    pub newly_captured: Vec<CapturedInternalMessage>,
+    pub has_pending_tail: bool,
+}
+
+fn extract_and_strip_internal_messages_core(
     raw_text: &str,
     conversation_id: Option<Uuid>,
     turn_id: Option<Uuid>,
     is_streaming: bool,
-) -> InternalMessageExtraction {
+    prior_captured: bool,
+) -> (
+    InternalMessageExtraction,
+    Vec<usize>,
+    Option<(usize, usize)>,
+) {
     let mut visible_text = String::with_capacity(raw_text.len());
     let mut captured = Vec::new();
+    let mut captured_raw_ends = Vec::new();
     let mut cursor = 0usize;
     let mut has_pending_tail = false;
+    let mut safe_tail: Option<(usize, usize, bool)> = None;
 
     while cursor < raw_text.len() {
         let rest = &raw_text[cursor..];
@@ -588,11 +605,37 @@ pub fn extract_and_strip_internal_messages(
         let earliest = candidates.into_iter().flatten().min_by_key(|(pos, _)| *pos);
 
         let Some((rel_pos, marker)) = earliest else {
-            if is_streaming && let Some(partial_rel) = trailing_partial_marker_start(rest) {
-                visible_text.push_str(&rest[..partial_rel]);
+            let emitted_slice = if is_streaming
+                && let Some(partial_rel) = trailing_partial_marker_start(rest)
+            {
                 has_pending_tail = true;
+                &rest[..partial_rel]
             } else {
-                visible_text.push_str(rest);
+                rest
+            };
+            visible_text.push_str(emitted_slice);
+            if is_streaming
+                && emitted_slice.len() > MAX_OPEN_MARKER_LEN
+                && !emitted_slice.contains("\n\n\n")
+            {
+                let mut advance_plain = emitted_slice.len().saturating_sub(MAX_OPEN_MARKER_LEN);
+                while advance_plain > 0 && !emitted_slice.is_char_boundary(advance_plain) {
+                    advance_plain -= 1;
+                }
+                while advance_plain > 0
+                    && matches!(emitted_slice.as_bytes()[advance_plain - 1], b'\n' | b'\r')
+                {
+                    advance_plain -= 1;
+                }
+                while advance_plain > 0 && !emitted_slice.is_char_boundary(advance_plain) {
+                    advance_plain -= 1;
+                }
+                if advance_plain > 0 {
+                    let safe_raw = cursor + advance_plain;
+                    let trailing_vis_len = emitted_slice.len() - advance_plain;
+                    let safe_across_collapse = !emitted_slice.starts_with('\n');
+                    safe_tail = Some((safe_raw, trailing_vis_len, safe_across_collapse));
+                }
             }
             break;
         };
@@ -625,6 +668,7 @@ pub fn extract_and_strip_internal_messages(
                     turn_id,
                 });
                 cursor = frame_start + marker.len() + close_rel + "-->".len();
+                captured_raw_ends.push(cursor);
             }
             FENCE_OPEN => {
                 let Some(newline_rel) = after_marker.find('\n') else {
@@ -657,6 +701,7 @@ pub fn extract_and_strip_internal_messages(
                     turn_id,
                 });
                 cursor = frame_start + marker.len() + newline_rel + 1 + close_rel + close_len;
+                captured_raw_ends.push(cursor);
             }
             META_OPEN => {
                 let Some(tag_end_rel) = after_marker.find('>') else {
@@ -693,21 +738,203 @@ pub fn extract_and_strip_internal_messages(
                 });
                 cursor =
                     frame_start + marker.len() + tag_end_rel + 1 + close_rel + META_CLOSE.len();
+                captured_raw_ends.push(cursor);
             }
             _ => unreachable!(),
         }
     }
 
-    if !is_streaming || !captured.is_empty() {
+    let mut collapsed = false;
+    if !is_streaming || prior_captured || !captured.is_empty() {
         // Collapse excessive blank lines left behind by removed blocks.
         while visible_text.contains("\n\n\n") {
             visible_text = visible_text.replace("\n\n\n", "\n\n");
+            collapsed = true;
         }
     }
 
-    InternalMessageExtraction {
-        visible_text,
-        captured,
-        has_pending_tail,
+    let safe_commit_rel = safe_tail.and_then(|(safe_raw, trailing_vis_len, safe_across_collapse)| {
+        if (!collapsed || safe_across_collapse) && visible_text.len() >= trailing_vis_len {
+            Some((safe_raw, visible_text.len() - trailing_vis_len))
+        } else {
+            None
+        }
+    });
+
+    (
+        InternalMessageExtraction {
+            visible_text,
+            captured,
+            has_pending_tail,
+        },
+        captured_raw_ends,
+        safe_commit_rel,
+    )
+}
+
+/// Scans `raw_text` and strips all `<!--dimo-internal:...-->`,
+/// ```` ```dimo-internal:...\n...\n``` ````, and `<dimo-internal-meta ...>...</dimo-internal-meta>`
+/// frames while capturing their structured payloads.
+///
+/// When `is_streaming` is `true`, any incomplete frame or partial opening marker at the
+/// end of `raw_text` is held back from `visible_text` so streaming deltas never flash
+/// raw `<!--dimo-internal` tags in the chat UI.
+pub fn extract_and_strip_internal_messages(
+    raw_text: &str,
+    conversation_id: Option<Uuid>,
+    turn_id: Option<Uuid>,
+    is_streaming: bool,
+) -> InternalMessageExtraction {
+    extract_and_strip_internal_messages_core(raw_text, conversation_id, turn_id, is_streaming, false)
+        .0
+}
+
+/// Incremental O(1)-amortized variant of [`extract_and_strip_internal_messages`] for
+/// streaming text chunks. Updates `existing_visible` in place and advances `cursor` so
+/// settled prefixes are never rescanned or cloned on every delta.
+pub fn extract_and_strip_internal_messages_incremental(
+    raw_text: &str,
+    existing_visible: &mut String,
+    cursor: &mut InternalMessageScanCursor,
+    conversation_id: Option<Uuid>,
+    turn_id: Option<Uuid>,
+) -> IncrementalInternalMessageUpdate {
+    if cursor.raw_offset > raw_text.len()
+        || !raw_text.is_char_boundary(cursor.raw_offset)
+        || cursor.visible_offset > existing_visible.len()
+        || !existing_visible.is_char_boundary(cursor.visible_offset)
+    {
+        *cursor = InternalMessageScanCursor::default();
+    }
+
+    let base_raw_offset = cursor.raw_offset;
+    let prior_captured = cursor.total_captured > 0;
+    let tail_raw = &raw_text[base_raw_offset..];
+    let (tail_extracted, captured_ends_rel, safe_commit_rel) =
+        extract_and_strip_internal_messages_core(
+            tail_raw,
+            conversation_id,
+            turn_id,
+            true,
+            prior_captured,
+        );
+
+    // Edge case: if an internal frame closes for the first time in the suffix and the
+    // already-committed visible prefix contained `\n\n\n`, a full pass is needed so
+    // triple-newline collapsing applies identically to the non-incremental pass.
+    if !prior_captured
+        && !tail_extracted.captured.is_empty()
+        && existing_visible[..cursor.visible_offset].contains("\n\n\n")
+    {
+        let (full, full_ends, _) = extract_and_strip_internal_messages_core(
+            raw_text,
+            conversation_id,
+            turn_id,
+            true,
+            false,
+        );
+        let delta = full
+            .visible_text
+            .strip_prefix(existing_visible.as_str())
+            .unwrap_or(&full.visible_text)
+            .to_string();
+        let mut newly_captured = Vec::new();
+        for (msg, end_abs) in full.captured.into_iter().zip(full_ends.into_iter()) {
+            if end_abs > cursor.emitted_raw_end {
+                cursor.emitted_raw_end = end_abs;
+                newly_captured.push(msg);
+            }
+        }
+        *existing_visible = full.visible_text;
+        cursor.raw_offset = 0;
+        cursor.visible_offset = 0;
+        cursor.total_captured += newly_captured.len();
+        return IncrementalInternalMessageUpdate {
+            visible_delta: delta,
+            newly_captured,
+            has_pending_tail: full.has_pending_tail,
+        };
+    }
+
+    let prev_tail = &existing_visible[cursor.visible_offset..];
+    let visible_delta = tail_extracted
+        .visible_text
+        .strip_prefix(prev_tail)
+        .unwrap_or(&tail_extracted.visible_text)
+        .to_string();
+
+    existing_visible.truncate(cursor.visible_offset);
+    existing_visible.push_str(&tail_extracted.visible_text);
+
+    let mut newly_captured = Vec::new();
+    for (msg, end_rel) in tail_extracted
+        .captured
+        .into_iter()
+        .zip(captured_ends_rel.into_iter())
+    {
+        let end_abs = base_raw_offset + end_rel;
+        if end_abs > cursor.emitted_raw_end {
+            cursor.emitted_raw_end = end_abs;
+            newly_captured.push(msg);
+        }
+    }
+
+    cursor.total_captured += newly_captured.len();
+    if let Some((raw_rel, vis_rel)) = safe_commit_rel {
+        cursor.raw_offset = base_raw_offset + raw_rel;
+        cursor.visible_offset += vis_rel;
+    }
+
+    IncrementalInternalMessageUpdate {
+        visible_delta,
+        newly_captured,
+        has_pending_tail: tail_extracted.has_pending_tail,
+    }
+}
+
+#[cfg(test)]
+mod incremental_scan_tests {
+    use super::*;
+
+    #[test]
+    fn incremental_matches_full_scan_across_chunks_frames_and_utf8() {
+        let full_raw = "你好世界！\n\n\n第一段文本后面紧跟着内部消息 <!--dimo-internal:p1/c1 {\"ok\":true}-->\n\n\n第二段继续输出，这里还有partial <dimo-internal-meta channel=\"p2/c2\">payload</dimo-internal-meta> 结尾以及 ```dimo-internal:p3/c3\n{\"x\":1}\n``` 完成。".repeat(3);
+
+        for chunk_size in [1usize, 3, 7, 19, 64] {
+            let mut incremental_raw = String::new();
+            let mut incremental_visible = String::new();
+            let mut cursor = InternalMessageScanCursor::default();
+            let mut incremental_captured = Vec::new();
+            let mut incremental_delta_concat = String::new();
+
+            let mut idx = 0;
+            while idx < full_raw.len() {
+                let mut end = (idx + chunk_size).min(full_raw.len());
+                while end < full_raw.len() && !full_raw.is_char_boundary(end) {
+                    end += 1;
+                }
+                incremental_raw.push_str(&full_raw[idx..end]);
+                idx = end;
+
+                let full = extract_and_strip_internal_messages(&incremental_raw, None, None, true);
+                let step = extract_and_strip_internal_messages_incremental(
+                    &incremental_raw,
+                    &mut incremental_visible,
+                    &mut cursor,
+                    None,
+                    None,
+                );
+                assert_eq!(
+                    incremental_visible, full.visible_text,
+                    "visible mismatch for chunk_size={chunk_size} at byte {idx}"
+                );
+                assert_eq!(step.has_pending_tail, full.has_pending_tail);
+                incremental_captured.extend(step.newly_captured);
+                incremental_delta_concat.push_str(&step.visible_delta);
+            }
+
+            let final_full = extract_and_strip_internal_messages(&full_raw, None, None, true);
+            assert_eq!(incremental_captured, final_full.captured);
+        }
     }
 }

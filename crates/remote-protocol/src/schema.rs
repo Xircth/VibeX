@@ -47,7 +47,7 @@ pub fn protocol_schema_bundle() -> ProtocolSchemaBundle {
     root.insert("$id".to_owned(), Value::String(JSON_SCHEMA_ID.to_owned()));
     root.insert(
         "title".to_owned(),
-        Value::String("VibeX Remote Protocol v1".to_owned()),
+        Value::String("Dimo Remote Protocol v1".to_owned()),
     );
     if let Some(read_only) = root
         .get_mut("$defs")
@@ -92,7 +92,7 @@ fn openapi_document(json_schema: &Value) -> Value {
     json!({
         "openapi": "3.1.0",
         "info": {
-            "title": "VibeX Remote Protocol",
+            "title": "Dimo Remote Protocol",
             "version": crate::PROTOCOL_VERSION,
         },
         "servers": [{"url": "/api/v1"}],

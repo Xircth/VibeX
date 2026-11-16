@@ -233,27 +233,6 @@ async fn fold_conversation_on_pool(
     conversation_id: Uuid,
     recent_turn_buffer: usize,
 ) -> Result<FoldReport, sqlx::Error> {
-    let mut conn = pool.acquire().await?;
-    sqlx::query("BEGIN IMMEDIATE").execute(&mut *conn).await?;
-
-    let result = fold_conversation_in_tx(&mut conn, conversation_id, recent_turn_buffer).await;
-    match result {
-        Ok(report) => {
-            sqlx::query("COMMIT").execute(&mut *conn).await?;
-            Ok(report)
-        }
-        Err(err) => {
-            let _ = sqlx::query("ROLLBACK").execute(&mut *conn).await;
-            Err(err)
-        }
-    }
-}
-
-async fn fold_conversation_in_tx(
-    conn: &mut SqliteConnection,
-    conversation_id: Uuid,
-    recent_turn_buffer: usize,
-) -> Result<FoldReport, sqlx::Error> {
     let records: Vec<ConversationEventRecord> = sqlx::query_as(
         r#"SELECT id, conversation_id, turn_id, binding_id, connection_id, prompt_id,
                   sequence, source, event_kind, event_version, normalized_json, raw_json,
@@ -263,7 +242,7 @@ async fn fold_conversation_in_tx(
            ORDER BY sequence ASC"#,
     )
     .bind(conversation_id)
-    .fetch_all(&mut *conn)
+    .fetch_all(pool)
     .await?;
 
     let events_before = records.len();
@@ -278,14 +257,12 @@ async fn fold_conversation_in_tx(
     }
 
     let max_sequence_before = records.iter().map(|r| r.sequence).max().unwrap_or(0);
-
-    // Query in-flight turns from `conversation_turns` as an extra belt-and-suspenders guard.
     let in_flight_turns: HashSet<Uuid> = sqlx::query_scalar::<_, Uuid>(
         "SELECT id FROM conversation_turns \
          WHERE conversation_id = ? AND status IN ('pending', 'running', 'blocked')",
     )
     .bind(conversation_id)
-    .fetch_all(&mut *conn)
+    .fetch_all(pool)
     .await?
     .into_iter()
     .collect();
@@ -300,12 +277,106 @@ async fn fold_conversation_in_tx(
             fold_operations: 0,
         });
     }
+    drop(records);
+
+    let mut conn = pool.acquire().await?;
+    sqlx::query("BEGIN IMMEDIATE").execute(&mut *conn).await?;
+
+    let result = apply_planned_folds_in_tx(
+        &mut conn,
+        conversation_id,
+        recent_turn_buffer,
+        events_before,
+        max_sequence_before,
+        &in_flight_turns,
+        &mutations,
+    )
+    .await;
+    match result {
+        Ok(report) => {
+            sqlx::query("COMMIT").execute(&mut *conn).await?;
+            Ok(report)
+        }
+        Err(err) => {
+            let _ = sqlx::query("ROLLBACK").execute(&mut *conn).await;
+            Err(err)
+        }
+    }
+}
+
+async fn apply_planned_folds_in_tx(
+    conn: &mut SqliteConnection,
+    conversation_id: Uuid,
+    recent_turn_buffer: usize,
+    planned_events_before: usize,
+    planned_max_sequence: i64,
+    planned_in_flight_turns: &HashSet<Uuid>,
+    planned_mutations: &[PlannedFoldMutation],
+) -> Result<FoldReport, sqlx::Error> {
+    let tx_max_sequence: i64 = sqlx::query_scalar(
+        "SELECT COALESCE(MAX(sequence), 0) FROM conversation_events WHERE conversation_id = ?",
+    )
+    .bind(conversation_id)
+    .fetch_one(&mut *conn)
+    .await?;
+    let tx_in_flight_turns: HashSet<Uuid> = sqlx::query_scalar::<_, Uuid>(
+        "SELECT id FROM conversation_turns \
+         WHERE conversation_id = ? AND status IN ('pending', 'running', 'blocked')",
+    )
+    .bind(conversation_id)
+    .fetch_all(&mut *conn)
+    .await?
+    .into_iter()
+    .collect();
+
+    let (events_before, max_sequence_before, recomputed_mutations);
+    let mutations: &[PlannedFoldMutation] =
+        if tx_max_sequence == planned_max_sequence && tx_in_flight_turns == *planned_in_flight_turns {
+            events_before = planned_events_before;
+            max_sequence_before = planned_max_sequence;
+            planned_mutations
+        } else {
+            let records: Vec<ConversationEventRecord> = sqlx::query_as(
+                r#"SELECT id, conversation_id, turn_id, binding_id, connection_id, prompt_id,
+                          sequence, source, event_kind, event_version, normalized_json, raw_json,
+                          idempotency_key, created_at
+                   FROM conversation_events
+                   WHERE conversation_id = ?
+                   ORDER BY sequence ASC"#,
+            )
+            .bind(conversation_id)
+            .fetch_all(&mut *conn)
+            .await?;
+            events_before = records.len();
+            if events_before < 2 {
+                return Ok(FoldReport {
+                    conversations_scanned: 1,
+                    events_before,
+                    events_after: events_before,
+                    bytes_reclaimed: 0,
+                    fold_operations: 0,
+                });
+            }
+            max_sequence_before = records.iter().map(|r| r.sequence).max().unwrap_or(0);
+            recomputed_mutations =
+                plan_conversation_folds(&records, &tx_in_flight_turns, recent_turn_buffer);
+            if recomputed_mutations.is_empty() {
+                return Ok(FoldReport {
+                    conversations_scanned: 1,
+                    events_before,
+                    events_after: events_before,
+                    bytes_reclaimed: 0,
+                    fold_operations: 0,
+                });
+            }
+            &recomputed_mutations
+        };
 
     let mut deleted_total = 0usize;
     let mut bytes_reclaimed = 0usize;
     let fold_operations = mutations.len();
 
-    for mutation in &mutations {
+    for mutation in mutations {
         sqlx::query(
             "UPDATE conversation_events \
              SET source = ?, normalized_json = ?, raw_json = ?, created_at = ? \

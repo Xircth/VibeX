@@ -4,7 +4,7 @@ import {
   DEFAULT_STACK_RATIO,
 } from './leftPanelSplit';
 
-export const LEFT_PANEL_SPLIT_MEMORY_KEY = 'vibex:left-panel-split';
+export const LEFT_PANEL_SPLIT_MEMORY_KEY = 'dimo:left-panel-split';
 
 export interface LeftPanelSplitMemory {
   stackRatio: number;

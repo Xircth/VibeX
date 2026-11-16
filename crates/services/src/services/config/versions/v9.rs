@@ -164,7 +164,7 @@ pub struct Config {
     /// Hide model thinking / reasoning blocks in conversation transcripts.
     #[serde(default = "default_hide_model_thinking")]
     pub hide_model_thinking: bool,
-    /// Opt-in entry for connecting a newly created VibeX conversation to an
+    /// Opt-in entry for connecting a newly created Dimo conversation to an
     /// existing Agent-managed ACP session in the selected workspace.
     #[serde(default)]
     pub previous_session_continuation_enabled: bool,

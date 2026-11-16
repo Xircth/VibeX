@@ -3,12 +3,12 @@ status: accepted
 date: 2026-07-30
 amended: 2026-11-14 (ADR-0087)
 decision-makers:
-  - VibeX maintainers
+  - Dimo maintainers
 ---
 
 # ACP Registry 以可验证证据为权威，并通过兼容层接入 `auth/status`
 
-> **修订说明（[ADR-0087](0087-dedicated-agent-engine-first-acp-fallback.md)）**：VibeX 已将全项目规范由「ACP 优先」调整为**「独立 Agent 引擎适配优先，ACP 为次选」**。本文中关于 ACP 进程运行、ACP 能力协商与 `auth/status` 优先的规则仅适用于走次选 ACP 兼容通道的 Agent；具备独立引擎适配的 Agent 以其原生引擎与原生状态探测为准。
+> **修订说明（[ADR-0087](0087-dedicated-agent-engine-first-acp-fallback.md)）**：Dimo 已将全项目规范由「ACP 优先」调整为**「独立 Agent 引擎适配优先，ACP 为次选」**。本文中关于 ACP 进程运行、ACP 能力协商与 `auth/status` 优先的规则仅适用于走次选 ACP 兼容通道的 Agent；具备独立引擎适配的 Agent 以其原生引擎与原生状态探测为准。
 
 ## Context
 
@@ -30,11 +30,11 @@ ADR-0010 至 ADR-0029 曾定义了早期的开放 Agent 身份、官方 Registry
 - Registry 下架、离线快照、检查更新和“已安装”投影仍有语义偏差。
 
 同时，ACP 已提供 `additionalDirectories`、`session/list`、`session/delete`、
-`session_info_update`、`_meta` 传播及会话成本等能力，而 VibeX 尚未完整使用。
+`session_info_update`、`_meta` 传播及会话成本等能力，而 Dimo 尚未完整使用。
 ACP 的
 [`auth/status`](https://agentclientprotocol.com/rfds/get-auth-state)
 仍是 Draft RFD，但它明确提出通过 `agentCapabilities.auth.status` 协商后执行无副作用
-认证状态查询，避免用 `session/new` 的不确定错误行为猜测认证状态。VibeX 决定现在
+认证状态查询，避免用 `session/new` 的不确定错误行为猜测认证状态。Dimo 决定现在
 接入该草案，但必须将草案漂移限制在一个可替换的协议兼容边界内。
 
 本 ADR 是对 ADR-0011、ADR-0012、ADR-0016、ADR-0017、ADR-0019、ADR-0021、
@@ -46,22 +46,22 @@ ADR-0022、ADR-0023、ADR-0026 与 ADR-0027 的落实和细化，不改变这些
 
 以下前提已经确定，不在本次实施中重新讨论：
 
-1. VibeX 默认以用户授予的本机权限运行；本 ADR 不引入 Agent 沙箱或权限收缩。
+1. Dimo 默认以用户授予的本机权限运行；本 ADR 不引入 Agent 沙箱或权限收缩。
 2. Agent 仍必须通过本地 Runtime 与本地 ACP `stdio` 进程运行，不允许使用 ACP
    内置的临时 Runtime、远程 ACP URL 或用户自定义启动命令。
 3. Agent 来源仍只有 Built-in Agent Profile 与 ACP 官方 Registry；不扫描 PATH
    自动接管任意 Agent，也不增加自定义 Registry。
 4. Built-in Agent 只在默认展示、不可移除、主动探测和声明式本地补缺方面特殊，
    安装、配置、状态与会话运行仍使用统一管线。
-5. VibeX 观察认证状态；账号动作按 ADR-0037 仅从 Built-in Agent Profile 白名单启动。
-   API Key 仍由已适配 Agent 原生配置文件持有，可在本机明文保存；VibeX 不验证
+5. Dimo 观察认证状态；账号动作按 ADR-0037 仅从 Built-in Agent Profile 白名单启动。
+   API Key 仍由已适配 Agent 原生配置文件持有，可在本机明文保存；Dimo 不验证
    API Key 的远程有效性。
 6. 功能与不变量优先于保留当前代码。若现有模块边界妨碍正确实现，应替换或删除，
    不保留双轨兼容路径。
 
 ## First-principles decision
 
-VibeX 的 Agent 管理以以下八条不可违反的原则为基础：
+Dimo 的 Agent 管理以以下八条不可违反的原则为基础：
 
 1. **执行必须来自当前可验证证据。** “曾经下载成功”不能证明当前磁盘内容可信；
    每次启动必须由当前 Installation lock 和当前文件内容共同授权。
@@ -78,7 +78,7 @@ VibeX 的 Agent 管理以以下八条不可违反的原则为基础：
    session、连接和临时目录。
 7. **用户配置写入必须原子、可比较、可恢复。** 任何失败都不能留下半套配置；并发
    修改必须向用户暴露冲突决策。
-8. **草案协议只能通过兼容层进入核心。** 核心领域依赖 VibeX 的稳定认证观察模型，
+8. **草案协议只能通过兼容层进入核心。** 核心领域依赖 Dimo 的稳定认证观察模型，
    不直接依赖 `auth/status` 草案 JSON 结构。
 
 ## Authoritative records
@@ -176,7 +176,7 @@ Queued -> Running -> Succeeded
 可以使用 `(canonical_path, size, mtime, file_identity, sha256)` 缓存避免重复哈希，但缓存
 只是性能优化：任何元数据变化、无法取得稳定 file identity 或显式立即检查都必须重新
 计算内容哈希。哈希不匹配时隔离托管文件、将管理投影置为 needs-repair，并禁止启动。
-外部安装同样重新验证记录的内容证据，但 VibeX 不删除或修改外部文件。
+外部安装同样重新验证记录的内容证据，但 Dimo 不删除或修改外部文件。
 
 ## Management projection decisions
 
@@ -257,7 +257,7 @@ Disconnected、Failed、已丢弃的 prepared session、Interrupted operation �
 
 ### Complete negotiated capability snapshot
 
-VibeX 保存 initialize 返回的协议版本、agent info 和完整能力结构，至少包括：
+Dimo 保存 initialize 返回的协议版本、agent info 和完整能力结构，至少包括：
 
 - load、resume、close、fork、list、delete、additional directories；
 - prompt image、audio、embedded context 与 resource link；
@@ -341,14 +341,14 @@ ACP 草案 JSON 只存在于 `AcpAuthStatusAdapter`。数据库、管理 reducer
 4. 调用有短超时、可取消、无重试副作用。超时或 method-not-found 产生 degraded/unknown，
    不把 Agent 安装判为损坏。
 5. `authenticated: true` 仅表示 Agent 认为本地存在凭据，不表示凭据远程有效；
-   VibeX 不额外验证 API Key。
+   Dimo 不额外验证 API Key。
 6. `authenticated: false` 表示该观察时刻 Agent 未发现凭据；它不会删除配置、注销账号
    或修改 readiness 之外的事实。
 7. 保存配置、安装/更新完成、进入 Agent 设置和创建会话前可以重新查询；不持续轮询。
 
 ### Status-source semantics
 
-`auth/status` 草案故意不报告认证方法，因此 VibeX 不把 `authenticated: true` 自动翻译
+`auth/status` 草案故意不报告认证方法，因此 Dimo 不把 `authenticated: true` 自动翻译
 为“已通过账号登录”：
 
 - 已适配原生配置中存在 API Key 时，method 为 `api_key`，显示“已通过 API Key 登录”；
@@ -386,9 +386,9 @@ ACP 草案 JSON 只存在于 `AcpAuthStatusAdapter`。数据库、管理 reducer
 1. **`additionalDirectories`**：只有 capability 已广告时，把当前 Project/Workspace
    明确关联的额外仓库根传给 `session/new/load/resume`；不得从任意历史路径推断。
 2. **`session/list` 与 `session/delete`**：提供显式“导入 Agent 会话”流程和外部会话
-   删除操作。ACP session 与 VibeX Conversation 保持不同身份；列表不自动写入 VibeX
-   历史，删除也不级联删除 VibeX 事件日志。
-3. **`session_info_update`**：保存 Agent 侧标题/时间元数据，但 VibeX 用户标题优先；
+   删除操作。ACP session 与 Dimo Conversation 保持不同身份；列表不自动写入 Dimo
+   历史，删除也不级联删除 Dimo 事件日志。
+3. **`session_info_update`**：保存 Agent 侧标题/时间元数据，但 Dimo 用户标题优先；
    Agent 更新不能覆盖用户明确命名。
 4. **`_meta` 传播**：以 namespaced、大小受限、可丢弃 JSON 保存 capability、content、
    tool call 与 session update 元数据；禁止凭 `_meta` 绕过显式能力或权限门禁。
@@ -462,7 +462,7 @@ application service、ACP fixture process、Tauri IPC 和 React UI。测试观�
   - RED：持久化 Running 后模拟新 app instance，repair/uninstall 永久 Busy。
   - GREEN：启动协调器原子标记 Interrupted、释放租约、清理 staging。
   - Acceptance：不自动重跑；用户能够创建新的 repair operation。
-  - Verify：`cargo test -p vibex agent_operation_recovery`。
+  - Verify：`cargo test -p dimo agent_operation_recovery`。
 
 ### Phase 2 — immutable install target and reproducible repair
 
@@ -572,7 +572,7 @@ pnpm run prepare-db && pnpm run prepare-db:check
 cargo test -p api-types
 cargo test -p db
 cargo test -p agents
-cargo test -p vibex
+cargo test -p dimo
 pnpm --dir frontend exec vitest run
 pnpm run check
 pnpm run lint

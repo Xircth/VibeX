@@ -6,6 +6,20 @@ import {
 } from './sessionComposerSubmit';
 import type { SessionComposerPluginActionInvocation } from './sessionComposerStructuredTokens';
 
+function extractQueueSubmitErrorMessage(error: unknown): string {
+  if (error instanceof Error && error.message) return error.message;
+  if (
+    typeof error === 'object' &&
+    error !== null &&
+    'message' in error &&
+    typeof (error as { message: unknown }).message === 'string' &&
+    (error as { message: string }).message.trim().length > 0
+  ) {
+    return (error as { message: string }).message;
+  }
+  return String(error);
+}
+
 export function useSessionComposerSubmitActions({
   localMessage,
   conflictResolutionInstructions,
@@ -22,6 +36,8 @@ export function useSessionComposerSubmitActions({
   queueMessage,
   onAfterQueueCleanup,
   onSubmitFollowUp,
+  onQueueError,
+  onRestoreFailedQueueDraft,
 }: {
   localMessage: string;
   conflictResolutionInstructions: string | null | undefined;
@@ -47,30 +63,42 @@ export function useSessionComposerSubmitActions({
   ) => Promise<void> | void;
   onAfterQueueCleanup: () => void | Promise<void>;
   onSubmitFollowUp: (message: string) => void;
+  onQueueError?: (errorMessage: string | null) => void;
+  onRestoreFailedQueueDraft?: (
+    draftMessage: string,
+    imagePaths: string[]
+  ) => void;
 }) {
   const handleQueueMessage = useCallback(
     async (submittedMessage?: string) => {
       const acceptedMessage = submittedMessage ?? localMessage;
+      const capturedImages = [...attachedImagePaths];
       const queuedFollowUp = buildQueuedFollowUp({
         message: acceptedMessage,
         conflictMarkdown: conflictResolutionInstructions,
         reviewMarkdown,
-        images: attachedImagePaths,
+        images: capturedImages,
         executorProfile: effectiveExecutorProfile,
       });
       if (!queuedFollowUp) return;
 
       clearStopping();
       cancelDebouncedSave();
-      await saveToScratch(acceptedMessage, effectiveExecutorProfile);
-      await queueMessage(
-        queuedFollowUp.displayMessage,
-        queuedFollowUp.executorProfile,
-        queuedFollowUp.images,
-        queuedFollowUp.pluginActions,
-        queuedFollowUp.message
-      );
-      await onAfterQueueCleanup();
+      onQueueError?.(null);
+      try {
+        await saveToScratch(acceptedMessage, effectiveExecutorProfile);
+        await queueMessage(
+          queuedFollowUp.displayMessage,
+          queuedFollowUp.executorProfile,
+          queuedFollowUp.images,
+          queuedFollowUp.pluginActions,
+          queuedFollowUp.message
+        );
+        await onAfterQueueCleanup();
+      } catch (error: unknown) {
+        onRestoreFailedQueueDraft?.(acceptedMessage, capturedImages);
+        onQueueError?.(extractQueueSubmitErrorMessage(error));
+      }
     },
     [
       attachedImagePaths,
@@ -80,6 +108,8 @@ export function useSessionComposerSubmitActions({
       effectiveExecutorProfile,
       localMessage,
       onAfterQueueCleanup,
+      onQueueError,
+      onRestoreFailedQueueDraft,
       queueMessage,
       reviewMarkdown,
       saveToScratch,

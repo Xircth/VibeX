@@ -1708,7 +1708,7 @@ mod tests {
                 command_name: &str,
                 args: Value,
             ) -> Result<Value, ApplicationError> {
-                if command_name == "vibex.custom.echo" {
+                if command_name == "dimo.custom.echo" {
                     Ok(json!({
                         "routed": "dynamic_plugin_command",
                         "command": command_name,
@@ -1750,7 +1750,7 @@ mod tests {
                 &principal,
                 "plugin.command.invoke",
                 OperationId::new(),
-                json!({ "pluginId": "vibex.custom", "command": "echo", "input": { "x": 1 } }),
+                json!({ "pluginId": "dimo.custom", "command": "echo", "input": { "x": 1 } }),
             )
             .await
             .expect("plugin.command.invoke should route");
@@ -1762,14 +1762,14 @@ mod tests {
         let dynamic_res = registry
             .execute_name(
                 &principal,
-                "vibex.custom.echo",
+                "dimo.custom.echo",
                 OperationId::new(),
                 json!({ "hello": "world" }),
             )
             .await
             .expect("dynamic plugin command should route via execute_dynamic");
         assert_eq!(dynamic_res.data["routed"], json!("dynamic_plugin_command"));
-        assert_eq!(dynamic_res.data["command"], json!("vibex.custom.echo"));
+        assert_eq!(dynamic_res.data["command"], json!("dimo.custom.echo"));
         assert_eq!(dynamic_res.data["args"]["hello"], json!("world"));
     }
 }

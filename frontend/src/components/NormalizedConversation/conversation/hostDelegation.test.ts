@@ -285,7 +285,7 @@ describe('hostDelegation', () => {
     const grokUse = use(
       'use_tool',
       {
-        tool_name: 'vibex-delegation-mcp__delegate_to_agent',
+        tool_name: 'dimo-delegation-mcp__delegate_to_agent',
         tool_input: { agent_type: 'codex', task: 'introduce yourself' },
       },
       'call-grok'

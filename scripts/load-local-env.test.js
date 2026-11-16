@@ -7,7 +7,7 @@ const test = require('node:test');
 const { applyLocalEnvFile, parseLocalEnvFile } = require('./load-local-env');
 
 test('parseLocalEnvFile ignores comments, export prefix, and quoted values', () => {
-  const filePath = path.join(os.tmpdir(), `vibex-env-${process.pid}.env`);
+  const filePath = path.join(os.tmpdir(), `dimo-env-${process.pid}.env`);
   fs.writeFileSync(
     filePath,
     [
@@ -33,7 +33,7 @@ test('parseLocalEnvFile ignores comments, export prefix, and quoted values', () 
 });
 
 test('applyLocalEnvFile fills empty keys and leaves existing values alone', () => {
-  const filePath = path.join(os.tmpdir(), `vibex-env-apply-${process.pid}.env`);
+  const filePath = path.join(os.tmpdir(), `dimo-env-apply-${process.pid}.env`);
   fs.writeFileSync(
     filePath,
     ['APPLE_API_KEY=from-file', 'APPLE_API_ISSUER=from-file'].join('\n')

@@ -313,30 +313,30 @@ export function SkillsSettings() {
 
   // Persisted display/hosting preferences (live below the local list).
   const [grouping, setGrouping] = useState<boolean>(
-    () => localStorage.getItem('vibex.skills.grouping') !== 'false'
+    () => localStorage.getItem('dimo.skills.grouping') !== 'false'
   );
   const [hostMode, setHostMode] = useState<HostMode>(
     () =>
-      (localStorage.getItem('vibex.skills.hostMode') as HostMode | null) ??
+      (localStorage.getItem('dimo.skills.hostMode') as HostMode | null) ??
       'copy'
   );
   const updateGrouping = (next: boolean) => {
     setGrouping(next);
-    localStorage.setItem('vibex.skills.grouping', String(next));
-    persistFrontendPreference('vibex.skills.grouping', next);
+    localStorage.setItem('dimo.skills.grouping', String(next));
+    persistFrontendPreference('dimo.skills.grouping', next);
   };
   const updateHostMode = (next: HostMode) => {
     setHostMode(next);
-    localStorage.setItem('vibex.skills.hostMode', next);
-    persistFrontendPreference('vibex.skills.hostMode', next);
+    localStorage.setItem('dimo.skills.hostMode', next);
+    persistFrontendPreference('dimo.skills.hostMode', next);
   };
 
   useEffect(() => {
     const handleStorage = (event: StorageEvent) => {
-      if (event.key === 'vibex.skills.grouping') {
+      if (event.key === 'dimo.skills.grouping') {
         setGrouping(localStorage.getItem(event.key) !== 'false');
       }
-      if (event.key === 'vibex.skills.hostMode') {
+      if (event.key === 'dimo.skills.hostMode') {
         setHostMode(
           (localStorage.getItem(event.key) as HostMode | null) ?? 'copy'
         );

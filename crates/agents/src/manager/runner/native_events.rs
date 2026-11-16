@@ -20,8 +20,32 @@ use crate::{
 pub(in crate::manager) struct NativeTurnState {
     pub(in crate::manager) terminal_buffers: HashMap<String, String>,
     pub(in crate::manager) tool_names: HashMap<String, String>,
+    pub(in crate::manager) running_tool_calls: std::collections::HashSet<String>,
     pub(in crate::manager) streamed_assistant_text: bool,
+    pub(in crate::manager) last_streamed_message_id: Option<String>,
     pub(in crate::manager) accumulated_usage: Option<AgentUsage>,
+}
+
+pub(in crate::manager) fn classify_native_turn_error(message: String) -> AgentError {
+    let lower = message.to_ascii_lowercase();
+    let is_auth = lower.contains("authentication_failed")
+        || lower.contains("authentication_error")
+        || lower.contains("invalid_api_key")
+        || lower.contains("invalid x-api-key")
+        || lower.contains("invalid api key")
+        || lower.contains("not logged in")
+        || lower.contains("please run /login")
+        || lower.contains("login required")
+        || lower.contains("401 unauthorized")
+        || lower.contains("status 401")
+        || lower.contains("http 401")
+        || lower.contains("oauth token has expired")
+        || lower.contains("token has expired");
+    if is_auth {
+        AgentError::AuthenticationRequired(message)
+    } else {
+        AgentError::Runtime(message)
+    }
 }
 
 pub(in crate::manager) fn parse_cache_tier(tier: Option<&str>) -> CacheTier {
@@ -245,9 +269,14 @@ impl AgentConnectionRunner {
                 }
                 false
             }
-            EngineEvent::AssistantTextDelta { text, .. } => {
+            EngineEvent::AssistantTextDelta {
+                message_id, text, ..
+            } => {
                 if !text.is_empty() {
                     turn_state.streamed_assistant_text = true;
+                    if message_id.is_some() {
+                        turn_state.last_streamed_message_id = message_id;
+                    }
                     *char_accumulator = char_accumulator.saturating_add(text.len());
                     self.emit(
                         Some(session_id),
@@ -259,9 +288,19 @@ impl AgentConnectionRunner {
                 }
                 false
             }
-            EngineEvent::AssistantMessage { text, .. } => {
-                if !turn_state.streamed_assistant_text && !text.is_empty() {
+            EngineEvent::AssistantMessage {
+                message_id, text, ..
+            } => {
+                let already_streamed_same_msg = turn_state.streamed_assistant_text
+                    && match (&message_id, &turn_state.last_streamed_message_id) {
+                        (Some(a), Some(b)) => a == b,
+                        _ => true,
+                    };
+                if !already_streamed_same_msg && !text.is_empty() {
                     turn_state.streamed_assistant_text = true;
+                    if message_id.is_some() {
+                        turn_state.last_streamed_message_id = message_id;
+                    }
                     *char_accumulator = char_accumulator.saturating_add(text.len());
                     self.emit(
                         Some(session_id),
@@ -293,13 +332,22 @@ impl AgentConnectionRunner {
                 input,
                 ..
             } => {
+                turn_state.streamed_assistant_text = false;
+                turn_state.last_streamed_message_id = None;
                 let id = tool_use_id.unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
                 turn_state.tool_names.insert(id.clone(), tool_name.clone());
+                turn_state.running_tool_calls.insert(id.clone());
                 let cls = driver.classify_tool_call(
                     &tool_name,
                     &input,
                     parent_tool_use_id.as_deref(),
                 );
+                let frame_meta = cls.meta.as_ref().and_then(Value::as_object).cloned();
+                let meta = self
+                    .fold_air_tool_meta(&id, frame_meta, true)
+                    .await
+                    .map(Value::Object)
+                    .or(cls.meta);
                 let content = if tool_name == "fileChange" {
                     format_file_change_diff_preview(&input)
                 } else {
@@ -316,7 +364,7 @@ impl AgentConnectionRunner {
                             content,
                             kind: Some(cls.semantic_kind),
                             input_preview: serde_json::to_string(&input).ok(),
-                            meta: cls.meta,
+                            meta,
                             images: Vec::new(),
                         },
                     },
@@ -329,10 +377,18 @@ impl AgentConnectionRunner {
                 content,
                 ..
             } => {
+                turn_state.streamed_assistant_text = false;
+                turn_state.last_streamed_message_id = None;
                 if let Some(id) = tool_use_id {
-                    let tool_name = turn_state.tool_names.get(&id).map(String::as_str);
-                    let formatted = format_tool_result_content(tool_name, &content)
-                        .or_else(|| turn_state.terminal_buffers.get(&id).cloned());
+                    turn_state.running_tool_calls.remove(&id);
+                    let tool_name = turn_state.tool_names.remove(&id);
+                    let buffered = turn_state.terminal_buffers.remove(&id);
+                    let formatted =
+                        format_tool_result_content(tool_name.as_deref(), &content).or(buffered);
+                    let meta = self
+                        .fold_air_tool_meta(&id, None, false)
+                        .await
+                        .map(Value::Object);
                     self.emit(
                         Some(session_id),
                         Some(prompt_id),
@@ -347,7 +403,7 @@ impl AgentConnectionRunner {
                                 }),
                                 content: formatted,
                                 input_preview: None,
-                                meta: None,
+                                meta,
                                 images: Vec::new(),
                             },
                         },
@@ -360,8 +416,16 @@ impl AgentConnectionRunner {
                 delta,
                 ..
             } => {
+                const MAX_TERMINAL_BUFFER_BYTES: usize = 512 * 1024;
                 let buf = turn_state.terminal_buffers.entry(id.clone()).or_default();
                 buf.push_str(&delta);
+                if buf.len() > MAX_TERMINAL_BUFFER_BYTES {
+                    let mut trim_at = buf.len() - MAX_TERMINAL_BUFFER_BYTES;
+                    while trim_at < buf.len() && !buf.is_char_boundary(trim_at) {
+                        trim_at += 1;
+                    }
+                    buf.drain(..trim_at);
+                }
                 let cumulative = buf.clone();
                 self.emit(
                     Some(session_id),
@@ -432,8 +496,15 @@ impl AgentConnectionRunner {
                     revision,
                 };
 
-                let auto_mode = *self.auto_approve_mode.lock().await;
-                if let Some(auto_resp) = decide_auto_permission_response(auto_mode, &request) {
+                let force_manual = Self::is_plan_approval_tool(&request.title)
+                    || self.is_session_in_plan_mode(session_id).await;
+                let auto_resp = if force_manual {
+                    None
+                } else {
+                    let auto_mode = *self.auto_approve_mode.lock().await;
+                    decide_auto_permission_response(auto_mode, &request)
+                };
+                if let Some(auto_resp) = auto_resp {
                     let is_cancelled = matches!(auto_resp, AgentPermissionResponse::Cancelled);
                     let selected_id = match &auto_resp {
                         AgentPermissionResponse::Selected { option_id, .. } => {
@@ -610,21 +681,51 @@ impl AgentConnectionRunner {
                 output_tokens,
                 cache_read_tokens,
                 cache_write_tokens,
+                context_used,
+                is_turn_summary,
                 cost_usd,
                 context_window,
                 model,
                 ..
             } => {
                 let prev = turn_state.accumulated_usage.take().unwrap_or_default();
-                let next_in = input_tokens.or(prev.input_tokens);
-                let next_out = output_tokens.or(prev.output_tokens);
-                let next_cr = cache_read_tokens.or(prev.cache_read_tokens);
-                let next_cw = cache_write_tokens.or(prev.cache_write_tokens);
-                let sum = next_in.unwrap_or(0)
-                    + next_out.unwrap_or(0)
-                    + next_cr.unwrap_or(0)
-                    + next_cw.unwrap_or(0);
-                let computed_used = if sum > 0 { sum } else { prev.used };
+                let (next_in, next_out, next_cr, next_cw, computed_used) = if is_turn_summary {
+                    let ni = input_tokens.or(prev.input_tokens);
+                    let no = output_tokens.or(prev.output_tokens);
+                    let ncr = cache_read_tokens.or(prev.cache_read_tokens);
+                    let ncw = cache_write_tokens.or(prev.cache_write_tokens);
+                    let sum = ni.unwrap_or(0)
+                        + no.unwrap_or(0)
+                        + ncr.unwrap_or(0)
+                        + ncw.unwrap_or(0);
+                    let used = context_used.unwrap_or(if prev.used > 0 { prev.used } else { sum });
+                    (ni, no, ncr, ncw, used)
+                } else {
+                    let is_partial_delta = input_tokens.is_none()
+                        && cache_read_tokens.is_none()
+                        && cache_write_tokens.is_none();
+                    let (ni, no, ncr, ncw) = if is_partial_delta {
+                        (
+                            prev.input_tokens,
+                            output_tokens.or(prev.output_tokens),
+                            prev.cache_read_tokens,
+                            prev.cache_write_tokens,
+                        )
+                    } else {
+                        (
+                            input_tokens,
+                            output_tokens,
+                            cache_read_tokens,
+                            cache_write_tokens,
+                        )
+                    };
+                    let sum = ni.unwrap_or(0)
+                        + no.unwrap_or(0)
+                        + ncr.unwrap_or(0)
+                        + ncw.unwrap_or(0);
+                    let used = context_used.unwrap_or(if sum > 0 { sum } else { prev.used });
+                    (ni, no, ncr, ncw, used)
+                };
                 let usage = AgentUsage {
                     used: computed_used,
                     limit: context_window.or(prev.limit),
@@ -660,6 +761,7 @@ impl AgentConnectionRunner {
                 ..
             } => {
                 let target_id = parent_tool_use_id.unwrap_or(subagent_id);
+                turn_state.running_tool_calls.insert(target_id.clone());
                 if let Some(desc) = description.filter(|d| !d.trim().is_empty()) {
                     let meta = self
                         .append_subagent_chunk(&target_id, "text", &desc)
@@ -685,12 +787,14 @@ impl AgentConnectionRunner {
             }
             EngineEvent::SubagentUpdated {
                 subagent_id,
+                parent_tool_use_id,
                 text_delta,
                 ..
             } => {
+                let target_id = parent_tool_use_id.unwrap_or(subagent_id);
                 if !text_delta.trim().is_empty() {
                     let meta = self
-                        .append_subagent_chunk(&subagent_id, "text", &text_delta)
+                        .append_subagent_chunk(&target_id, "text", &text_delta)
                         .await
                         .map(Value::Object);
                     self.emit(
@@ -698,7 +802,7 @@ impl AgentConnectionRunner {
                         Some(prompt_id),
                         AgentEvent::ToolCallUpdate {
                             update: AgentToolCallUpdate {
-                                id: subagent_id,
+                                id: target_id,
                                 title: None,
                                 status: Some("in_progress".to_string()),
                                 content: Some(text_delta),
@@ -713,25 +817,31 @@ impl AgentConnectionRunner {
             }
             EngineEvent::SubagentCompleted {
                 subagent_id,
+                parent_tool_use_id,
                 status,
                 summary,
                 ..
             } => {
+                let target_id = parent_tool_use_id.unwrap_or(subagent_id);
+                turn_state.running_tool_calls.remove(&target_id);
                 let failed = status.eq_ignore_ascii_case("failed")
                     || status.eq_ignore_ascii_case("error");
                 let meta = match summary.as_deref().filter(|s| !s.trim().is_empty()) {
                     Some(text) => self
-                        .append_subagent_chunk(&subagent_id, "text", text)
+                        .append_subagent_chunk(&target_id, "text", text)
                         .await
                         .map(Value::Object),
-                    None => None,
+                    None => self
+                        .fold_air_tool_meta(&target_id, None, false)
+                        .await
+                        .map(Value::Object),
                 };
                 self.emit(
                     Some(session_id),
                     Some(prompt_id),
                     AgentEvent::ToolCallUpdate {
                         update: AgentToolCallUpdate {
-                            id: subagent_id,
+                            id: target_id,
                             title: None,
                             status: Some(if failed {
                                 "failed".to_string()
@@ -844,13 +954,6 @@ impl AgentConnectionRunner {
                 }
                 self.cancel_pending_interactions(session_id).await;
                 *self.active_prompt.lock().await = None;
-                self.emit(
-                    Some(session_id),
-                    Some(prompt_id),
-                    AgentEvent::TurnCompleted {
-                        stop_reason: stop_reason.clone(),
-                    },
-                );
                 let final_usage = match (turn_state.accumulated_usage.take(), served_model) {
                     (Some(mut u), Some(m)) => {
                         if u.model.is_none() {
@@ -896,8 +999,12 @@ impl AgentConnectionRunner {
             }
             EngineEvent::TurnError { message, .. } => {
                 self.cancel_pending_interactions(session_id).await;
-                self.fail_active_turn(session_id, prompt_id, AgentError::Runtime(message))
-                    .await;
+                self.fail_active_turn(
+                    session_id,
+                    prompt_id,
+                    classify_native_turn_error(message),
+                )
+                .await;
                 true
             }
             _ => false,

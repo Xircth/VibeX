@@ -11,7 +11,7 @@ const sampleEntries: PlanEntry[] = [
       'Extract reference styles from codeg\n- Review codeg plan component',
     status: 'completed',
   },
-  { content: 'Implement restyle in VibeX', status: 'in_progress' },
+  { content: 'Implement restyle in Dimo', status: 'in_progress' },
   { content: 'Verify in conversation stream', status: 'pending' },
 ];
 

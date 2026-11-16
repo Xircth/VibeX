@@ -23,7 +23,7 @@ function Get-PeSubsystem([string]$Path) {
 }
 
 if ((Get-PeSubsystem $Executable) -ne 2) {
-  throw 'VibeX must use IMAGE_SUBSYSTEM_WINDOWS_GUI and must not allocate a console.'
+  throw 'Dimo must use IMAGE_SUBSYSTEM_WINDOWS_GUI and must not allocate a console.'
 }
 
 Add-Type @'
@@ -32,7 +32,7 @@ using System.Collections.Generic;
 using System.Runtime.InteropServices;
 using System.Text;
 
-public static class VibeXWindowInspector {
+public static class DimoWindowInspector {
     public delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);
 
     [DllImport("user32.dll")]
@@ -81,13 +81,13 @@ $process = Start-Process -FilePath $Executable -PassThru
 try {
   Start-Sleep -Seconds 8
   if ($process.HasExited) {
-    throw "VibeX exited during the Windows startup smoke test with code $($process.ExitCode)."
+    throw "Dimo exited during the Windows startup smoke test with code $($process.ExitCode)."
   }
 
-  $consoleOwners = [VibeXWindowInspector]::ConsoleWindowOwners()
+  $consoleOwners = [DimoWindowInspector]::ConsoleWindowOwners()
   foreach ($owner in $consoleOwners) {
     if (Test-DescendsFrom $owner ([uint32]$process.Id)) {
-      throw "VibeX spawned a visible console window owned by process $owner."
+      throw "Dimo spawned a visible console window owned by process $owner."
     }
   }
 }

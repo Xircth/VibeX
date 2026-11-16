@@ -1250,6 +1250,7 @@ export const HOST_COMMAND_DESCRIPTORS = [
 
 export const HOST_EVENT_CHANNELS = [
   { prefix: 'conversation-events', durability: 'invalidation', scope: 'conversation.read' },
+  { prefix: 'conversation-rate-limit', durability: 'best_effort', scope: 'conversation.read' },
   { prefix: 'workspace-sessions-changed', durability: 'invalidation', scope: 'conversation.read' },
   { prefix: 'workspace-focus-conversation', durability: 'best_effort', scope: 'application.call' },
   { prefix: 'agent-management-event', durability: 'invalidation', scope: 'application.call' },
@@ -1266,9 +1267,9 @@ export const HOST_EVENT_CHANNELS = [
   { prefix: 'scratch-stream', durability: 'best_effort', scope: 'application.call' },
   { prefix: 'slash-commands-stream', durability: 'best_effort', scope: 'application.call' },
   { prefix: 'log-stream', durability: 'best_effort', scope: 'application.call' },
-  { prefix: 'vibex://settings-file-changed', durability: 'invalidation', scope: 'application.call' },
-  { prefix: 'vibex://collaboration-space-changed', durability: 'invalidation', scope: 'application.call' },
-  { prefix: 'vibex://collaboration-receipts-changed', durability: 'invalidation', scope: 'application.call' },
+  { prefix: 'dimo://settings-file-changed', durability: 'invalidation', scope: 'application.call' },
+  { prefix: 'dimo://collaboration-space-changed', durability: 'invalidation', scope: 'application.call' },
+  { prefix: 'dimo://collaboration-receipts-changed', durability: 'invalidation', scope: 'application.call' },
   { prefix: 'theme-changed', durability: 'invalidation', scope: 'application.call' },
   { prefix: 'log-settings://changed', durability: 'invalidation', scope: 'application.call' },
   { prefix: 'logs://appended', durability: 'best_effort', scope: 'application.call' },

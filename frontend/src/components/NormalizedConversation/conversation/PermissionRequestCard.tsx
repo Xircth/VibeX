@@ -28,7 +28,7 @@ import {
 } from './permissionRequestPresentation';
 
 /**
- * Inline, answerable permission request (VibeX style — docked at the bottom of
+ * Inline, answerable permission request (Dimo style — docked at the bottom of
  * the message stream, not a blocking modal). Renders the *real* ACP tool-call
  * detail behind the request (file-edit before/after, command, file locations)
  * so the user can review exactly what the agent will do before allowing it,

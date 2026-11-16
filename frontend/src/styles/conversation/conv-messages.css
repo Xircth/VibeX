@@ -220,11 +220,11 @@
   }
 }
 
-.vibex-user-message {
+.dimo-user-message {
   width: 100%;
 }
 
-.vibex-user-message .conv-user-bubble {
+.dimo-user-message .conv-user-bubble {
   background: var(--conv-user-bg);
   color: var(--conv-user-text);
   border-radius: var(--radius);
@@ -238,17 +238,17 @@
   box-shadow: none;
 }
 
-.vibex-user-message .conv-user-bubble .conv-markdown {
+.dimo-user-message .conv-user-bubble .conv-markdown {
   font-size: inherit;
   line-height: inherit;
   color: inherit !important;
 }
 
-.vibex-user-message .conv-user-markdown .astryx-list-item > span:first-child {
+.dimo-user-message .conv-user-markdown .astryx-list-item > span:first-child {
   color: var(--conv-user-text) !important;
 }
 
-.vibex-user-message
+.dimo-user-message
   .conv-user-markdown
   .astryx-list-item
   > span:first-child

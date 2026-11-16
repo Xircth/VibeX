@@ -1,6 +1,6 @@
 ---
 name: kanban-triage
-description: Triage, prioritize, and organize workspace tasks on the VibeX Kanban board.
+description: Triage, prioritize, and organize workspace tasks on the Dimo Kanban board.
 ---
 # Kanban Triage Skill
 

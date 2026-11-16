@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.dimo.server</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/usr/local/bin/dimo-server</string>
+  </array>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>DIMO_DATA_DIR</key>
+    <string>/usr/local/var/dimo</string>
+    <key>DIMO_STATIC_ROOT</key>
+    <string>/usr/local/share/dimo/web</string>
+    <key>DIMO_SERVER_LISTEN</key>
+    <string>127.0.0.1:17891</string>
+  </dict>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+  <key>StandardOutPath</key>
+  <string>/usr/local/var/log/dimo-server.log</string>
+  <key>StandardErrorPath</key>
+  <string>/usr/local/var/log/dimo-server.err</string>
+</dict>
+</plist>

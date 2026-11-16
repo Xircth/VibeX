@@ -57,8 +57,8 @@ export function ToolCallTarget({
   }, [label]);
 
   const labelClass = overflows
-    ? 'vibex-tool-call-target-label is-overflow'
-    : 'vibex-tool-call-target-label';
+    ? 'dimo-tool-call-target-label is-overflow'
+    : 'dimo-tool-call-target-label';
 
   const name = onClick ? (
     <button
@@ -90,17 +90,17 @@ export function ToolCallTarget({
   );
 
   return (
-    <span className="vibex-tool-call-target">
+    <span className="dimo-tool-call-target">
       {resolvedPath ? (
         <FileIcon
           filePath={resolvedPath}
           isFolder={isFolder}
-          className="vibex-tool-call-file-icon"
+          className="dimo-tool-call-file-icon"
         />
       ) : null}
       {name}
       {suffix ? (
-        <span className="vibex-tool-call-target-suffix">{suffix}</span>
+        <span className="dimo-tool-call-target-suffix">{suffix}</span>
       ) : null}
     </span>
   );

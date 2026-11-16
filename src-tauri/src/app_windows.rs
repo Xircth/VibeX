@@ -42,7 +42,7 @@ pub fn open_local_app_window(app: &tauri::AppHandle) -> Result<String, AppError>
     }
     let mut builder = crate::window_chrome::apply_app_window_chrome(
         tauri::WebviewWindowBuilder::new(app, &label, tauri::WebviewUrl::App("/".into()))
-            .title("VibeX")
+            .title("Dimo")
             .inner_size(1400.0, 900.0)
             .min_inner_size(800.0, 600.0)
             .resizable(true)

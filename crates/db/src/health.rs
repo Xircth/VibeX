@@ -207,7 +207,7 @@ async fn resolve_db_file_path(pool: &SqlitePool, db_dir: Option<&Path>) -> Optio
 
     file_col
         .map(|s| s.trim().to_string())
-        .filter(|s| !s.is_empty() && !s.starts_with("file:vibex_mem_"))
+        .filter(|s| !s.is_empty() && !s.starts_with("file:dimo_mem_"))
         .map(PathBuf::from)
         .filter(|p| p.exists())
 }

@@ -150,7 +150,7 @@ export function PulseFilterBuilder({
   readOnly = false,
   className,
 }: PulseFilterBuilderProps) {
-  const { t, i18n } = useTranslation('panels');
+  const { t } = useTranslation('panels');
 
   const availableSamples =
     sampleEvents && sampleEvents.length > 0
@@ -183,7 +183,7 @@ export function PulseFilterBuilder({
               },
             ],
           },
-    [filter, ruleSpec, t, i18n.language]
+    [filter, ruleSpec, t]
   );
 
   const dryRunState = useMemo(() => {
@@ -214,7 +214,7 @@ export function PulseFilterBuilder({
         report: null,
       };
     }
-  }, [effectiveSpec, sampleJson, t, i18n.language]);
+  }, [effectiveSpec, sampleJson, t]);
 
   const toggleSourceKind = (kind: EventSourceKind) => {
     if (!editable) return;

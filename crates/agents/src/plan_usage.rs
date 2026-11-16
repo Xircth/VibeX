@@ -359,8 +359,8 @@ async fn probe_codex_plan_usage(context: &PlanProbeContext) -> PlanUsageResult {
     let mut stdout_lines = BufReader::new(stdout).lines();
     let init_params = json!({
         "clientInfo": {
-            "name": "vibex",
-            "title": "VibeX",
+            "name": "dimo",
+            "title": "Dimo",
             "version": env!("CARGO_PKG_VERSION")
         },
         "capabilities": {
@@ -1560,11 +1560,11 @@ fn kimi_expires_at_ms(value: &Value) -> Option<i64> {
 
 fn kimi_credentials_from_json(path: PathBuf, raw: &str) -> Option<KimiCredentialFile> {
     let value: Value = serde_json::from_str(raw).ok()?;
-    if value.get("_vibex_synthetic").and_then(Value::as_bool) == Some(true) {
+    if value.get("_dimo_synthetic").and_then(Value::as_bool) == Some(true) {
         return None;
     }
     let access_token = value.get("access_token").and_then(Value::as_str)?.trim();
-    if access_token.is_empty() || access_token == "vibex-local-gate" {
+    if access_token.is_empty() || access_token == "dimo-local-gate" {
         return None;
     }
     Some(KimiCredentialFile {
@@ -2236,7 +2236,7 @@ mod tests {
         assert!(
             kimi_credentials_from_json(
                 path.clone(),
-                r#"{"access_token":"vibex-local-gate","_vibex_synthetic":true}"#
+                r#"{"access_token":"dimo-local-gate","_dimo_synthetic":true}"#
             )
             .is_none()
         );

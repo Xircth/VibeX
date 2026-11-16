@@ -15,11 +15,13 @@ export function QuestionRequestCard({
   request,
   response,
   onRespond,
+  onDismiss,
   responding = false,
 }: {
   request: ConversationQuestionRequest;
   response?: ConversationQuestionResponse | null;
   onRespond: (questionId: string, response: AgentElicitationResponse) => void;
+  onDismiss?: (questionId: string) => void;
   responding?: boolean;
 }) {
   if (response) {
@@ -32,6 +34,7 @@ export function QuestionRequestCard({
         request={request}
         responding={responding}
         onRespond={onRespond}
+        onDismiss={onDismiss}
       />
     </div>
   );

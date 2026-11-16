@@ -1,4 +1,4 @@
-import { useKanbanViewContributions } from '@vibex/plugin-sdk';
+import { useKanbanViewContributions } from '@dimoai/plugin-sdk';
 import { useMemo } from 'react';
 import { ensureCoreFoundationPluginsBootstrapped } from '@/features/plugins/coreFoundationPlugins';
 import { usePluginHostContributions } from '@/hooks/usePluginHostContributions';

@@ -607,7 +607,7 @@ export function createPluginContext(options) {
         },
     };
 }
-export function defineVibeXPlugin(definition) {
+export function defineDimoPlugin(definition) {
     if (typeof definition === 'function') {
         return {
             apiVersion: '2.0',
@@ -619,8 +619,8 @@ export function defineVibeXPlugin(definition) {
         apiVersion: definition.apiVersion ?? '2.0',
     };
 }
-export const definePlugin = defineVibeXPlugin;
-export function isVibeXPluginDefinition(value) {
+export const definePlugin = defineDimoPlugin;
+export function isDimoPluginDefinition(value) {
     if (!value || typeof value !== 'object') {
         return false;
     }

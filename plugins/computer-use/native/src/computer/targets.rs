@@ -1,10 +1,10 @@
-//! vibex's table of the windows it has named to an agent, with the grant on
+//! dimo's table of the windows it has named to an agent, with the grant on
 //! each.
 //!
-//! A browser tab is an object vibex owns, so its grant can live on the tab. A
-//! native window is not — it belongs to another process and vibex only ever
+//! A browser tab is an object dimo owns, so its grant can live on the tab. A
+//! native window is not — it belongs to another process and dimo only ever
 //! sees it through the helper — so this table is the object the grant lives
-//! on: one entry per window vibex has handed out a `targetId` for, keyed by
+//! on: one entry per window dimo has handed out a `targetId` for, keyed by
 //! the window's identity, with the grant, the grant epoch and the read counter
 //! under the same lock. "Is this still the window that was shared" and "is it
 //! still shared" are then one question asked in one place.
@@ -78,14 +78,14 @@ impl WindowIdentity {
     }
 }
 
-/// One window vibex has named.
+/// One window dimo has named.
 #[derive(Debug, Clone, PartialEq)]
 pub struct TargetEntry {
     pub target_id: String,
     pub identity: WindowIdentity,
     pub app: RawApp,
     /// The title as last seen. Handed to an agent only through
-    /// [`visible_title`]; shown to the person in vibex's own UI.
+    /// [`visible_title`]; shown to the person in dimo's own UI.
     pub title: String,
     pub bounds: Rect,
     pub on_screen: bool,
@@ -160,7 +160,7 @@ impl TargetEntry {
     }
 }
 
-/// A shared window, for vibex's own UI.
+/// A shared window, for dimo's own UI.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SharedWindow {
@@ -218,14 +218,14 @@ impl AppIdentity {
 /// An application shared as a whole.
 #[derive(Debug, Clone, PartialEq)]
 pub struct AppShare {
-    /// vibex's own name for the share, for the panel to change or end it by.
+    /// dimo's own name for the share, for the panel to change or end it by.
     pub app_id: String,
     /// Its clock is the application's: any window of it being used moves it.
     pub grant: ComputerGrant,
     pub app: RawApp,
 }
 
-/// An application shared as a whole, for vibex's own UI.
+/// An application shared as a whole, for dimo's own UI.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SharedApp {
@@ -265,7 +265,7 @@ pub struct ScreenShare {
     blocklist: Blocklist,
 }
 
-/// The entire screen shared, for vibex's own UI.
+/// The entire screen shared, for dimo's own UI.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SharedScreen {
@@ -352,7 +352,7 @@ pub enum ReadMark {
 /// Why a read may not go ahead.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ReadRefusal {
-    /// vibex never named a window by this id.
+    /// dimo never named a window by this id.
     NoSuchTarget,
     /// The window is not shared — never was, no longer is, or has gone.
     GrantRequired,
@@ -376,7 +376,7 @@ pub struct ReadTicket {
 /// Why an action may not go ahead, before anything is sent.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ActDenied {
-    /// vibex never named a window by this id.
+    /// dimo never named a window by this id.
     NoSuchTarget,
     /// Not shared — never was, no longer is, or gone.
     GrantRequired,
@@ -461,7 +461,7 @@ pub struct ActTicket {
     pub aim: Aim,
 }
 
-/// Where on the screen an action lands, as far as vibex can place it once
+/// Where on the screen an action lands, as far as dimo can place it once
 /// the helper says where it aimed. For the marker that shows the person
 /// where an agent acted; nothing is decided by it.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -562,7 +562,7 @@ impl TargetTable {
         self.inner.lock().unwrap_or_else(|p| p.into_inner())
     }
 
-    /// Take in a fresh listing: name every window in it, update what vibex
+    /// Take in a fresh listing: name every window in it, update what dimo
     /// knows about the ones it had named, and let go of the rest.
     ///
     /// `scope_pid` is the filter the listing was made with. Only windows in
@@ -712,7 +712,7 @@ impl TargetTable {
         }
     }
 
-    /// The window a target id names, if vibex named one.
+    /// The window a target id names, if dimo named one.
     pub fn get(&self, target_id: &str) -> Option<TargetEntry> {
         self.lock().entries.get(target_id).cloned()
     }
@@ -782,7 +782,7 @@ impl TargetTable {
     }
 
     /// Share an application as a whole at `level` — the one `target` names —
-    /// or end its share at [`GrantLevel::None`]. Every window of it vibex has
+    /// or end its share at [`GrantLevel::None`]. Every window of it dimo has
     /// named and a person could mean takes the application's grant at its
     /// level, one shared on its own before included; the ones it opens later
     /// take it as listings find them. Ending it ends every window's share of
@@ -915,7 +915,7 @@ impl TargetTable {
     }
 
     /// Share the entire screen at `level`, or end its share at
-    /// [`GrantLevel::None`]. Every window vibex has named that a person could
+    /// [`GrantLevel::None`]. Every window dimo has named that a person could
     /// mean and the rules allow takes the screen's grant at its level — one
     /// shared on its own, or with its application, included: the
     /// applications shared as a whole are shared with the screen from then
@@ -1226,7 +1226,7 @@ impl TargetTable {
         }
     }
 
-    /// Check a read may start: the window is one vibex named, it is shared,
+    /// Check a read may start: the window is one dimo named, it is shared,
     /// and the grant has not lapsed. A lapsed grant is ended here and its
     /// payloads returned alongside the refusal, because the caller is the one
     /// holding an emitter.
@@ -1369,7 +1369,7 @@ impl TargetTable {
     /// Check an action may go ahead, and resolve it for the helper.
     ///
     /// In this order, each answered before the next is asked: the window is
-    /// one vibex named; it may still be shared at all; it is shared; the grant
+    /// one dimo named; it may still be shared at all; it is shared; the grant
     /// has not lapsed; it is shared for control — and only then anything about
     /// the action itself: keys and menus the grant does not reach (a window's,
     /// or its whole application's), then every ref against the window's
@@ -2331,7 +2331,7 @@ mod tests {
         assert!(read(&table, &new).is_ok());
     }
 
-    /// vibex's own windows and blocklisted applications are listed, carry a
+    /// dimo's own windows and blocklisted applications are listed, carry a
     /// note, and can be neither shared nor read — even when a blocklist entry
     /// arrives after the window was shared.
     #[test]
@@ -2339,8 +2339,8 @@ mod tests {
         let table = TargetTable::new();
         let mut vault = window(30, 333, 9, "Vault");
         vault.app = raw_app(30, 333, "com.1password.1password");
-        let mut own = window(1, 444, 10, "vibex");
-        own.app = raw_app(1, 444, "com.vibex.desktop");
+        let mut own = window(1, 444, 10, "dimo");
+        own.app = raw_app(1, 444, "com.dimo.desktop");
         let (listed, _) = table.observe(&[vault, own, window(10, 111, 5, "a")], None);
 
         let blocklist = Blocklist::new(&[]);
@@ -3202,7 +3202,7 @@ mod tests {
             act(&table, &id, &click_at("1.1", 1.0, 1.0)),
             Err(ActDenied::Stale(Staleness::OldCapture))
         );
-        // A screenshot vibex cannot map back to the window's pixels cannot
+        // A screenshot dimo cannot map back to the window's pixels cannot
         // be pointed into.
         let ticket = table
             .begin_read(&id, 2_000, None, &me(), &Blocklist::new(&[]))

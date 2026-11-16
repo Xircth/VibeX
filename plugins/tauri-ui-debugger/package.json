@@ -1,5 +1,5 @@
 {
-  "name": "@vibex-plugins/tauri-ui-debugger",
+  "name": "@dimo-plugins/tauri-ui-debugger",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -8,6 +8,6 @@
     "test": "node --test app/*.test.mjs"
   },
   "dependencies": {
-    "@vibex/plugin-sdk": "workspace:*"
+    "@dimoai/plugin-sdk": "workspace:*"
   }
 }

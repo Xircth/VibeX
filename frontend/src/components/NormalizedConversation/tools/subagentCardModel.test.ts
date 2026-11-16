@@ -82,7 +82,7 @@ describe('subagent card model', () => {
     ).toBe(true);
     expect(
       isHostDelegationTool(
-        use('mcp__vibex-delegation-mcp__delegate_to_agent', {
+        use('mcp__dimo-delegation-mcp__delegate_to_agent', {
           agent_type: 'codex',
           task: 'look',
         })
@@ -93,7 +93,7 @@ describe('subagent card model', () => {
         use(
           'use_tool',
           {
-            tool_name: 'vibex-delegation-mcp__delegate_to_agent',
+            tool_name: 'dimo-delegation-mcp__delegate_to_agent',
             tool_input: { agent_type: 'codex', task: 'introduce yourself' },
           },
           { 'x.ai/tool': { name: 'use_tool' } }
@@ -103,7 +103,7 @@ describe('subagent card model', () => {
     expect(
       isHostDelegationLifecycleTool(
         use('use_tool', {
-          tool_name: 'vibex-delegation-mcp__get_delegation_status',
+          tool_name: 'dimo-delegation-mcp__get_delegation_status',
           tool_input: { task_ids: ['task-1'] },
         })
       )
@@ -111,7 +111,7 @@ describe('subagent card model', () => {
     expect(
       isNativeSubagentTool(
         use('use_tool', {
-          tool_name: 'vibex-delegation-mcp__delegate_to_agent',
+          tool_name: 'dimo-delegation-mcp__delegate_to_agent',
           tool_input: { agent_type: 'codex', task: 'look' },
         })
       )
@@ -123,7 +123,7 @@ describe('subagent card model', () => {
     ).toBe(true);
     expect(
       isCompanionMcpDiscoverySearch(
-        use('search_tool', { query: 'vibex-delegation-mcp' })
+        use('search_tool', { query: 'dimo-delegation-mcp' })
       )
     ).toBe(true);
     expect(isCompanionMcpDiscoverySearch(use('search_tool', {}))).toBe(true);
@@ -352,7 +352,7 @@ describe('subagent card model', () => {
     const poll = use('get_delegation_status', { task_ids: ['task-1'] });
     poll.tool_use_id = 'poll-1';
     const envelope = use('use_tool', {
-      tool_name: 'vibex-delegation-mcp__delegate_to_agent',
+      tool_name: 'dimo-delegation-mcp__delegate_to_agent',
       tool_input: { agent_type: 'codex', task: 'introduce yourself' },
     });
     envelope.tool_use_id = 'spawn-2';
@@ -602,9 +602,9 @@ describe('subagent card model', () => {
     expect(model.resultText).toBe('Build succeeded');
   });
 
-  it('unwraps Codex mcpToolCall envelopes for vibex-delegation-mcp start and lifecycle tools', () => {
+  it('unwraps Codex mcpToolCall envelopes for dimo-delegation-mcp start and lifecycle tools', () => {
     const delegateStart = use('mcpToolCall', {
-      server: 'vibex-delegation-mcp',
+      server: 'dimo-delegation-mcp',
       tool: 'delegate_to_agent',
       arguments: {
         agent: 'codex',
@@ -612,12 +612,12 @@ describe('subagent card model', () => {
       },
     });
     const delegatePoll = use('mcpToolCall', {
-      server: 'vibex-delegation-mcp',
+      server: 'dimo-delegation-mcp',
       tool: 'get_delegation_status',
       arguments: { delegation_id: 'del-99' },
     });
     const delegateCancel = use('mcpToolCall', {
-      server: 'vibex-delegation-mcp',
+      server: 'dimo-delegation-mcp',
       tool: 'cancel_delegation',
       arguments: { delegation_id: 'del-99' },
     });

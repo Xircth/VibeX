@@ -1,11 +1,12 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Badge } from '@astryxdesign/core';
-import { Check, ChevronLeft, ChevronRight, PenLine } from 'lucide-react';
+import { Check, ChevronLeft, ChevronRight, PenLine, X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import type {
   AgentElicitationResponse,
   ConversationQuestionRequest,
 } from 'shared/types';
+import { getErrorMessage } from '@/lib/modals';
 import { cn } from '@/lib/utils';
 import {
   emptyQuestionAnswerState,
@@ -18,30 +19,50 @@ import {
   type QuestionTab,
 } from './agentQuestionModel';
 
-const CUSTOM_VALUE = '__vibex_custom_answer__';
+const CUSTOM_VALUE = '__dimo_custom_answer__';
+
+export function isOrphanedQuestionResponseError(error: unknown): boolean {
+  const message = getErrorMessage(error);
+  return /no active.*(agent|connection|turn|session)|unknown elicitation|elicitation.*not found|question.*(expired|not found|closed)|bad\s*request|invalid question id|\b400\b/i.test(
+    message
+  );
+}
 
 export function AgentQuestionCard({
   request,
   onRespond,
+  onDismiss,
   responding = false,
   mode = 'interactive',
   answers = null,
   onQuestionIndexChange,
 }: {
   request: ConversationQuestionRequest;
-  onRespond?: (questionId: string, response: AgentElicitationResponse) => void;
+  onRespond?: (
+    questionId: string,
+    response: AgentElicitationResponse
+  ) => void | Promise<unknown>;
+  onDismiss?: (questionId: string) => void;
   responding?: boolean;
   mode?: 'interactive' | 'readonly';
   answers?: Record<string, QuestionAnswerState> | null;
   onQuestionIndexChange?: (index: number) => void;
 }) {
-  const { t, i18n } = useTranslation(['conversation']);
+  const { t, i18n } = useTranslation(['conversation', 'common']);
   const questions = useMemo(() => questionTabsFromRequest(request), [request]);
   const [answerState, setAnswerState] = useState(() =>
     initialAnswerState(questions)
   );
   const [activeIndex, setActiveIndex] = useState(0);
   const [pinnedOpen, setPinnedOpen] = useState(true);
+  const [respondError, setRespondError] = useState<string | null>(null);
+  const [localDismissed, setLocalDismissed] = useState(false);
+
+  useEffect(() => {
+    setRespondError(null);
+    setLocalDismissed(false);
+  }, [request.question_id]);
+
   const resolvedState = mode === 'readonly' ? (answers ?? {}) : answerState;
   const activeQuestion = questions[activeIndex];
   const isLast = activeIndex === questions.length - 1;
@@ -113,7 +134,7 @@ export function AgentQuestionCard({
     );
   }
 
-  if (!activeQuestion) return null;
+  if (localDismissed || !activeQuestion) return null;
 
   const updateAnswer = (
     question: QuestionTab,
@@ -161,17 +182,36 @@ export function AgentQuestionCard({
     }));
   };
 
-  const submit = () => {
-    if (!complete || responding || !onRespond) return;
-    onRespond(request.question_id, {
-      action: 'accept',
-      content: responseContent(request, questions, answerState),
-    });
+  const dismissCard = () => {
+    setLocalDismissed(true);
+    onDismiss?.(request.question_id);
   };
 
-  const decline = () => {
+  const submit = async () => {
+    if (!complete || responding || !onRespond) return;
+    setRespondError(null);
+    try {
+      await onRespond(request.question_id, {
+        action: 'accept',
+        content: responseContent(request, questions, answerState),
+      });
+    } catch (error) {
+      setRespondError(getErrorMessage(error));
+    }
+  };
+
+  const decline = async () => {
     if (responding || !onRespond) return;
-    onRespond(request.question_id, { action: 'decline' });
+    setRespondError(null);
+    try {
+      await onRespond(request.question_id, { action: 'decline' });
+    } catch (error) {
+      if (isOrphanedQuestionResponseError(error)) {
+        dismissCard();
+        return;
+      }
+      setRespondError(getErrorMessage(error));
+    }
   };
 
   return (
@@ -225,6 +265,26 @@ export function AgentQuestionCard({
           onCustomText={(value) => setCustomAnswer(activeQuestion, value)}
         />
 
+        {respondError ? (
+          <div
+            role="alert"
+            data-testid="agent-question-error"
+            className="mt-2 flex items-center justify-between gap-2 rounded-md border border-destructive/40 bg-destructive/10 px-2.5 py-1.5 text-xs text-destructive"
+          >
+            <span className="min-w-0 flex-1 break-words">{respondError}</span>
+            <button
+              type="button"
+              data-testid="agent-question-dismiss"
+              onClick={dismissCard}
+              className="inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 font-medium hover:bg-destructive/15"
+              aria-label={t('common:close')}
+            >
+              <X className="h-3 w-3" aria-hidden />
+              <span>{t('common:close')}</span>
+            </button>
+          </div>
+        ) : null}
+
         <footer className="agent-question-card-actions">
           <span className="flex items-center gap-2">
             {activeIndex > 0 ? (
@@ -241,7 +301,7 @@ export function AgentQuestionCard({
               type="button"
               className="agent-question-action agent-question-decline"
               disabled={responding}
-              onClick={decline}
+              onClick={() => void decline()}
             >
               {t('questionRequestCard.decline')}
             </button>
@@ -251,7 +311,7 @@ export function AgentQuestionCard({
               type="button"
               className="agent-question-action agent-question-submit"
               disabled={!complete || responding}
-              onClick={submit}
+              onClick={() => void submit()}
             >
               {t('questionRequestCard.submit')}
             </button>

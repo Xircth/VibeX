@@ -50,12 +50,12 @@ async fn call(app: axum::Router, command: &str, args: serde_json::Value) -> serd
 }
 
 #[tokio::test]
-#[ignore = "release gate: requires VIBEX_REAL_AGENT_ACP and an authenticated Codex CLI"]
+#[ignore = "release gate: requires DIMO_REAL_AGENT_ACP and an authenticated Codex CLI"]
 async fn real_agent_completes_a_headless_workflow_through_conversation_control() {
-    let acp_path = std::env::var("VIBEX_REAL_AGENT_ACP")
-        .expect("set VIBEX_REAL_AGENT_ACP to an absolute codex-acp executable");
-    let codex_path = std::env::var("VIBEX_REAL_CODEX")
-        .expect("set VIBEX_REAL_CODEX to an absolute authenticated codex executable");
+    let acp_path = std::env::var("DIMO_REAL_AGENT_ACP")
+        .expect("set DIMO_REAL_AGENT_ACP to an absolute codex-acp executable");
+    let codex_path = std::env::var("DIMO_REAL_CODEX")
+        .expect("set DIMO_REAL_CODEX to an absolute authenticated codex executable");
     assert!(std::path::Path::new(&acp_path).is_absolute());
     assert!(std::path::Path::new(&codex_path).is_absolute());
 
@@ -181,7 +181,7 @@ async fn real_agent_completes_a_headless_workflow_through_conversation_control()
                 "inputBindings": {},
                 "kind": "agent",
                 "agentId": "codex",
-                "prompt": "Reply with exactly: VIBEX_REAL_AGENT_OK",
+                "prompt": "Reply with exactly: DIMO_REAL_AGENT_OK",
                 "workspaceAccess": "read_only_shared",
                 "sideEffectClass": "read_only",
                 "allowOneRepair": false
@@ -206,7 +206,7 @@ async fn real_agent_completes_a_headless_workflow_through_conversation_control()
     )
     .await;
     let run_id = Uuid::parse_str(run["id"].as_str().unwrap()).unwrap();
-    let timeout_seconds = std::env::var("VIBEX_REAL_AGENT_TIMEOUT_SECONDS")
+    let timeout_seconds = std::env::var("DIMO_REAL_AGENT_TIMEOUT_SECONDS")
         .ok()
         .and_then(|value| value.parse().ok())
         .unwrap_or(120);
@@ -342,7 +342,7 @@ async fn real_agent_completes_a_headless_workflow_through_conversation_control()
         })
         .collect::<String>();
     assert!(
-        output.contains("VIBEX_REAL_AGENT_OK"),
+        output.contains("DIMO_REAL_AGENT_OK"),
         "unexpected Agent output: {output}"
     );
 

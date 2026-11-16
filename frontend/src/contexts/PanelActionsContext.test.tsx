@@ -750,9 +750,9 @@ describe('PanelActionsContext editor placement', () => {
 
   it('registers PanelActionsContext on globalThis to survive HMR module re-evaluation', () => {
     const globalScope = globalThis as typeof globalThis & {
-      __VIBEX_PANEL_ACTIONS_CONTEXT__?: typeof PanelActionsContext;
+      __DIMO_PANEL_ACTIONS_CONTEXT__?: typeof PanelActionsContext;
     };
-    expect(globalScope.__VIBEX_PANEL_ACTIONS_CONTEXT__).toBe(
+    expect(globalScope.__DIMO_PANEL_ACTIONS_CONTEXT__).toBe(
       PanelActionsContext
     );
   });

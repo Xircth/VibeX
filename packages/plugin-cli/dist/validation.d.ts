@@ -1,4 +1,4 @@
-import type { VibeXPluginManifest } from "@vibex/plugin-sdk";
+import type { DimoPluginManifest } from "@dimoai/plugin-sdk";
 export interface Diagnostic {
     code: string;
     severity: "error" | "warning";
@@ -7,7 +7,7 @@ export interface Diagnostic {
 }
 export interface ValidationResult {
     valid: boolean;
-    manifest?: VibeXPluginManifest;
+    manifest?: DimoPluginManifest;
     diagnostics: Diagnostic[];
 }
 export declare function validatePlugin(root: string): Promise<ValidationResult>;

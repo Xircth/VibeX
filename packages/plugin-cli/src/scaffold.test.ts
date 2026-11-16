@@ -27,7 +27,7 @@ describe("scaffoldPlugin templates", () => {
     async (template) => {
       const root = await scaffold(template);
       await expect(
-        access(join(root, ".vibex-plugin", "plugin.json")),
+        access(join(root, ".dimo-plugin", "plugin.json")),
       ).resolves.toBeUndefined();
     },
   );
@@ -62,7 +62,7 @@ describe("scaffoldPlugin templates", () => {
   it("gives the host-chrome template one contribution per chrome slot", async () => {
     const root = await scaffold("host-chrome");
     const manifest = JSON.parse(
-      await readFile(join(root, ".vibex-plugin", "plugin.json"), "utf8")
+      await readFile(join(root, ".dimo-plugin", "plugin.json"), "utf8")
     ) as { integrations: { kind: string }[] };
     expect(manifest.integrations.map((item) => item.kind).sort()).toEqual([
       "app.command",
@@ -75,7 +75,7 @@ describe("scaffoldPlugin templates", () => {
   });
 
   it("defaults to the full template", async () => {
-    const parent = await mkdtemp(join(tmpdir(), "vibex-plugin-default-"));
+    const parent = await mkdtemp(join(tmpdir(), "dimo-plugin-default-"));
     roots.push(parent);
     const implicit = await scaffoldPlugin(join(parent, "implicit"), "local");
     const explicit = await scaffoldPlugin(
@@ -104,7 +104,7 @@ describe("scaffoldPlugin templates", () => {
   });
 
   it("rejects unknown templates including agent", async () => {
-    const parent = await mkdtemp(join(tmpdir(), "vibex-plugin-unknown-"));
+    const parent = await mkdtemp(join(tmpdir(), "dimo-plugin-unknown-"));
     roots.push(parent);
 
     await expect(
@@ -150,13 +150,13 @@ describe("scaffoldPlugin templates", () => {
     }
   });
 
-  it("exports a protocol 1.0 surface mount without mixing defineVibeXPlugin", async () => {
+  it("exports a protocol 1.0 surface mount without mixing defineDimoPlugin", async () => {
     const root = await scaffold("full");
     const app = await readFile(join(root, "runtime", "app.mjs"), "utf8");
 
     expect(app).toContain("async mount({ root, bridge })");
     expect(app).toContain("bridge.ready()");
-    expect(app).not.toContain("defineVibeXPlugin");
+    expect(app).not.toContain("defineDimoPlugin");
     expect(app).not.toContain("definePluginApp");
   });
 
@@ -170,8 +170,8 @@ describe("scaffoldPlugin templates", () => {
     await expect(access(join(root, "test", "fixture.mjs"))).rejects.toMatchObject(
       { code: "ENOENT" },
     );
-    expect(testSource).toContain("VIBEX_PLUGIN_ROOT");
-    expect(testSource).toContain(".vibex-plugin/plugin.json");
+    expect(testSource).toContain("DIMO_PLUGIN_ROOT");
+    expect(testSource).toContain(".dimo-plugin/plugin.json");
     expect(testSource).not.toContain("export const MANIFEST");
   });
 
@@ -237,7 +237,7 @@ describe("scaffoldPlugin templates", () => {
 
     const python = await scaffold("python-worker");
     await expect(readFile(join(python, "runtime", "worker.py"), "utf8")).resolves.toContain(
-      "from vibex_plugin import define_plugin_worker",
+      "from dimo_plugin import define_plugin_worker",
     );
 
     const node = await scaffold("node-worker");
@@ -248,14 +248,14 @@ describe("scaffoldPlugin templates", () => {
       "definePluginWorker",
     );
     expect((await manifest(node)).engines).toEqual({
-      vibex: ">=0.1.3 <1.0.0",
+      dimo: ">=0.1.3 <1.0.0",
       pluginSdk: "^2.0.0",
     });
 
     const rust = await scaffold("rust-worker");
     await expect(
       readFile(join(rust, "runtime", "Cargo.toml"), "utf8"),
-    ).resolves.toContain("vibex-plugin-sdk");
+    ).resolves.toContain("dimo-plugin-sdk");
     await expect(
       readFile(join(rust, "runtime", "src", "main.rs"), "utf8"),
     ).resolves.toContain("define_plugin_worker");
@@ -263,14 +263,14 @@ describe("scaffoldPlugin templates", () => {
 });
 
 async function scaffold(template: PluginTemplate) {
-  const parent = await mkdtemp(join(tmpdir(), `vibex-plugin-${template}-`));
+  const parent = await mkdtemp(join(tmpdir(), `dimo-plugin-${template}-`));
   roots.push(parent);
   return scaffoldPlugin(join(parent, `${template}-plugin`), "local", template);
 }
 
 async function manifest(root: string) {
   return JSON.parse(
-    await readFile(join(root, ".vibex-plugin", "plugin.json"), "utf8"),
+    await readFile(join(root, ".dimo-plugin", "plugin.json"), "utf8"),
   ) as {
     manifestVersion: number;
     apiVersion: string;
@@ -279,7 +279,7 @@ async function manifest(root: string) {
       app?: { root: string; document: string; protocol: string };
     };
     integrations: Array<{ kind: string }>;
-    engines?: { vibex: string; pluginSdk: string };
+    engines?: { dimo: string; pluginSdk: string };
   };
 }
 
@@ -295,7 +295,7 @@ async function expectMcpInitialize(script: string) {
       params: {
         protocolVersion: "2026-07-28",
         capabilities: {},
-        clientInfo: { name: "vibex-test", version: "0" },
+        clientInfo: { name: "dimo-test", version: "0" },
       },
     })}\n`,
   );

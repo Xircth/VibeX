@@ -48,8 +48,8 @@ export {
   resolveAccountAvatarLabel,
   resolveAccountDisplayName,
   useAccountToken,
-  useVibeXAccount,
-} from './useVibeXAccount';
+  useDimoAccount,
+} from './useDimoAccount';
 export {
   ACCOUNT_HOST_CONFIGS_STORAGE_KEY,
   AccountHostConfigSyncBridge,

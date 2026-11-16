@@ -396,7 +396,7 @@ describe('conversation tool cards', () => {
         {
           type: 'tool_use',
           tool_use_id: 'c566d487-6400-46c5-a6ec-acb1ee68e1ef:4',
-          tool_name: 'vibex-delegation-mcp_read_space_messages',
+          tool_name: 'dimo-delegation-mcp_read_space_messages',
           kind: 'other',
           status: 'completed',
           input_preview: JSON.stringify({
@@ -410,7 +410,7 @@ describe('conversation tool cards', () => {
           meta: {
             mcp: {
               tool: 'read_space_messages',
-              server: 'vibex-delegation-mcp',
+              server: 'dimo-delegation-mcp',
             },
             is_mcp_tool_call: true,
           },
@@ -438,7 +438,7 @@ describe('conversation tool cards', () => {
     });
     expect(row).toBeInTheDocument();
     expect(
-      screen.queryByText('vibex-delegation-mcp_read_space_messages')
+      screen.queryByText('dimo-delegation-mcp_read_space_messages')
     ).not.toBeInTheDocument();
 
     fireEvent.click(row);
@@ -459,14 +459,14 @@ describe('conversation tool cards', () => {
       {
         type: 'tool_use',
         tool_use_id: 'mcp-in-progress',
-        tool_name: 'vibex-delegation-mcp_list_collaboration_spaces',
+        tool_name: 'dimo-delegation-mcp_list_collaboration_spaces',
         kind: 'other',
         status: 'in_progress',
         input_preview: JSON.stringify({ arguments: {} }),
         meta: {
           mcp: {
             tool: 'list_collaboration_spaces',
-            server: 'vibex-delegation-mcp',
+            server: 'dimo-delegation-mcp',
           },
           is_mcp_tool_call: true,
         },
@@ -484,14 +484,14 @@ describe('conversation tool cards', () => {
       {
         type: 'tool_use',
         tool_use_id: 'mcp-completed-empty-args',
-        tool_name: 'vibex-delegation-mcp_list_collaboration_spaces',
+        tool_name: 'dimo-delegation-mcp_list_collaboration_spaces',
         kind: 'other',
         status: 'completed',
         input_preview: JSON.stringify({ arguments: {} }),
         meta: {
           mcp: {
             tool: 'list_collaboration_spaces',
-            server: 'vibex-delegation-mcp',
+            server: 'dimo-delegation-mcp',
           },
           is_mcp_tool_call: true,
         },
@@ -806,11 +806,11 @@ describe('conversation tool cards', () => {
       <ToolCallCard
         entry={toolEntry({
           toolName: 'list_dir',
-          content: '/Users/mac/Projects/VibeX/frontend',
+          content: '/Users/mac/Projects/Dimo/frontend',
           actionType: {
             action: 'tool',
             tool_name: 'list_dir',
-            arguments: { path: '/Users/mac/Projects/VibeX/frontend' },
+            arguments: { path: '/Users/mac/Projects/Dimo/frontend' },
             result: {
               type: { type: 'json' },
               value: 'src/\npackage.json\nREADME.md',
@@ -873,7 +873,7 @@ describe('conversation tool cards', () => {
     const payload = {
       action: {
         type: 'search',
-        query: 'site:github.com vibex workflow creator plugin',
+        query: 'site:github.com dimo workflow creator plugin',
         sources: [
           { type: 'url', url: '' },
           {
@@ -890,7 +890,7 @@ describe('conversation tool cards', () => {
           toolName: '搜索',
           actionType: {
             action: 'search',
-            query: 'site:github.com vibex workflow creator plugin',
+            query: 'site:github.com dimo workflow creator plugin',
             result: {
               type: { type: 'json' },
               value: payload,
@@ -903,7 +903,7 @@ describe('conversation tool cards', () => {
     );
 
     expect(
-      screen.getByText('site:github.com vibex workflow creator plugin')
+      screen.getByText('site:github.com dimo workflow creator plugin')
     ).toBeInTheDocument();
     expect(
       screen.getByText('https://github.com/jfmaes/awesome-ai-workflow')
@@ -1120,7 +1120,7 @@ describe('conversation tool cards', () => {
               action: 'tool',
               tool_name: 'browser_eval',
               arguments: { tabId: 'tab-1', code: 'document.title' },
-              result: { type: { type: 'json' }, value: { title: 'VibeX' } },
+              result: { type: { type: 'json' }, value: { title: 'Dimo' } },
             },
           })}
           expansionKey="browser-detail"
@@ -1129,7 +1129,7 @@ describe('conversation tool cards', () => {
     );
     expect(screen.getByText('document.title')).toBeInTheDocument();
     expect(screen.getByText('title')).toBeInTheDocument();
-    expect(screen.getByText('VibeX')).toBeInTheDocument();
+    expect(screen.getByText('Dimo')).toBeInTheDocument();
   });
 
   it('preserves both terminal streams and the reported exit code in timeline details', () => {

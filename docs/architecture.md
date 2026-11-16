@@ -1,6 +1,6 @@
-# VibeX System Architecture
+# Dimo System Architecture
 
-VibeX is an all-in-one **Agent-Native Development Platform & Vibe Coding Toolkit** built on a Rust workspace backend and a React + TypeScript frontend. A single Rust execution core (**VibeX Host**) powers the native Tauri desktop app (`vibex`), the headless daemon (`vibex-server`), browser WebUI, remote desktop workstations (SSH / LAN / E2EE WebRTC), native iOS & Android companions, and bidirectional IM channels.
+Dimo is an all-in-one **Agent-Native Development Platform & Vibe Coding Toolkit** built on a Rust workspace backend and a React + TypeScript frontend. A single Rust execution core (**Dimo Host**) powers the native Tauri desktop app (`dimo`), the headless daemon (`dimo-server`), browser WebUI, remote desktop workstations (SSH / LAN / E2EE WebRTC), native iOS & Android companions, and bidirectional IM channels.
 
 For domain terminology, read [`CONTEXT.md`](../CONTEXT.md). For historical design rationale, see [`docs/adr/`](adr/).
 
@@ -8,7 +8,7 @@ For domain terminology, read [`CONTEXT.md`](../CONTEXT.md). For historical desig
 
 ## 1. End-to-End Topology & Single-Seam Host
 
-Only one **VibeX Host** owns a VibeX SQLite data directory at a time ([ADR-0033](adr/0033-shared-application-core-and-versioned-remote-transport.md), [ADR-0054](adr/0054-host-family-distribution-and-client-surfaces.md), [ADR-0078](adr/0078-host-command-registry-single-seam.md)). Every agent process, Git worktree, PTY terminal, DAG workflow, automation scheduler, plugin worker, and IM channel runs on the Host — clients render projections and issue typed commands over a unified seam.
+Only one **Dimo Host** owns a Dimo SQLite data directory at a time ([ADR-0033](adr/0033-shared-application-core-and-versioned-remote-transport.md), [ADR-0054](adr/0054-host-family-distribution-and-client-surfaces.md), [ADR-0078](adr/0078-host-command-registry-single-seam.md)). Every agent process, Git worktree, PTY terminal, DAG workflow, automation scheduler, plugin worker, and IM channel runs on the Host — clients render projections and issue typed commands over a unified seam.
 
 ```mermaid
 flowchart TB
@@ -28,7 +28,7 @@ flowchart TB
   subgraph Core["Rust Application Core (HostRuntime)"]
     Agents["crates/agents\nDedicated Agent Engines (Primary)\n+ ACP Fallback (20+ Built-in + Registry)"]
     Conv["crates/conversations\nTurn Control + JSONL Transcript\n+ Timeline Projections"]
-    Collab["crates/delegation + vibex-mcp\nCollaboration Space + &Agent Delegation"]
+    Collab["crates/delegation + dimo-mcp\nCollaboration Space + &Agent Delegation"]
     Flow["crates/workflows + crates/automation\nVersioned DAG Engine + Lease Scheduler"]
     Plug["crates/plugins + crates/artifacts\nPlugin Kernel v4 + Full-Trust Workers"]
     GitSvc["crates/git + crates/services\nGit Worktrees + PTY + File Ranking + Diffs"]
@@ -55,14 +55,14 @@ flowchart TB
 2. **`HostCommandRegistry` & `HostEventBus`** ([ADR-0078](adr/0078-host-command-registry-single-seam.md)): Every product command is registered once in `HostCommandRegistry` (`shared/hostCommands.ts` mirrors the contract on the frontend), and `/api/v1/capabilities` derives directly from it. Desktop-shell-only helpers (native OS file dialogs, CEF window host, local Host Console) stay explicitly outside the shared product registry. All push updates (conversation row-ops, workspace diffs, terminal streams, workflow progress) flow through `HostEventBus`.
 3. **Frontend `BackendTransport`** (`frontend/src/lib/transport/`): React components and hooks never branch on Tauri vs HTTP vs WebRTC. At bootstrap, the window binds to a single `ServerProfile` ([ADR-0059](adr/0059-host-identity-and-pairing-invitation.md)) and instantiates:
    - `TauriTransport` for the local Desktop Host;
-   - `WebTransport` for browser WebUI (`vibex serve`);
-   - `RemoteDesktopTransport` for paired remote Hosts over LAN/SSH/Tailscale HTTPS+WS or NAT-traversing E2EE WebRTC DataChannels (`vibex-webrtc://`).
+   - `WebTransport` for browser WebUI (`dimo serve`);
+   - `RemoteDesktopTransport` for paired remote Hosts over LAN/SSH/Tailscale HTTPS+WS or NAT-traversing E2EE WebRTC DataChannels (`dimo-webrtc://`).
 
 ---
 
 ## 2. Dual-Stage Workbench (`frontend/src`)
 
-VibeX pairs two synchronized workspaces over the same live conversation, file, terminal, and preview state:
+Dimo pairs two synchronized workspaces over the same live conversation, file, terminal, and preview state:
 
 - **Dockview IDE Stage** ([ADR-0042](adr/0042-conversations-are-first-class-dockview-panels.md), [ADR-0068](adr/0068-workspace-default-surfaces-and-activity.md)): Conversations are first-class Dockview tabs alongside CodeMirror/Monaco editors, 3-pane Git merge & diff views, multi-tab PTY + agent terminals, embedded CEF/Web preview tabs, and plugin App surfaces. Opening a project defaults to its **Project-root workspace** (`use_worktree: false`) rather than forcing an isolated worktree upfront.
 - **Infinite Spatial Canvas Stage** (`@xyflow/react`): One-click toggle (`Alt+Shift+C`) projects up to **24 live interactive windows** onto a pan-and-zoom 2D canvas with 8-direction resize, smart snap guides, radial quick-create menu, minimap, and viewport persistence. Closing or rearranging panels only alters layout — in-flight turns continue uninterrupted on the Host.
@@ -96,7 +96,7 @@ Conversations separate **control-plane state** from **user-visible history** ([A
 
 ## 5. Multi-Agent Collaboration, Delegation & DAG Workflows
 
-VibeX provides three complementary orchestration primitives — each designed for a distinct coordination pattern:
+Dimo provides three complementary orchestration primitives — each designed for a distinct coordination pattern:
 
 ### Collaboration Member Identity {#collaboration-member-identity}
 
@@ -108,13 +108,13 @@ VibeX provides three complementary orchestration primitives — each designed fo
   - **Group Space (`space` / `kind: group`)**: A multi-bot room with an append-only shared room log (`space_messages` with monotonic sequence numbers). Each bot in the room occupies a **Space Member Seat** backed by its own hidden conversation for that group.
 - **Per-Recipient Delivery Receipts**: Posting a `SpaceMessage` appends once to the shared room log and dispatches per-recipient deliveries to targeted bot seat conversations, tracking `DeliveryReceipt` states (`queued → processing → replied | passed | timed_out | cancelled`, plus derived `failed` / `limit_reached`). Changing a Role or Bot configuration later does not retroactively mutate persona projections on existing conversations.
 
-### `&Agent` LLM-Mediated Delegation (`crates/delegation` + `crates/vibex-mcp`)
+### `&Agent` LLM-Mediated Delegation (`crates/delegation` + `crates/dimo-mcp`)
 
-Typing `&Agent` in the Composer inserts a structured mention ([ADR-0031](adr/0031-llm-mediated-delegation-and-ampersand-agent-mentions.md), [ADR-0065](adr/0065-composer-at-reference-panel.md)). Rather than blindly spawning a frontend tab, the parent agent invokes `delegate_to_agent` via `vibex-mcp` to spin up an audited, bounded child `DelegatedConversation` (configurable max depth, defaults to `1`), or `create_conversation` for a persistent peer `SpawnedConversation`.
+Typing `&Agent` in the Composer inserts a structured mention ([ADR-0031](adr/0031-llm-mediated-delegation-and-ampersand-agent-mentions.md), [ADR-0065](adr/0065-composer-at-reference-panel.md)). Rather than blindly spawning a frontend tab, the parent agent invokes `delegate_to_agent` via `dimo-mcp` to spin up an audited, bounded child `DelegatedConversation` (configurable max depth, defaults to `1`), or `create_conversation` for a persistent peer `SpawnedConversation`.
 
 ### Versioned DAG Workflows & Automations (`crates/workflows` + `crates/automation`)
 
-- **Workflows** ([ADR-0045](adr/0045-workflows-orchestrate-conversation-turns.md)): `*.vibex-workflow.json` source artifacts edit cleanly in Workflow Studio or via `vibex-workflow-mcp`, and explicitly **publish** into immutable `WorkflowDefinition` versions. Steps (`AgentStep` backed by real child Conversations + `ApprovalStep` + `CompletionGate`) pass outputs along DAG edges, supporting pause/resume, per-node breakpoints, `needs_review` safety stops, and checkpoint-verified partial reruns (`DerivedWorkflowRun`).
+- **Workflows** ([ADR-0045](adr/0045-workflows-orchestrate-conversation-turns.md)): `*.dimo-workflow.json` source artifacts edit cleanly in Workflow Studio or via `dimo-workflow-mcp`, and explicitly **publish** into immutable `WorkflowDefinition` versions. Steps (`AgentStep` backed by real child Conversations + `ApprovalStep` + `CompletionGate`) pass outputs along DAG edges, supporting pause/resume, per-node breakpoints, `needs_review` safety stops, and checkpoint-verified partial reruns (`DerivedWorkflowRun`).
 - **Automations**: Versioned manual or cron triggers pinned to either a single-conversation Turn or an exact published Workflow version. A single-owner database lease ensures only one Host claims due runs, isolating work in dedicated Git worktrees by default with 30-day / 10 GiB retention.
 
 ---
@@ -123,7 +123,7 @@ Typing `&Agent` in the Composer inserts a structured mention ([ADR-0031](adr/003
 
 Under **Everything is a Plugin** ([ADR-0046](adr/0046-full-stack-plugin-platform-and-isolated-sdk.md), [ADR-0047](adr/0047-product-centric-plugin-package-and-content-model.md), [ADR-0048](adr/0048-full-trust-plugin-execution-model.md), [ADR-0069](adr/0069-everything-is-a-plugin-platform.md)):
 
-- **Zero Official Privilege**: Official plugins (`plugins/*` and `vibex-plugin.json`) use the exact same public `@vibex/plugin-sdk` (`^2.0.0`), manifest schema, and **23 contribution kinds** (`L0` Content, `L1` Descriptor UI, `L2` Provider Seams, `L3` Custom Views across host descriptor, Module Federation, and sandboxed iframe tracks) as third-party authors — enforced in CI by `pnpm run plugin:no-privilege`.
+- **Zero Official Privilege**: Official plugins (`plugins/*` and `dimo-plugin.json`) use the exact same public `@dimoai/plugin-sdk` (`^2.0.0`), manifest schema, and **23 contribution kinds** (`L0` Content, `L1` Descriptor UI, `L2` Provider Seams, `L3` Custom Views across host descriptor, Module Federation, and sandboxed iframe tracks) as third-party authors — enforced in CI by `pnpm run plugin:no-privilege`.
 - **Single-Layer Extension**: Plugins target Host contribution points only; plugins never depend on or expose extension points to other plugins.
 - **Activation Generations & Dual Activation Semantics**: Enabling or updating a plugin atomically publishes an immutable `ActivationGeneration` after verifying `RuntimeInstallationLock` probes. UI & Provider contributions take effect immediately; Agent contributions (Skills, MCP, Hooks) apply cleanly to newly created or rebound sessions.
 
@@ -135,19 +135,19 @@ Under **Everything is a Plugin** ([ADR-0046](adr/0046-full-stack-plugin-platform
 
 | Crate / Binary | Responsibility |
 | --- | --- |
-| `src-tauri` (`vibex`) | Native Tauri v2 desktop shell, multi-window management, CEF host integration, local Host Console, and IPC wiring onto `HostRuntime`. |
-| `crates/server` (`vibex-server`) | Headless Axum HTTP + WebSocket Host binary serving Remote Protocol v1 and static WebUI (`web/`), plus in-place host upgrade logic. |
+| `src-tauri` (`dimo`) | Native Tauri v2 desktop shell, multi-window management, CEF host integration, local Host Console, and IPC wiring onto `HostRuntime`. |
+| `crates/server` (`dimo-server`) | Headless Axum HTTP + WebSocket Host binary serving Remote Protocol v1 and static WebUI (`web/`), plus in-place host upgrade logic. |
 | `crates/application` | Transport-agnostic `ApplicationCore` & `HostRuntime` use-case facade. |
 | `crates/remote-protocol` | Versioned Remote Protocol v1 DTOs, capability bitsets, pairing envelopes, durable attach frames, and OpenAPI/JSON Schema generator. |
 | `crates/agents` | Unified `AgentRuntime`: dedicated native Agent engine drivers (primary) + ACP v1/v2 compatibility runtime (secondary), 20 built-in profiles, ACP Registry client, auth/provider projection, and plan/usage probes. |
 | `crates/conversations` | Event-sourced Turn lifecycle, durable input queue, Turn Steering, JSONL transcript windowing, and `TimelineRow` projections. |
 | `crates/delegation` & `crates/delegation-proto` | Broker, spawner, Collaboration Space message/receipt engine, and wire protocol for agent-to-agent delegation. |
-| `crates/vibex-mcp` (`vibex-mcp`) | Host-managed stdio/HTTP MCP companion exposing delegation, Collaboration Space, and `vibex.session-enhance` tools to agent sessions. |
+| `crates/dimo-mcp` (`dimo-mcp`) | Host-managed stdio/HTTP MCP companion exposing delegation, Collaboration Space, and `dimo.session-enhance` tools to agent sessions. |
 | `crates/workflows` | Immutable DAG `WorkflowDefinition` compiler, checkpointed `WorkflowRun` state machine, debug runs, and run subscriptions. |
-| `crates/vibex-workflow-mcp` (`vibex-workflow-mcp`) | Host-managed MCP companion adapting `workflow_*` authoring, inspection, and debug tools to `crates/workflows`. |
+| `crates/dimo-workflow-mcp` (`dimo-workflow-mcp`) | Host-managed MCP companion adapting `workflow_*` authoring, inspection, and debug tools to `crates/workflows`. |
 | `crates/automation` | Single-owner lease scheduler, due-claim transactions, recovery reconciliation, and worktree/disk retention GC. |
 | `crates/plugins` | Plugin Kernel v4: package inspector, marketplace/GitHub installer, runtime lock resolver, Full-Trust Node/Python/Rust worker supervisor, and contribution registry. |
-| `crates/plugin-sdk` | Rust Worker SDK for authoring native VibeX v4 plugin workers. |
+| `crates/plugin-sdk` | Rust Worker SDK for authoring native Dimo v4 plugin workers. |
 | `crates/tool-runtime` | Deterministic CLI/binary runtime resolution, SHA-256 verification, bounded health probing, and reference-counted installation locks. |
 | `crates/artifacts` | File-backed artifact identity tracking and reference-counted `ArtifactPreviewLease` lifecycle. |
 | `crates/browser-host` | Embedded browser tab lifecycle, cookie persistence, DOM element inspection, and preview bridge. |
@@ -165,7 +165,7 @@ Under **Everything is a Plugin** ([ADR-0046](adr/0046-full-stack-plugin-platform
 | --- | --- |
 | `frontend/` | React 18 + TypeScript + Vite workbench (Dockview IDE stage, `@xyflow/react` Spatial Canvas, `BackendTransport`, NormalizedConversation, Settings). |
 | `shared/` | Generated Rust→TS contracts (`shared/types.ts`) and unified Host command catalog (`shared/hostCommands.ts`). |
-| `packages/` | Plugin toolchain monorepo packages: `@vibex/plugin-sdk` (`plugin-sdk/`), `vibex-plugin` CLI (`plugin-cli/`), `@vibex/plugin-contract` (`plugin-contract/`), `@vibex/plugin-sdk-python` (`plugin-sdk-python/`). |
+| `packages/` | Plugin toolchain monorepo packages: `@dimoai/plugin-sdk` (`plugin-sdk/`), `dimo-plugin` CLI (`plugin-cli/`), `@dimo/plugin-contract` (`plugin-contract/`), `@dimoai/plugin-sdk-python` (`plugin-sdk-python/`). |
 | `plugins/` | 17 official full-trust v4 plugins (`ayu-theme`, `browser`, `code-completion`, `computer-use`, `kanban-views`, `notes`, `office`, `open-connector`, `plugin-development`, `prompt-enhancer`, `provider-switch`, `remote-ssh`, `science`, `session-enhance`, `tauri-ui-debugger`, `voice-input`, `workflow-creator`). |
-| `npx-cli/` | `@omnione/vibex` npm CLI (`vibex serve`, `vibex list/install`, remote Host commands, and `vibex plugin` management). |
+| `npx-cli/` | `dimoai` npm CLI (`dimo serve`, `dimo list/install`, remote Host commands, and `dimo plugin` management). |
 | `mobile/ios/` & `mobile/android/` | Native SwiftUI iOS ([ADR-0084](adr/0084-native-swiftui-ios-companion.md)) and Kotlin/Jetpack Compose Android ([ADR-0041](adr/0041-native-kotlin-compose-android-companion.md)) Companion apps over Remote Protocol v1. |

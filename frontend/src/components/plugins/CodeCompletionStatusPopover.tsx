@@ -127,10 +127,10 @@ export function CodeCompletionStatusPopover({
         setConfig((prev) => ({ ...prev, ...detail.config }));
       }
     };
-    window.addEventListener('vibex:plugin-config-updated', onConfigUpdated);
+    window.addEventListener('dimo:plugin-config-updated', onConfigUpdated);
     return () => {
       window.removeEventListener(
-        'vibex:plugin-config-updated',
+        'dimo:plugin-config-updated',
         onConfigUpdated
       );
     };

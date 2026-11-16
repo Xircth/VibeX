@@ -325,7 +325,7 @@ where
             bytes.len()
         ),
     );
-    let staging = utils::path::unique_vibex_scratch_dir("agent")?;
+    let staging = utils::path::unique_dimo_scratch_dir("agent")?;
     let extract_result = extract_archive(&bytes, &component.resolved_source, &staging);
     let staged =
         match extract_result.and_then(|_| find_staged_executable(&staging, &component.command)) {
@@ -465,7 +465,7 @@ pub(super) async fn install_kiro_from_official_installer(
     component: &PlannedInstallComponent,
     user_env: &UserEnvironmentLayout,
 ) -> anyhow::Result<PathBuf> {
-    let staging = utils::path::unique_vibex_scratch_dir("kiro")?;
+    let staging = utils::path::unique_dimo_scratch_dir("kiro")?;
     let result = if cfg!(windows) {
         install_kiro_windows_with_fallback(component, user_env, &staging).await
     } else {

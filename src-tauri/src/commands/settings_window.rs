@@ -60,7 +60,7 @@ fn navigate_settings_window(window: &tauri::WebviewWindow, path: &str) {
 /// Host settings windows (`settings-host-*`) share their host window's isolated
 /// profile; the local `settings` window shares `main`'s WebView2 profile so
 /// Tauri reuses `main`'s existing `WebContext` instead of opening a second
-/// WebView2 environment on `%LOCALAPPDATA%\com.vibex.app.dev` (`0x800700AA`).
+/// WebView2 environment on `%LOCALAPPDATA%\com.dimo.app.dev` (`0x800700AA`).
 pub(crate) fn settings_webview_data_directory(label: &str) -> Option<PathBuf> {
     host_webview_data_directory(label)
         .or_else(|| crate::app_windows::app_webview_data_directory(label))
@@ -205,8 +205,8 @@ mod tests {
         );
         assert_eq!(settings_window_path(Some("/plugins")), "/plugins");
         assert_eq!(
-            settings_window_path(Some("/plugins/vibex.office")),
-            "/plugins/vibex.office"
+            settings_window_path(Some("/plugins/dimo.office")),
+            "/plugins/dimo.office"
         );
         assert_eq!(settings_window_path(Some("/local-projects")), "/settings");
         assert_eq!(

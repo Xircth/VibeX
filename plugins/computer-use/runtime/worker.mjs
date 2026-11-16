@@ -1,4 +1,4 @@
-import { definePluginWorker } from '@vibex/plugin-sdk/worker';
+import { definePluginWorker } from '@dimoai/plugin-sdk/worker';
 import {
   callDaemon,
   ensureDaemon,

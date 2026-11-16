@@ -313,7 +313,17 @@ impl AgentConnectionRunner {
         handle: &EngineHandle,
         session_id: AgentSessionId,
     ) -> AgentSessionControlsSnapshot {
-        let models = driver.list_models(handle).await.unwrap_or_default();
+        let models = match driver.list_models(handle).await {
+            Ok(models) => models,
+            Err(error) => {
+                tracing::warn!(
+                    session_id = %session_id.0,
+                    %error,
+                    "failed to list native engine models while seeding session controls"
+                );
+                Vec::new()
+            }
+        };
         let yolo = *self.auto_approve_mode.lock().await == AgentAutoApproveMode::Yolo;
         let engine_caps = driver.capabilities();
         let mut modes = build_mode_state(&engine_caps.modes, yolo);
@@ -329,7 +339,7 @@ impl AgentConnectionRunner {
             merged_env.insert(k.clone(), v.clone());
         }
         let default_model_env = merged_env
-            .get("VIBEX_DEFAULT_MODEL")
+            .get("DIMO_DEFAULT_MODEL")
             .map(|s| s.trim().to_string())
             .filter(|s| !s.is_empty())
             .or_else(|| driver.resolve_default_model(&merged_env));
@@ -348,6 +358,13 @@ impl AgentConnectionRunner {
                 .as_deref()
                 .and_then(|m| driver.normalize_mode(m))
             {
+                let mut auto_guard = self.auto_approve_mode.lock().await;
+                if pref_mode == engine_caps.modes.yolo_mode_id {
+                    *auto_guard = AgentAutoApproveMode::Yolo;
+                } else if *auto_guard == AgentAutoApproveMode::Yolo {
+                    *auto_guard = AgentAutoApproveMode::Off;
+                }
+                drop(auto_guard);
                 modes.current_mode_id = acp::schema::v1::SessionModeId::new(pref_mode);
             }
             for item in &preferences.config {
@@ -376,12 +393,8 @@ impl AgentConnectionRunner {
             entry.mode_uses_set_mode = mode_uses_set_mode;
             entry.session_model_ids = model_ids;
             entry.last_model_id = last_model_id;
-            if entry.available_commands.is_none() {
-                entry.available_commands = Some(commands);
-            }
-            for (k, v) in asserted {
-                entry.asserted_config_values.insert(k, v);
-            }
+            entry.available_commands = Some(commands);
+            entry.asserted_config_values = asserted;
         }
 
         let snapshot = self.session_controls_snapshot(session_id).await;
@@ -397,6 +410,28 @@ impl AgentConnectionRunner {
         snapshot
     }
 
+    pub(in crate::manager) fn is_plan_approval_tool(tool_name: &str) -> bool {
+        tool_name == "ExitPlanMode" || tool_name.eq_ignore_ascii_case("exit_plan_mode")
+    }
+
+    pub(in crate::manager) async fn is_session_in_plan_mode(
+        &self,
+        session_id: AgentSessionId,
+    ) -> bool {
+        let controls = self.session_controls.read().await;
+        let Some(entry) = controls.get(&session_id) else {
+            return false;
+        };
+        if entry
+            .modes
+            .as_ref()
+            .is_some_and(|m| m.current_mode_id.0.as_ref() == "plan")
+        {
+            return true;
+        }
+        current_select_option_value(&entry.config_options, "mode").as_deref() == Some("plan")
+    }
+
     pub(in crate::manager) async fn apply_native_mode_change(
         &self,
         driver: &dyn NativeEngineDriver,
@@ -406,6 +441,15 @@ impl AgentConnectionRunner {
         let normalized = driver
             .normalize_mode(&mode_id)
             .unwrap_or_else(|| mode_id.clone());
+        let yolo_mode_id = driver.capabilities().modes.yolo_mode_id;
+        {
+            let mut auto_guard = self.auto_approve_mode.lock().await;
+            if normalized == yolo_mode_id {
+                *auto_guard = AgentAutoApproveMode::Yolo;
+            } else {
+                *auto_guard = AgentAutoApproveMode::Off;
+            }
+        }
         {
             let mut controls = self.session_controls.write().await;
             let entry = controls.entry(session_id).or_default();
@@ -414,6 +458,9 @@ impl AgentConnectionRunner {
                     acp::schema::v1::SessionModeId::new(normalized.clone());
             }
             update_select_option_value(&mut entry.config_options, "mode", &normalized, false);
+            entry
+                .asserted_config_values
+                .insert("mode".to_string(), normalized.clone());
         }
         self.emit(
             Some(session_id),
@@ -423,6 +470,12 @@ impl AgentConnectionRunner {
             },
         );
         let snapshot = self.session_controls_snapshot(session_id).await;
+        {
+            let mut caps = self.capabilities.write().await;
+            caps.modes = snapshot.modes.clone();
+            caps.current_mode = snapshot.current_mode.clone();
+            caps.config_options = snapshot.config_options.clone();
+        }
         self.emit(
             Some(session_id),
             None,
@@ -467,6 +520,12 @@ impl AgentConnectionRunner {
             AgentEvent::ConfigChanged { key, value },
         );
         let snapshot = self.session_controls_snapshot(session_id).await;
+        {
+            let mut caps = self.capabilities.write().await;
+            caps.modes = snapshot.modes.clone();
+            caps.current_mode = snapshot.current_mode.clone();
+            caps.config_options = snapshot.config_options.clone();
+        }
         self.emit(
             Some(session_id),
             None,
@@ -523,6 +582,29 @@ impl AgentConnectionRunner {
         mode_override: Option<&str>,
         config_overrides: &[AgentSessionConfigOverride],
     ) -> (Option<String>, Option<String>, Option<String>) {
+        let explicit_mode = mode_override
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(str::to_string)
+            .or_else(|| {
+                config_overrides
+                    .iter()
+                    .find(|o| o.key == "mode")
+                    .map(|o| o.value.trim().to_string())
+                    .filter(|s| !s.is_empty())
+            });
+        if let Some(ref exp_raw) = explicit_mode {
+            let exp_norm = driver
+                .normalize_mode(exp_raw)
+                .unwrap_or_else(|| exp_raw.clone());
+            let yolo_mode_id = driver.capabilities().modes.yolo_mode_id;
+            let mut auto_guard = self.auto_approve_mode.lock().await;
+            if exp_norm == yolo_mode_id {
+                *auto_guard = AgentAutoApproveMode::Yolo;
+            } else {
+                *auto_guard = AgentAutoApproveMode::Off;
+            }
+        }
         let yolo = *self.auto_approve_mode.lock().await == AgentAutoApproveMode::Yolo;
         let preferred_model = self
             .preferred_controls
@@ -563,7 +645,7 @@ impl AgentConnectionRunner {
             .or_else(|| {
                 stored.and_then(|s| s.asserted_config_values.get("model").cloned())
             })
-            .or_else(|| self.snapshot.env.get("VIBEX_DEFAULT_MODEL").cloned())
+            .or_else(|| self.snapshot.env.get("DIMO_DEFAULT_MODEL").cloned())
             .filter(|candidate| driver.accepts_model_id(candidate, &merged_env));
 
         let effort = config_overrides
@@ -580,17 +662,7 @@ impl AgentConnectionRunner {
                 })
             });
 
-        let raw_mode = mode_override
-            .map(str::trim)
-            .filter(|s| !s.is_empty())
-            .map(str::to_string)
-            .or_else(|| {
-                config_overrides
-                    .iter()
-                    .find(|o| o.key == "mode")
-                    .map(|o| o.value.trim().to_string())
-                    .filter(|s| !s.is_empty())
-            })
+        let raw_mode = explicit_mode
             .or_else(|| stored.and_then(|s| current_select_option_value(&s.config_options, "mode")));
 
         let normalized_mode = raw_mode

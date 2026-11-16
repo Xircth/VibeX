@@ -66,7 +66,7 @@ async fn companion(
         .and_then(|value| value.strip_prefix("Bearer "))
         .ok_or(StatusCode::UNAUTHORIZED)?;
     let product = headers
-        .get("x-vibex-product")
+        .get("x-dimo-product")
         .and_then(|value| value.to_str().ok())
         .unwrap_or("delegation");
     let expected = state.gate.token_for_product(product);
@@ -75,7 +75,7 @@ async fn companion(
     }
 
     let conversation_id = headers
-        .get("x-vibex-conversation-id")
+        .get("x-dimo-conversation-id")
         .and_then(|value| value.to_str().ok())
         .and_then(|value| Uuid::parse_str(value).ok());
     if let Some(conversation_id) = conversation_id

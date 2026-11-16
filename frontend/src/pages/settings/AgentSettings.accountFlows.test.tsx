@@ -967,7 +967,7 @@ describe('AgentSettings (account flows & post-operation refreshes)', () => {
           status: 'pass',
           detail: '',
           version: '13.17.1',
-          path: '/Users/example/.vibex/agents/omp/current/node_modules/.bin/omp',
+          path: '/Users/example/.dimo/agents/omp/current/node_modules/.bin/omp',
           source: 'managed',
           repairable: false,
           update_available: false,

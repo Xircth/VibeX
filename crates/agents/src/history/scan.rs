@@ -604,13 +604,13 @@ mod tests {
         let project = Uuid::from_u128(1);
         let workspace = Uuid::from_u128(2);
         let unix = [HistoryPathDestination {
-            path: "/Users/mac/Projects/VibeX".into(),
+            path: "/Users/mac/Projects/Dimo".into(),
             project_id: project,
-            project_name: "VibeX".into(),
+            project_name: "Dimo".into(),
             workspace_id: workspace,
         }];
         assert_eq!(
-            match_history_destination(Some("/private/Users/mac/Projects/VibeX"), &unix)
+            match_history_destination(Some("/private/Users/mac/Projects/Dimo"), &unix)
                 .map(|destination| destination.workspace_id),
             Some(workspace)
         );
@@ -639,21 +639,21 @@ mod tests {
         let nested = Uuid::from_u128(3);
         let destinations = vec![
             HistoryPathDestination {
-                path: "/Users/mac/Projects/VibeX".into(),
+                path: "/Users/mac/Projects/Dimo".into(),
                 project_id: project,
-                project_name: "VibeX".into(),
+                project_name: "Dimo".into(),
                 workspace_id: workspace,
             },
             HistoryPathDestination {
-                path: "/Users/mac/Projects/VibeX/crates/agents".into(),
+                path: "/Users/mac/Projects/Dimo/crates/agents".into(),
                 project_id: project,
-                project_name: "VibeX".into(),
+                project_name: "Dimo".into(),
                 workspace_id: nested,
             },
         ];
 
         let matched = match_history_destination(
-            Some("/Users/mac/Projects/VibeX/crates/agents/src"),
+            Some("/Users/mac/Projects/Dimo/crates/agents/src"),
             &destinations,
         )
         .expect("nested match");
@@ -667,27 +667,27 @@ mod tests {
         let worktree = Uuid::from_u128(3);
         let destinations = vec![
             HistoryPathDestination {
-                path: "/Users/mac/Projects/VibeX".into(),
+                path: "/Users/mac/Projects/Dimo".into(),
                 project_id: project,
-                project_name: "VibeX".into(),
+                project_name: "Dimo".into(),
                 workspace_id: root,
             },
             HistoryPathDestination {
-                path: "/Users/mac/Projects/VibeX/.worktrees/feature".into(),
+                path: "/Users/mac/Projects/Dimo/.worktrees/feature".into(),
                 project_id: project,
-                project_name: "VibeX".into(),
+                project_name: "Dimo".into(),
                 workspace_id: worktree,
             },
         ];
 
         assert_eq!(
-            match_history_destination(Some("/Users/mac/Projects/VibeX"), &destinations)
+            match_history_destination(Some("/Users/mac/Projects/Dimo"), &destinations)
                 .map(|destination| destination.workspace_id),
             Some(root)
         );
         assert_eq!(
             match_history_destination(
-                Some("/Users/mac/Projects/VibeX/.worktrees/feature"),
+                Some("/Users/mac/Projects/Dimo/.worktrees/feature"),
                 &destinations
             )
             .map(|destination| destination.workspace_id),
@@ -700,9 +700,9 @@ mod tests {
         let project = Uuid::from_u128(11);
         let workspace = Uuid::from_u128(12);
         let destinations = vec![HistoryPathDestination {
-            path: "/Users/mac/Projects/VibeX".into(),
+            path: "/Users/mac/Projects/Dimo".into(),
             project_id: project,
-            project_name: "VibeX".into(),
+            project_name: "Dimo".into(),
             workspace_id: workspace,
         }];
         let mut imported = BTreeSet::new();
@@ -713,13 +713,13 @@ mod tests {
                 session(
                     AgentKind::Codex,
                     "already",
-                    Some("/Users/mac/Projects/VibeX"),
+                    Some("/Users/mac/Projects/Dimo"),
                     "Old Codex",
                 ),
                 session(
                     AgentKind::ClaudeCode,
                     "fresh",
-                    Some("/private/Users/mac/Projects/VibeX"),
+                    Some("/private/Users/mac/Projects/Dimo"),
                     "New Claude",
                 ),
                 session(AgentKind::Codex, "loose", None, "No folder"),
@@ -728,7 +728,7 @@ mod tests {
             &destinations,
             vec![LocalHistoryDestination {
                 project_id: project,
-                project_name: "VibeX".into(),
+                project_name: "Dimo".into(),
                 workspace_id: workspace,
                 workspace_name: Some("main".into()),
             }],

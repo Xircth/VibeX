@@ -43,7 +43,7 @@ async function createLockForFiles(
 
 export async function packPlugin(root: string, output?: string) {
   const manifest = JSON.parse(
-    await readFile(join(root, '.vibex-plugin', 'plugin.json'), 'utf8')
+    await readFile(join(root, '.dimo-plugin', 'plugin.json'), 'utf8')
   ) as {
     id: string;
     version: string;
@@ -66,7 +66,7 @@ export async function packPlugin(root: string, output?: string) {
     );
   });
   const lock = await createLockForFiles(root, releaseFiles);
-  const lockPath = join(root, '.vibex-plugin', 'package.lock.json');
+  const lockPath = join(root, '.dimo-plugin', 'package.lock.json');
   await mkdir(dirname(lockPath), { recursive: true });
   await writeFile(lockPath, `${JSON.stringify(lock, null, 2)}\n`);
   const zip = new AdmZip();
@@ -81,12 +81,12 @@ export async function packPlugin(root: string, output?: string) {
   const configEntry = zip.getEntry('config.json');
   if (configEntry) configEntry.header.time = new Date('1980-01-01T00:00:00.000Z');
   zip.addFile(
-    '.vibex-plugin/package.lock.json',
+    '.dimo-plugin/package.lock.json',
     Buffer.from(`${JSON.stringify(lock, null, 2)}\n`),
     '',
     0o100644 << 16
   );
-  const lockEntry = zip.getEntry('.vibex-plugin/package.lock.json');
+  const lockEntry = zip.getEntry('.dimo-plugin/package.lock.json');
   if (lockEntry) lockEntry.header.time = new Date('1980-01-01T00:00:00.000Z');
   const target = resolve(
     output ?? join(root, 'dist', `${manifest.id}-${manifest.version}.vxp`)
@@ -94,11 +94,11 @@ export async function packPlugin(root: string, output?: string) {
   const signature = {
     algorithm: 'sha256',
     packageDigest: lock.packageDigest,
-    publisher: process.env.VIBEX_PLUGIN_PUBLISHER ?? 'local',
+    publisher: process.env.DIMO_PLUGIN_PUBLISHER ?? 'local',
     signedAt: new Date(0).toISOString(),
   };
   zip.addFile(
-    '.vibex-plugin/signature.json',
+    '.dimo-plugin/signature.json',
     Buffer.from(`${JSON.stringify(signature, null, 2)}\n`),
     '',
     0o100644 << 16
@@ -122,8 +122,8 @@ async function packageFiles(root: string) {
       const absolute = join(directory, entry.name);
       const path = relative(root, absolute).replaceAll('\\', '/');
       if (path === 'config.json') continue;
-      if (path === '.vibex-plugin/package.lock.json') continue;
-      if (path === '.vibex-plugin/developer-link.json') continue;
+      if (path === '.dimo-plugin/package.lock.json') continue;
+      if (path === '.dimo-plugin/developer-link.json') continue;
       if (entry.isSymbolicLink())
         throw new Error(`package_symlink_rejected: ${path}`);
       if (entry.isDirectory()) await visit(absolute);

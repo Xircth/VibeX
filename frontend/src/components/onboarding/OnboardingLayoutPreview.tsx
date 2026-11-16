@@ -6,7 +6,7 @@ import {
   type CSSProperties,
 } from 'react';
 import { useTranslation } from 'react-i18next';
-import type { ThemeDefinition } from '@vibex/plugin-sdk';
+import type { ThemeDefinition } from '@dimoai/plugin-sdk';
 import {
   Files,
   Loader2,
@@ -45,8 +45,8 @@ export function resolveOnboardingVideoSources(
 
   const rawOverride =
     options?.customBaseUrl ??
-    (import.meta.env.VIBEX_ONBOARDING_VIDEO_BASE_URL ||
-      import.meta.env.VITE_VIBEX_ONBOARDING_VIDEO_BASE_URL ||
+    (import.meta.env.DIMO_ONBOARDING_VIDEO_BASE_URL ||
+      import.meta.env.VITE_DIMO_ONBOARDING_VIDEO_BASE_URL ||
       '');
   const trimmedOverride = rawOverride.trim().replace(/\/+$/, '');
   if (trimmedOverride) {

@@ -14,7 +14,7 @@ import {
   isEditableUserTimelineRow,
   isTimelineTurnInFlight,
   shouldLoadOlderTimelinePage,
-  vibexTurnIdFromTimelineRowId,
+  dimoTurnIdFromTimelineRowId,
 } from './AgentTimelineConversation';
 
 function row(
@@ -35,11 +35,11 @@ function row(
   };
 }
 
-describe('vibexTurnIdFromTimelineRowId', () => {
+describe('dimoTurnIdFromTimelineRowId', () => {
   it('strips user, assistant, and steered assistant suffixes', () => {
-    expect(vibexTurnIdFromTimelineRowId('turn-1:user')).toBe('turn-1');
-    expect(vibexTurnIdFromTimelineRowId('turn-1:assistant')).toBe('turn-1');
-    expect(vibexTurnIdFromTimelineRowId('turn-1:assistant:2')).toBe('turn-1');
+    expect(dimoTurnIdFromTimelineRowId('turn-1:user')).toBe('turn-1');
+    expect(dimoTurnIdFromTimelineRowId('turn-1:assistant')).toBe('turn-1');
+    expect(dimoTurnIdFromTimelineRowId('turn-1:assistant:2')).toBe('turn-1');
   });
 });
 

@@ -15,10 +15,10 @@ describe('timeline image decode cap', () => {
   });
 
   it('accepts only a content-addressed hash', () => {
-    expect(timelineImageHash('vibex-image:' + 'a'.repeat(64))).toBe(
+    expect(timelineImageHash('dimo-image:' + 'a'.repeat(64))).toBe(
       'a'.repeat(64)
     );
-    expect(timelineImageHash('vibex-image:../secret')).toBeNull();
+    expect(timelineImageHash('dimo-image:../secret')).toBeNull();
     expect(timelineImageHash('C:\\images\\shot.png')).toBeNull();
   });
 

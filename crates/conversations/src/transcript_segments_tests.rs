@@ -56,7 +56,7 @@ async fn conversation(pool: &SqlitePool) -> Uuid {
 async fn paged_history_reads_unicode_without_truncation_and_rejects_rewritten_cursors() {
     let pool = pool().await;
     let id = conversation(&pool).await;
-    let root = agents::acp_transcript::vibex_acp_transcripts_root();
+    let root = agents::acp_transcript::dimo_acp_transcripts_root();
     let turns: Vec<MessageTurn> = serde_json::from_value(serde_json::json!([
         {"id":"long","role":"user","blocks":[{"type":"text","text":"甲🙂乙丙丁"}],"timestamp":"2026-11-13T00:00:00Z"},
         {"id":"answer","role":"assistant","blocks":[{"type":"text","text":"回答"},{"type":"thinking","text":"private"}],"timestamp":"2026-11-13T00:00:00Z"}
@@ -152,7 +152,7 @@ async fn fork_is_independent_and_truncate_then_append_keeps_only_the_selected_pr
     crate::jsonl_history::load_all_turns(&pool, parent)
         .await
         .unwrap();
-    let root = acp_transcript::vibex_acp_transcripts_root();
+    let root = acp_transcript::dimo_acp_transcripts_root();
     let agent = AgentId::parse("codex").unwrap();
     let connection = AgentConnectionId::new();
     let binding = Binding::link_native_session(
@@ -289,7 +289,7 @@ async fn manifest_bundle_roundtrip_keeps_assistant_content_and_independent_files
     crate::jsonl_history::load_all_turns(&pool, id)
         .await
         .unwrap();
-    let root = acp_transcript::vibex_acp_transcripts_root();
+    let root = acp_transcript::dimo_acp_transcripts_root();
     let agent = AgentId::parse("codex").unwrap();
     let destination = super::open_in(&pool, &root, id, Uuid::new_v4(), &agent, "")
         .await
@@ -327,7 +327,7 @@ async fn legacy_checkpoint_refuses_conflicting_or_unreadable_sources() {
     crate::jsonl_history::load_all_turns(&pool, id)
         .await
         .unwrap();
-    let root = acp_transcript::vibex_acp_transcripts_root();
+    let root = acp_transcript::dimo_acp_transcripts_root();
     let agent = AgentId::parse("codex").unwrap();
     let native = format!("legacy-{}", id.simple());
     Binding::link_native_session(&pool, id, &agent, "/work", &native, "legacy-connection")
@@ -374,7 +374,7 @@ async fn legacy_checkpoint_rejects_a_mismatched_header_identity() {
     crate::jsonl_history::load_all_turns(&pool, id)
         .await
         .unwrap();
-    let root = acp_transcript::vibex_acp_transcripts_root();
+    let root = acp_transcript::dimo_acp_transcripts_root();
     let agent = AgentId::parse("codex").unwrap();
     let native = format!("legacy-header-{}", id.simple());
     Binding::link_native_session(&pool, id, &agent, "/work", &native, "legacy-connection")
@@ -405,7 +405,7 @@ async fn legacy_checkpoint_requires_explicit_ancestors() {
     crate::jsonl_history::load_all_turns(&pool, id)
         .await
         .unwrap();
-    let root = acp_transcript::vibex_acp_transcripts_root();
+    let root = acp_transcript::dimo_acp_transcripts_root();
     let agent = AgentId::parse("codex").unwrap();
     let native = format!("legacy-missing-{}", id.simple());
     Binding::link_native_session(&pool, id, &agent, "/work", &native, "legacy-connection")
@@ -431,7 +431,7 @@ async fn legacy_continuation_is_imported_once_in_chronological_order() {
     crate::jsonl_history::load_all_turns(&pool, id)
         .await
         .unwrap();
-    let root = acp_transcript::vibex_acp_transcripts_root();
+    let root = acp_transcript::dimo_acp_transcripts_root();
     let agent = AgentId::parse("codex").unwrap();
     let first = format!("legacy-first-{}", id.simple());
     let last = format!("legacy-last-{}", id.simple());

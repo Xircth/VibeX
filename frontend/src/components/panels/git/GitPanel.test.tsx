@@ -8,6 +8,10 @@ import { GitLogView } from './GitLogView';
 import { GitStagingArea } from './GitStagingArea';
 import { GitStatusBadge } from './GitStatusBadge';
 
+vi.mock('@/utils/clipboard', () => ({
+  writeTextToClipboard: vi.fn(async () => true),
+}));
+
 vi.mock('react-virtuoso', () => ({
   Virtuoso: ({
     data,
@@ -320,9 +324,9 @@ describe('GitBranchList', () => {
     },
   ];
 
-  it('removes top Branches header, styles LOCAL & REMOTE like STAGED with right-aligned counts and create button, and styles groups/branches with rounded bg, bold names, no group icons, and no branch click checkout', async () => {
+  it('removes top Branches header, styles LOCAL & REMOTE like STAGED with right-aligned counts and create button, styles groups/branches with rounded bg and bold names, and wires branch checkout for non-current local branches', async () => {
     const { GitBranchList } = await import('./GitBranchList');
-    const onCheckout = vi.fn();
+    const onCheckout = vi.fn().mockResolvedValue(undefined);
     const onCreate = vi.fn();
     const onDelete = vi.fn();
 
@@ -417,16 +421,21 @@ describe('GitBranchList', () => {
     expect(featureGroupItems.className).toContain('ml-2.5');
     expect(featureGroupItems.className).toContain('border-l');
 
-    // Branch rows have rounded-md background, bold branch name, and clicking does not trigger checkout
+    // Branch rows have rounded-md background, bold branch name, and clicking local non-current branch triggers checkout
     const featureRow = within(featureGroupItems).getByTestId(
       'git-branch-row-feature/login'
     );
     expect(featureRow.className).toContain('rounded-md');
-    expect(featureRow.className).not.toContain('cursor-pointer');
+    expect(featureRow.className).toContain('cursor-pointer');
     const loginLabel = within(featureRow).getByText('login');
     expect(loginLabel.className).toContain('font-bold');
 
     fireEvent.click(featureRow);
+    expect(onCheckout).toHaveBeenCalledWith('feature/login');
+
+    onCheckout.mockClear();
+    fireEvent.click(screen.getByTestId('git-branch-row-main'));
+    fireEvent.click(screen.getByTestId('git-branch-row-origin/main'));
     expect(onCheckout).not.toHaveBeenCalled();
 
     // Clicking LOCAL header collapses all local branches/groups, clicking again expands them

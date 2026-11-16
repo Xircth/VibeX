@@ -280,7 +280,7 @@ const FALLBACK_TOOLS = [
 ];
 
 const MODERN_MCP_PROTOCOL = '2026-07-28';
-const SERVER_INFO = { name: 'vibex-computer-use', version: '0.34.0' };
+const SERVER_INFO = { name: 'dimo-computer-use', version: '0.34.0' };
 
 function send(message) {
   process.stdout.write(`${JSON.stringify(message)}\n`);
@@ -317,19 +317,19 @@ function modernize(params, result) {
 }
 
 async function isHostAuthorized() {
-  const hostUrl = (process.env.VIBEX_HOST_CALL_URL || '').trim();
-  const hostToken = (process.env.VIBEX_HOST_CALL_TOKEN || '').trim();
+  const hostUrl = (process.env.DIMO_HOST_CALL_URL || '').trim();
+  const hostToken = (process.env.DIMO_HOST_CALL_TOKEN || '').trim();
   const hasProjectedEnv = Boolean(
     hostUrl ||
       hostToken ||
-      process.env.VIBEX_PLUGIN_MCP_TOKEN ||
-      process.env.VIBEX_PLUGIN_ID
+      process.env.DIMO_PLUGIN_MCP_TOKEN ||
+      process.env.DIMO_PLUGIN_ID
   );
   if (!hasProjectedEnv) {
     return Boolean(
       process.env.NODE_TEST_CONTEXT ||
         process.env.VITEST ||
-        process.env.VIBEX_COMPUTER_USE_STANDALONE_TEST === '1'
+        process.env.DIMO_COMPUTER_USE_STANDALONE_TEST === '1'
     );
   }
   if (!hostUrl || !hostToken) {
@@ -433,7 +433,7 @@ async function handle(message) {
           content: [
             {
               type: 'text',
-              text: 'computer_use_disabled: Computer Use plugin is not installed or enabled in VibeX.',
+              text: 'computer_use_disabled: Computer Use plugin is not installed or enabled in Dimo.',
             },
           ],
           isError: true,

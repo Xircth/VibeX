@@ -4,7 +4,7 @@ import { cn } from '@/lib/utils';
 import type { ContactSection } from './contactGroups';
 
 /** Drag payload for moving a contact (thread id) between sections. */
-export const CONTACT_DRAG_TYPE = 'application/x-vibex-contact';
+export const CONTACT_DRAG_TYPE = 'application/x-dimo-contact';
 
 /** Ignore blur from a just-closed menu restoring focus to its trigger. */
 export const CONTACT_GROUP_RENAME_BLUR_GRACE_MS = 250;

@@ -198,7 +198,7 @@ interface TerminalContextType {
   getTerminalConnection: (tabId: string) => TerminalConnection | null;
 }
 
-const GLOBAL_TERMINAL_CONTEXT_KEY = '__VIBEX_TERMINAL_CONTEXT__' as const;
+const GLOBAL_TERMINAL_CONTEXT_KEY = '__DIMO_TERMINAL_CONTEXT__' as const;
 const globalTerminalScope = globalThis as typeof globalThis & {
   [GLOBAL_TERMINAL_CONTEXT_KEY]?: Context<TerminalContextType | null>;
 };

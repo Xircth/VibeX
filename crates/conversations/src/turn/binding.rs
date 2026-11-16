@@ -28,16 +28,38 @@ impl ConversationSessionService {
         working_dir: &str,
         native_id: &str,
         connection_id: agents::AgentConnectionId,
+        provider_instance_id: Option<&str>,
     ) -> Result<(), ConversationServiceError> {
         let pool = &self.ctx.deployment.db().pool;
+        let effective_working_dir = if !working_dir.trim().is_empty() {
+            working_dir.to_string()
+        } else {
+            ConversationAgentBindingRecord::active_for_conversation(pool, conversation_id)
+                .await?
+                .filter(|b| !b.working_dir.trim().is_empty())
+                .map(|b| b.working_dir)
+                .or(
+                    ConversationAgentBindingRecord::latest_for_conversation(pool, conversation_id)
+                        .await?
+                        .filter(|b| b.agent_id == *agent_id && !b.working_dir.trim().is_empty())
+                        .map(|b| b.working_dir),
+                )
+                .unwrap_or_default()
+        };
+        let key = super::continuation::continuation_key(
+            agent_id.as_str(),
+            &effective_working_dir,
+            provider_instance_id,
+        );
         let result: Result<(), sqlx::Error> = async {
-            let binding = ConversationAgentBindingRecord::prepare_native_session(
+            let binding = ConversationAgentBindingRecord::prepare_native_session_with_continuation_key(
                 pool,
                 conversation_id,
                 agent_id,
-                working_dir,
+                &effective_working_dir,
                 native_id,
                 &connection_id.to_string(),
+                Some(&key),
             )
             .await?;
             ConversationAgentBindingRecord::activate(pool, conversation_id, binding.id).await
@@ -48,7 +70,6 @@ impl ConversationSessionService {
             return Err(error.into());
         }
         // Always set continuation key and resume head for the active binding.
-        let key = super::continuation::continuation_key(agent_id.as_str(), working_dir);
         sqlx::query("UPDATE conversation_agent_bindings SET is_resume_head = 0 WHERE conversation_id = ? AND continuation_key = ?")
             .bind(conversation_id).bind(&key).execute(pool).await?;
         let _ = sqlx::query("UPDATE conversation_agent_bindings SET continuation_key = ?, is_resume_head = 1 WHERE id = (SELECT active_agent_binding_id FROM sessions WHERE id = ?)")
@@ -74,51 +95,234 @@ impl ConversationSessionService {
         Ok(())
     }
 
-    /// Immediately switch the conversation's live session mode. Mode is a
-    /// Config Option category; the ACP adapter translates the intent to
-    /// `session/set_mode` or `session/set_config_option`. Errors when there is
-    /// no live session or a turn is in flight — the frontend then keeps the
-    /// choice as a next-turn override.
+    /// Immediately switch the conversation's live session mode, or durably
+    /// persist and project the selection when the runtime connection is not yet
+    /// bound or was swept idle.
     pub async fn set_session_mode(
         &self,
         conversation_id: Uuid,
         mode_id: String,
     ) -> Result<(), ConversationServiceError> {
-        self.ctx
+        let preparation = crate::continuation::preparation_lock(conversation_id);
+        let _preparation_guard = preparation.lock().await;
+        match self
+            .ctx
             .agent_runtime
             .set_session_mode(AgentSessionId(conversation_id), mode_id.clone())
-            .await?;
-        self.remember_session_controls_selection(conversation_id, Some(&mode_id), &[])
-            .await;
-        Ok(())
+            .await
+        {
+            Ok(_) => {
+                self.remember_session_controls_selection(conversation_id, Some(&mode_id), &[])
+                    .await;
+                Ok(())
+            }
+            Err(
+                agents::AgentError::SessionNotFound(_)
+                | agents::AgentError::ConnectionNotFound(_)
+                | agents::AgentError::AcpSessionNotBound,
+            ) => {
+                let controls = self
+                    .persist_offline_session_controls_selection(
+                        conversation_id,
+                        Some(&mode_id),
+                        &[],
+                    )
+                    .await?;
+                self.append_event(
+                    conversation_id,
+                    None,
+                    "runtime",
+                    agents::conversation::ConversationEvent::SessionModeUpdated {
+                        current: controls.current_mode.or(Some(mode_id)),
+                        modes: controls.modes,
+                    },
+                    None,
+                )
+                .await?;
+                Ok(())
+            }
+            Err(error) => Err(error.into()),
+        }
     }
 
-    /// Immediately change one agent-advertised session config option
-    /// (`session/set_config_option`, e.g. model or permission mode). Same
-    /// caveats as [`Self::set_session_mode`].
+    /// Immediately change one agent-advertised session config option, or
+    /// durably persist and project the selection when the runtime connection is
+    /// not yet bound or was swept idle.
     pub async fn set_session_config_option(
         &self,
         conversation_id: Uuid,
         key: String,
         value: serde_json::Value,
     ) -> Result<(), ConversationServiceError> {
-        self.ctx
-            .agent_runtime
-            .set_session_config_option(AgentSessionId(conversation_id), key.clone(), value.clone())
-            .await?;
-        // Prompt-time overrides are string-valued (`session/set_config_option` accepts
-        // either form for boolean options), so remember the selection in that domain.
-        let value = value
+        let preparation = crate::continuation::preparation_lock(conversation_id);
+        let _preparation_guard = preparation.lock().await;
+        let string_value = value
             .as_str()
             .map(str::to_string)
             .unwrap_or_else(|| value.to_string());
-        self.remember_session_controls_selection(
-            conversation_id,
-            None,
-            &[AgentSessionConfigOverride { key, value }],
+        let overrides = [AgentSessionConfigOverride {
+            key,
+            value: string_value,
+        }];
+        match self
+            .ctx
+            .agent_runtime
+            .set_session_config_option(
+                AgentSessionId(conversation_id),
+                overrides[0].key.clone(),
+                value,
+            )
+            .await
+        {
+            Ok(_) => {
+                self.remember_session_controls_selection(conversation_id, None, &overrides)
+                    .await;
+                Ok(())
+            }
+            Err(
+                agents::AgentError::SessionNotFound(_)
+                | agents::AgentError::ConnectionNotFound(_)
+                | agents::AgentError::AcpSessionNotBound,
+            ) => {
+                let mut controls = self
+                    .persist_offline_session_controls_selection(
+                        conversation_id,
+                        None,
+                        &overrides,
+                    )
+                    .await?;
+                for ovr in &overrides {
+                    if !controls.config_options.iter().any(|opt| opt.key == ovr.key) {
+                        controls.config_options.push(agents::AgentSessionConfigOption {
+                            key: ovr.key.clone(),
+                            label: ovr.key.clone(),
+                            description: None,
+                            category: None,
+                            value: Some(serde_json::Value::String(ovr.value.clone())),
+                            choices: Vec::new(),
+                            dependency: None,
+                        });
+                    }
+                }
+                self.append_event(
+                    conversation_id,
+                    None,
+                    "runtime",
+                    agents::conversation::ConversationEvent::SessionConfigOptionsUpdated {
+                        options: controls.config_options,
+                    },
+                    None,
+                )
+                .await?;
+                Ok(())
+            }
+            Err(error) => Err(error.into()),
+        }
+    }
+
+    async fn persist_offline_session_controls_selection(
+        &self,
+        conversation_id: Uuid,
+        mode: Option<&str>,
+        config_overrides: &[AgentSessionConfigOverride],
+    ) -> Result<AgentSessionControlsSnapshot, ConversationServiceError> {
+        let pool = &self.ctx.deployment.db().pool;
+        let persisted_session = Session::find_by_id(pool, conversation_id)
+            .await?
+            .ok_or_else(|| {
+                ConversationServiceError::NotFound(format!(
+                    "Conversation session {conversation_id} was not found"
+                ))
+            })?;
+        let agent_id = match persisted_session.agent_id.clone() {
+            Some(agent_id) => agent_id,
+            None => {
+                let resolved = resolve_agent_id_from_executor(persisted_session.executor.as_deref())
+                    .ok_or_else(|| {
+                        ConversationServiceError::BadRequest(format!(
+                            "Conversation {conversation_id} has no supported coding agent"
+                        ))
+                    })?;
+                let _ = Session::update_agent_metadata(
+                    pool,
+                    conversation_id,
+                    persisted_session.external_session_id.as_deref(),
+                    Some(&resolved),
+                )
+                .await;
+                resolved
+            }
+        };
+        self.remember_session_controls_selection(conversation_id, mode, config_overrides)
+            .await;
+        let bindings =
+            ConversationAgentBindingRecord::list_for_conversation(pool, conversation_id).await?;
+        let mut controls = self
+            .synthesized_offline_controls_snapshot(pool, &bindings, &agent_id)
+            .await;
+        if let Some(mode) = mode.map(str::trim).filter(|m| !m.is_empty())
+            && controls.current_mode.is_none()
+        {
+            controls.current_mode = Some(mode.to_string());
+        }
+        Ok(controls)
+    }
+
+    pub(super) async fn synthesized_offline_controls_snapshot(
+        &self,
+        pool: &SqlitePool,
+        bindings: &[ConversationAgentBindingRecord],
+        agent_id: &AgentId,
+    ) -> AgentSessionControlsSnapshot {
+        let remembered = restorable_agent_binding(bindings, agent_id).or_else(|| {
+            bindings
+                .iter()
+                .rev()
+                .find(|binding| binding.agent_id == *agent_id)
+        });
+        let preferences = self
+            .resolved_session_control_preferences(pool, agent_id, remembered)
+            .await;
+        let mut controls = match crate::load_capability_catalog_for_session_defaults(
+            pool,
+            &self.ctx.agent_runtime,
+            agent_id,
         )
-        .await;
-        Ok(())
+        .await
+        {
+            Ok(snapshot) => snapshot,
+            Err(_) => {
+                let fallback_json: Option<String> = sqlx::query_scalar(
+                    r#"SELECT controls_json
+                       FROM agent_capability_catalog
+                       WHERE agent_type = ?
+                       ORDER BY retrieved_at DESC, generation DESC
+                       LIMIT 1"#,
+                )
+                .bind(agent_id.as_str())
+                .fetch_optional(pool)
+                .await
+                .ok()
+                .flatten();
+                fallback_json
+                    .and_then(|raw| serde_json::from_str::<AgentSessionControlsSnapshot>(&raw).ok())
+                    .unwrap_or_default()
+            }
+        };
+        if controls.modes.is_empty()
+            && let Some(binding) = remembered
+            && let Ok(modes) = serde_json::from_str(&binding.modes_json)
+        {
+            controls.modes = modes;
+        }
+        if controls.config_options.is_empty()
+            && let Some(binding) = remembered
+            && let Ok(options) = serde_json::from_str(&binding.config_options_json)
+        {
+            controls.config_options = options;
+        }
+        apply_preferences_to_controls_snapshot(&mut controls, &preferences);
+        controls
     }
 
     /// Record the conversation's effective session-control selection on its binding so
@@ -151,10 +355,17 @@ impl ConversationSessionService {
             .await
             .unwrap_or_default()
             .into_iter()
-            .filter_map(|record| {
-                serde_json::from_str(&record.value_json)
-                    .ok()
-                    .map(|value| (record.option_id, value))
+            .filter_map(|record| match serde_json::from_str(&record.value_json) {
+                Ok(value) => Some((record.option_id, value)),
+                Err(error) => {
+                    tracing::warn!(
+                        agent_id = %agent_id,
+                        option_id = %record.option_id,
+                        %error,
+                        "invalid session default value_json; ignoring"
+                    );
+                    None
+                }
             })
             .collect::<Vec<_>>();
         session_control_preferences(binding, &agent_defaults)
@@ -167,7 +378,7 @@ impl ConversationSessionService {
     /// Best-effort and skip-if-current. A remembered value the agent no longer
     /// advertises is logged and dropped rather than failing session setup. This
     /// is not a new user choice, so it must not rewrite the binding.
-    async fn replay_remembered_session_controls(
+    pub(super) async fn replay_remembered_session_controls(
         &self,
         conversation_id: Uuid,
         runtime_session_id: AgentSessionId,
@@ -321,6 +532,20 @@ impl ConversationSessionService {
         conversation_id: Uuid,
         working_dir_override: Option<PathBuf>,
     ) -> Result<AgentSessionControlsSnapshot, ConversationServiceError> {
+        self.ensure_session_controls_locked_with_provider_instance(
+            conversation_id,
+            working_dir_override,
+            None,
+        )
+        .await
+    }
+
+    pub(super) async fn ensure_session_controls_locked_with_provider_instance(
+        &self,
+        conversation_id: Uuid,
+        working_dir_override: Option<PathBuf>,
+        provider_instance_id: Option<&str>,
+    ) -> Result<AgentSessionControlsSnapshot, ConversationServiceError> {
         self.interrupt_orphaned_turn(conversation_id).await?;
         let runtime_session_id = AgentSessionId(conversation_id);
 
@@ -335,13 +560,7 @@ impl ConversationSessionService {
         let mut agent_id = persisted_session
             .agent_id
             .clone()
-            .or_else(|| {
-                persisted_session
-                    .executor
-                    .as_deref()
-                    .and_then(AgentKind::from_lenient)
-                    .and_then(|kind| agents::AgentId::parse(kind.as_str()).ok())
-            })
+            .or_else(|| resolve_agent_id_from_executor(persisted_session.executor.as_deref()))
             .ok_or_else(|| {
                 ConversationServiceError::BadRequest(format!(
                     "Conversation {conversation_id} has no supported coding agent"
@@ -359,7 +578,14 @@ impl ConversationSessionService {
                 .agent_runtime
                 .session_agent_id(runtime_session_id)
                 .await;
-            if live_agent_id.as_ref() == Some(&agent_id)
+            if self
+                .ctx
+                .agent_runtime
+                .session_connection_config_stale(runtime_session_id)
+                .await
+            {
+                self.drop_live_agent_connection(conversation_id).await;
+            } else if live_agent_id.as_ref() == Some(&agent_id)
                 && let Ok(controls) = self
                     .ctx
                     .agent_runtime
@@ -378,17 +604,38 @@ impl ConversationSessionService {
                 if active.as_ref().is_some_and(|binding| {
                     binding.agent_id == agent_id
                         && binding.resume_allowed
+                        && !binding.working_dir.is_empty()
                         && binding.connection_id.as_deref()
                             == Some(connection_id.to_string().as_str())
                 }) {
                     return Ok(controls);
                 }
+                let fast_working_dir = if let Some(ref override_path) = working_dir_override {
+                    utils::path::normalize_windows_extended_path_prefix(override_path.clone())
+                        .to_string_lossy()
+                        .into_owned()
+                } else if let Some(existing) = active
+                    .as_ref()
+                    .map(|binding| binding.working_dir.as_str())
+                    .filter(|dir| !dir.is_empty())
+                {
+                    existing.to_string()
+                } else {
+                    self.resolve_session_working_dir_fallback(
+                        pool,
+                        conversation_id,
+                        persisted_session.workspace_id,
+                    )
+                    .await
+                    .unwrap_or_default()
+                };
                 self.commit_native_binding(
                     conversation_id,
                     &agent_id,
-                    "",
+                    &fast_working_dir,
                     &bound_acp_session_id,
                     connection_id,
+                    provider_instance_id,
                 )
                 .await?;
                 self.ctx
@@ -407,50 +654,18 @@ impl ConversationSessionService {
             ConversationAgentBindingRecord::list_for_conversation(pool, conversation_id).await?;
         let active_binding_any_agent =
             ConversationAgentBindingRecord::active_for_conversation(pool, conversation_id).await?;
-        if working_dir_override.is_none()
-            && active_binding_any_agent
-                .as_ref()
-                .is_some_and(|binding| binding.agent_id != agent_id)
+        if active_binding_any_agent
+            .as_ref()
+            .is_some_and(|binding| binding.agent_id != agent_id && binding.resume_allowed)
             && conversation_has_recorded_turns(pool, conversation_id).await?
         {
             // Pending cross-Agent handoff boundary: keep `sessions.active_agent_binding_id`
             // pointing at the previous turn's Agent until `prepare_turn_continuation` runs on
             // the next prompt (so Stage B/C portable history & delta calculation remain intact),
             // while returning the target Agent's controls + saved defaults for the composer UI.
-            let remembered_for_target = restorable_agent_binding(&bindings, &agent_id);
-            let preferences = self
-                .resolved_session_control_preferences(pool, &agent_id, remembered_for_target)
-                .await;
-            let mut controls = match crate::load_capability_catalog_for_session_defaults(
-                pool,
-                &self.ctx.agent_runtime,
-                &agent_id,
-            )
-            .await
-            {
-                Ok(snapshot) => snapshot,
-                Err(_) => {
-                    let fallback_json: Option<String> = sqlx::query_scalar(
-                        r#"SELECT controls_json
-                           FROM agent_capability_catalog
-                           WHERE agent_type = ?
-                           ORDER BY retrieved_at DESC, generation DESC
-                           LIMIT 1"#,
-                    )
-                    .bind(agent_id.as_str())
-                    .fetch_optional(pool)
-                    .await
-                    .ok()
-                    .flatten();
-                    fallback_json
-                        .and_then(|raw| {
-                            serde_json::from_str::<AgentSessionControlsSnapshot>(&raw).ok()
-                        })
-                        .unwrap_or_default()
-                }
-            };
-            apply_preferences_to_controls_snapshot(&mut controls, &preferences);
-            return Ok(controls);
+            return Ok(self
+                .synthesized_offline_controls_snapshot(pool, &bindings, &agent_id)
+                .await);
         }
         if restorable_agent_binding(&bindings, &agent_id).is_none()
             && let Some(ext) = persisted_session
@@ -475,13 +690,21 @@ impl ConversationSessionService {
             if member_prefers_linked_agent {
                 agent_id = linked_agent;
                 persisted_session.agent_id = Some(agent_id.clone());
-                let _ = Session::update_agent_metadata(
+                if let Err(error) = Session::update_agent_metadata(
                     pool,
                     conversation_id,
                     Some(&ext),
                     Some(&agent_id),
                 )
-                .await;
+                .await
+                {
+                    tracing::warn!(
+                        %conversation_id,
+                        agent_id = %agent_id,
+                        %error,
+                        "failed to update session agent metadata for linked agent"
+                    );
+                }
             } else {
                 crate::flush_conversation_persistence(conversation_id).await;
                 self.ctx
@@ -489,7 +712,7 @@ impl ConversationSessionService {
                     .flush_conversation(conversation_id)
                     .await;
                 persisted_session.external_session_id = None;
-                let _ = sqlx::query(
+                if let Err(error) = sqlx::query(
                     r#"UPDATE sessions
                        SET external_session_id = NULL,
                            updated_at = datetime('now', 'subsec')
@@ -497,7 +720,14 @@ impl ConversationSessionService {
                 )
                 .bind(conversation_id)
                 .execute(pool)
-                .await;
+                .await
+                {
+                    tracing::warn!(
+                        %conversation_id,
+                        %error,
+                        "failed to clear stale external_session_id during agent switch"
+                    );
+                }
             }
         }
         let execution_workspace_id = crate::isolated_workspace::execution_workspace_id(
@@ -551,7 +781,11 @@ impl ConversationSessionService {
             &repos,
             &working_dir,
         );
-        let launch_settings = self.ctx.host.launch_settings(pool, &agent_id).await?;
+        let launch_settings = self
+            .ctx
+            .host
+            .launch_settings_with_provider_instance(pool, &agent_id, provider_instance_id)
+            .await?;
         let latest_binding =
             ConversationAgentBindingRecord::active_for_conversation(pool, conversation_id)
                 .await?
@@ -742,6 +976,7 @@ impl ConversationSessionService {
             &working_dir,
             &runtime_snapshot.acp_session_id,
             runtime_snapshot.connection_id,
+            provider_instance_id,
         )
         .await?;
         self.ctx
@@ -786,6 +1021,50 @@ impl ConversationSessionService {
                 .await?;
         }
         Ok(controls)
+    }
+
+    async fn resolve_session_working_dir_fallback(
+        &self,
+        pool: &SqlitePool,
+        conversation_id: Uuid,
+        session_workspace_id: Uuid,
+    ) -> Result<String, ConversationServiceError> {
+        let execution_workspace_id = crate::isolated_workspace::execution_workspace_id(
+            &self.ctx,
+            conversation_id,
+            session_workspace_id,
+        )
+        .await
+        .map_err(|error| ConversationServiceError::Internal(error.message))?;
+        let workspace = match Workspace::find_by_id(pool, execution_workspace_id).await? {
+            Some(workspace) => workspace,
+            None if execution_workspace_id != session_workspace_id => {
+                Workspace::find_by_id(pool, session_workspace_id)
+                    .await?
+                    .ok_or_else(|| {
+                        ConversationServiceError::NotFound(format!(
+                            "Workspace {session_workspace_id} for conversation {conversation_id} was not found"
+                        ))
+                    })?
+            }
+            None => {
+                return Err(ConversationServiceError::NotFound(format!(
+                    "Workspace {session_workspace_id} for conversation {conversation_id} was not found"
+                )));
+            }
+        };
+        let container_ref = self
+            .ctx
+            .deployment
+            .container()
+            .ensure_container_exists(&workspace)
+            .await?;
+        let repos = WorkspaceRepo::find_repos_for_workspace(pool, workspace.id).await?;
+        Ok(self
+            .ctx
+            .host
+            .resolve_working_dir(&workspace, &container_ref, &repos)
+            .unwrap_or(container_ref))
     }
 }
 
@@ -964,8 +1243,16 @@ async fn linked_agent_for_external_session(
     .await
     .ok()?;
     for raw in raw_rows {
-        let Ok(value) = serde_json::from_str::<serde_json::Value>(&raw) else {
-            continue;
+        let value = match serde_json::from_str::<serde_json::Value>(&raw) {
+            Ok(value) => value,
+            Err(error) => {
+                tracing::warn!(
+                    %conversation_id,
+                    %error,
+                    "invalid agent_binding_ready raw_json; ignoring"
+                );
+                continue;
+            }
         };
         if value
             .get("acp_session_id")
@@ -990,8 +1277,21 @@ async fn ensure_conversation_binding_for_controls(
     let Some(session) = Session::find_by_id(pool, conversation_id).await? else {
         return Ok(());
     };
-    let Some(agent_id) = session.agent_id else {
-        return Ok(());
+    let agent_id = match session.agent_id {
+        Some(agent_id) => agent_id,
+        None => {
+            let Some(resolved) = resolve_agent_id_from_executor(session.executor.as_deref()) else {
+                return Ok(());
+            };
+            let _ = Session::update_agent_metadata(
+                pool,
+                conversation_id,
+                session.external_session_id.as_deref(),
+                Some(&resolved),
+            )
+            .await;
+            resolved
+        }
     };
     if ConversationAgentBindingRecord::active_for_conversation(pool, conversation_id)
         .await?
@@ -1006,7 +1306,7 @@ async fn ensure_conversation_binding_for_controls(
     // A missing binding shows agent mentions. Recording an empty MCP list would
     // look like a session that started before delegation was delivered and hide
     // them (ADR-0065). This row does not decide which servers the process gets.
-    let mcp_servers_json = r#"["vibex-delegation-mcp"]"#;
+    let mcp_servers_json = r#"["dimo-delegation-mcp"]"#;
     ConversationAgentBindingRecord::create(
         pool,
         Uuid::new_v4(),
@@ -1157,10 +1457,22 @@ pub(super) fn binding_config_selection(
 ) -> Vec<AgentSessionConfigOverride> {
     binding
         .and_then(|binding| {
-            serde_json::from_str::<serde_json::Map<String, serde_json::Value>>(
-                &binding.config_selection_json,
-            )
-            .ok()
+            let trimmed = binding.config_selection_json.trim();
+            if trimmed.is_empty() {
+                return None;
+            }
+            match serde_json::from_str::<serde_json::Map<String, serde_json::Value>>(trimmed) {
+                Ok(map) => Some(map),
+                Err(error) => {
+                    tracing::warn!(
+                        binding_id = %binding.id,
+                        conversation_id = %binding.conversation_id,
+                        %error,
+                        "invalid config_selection_json on conversation binding; ignoring"
+                    );
+                    None
+                }
+            }
         })
         .map(|selection| {
             selection
@@ -1207,4 +1519,14 @@ fn apply_preferences_to_controls_snapshot(
 
 fn is_placeholder_acp_session_id(id: &str) -> bool {
     agents::is_placeholder_acp_session_id(id)
+}
+
+fn resolve_agent_id_from_executor(executor: Option<&str>) -> Option<AgentId> {
+    let raw = executor?.trim();
+    if raw.is_empty() || raw.eq_ignore_ascii_case("agent") {
+        return None;
+    }
+    AgentKind::from_lenient(raw)
+        .and_then(|kind| AgentId::parse(kind.as_str()).ok())
+        .or_else(|| AgentId::parse(raw).ok())
 }

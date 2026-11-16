@@ -15,7 +15,7 @@ import {
 } from '@/components/plugins/PluginBoundary';
 import type { BackendTransport } from '@/lib/backendTransport';
 import { BackendTransportProvider } from '@/lib/transport';
-import { getPluginVolatileConfig } from '@vibex/plugin-sdk';
+import { getPluginVolatileConfig } from '@dimoai/plugin-sdk';
 import { PluginCatalogPage, PluginDetailPage } from './ProductPlugins';
 
 const toastMock = vi.hoisted(() => ({
@@ -34,16 +34,16 @@ vi.mock('@tauri-apps/api/webview', () => ({
 
 const basePlugin = {
   id: 'office',
-  publisher: 'vibex',
+  publisher: 'dimo',
   packageDigest: 'digest',
-  name: 'VibeX Office',
+  name: 'Dimo Office',
   version: '4.0.0',
   description: 'Preview and work with Office documents.',
   enabled: true,
   builtin: true,
   sourceKind: 'builtin',
   sourcePath: '/plugin/office',
-  formats: ['vibex'],
+  formats: ['dimo'],
   skills: [],
   runtimes: [],
   warnings: [],
@@ -53,7 +53,7 @@ const basePlugin = {
 
 const detail = {
   summary: 'Preview and work with Office documents.',
-  readme: '# VibeX Office\n\nOffice files in VibeX.',
+  readme: '# Dimo Office\n\nOffice files in Dimo.',
   contents: [],
   config: { preview: true, idleTimeoutMinutes: 15 },
   configSchema: {
@@ -243,7 +243,7 @@ describe('Plugin Auto-Quarantine recovery and Volatile<T> hot config updates', (
     renderRoute('/plugins/office', call);
 
     expect(
-      (await screen.findAllByRole('heading', { name: 'VibeX Office' }))[0]
+      (await screen.findAllByRole('heading', { name: 'Dimo Office' }))[0]
     ).toBeVisible();
     await waitFor(() =>
       expect(volatileCell.current).toEqual({

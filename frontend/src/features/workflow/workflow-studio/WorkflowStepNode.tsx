@@ -741,7 +741,7 @@ export const WorkflowStepNode = memo(function WorkflowStepNode({
               <ol className="max-h-32 space-y-1 overflow-auto font-mono text-2xs tabular-nums">
                 {logSpans.map((span) => (
                   <li key={span.event.id} className="flex gap-2">
-                    <span className="text-muted-foreground">
+                    <span className="tabular-nums text-muted-foreground">
                       #{span.event.sequence.toString()}
                     </span>
                     <span className="truncate">{span.event.eventKind}</span>

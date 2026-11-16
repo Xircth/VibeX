@@ -44,7 +44,7 @@ export async function testPlugin(
     throw new Error("plugin_test_harness_missing: test/*.test.mjs is required");
   }
 
-  const outputRoot = join(pluginRoot, ".vibex-plugin", ".test-dist");
+  const outputRoot = join(pluginRoot, ".dimo-plugin", ".test-dist");
   await mkdir(outputRoot, { recursive: true });
   try {
     const outputs: string[] = [];
@@ -65,7 +65,7 @@ export async function testPlugin(
           "import.meta.url": JSON.stringify(pathToFileURL(entry).href),
         },
         banner: {
-          js: `if (!process.env.VIBEX_PLUGIN_ROOT) process.env.VIBEX_PLUGIN_ROOT = ${JSON.stringify(pluginRoot)};`,
+          js: `if (!process.env.DIMO_PLUGIN_ROOT) process.env.DIMO_PLUGIN_ROOT = ${JSON.stringify(pluginRoot)};`,
         },
         sourcemap: false,
         legalComments: "none",
@@ -85,7 +85,7 @@ async function testPluginOnHost(root: string) {
   const installed = await importLinkedOnProductHost(plugin.root, plugin.identity);
   if (installed.queued) {
     throw new Error(
-      "No Host is bound. Run `vibex plugin run server --http://127.0.0.1:17891 --token <token>`.",
+      "No Host is bound. Run `dimo plugin run server --http://127.0.0.1:17891 --token <token>`.",
     );
   }
   await enableOnProductHost(plugin.identity.id);
@@ -156,7 +156,7 @@ async function testPluginOnHost(root: string) {
 }
 
 async function readManifestIntegrations(root: string): Promise<unknown> {
-  const raw = await readFile(join(root, ".vibex-plugin", "plugin.json"), "utf8");
+  const raw = await readFile(join(root, ".dimo-plugin", "plugin.json"), "utf8");
   const manifest = JSON.parse(raw) as { integrations?: unknown };
   return manifest.integrations;
 }
@@ -236,7 +236,7 @@ async function runNodeTests(root: string, outputs: readonly string[]) {
   await new Promise<void>((resolvePromise, reject) => {
     const child = spawn(process.execPath, ["--test", ...outputs], {
       cwd: root,
-      env: { ...process.env, VIBEX_PLUGIN_ROOT: root },
+      env: { ...process.env, DIMO_PLUGIN_ROOT: root },
       stdio: "inherit",
     });
     child.on("error", reject);

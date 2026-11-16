@@ -2,13 +2,13 @@
 status: accepted
 date: 2026-08-20
 decision-makers:
-  - VibeX maintainers
+  - Dimo maintainers
 ---
 
 # Host 以内存、锁、命令、Git 与性能为本地安全基线
 
-VibeX 是本地优先的 Host。鉴权、配置文件机密和远程数据泄露不构成本机运行的默认
-威胁模型。本 ADR 记录 2026-08-20 对 Host 家族（Desktop 与 `vibex-server`）的静态
+Dimo 是本地优先的 Host。鉴权、配置文件机密和远程数据泄露不构成本机运行的默认
+威胁模型。本 ADR 记录 2026-08-20 对 Host 家族（Desktop 与 `dimo-server`）的静态
 审查结论，并固定三类决定：哪些能力是全信任产品假设，哪些是必须修复的缺陷，后续
 加固按什么顺序落地。审查覆盖 `crates/`、`src-tauri/`、`frontend/` 热路径，对照
 ADR-0026、ADR-0048、ADR-0060。未做运行时压测或漏洞 PoC。
@@ -19,7 +19,7 @@ ADR-0026、ADR-0048、ADR-0060。未做运行时压测或漏洞 PoC。
 
 ## Context
 
-用户启用的 ACP Agent 与 VibeX Plugin Package 与 Host 同权。仓库 setup / cleanup /
+用户启用的 ACP Agent 与 Dimo Plugin Package 与 Host 同权。仓库 setup / cleanup /
 archive / dev-server 脚本故意经 `sh -c` / `cmd /C` 执行。交互式 PTY 在 Workspace
 中打开真实登录壳。这些不是漏洞。
 
@@ -35,7 +35,7 @@ Registry / 自定义分发归档、导入的 Conversation bundle、Windows `.cmd
 
 ### 1. 信任模型
 
-1. 用户启用的 ACP Agent、已安装或已启用的 VibeX Plugin Package、用户编写的仓库
+1. 用户启用的 ACP Agent、已安装或已启用的 Dimo Plugin Package、用户编写的仓库
    脚本、交互式 PTY，均为全信任本机代码。Host 不为它们声称 OS 级隔离。
 2. Workspace-less Conversation 在领域上是能力受限的低权限模式（ADR-0006）。ACP
    `CreateTerminal` 的 program / cwd / env 目前未执行该约束；后续实现必须补上，
@@ -178,7 +178,7 @@ Git 与 Agent 主路径使用 argv 数组，不把会话事件或 MCP JSON 拼�
 
 `ScriptRequest` 的 `sh -c` 是用户仓库脚本的有意行为；`working_dir` 仍须拒绝 `..`。
 ACP Agent spawn 使用绝对锁定路径 + argv，插件 ZIP / runtime 归档路径约束，官方
-MCP 注入使用 Host 定位的 `vibex-mcp` 二进制，这些保持。
+MCP 注入使用 Host 定位的 `dimo-mcp` 二进制，这些保持。
 
 ### 7. Git 操作安全
 
@@ -289,7 +289,7 @@ Conversation 列表 `list_for_workspace` 无 LIMIT，`list_recent` 限制 500。
 11. Merge / rebase-back 不得 checkout 用户主工作树。
 12. Git status 改 FS watcher；每会话事件 channel；store 原地更新。
 
-同一条 Host 代码路径的 Desktop 与 `vibex-server` 必须一起改（ADR-0033）。不得只在
+同一条 Host 代码路径的 Desktop 与 `dimo-server` 必须一起改（ADR-0033）。不得只在
 桌面或只在 server 打补丁。
 
 ### 10. 不可回退的控制
@@ -319,7 +319,7 @@ Conversation 列表 `list_for_workspace` 无 LIMIT，`list_recent` 限制 500。
   ADR 第 3–8 节时，应按缺陷处理，而不是当作「本地应用可以宽松」。
 - 会话打开改为分页后，前端不得再假设一次 `detail()` 含有全部 timeline；live
   row-ops 与 `last_sequence` 仍是权威增量。
-- 禁用仓库 hooks 后，用户若依赖 pre-commit 在 VibeX 内运行，需要单独的产品决定；
+- 禁用仓库 hooks 后，用户若依赖 pre-commit 在 Dimo 内运行，需要单独的产品决定；
   默认不在 Host 发起的 git 操作里执行仓库脚本。
 - `isolated` 插件类若仍可安装，会与 ADR-0048 和本 ADR 同时冲突，必须在实现中删除
   或另开 ADR。
@@ -330,5 +330,5 @@ Conversation 列表 `list_for_workspace` 无 LIMIT，`list_recent` 限制 500。
 
 - 静态审查，没有 fuzz，没有用大仓库或长会话压测。
 - 未评鉴权、配对、token、配置文件机密。
-- Headless `vibex-server` 与桌面共用 Application Core；Git 与解压问题两边都有，
+- Headless `dimo-server` 与桌面共用 Application Core；Git 与解压问题两边都有，
   服务端 zip 更松，加固必须两边一起做。

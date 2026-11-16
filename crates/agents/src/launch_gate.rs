@@ -162,7 +162,7 @@ pub fn launch_program_is_legacy_acp_shim(agent_id: &AgentId, program: &Path) -> 
     let Some(profile) = catalog.profile(agent_id) else {
         return false;
     };
-    let mode_env = std::env::var("VIBEX_ENGINE_MODE").ok();
+    let mode_env = std::env::var("DIMO_ENGINE_MODE").ok();
     let effective = profile.effective_topology(
         crate::engine::EngineRuntimePreference::NativeFirst,
         mode_env.as_deref(),
@@ -195,7 +195,7 @@ pub fn prefer_path_launch_program(locked: &Path) -> PathBuf {
         .unwrap_or(locked)
 }
 
-/// Whether VibeX's own component directories may precede the user's `PATH` in a
+/// Whether Dimo's own component directories may precede the user's `PATH` in a
 /// launch environment.
 pub fn component_dirs_precede_user_path(agent_id: &AgentId) -> bool {
     crate::adapter_bundles_runtime(agent_id)
@@ -423,13 +423,13 @@ mod tests {
             launch_command_name(Path::new("codex.cmd")),
             Some("codex")
         );
-        let missing = PathBuf::from("/definitely/not/here/vibex-acp");
+        let missing = PathBuf::from("/definitely/not/here/dimo-acp");
         assert_eq!(prefer_path_launch_program(&missing), missing);
     }
 
     #[test]
     fn launch_program_is_unavailable_when_the_binary_is_gone() {
-        let missing = PathBuf::from("/definitely/not/here/vibex-acp");
+        let missing = PathBuf::from("/definitely/not/here/dimo-acp");
         assert!(!launch_program_available(&missing));
         assert!(!launch_program_available(&PathBuf::from("relative-acp")));
     }
@@ -454,8 +454,8 @@ mod tests {
 
     #[test]
     fn missing_program_error_names_the_path_and_the_remedy() {
-        let message = missing_launch_program_error(&PathBuf::from("/stale/vibex-acp"));
-        assert!(message.contains("/stale/vibex-acp"), "{message}");
+        let message = missing_launch_program_error(&PathBuf::from("/stale/dimo-acp"));
+        assert!(message.contains("/stale/dimo-acp"), "{message}");
         assert!(message.contains("reinstall"), "{message}");
     }
 

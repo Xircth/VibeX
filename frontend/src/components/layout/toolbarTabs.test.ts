@@ -22,7 +22,7 @@ function toolbarKeys(
 
 const delegationView = {
   id: COLLABORATION_WORKSPACE_TAB,
-  pluginId: 'vibex.core.delegation',
+  pluginId: 'dimo.core.delegation',
   kind: 'tab',
   title: '协作',
 };

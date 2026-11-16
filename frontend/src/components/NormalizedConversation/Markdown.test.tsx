@@ -494,14 +494,14 @@ describe('Markdown', () => {
 
   it('preserves POSIX absolute file hrefs without joining the workspace twice', () => {
     renderMarkdown(
-      '[events.rs](/Users/mac/Projects/VibeX/src-tauri/src/events.rs)',
-      { workspacePath: '/Users/mac/Projects/VibeX' }
+      '[events.rs](/Users/mac/Projects/Dimo/src-tauri/src/events.rs)',
+      { workspacePath: '/Users/mac/Projects/Dimo' }
     );
 
     fireEvent.click(screen.getByRole('link', { name: 'events.rs' }));
 
     expect(panelActionsMock.openFilePreview).toHaveBeenCalledWith(
-      '/Users/mac/Projects/VibeX/src-tauri/src/events.rs',
+      '/Users/mac/Projects/Dimo/src-tauri/src/events.rs',
       {
         displayPath: 'src-tauri/src/events.rs',
         title: 'src-tauri/src/events.rs',

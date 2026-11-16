@@ -41,8 +41,8 @@ export async function scaffoldPlugin(
   const root = resolve(target);
   const id = defaultPluginName(root);
   const spec = templateSpec(template);
-  await mkdir(join(root, ".vibex-plugin"), { recursive: true });
-  await writeJson(join(root, ".vibex-plugin", "plugin.json"), {
+  await mkdir(join(root, ".dimo-plugin"), { recursive: true });
+  await writeJson(join(root, ".dimo-plugin", "plugin.json"), {
     $schema: "https://schemas.vibex.dev/plugin/v4/plugin.schema.json",
     manifestVersion: 4,
     apiVersion: "2.0",
@@ -51,10 +51,10 @@ export async function scaffoldPlugin(
     version: "0.1.0",
     name: id,
     readme: "README.md",
-    engines: { vibex: ">=0.1.3 <1.0.0", pluginSdk: "^2.0.0" },
+    engines: { dimo: ">=0.1.3 <1.0.0", pluginSdk: "^2.0.0" },
     content: {
       root: "contents",
-      index: ".vibex-plugin/content.index.json",
+      index: ".dimo-plugin/content.index.json",
     },
     config: {
       schema: {
@@ -68,10 +68,10 @@ export async function scaffoldPlugin(
   });
   await writeFile(
     join(root, "README.md"),
-    `---\nsummary: Add ${id} features to VibeX.\n---\n# ${id}\n\nDescribe how to use this plugin.\n`,
+    `---\nsummary: Add ${id} features to Dimo.\n---\n# ${id}\n\nDescribe how to use this plugin.\n`,
   );
   await writeFile(join(root, "config.json"), "{}\n");
-  await writeJson(join(root, ".vibex-plugin", "content.index.json"), {
+  await writeJson(join(root, ".dimo-plugin", "content.index.json"), {
     schemaVersion: 1,
     items: spec.contentItems,
   });
@@ -80,17 +80,17 @@ export async function scaffoldPlugin(
     private: true,
     type: "module",
     scripts: {
-      build: "vibex-plugin build",
-      test: "vibex-plugin test",
+      build: "dimo-plugin build",
+      test: "dimo-plugin test",
       ...(spec.nodeHandlers
         ? { "test:plugin": "node --test test/plugin.test.mjs" }
         : {}),
-      dev: "vibex-plugin dev",
+      dev: "dimo-plugin dev",
     },
     ...(spec.usesJsSdk
       ? {
           dependencies: {
-            "@vibex/plugin-sdk": "^2.0.0",
+            "@dimoai/plugin-sdk": "^2.0.0",
             ...((template === "panel" || template === "kanban-view")
               ? { react: "^19.2.8", "react-dom": "^19.2.8" }
               : {}),
@@ -98,7 +98,7 @@ export async function scaffoldPlugin(
         }
       : {}),
     devDependencies: {
-      "@vibex/plugin-cli": "^2.0.0",
+      "@dimoai/plugin-cli": "^2.0.0",
       ...((template === "panel" || template === "kanban-view")
         ? {
             "@module-federation/vite": "^1.9.0",
@@ -776,7 +776,7 @@ async function writeNodeWorker(
 ) {
   await mkdir(join(root, "runtime"), { recursive: true });
   const definition = nodeWorkerSource(spec);
-  const entry = `import { runStdioPluginWorker } from '@vibex/plugin-sdk/stdio';
+  const entry = `import { runStdioPluginWorker } from '@dimoai/plugin-sdk/stdio';
 import definition from './worker.mjs';
 
 await runStdioPluginWorker(definition);
@@ -803,10 +803,10 @@ function nodeWorkerSource(spec: TemplateSpec) {
       if (handler === "preview-text") {
         return "  plugin.handle('preview-text', async (input) => ({ kind: 'text', input }));";
       }
-      return "  plugin.handle('hello', async (input) => ({ message: 'Hello from VibeX', input }));";
+      return "  plugin.handle('hello', async (input) => ({ message: 'Hello from Dimo', input }));";
     })
     .join("\n");
-  return `import { definePluginWorker } from '@vibex/plugin-sdk/worker';\n\nexport default definePluginWorker((plugin) => {\n${handles}\n});\n`;
+  return `import { definePluginWorker } from '@dimoai/plugin-sdk/worker';\n\nexport default definePluginWorker((plugin) => {\n${handles}\n});\n`;
 }
 
 async function writeFederationScaffold(
@@ -876,7 +876,7 @@ async function writeAppSurface(root: string, handlers: string[] | null) {
 export default {
   async mount({ root, bridge }) {
     const button = document.createElement('button');
-    button.textContent = 'Hello from VibeX';
+    button.textContent = 'Hello from Dimo';
     button.addEventListener('click', () => void bridge.invoke('hello'));
     root.append(button);
     bridge.ready();
@@ -911,12 +911,12 @@ async function writePythonWorker(root: string, id: string) {
   await mkdir(join(root, "runtime"), { recursive: true });
   await writeFile(
     join(root, "runtime", "worker.py"),
-    `from vibex_plugin import define_plugin_worker, run_stdio_plugin_worker
+    `from dimo_plugin import define_plugin_worker, run_stdio_plugin_worker
 
 
 def setup(registrar, _environment):
     def hello(value, _env):
-        return {"message": "Hello from VibeX", "input": value}
+        return {"message": "Hello from Dimo", "input": value}
 
     registrar.handle("hello", hello)
 
@@ -931,9 +931,9 @@ if __name__ == "__main__":
 name = "${pythonProjectName(id)}"
 version = "0.1.0"
 requires-python = ">=3.12"
-dependencies = ["vibex-plugin>=2.0.0"]
+dependencies = ["dimo-plugin>=2.0.0"]
 
-[tool.vibex.plugin]
+[tool.dimo.plugin]
 worker = "runtime/worker.py"
 `,
   );
@@ -951,19 +951,19 @@ rust-version = "1.85"
 
 [dependencies]
 serde_json = "1"
-vibex-plugin-sdk = "2.0.0"
+dimo-plugin-sdk = "2.0.0"
 `,
   );
   await writeFile(
     join(root, "runtime", "src", "main.rs"),
     `use serde_json::json;
-use vibex_plugin_sdk::{define_plugin_worker, run_stdio_plugin_worker_blocking};
+use dimo_plugin_sdk::{define_plugin_worker, run_stdio_plugin_worker_blocking};
 
 fn main() {
     let definition = define_plugin_worker(|registrar, _env| {
         registrar.handle_sync("hello", |input, _env| {
             Ok(json!({
-                "message": "Hello from VibeX",
+                "message": "Hello from Dimo",
                 "input": input,
             }))
         });
@@ -989,10 +989,10 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const pluginRoot =
-  process.env.VIBEX_PLUGIN_ROOT ??
+  process.env.DIMO_PLUGIN_ROOT ??
   fileURLToPath(new URL('..', import.meta.url));
 const MANIFEST = JSON.parse(
-  await readFile(join(pluginRoot, '.vibex-plugin/plugin.json'), 'utf8'),
+  await readFile(join(pluginRoot, '.dimo-plugin/plugin.json'), 'utf8'),
 );
 
 test('plugin.json is a v4 manifest', () => {
@@ -1008,7 +1008,7 @@ test('plugin.json is a v4 manifest', () => {
     `import test from 'node:test';
 import assert from 'node:assert/strict';
 import definition from '../runtime/worker.mjs';
-import { createWorkerHarness } from '@vibex/plugin-sdk/testing';
+import { createWorkerHarness } from '@dimoai/plugin-sdk/testing';
 
 test('registers every required Worker handler', async () => {
   const worker = await createWorkerHarness(definition);

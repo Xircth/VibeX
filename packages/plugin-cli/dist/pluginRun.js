@@ -10,10 +10,10 @@ export const RUN_SCRIPTS = ["server", "dev", "build", "test"];
 export function parseRunInvocation(args) {
     const script = args[0];
     if (!script) {
-        throw new Error("Usage: vibex plugin run <server|dev|build|test>");
+        throw new Error("Usage: dimo plugin run <server|dev|build|test>");
     }
     if (!isRunScript(script)) {
-        throw new Error(`Unknown plugin script: ${script}\nUsage: vibex plugin run <server|dev|build|test>`);
+        throw new Error(`Unknown plugin script: ${script}\nUsage: dimo plugin run <server|dev|build|test>`);
     }
     const afterScript = args.slice(1);
     const hostJourney = script === "test" && afterScript.includes("--host");

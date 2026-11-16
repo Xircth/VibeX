@@ -2,7 +2,7 @@
 status: accepted
 date: 2026-08-13
 decision-makers:
-  - VibeX maintainers
+  - Dimo maintainers
 ---
 
 # 全栈 Plugin Package、隔离执行与版本化 SDK
@@ -12,11 +12,11 @@ decision-makers:
 
 ## Context
 
-VibeX 当前的 Plugin control plane 以 Agent Skill 为中心：Portable Plugin 必须至少
+Dimo 当前的 Plugin control plane 以 Agent Skill 为中心：Portable Plugin 必须至少
 包含一个 Skill，Runtime、MCP、PluginAction 与 Plugin Command 只是 Skill 的配套贡献。
 与此同时，Office 文件预览仍由核心中的 `OfficePreview`、Office 专用 commands 与
 `OfficeRuntime` 提供。这导致一个用户理解中的 Office 插件实际上被分成两份产品：
-Agent 使用的插件包和 VibeX 内置的 App 能力。
+Agent 使用的插件包和 Dimo 内置的 App 能力。
 
 当前实现还保留严格 v2 manifest 与宽容 v3 package、`plugin_v2_*` 与
 `plugin_control_*` 两套持久事实。Office 的启停、恢复、动作校验和预览都有专用分支。
@@ -37,19 +37,19 @@ Portable Plugin、用户全局 Runtime、Runtime displacement 和 Shell 信任�
 
 ### 1. Plugin 是一个产品级安装与生命周期单元
 
-VibeX Plugin Package 是唯一的产品扩展单元。内部可以连接 Agent、App、Host 与 Runtime
+Dimo Plugin Package 是唯一的产品扩展单元。内部可以连接 Agent、App、Host 与 Runtime
 扩展点，但这些不是面向用户的插件分类。一个包只要含至少一个当前 Host 可识别的有效
 integration 即可安装，不再要求 Skill；所有插件走同一安装、授权、激活、更新、诊断、
 回滚与卸载管线。
 
-Codex 与 Claude Code 原生插件不因此变成 VibeX 可执行 App Plugin。它们仍由各自原生
-位置与信任机制持有，并在“设置 → Agent → 对应 Agent → 插件”中管理。产品级 VibeX
+Codex 与 Claude Code 原生插件不因此变成 Dimo 可执行 App Plugin。它们仍由各自原生
+位置与信任机制持有，并在“设置 → Agent → 对应 Agent → 插件”中管理。产品级 Dimo
 Plugin Package 从新的 Plugin 模块管理。多格式源码包可以共享显式 identity 与 Skill
-内容，但原生投影和 VibeX activation 是不同事实。
+内容，但原生投影和 Dimo activation 是不同事实。
 
 ### 2. v4 manifest 静态声明能力上界
 
-`.vibex-plugin/plugin.json` v4 必须声明：
+`.dimo-plugin/plugin.json` v4 必须声明：
 
 - `manifestVersion`、`apiVersion`、稳定 `id`、`publisher`、`version` 与 Host 兼容范围；
 - 可选 Worker/App entrypoints；
@@ -103,7 +103,7 @@ Plugin 可以是 `active_degraded`：非必需 contribution 失败只隔离该�
 
 ### 5. 第三方代码默认隔离
 
-VibeX 不允许普通第三方插件在 Tauri/Rust 主进程中动态注册 command、加载动态库，或在
+Dimo 不允许普通第三方插件在 Tauri/Rust 主进程中动态注册 command、加载动态库，或在
 React 主应用同源上下文执行任意代码。
 
 执行分为三个 trust tier：
@@ -137,12 +137,12 @@ Shell recipe 不属于普通 Runtime installer。必须使用时只能进入 Tru
 
 ### 7. Runtime 是内容寻址、引用计数的 Host 资源
 
-托管 Runtime 以 `runtime id + version + target + digest` 标识，安装在 VibeX Host 所有的
+托管 Runtime 以 `runtime id + version + target + digest` 标识，安装在 Dimo Host 所有的
 版本化目录中。每个 package installation 保存精确 lock，并只向对应 Worker/Agent
 execution 投影入口。不同插件可以并存使用同名 Runtime 的不同版本；更新先准备新 lock，
 发布新 generation 后再按引用计数回收旧版本。
 
-VibeX 不再通过替换一个用户全局命令并级联删除其他插件来解决版本冲突。向用户终端导出
+Dimo 不再通过替换一个用户全局命令并级联删除其他插件来解决版本冲突。向用户终端导出
 稳定 shim 是单独的、显式授权 contribution，不是 Runtime 安装默认副作用。外部 Runtime
 可以被只读探测和锁定，但其文件所有权仍属于外部管理者。
 
@@ -157,19 +157,19 @@ signature 和 entrypoint metadata。Testing package 提供 fake Capability Broke
 harness、lifecycle/crash/reload 测试与 manifest/runtime contract tests，并明确 fake 与
 真实 sandbox 的 fidelity difference。
 
-VibeX 随当前安装版本发布“VibeX 插件开发指南”Skill。该 Skill 必须先读取本机 SDK
+Dimo 随当前安装版本发布“Dimo 插件开发指南”Skill。该 Skill 必须先读取本机 SDK
 类型、schema 与 Host capabilities，再指导 Agent 创建、验证、测试和 linked install；
 不能依赖可能与本机版本不匹配的在线示例。
 
 ### 9. Office 是 SDK 的第一个 reference plugin
 
 Office 的 DOCX/XLSX/PPTX Skills、PluginActions、OfficeCLI Runtime、文件 opener、preview
-provider 与设置全部进入同一个 `vibex.office` v4 package。Artifact Host 继续拥有路径
+provider 与设置全部进入同一个 `dimo.office` v4 package。Artifact Host 继续拥有路径
 验证、preview lease、capability token 与进程清理；Office 只通过公共 contribution 和
 SDK 实现 provider。
 
 核心提供通用 `app.fileOpener` / `artifact.previewProvider` resolution 和 Render
-Descriptor，不认识 Office 扩展名或 `vibex.office`。内置降级预览也是一个较低优先级的
+Descriptor，不认识 Office 扩展名或 `dimo.office`。内置降级预览也是一个较低优先级的
 core provider。禁用 Office 会原子撤下其 Agent 与 App contributions；已打开 lease 按
 generation drain policy 完成或到期，之后文件可回退到其他 provider。
 
@@ -178,7 +178,7 @@ Office reference plugin 与第三方示例使用同一 manifest、SDK、sandbox�
 
 ### 10. Application Core 与 Remote protocol 保持唯一业务 seam
 
-Plugin Kernel 属于 ADR-0033 定义的 Application Core。Worker 和 Runtime 在 VibeX Host
+Plugin Kernel 属于 ADR-0033 定义的 Application Core。Worker 和 Runtime 在 Dimo Host
 执行；Desktop/Web/Remote 客户端只渲染 Host 返回的 contribution inventory 与 App
 surface，并通过 BackendTransport 调用。客户端必须协商 surface capabilities；不支持的
 surface 明确标记 unavailable，不能尝试本地执行 Host plugin。
@@ -202,7 +202,7 @@ surface 明确标记 unavailable，不能尝试本地执行 Host plugin。
 
 1. `PluginPackage::inspect` 的“至少一个 Skill”规则、按 ID 永久 shell trust 和全局 Runtime
    displacement 被取代。
-2. Control Plane 不再同时承担 VibeX 产品插件和 Agent 原生插件的用户信息架构；后者进入
+2. Control Plane 不再同时承担 Dimo 产品插件和 Agent 原生插件的用户信息架构；后者进入
    对应 Agent 设置 tab，但底层 native adapter 与 reconciliation 可以复用。
 3. 需要新增 Plugin Kernel、Contribution Registry、Capability Broker、Worker Host、App
    Extension Host 与 Runtime Resolver 深模块，同时删除 Office-specific orchestration。

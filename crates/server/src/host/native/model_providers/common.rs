@@ -28,7 +28,7 @@ pub(super) struct StoredProvider {
 }
 
 /// 只有顶层 base_url、没有显式 `[model_providers.xxx]` 表时使用的合成标识。
-pub(super) const NATIVE_ENDPOINT_PROVIDER_ID: &str = "__vibex_native_endpoint__";
+pub(super) const NATIVE_ENDPOINT_PROVIDER_ID: &str = "__dimo_native_endpoint__";
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub(super) struct ProviderStore {
@@ -105,7 +105,7 @@ pub(super) fn apply_native_active_binding<'a>(
 ) {
     let native_providers: Vec<(&str, &str)> = native_providers.into_iter().collect();
     let active_url = active_id
-        .filter(|id| *id != "vibex")
+        .filter(|id| *id != "dimo")
         .and_then(|id| {
             native_providers
                 .iter()
@@ -120,7 +120,7 @@ pub(super) fn apply_native_active_binding<'a>(
                 None
             }
         });
-    let match_id = active_id.filter(|id| *id != "vibex");
+    let match_id = active_id.filter(|id| *id != "dimo");
     let matched_id = view
         .providers
         .iter()
@@ -173,8 +173,8 @@ pub(super) fn custom_endpoint_drafts(
         .into_iter()
         .filter(|draft| {
             !draft.api_url.is_empty()
-                && draft.source_id != "vibex"
-                && !draft.source_id.ends_with(":vibex")
+                && draft.source_id != "dimo"
+                && !draft.source_id.ends_with(":dimo")
                 && !is_official_endpoint(agent_id, &draft.api_url)
         })
         .map(|draft| {
@@ -251,7 +251,7 @@ pub(super) fn adopt_native_providers(
 ) -> bool {
     let mut changed = false;
     for native in natives {
-        if native.id == "vibex" {
+        if native.id == "dimo" {
             continue;
         }
         if let Some(existing) = store.providers.iter_mut().find(|provider| {

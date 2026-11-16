@@ -75,7 +75,7 @@ where
         return Ok(ParsedArgs::Command(LaunchCommand::Version));
     }
 
-    let mut allow_lan = std::env::var("VIBEX_SERVER_ALLOW_LAN").as_deref() == Ok("1");
+    let mut allow_lan = std::env::var("DIMO_SERVER_ALLOW_LAN").as_deref() == Ok("1");
     let mut port = env_listen_port().unwrap_or(DEFAULT_PORT);
     let mut rotate_token = false;
     let mut reveal_console = false;
@@ -160,14 +160,14 @@ pub fn format_host_console(status: &str, token: &str, origins: &[String]) -> Str
 
 pub fn usage() -> &'static str {
     "Usage:\n  \
-     vibex-server                      Start on loopback\n  \
-     vibex-server serve                Start the Host on every interface and print status, token, and addresses\n  \
-     vibex-server serve --local        Start the Web UI on loopback only\n  \
-     vibex-server serve --port N\n  \
-     vibex-server serve --rotate-token\n  \
-     vibex-server list [--json] [--refresh]\n  \
-     vibex-server install <agent-id> [--yes]\n  \
-     vibex-server pairing [--preset companion|workstation] [--ttl 30m|1h|6h|1d|7d|30d]\n"
+     dimo-server                      Start on loopback\n  \
+     dimo-server serve                Start the Host on every interface and print status, token, and addresses\n  \
+     dimo-server serve --local        Start the Web UI on loopback only\n  \
+     dimo-server serve --port N\n  \
+     dimo-server serve --rotate-token\n  \
+     dimo-server list [--json] [--refresh]\n  \
+     dimo-server install <agent-id> [--yes]\n  \
+     dimo-server pairing [--preset companion|workstation] [--ttl 30m|1h|6h|1d|7d|30d]\n"
 }
 
 fn parse_pairing_command<I>(
@@ -225,7 +225,7 @@ where
             }
             "--help" | "-h" => {
                 return Err(ParseError(
-                    "Usage: vibex-server pairing [--preset companion|workstation] [--ttl 30m|1h|6h|1d|7d|30d]"
+                    "Usage: dimo-server pairing [--preset companion|workstation] [--ttl 30m|1h|6h|1d|7d|30d]"
                         .to_string(),
                 ));
             }
@@ -255,7 +255,7 @@ where
             tokens.next();
             tokens
                 .next()
-                .ok_or_else(|| ParseError("usage: vibex-server agents list|install".to_string()))?
+                .ok_or_else(|| ParseError("usage: dimo-server agents list|install".to_string()))?
         }
         _ => return Ok(None),
     };
@@ -269,7 +269,7 @@ where
                     "--refresh" => refresh = true,
                     "--help" | "-h" => {
                         return Err(ParseError(
-                            "Usage: vibex-server list [--json] [--refresh]".to_string(),
+                            "Usage: dimo-server list [--json] [--refresh]".to_string(),
                         ));
                     }
                     other => return Err(ParseError(format!("unknown list argument: {other}"))),
@@ -286,7 +286,7 @@ where
                     "-g" | "--global" => {}
                     "--help" | "-h" => {
                         return Err(ParseError(
-                            "Usage: vibex-server install <agent-id> [--yes]".to_string(),
+                            "Usage: dimo-server install <agent-id> [--yes]".to_string(),
                         ));
                     }
                     other if other.starts_with('-') => {
@@ -299,7 +299,7 @@ where
                 }
             }
             let agent_id = agent_id.ok_or_else(|| {
-                ParseError("Usage: vibex-server install <agent-id> [--yes]".to_string())
+                ParseError("Usage: dimo-server install <agent-id> [--yes]".to_string())
             })?;
             Ok(Some(AgentsCommand::Install { agent_id, yes }))
         }
@@ -310,13 +310,13 @@ where
 }
 
 fn env_listen_port() -> Option<u16> {
-    std::env::var("VIBEX_SERVER_LISTEN")
+    std::env::var("DIMO_SERVER_LISTEN")
         .ok()?
         .parse::<SocketAddr>()
         .ok()
         .map(|address| address.port())
         .or_else(|| {
-            std::env::var("VIBEX_SERVER_LISTEN")
+            std::env::var("DIMO_SERVER_LISTEN")
                 .ok()?
                 .parse::<u16>()
                 .ok()

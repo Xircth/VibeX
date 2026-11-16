@@ -2,7 +2,7 @@
 status: accepted
 date: 2026-08-26
 decision-makers:
-  - VibeX maintainers
+  - Dimo maintainers
 ---
 
 # Model Provider 管理保持 Agent 结构化预设，CC Switch 只作导入源

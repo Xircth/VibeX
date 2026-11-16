@@ -607,7 +607,7 @@ pub fn public_ipv4() -> Option<Ipv4Addr> {
     (is_advertisable_ipv4(ip) && !ip.is_private()).then_some(ip)
 }
 
-/// Hosts that may use HTTP for a first-party LAN or loopback VibeX Host.
+/// Hosts that may use HTTP for a first-party LAN or loopback Dimo Host.
 pub fn is_trusted_http_host(host: &str) -> bool {
     let host = host.trim().trim_matches(|ch| ch == '[' || ch == ']');
     if host.eq_ignore_ascii_case("localhost") || host.to_ascii_lowercase().ends_with(".local") {
@@ -991,7 +991,7 @@ mod tests {
         use super::bind_udp_socket_to_interface;
 
         let socket = UdpSocket::bind((Ipv4Addr::UNSPECIFIED, 0)).expect("bind udp");
-        let err = bind_udp_socket_to_interface(&socket, "vibex_nonexistent_if99")
+        let err = bind_udp_socket_to_interface(&socket, "dimo_nonexistent_if99")
             .expect_err("nonexistent interface must fail");
         assert_eq!(err.kind(), std::io::ErrorKind::NotFound);
     }

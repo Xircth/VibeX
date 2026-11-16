@@ -183,7 +183,7 @@ function workspace(overrides: Partial<Workspace> = {}): Workspace {
     updated_at: '2026-08-01T00:00:00Z',
     archived: false,
     pinned: false,
-    name: 'VibeX',
+    name: 'Dimo',
     ...overrides,
   };
 }
@@ -265,8 +265,8 @@ describe('DockviewWelcomePanel', () => {
     });
     useProjectsMock.mockReturnValue({
       projects: [
-        { id: 'p1', name: 'vibex-plugin-computer-use', is_git: true },
-        { id: 'p2', name: 'VibeX', is_git: true },
+        { id: 'p1', name: 'dimo-plugin-computer-use', is_git: true },
+        { id: 'p2', name: 'Dimo', is_git: true },
         { id: 'p3', name: 'codeg', is_git: true },
         { id: 'p4', name: 'open-connector', is_git: false },
         { id: 'p5', name: '全局', is_home: true },
@@ -350,8 +350,8 @@ describe('DockviewWelcomePanel', () => {
     expect(screen.getByText('整理电脑控制设置文案')).toBeInTheDocument();
     expect(screen.queryByText('不应出现的第五个会话')).not.toBeInTheDocument();
 
-    expect(screen.getByText('vibex-plugin-computer-use')).toBeInTheDocument();
-    expect(screen.getByText('VibeX')).toBeInTheDocument();
+    expect(screen.getByText('dimo-plugin-computer-use')).toBeInTheDocument();
+    expect(screen.getByText('Dimo')).toBeInTheDocument();
     expect(screen.queryByText('第六个项目')).not.toBeInTheDocument();
     expect(screen.queryByText('/repo')).not.toBeInTheDocument();
 
@@ -429,7 +429,7 @@ describe('DockviewWelcomePanel', () => {
   it('switches project from the imported project list', () => {
     renderPanel();
 
-    fireEvent.click(screen.getByText('VibeX'));
+    fireEvent.click(screen.getByText('Dimo'));
 
     expect(switchProject).toHaveBeenCalledWith(
       'p2',

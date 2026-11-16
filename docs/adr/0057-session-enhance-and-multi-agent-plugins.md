@@ -1,11 +1,11 @@
 
-> **状态注记（2026-10-24）：** 协作空间已改为宿主内置组件，不再依赖插件 `vibex.multi-agent`。成员是身份、会话对用户隐藏；模型与接口见 [docs/architecture.md#collaboration-member-identity](../architecture.md#collaboration-member-identity)。本文正文保留原决策语境，不改正文。
+> **状态注记（2026-10-24）：** 协作空间已改为宿主内置组件，不再依赖插件 `dimo.multi-agent`。成员是身份、会话对用户隐藏；模型与接口见 [docs/architecture.md#collaboration-member-identity](../architecture.md#collaboration-member-identity)。本文正文保留原决策语境，不改正文。
 
 ---
 status: accepted
 date: 2026-08-17
 decision-makers:
-  - VibeX maintainers
+  - Dimo maintainers
 ---
 
 # 会话增强与多智能体协同成为两个内置插件 MCP
@@ -17,20 +17,20 @@ decision-makers:
 
 ## Context
 
-平台 `vibex-mcp` 把委派、实时反馈、向用户提问、会话查询和会话控制放在同一个按会话
+平台 `dimo-mcp` 把委派、实时反馈、向用户提问、会话查询和会话控制放在同一个按会话
 注入的 companion 里，feature 在桌面启动时写死全开，没有产品配置页。CodeG 用同一
 companion 加「设置 → 常规」里的两组开关（会话内工具、多智能体协同）达到可观察的
-生产行为；VibeX 已有 Broker / 工具骨架，但配置面、反馈入队、结果缓存和子智能体
+生产行为；Dimo 已有 Broker / 工具骨架，但配置面、反馈入队、结果缓存和子智能体
 会话默认都未产品化。
 
 ADR-0031 规定这些工具共用一个 companion、按独立 flag 暴露，且 `&` 必须按 Agent
-是否协商到 `session/new.mcp_servers` 显示。ADR-0051 否决继续膨胀 `vibex-mcp`，并
+是否协商到 `session/new.mcp_servers` 显示。ADR-0051 否决继续膨胀 `dimo-mcp`，并
 写明协作以后迁成独立插件；同时要求按会话注入短期、最小 scope 凭据。ADR-0047
 规定新安装插件默认禁用。Workflow Creator 已证明「内置插件 + 独立 MCP + 连
-`vibex-server`」这条产品边界。
+`dimo-server`」这条产品边界。
 
 本决定把平台 companion 拆成两个 First-party 插件，并固定启用、投递、凭据、`&`
-和旧 `vibex-mcp` 退场规则。
+和旧 `dimo-mcp` 退场规则。
 
 ## Decision
 
@@ -38,10 +38,10 @@ ADR-0031 规定这些工具共用一个 companion、按独立 flag 暴露，且 
 
 | 产品 | Plugin ID | 显示名 | MCP ID |
 |---|---|---|---|
-| 会话增强 | `vibex.session-enhance` | 会话增强 | `vibex-session-mcp` |
-| 多智能体协同 | `vibex.multi-agent` | 多智能体协同 | `vibex-delegation-mcp` |
+| 会话增强 | `dimo.session-enhance` | 会话增强 | `dimo-session-mcp` |
+| 多智能体协同 | `dimo.multi-agent` | 多智能体协同 | `dimo-delegation-mcp` |
 
-二者随 VibeX 分发，`sourceKind=builtin`，可以停用，不能卸载。首次导入与 Office /
+二者随 Dimo 分发，`sourceKind=builtin`，可以停用，不能卸载。首次导入与 Office /
 Workflow Creator 一样 **默认禁用**。用户打开插件后，该插件内部开关默认全开。
 
 启用协同插件 = 启用委托。不再在「设置 → 常规」放委托或会话工具。深度、缓存、
@@ -66,7 +66,7 @@ Workflow Creator 一样 **默认禁用**。用户打开插件后，该插件内�
 缓存（默认 512 MiB，0 为不限、会话结束清除）、提问阻塞、反馈投递、会话只读查询、
 注入时裁剪 `tools/list`。不移植 CodeG 的 `create_automation` / `create_work_task` /
 `task_progress` / `task_complete`。自动化与 Workflow 继续走既有领域和
-`vibex-workflow-mcp`。
+`dimo-workflow-mcp`。
 
 `check_user_feedback` 必须是完整能力：Host Composer 在途条、写入队列、工具投递、
 配置开关。不得默认打开一个永远返回空的工具。
@@ -93,7 +93,7 @@ Workflow Creator 一样 **默认禁用**。用户打开插件后，该插件内�
 （Delegation Broker、Conversation control、提问/反馈状态）。插件不得再实现一套
 broker。
 
-两个 MCP 互相独立，都作为客户端连接 `vibex-server`，不走桌面进程内 UDS companion
+两个 MCP 互相独立，都作为客户端连接 `dimo-server`，不走桌面进程内 UDS companion
 作为产品传输。实现上可以共享一个 crate，但必须是两个 MCP 身份、两份清单、两个
 可独立启停的进程。
 
@@ -135,30 +135,30 @@ rebind。已开会话的输入框先不出现 `&`。
 路径（新的 `delegate_to_agent`、会话控制、入队反馈）按 **当前** 启用与配置
 fail-closed。深度 / 缓存 / 子智能体默认对之后新拉起的子会话生效。
 
-Mention 仍只表示「请父 LLM 考虑委派」，序列化为 `[&Name](vibex://agent/<id>)`。
+Mention 仍只表示「请父 LLM 考虑委派」，序列化为 `[&Name](dimo://agent/<id>)`。
 UI 不得因出现 Mention 就显示子任务已启动。
 
-### 8. 平台 `vibex-mcp` 同一版本切干净
+### 8. 平台 `dimo-mcp` 同一版本切干净
 
 本决定落地后删除平台 companion 注入。未打开插件 = 没有对应工具，也没有 `&`。
-旧会话保持到结束；新会话只走插件 MCP。不保留「没开插件就回退旧 vibex-mcp」的
+旧会话保持到结束；新会话只走插件 MCP。不保留「没开插件就回退旧 dimo-mcp」的
 双轨。升级后这些能力先消失，直到用户打开对应插件。
 
 ## Consequences
 
 - ADR-0031 中「同一 companion + 按 Agent MCP 能力显示 `&`」被取代；委派公开行为、
   `&` 语法、one-shot 子任务、Broker 不变量仍然有效。
-- ADR-0051 中「vibex-mcp 暂时保留」和「这些插件必须用每会话短期票」被取代；
+- ADR-0051 中「dimo-mcp 暂时保留」和「这些插件必须用每会话短期票」被取代；
   通用 Host 托管 MCP seam、All-agents binding、按会话启动 Runtime 仍然有效。
 - 产品详情必须能挂 `plugin.detail.panel`，schema 表单不够表达协同配置。
 - Host 必须能把 **N 个** 已启用插件 STDIO 投递进 `session/new`，并同时做原生文件
-  投影；今天只能注入一个 `vibex-mcp`。
+  投影；今天只能注入一个 `dimo-mcp`。
 - Composer 读的是协同插件启用 + 本次会话是否已投递，不是 Agent 种类。
 - 发行说明必须写明：升级后需在插件目录打开「会话增强」「多智能体协同」。
 
 ## Considered options
 
-- **继续做平台内置 `vibex-mcp`，只补设置页。** 否决。与 ADR-0051 和「从设置迁到
+- **继续做平台内置 `dimo-mcp`，只补设置页。** 否决。与 ADR-0051 和「从设置迁到
   插件」的产品方向冲突。
 - **可卸载插件。** 否决。`&`、提问和会话查询会被当成平台能力；卸载路径与投递
   失败缠在一起。
@@ -167,7 +167,7 @@ UI 不得因出现 Mention 就显示子任务已启动。
   会话。
 - **只投影原生文件或只写 session/new。** 否决。会让一半 Agent 看不到工具。
 - **打开插件强制当前会话 rebind。** 否决。会打断在途 Turn。
-- **移植 CodeG 的自动化 / 待办 / 任务汇报工具。** 否决。VibeX 已有独立领域。
+- **移植 CodeG 的自动化 / 待办 / 任务汇报工具。** 否决。Dimo 已有独立领域。
 
 ## Amendment（2026-10-19）
 

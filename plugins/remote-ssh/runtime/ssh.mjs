@@ -95,7 +95,7 @@ export function createSshSession(target, io = defaultIo(), hooks = {}) {
   async function muxOptions() {
     if (!sshControlMasterSupported()) return [];
     if (!controlPath) {
-      const dir = await mkdtemp(join(tmpdir(), 'vibex-ssh-cm-'));
+      const dir = await mkdtemp(join(tmpdir(), 'dimo-ssh-cm-'));
       controlPath = join(dir, 'c');
     }
     return [
@@ -110,7 +110,7 @@ export function createSshSession(target, io = defaultIo(), hooks = {}) {
 
   async function ensureAskpass() {
     if (!password || askpassDir) return askpassDir;
-    askpassDir = await mkdtemp(join(tmpdir(), 'vibex-ssh-'));
+    askpassDir = await mkdtemp(join(tmpdir(), 'dimo-ssh-'));
     const secret = join(askpassDir, 'secret');
     const helper = askpassProgram(askpassDir);
     await writeFile(
@@ -129,7 +129,7 @@ export function createSshSession(target, io = defaultIo(), hooks = {}) {
     if (!usePassword || !password) return env;
     delete env.SSH_AUTH_SOCK;
     const dir = await ensureAskpass();
-    env.VIBEX_SSH_SECRET = join(dir, 'secret');
+    env.DIMO_SSH_SECRET = join(dir, 'secret');
     env.SSH_ASKPASS = askpassProgram(dir);
     env.SSH_ASKPASS_REQUIRE = 'force';
     if (!env.DISPLAY) env.DISPLAY = ':';
@@ -335,7 +335,7 @@ export function askpassScript(
   platform = process.platform
 ) {
   const payload =
-    "process.stdout.write(require('fs').readFileSync(process.env.VIBEX_SSH_SECRET,'utf8'))";
+    "process.stdout.write(require('fs').readFileSync(process.env.DIMO_SSH_SECRET,'utf8'))";
   if (platform === 'win32') {
     return `@echo off\r\n"${String(nodePath).replace(/"/g, '')}" -e "${payload}"\r\n`;
   }

@@ -1,4 +1,4 @@
-# VibeX Agent 驱动引擎标准设计规范（Agent Driver Engine Specification v2.0）
+# Dimo Agent 驱动引擎标准设计规范（Agent Driver Engine Specification v2.0）
 
 **状态:** Accepted & Normative（v2.0 — 插件化统一原生引擎架构）  
 **日期:** 2026-11-15  
@@ -9,7 +9,7 @@
 
 ## 1. 背景与演进目标
 
-依据 [ADR-0087](../adr/0087-dedicated-agent-engine-first-acp-fallback.md)，VibeX 的 Agent 接入策略已确立为**「核心 Agent 原生引擎优先，长尾 Agent 走 ACP 兼容层次选」**。在 `claude_code`（`ClaudeNativeDriver`）与 `codex`（`CodexNativeDriver`）完成原生接入后，为支持后续将其他主力 Agent（如 `opencode`、`pi`、`kimi_code` 等）**逐个平滑迁移为原生引擎**而不导致编排层膨胀、特判扩散或引入跨引擎回归，本规范定义 VibeX 原生引擎体系的**唯一权威架构边界、驱动契约、注册表路由、隔离语义、流式安全与新引擎准入门禁**。
+依据 [ADR-0087](../adr/0087-dedicated-agent-engine-first-acp-fallback.md)，Dimo 的 Agent 接入策略已确立为**「核心 Agent 原生引擎优先，长尾 Agent 走 ACP 兼容层次选」**。在 `claude_code`（`ClaudeNativeDriver`）与 `codex`（`CodexNativeDriver`）完成原生接入后，为支持后续将其他主力 Agent（如 `opencode`、`pi`、`kimi_code` 等）**逐个平滑迁移为原生引擎**而不导致编排层膨胀、特判扩散或引入跨引擎回归，本规范定义 Dimo 原生引擎体系的**唯一权威架构边界、驱动契约、注册表路由、隔离语义、流式安全与新引擎准入门禁**。
 
 设计核心信条：
 - **编排层零供应商分支（Zero-Branch Control Plane）**：会话编排器只依赖 `NativeEngineDriver` 契约与能力声明，禁止按枚举值或供应商名字写死分支。
@@ -22,7 +22,7 @@
 
 ### 2.1 分层拓扑
 
-VibeX **MUST** 保持唯一的运行时控制面与领域接缝，禁止出现“多套并行 Agent 状态机”：
+Dimo **MUST** 保持唯一的运行时控制面与领域接缝，禁止出现“多套并行 Agent 状态机”：
 
 ```text
   Desktop UI / Server API / Remote IM (Telegram·微信) / Workflow / Delegation MCP
@@ -66,7 +66,7 @@ VibeX **MUST** 保持唯一的运行时控制面与领域接缝，禁止出现�
    - `crates/agents/src/manager/runner/**` 与 `crates/agents/src/runtime.rs` 中**严禁**出现对 `NativeEngineKind`、特定 `engine_id` 或 `agent_id` 字符串的业务规则 `match`/`if` 分支；
    - 认证提取、默认模式/思考强度、可用命令、工具分类与 `_meta` 包装、问题回答结构编码、默认模型解析、别名等价校验、进程池缓存失效**必须**全部下沉为 `NativeEngineDriver` Trait 行为或由 `EngineCapabilities` 声明。
 3. **注册表驱动路由（MUST）**：
-   - 运行时引擎选择**必须**经由 `EngineRegistry`（`crates/agents/src/engine/registry.rs`）按 `agent_id`、Profile 策略与 `VIBEX_ENGINE_MODE`（`acp` / `native` 灰度开关）完成解析；
+   - 运行时引擎选择**必须**经由 `EngineRegistry`（`crates/agents/src/engine/registry.rs`）按 `agent_id`、Profile 策略与 `DIMO_ENGINE_MODE`（`acp` / `native` 灰度开关）完成解析；
    - 原生启动在握手前失败时，仅当存在明确的独立 ACP 适配器二进制且未强制 `native` 时，才允许回退至 `run_acp`；独立 `claude` / `codex` CLI 严禁被误当成 ACP stdio 服务启动。
 4. **废弃旧执行器路径（MUST NOT）**：**禁止**在 `crates/executors/` 中新增任何编码 Agent 特性或协议适配；该 crate 保持冻结状态并由架构门禁阻断回归。
 
@@ -98,9 +98,9 @@ VibeX **MUST** 保持唯一的运行时控制面与领域接缝，禁止出现�
    - `Launch` vs `Served` 模型一致性校验在比对前**必须**经由驱动 `model_aliases(env)` 解析用户配置别名（如 `ANTHROPIC_DEFAULT_SONNET_MODEL` 或网关自定义路由模型名），防止合法别名映射触发虚假告警或向时间线泄漏冗余 `model_consistency_mismatch` 系统提示。
 3. **凭据互斥与默认目录保护（MUST）**：
    - 同一驱动进程环境内不得同时注入彼此冲突的认证头环境变量（例如 `ANTHROPIC_AUTH_TOKEN` 与 `ANTHROPIC_API_KEY` 冲突时必须明确择优或屏蔽宿主机残留键）；
-   - 默认模式（`isolate_profile = false`）下**不得**覆盖用户原生配置目录（`~/.claude`、`~/.codex` 等），保证用户原有的认证态、自定义模型目录与别名直接生效；仅当显式启用实例隔离（如 `VIBEX_ISOLATE_PROVIDER_PROFILE=1`）时才重绑定独立根目录。
+   - 默认模式（`isolate_profile = false`）下**不得**覆盖用户原生配置目录（`~/.claude`、`~/.codex` 等），保证用户原有的认证态、自定义模型目录与别名直接生效；仅当显式启用实例隔离（如 `DIMO_ISOLATE_PROVIDER_PROFILE=1`）时才重绑定独立根目录。
 4. **结构化配置投影与过期产物清理（MUST）**：
-   - `crates/server/src/host/native/model_providers/` 在切换或保存 Provider 原生配置时，若目标配置不再使用 VibeX 生成的结构化模型目录文件（如 `vibex-model-catalog.json` / `vibex-model-catalog.source.json`），**必须**在同一文件事务中清理旧目录引用并删除过期文件，随后触发 `mark_agent_sessions_config_stale` -> `invalidate_engine_caches_for_agent`。
+   - `crates/server/src/host/native/model_providers/` 在切换或保存 Provider 原生配置时，若目标配置不再使用 Dimo 生成的结构化模型目录文件（如 `dimo-model-catalog.json` / `dimo-model-catalog.source.json`），**必须**在同一文件事务中清理旧目录引用并删除过期文件，随后触发 `mark_agent_sessions_config_stale` -> `invalidate_engine_caches_for_agent`。
 
 ---
 
@@ -145,7 +145,7 @@ VibeX **MUST** 保持唯一的运行时控制面与领域接缝，禁止出现�
 ### 5.3 模型发现与配置合并
 
 1. 原生模型列表（`list_models`）**应当**按「宿主注入自定义列表 + 运行时服务/SDK 返回列表 + 原生用户配置文件（如 `settings.json` / `config.toml`） + 静默兜底列表」合并去重，并正确设置 `is_default`；
-2. 用户配置的默认模型（`VIBEX_DEFAULT_MODEL` / `ANTHROPIC_MODEL` / `config.toml model`）优先级高于静态默认标记，静态 `is_default` 优先级高于列表首项。
+2. 用户配置的默认模型（`DIMO_DEFAULT_MODEL` / `ANTHROPIC_MODEL` / `config.toml model`）优先级高于静态默认标记，静态 `is_default` 优先级高于列表首项。
 
 ---
 
@@ -188,7 +188,7 @@ VibeX **MUST** 保持唯一的运行时控制面与领域接缝，禁止出现�
    - **禁止**修改 `crates/agents/src/manager/runner/**` 或 `crates/agents/src/runtime.rs` 添加任何引擎分支。
 2. **注册表与 Profile 对齐（MUST）**：
    - 将新驱动注册进 `EngineRegistry::bundled()`；
-   - 更新对应 `BuiltInProfile` / `resolve_native_engine_kind_with_env`（或 `EngineRegistry` 路由解析），确保 `VIBEX_ENGINE_MODE=acp` 仍支持灰度回退（仅当独立 ACP 二进制存在时）。
+   - 更新对应 `BuiltInProfile` / `resolve_native_engine_kind_with_env`（或 `EngineRegistry` 路由解析），确保 `DIMO_ENGINE_MODE=acp` 仍支持灰度回退（仅当独立 ACP 二进制存在时）。
 3. **打包与部署一致性（MUST）**：
    - 若新引擎依赖外部或随包分发的辅助脚本（如 Node sidecar），**必须**同步更新 `src-tauri/tauri.conf.json` 与 `scripts/package-host-family.js` 及其测试，保持开发环境与打包产物完全一致。
 4. **配置指纹与缓存联动（MUST）**：

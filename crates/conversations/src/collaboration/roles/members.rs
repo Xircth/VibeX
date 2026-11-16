@@ -141,10 +141,10 @@ pub async fn member_space_context_text(
 }
 
 /// Number of recent activity entries injected at turn start
-/// (`VIBEX_MEMBER_ACTIVITY_LIMIT`, default 8, 0 disables).
+/// (`DIMO_MEMBER_ACTIVITY_LIMIT`, default 8, 0 disables).
 pub fn member_activity_limit() -> usize {
     env_i64(
-        "VIBEX_MEMBER_ACTIVITY_LIMIT",
+        "DIMO_MEMBER_ACTIVITY_LIMIT",
         crate::member_memory::DEFAULT_ACTIVITY_LIMIT as i64,
     )
     .max(0) as usize
@@ -297,7 +297,7 @@ pub(crate) async fn member_identity_context_text(
              - 你的昵称：{my_nickname} (conversation_id: {conversation_id}, thread_id: {thread_label})\n\
              - 角色说明：{role_desc}\n\
              {supervisor_line}\n\
-             - 会话模式说明：当前处于一对一私聊（space_id: \"{thread_label}\"）。最终普通文本会自动发给 Person；不要为本条主回复调用 `post_space_message`。向 Person 提问用 `ask_user_question`（阻塞，问题出现在这条私聊里）。私聊历史已在当前会话中，不必调用 `read_space_messages`。共享文件用文件工具读写 `~/.vibex/spaces/{thread_label}/collection/`。可使用 `memory_search` / `memory_write` 检索或记录跨会话记忆。"
+             - 会话模式说明：当前处于一对一私聊（space_id: \"{thread_label}\"）。最终普通文本会自动发给 Person；不要为本条主回复调用 `post_space_message`。向 Person 提问用 `ask_user_question`（阻塞，问题出现在这条私聊里）。私聊历史已在当前会话中，不必调用 `read_space_messages`。共享文件用文件工具读写 `~/.dimo/spaces/{thread_label}/collection/`。可使用 `memory_search` / `memory_write` 检索或记录跨会话记忆。"
         )));
     }
 

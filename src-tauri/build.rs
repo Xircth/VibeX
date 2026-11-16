@@ -20,7 +20,7 @@ fn main() {
 
     #[cfg(target_os = "linux")]
     println!(
-        "cargo:rustc-link-arg-bins=-Wl,-rpath,$ORIGIN:$ORIGIN/../lib/vibex:$ORIGIN/../lib/VibeX"
+        "cargo:rustc-link-arg-bins=-Wl,-rpath,$ORIGIN:$ORIGIN/../lib/dimo:$ORIGIN/../lib/Dimo"
     );
 }
 
@@ -30,7 +30,7 @@ fn prepare_host_sidecar_stubs() {
     let ext = if cfg!(windows) { ".exe" } else { "" };
     let binaries = manifest_dir.join("binaries");
     let _ = std::fs::create_dir_all(&binaries);
-    for name in ["vibex-mcp", "vibex-workflow-mcp"] {
+    for name in ["dimo-mcp", "dimo-workflow-mcp"] {
         let path = binaries.join(format!("{name}-{triple}{ext}"));
         if !path.is_file() {
             let _ = std::fs::write(&path, []);

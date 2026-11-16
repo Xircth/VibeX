@@ -3,7 +3,7 @@ export {
   LOAD_OLDER_THRESHOLD_PX,
   shouldLoadOlderTimelinePage,
   buildTimelineNavEntries,
-  vibexTurnIdFromTimelineRowId,
+  dimoTurnIdFromTimelineRowId,
   isTimelineTurnInFlight,
   getLatestTimelinePlanEntries,
   isEditableUserTimelineRow,

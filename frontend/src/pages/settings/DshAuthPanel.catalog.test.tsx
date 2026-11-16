@@ -79,7 +79,7 @@ describe('DshAuthPanel catalog picker', () => {
       generation: 4,
       items: [
         {
-          pluginId: 'vibex.provider-switch',
+          pluginId: 'dimo.provider-switch',
           id: 'deepseek-harness',
           kind: 'provider_model_catalog',
           label: 'DeepSeek Harness presets',
@@ -94,7 +94,7 @@ describe('DshAuthPanel catalog picker', () => {
       templates: [
         {
           id: 'openrouter',
-          plugin_id: 'vibex.provider-switch',
+          plugin_id: 'dimo.provider-switch',
           contribution_id: 'deepseek-harness',
           plugin_label: 'ProviderSwitch',
           agent_id: 'deepseek_harness',

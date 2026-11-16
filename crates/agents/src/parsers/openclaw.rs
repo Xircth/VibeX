@@ -6,7 +6,7 @@
 //! (`user` / `assistant` / `toolResult`). Tool results are their own records;
 //! emitting them as assistant-role records folds them into the preceding
 //! assistant turn (they are part of the assistant's response). Records form a
-//! `parentId` tree; a linear file is read in line order. VibeX-authored; the
+//! `parentId` tree; a linear file is read in line order. Dimo-authored; the
 //! format is OpenClaw's.
 
 use chrono::{DateTime, Utc};

@@ -3,7 +3,7 @@
   "renderers": [
     {
       "id": "host.renderer.workflow.studio",
-      "accept": { "fileNameSuffixes": [".vibex-workflow.json"] }
+      "accept": { "fileNameSuffixes": [".dimo-workflow.json"] }
     }
   ]
 }

@@ -189,7 +189,7 @@ mod tests {
             &pool,
             InsertConversationImport {
                 id: Uuid::new_v4(),
-                source: "vibex_bundle",
+                source: "dimo_bundle",
                 source_agent: None,
                 external_session_id: None,
                 bundle_version: Some("1"),
@@ -208,7 +208,7 @@ mod tests {
                 id: Uuid::new_v4(),
                 conversation_id,
                 bundle_version: "1",
-                destination_path: "C:/tmp/export.vibex",
+                destination_path: "C:/tmp/export.dimo",
                 manifest_json: r#"{"version":"1"}"#,
             },
         )

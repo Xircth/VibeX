@@ -16,12 +16,12 @@ pub(super) async fn apply_command_code(
     let root = document.as_object_mut().expect("object");
     root.insert(
         "defaultProvider".to_string(),
-        Value::String("vibex".to_string()),
+        Value::String("dimo".to_string()),
     );
     let providers = object_entry(root, "providers")?;
     let model = model_default(&provider.model);
     providers.insert(
-        "vibex".to_string(),
+        "dimo".to_string(),
         serde_json::json!({
             "name": provider.name,
             "baseUrl": provider.api_url,

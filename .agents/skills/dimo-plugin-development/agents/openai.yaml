@@ -1,0 +1,4 @@
+interface:
+  display_name: "Dimo Plugin Development"
+  short_description: "Build and validate Dimo v4 App + Agent plugins"
+  default_prompt: "Use the local Dimo SDK, schema, and CLI to create or update a complete full-trust v4 product plugin."

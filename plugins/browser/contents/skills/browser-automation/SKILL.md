@@ -1,6 +1,6 @@
 ---
 name: browser-automation
-description: Inspect web pages, capture DOM snapshots, and interact with browser tabs inside VibeX.
+description: Inspect web pages, capture DOM snapshots, and interact with browser tabs inside Dimo.
 ---
 # Browser Automation Skill
 

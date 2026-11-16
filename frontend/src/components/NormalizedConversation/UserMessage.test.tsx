@@ -135,7 +135,7 @@ describe('UserMessage', () => {
   });
 
   it('keeps agent mentions as chips with the real agent icon after send', () => {
-    render(<UserMessage content="Ask [&Codex](vibex://agent/codex) next" />);
+    render(<UserMessage content="Ask [&Codex](dimo://agent/codex) next" />);
 
     const chip = screen
       .getByText('Codex')
@@ -278,10 +278,10 @@ describe('UserMessage', () => {
       data: {
         exists: true,
         file_name: 'screen.png',
-        path: 'C:\\Users\\me\\AppData\\VibeX\\images\\screen.png',
+        path: 'C:\\Users\\me\\AppData\\Dimo\\images\\screen.png',
         size_bytes: 123n,
         format: 'png',
-        proxy_url: 'C:\\Users\\me\\AppData\\VibeX\\images\\screen.png',
+        proxy_url: 'C:\\Users\\me\\AppData\\Dimo\\images\\screen.png',
       },
       isLoading: false,
     });
@@ -306,7 +306,7 @@ describe('UserMessage', () => {
       'C:\\Users\\me\\proj\\.vibe-images\\screen.png'
     );
     expect(imageMocks.hostFileSrc).not.toHaveBeenCalledWith(
-      'C:\\Users\\me\\AppData\\VibeX\\images\\screen.png'
+      'C:\\Users\\me\\AppData\\Dimo\\images\\screen.png'
     );
   });
 
@@ -323,10 +323,10 @@ describe('UserMessage', () => {
       data: {
         exists: true,
         file_name: 'screen.png',
-        path: 'C:\\Users\\me\\AppData\\VibeX\\images\\screen.png',
+        path: 'C:\\Users\\me\\AppData\\Dimo\\images\\screen.png',
         size_bytes: 123n,
         format: 'png',
-        proxy_url: 'C:\\Users\\me\\AppData\\VibeX\\images\\screen.png',
+        proxy_url: 'C:\\Users\\me\\AppData\\Dimo\\images\\screen.png',
       },
       isLoading: false,
     });
@@ -353,7 +353,7 @@ describe('UserMessage', () => {
     );
     expect(imageMocks.hostFileSrc).toHaveBeenNthCalledWith(
       2,
-      'C:\\Users\\me\\AppData\\VibeX\\images\\screen.png'
+      'C:\\Users\\me\\AppData\\Dimo\\images\\screen.png'
     );
   });
 

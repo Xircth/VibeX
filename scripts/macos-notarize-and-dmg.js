@@ -6,7 +6,7 @@ const os = require("node:os");
 const path = require("node:path");
 
 const workspaceRoot = path.join(__dirname, "..");
-const PRODUCT_NAME = "VibeX";
+const PRODUCT_NAME = "Dimo";
 const DEFAULT_NOTARY_TIMEOUT_SECONDS = 7200;
 const NOTARY_POLL_INTERVAL_SECONDS = 20;
 const NOTARY_SUBMIT_ATTEMPTS = 3;
@@ -391,8 +391,8 @@ function detachVolume(productName) {
 
 function createDmg({ appPath, dmgPath, productName, identity }) {
   fs.mkdirSync(path.dirname(dmgPath), { recursive: true });
-  const staging = fs.mkdtempSync(path.join(os.tmpdir(), "vibex-dmg-"));
-  const rwDmgPath = path.join(os.tmpdir(), `vibex-rw-${process.pid}.dmg`);
+  const staging = fs.mkdtempSync(path.join(os.tmpdir(), "dimo-dmg-"));
+  const rwDmgPath = path.join(os.tmpdir(), `dimo-rw-${process.pid}.dmg`);
   try {
     const stagedApp = path.join(staging, path.basename(appPath));
     run("ditto", [appPath, stagedApp]);
@@ -552,7 +552,7 @@ function main(args = process.argv.slice(2), env = process.env) {
 
   const target = readOption("--target", args) || hostAppleTarget();
   const timeoutSeconds = Number(
-    readOption("--timeout", args) || env.VIBEX_NOTARY_TIMEOUT_SECONDS || DEFAULT_NOTARY_TIMEOUT_SECONDS,
+    readOption("--timeout", args) || env.DIMO_NOTARY_TIMEOUT_SECONDS || DEFAULT_NOTARY_TIMEOUT_SECONDS,
   );
   if (!Number.isFinite(timeoutSeconds) || timeoutSeconds <= 0) {
     throw new Error("Notary timeout must be a positive number of seconds");

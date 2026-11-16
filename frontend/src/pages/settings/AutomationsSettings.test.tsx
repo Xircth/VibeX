@@ -67,7 +67,7 @@ function createTransport(
             options.projects ?? [
               {
                 id: 'project-1',
-                name: 'VibeX',
+                name: 'Dimo',
                 created_at: '2026-07-30T00:00:00Z',
               },
             ]
@@ -77,8 +77,8 @@ function createTransport(
             {
               id: 'repo-1',
               project_id: 'project-1',
-              display_name: 'VibeX',
-              path: '/workspace/VibeX',
+              display_name: 'Dimo',
+              path: '/workspace/Dimo',
               default_target_branch: 'main',
             },
           ];
@@ -211,7 +211,7 @@ function automationView(overrides: Record<string, unknown> = {}) {
       skills: [],
       workspace: {
         projectId: 'project-1',
-        rootFolder: '/workspace/VibeX',
+        rootFolder: '/workspace/Dimo',
         branch: 'main',
         isolation: 'worktree_per_run',
       },
@@ -341,7 +341,7 @@ describe('AutomationsSettings', () => {
             skills: [],
             workspace: {
               projectId: 'project-1',
-              rootFolder: '/workspace/VibeX',
+              rootFolder: '/workspace/Dimo',
               branch: 'main',
               isolation: 'worktree_per_run',
             },

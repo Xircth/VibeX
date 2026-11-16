@@ -195,7 +195,7 @@ pub fn compute_sas_code(
     ikm[32..].copy_from_slice(device_pub_ed25519);
     let hk = Hkdf::<Sha256>::new(Some(session_nonce.as_bytes()), &ikm);
     let mut okm = [0u8; 2];
-    hk.expand(b"vibex-webrtc-sas-v1", &mut okm)
+    hk.expand(b"dimo-webrtc-sas-v1", &mut okm)
         .expect("2-byte HKDF expansion never exceeds max length");
     let code = u16::from_be_bytes(okm) % 10_000;
     format!("{code:04}")
@@ -1617,7 +1617,7 @@ pub(crate) fn infer_client_kind(
     {
         return "mobile".to_owned();
     }
-    if lower_name.contains("vibex (")
+    if lower_name.contains("dimo (")
         || lower_name.contains("workstation")
         || lower_name.contains("desktop")
         || lower_name.contains("windows")

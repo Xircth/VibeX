@@ -80,11 +80,21 @@ describe('WorkspaceSessionListToolbar', () => {
     const searchBtn = screen.getByRole('button', { name: '搜索会话' });
     expect(searchBtn).toHaveTextContent('搜索');
     expect(searchBtn).toHaveClass(
-      'text-[12px]',
+      'font-sans',
+      'text-md',
+      'font-normal',
       'h-7',
+      'gap-2.5',
+      'text-foreground/90',
       'hover:bg-foreground/[0.06]'
     );
     expect(searchBtn).not.toHaveClass('bg-foreground/[0.06]');
+    expect(screen.getByTestId('search-action-icon')).toHaveClass(
+      'text-[var(--text-subtle)]'
+    );
+
+    const quickActions = screen.getByTestId('session-list-quick-actions');
+    expect(quickActions).toHaveClass('mt-1.5', 'gap-1.5');
 
     expect(
       screen.getByRole('button', { name: '更多选项' })
@@ -107,17 +117,32 @@ describe('WorkspaceSessionListToolbar', () => {
 
     expect(newSessionBtn).toHaveTextContent('新会话');
     expect(newSessionBtn).toHaveClass(
-      'text-[12px]',
+      'font-sans',
+      'text-md',
+      'font-normal',
       'h-7',
+      'gap-2.5',
+      'text-foreground/90',
       'hover:bg-foreground/[0.06]'
     );
     expect(screen.getByTestId('new-session-icon')).toHaveClass(
-      'lucide-message-square-plus'
+      'lucide-message-square-plus',
+      'text-[var(--text-subtle)]'
     );
 
     expect(mobileAppBtn).toHaveTextContent('移动端APP');
     expect(mobileAppBtn).toHaveTextContent('Beta');
-    expect(mobileAppBtn).toHaveClass('text-[12px]', 'h-7');
+    expect(mobileAppBtn).toHaveClass(
+      'font-sans',
+      'text-md',
+      'font-normal',
+      'h-7',
+      'gap-2.5',
+      'text-foreground/90'
+    );
+    expect(screen.getByTestId('mobile-app-icon')).toHaveClass(
+      'text-[var(--text-subtle)]'
+    );
 
     fireEvent.click(searchBtn);
     expect(onOpenSearch).toHaveBeenCalledTimes(1);

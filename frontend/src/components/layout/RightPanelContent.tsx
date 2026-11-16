@@ -825,7 +825,6 @@ export function RightPanelContent() {
       canvasController.createSession();
     } else {
       if (effectiveActiveTab === 'kanban') {
-        useLayoutStore.getState().setRightPanelVisible(true);
         useLayoutStore.getState().setKanbanSessionVisible(true);
       }
       if (!isCreateOverlayVisible) {

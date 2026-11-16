@@ -282,6 +282,9 @@ describe('DockviewAIChatPanel', () => {
     expect(
       screen.getByTestId('conversation-view-session-1')
     ).toBeInTheDocument();
+    expect(
+      boundView.container.querySelector('.workspace-right-panel')
+    ).toHaveClass('relative');
 
     boundView.unmount();
   });

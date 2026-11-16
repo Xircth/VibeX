@@ -23,7 +23,7 @@ export function SessionCreationStatusCard({
   const { t } = useTranslation('conversation');
   return (
     <div
-      className="composer-status-surface rounded-lg"
+      className="composer-status-surface rounded-[var(--radius-composer,0.75rem)]"
       data-testid="session-creation-status-card"
     >
       <div

@@ -2,9 +2,6 @@ import { describe, expect, it } from 'vitest';
 import {
   BUILTIN_KANBAN_VIEW_IDS,
   BUILTIN_KANBAN_VIEWS,
-  adjacentKanbanViewId,
-  kanbanCarouselTranslateX,
-  kanbanCarouselWidth,
   kanbanBindsExecutionConversation,
   kanbanViewHidesSessionSlot,
   kanbanViewsForBoardStyle,
@@ -74,18 +71,7 @@ describe('kanbanViews', () => {
     ).toBe('builtin:sessions');
   });
 
-  it('lets arrows leave the default sessions page and reach standalone and plugin views', () => {
-    const fixedViews = kanbanViewsForBoardStyle(views, 'fixed');
-    let viewId = 'builtin:sessions';
-    viewId = adjacentKanbanViewId(fixedViews, viewId, 1);
-    expect(viewId).toBe('builtin:usage');
-    viewId = adjacentKanbanViewId(fixedViews, viewId, 1);
-    expect(viewId).toBe('builtin:pulse');
-    viewId = adjacentKanbanViewId(fixedViews, viewId, 1);
-    expect(viewId).toBe('plugin:sample/view');
-  });
-
-  it('hides the unused sessions/canvas twin from arrow rotation', () => {
+  it('hides the unused sessions/canvas twin for the selected board style', () => {
     const fixedViews = kanbanViewsForBoardStyle(views, 'fixed');
     expect(fixedViews.map((view) => view.id)).toEqual([
       'builtin:columns',
@@ -94,9 +80,6 @@ describe('kanbanViews', () => {
       'builtin:pulse',
       'plugin:sample/view',
     ]);
-    expect(adjacentKanbanViewId(fixedViews, 'builtin:sessions', 1)).toBe(
-      'builtin:usage'
-    );
 
     const canvasViews = kanbanViewsForBoardStyle(views, 'canvas');
     expect(canvasViews.map((view) => view.id)).toEqual([
@@ -106,9 +89,6 @@ describe('kanbanViews', () => {
       'builtin:pulse',
       'plugin:sample/view',
     ]);
-    expect(adjacentKanbanViewId(canvasViews, 'builtin:canvas', 1)).toBe(
-      'builtin:usage'
-    );
   });
 
   it('remaps sessions and canvas only when the style preference changes', () => {
@@ -119,18 +99,6 @@ describe('kanbanViews', () => {
       'builtin:canvas'
     );
     expect(viewIdForBoardStyleChange('fixed', 'plugin:sample/view')).toBe(
-      'plugin:sample/view'
-    );
-  });
-
-  it('rotates through plugin views without skipping built-ins', () => {
-    expect(adjacentKanbanViewId(views, 'builtin:pulse', 1)).toBe(
-      'plugin:sample/view'
-    );
-    expect(adjacentKanbanViewId(views, 'plugin:sample/view', -1)).toBe(
-      'builtin:pulse'
-    );
-    expect(adjacentKanbanViewId(views, 'plugin:sample/view', 1)).toBe(
       'plugin:sample/view'
     );
   });
@@ -171,13 +139,6 @@ describe('kanbanViews', () => {
     );
     expect(kanbanBindsExecutionConversation('builtin:columns', 'kanban')).toBe(
       true
-    );
-  });
-
-  it('sizes the carousel for N views', () => {
-    expect(kanbanCarouselWidth(5)).toBe('500%');
-    expect(kanbanCarouselTranslateX(views, 'builtin:sessions')).toBe(
-      `translateX(-${(1 * 100) / views.length}%)`
     );
   });
 });

@@ -1,13 +1,11 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   AlertTriangle,
   ArrowDown,
   ArrowUp,
-  Check,
   ChevronDown,
   GitBranch,
-  Shield,
 } from 'lucide-react';
 import { useQueryClient } from '@tanstack/react-query';
 import { HostGlass } from '@/components/ui/host-glass';
@@ -19,11 +17,6 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from '@/components/ui/popover';
-import {
   Tooltip,
   TooltipContent,
   TooltipProvider,
@@ -31,20 +24,11 @@ import {
 } from '@/components/ui/tooltip';
 import { useOptionalWorktree } from '@/contexts/WorktreeContext';
 import { useOptionalKanbanSessionContext } from '@/contexts/KanbanSessionContext';
-import { collaborationCall } from '@/features/collaboration/collaborationApi';
-import { PULSE_DECK_SNAPSHOT_QUERY_ROOT } from '@/hooks/usePulseDeckSnapshot';
 import { useWorkspaceBranchStatus } from '@/hooks/useWorkspaceBranchStatus';
 import { useTaskAttempt } from '@/hooks/useTaskAttempt';
 import { useTask } from '@/hooks/useTask';
-import { attemptsApi, sessionsApi } from '@/lib/api';
+import { attemptsApi } from '@/lib/api';
 import type { RebaseResult } from '@/lib/api';
-import {
-  pulseApi,
-  type PulseRuleSpec,
-  type PulseRuleView,
-  type PulseSubscriberKind,
-  type PulseSubscriptionView,
-} from '@/lib/api/pulse';
 import type { RepoBranchStatus, TaskWithAttemptStatus } from 'shared/types';
 import { useRepoBranches } from '@/hooks/useRepoBranches';
 import { useChangeTargetBranch } from '@/hooks/useChangeTargetBranch';
@@ -53,7 +37,6 @@ import { GitConflictResolutionDialog } from '@/components/dialogs/tasks/GitConfl
 import { GitActionsDialog } from '@/components/dialogs/tasks/GitActionsDialog';
 import { RebaseDialog } from '@/components/dialogs/tasks/RebaseDialog';
 import { useMediaQuery } from '@/hooks/useMediaQuery';
-import { cn } from '@/lib/utils';
 import i18n from '@/i18n';
 
 const STATIC_GLASS_POINTER = { x: 0, y: 0 };
@@ -103,10 +86,6 @@ export function BranchInfoHeader({
     worktree?.activeWorktreeId ??
     kanbanSession?.visibleRightSession?.workspaceId ??
     null;
-  const activeSessionId =
-    kanbanSession?.visibleRightSession?.sessionId ??
-    kanbanSession?.rightSession?.sessionId ??
-    null;
   const { data: branchStatus } = useWorkspaceBranchStatus(
     effectiveWorktreeId ?? undefined
   );
@@ -115,67 +94,16 @@ export function BranchInfoHeader({
     enabled: !!workspace?.task_id,
   });
 
-  if (!effectiveWorktreeId || !branchStatus?.length || !workspace) {
+  if (
+    !effectiveWorktreeId ||
+    !branchStatus?.length ||
+    !workspace?.use_worktree
+  ) {
     return null;
   }
 
   const repo = branchStatus[0];
   const branchName = workspace.branch ?? 'HEAD';
-
-  if (!workspace.use_worktree) {
-    return (
-      <div
-        className="branch-info-header-host"
-        data-testid="branch-info-standard-checkout"
-      >
-        <div ref={glassStageRef} className="branch-info-glass-stage">
-          <HostGlass
-            className="branch-info-liquid-glass"
-            padding="0"
-            cornerRadius={12}
-            displacementScale={72}
-            blurAmount={0.04}
-            saturation={140}
-            aberrationIntensity={2}
-            elasticity={prefersReducedMotion ? 0 : 0.12}
-            mouseContainer={glassStageRef}
-            globalMousePos={
-              prefersReducedMotion ? STATIC_GLASS_POINTER : undefined
-            }
-            mouseOffset={
-              prefersReducedMotion ? STATIC_GLASS_POINTER : undefined
-            }
-            mode="prominent"
-            style={{
-              position: 'absolute',
-              top: '50%',
-              left: '50%',
-              width: '100%',
-              height: '100%',
-            }}
-          >
-            <div className="branch-info-toolbar">
-              <div className="branch-info-summary">
-                <GitBranch
-                  className="h-3.5 w-3.5 shrink-0 text-muted-foreground"
-                  aria-hidden="true"
-                />
-                <span className="branch-info-current-branch">{branchName}</span>
-              </div>
-              <div className="branch-info-actions">
-                <PulseGuardMenu
-                  repoName={repo.repo_name}
-                  branchName={branchName}
-                  worktreeId={effectiveWorktreeId}
-                  sessionId={activeSessionId}
-                />
-              </div>
-            </div>
-          </HostGlass>
-        </div>
-      </div>
-    );
-  }
 
   const gitActionsTask: TaskWithAttemptStatus | undefined = task
     ? {
@@ -267,12 +195,6 @@ export function BranchInfoHeader({
                 )}
               </div>
               <div className="branch-info-actions">
-                <PulseGuardMenu
-                  repoName={repo.repo_name}
-                  branchName={branchName}
-                  worktreeId={effectiveWorktreeId}
-                  sessionId={activeSessionId}
-                />
                 <GitActionsButton
                   worktreeId={effectiveWorktreeId}
                   task={gitActionsTask}
@@ -283,400 +205,6 @@ export function BranchInfoHeader({
         </HostGlass>
       </div>
     </div>
-  );
-}
-
-function buildCiGuardSpec(
-  repoName: string,
-  branchName: string,
-  worktreeId: string
-): PulseRuleSpec {
-  return {
-    name: `CI Guard: ${repoName}@${branchName}`,
-    description: `Auto-diagnose CI failures on ${branchName}`,
-    workspaceId: worktreeId,
-    evalMode: 'auto',
-    orchestrator: 'direct_reflex',
-    filter: {
-      sourceKinds: ['github'],
-      sourceInstanceIds: [],
-      eventTypes: ['github.workflow_run.failed', 'github.check_suite.failed'],
-      allowedActors: [],
-      conditions: [
-        { op: 'not_bot_actor' },
-        { op: 'eq', pointer: '/branch', value: branchName },
-      ],
-    },
-    temporal: null,
-    targets: [
-      {
-        kind: 'session',
-        mode: 'ephemeral_fresh',
-        agentId: 'claude-code',
-        workspaceIsolation: 'isolated_worktree',
-        subscribeThread: true,
-        promptTemplate: `Diagnose CI failure on ${repoName}@${branchName}: {{payload.summary}}`,
-      },
-    ],
-  };
-}
-
-function buildPrReviewGuardSpec(
-  repoName: string,
-  branchName: string,
-  worktreeId: string,
-  resolvedBotId: string | null
-): PulseRuleSpec {
-  const promptTemplate = `Review PR comment on ${repoName}@${branchName}: {{payload.comment.body}}`;
-  return {
-    name: `PR Review Guard: ${repoName}@${branchName}`,
-    description: resolvedBotId
-      ? `Route PR review comments on ${branchName} to Bot`
-      : `Route PR review comments on ${branchName} to Fresh Session`,
-    workspaceId: worktreeId,
-    evalMode: 'auto',
-    orchestrator: 'direct_reflex',
-    filter: {
-      sourceKinds: ['github'],
-      sourceInstanceIds: [],
-      eventTypes: [
-        'github.pull_request_review_comment.created',
-        'github.issue_comment.created',
-      ],
-      allowedActors: [],
-      conditions: [
-        { op: 'not_bot_actor' },
-        { op: 'eq', pointer: '/branch', value: branchName },
-      ],
-    },
-    temporal: null,
-    targets: [
-      resolvedBotId
-        ? {
-            kind: 'bot',
-            memberId: resolvedBotId,
-            conversationScope: 'per_thread_topic',
-            mailboxPolicy: 'fifo_serial',
-            subscribeThread: true,
-            promptTemplate,
-          }
-        : {
-            kind: 'session',
-            mode: 'ephemeral_fresh',
-            agentId: 'claude-code',
-            workspaceIsolation: 'isolated_worktree',
-            subscribeThread: true,
-            promptTemplate,
-          },
-    ],
-  };
-}
-
-export function PulseGuardMenu({
-  repoName,
-  branchName,
-  worktreeId,
-  sessionId = null,
-}: {
-  repoName: string;
-  branchName: string;
-  worktreeId: string;
-  sessionId?: string | null;
-}) {
-  const queryClient = useQueryClient();
-  const [open, setOpen] = useState(false);
-  const [rules, setRules] = useState<PulseRuleView[]>([]);
-  const [subscriptions, setSubscriptions] = useState<PulseSubscriptionView[]>(
-    []
-  );
-  const [resolvedBotId, setResolvedBotId] = useState<string | null>(null);
-  const [resolvedSpaceId, setResolvedSpaceId] = useState<string | null>(null);
-  const [discoveredSessionId, setDiscoveredSessionId] = useState<string | null>(
-    null
-  );
-  const [busyKey, setBusyKey] = useState<string | null>(null);
-  const [statusError, setStatusError] = useState<string | null>(null);
-
-  const ciRuleName = `CI Guard: ${repoName}@${branchName}`;
-  const prRuleName = `PR Review Guard: ${repoName}@${branchName}`;
-  const prThreadKey = `github:${repoName}#${branchName}`;
-
-  const ciRule = rules.find((rule) => rule.spec.name === ciRuleName) ?? null;
-  const prRule = rules.find((rule) => rule.spec.name === prRuleName) ?? null;
-  const prSub =
-    subscriptions.find(
-      (sub) => sub.threadKey === prThreadKey && sub.active
-    ) ?? null;
-
-  const activeGuardCount =
-    (ciRule?.enabled ? 1 : 0) +
-    (prRule?.enabled ? 1 : 0) +
-    (prSub ? 1 : 0);
-
-  useEffect(() => {
-    if (!open) return;
-    let cancelled = false;
-
-    pulseApi
-      .deckSnapshot()
-      .then((snapshot) => {
-        if (cancelled || !snapshot) return;
-        setRules(Array.isArray(snapshot.rules) ? snapshot.rules : []);
-        setSubscriptions(
-          Array.isArray(snapshot.subscriptions) ? snapshot.subscriptions : []
-        );
-      })
-      .catch(() => {
-        // Best-effort snapshot load when menu opens.
-      });
-
-    void Promise.all([
-      collaborationCall<{
-        items?: Array<{
-          kind?: string;
-          space_id?: string;
-          member?: {
-            member_id?: string | null;
-            identity_member_id?: string | null;
-          };
-        }>;
-      }>('collaboration', 'thread.listSidebar', { workspaceId: worktreeId })
-        .then((sidebar) => {
-          if (cancelled) return;
-          const items = Array.isArray(sidebar?.items) ? sidebar.items : [];
-          const dmBot = items.find(
-            (item) =>
-              item.kind === 'dm' &&
-              (item.member?.member_id || item.member?.identity_member_id)
-          );
-          const groupSpace = items.find(
-            (item) => item.kind === 'group' && item.space_id
-          );
-          const botId =
-            dmBot?.member?.member_id?.trim() ||
-            dmBot?.member?.identity_member_id?.trim() ||
-            null;
-          setResolvedBotId(botId);
-          setResolvedSpaceId(groupSpace?.space_id?.trim() || null);
-        })
-        .catch(() => null),
-      !sessionId
-        ? sessionsApi
-            .getSummariesByWorkspace(worktreeId)
-            .then((summaries) => {
-              if (cancelled || !Array.isArray(summaries)) return;
-              const firstId = summaries[0]?.id?.trim() || null;
-              setDiscoveredSessionId(firstId);
-            })
-            .catch(() => null)
-        : Promise.resolve(null),
-    ]);
-
-    return () => {
-      cancelled = true;
-    };
-  }, [open, sessionId, worktreeId]);
-
-  const handleToggleRule = async (
-    key: 'ci' | 'pr',
-    existing: PulseRuleView | null,
-    spec: PulseRuleSpec
-  ) => {
-    setBusyKey(key);
-    setStatusError(null);
-    try {
-      const updated = existing
-        ? await pulseApi.setRuleEnabled(existing.id, !existing.enabled)
-        : await pulseApi.saveRule({ enabled: true, spec });
-      setRules((current) => {
-        const idx = current.findIndex((item) => item.id === updated.id);
-        if (idx < 0) return [...current, updated];
-        return current.map((item) => (item.id === updated.id ? updated : item));
-      });
-      void queryClient.invalidateQueries({
-        queryKey: [PULSE_DECK_SNAPSHOT_QUERY_ROOT],
-      });
-    } catch (err) {
-      setStatusError(
-        err instanceof Error ? err.message : 'Failed to update branch guard.'
-      );
-    } finally {
-      setBusyKey(null);
-    }
-  };
-
-  const resolveSubscriptionTarget = (): {
-    kind: PulseSubscriberKind;
-    id: string;
-  } => {
-    const activeSid = sessionId?.trim() || discoveredSessionId?.trim();
-    if (activeSid) {
-      return { kind: 'session', id: activeSid };
-    }
-    if (resolvedBotId) {
-      return { kind: 'bot', id: resolvedBotId };
-    }
-    if (resolvedSpaceId) {
-      return { kind: 'group', id: resolvedSpaceId };
-    }
-    return { kind: 'group', id: `unassigned:${worktreeId}` };
-  };
-
-  const handleToggleThreadSubscription = async () => {
-    setBusyKey('thread');
-    setStatusError(null);
-    try {
-      if (prSub) {
-        await pulseApi.unsubscribeThread(prSub.id);
-        setSubscriptions((current) =>
-          current.filter((item) => item.id !== prSub.id)
-        );
-      } else {
-        const target = resolveSubscriptionTarget();
-        const created = await pulseApi.subscribeThread(
-          prThreadKey,
-          target.kind,
-          target.id
-        );
-        setSubscriptions((current) => [...current, created]);
-      }
-      void queryClient.invalidateQueries({
-        queryKey: [PULSE_DECK_SNAPSHOT_QUERY_ROOT],
-      });
-    } catch (err) {
-      setStatusError(
-        err instanceof Error ? err.message : 'Failed to update PR subscription.'
-      );
-    } finally {
-      setBusyKey(null);
-    }
-  };
-
-  return (
-    <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger asChild>
-        <Button
-          type="button"
-          variant="ghost"
-          size="sm"
-          aria-label="PR Pulse Guard"
-          data-testid="branch-pulse-guard-trigger"
-          className={cn(
-            'branch-info-action gap-1 px-2',
-            activeGuardCount > 0 && 'text-primary'
-          )}
-        >
-          <Shield className="h-3.5 w-3.5" aria-hidden="true" />
-          {activeGuardCount > 0 ? (
-            <span className="text-[11px] font-medium tabular-nums">
-              {activeGuardCount}
-            </span>
-          ) : null}
-        </Button>
-      </PopoverTrigger>
-      <PopoverContent
-        align="end"
-        side="bottom"
-        className="w-80 space-y-2 border border-border bg-popover p-2.5 text-foreground shadow-md"
-        data-testid="branch-pulse-guard-popover"
-      >
-        <div className="flex items-center justify-between border-b border-border pb-1.5">
-          <span className="text-xs font-semibold">PR Automation Guard</span>
-          <span className="max-w-36 truncate font-mono text-[11px] text-muted-foreground">
-            {branchName}
-          </span>
-        </div>
-
-        <div className="space-y-1">
-          <button
-            type="button"
-            disabled={busyKey !== null}
-            data-testid="pulse-guard-ci-failure"
-            onClick={() =>
-              void handleToggleRule(
-                'ci',
-                ciRule,
-                buildCiGuardSpec(repoName, branchName, worktreeId)
-              )
-            }
-            className="flex w-full items-center justify-between gap-2 rounded-md border border-border bg-background px-2.5 py-1.5 text-left text-xs transition-colors hover:bg-muted"
-          >
-            <span>Auto-diagnose CI failure (Fresh Session)</span>
-            <span
-              className={cn(
-                'inline-flex h-4 w-4 shrink-0 items-center justify-center rounded border',
-                ciRule?.enabled
-                  ? 'border-primary bg-primary text-primary-foreground'
-                  : 'border-border bg-muted/40'
-              )}
-            >
-              {ciRule?.enabled ? <Check className="h-3 w-3" /> : null}
-            </span>
-          </button>
-
-          <button
-            type="button"
-            disabled={busyKey !== null}
-            data-testid="pulse-guard-pr-comments"
-            onClick={() =>
-              void handleToggleRule(
-                'pr',
-                prRule,
-                buildPrReviewGuardSpec(
-                  repoName,
-                  branchName,
-                  worktreeId,
-                  resolvedBotId
-                )
-              )
-            }
-            className="flex w-full items-center justify-between gap-2 rounded-md border border-border bg-background px-2.5 py-1.5 text-left text-xs transition-colors hover:bg-muted"
-          >
-            <span>
-              {resolvedBotId
-                ? 'Route PR review comments to Bot'
-                : 'Route PR review comments (Fresh Session)'}
-            </span>
-            <span
-              className={cn(
-                'inline-flex h-4 w-4 shrink-0 items-center justify-center rounded border',
-                prRule?.enabled
-                  ? 'border-primary bg-primary text-primary-foreground'
-                  : 'border-border bg-muted/40'
-              )}
-            >
-              {prRule?.enabled ? <Check className="h-3 w-3" /> : null}
-            </span>
-          </button>
-
-          <button
-            type="button"
-            disabled={busyKey !== null}
-            data-testid="pulse-guard-subscribe-pr"
-            onClick={() => void handleToggleThreadSubscription()}
-            className="flex w-full items-center justify-between gap-2 rounded-md border border-border bg-background px-2.5 py-1.5 text-left text-xs transition-colors hover:bg-muted"
-          >
-            <span>Subscribe current branch PR thread</span>
-            <span
-              className={cn(
-                'inline-flex h-4 w-4 shrink-0 items-center justify-center rounded border',
-                prSub
-                  ? 'border-primary bg-primary text-primary-foreground'
-                  : 'border-border bg-muted/40'
-              )}
-            >
-              {prSub ? <Check className="h-3 w-3" /> : null}
-            </span>
-          </button>
-        </div>
-
-        {statusError ? (
-          <div role="alert" className="text-[11px] text-destructive">
-            {statusError}
-          </div>
-        ) : null}
-      </PopoverContent>
-    </Popover>
   );
 }
 

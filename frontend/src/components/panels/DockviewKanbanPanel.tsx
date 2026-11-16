@@ -3,30 +3,17 @@ import {
   Suspense,
   lazy,
   useEffect,
-  useLayoutEffect,
   useRef,
-  useState,
   type ComponentType,
   type LazyExoticComponent,
   type ReactNode,
 } from 'react';
-import { useTranslation } from 'react-i18next';
-import { KanbanNavArrow } from '@/components/kanban/KanbanNavArrow';
 import { useKanbanSessionContext } from '@/contexts/KanbanSessionContext';
 import { useKanbanViewContributions } from '@dimoai/plugin-sdk';
 import { useKanbanViews } from '@/hooks/useKanbanViews';
 import { useKanbanBoardStyle } from '@/lib/kanbanBoardStyle';
 import {
-  consumeKanbanCarouselPageKey,
-  pinKanbanCarouselScroll,
-} from '@/lib/kanbanCarouselScroll';
-import {
-  adjacentKanbanViewId,
-  kanbanCarouselTranslateX,
-  kanbanCarouselWidth,
-  kanbanPageWidth,
   kanbanViewHidesSessionSlot,
-  kanbanViewIndex,
   resolveKanbanViewId,
 } from '@/lib/kanbanViews';
 import { PluginRemoteView } from '@/components/plugins/PluginRemoteView';
@@ -53,12 +40,13 @@ function loadKanbanModuleWithRetry<P>(
   loader: () => Promise<LazyDefaultModule<P>>,
   retryDelayMs = 250
 ): Promise<LazyDefaultModule<P>> {
-  return loader().catch(() =>
-    new Promise<LazyDefaultModule<P>>((resolve, reject) => {
-      window.setTimeout(() => {
-        loader().then(resolve, reject);
-      }, retryDelayMs);
-    })
+  return loader().catch(
+    () =>
+      new Promise<LazyDefaultModule<P>>((resolve, reject) => {
+        window.setTimeout(() => {
+          loader().then(resolve, reject);
+        }, retryDelayMs);
+      })
   );
 }
 
@@ -103,8 +91,6 @@ const lazyPulseDeckViewEntry = createRetryableLazyComponent<{
   }))
 );
 
-const KANBAN_CAROUSEL_TRANSITION_MS = 320;
-
 function isActiveVisibleSurface(element: HTMLElement | null): boolean {
   if (!element) return false;
   if (element.closest('[aria-hidden="true"], [hidden], [inert]')) {
@@ -114,7 +100,6 @@ function isActiveVisibleSurface(element: HTMLElement | null): boolean {
 }
 
 export function KanbanBoard() {
-  const { t } = useTranslation(['panels', 'common']);
   const optionalProject = useOptionalProject();
   const { activeViewId, setActiveViewId } = useKanbanSessionContext();
   const rootPanelRef = useRef<HTMLDivElement | null>(null);
@@ -130,26 +115,8 @@ export function KanbanBoard() {
     }
   }, [activeViewId, resolvedViewId, setActiveViewId]);
   const currentViewId = resolvedViewId ?? activeViewId;
-  const previousViewIdRef = useRef(currentViewId);
-  const [transitioningFromViewId, setTransitioningFromViewId] = useState<
-    string | null
-  >(null);
-
-  useEffect(() => {
-    const previousViewId = previousViewIdRef.current;
-    if (previousViewId && previousViewId !== currentViewId) {
-      previousViewIdRef.current = currentViewId;
-      setTransitioningFromViewId(previousViewId);
-      const timer = window.setTimeout(() => {
-        setTransitioningFromViewId((current) =>
-          current === previousViewId ? null : current
-        );
-      }, KANBAN_CAROUSEL_TRANSITION_MS);
-      return () => window.clearTimeout(timer);
-    }
-    previousViewIdRef.current = currentViewId;
-    return undefined;
-  }, [currentViewId]);
+  const currentView =
+    views.find((view) => view.id === currentViewId) ?? views[0] ?? null;
 
   useEffect(() => {
     const handleOpenPulseDeck = (event: Event) => {
@@ -180,7 +147,6 @@ export function KanbanBoard() {
     };
   }, [setActiveViewId]);
 
-  const currentIndex = kanbanViewIndex(views, currentViewId);
   const sessionSlotSide = kanbanSlotOfZone(kanbanArrangement, 'session');
   const hideSessionSlot = kanbanViewHidesSessionSlot(currentViewId);
   const sessionInHub = kanbanSessionRendersInHub(currentViewId);
@@ -188,41 +154,35 @@ export function KanbanBoard() {
     sessionSlotSide === 'left' ? 'left' : 'right';
   const outerSessionActive = !hideSessionSlot && !sessionInHub;
 
-  const showLeftArrow = currentIndex > 0;
-  const showRightArrow = currentIndex < views.length - 1;
-  const carouselShellRef = useRef<HTMLDivElement | null>(null);
-
-  const handleLeftArrowClick = () => {
-    setActiveViewId(adjacentKanbanViewId(views, currentViewId, -1));
-  };
-
-  const handleRightArrowClick = () => {
-    setActiveViewId(adjacentKanbanViewId(views, currentViewId, 1));
-  };
-
-  useLayoutEffect(() => {
-    pinKanbanCarouselScroll(carouselShellRef.current);
-  }, [currentViewId]);
-
-  useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent) => {
-      consumeKanbanCarouselPageKey(event, carouselShellRef.current);
-    };
-    window.addEventListener('keydown', onKeyDown, true);
-    return () => window.removeEventListener('keydown', onKeyDown, true);
-  }, []);
-
-  const getLeftArrowLabel = () => {
-    const previous = views[currentIndex - 1];
-    return previous
-      ? t(previous.titleKey, { defaultValue: previous.titleKey })
-      : '';
-  };
-
-  const getRightArrowLabel = () => {
-    const next = views[currentIndex + 1];
-    return next ? t(next.titleKey, { defaultValue: next.titleKey }) : '';
-  };
+  const pluginItem = currentView?.pluginId
+    ? (pluginViews.find(
+        (item) =>
+          item.pluginId === currentView.pluginId &&
+          item.id === currentView.contributionId
+      ) ??
+      (() => {
+        const sdkMatch = sdkKanbanViews.find(
+          (item) =>
+            item.pluginId === currentView.pluginId &&
+            (item.id === currentView.contributionId ||
+              item.id ===
+                `${currentView.pluginId}:${currentView.contributionId}`)
+        );
+        if (!sdkMatch || !currentView.contributionId) {
+          return null;
+        }
+        return {
+          pluginId: currentView.pluginId,
+          id: currentView.contributionId,
+          kind: 'kanban_view' as const,
+          label: sdkMatch.title,
+          generation: 1,
+          metadata: {
+            hidesBottomDock: sdkMatch.hidesBottomDock !== false,
+          },
+        };
+      })())
+    : null;
 
   return (
     <div
@@ -234,114 +194,36 @@ export function KanbanBoard() {
         {!hideSessionSlot && outerSessionSide === 'left' && (
           <KanbanSessionSlot side="left" active={outerSessionActive} />
         )}
-        <div
-          ref={carouselShellRef}
-          className="kanban-shell relative h-full min-w-0 flex-1"
-          onScroll={() => pinKanbanCarouselScroll(carouselShellRef.current)}
-          onKeyDownCapture={(event) => {
-            consumeKanbanCarouselPageKey(event, event.currentTarget);
-          }}
-        >
-          <div
-            className="flex h-full transition-transform duration-300 ease-out"
-            style={{
-              width: kanbanCarouselWidth(views.length),
-              transform: kanbanCarouselTranslateX(views, currentViewId),
-            }}
-            onTransitionEnd={(event) => {
-              if (event.target === event.currentTarget) {
-                setTransitioningFromViewId(null);
-              }
-            }}
-          >
-            {views.map((view) => {
-              const isMountedView =
-                view.id === currentViewId ||
-                view.id === transitioningFromViewId;
-
-              return (
-                <div
-                  key={view.id}
-                  className="h-full shrink-0"
-                  style={{ width: kanbanPageWidth(views.length) }}
-                  data-kanban-view={view.id}
-                >
-                  {isMountedView ? (
-                    <KanbanViewErrorBoundary>
-                      <KanbanRegisteredView
-                        view={view}
-                        active={view.id === currentViewId}
-                        projectId={optionalProject?.projectId ?? null}
-                        zoneOrder={[
-                          kanbanArrangement.left,
-                          kanbanArrangement.center,
-                          kanbanArrangement.right,
-                        ]}
-                        sessionSlot={
-                          view.id === 'builtin:sessions' ? (
-                            <KanbanSessionSlot
-                              side={sessionSlotSide}
-                              active={currentViewId === 'builtin:sessions'}
-                              inHub
-                            />
-                          ) : null
-                        }
-                        pluginItem={
-                          view.pluginId
-                            ? (pluginViews.find(
-                                (item) =>
-                                  item.pluginId === view.pluginId &&
-                                  item.id === view.contributionId
-                              ) ??
-                              (() => {
-                                const sdkMatch = sdkKanbanViews.find(
-                                  (item) =>
-                                    item.pluginId === view.pluginId &&
-                                    (item.id === view.contributionId ||
-                                      item.id ===
-                                        `${view.pluginId}:${view.contributionId}`)
-                                );
-                                if (!sdkMatch || !view.contributionId) {
-                                  return null;
-                                }
-                                return {
-                                  pluginId: view.pluginId,
-                                  id: view.contributionId,
-                                  kind: 'kanban_view' as const,
-                                  label: sdkMatch.title,
-                                  generation: 1,
-                                  metadata: {
-                                    hidesBottomDock:
-                                      sdkMatch.hidesBottomDock !== false,
-                                  },
-                                };
-                              })())
-                            : null
-                        }
-                      />
-                    </KanbanViewErrorBoundary>
-                  ) : null}
-                </div>
-              );
-            })}
-          </div>
+        <div className="kanban-shell relative h-full min-w-0 flex-1">
+          {currentView ? (
+            <div
+              key={currentView.id}
+              className="h-full w-full"
+              data-kanban-view={currentView.id}
+            >
+              <KanbanViewErrorBoundary>
+                <KanbanRegisteredView
+                  view={currentView}
+                  active
+                  projectId={optionalProject?.projectId ?? null}
+                  zoneOrder={[
+                    kanbanArrangement.left,
+                    kanbanArrangement.center,
+                    kanbanArrangement.right,
+                  ]}
+                  sessionSlot={
+                    currentView.id === 'builtin:sessions' ? (
+                      <KanbanSessionSlot side={sessionSlotSide} active inHub />
+                    ) : null
+                  }
+                  pluginItem={pluginItem}
+                />
+              </KanbanViewErrorBoundary>
+            </div>
+          ) : null}
         </div>
         {!hideSessionSlot && outerSessionSide === 'right' && (
           <KanbanSessionSlot side="right" active={outerSessionActive} />
-        )}
-        {showLeftArrow && (
-          <KanbanNavArrow
-            side="left"
-            label={getLeftArrowLabel()}
-            onClick={handleLeftArrowClick}
-          />
-        )}
-        {showRightArrow && (
-          <KanbanNavArrow
-            side="right"
-            label={getRightArrowLabel()}
-            onClick={handleRightArrowClick}
-          />
         )}
       </div>
     </div>
@@ -378,7 +260,11 @@ class KanbanViewErrorBoundary extends Component<
         />
       );
     }
-    return <div key={this.state.retryKey} className="h-full w-full">{this.props.children}</div>;
+    return (
+      <div key={this.state.retryKey} className="h-full w-full">
+        {this.props.children}
+      </div>
+    );
   }
 }
 
@@ -410,7 +296,8 @@ function KanbanRegisteredView({
     return <KanbanSessionHub presentation="canvas" zoneOrder={zoneOrder} />;
   }
   if (view.id === 'builtin:usage') {
-    const LazyKanbanUsageDashboard = lazyKanbanUsageDashboardEntry.getComponent();
+    const LazyKanbanUsageDashboard =
+      lazyKanbanUsageDashboardEntry.getComponent();
     return (
       <Suspense fallback={null}>
         <LazyKanbanUsageDashboard />

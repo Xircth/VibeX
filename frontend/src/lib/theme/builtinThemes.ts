@@ -13,7 +13,7 @@ export const BUILTIN_THEMES: Readonly<Record<ThemeScheme, ThemeDefinition>> = {
     colors: {
       background: '#ffffff',
       foreground: '#171717',
-      chrome: '#f1f1f1',
+      chrome: '#f4f4f4',
       surface: '#ffffff',
       popover: '#ffffff',
       mutedForeground: '#525252',

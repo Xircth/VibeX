@@ -50,6 +50,9 @@ describe('ConversationStatusDock', () => {
     );
 
     const dock = screen.getByTestId('conversation-status-dock');
+    expect(dock.querySelector('.composer-status-surface')).toHaveClass(
+      'rounded-[var(--radius-composer,0.75rem)]'
+    );
     expect(dock).toHaveTextContent('连接已断开');
     expect(dock).toHaveTextContent('因重启中断');
     expect(dock).toHaveTextContent('Agent 不支持会话恢复');

@@ -390,6 +390,53 @@ describe('settings page alignment', () => {
     expect(hover.get('border-color')).toBe('transparent');
   });
 
+  it('aligns preflight status badges and circular icons with the high-contrast agent-auth-status badge style', () => {
+    const authSuccess = declarationsFor(
+      '.settings-page .agent-auth-status.is-success'
+    );
+    const authWarning = declarationsFor(
+      '.settings-page .agent-auth-status.is-warning'
+    );
+    const passChip = declarationsFor(
+      '.settings-page .agent-preflight-status.is-pass'
+    );
+    const warningChip = declarationsFor(
+      '.settings-page .agent-preflight-status.is-warning'
+    );
+    const failChip = declarationsFor(
+      '.settings-page .agent-preflight-status.is-fail'
+    );
+    const passIcon = declarationsFor(
+      '.settings-page .agent-preflight-status-icon.is-pass'
+    );
+    const warningIcon = declarationsFor(
+      '.settings-page .agent-preflight-status-icon'
+    );
+    const failIcon = declarationsFor(
+      '.settings-page .agent-preflight-status-icon.is-fail'
+    );
+
+    expect(passChip.get('border-color')).toBe(authSuccess.get('border-color'));
+    expect(passChip.get('background')).toBe(authSuccess.get('background'));
+    expect(passChip.get('color')).toBe(authSuccess.get('color'));
+    expect(passIcon.get('border-color')).toBe(authSuccess.get('border-color'));
+    expect(passIcon.get('background')).toBe(authSuccess.get('background'));
+    expect(passIcon.get('color')).toBe(authSuccess.get('color'));
+
+    expect(warningChip.get('border-color')).toBe(
+      authWarning.get('border-color')
+    );
+    expect(warningChip.get('background')).toBe(authWarning.get('background'));
+    expect(warningChip.get('color')).toBe(authWarning.get('color'));
+    expect(warningIcon.get('background')).toBe(authWarning.get('background'));
+    expect(warningIcon.get('color')).toBe(authWarning.get('color'));
+
+    expect(failChip.get('background')).toBe('hsl(var(--destructive) / 0.1)');
+    expect(failChip.get('color')).toBe('var(--status-danger-text)');
+    expect(failIcon.get('background')).toBe('hsl(var(--destructive) / 0.1)');
+    expect(failIcon.get('color')).toBe('var(--status-danger-text)');
+  });
+
   it('paints the global settings search box with an opaque recessed gray fill while keeping non-input control surfaces translucent on Windows', () => {
     const searchInput = declarationsFor('.settings-search-input');
     const windowsTokens = declarationsFor('html.host-windows .legacy-design');
@@ -607,7 +654,9 @@ describe('settings page alignment', () => {
     );
     const dshSessionBody = declarationsFor('.settings-page .dsh-session-body');
     const environmentBody = declarationsMatching('.agent-environment-body');
-    const preflightGrid = declarationsFor('.settings-page .agent-preflight-grid');
+    const preflightGrid = declarationsFor(
+      '.settings-page .agent-preflight-grid'
+    );
     const preflightItem = declarationsFor(
       '.settings-page .agent-preflight-grid > li'
     );

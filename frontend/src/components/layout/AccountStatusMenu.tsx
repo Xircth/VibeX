@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Bot,
   ChevronRight,
@@ -15,6 +15,12 @@ import {
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 
+import {
+  ACCOUNT_AVATAR_HOVER_INTRO_KEY,
+  AccountAvatarHoverPromo,
+  hasSeenAccountAvatarHoverIntro,
+  markAccountAvatarHoverIntroSeen,
+} from '@/components/layout/AccountAvatarHoverPromo';
 import {
   Popover,
   PopoverContent,
@@ -50,9 +56,38 @@ export function AccountStatusMenu({ className }: AccountStatusMenuProps) {
   const basicGuide = useOptionalBasicGuide();
   const { isSignedIn, user, signingOut, signOut } = useDimoAccount();
   const [open, setOpen] = useState(false);
+  const [promoOpen, setPromoOpen] = useState(false);
+  const triggerRef = useRef<HTMLButtonElement | null>(null);
 
   const displayName = resolveAccountDisplayName(user);
   const avatarLabel = resolveAccountAvatarLabel(user);
+
+  useEffect(() => {
+    if (isSignedIn) {
+      setPromoOpen(false);
+    }
+  }, [isSignedIn]);
+
+  useEffect(() => {
+    const handleStorage = (event: StorageEvent) => {
+      if (
+        event.key !== null &&
+        event.key !== ACCOUNT_AVATAR_HOVER_INTRO_KEY
+      ) {
+        return;
+      }
+      if (hasSeenAccountAvatarHoverIntro()) {
+        setPromoOpen(false);
+      }
+    };
+    window.addEventListener('storage', handleStorage);
+    return () => window.removeEventListener('storage', handleStorage);
+  }, []);
+
+  const dismissHoverPromo = useCallback(() => {
+    markAccountAvatarHoverIntroSeen();
+    setPromoOpen(false);
+  }, []);
 
   const openPath = (path: string) => {
     setOpen(false);
@@ -64,6 +99,25 @@ export function AccountStatusMenu({ className }: AccountStatusMenuProps) {
       return;
     }
     openSettingsSurface(navigate, path);
+  };
+
+  const handleTriggerMouseEnter = () => {
+    if (isSignedIn || open || promoOpen) return;
+    if (!hasSeenAccountAvatarHoverIntro()) {
+      setPromoOpen(true);
+    }
+  };
+
+  const handlePopoverOpenChange = (nextOpen: boolean) => {
+    setOpen(nextOpen);
+    if (nextOpen && promoOpen) {
+      dismissHoverPromo();
+    }
+  };
+
+  const handlePromoSignIn = () => {
+    dismissHoverPromo();
+    openPath('/settings/account');
   };
 
   const handleOpenChangelog = () => {
@@ -127,35 +181,38 @@ export function AccountStatusMenu({ className }: AccountStatusMenuProps) {
   ] as const;
 
   return (
-    <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger asChild>
-        <button
-          type="button"
-          data-testid="account-status-menu-trigger"
-          aria-label={triggerAria}
-          title={triggerAria}
-          className={cn(
-            'inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-border/80 bg-muted/80 text-[11px] font-semibold text-foreground transition-colors hover:border-foreground/30 hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
-            className
-          )}
+    <>
+      <Popover open={open} onOpenChange={handlePopoverOpenChange}>
+        <PopoverTrigger asChild>
+          <button
+            ref={triggerRef}
+            type="button"
+            data-testid="account-status-menu-trigger"
+            aria-label={triggerAria}
+            title={triggerAria}
+            onMouseEnter={handleTriggerMouseEnter}
+            className={cn(
+              'inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-border/80 bg-muted/80 text-[11px] font-semibold text-foreground transition-colors hover:border-foreground/30 hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+              className
+            )}
+          >
+            {isSignedIn && avatarLabel ? (
+              <span className="leading-none">{avatarLabel}</span>
+            ) : (
+              <User
+                className="h-3.5 w-3.5 text-muted-foreground"
+                aria-hidden="true"
+              />
+            )}
+          </button>
+        </PopoverTrigger>
+        <PopoverContent
+          side="top"
+          align="start"
+          sideOffset={8}
+          data-testid="account-status-menu-content"
+          className="w-60 rounded-xl border border-border bg-popover p-1.5 text-xs text-popover-foreground shadow-lg"
         >
-          {isSignedIn && avatarLabel ? (
-            <span className="leading-none">{avatarLabel}</span>
-          ) : (
-            <User
-              className="h-3.5 w-3.5 text-muted-foreground"
-              aria-hidden="true"
-            />
-          )}
-        </button>
-      </PopoverTrigger>
-      <PopoverContent
-        side="top"
-        align="start"
-        sideOffset={8}
-        data-testid="account-status-menu-content"
-        className="w-60 rounded-xl border border-border bg-popover p-1.5 text-xs text-popover-foreground shadow-lg"
-      >
         <button
           type="button"
           data-testid="account-status-menu-profile"
@@ -285,6 +342,13 @@ export function AccountStatusMenu({ className }: AccountStatusMenuProps) {
           </>
         ) : null}
       </PopoverContent>
-    </Popover>
+      </Popover>
+      <AccountAvatarHoverPromo
+        open={!isSignedIn && promoOpen}
+        triggerRef={triggerRef}
+        onDismiss={dismissHoverPromo}
+        onSignIn={handlePromoSignIn}
+      />
+    </>
   );
 }

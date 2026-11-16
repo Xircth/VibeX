@@ -1,6 +1,9 @@
 import type { Mock } from 'vitest';
 import type { AgentNativeConfigFieldView } from 'shared/types';
 
+import { clearLocalStorageCache, writeLocalStorage } from '@/lib/safeStorage';
+import { AGENT_MODEL_MARKET_INTRO_KEY } from './AgentModelMarketIntroDialog';
+
 export type AgentSettingsApiMocks = {
   bar: Mock;
   registry: Mock;
@@ -70,6 +73,8 @@ export function resetAgentSettingsHarness({
   redeemImportTicketMock,
   userSystem,
 }: AgentSettingsHarnessState): void {
+  clearLocalStorageCache();
+  writeLocalStorage(AGENT_MODEL_MARKET_INTRO_KEY, 'seen');
   listeners.clear();
   tauriListeners.clear();
   tauriInvokeMock.mockReset();

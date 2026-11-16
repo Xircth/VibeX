@@ -350,10 +350,103 @@ export function dismissEditorColumnAfterLastTab(api: DockviewApi): void {
   normalizeGroupIds(api);
 }
 
+export function closeEmptyTabBarGroups(api: DockviewApi): void {
+  if (isDockviewApiDisposed(api)) {
+    return;
+  }
+
+  const sessionGroups = listSessionGroups(api.groups);
+  const hasAnySessionPanels = sessionGroups.some(
+    (group) => group.panels.length > 0
+  );
+  const arrangement = getLayoutArrangement();
+  let removedAnyGroup = false;
+
+  for (const group of [...api.groups]) {
+    if (group.panels.length > 0) continue;
+
+    if (isSessionGroup(group)) {
+      if (group.id === GROUP_IDS.RIGHT && sessionGroups.length === 1) {
+        if (group.api.isVisible) {
+          setColumnVisible(api, arrangement, group, false);
+        }
+        continue;
+      }
+      if (group.api.isVisible) {
+        setColumnVisible(api, arrangement, group, false);
+      }
+      try {
+        preserveLeftDockGroupWidths(api, () => api.removeGroup(group));
+        removedAnyGroup = true;
+      } catch {
+        // Ignore stale groups already removed during layout normalization.
+      }
+      continue;
+    }
+
+    if (
+      (group.id === GROUP_IDS.LEFT || group.id === GROUP_IDS.BOTTOM) &&
+      !group.api.isVisible
+    ) {
+      continue;
+    }
+
+    if (group.api.isVisible) {
+      setColumnVisible(api, arrangement, group, false);
+    }
+
+    if (group.id !== GROUP_IDS.LEFT && group.id !== GROUP_IDS.BOTTOM) {
+      try {
+        preserveLeftDockGroupWidths(api, () => api.removeGroup(group));
+        removedAnyGroup = true;
+      } catch {
+        // Ignore stale groups already removed during layout normalization.
+      }
+    }
+  }
+
+  if (!hasAnySessionPanels && useLayoutStore.getState().isRightPanelVisible) {
+    useLayoutStore.getState().setRightPanelVisible(false);
+  }
+
+  if (removedAnyGroup) {
+    normalizeGroupIds(api);
+  }
+}
+
 export function ensureDockviewSessionPanel(
   api: DockviewApi
 ): DockviewGroup | undefined {
   if (isDockviewApiDisposed(api)) {
+    return undefined;
+  }
+
+  const initialSessionGroups = listSessionGroups(api.groups);
+  const existingInSessionZone =
+    initialSessionGroups
+      .flatMap((group) => group.panels)
+      .find((panel) => panel.id === PANEL_IDS.AI_CHAT) ??
+    initialSessionGroups
+      .flatMap((group) => group.panels)
+      .find((panel) => isSessionPanelId(panel.id)) ??
+    initialSessionGroups.find((group) => group.panels.length > 0)?.panels[0];
+
+  if (existingInSessionZone) {
+    revealSessionPanelWithoutStealingFocus(existingInSessionZone);
+    normalizeGroupIds(api);
+    return existingInSessionZone.group;
+  }
+
+  const existingUnboundOutsideSessionZone = api.getPanel(PANEL_IDS.AI_CHAT);
+  if (existingUnboundOutsideSessionZone) {
+    revealSessionPanelWithoutStealingFocus(existingUnboundOutsideSessionZone);
+    const existingRightGroup = getRightGroup(api);
+    if (existingRightGroup && existingRightGroup.panels.length === 0) {
+      if (existingRightGroup.api.isVisible) {
+        setColumnVisible(api, getLayoutArrangement(), existingRightGroup, false);
+      }
+    }
+    normalizeGroupIds(api);
     return undefined;
   }
 
@@ -376,20 +469,10 @@ export function ensureDockviewSessionPanel(
     setDockviewGroupRole(rightGroup, 'session');
   }
 
-  const sessionGroups = listSessionGroups(api.groups);
-  const existingSessionPanel =
-    api.getPanel(PANEL_IDS.AI_CHAT) ??
-    api.panels.find((panel) => isSessionPanelId(panel.id)) ??
-    sessionGroups.find((group) => group.panels.length > 0)?.panels[0];
-
-  if (existingSessionPanel) {
-    revealSessionPanelWithoutStealingFocus(existingSessionPanel);
-  } else {
-    addSessionPanelWithoutStealingFocus(api, rightGroup);
-  }
+  addSessionPanelWithoutStealingFocus(api, rightGroup);
 
   normalizeGroupIds(api);
-  return rightGroup;
+  return rightGroup.panels.length > 0 ? rightGroup : undefined;
 }
 
 export function restoreWorkspaceDockviewPanels(

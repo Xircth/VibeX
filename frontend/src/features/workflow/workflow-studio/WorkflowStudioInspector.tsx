@@ -94,8 +94,11 @@ export function WorkflowStudioInspector({
       setAgentInstruction('');
       if (dispatched.sessionId && dispatched.workspaceId) {
         const layout = useLayoutStore.getState();
-        layout.setRightPanelVisible(true);
-        layout.setKanbanSessionVisible(true);
+        if (layout.activeTab === 'kanban') {
+          layout.setKanbanSessionVisible(true);
+        } else {
+          layout.setRightPanelVisible(true);
+        }
         dismissCreateSessionOverlays();
         kanbanSession?.activateExecutionSession({
           sessionId: dispatched.sessionId,

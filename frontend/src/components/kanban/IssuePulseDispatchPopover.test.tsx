@@ -7,10 +7,8 @@ import { pulseApi, type PulseDeckSnapshot } from '@/lib/api/pulse';
 import { sessionsApi } from '@/lib/api/sessions';
 import { attentionApi } from '@/lib/api/attention';
 import { automationApi } from '@/lib/api/automations';
-import { collaborationCall } from '@/features/collaboration/collaborationApi';
 import { IssuePulseDispatchPopover } from './IssuePulseDispatchPopover';
 import { OPEN_PULSE_DECK_EVENT } from './pulseDeckEvents';
-import { PulseGuardMenu } from '@/components/layout/BranchInfoHeader';
 import { AttentionInboxBadge } from '@/components/layout/AttentionInboxBadge';
 import { AutomationFailureBadge } from '@/components/layout/AutomationFailureBadge';
 
@@ -36,10 +34,6 @@ vi.mock('@/lib/api/sessions', () => ({
     create: vi.fn(),
     getSummariesByWorkspace: vi.fn().mockResolvedValue([]),
   },
-}));
-
-vi.mock('@/features/collaboration/collaborationApi', () => ({
-  collaborationCall: vi.fn().mockResolvedValue({ items: [] }),
 }));
 
 vi.mock('@/lib/api/attention', () => ({
@@ -88,7 +82,7 @@ function renderWithProviders(ui: React.ReactElement) {
   };
 }
 
-describe('IssuePulseDispatchPopover, PulseGuardMenu & StatusBar Pulse Badges (Track F5 / R4)', () => {
+describe('IssuePulseDispatchPopover & StatusBar Pulse Badges (Track F5 / R4)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     pushListeners.clear();
@@ -279,94 +273,6 @@ describe('IssuePulseDispatchPopover, PulseGuardMenu & StatusBar Pulse Badges (Tr
         await i18n.changeLanguage('zh-CN');
       });
     }
-  });
-
-  it('toggles branch-scoped PR/CI Pulse guards with valid claude-code agent, dynamic Bot/Session fallback, and real subscriber target', async () => {
-    const user = userEvent.setup();
-    vi.mocked(pulseApi.deckSnapshot).mockResolvedValue({
-      engineActive: true,
-      activeTicketCount: 0,
-      pendingUserInteractionCount: 0,
-      sources: [],
-      rules: [],
-      observedCandidates: [],
-      subscriptions: [],
-      pendingInteractions: [],
-    });
-    vi.mocked(collaborationCall).mockResolvedValue({ items: [] });
-    vi.mocked(pulseApi.saveRule).mockImplementation(async ({ spec }) => ({
-      id: `saved-${spec.name}`,
-      revision: 1,
-      enabled: true,
-      draftOnly: false,
-      mandateOrigin: 'explicit_human',
-      spec,
-      matchedCount: 0,
-      observedCount: 0,
-      createdAt: '2026-11-15T00:00:00Z',
-      updatedAt: '2026-11-15T00:00:00Z',
-    }));
-    vi.mocked(pulseApi.subscribeThread).mockResolvedValue({
-      id: 'sub-pr',
-      threadKey: 'github:VibeX#feature/pulse',
-      subscriberKind: 'session',
-      subscriberId: 'sess-active-9',
-      active: true,
-      createdAt: '2026-11-15T00:00:00Z',
-    });
-
-    renderWithProviders(
-      <PulseGuardMenu
-        repoName="VibeX"
-        branchName="feature/pulse"
-        worktreeId="ws-1"
-        sessionId="sess-active-9"
-      />
-    );
-
-    await user.click(screen.getByTestId('branch-pulse-guard-trigger'));
-    await user.click(screen.getByTestId('pulse-guard-ci-failure'));
-
-    await waitFor(() => {
-      expect(pulseApi.saveRule).toHaveBeenCalledWith(
-        expect.objectContaining({
-          spec: expect.objectContaining({
-            targets: [
-              expect.objectContaining({
-                kind: 'session',
-                agentId: 'claude-code',
-              }),
-            ],
-          }),
-        })
-      );
-    });
-
-    // With no collaboration bots configured, PR guard falls back to claude-code Fresh Session
-    await user.click(screen.getByTestId('pulse-guard-pr-comments'));
-    await waitFor(() => {
-      expect(pulseApi.saveRule).toHaveBeenLastCalledWith(
-        expect.objectContaining({
-          spec: expect.objectContaining({
-            targets: [
-              expect.objectContaining({
-                kind: 'session',
-                agentId: 'claude-code',
-              }),
-            ],
-          }),
-        })
-      );
-    });
-
-    await user.click(screen.getByTestId('pulse-guard-subscribe-pr'));
-    await waitFor(() => {
-      expect(pulseApi.subscribeThread).toHaveBeenCalledWith(
-        'github:VibeX#feature/pulse',
-        'session',
-        'sess-active-9'
-      );
-    });
   });
 
   it('shares a single usePulseDeckSnapshot query across badges, prunes resolvedPulseIds, and dispatches vibex:open-pulse-deck on Observe click', async () => {

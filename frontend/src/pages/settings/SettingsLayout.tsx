@@ -519,7 +519,7 @@ export function SettingsLayout() {
         <section
           data-settings-content
           className={cn(
-            'min-h-0 min-w-0 flex-1 p-4',
+            'relative min-h-0 min-w-0 flex-1 p-4',
             location.pathname.startsWith('/plugins') ||
               location.pathname.startsWith('/settings/mcp')
               ? 'flex flex-col overflow-hidden'

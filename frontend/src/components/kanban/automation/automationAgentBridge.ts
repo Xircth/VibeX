@@ -343,7 +343,6 @@ export function activateAutomationSessionInRightSidebar(
   activateExecutionSession?: (placement: KanbanSessionPlacement) => void
 ): void {
   const layout = useLayoutStore.getState();
-  layout.setRightPanelVisible(true);
   layout.setKanbanSessionVisible(true);
   dismissCreateSessionOverlays();
   if (dispatched.sessionId && dispatched.workspaceId) {
@@ -358,7 +357,6 @@ export function ensureRightSessionSidebarOpen(): void {
   dismissCollaborationCreateOverlays();
   dismissCreateSessionOverlays();
   const layout = useLayoutStore.getState();
-  layout.setRightPanelVisible(true);
   layout.setKanbanSessionVisible(true);
 }
 

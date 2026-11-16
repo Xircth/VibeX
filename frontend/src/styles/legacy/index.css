@@ -11,14 +11,14 @@
   .legacy-design {
     /* Definite scheme: `light dark` makes WebView2 paint Win11 text fields. */
     color-scheme: light;
-    /* Astryx neutral light. The page is #ffffff; user messages use #f1f1f1. */
+    /* Astryx neutral light. The page is #ffffff; chrome is #f4f4f4. */
     --_background: 0 0% 100%;
     --_foreground: 0 0% 9%;
     --_primary: var(--accent-hsl, 0 0% 10.59%);
     --_primary-foreground: var(--accent-foreground-hsl, 0 0% 100%);
-    --_secondary: 0 0% 94.5%;
+    --_secondary: 0 0% 95.7%;
     --_secondary-foreground: 0 0% 9%;
-    --_muted: 0 0% 94.5%;
+    --_muted: 0 0% 95.7%;
     --_muted-foreground: 0 0% 32.2%;
     --_accent: 0 0% 89.8%;
     --_accent-foreground: 0 0% 9%;
@@ -285,7 +285,7 @@
     --switch-checked-border: var(--switch-checked-track);
     --switch-checked-thumb: var(--surface-raised-control);
     --surface-shell: #ffffff;
-    --surface-topbar: #f1f1f1;
+    --surface-topbar: #f4f4f4;
     --surface-tabbar: color-mix(
       in srgb,
       var(--surface-topbar) 55%,
@@ -5257,6 +5257,11 @@ html.dark {
     touch-action: none;
   }
 
+  .workspace-activity-rail[data-rail-mode='kanban']
+    .workspace-side-rail-button {
+    cursor: pointer;
+  }
+
   .workspace-side-rail-button:hover {
     color: hsl(var(--foreground));
     background: transparent;
@@ -5315,6 +5320,7 @@ html.dark {
   }
 
   .workspace-right-panel {
+    position: relative;
     background:
       linear-gradient(
         180deg,
@@ -6096,8 +6102,7 @@ html.dark {
 
   .kanban-shell {
     background: var(--surface-page-solid);
-    overflow: clip;
-    overscroll-behavior: none;
+    overflow: hidden;
   }
 
   .kanban-overlay,
@@ -6108,55 +6113,6 @@ html.dark {
 
   .kanban-overlay[hidden] {
     display: none !important;
-  }
-
-  .kanban-nav-arrow {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: auto;
-    height: auto;
-    padding: 0.125rem 0;
-    color: var(--text-muted);
-    background: transparent;
-    border: none;
-    box-shadow: none;
-    cursor: pointer;
-    opacity: 0;
-    pointer-events: none;
-    filter: drop-shadow(0 0 8px var(--surface-page-solid));
-  }
-
-  [data-panel='kanban']:hover .kanban-nav-arrow,
-  .kanban-nav-arrow:focus-visible {
-    pointer-events: auto;
-  }
-
-  .kanban-nav-arrow:hover,
-  .kanban-nav-arrow:focus-visible {
-    color: var(--text-strong);
-  }
-
-  @media (prefers-reduced-motion: no-preference) {
-    [data-panel='kanban']:hover .kanban-nav-arrow,
-    .kanban-nav-arrow:focus-visible {
-      animation: kanban-nav-arrow-breathe 2.4s ease-in-out infinite;
-    }
-
-    .kanban-nav-arrow[data-side='left'] {
-      --kanban-nav-arrow-nudge: 3px;
-    }
-
-    .kanban-nav-arrow[data-side='right'] {
-      --kanban-nav-arrow-nudge: -3px;
-    }
-  }
-
-  @media (prefers-reduced-motion: reduce) {
-    [data-panel='kanban']:hover .kanban-nav-arrow,
-    .kanban-nav-arrow:focus-visible {
-      opacity: 0.85;
-    }
   }
 
   .kanban-board-surface {
@@ -7721,7 +7677,7 @@ html.dark {
     )::after {
     position: absolute;
     border: 1px solid var(--border-subtle);
-    border-radius: var(--radius-container, var(--radius));
+    border-radius: var(--radius-composer, var(--radius-container, var(--radius)));
     background: var(--surface-card-strong);
     box-shadow: var(--shadow-control);
     content: '';
@@ -7757,6 +7713,7 @@ html.dark {
     overflow-y: auto;
     overscroll-behavior: contain;
     border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-composer, var(--radius-container, var(--radius)));
     background: var(--surface-card-strong);
     color: var(--text-primary);
     box-shadow: var(--shadow-card);
@@ -10919,9 +10876,10 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
   height: 28px;
   flex: 0 0 28px;
   place-items: center;
+  border: 1px solid hsl(var(--warning) / 0.34);
   border-radius: 50%;
   background: hsl(var(--warning) / 0.12);
-  color: hsl(var(--warning));
+  color: var(--status-warning-text);
 }
 
 .settings-page .agent-preflight-status-icon svg {
@@ -10930,34 +10888,42 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
 }
 
 .settings-page .agent-preflight-status-icon.is-pass {
-  background: hsl(var(--success) / 0.12);
-  color: hsl(var(--success));
+  border-color: hsl(var(--success) / 0.32);
+  background: hsl(var(--success) / 0.1);
+  color: hsl(var(--success-foreground));
 }
 
 .settings-page .agent-preflight-status-icon.is-fail {
-  background: hsl(var(--destructive) / 0.11);
-  color: hsl(var(--destructive));
+  border-color: hsl(var(--destructive) / 0.32);
+  background: hsl(var(--destructive) / 0.1);
+  color: var(--status-danger-text);
 }
 
 .settings-page .agent-preflight-status {
-  padding: 3px 7px;
-  border: 1px solid hsl(var(--warning) / 0.28);
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 7px;
+  border: 1px solid hsl(var(--warning) / 0.34);
   border-radius: 999px;
-  color: hsl(var(--warning));
+  background: hsl(var(--warning) / 0.12);
+  color: var(--status-warning-text);
   font-size: 0.6875rem;
-  font-weight: 600;
-  line-height: 1.3;
+  font-weight: 500;
+  line-height: 1.4;
   white-space: nowrap;
 }
 
 .settings-page .agent-preflight-status.is-pass {
-  border-color: hsl(var(--success) / 0.28);
-  color: hsl(var(--success));
+  border-color: hsl(var(--success) / 0.32);
+  background: hsl(var(--success) / 0.1);
+  color: hsl(var(--success-foreground));
 }
 
 .settings-page .agent-preflight-status.is-warning {
-  border-color: hsl(var(--warning) / 0.28);
-  color: hsl(var(--warning));
+  border-color: hsl(var(--warning) / 0.34);
+  background: hsl(var(--warning) / 0.12);
+  color: var(--status-warning-text);
 }
 
 .settings-page .agent-preflight-status.is-update {
@@ -11081,8 +11047,8 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
   min-height: 0;
   font-family: inherit;
   font-size: 0.6875rem;
-  font-weight: 600;
-  line-height: 1.3;
+  font-weight: 500;
+  line-height: 1.4;
   cursor: pointer;
 }
 
@@ -11109,8 +11075,9 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
 }
 
 .settings-page .agent-preflight-status.is-fail {
-  border-color: hsl(var(--destructive) / 0.28);
-  color: hsl(var(--destructive));
+  border-color: hsl(var(--destructive) / 0.32);
+  background: hsl(var(--destructive) / 0.1);
+  color: var(--status-danger-text);
 }
 
 .settings-page .agent-preflight-chevron {
@@ -17598,18 +17565,6 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
     );
     box-shadow: 0 0 0 1px
       color-mix(in srgb, var(--session-status-inreview) 30%, transparent);
-  }
-}
-
-@keyframes kanban-nav-arrow-breathe {
-  0%,
-  100% {
-    opacity: 0.42;
-    transform: translateX(0);
-  }
-  50% {
-    opacity: 1;
-    transform: translateX(var(--kanban-nav-arrow-nudge, 0px));
   }
 }
 

@@ -287,6 +287,11 @@ describe('ComposerDock BotSpace session settings', () => {
       '语音输入',
       '发送',
     ]);
+    for (const label of ['选择文件', '提示词优化', '@助手']) {
+      const btn = screen.getByRole('button', { name: label });
+      expect(btn).toHaveClass('h-7', 'w-7');
+      expect(btn.querySelector('svg')).toHaveClass('h-3.5', 'w-3.5');
+    }
   });
 
   it('shows raised session settings left of microphone and send in BotSpace and supports adjusting config and switching Agent', async () => {

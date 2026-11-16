@@ -1177,4 +1177,124 @@ describe('PanelActionsContext editor placement', () => {
     api.dispose();
     container.remove();
   });
+
+  it('preserves Zone A, Zone C, and sibling editor column widths when splitting an editor panel horizontally', () => {
+    useLayoutStore.getState().resetLayout();
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    const api = createDockview(container, {
+      disableAutoResizing: true,
+      createComponent: () => ({
+        element: document.createElement('div'),
+        init: () => {},
+        dispose: () => {},
+      }),
+    });
+    api.layout(1800, 800, true);
+
+    const p1 = api.addPanel({
+      id: 'preview:a.ts',
+      component: 'preview',
+      title: 'a.ts',
+    });
+    const editor1 = p1.group;
+    (editor1 as { id: string }).id = 'group-editor-1';
+    syncDockviewGroupRegistry(api);
+
+    const leftGroup = api.addGroup({
+      id: 'group-left',
+      referencePanel: p1,
+      direction: 'left',
+      initialWidth: 240,
+    });
+    leftGroup.element?.setAttribute('data-left-dock', 'true');
+    api.addPanel({
+      id: 'session-list',
+      component: 'session-list',
+      title: 'Sessions',
+      position: { referenceGroup: leftGroup, direction: 'within' },
+    });
+
+    const rightGroup = api.addGroup({
+      id: 'group-right',
+      referencePanel: p1,
+      direction: 'right',
+      initialWidth: 434,
+    });
+    rightGroup.element?.setAttribute('data-session-dock', 'true');
+    api.addPanel({
+      id: 'ai-chat',
+      component: 'ai-chat',
+      title: 'Chat',
+      position: { referenceGroup: rightGroup, direction: 'within' },
+    });
+
+    const editor2 = api.addGroup({
+      id: 'group-editor-2',
+      referencePanel: p1,
+      direction: 'right',
+    });
+    const p2 = api.addPanel({
+      id: 'preview:b.ts',
+      component: 'preview',
+      title: 'b.ts',
+      position: { referenceGroup: editor2, direction: 'within' },
+    });
+    const p3 = api.addPanel({
+      id: 'preview:c.ts',
+      component: 'preview',
+      title: 'c.ts',
+      position: { referenceGroup: editor2, direction: 'within' },
+    });
+
+    settleDockviewGroupWidths([
+      { group: leftGroup, width: 240 },
+      { group: editor1, width: 526 },
+      { group: editor2, width: 600 },
+      { group: rightGroup, width: 434 },
+    ]);
+
+    let actions: PanelActions | undefined;
+    function Probe() {
+      actions = usePanelActionsContext();
+      return null;
+    }
+    renderWithQueryClient(
+      <PanelActionsProvider>
+        <Probe />
+      </PanelActionsProvider>
+    );
+    act(() => actions?.setDockviewApi(api as unknown as DockviewApi));
+
+    let splitLeftResult = false;
+    act(() => {
+      splitLeftResult = actions?.splitEditorPanel(p2.id, 'left') ?? false;
+    });
+    expect(splitLeftResult).toBe(true);
+
+    const splitLeftGroup = api.getPanel(p2.id)!.group;
+    expect(splitLeftGroup).not.toBe(editor2);
+    expect(Math.abs(leftGroup.api.width - 240)).toBeLessThan(8);
+    expect(Math.abs(rightGroup.api.width - 434)).toBeLessThan(8);
+    expect(Math.abs(editor1.api.width - 526)).toBeLessThan(8);
+    expect(Math.abs(editor2.api.width - 300)).toBeLessThan(8);
+    expect(Math.abs(splitLeftGroup.api.width - 300)).toBeLessThan(8);
+
+    // Also verify splitting p3 to the right splits only editor2 (300 -> ~150 each).
+    let splitRightResult = false;
+    act(() => {
+      splitRightResult = actions?.splitEditorPanel(p3.id, 'right') ?? false;
+    });
+    expect(splitRightResult).toBe(true);
+
+    const splitRightGroup = api.getPanel(p3.id)!.group;
+    expect(splitRightGroup).not.toBe(editor2);
+    expect(Math.abs(leftGroup.api.width - 240)).toBeLessThan(8);
+    expect(Math.abs(rightGroup.api.width - 434)).toBeLessThan(8);
+    expect(Math.abs(editor1.api.width - 526)).toBeLessThan(8);
+    expect(Math.abs(splitLeftGroup.api.width - 300)).toBeLessThan(8);
+
+    api.dispose();
+    container.remove();
+  });
 });

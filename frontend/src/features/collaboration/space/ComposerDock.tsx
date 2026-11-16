@@ -409,7 +409,7 @@ export const ComposerDock = memo(function ComposerDock() {
                   data-placement="composer"
                   aria-live="polite"
                 >
-                  <div className="composer-status-surface rounded-lg">
+                  <div className="composer-status-surface rounded-[var(--radius-composer,0.75rem)]">
                     <div
                       className="composer-status-row text-xs"
                       data-tone="info"
@@ -493,11 +493,11 @@ export const ComposerDock = memo(function ComposerDock() {
                 disabled={sending}
                 size="sm"
                 variant="ghost"
-                className="collaboration-icon-btn h-8 w-8 p-0"
+                className="collaboration-icon-btn h-7 w-7 p-0"
                 title={i18n.t('panels:ui.collabPage.chooseFile')}
                 aria-label={i18n.t('panels:ui.collabPage.chooseFile')}
               >
-                <Paperclip className="h-[18px] w-[18px]" aria-hidden="true" />
+                <Paperclip className="h-3.5 w-3.5" aria-hidden="true" />
               </Button>
               <ActionBarUtilityButtons
                 compactContextEnabled={false}
@@ -517,11 +517,11 @@ export const ComposerDock = memo(function ComposerDock() {
                 disabled={sending}
                 size="sm"
                 variant="ghost"
-                className="collaboration-icon-btn h-8 w-8 p-0"
+                className="collaboration-icon-btn h-7 w-7 p-0"
                 title={i18n.t('panels:ui.collabPage.bot')}
                 aria-label={i18n.t('panels:ui.collabPage.bot')}
               >
-                <AtSign className="h-[18px] w-[18px]" aria-hidden="true" />
+                <AtSign className="h-3.5 w-3.5" aria-hidden="true" />
               </Button>
               {isAutomateDraft ? (
                 <span

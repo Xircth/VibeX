@@ -79,5 +79,11 @@
     "pin": "Pin",
     "unpin": "Unpin",
     "rename": "Rename"
+  },
+  "githubStarPrompt": {
+    "ariaLabel": "Star Dimo on GitHub",
+    "message": "If Dimo has helped you, would you consider giving it a Star on GitHub?",
+    "later": "Maybe later",
+    "cta": "Star on GitHub"
   }
 }

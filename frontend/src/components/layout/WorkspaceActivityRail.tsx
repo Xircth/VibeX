@@ -24,16 +24,23 @@ import {
   BarChart3,
   Bot,
   Code2,
+  Columns3,
+  Combine,
   FolderOpen,
   GitBranch,
+  LayoutGrid,
   MessagesSquare,
+  Puzzle,
   Search,
-  Combine,
   type LucideIcon,
 } from 'lucide-react';
 
+import { contributionIconComponent } from '@/components/plugins/contributionIcon';
 import { useOptionalKanbanSessionContext } from '@/contexts/KanbanSessionContext';
 import { usePanelActionsContext } from '@/contexts/PanelActionsContext';
+import { useKanbanViews } from '@/hooks/useKanbanViews';
+import { useKanbanBoardStyle } from '@/lib/kanbanBoardStyle';
+import { resolveKanbanViewId } from '@/lib/kanbanViews';
 import { cn } from '@/lib/utils';
 import {
   type ActivityRailItemId,
@@ -59,25 +66,21 @@ const RAIL_ICONS: Record<ActivityRailItemId, LucideIcon> = {
   [PANEL_IDS.BOTS]: Bot,
 };
 
-const KANBAN_RAIL_VIEWS: Array<{
-  id: 'builtin:usage' | 'builtin:pulse';
-  titleKey: string;
-  fallback: string;
-  Icon: LucideIcon;
-}> = [
-  {
-    id: 'builtin:usage',
-    titleKey: 'kanbanViews.usage',
-    fallback: '计量统计',
-    Icon: BarChart3,
-  },
-  {
-    id: 'builtin:pulse',
-    titleKey: 'kanbanViews.pulse',
-    fallback: '自动化任务',
-    Icon: Activity,
-  },
-];
+const BUILTIN_KANBAN_RAIL_ICONS: Record<string, LucideIcon> = {
+  'builtin:usage': BarChart3,
+  'builtin:pulse': Activity,
+  'builtin:sessions': MessagesSquare,
+  'builtin:canvas': LayoutGrid,
+  'builtin:columns': Columns3,
+};
+
+const BUILTIN_KANBAN_RAIL_FALLBACKS: Record<string, string> = {
+  'builtin:usage': '计量统计',
+  'builtin:pulse': '自动化任务',
+  'builtin:sessions': '会话',
+  'builtin:canvas': '画布',
+  'builtin:columns': '任务面板',
+};
 
 export function WorkspaceActivityRail({
   isEditorAreaVisible,
@@ -88,10 +91,74 @@ export function WorkspaceActivityRail({
   onToggleEditorArea: () => void;
   mode?: 'workspace' | 'kanban';
 }) {
+  if (mode === 'kanban') {
+    return <KanbanActivityRail />;
+  }
+  return (
+    <WorkspacePanelActivityRail
+      isEditorAreaVisible={isEditorAreaVisible}
+      onToggleEditorArea={onToggleEditorArea}
+    />
+  );
+}
+
+function KanbanActivityRail() {
   const { t } = useTranslation('panels');
   const kanbanContext = useOptionalKanbanSessionContext();
   const activeViewId = kanbanContext?.activeViewId ?? 'builtin:usage';
   const setActiveViewId = kanbanContext?.setActiveViewId;
+  const views = useKanbanViews();
+  const boardStyle = useKanbanBoardStyle();
+  const currentViewId =
+    resolveKanbanViewId(activeViewId, views, boardStyle) ?? activeViewId;
+
+  return (
+    <nav
+      aria-label={t('ideLayout.activityRailAria')}
+      data-rail-mode="kanban"
+      className="workspace-activity-rail workspace-chrome relative flex w-9 shrink-0 flex-col items-center gap-0.5 pt-2"
+    >
+      {views.map((view) => {
+        const label = t(view.titleKey, {
+          defaultValue: BUILTIN_KANBAN_RAIL_FALLBACKS[view.id] ?? view.titleKey,
+        });
+        const isActive = currentViewId === view.id;
+        const Icon =
+          BUILTIN_KANBAN_RAIL_ICONS[view.id] ??
+          contributionIconComponent(view.icon, Puzzle);
+        return (
+          <button
+            key={view.id}
+            type="button"
+            data-testid={`kanban-rail-${view.id}`}
+            data-basic-guide={
+              view.id === 'builtin:usage' ? 'kanban-next-page' : undefined
+            }
+            aria-label={label}
+            aria-pressed={isActive}
+            title={label}
+            onClick={() => setActiveViewId?.(view.id)}
+            className={cn(
+              'workspace-side-rail-button flex h-7 w-7 items-center justify-center',
+              isActive && 'is-active'
+            )}
+          >
+            <Icon className="h-3.5 w-3.5" />
+          </button>
+        );
+      })}
+    </nav>
+  );
+}
+
+function WorkspacePanelActivityRail({
+  isEditorAreaVisible,
+  onToggleEditorArea,
+}: {
+  isEditorAreaVisible: boolean;
+  onToggleEditorArea: () => void;
+}) {
+  const { t } = useTranslation('panels');
   const {
     toggleFileTree,
     toggleGitPanel,
@@ -204,7 +271,10 @@ export function WorkspaceActivityRail({
   const collisionDetection = useCallback<CollisionDetection>((args) => {
     const pointer = args.pointerCoordinates;
     const box = dockBoxRef.current;
-    if (pointer && (dropZoneRef.current || (box && boxContains(box, pointer)))) {
+    if (
+      pointer &&
+      (dropZoneRef.current || (box && boxContains(box, pointer)))
+    ) {
       return [];
     }
     return closestCenter(args);
@@ -300,39 +370,6 @@ export function WorkspaceActivityRail({
     },
     [order, persistOrder]
   );
-
-  if (mode === 'kanban') {
-    return (
-      <nav
-        ref={railRef}
-        aria-label={t('ideLayout.activityRailAria')}
-        className="workspace-activity-rail workspace-chrome relative flex w-9 shrink-0 flex-col items-center gap-0.5 pt-2"
-      >
-        {KANBAN_RAIL_VIEWS.map((view) => {
-          const label = t(view.titleKey, view.fallback);
-          const isActive = activeViewId === view.id;
-          const Icon = view.Icon;
-          return (
-            <button
-              key={view.id}
-              type="button"
-              data-testid={`kanban-rail-${view.id}`}
-              aria-label={label}
-              aria-pressed={isActive}
-              title={label}
-              onClick={() => setActiveViewId?.(view.id)}
-              className={cn(
-                'workspace-side-rail-button flex h-7 w-7 items-center justify-center',
-                isActive && 'is-active'
-              )}
-            >
-              <Icon className="h-3.5 w-3.5" />
-            </button>
-          );
-        })}
-      </nav>
-    );
-  }
 
   return (
     <nav

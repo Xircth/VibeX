@@ -10,6 +10,7 @@ import {
   type CanvasStageInsets,
 } from '@/components/layout/canvasStageInsets';
 import {
+  closeEmptyTabBarGroups,
   defaultSessionWidth,
   dismissEditorColumnAfterLastTab,
   getEditorGroups,
@@ -35,8 +36,8 @@ import {
   useLayoutStore,
 } from '@/stores/useLayoutStore';
 import {
+  captureZoneColumnWidths,
   installEditorColumnWidthRebalance,
-  preserveLeftDockGroupWidths,
   restoreFlexibleEditorColumn,
   setColumnVisible,
   setSessionDockVisible,
@@ -63,7 +64,10 @@ import {
 } from '@/utils/dockviewGroupRole';
 import { installDockviewPointerTabDnd } from '@/utils/dockviewPointerTabDnd';
 import { isDockviewApiDisposed } from '@/utils/dockviewSessionPanel';
-import { layoutDockviewPreservingGroupWidths } from '@/utils/dockviewStartupSizing';
+import {
+  layoutDockviewPreservingGroupWidths,
+  settleDockviewGroupWidths,
+} from '@/utils/dockviewStartupSizing';
 import { applyWorkspaceZoneConstraints } from '@/utils/dockviewWorkspaceConstraints';
 import { shouldDismissEditorColumnAfterPanelRemoval } from '@/utils/lastPreviewTabLayout';
 
@@ -252,46 +256,44 @@ export function attachDockviewWorkspaceListeners(
     ? installDockviewPointerTabDnd(dockviewRootEl)
     : null;
   const dndGuardDisposable = registerDndGuard(api);
-  const columnWidthRebalance = installEditorColumnWidthRebalance(api, {
-    shouldRebalance: () => !isResettingRef.current,
-  });
+  let isInternalAnchorSync = false;
 
   const removePanelDisposable = api.onDidRemovePanel((panel) => {
     if (isResettingRef.current) return;
 
-    if (isSessionPanelId(panel.id)) {
-      const remainingSessionPanels = api.panels.some((item) =>
-        isSessionPanelId(item.id)
+    const sessionGroupsHavePanels = listSessionGroups(api.groups).some(
+      (group) => group.panels.length > 0
+    );
+    if (
+      !sessionGroupsHavePanels &&
+      (isSessionPanelId(panel.id) ||
+        useLayoutStore.getState().isRightPanelVisible)
+    ) {
+      const leftGroup = getLeftGroup(api);
+      const dockWidthBefore = leftGroup?.api.isVisible
+        ? leftGroup.api.width
+        : undefined;
+      useLayoutStore.getState().setRightPanelVisible(false);
+      setSessionDockVisible(api, getLayoutArrangement(), false);
+      const hasVisibleEditorPanels = getEditorGroups(api).some(
+        (group) => group.api.isVisible && group.panels.length > 0
       );
-      const sessionGroupsHavePanels = listSessionGroups(api.groups).some(
-        (group) => group.panels.length > 0
-      );
-      if (!remainingSessionPanels && !sessionGroupsHavePanels) {
-        const leftGroup = getLeftGroup(api);
-        const dockWidthBefore = leftGroup?.api.isVisible
-          ? leftGroup.api.width
-          : undefined;
-        useLayoutStore.getState().setRightPanelVisible(false);
-        setSessionDockVisible(api, getLayoutArrangement(), false);
-        const hasVisibleEditorPanels = getEditorGroups(api).some(
-          (group) => group.api.isVisible && group.panels.length > 0
-        );
-        if (!hasVisibleEditorPanels) {
-          const welcomeGroup = recreateWelcomeEditorGroup(api);
-          if (welcomeGroup) {
-            setColumnVisible(api, getLayoutArrangement(), welcomeGroup, true);
-            restoreFlexibleEditorColumn(
-              api,
-              getLayoutArrangement(),
-              useLayoutStore.getState().rightPanelWidth,
-              dockWidthBefore
-            );
-            api.getPanel(PANEL_IDS.WELCOME)?.api.setActive();
-          }
+      if (!hasVisibleEditorPanels) {
+        const welcomeGroup = recreateWelcomeEditorGroup(api);
+        if (welcomeGroup) {
+          setColumnVisible(api, getLayoutArrangement(), welcomeGroup, true);
+          restoreFlexibleEditorColumn(
+            api,
+            getLayoutArrangement(),
+            useLayoutStore.getState().rightPanelWidth,
+            dockWidthBefore
+          );
+          api.getPanel(PANEL_IDS.WELCOME)?.api.setActive();
         }
-        normalizeGroupIds(api);
-        return;
       }
+      normalizeGroupIds(api);
+      closeEmptyTabBarGroups(api);
+      return;
     }
 
     normalizeGroupIds(api);
@@ -327,6 +329,7 @@ export function attachDockviewWorkspaceListeners(
         }
       }
     }
+    closeEmptyTabBarGroups(api);
   });
 
   const normalizeGroupsDisposable = api.onDidAddGroup((group) => {
@@ -395,13 +398,21 @@ export function attachDockviewWorkspaceListeners(
     }
 
     if (listSessionGroups(api.groups).length === 0) {
+      if (useLayoutStore.getState().isRightPanelVisible) {
+        useLayoutStore.getState().setRightPanelVisible(false);
+      }
       const editorGroups = getEditorGroups(api);
       const referenceGroup =
         editorGroups[editorGroups.length - 1] ?? getLeftGroup(api);
       const referencePanel = referenceGroup?.panels[0];
       if (referencePanel) {
-        const rightGroup = preserveLeftDockGroupWidths(api, () =>
-          api.addGroup({
+        const preVisibleTargets = captureZoneColumnWidths(api).map((col) => ({
+          group: col.group,
+          width: col.width,
+        }));
+        isInternalAnchorSync = true;
+        try {
+          const rightGroup = api.addGroup({
             id: GROUP_IDS.RIGHT,
             referencePanel,
             direction: 'right',
@@ -409,23 +420,32 @@ export function attachDockviewWorkspaceListeners(
             initialWidth:
               useLayoutStore.getState().rightPanelWidth ||
               defaultSessionWidth(api.width),
-          })
-        );
-        setDockviewGroupRole(rightGroup, 'session');
-        rightGroup.element?.setAttribute('data-session-dock', 'true');
-        if (!useLayoutStore.getState().isRightPanelVisible) {
+          });
+          setDockviewGroupRole(rightGroup, 'session');
+          rightGroup.element?.setAttribute('data-session-dock', 'true');
           rightGroup.api.setVisible(false);
+          if (preVisibleTargets.length > 0) {
+            settleDockviewGroupWidths(preVisibleTargets);
+          }
+        } finally {
+          isInternalAnchorSync = false;
         }
       }
     }
 
     normalizeGroupIds(api);
+    closeEmptyTabBarGroups(api);
   });
 
   const removeGroupDisposable = api.onDidRemoveGroup(() => {
     if (!isResettingRef.current) {
       normalizeGroupIds(api);
     }
+  });
+
+  const columnWidthRebalance = installEditorColumnWidthRebalance(api, {
+    shouldRebalance: () =>
+      !isResettingRef.current && !isInternalAnchorSync,
   });
 
   let layoutPersistIdleHandle: number | null = null;
@@ -458,6 +478,7 @@ export function attachDockviewWorkspaceListeners(
       }
 
       normalizeGroupIds(api);
+      closeEmptyTabBarGroups(api);
 
       // Self-heal: if some code path re-created a zone group in the
       // wrong column, snap the grid back to the configured arrangement.

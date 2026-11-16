@@ -79,5 +79,11 @@
     "pin": "置顶",
     "unpin": "取消置顶",
     "rename": "重命名"
+  },
+  "githubStarPrompt": {
+    "ariaLabel": "GitHub Star 邀请",
+    "message": "如果 Dimo 帮助到了您，不如在 GitHub 点上 Star？",
+    "later": "以后再说",
+    "cta": "前往 GitHub 点 Star"
   }
 }

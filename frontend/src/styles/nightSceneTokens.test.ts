@@ -75,7 +75,7 @@ describe('dark night scene tokens', () => {
     expect(css).toContain('--surface-right-panel: var(--surface-shell);');
     expect(css).not.toContain('html.host-windows .legacy-design {');
     expect(light.get('--surface-shell')).toBe('#ffffff');
-    expect(light.get('--surface-topbar')).toBe('#f1f1f1');
+    expect(light.get('--surface-topbar')).toBe('#f4f4f4');
     expect(light.get('--surface-glass-solid')).toBe('var(--surface-shell)');
     expect(dark.get('--surface-shell')).toBe('#1b1b1b');
     expect(dark.get('--surface-topbar')).toBe('var(--surface-shell)');

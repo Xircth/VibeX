@@ -128,6 +128,11 @@ describe('ActionBar', () => {
       '语音输入',
       '发送',
     ]);
+    for (const label of ['附加文件', '压缩上下文', '提示词优化']) {
+      const btn = screen.getByRole('button', { name: label });
+      expect(btn).toHaveClass('h-7', 'w-7');
+      expect(btn.querySelector('svg')).toHaveClass('h-3.5', 'w-3.5');
+    }
     expect(screen.getByTestId('session-settings-summary')).not.toHaveClass(
       'raised-control'
     );

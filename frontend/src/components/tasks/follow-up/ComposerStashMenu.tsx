@@ -238,12 +238,12 @@ export const ComposerStashMenu = memo(function ComposerStashMenu({
         disabled={!canStash}
         size="sm"
         variant="ghost"
-        className="h-8 w-8 p-0"
+        className="h-7 w-7 p-0"
         title={`${stashLabel} (Ctrl+Alt+S)`}
         aria-label={stashLabel}
         data-testid="composer-stash-push-button"
       >
-        <Layers className="h-[18px] w-[18px]" aria-hidden="true" />
+        <Layers className="h-3.5 w-3.5" aria-hidden="true" />
       </Button>
     );
   }
@@ -258,12 +258,12 @@ export const ComposerStashMenu = memo(function ComposerStashMenu({
           disabled={!isEditable}
           size="sm"
           variant="ghost"
-          className="h-8 gap-1.5 px-2 text-sm tabular-nums"
+          className="h-7 gap-1 px-2 text-xs tabular-nums"
           title={`${menuLabel} (Ctrl+Alt+S)`}
           aria-label={menuLabel}
           data-testid="composer-stash-menu-trigger"
         >
-          <Layers className="h-[18px] w-[18px]" aria-hidden="true" />
+          <Layers className="h-3.5 w-3.5" aria-hidden="true" />
           <span className="tabular-nums">{items.length}</span>
         </Button>
       </PopoverTrigger>

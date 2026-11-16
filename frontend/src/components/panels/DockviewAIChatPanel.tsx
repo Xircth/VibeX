@@ -142,7 +142,7 @@ function WorkspaceSessionTabContent({
 
   return (
     <div
-      className="workspace-right-panel h-full w-full min-w-0 flex flex-col overflow-hidden"
+      className="workspace-right-panel relative h-full w-full min-w-0 flex flex-col overflow-hidden"
       data-panel="ai-chat"
       data-session-id={sessionId}
     >
@@ -237,7 +237,7 @@ function DockviewAIChatPanel(
   return (
     <div
       ref={containerRef}
-      className="workspace-right-panel h-full w-full min-w-0 overflow-hidden"
+      className="workspace-right-panel relative h-full w-full min-w-0 overflow-hidden"
       data-panel="ai-chat"
     />
   );

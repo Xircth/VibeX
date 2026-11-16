@@ -387,7 +387,7 @@ describe('PulseDeckView (Agent-First 2-Tab Automation Workbench)', () => {
       expect(consumePendingWorkflowStudioOpen()).toEqual({ createNew: true });
       expect(overlayEvents.length).toBe(0);
       expect(useLayoutStore.getState().isKanbanSessionVisible).toBe(true);
-      expect(useLayoutStore.getState().isRightPanelVisible).toBe(true);
+      expect(useLayoutStore.getState().isRightPanelVisible).toBe(false);
 
       // Return from new workflow draft back to the Task List restores the closed right sidebar
       await user.click(await screen.findByTestId('embedded-studio-back-btn'));
@@ -478,7 +478,7 @@ describe('PulseDeckView (Agent-First 2-Tab Automation Workbench)', () => {
         await screen.findByTestId('mock-embedded-workflow-studio-canvas')
       ).toBeInTheDocument();
       expect(useLayoutStore.getState().isKanbanSessionVisible).toBe(true);
-      expect(useLayoutStore.getState().isRightPanelVisible).toBe(true);
+      expect(useLayoutStore.getState().isRightPanelVisible).toBe(false);
 
       // Back button returns cleanly to Task List, and clicking any task row also opens the canvas
       await user.click(screen.getByTestId('embedded-studio-back-btn'));

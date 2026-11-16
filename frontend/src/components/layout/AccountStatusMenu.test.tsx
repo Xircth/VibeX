@@ -16,7 +16,12 @@ import {
 } from '@/features/model-router/accountHostConfigs';
 import { resetAccountOverviewCache } from '@/features/model-router/useDimoAccount';
 import { configApi, webServiceApi } from '@/lib/api';
+import { clearLocalStorageCache, writeLocalStorage } from '@/lib/safeStorage';
 
+import {
+  ACCOUNT_AVATAR_HOVER_INTRO_KEY,
+  hasSeenAccountAvatarHoverIntro,
+} from './AccountAvatarHoverPromo';
 import { AccountStatusMenu } from './AccountStatusMenu';
 
 vi.mock('@/lib/api/settingsWindow', () => ({
@@ -115,6 +120,7 @@ describe('AccountStatusMenu', () => {
 
   beforeEach(() => {
     window.localStorage.clear();
+    clearLocalStorageCache();
     resetAccountOverviewCache();
     resetAccountHostConfigsForTests();
     trackSpy(
@@ -279,5 +285,151 @@ describe('AccountStatusMenu', () => {
     const signOutBtn = screen.getByTestId('account-status-menu-item-sign-out');
     await user.click(signOutBtn);
     expect(signOutSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('shows the sign-in promo on first avatar hover and dismisses permanently', async () => {
+    const user = userEvent.setup();
+    render(
+      <MemoryRouter initialEntries={['/']}>
+        <Routes>
+          <Route path="/" element={<AccountStatusMenu />} />
+          <Route path="/settings/account" element={<div>Account Page</div>} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    const trigger = screen.getByTestId('account-status-menu-trigger');
+    expect(
+      screen.queryByTestId('account-avatar-hover-promo')
+    ).not.toBeInTheDocument();
+
+    await user.hover(trigger);
+
+    const promo = screen.getByTestId('account-avatar-hover-promo');
+    expect(promo).toBeInTheDocument();
+    expect(screen.getByText('登录 Dimo 账号')).toBeInTheDocument();
+    expect(screen.getByText('享邀请好礼')).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        '优质低价大模型、语音输入与跨端远程连接等功能触手可得'
+      )
+    ).toBeInTheDocument();
+    expect(screen.getByText('优质低价大模型')).toBeInTheDocument();
+    expect(screen.getByText('语音输入')).toBeInTheDocument();
+    expect(screen.getByText('跨端远程连接')).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: '暂不登录' }));
+    expect(
+      screen.queryByTestId('account-avatar-hover-promo')
+    ).not.toBeInTheDocument();
+    expect(hasSeenAccountAvatarHoverIntro()).toBe(true);
+
+    await user.unhover(trigger);
+    await user.hover(trigger);
+    expect(
+      screen.queryByTestId('account-avatar-hover-promo')
+    ).not.toBeInTheDocument();
+  });
+
+  it('navigates to /settings/account when clicking the hover promo CTA', async () => {
+    const user = userEvent.setup();
+    render(
+      <MemoryRouter initialEntries={['/']}>
+        <Routes>
+          <Route path="/" element={<AccountStatusMenu />} />
+          <Route path="/settings/account" element={<div>Account Page</div>} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    await user.hover(screen.getByTestId('account-status-menu-trigger'));
+    const cta = screen.getByRole('button', { name: '立即登录' });
+    expect(cta).toHaveClass('primary-control', 'bg-primary');
+
+    await user.click(cta);
+    expect(await screen.findByText('Account Page')).toBeInTheDocument();
+    expect(
+      screen.queryByTestId('account-avatar-hover-promo')
+    ).not.toBeInTheDocument();
+    expect(hasSeenAccountAvatarHoverIntro()).toBe(true);
+  });
+
+  it('does not show the hover promo when already seen or signed in, and closes when opening menu', async () => {
+    const user = userEvent.setup();
+    writeLocalStorage(ACCOUNT_AVATAR_HOVER_INTRO_KEY, 'seen');
+
+    const { unmount } = render(
+      <MemoryRouter initialEntries={['/']}>
+        <Routes>
+          <Route path="/" element={<AccountStatusMenu />} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    await user.hover(screen.getByTestId('account-status-menu-trigger'));
+    expect(
+      screen.queryByTestId('account-avatar-hover-promo')
+    ).not.toBeInTheDocument();
+    unmount();
+
+    window.localStorage.clear();
+    clearLocalStorageCache();
+    render(
+      <MemoryRouter initialEntries={['/']}>
+        <Routes>
+          <Route path="/" element={<AccountStatusMenu />} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    const trigger = screen.getByTestId('account-status-menu-trigger');
+    await user.hover(trigger);
+    expect(
+      screen.getByTestId('account-avatar-hover-promo')
+    ).toBeInTheDocument();
+
+    await user.click(trigger);
+    expect(
+      screen.queryByTestId('account-avatar-hover-promo')
+    ).not.toBeInTheDocument();
+    expect(
+      screen.getByTestId('account-status-menu-content')
+    ).toBeInTheDocument();
+    expect(hasSeenAccountAvatarHoverIntro()).toBe(true);
+  });
+
+  it('never shows the hover promo when the user is already signed in', async () => {
+    window.localStorage.setItem(ACCOUNT_TOKEN_STORAGE_KEY, 'vbx_tok_test');
+    trackSpy(
+      vi.spyOn(accountApi, 'overview').mockResolvedValue({
+        user: {
+          displayName: '谢麟阁',
+          username: 'xielinge',
+          email: '18190151110@163.com',
+        },
+        balanceMicro: 2_500_000,
+        agents: [],
+        tasks: [],
+        models: [],
+      })
+    );
+
+    const user = userEvent.setup();
+    render(
+      <MemoryRouter initialEntries={['/']}>
+        <Routes>
+          <Route path="/" element={<AccountStatusMenu />} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    const trigger = screen.getByTestId('account-status-menu-trigger');
+    await waitFor(() => expect(trigger).toHaveTextContent('谢'));
+
+    await user.hover(trigger);
+    expect(
+      screen.queryByTestId('account-avatar-hover-promo')
+    ).not.toBeInTheDocument();
+    expect(hasSeenAccountAvatarHoverIntro()).toBe(false);
   });
 });

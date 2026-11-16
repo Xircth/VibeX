@@ -6,6 +6,7 @@ const api = vi.hoisted(() => ({
 }));
 
 import {
+  isPortablePreferenceKey,
   isSelfTriggeredSettingsChange,
   resetSelfTriggeredSettingsStateForTests,
   syncFrontendPreferences,
@@ -76,5 +77,12 @@ describe('syncFrontendPreferences', () => {
 
     expect(api.update).toHaveBeenCalledWith({ kanban_board_style: 'canvas' });
     expect(localStorage.getItem('dimo:kanban-board-style')).toBe('canvas');
+  });
+
+  it('marks prompt and intro states as non-portable', () => {
+    expect(isPortablePreferenceKey('github_star_prompt')).toBe(false);
+    expect(isPortablePreferenceKey('agent_model_market_intro')).toBe(false);
+    expect(isPortablePreferenceKey('account_avatar_hover_intro')).toBe(false);
+    expect(isPortablePreferenceKey('accent_color')).toBe(true);
   });
 });

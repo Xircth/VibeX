@@ -1,4 +1,6 @@
 import { fireEvent, render, screen } from '@testing-library/react';
+import { kanbanViewRegistry } from '@dimoai/plugin-sdk';
+import { useSyncExternalStore } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { PANEL_IDS } from '@/stores/useLayoutStore';
 import {
@@ -8,21 +10,58 @@ import {
 import { ShellNavPanelDragHandle } from './ShellNavPanelDragHandle';
 import { WorkspaceActivityRail } from './WorkspaceActivityRail';
 
-const mocks = vi.hoisted(() => ({
-  toggleFileTree: vi.fn(),
-  toggleGitPanel: vi.fn(),
-  toggleSearchPanel: vi.fn(),
-  toggleSessionList: vi.fn(),
-  toggleBotsPanel: vi.fn(),
-  placeLeftDockPanel: vi.fn(),
-  swapLeftDockPanels: vi.fn(),
-  resolveShellNavDropTarget: vi.fn(),
-  measureShellNavPanels: vi.fn(),
-  persistFrontendPreference: vi.fn(),
-}));
+const mocks = vi.hoisted(() => {
+  let activeKanbanViewId = 'builtin:pulse';
+  const listeners = new Set<() => void>();
+  const setActiveKanbanViewIdSpy = vi.fn((nextId: string) => {
+    activeKanbanViewId = nextId;
+    for (const listener of listeners) {
+      listener();
+    }
+  });
+  return {
+    toggleFileTree: vi.fn(),
+    toggleGitPanel: vi.fn(),
+    toggleSearchPanel: vi.fn(),
+    toggleSessionList: vi.fn(),
+    toggleBotsPanel: vi.fn(),
+    placeLeftDockPanel: vi.fn(),
+    swapLeftDockPanels: vi.fn(),
+    resolveShellNavDropTarget: vi.fn(),
+    measureShellNavPanels: vi.fn(),
+    persistFrontendPreference: vi.fn(),
+    setActiveKanbanViewId: setActiveKanbanViewIdSpy,
+    getActiveKanbanViewId: () => activeKanbanViewId,
+    resetActiveKanbanViewId: (nextId = 'builtin:pulse') => {
+      activeKanbanViewId = nextId;
+      for (const listener of listeners) {
+        listener();
+      }
+    },
+    subscribeKanbanViewId: (listener: () => void) => {
+      listeners.add(listener);
+      return () => {
+        listeners.delete(listener);
+      };
+    },
+  };
+});
 
 vi.mock('@/lib/frontendPreferences', () => ({
   persistFrontendPreference: mocks.persistFrontendPreference,
+}));
+
+vi.mock('@/contexts/KanbanSessionContext', () => ({
+  useOptionalKanbanSessionContext: () => {
+    const activeViewId = useSyncExternalStore(
+      mocks.subscribeKanbanViewId,
+      mocks.getActiveKanbanViewId
+    );
+    return {
+      activeViewId,
+      setActiveViewId: mocks.setActiveKanbanViewId,
+    };
+  },
 }));
 
 vi.mock('@/contexts/PanelActionsContext', () => ({
@@ -58,6 +97,8 @@ describe('WorkspaceActivityRail', () => {
     mocks.measureShellNavPanels.mockReturnValue([]);
     mocks.resolveShellNavDropTarget.mockReturnValue(null);
     mocks.persistFrontendPreference.mockReset();
+    mocks.resetActiveKanbanViewId('builtin:pulse');
+    mocks.setActiveKanbanViewId.mockClear();
   });
 
   it('renders the workspace panels in default order', () => {
@@ -158,6 +199,60 @@ describe('WorkspaceActivityRail', () => {
     }
   });
 
+  it('switches independent kanban pages and plugin kanban views via left sidebar buttons', () => {
+    const disposePluginView = kanbanViewRegistry.register(
+      {
+        pluginId: 'acme.demo',
+        id: 'roadmap',
+        title: 'Roadmap',
+        icon: 'flag',
+        hidesBottomDock: true,
+      },
+      'acme.demo'
+    );
+
+    try {
+      render(
+        <WorkspaceActivityRail
+          isEditorAreaVisible={false}
+          onToggleEditorArea={vi.fn()}
+          mode="kanban"
+        />
+      );
+
+      const usageButton = screen.getByTestId('kanban-rail-builtin:usage');
+      const pulseButton = screen.getByTestId('kanban-rail-builtin:pulse');
+      const pluginButton = screen.getByTestId(
+        'kanban-rail-plugin:acme.demo/roadmap'
+      );
+
+      expect(pulseButton).toHaveAttribute('aria-pressed', 'true');
+      expect(pulseButton).toHaveClass('is-active');
+      expect(usageButton).toHaveAttribute('aria-pressed', 'false');
+      expect(usageButton).toHaveAttribute(
+        'data-basic-guide',
+        'kanban-next-page'
+      );
+
+      fireEvent.click(usageButton);
+      expect(mocks.setActiveKanbanViewId).toHaveBeenCalledWith('builtin:usage');
+      expect(usageButton).toHaveAttribute('aria-pressed', 'true');
+      expect(usageButton).toHaveClass('is-active');
+      expect(pulseButton).toHaveAttribute('aria-pressed', 'false');
+
+      fireEvent.click(pluginButton);
+      expect(mocks.setActiveKanbanViewId).toHaveBeenCalledWith(
+        'plugin:acme.demo/roadmap'
+      );
+      expect(pluginButton).toHaveAttribute('aria-pressed', 'true');
+      expect(pluginButton).toHaveClass('is-active');
+      expect(usageButton).toHaveAttribute('aria-pressed', 'false');
+      expect(pulseButton).toHaveAttribute('aria-pressed', 'false');
+    } finally {
+      disposePluginView();
+    }
+  });
+
   it('drags a Zone A panel handle with floating + ghost preview and auto-swaps on >50% overlap', () => {
     const fileTreeBox = { x: 40, y: 80, width: 200, height: 600 };
     const sessionListBox = { x: 240, y: 80, width: 280, height: 600 };
@@ -193,4 +288,3 @@ describe('WorkspaceActivityRail', () => {
     expect(mocks.placeLeftDockPanel).not.toHaveBeenCalled();
   });
 });
-

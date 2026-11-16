@@ -30,7 +30,7 @@
     "kanban-execution": "这是会话执行区，正在进行的对话在这里展开。",
     "kanban-monitor": "这是会话监控区，用来同时观察多个会话的进展。",
     "kanban-move-to-execution": "点击「移入执行区」，把监控中的会话放到执行区继续操作。监控区适合并行观察，执行区适合深入对话。",
-    "usage-next-page": "点击右侧翻页，进入计量统计。",
+    "usage-next-page": "点击左侧边栏的计量统计按钮，进入计量统计。",
     "usage-overview-cards": "顶部卡片汇总用量和花费，便于一眼看到整体消耗。",
     "usage-nav-overview": "概览：查看总量和趋势。",
     "usage-nav-folders": "项目：按项目拆分用量。",

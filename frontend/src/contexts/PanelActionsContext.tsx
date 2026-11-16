@@ -131,9 +131,11 @@ import {
   type Point,
 } from '@/lib/leftPanelSplit';
 import {
+  captureZoneColumnWidths,
   ensureWelcomeEditorGroup,
   isEditorColumnCrushed,
   preserveLeftDockGroupWidths,
+  rebalanceZoneColumnsAfterGroupAdded,
   restoreFlexibleEditorColumn,
   revealEditorColumnForTerminal,
   setColumnVisible,
@@ -1367,6 +1369,7 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
       const panel = dockviewApi.getPanel(panelId);
       if (!panel) return false;
 
+      const preSnapshot = captureZoneColumnWidths(dockviewApi);
       const isLeft = isLeftGroup(panel.group);
       const isSession = !isLeft && isSessionGroup(panel.group);
       const newGroup = dockviewApi.addGroup({
@@ -1383,6 +1386,11 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
         newGroup.element?.setAttribute('data-left-dock', 'true');
       } else if (isSession) {
         newGroup.element?.setAttribute('data-session-dock', 'true');
+      }
+      if (direction === 'left' || direction === 'right') {
+        rebalanceZoneColumnsAfterGroupAdded(dockviewApi, preSnapshot, newGroup, {
+          donorGroup: panel.group,
+        });
       }
 
       const host = (

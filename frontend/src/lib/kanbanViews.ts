@@ -12,6 +12,7 @@ export type KanbanViewDescriptor = {
   titleKey: string;
   hidesBottomDock: boolean;
   builtin: boolean;
+  icon?: string;
   pluginId?: string;
   contributionId?: string;
 };
@@ -104,15 +105,7 @@ export function resolveKanbanViewId(
   return views[0]?.id ?? null;
 }
 
-export function kanbanViewIndex(
-  views: readonly KanbanViewDescriptor[],
-  viewId: string | null | undefined
-): number {
-  const index = views.findIndex((view) => view.id === viewId);
-  return index < 0 ? 0 : index;
-}
-
-/** Apply only when the board-style preference changes, never during arrow rotation. */
+/** Remap legacy sessions/canvas view IDs when the board-style preference changes. */
 export function viewIdForBoardStyleChange(
   boardStyle: string,
   activeViewId: string
@@ -126,7 +119,7 @@ export function viewIdForBoardStyleChange(
   return activeViewId;
 }
 
-/** Sessions and canvas are twins of one preference; arrows must not rotate through both. */
+/** Sessions and canvas are twins of one preference; keep only the active style in the rail. */
 export function kanbanViewsForBoardStyle(
   views: readonly KanbanViewDescriptor[],
   boardStyle: string
@@ -134,33 +127,4 @@ export function kanbanViewsForBoardStyle(
   const hiddenId =
     boardStyle === 'canvas' ? 'builtin:sessions' : 'builtin:canvas';
   return views.filter((view) => view.id !== hiddenId);
-}
-
-export function adjacentKanbanViewId(
-  views: readonly KanbanViewDescriptor[],
-  viewId: string,
-  direction: -1 | 1
-): string {
-  if (views.length === 0) return viewId;
-  const index = kanbanViewIndex(views, viewId);
-  const next = index + direction;
-  if (next < 0 || next >= views.length) return viewId;
-  return views[next].id;
-}
-
-export function kanbanCarouselTranslateX(
-  views: readonly KanbanViewDescriptor[],
-  viewId: string
-): string {
-  const index = kanbanViewIndex(views, viewId);
-  if (views.length <= 1) return 'translateX(0%)';
-  return `translateX(-${(index * 100) / views.length}%)`;
-}
-
-export function kanbanCarouselWidth(viewCount: number): string {
-  return `${Math.max(viewCount, 1) * 100}%`;
-}
-
-export function kanbanPageWidth(viewCount: number): string {
-  return `${100 / Math.max(viewCount, 1)}%`;
 }

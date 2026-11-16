@@ -5,9 +5,20 @@ import {
   serviceContainer,
   useThemes,
 } from '@dimoai/plugin-sdk';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import {
+  QueryClient,
+  QueryClientContext,
+  useQuery,
+  useQueryClient,
+} from '@tanstack/react-query';
 import * as React from 'react';
-import { useEffect, useMemo, useRef, useSyncExternalStore } from 'react';
+import {
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useSyncExternalStore,
+} from 'react';
 
 (globalThis as Record<string, unknown>).__DIMO_REACT__ = React;
 bindExternalStoreHook(useSyncExternalStore);
@@ -248,18 +259,25 @@ export function usePluginContributionCatalogSync() {
   }, [items]);
 }
 
+const FALLBACK_QUERY_CLIENT = new QueryClient();
+
 /** Catalog items, or undefined until the first catalog has loaded. */
 function useContributionCatalogItems():
   | PluginContributionCatalogItem[]
   | undefined {
+  const queryClient = useContext(QueryClientContext);
   const transport = useBackendTransport();
   const api = useMemo(() => createPluginControlApi(transport), [transport]);
-  const { data } = useQuery({
-    queryKey: pluginContributionCatalogQueryKey,
-    queryFn: () => api.contributionCatalog(),
-    staleTime: 30_000,
-    retry: false,
-  });
+  const { data } = useQuery(
+    {
+      queryKey: pluginContributionCatalogQueryKey,
+      queryFn: () => api.contributionCatalog(),
+      staleTime: 30_000,
+      retry: false,
+      enabled: Boolean(queryClient),
+    },
+    queryClient ?? FALLBACK_QUERY_CLIENT
+  );
   return data?.items;
 }
 

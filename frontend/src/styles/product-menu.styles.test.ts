@@ -125,10 +125,20 @@ describe('product option menus', () => {
 
     const baseTokens = declarationsFor('.legacy-design');
     const shell = declarationsFor('.composer-shell');
+    const statusSurface = declarationsFor('.composer-status-surface');
+    const stackedStatusLayers = declarationsFor(
+      '.conversation-status-dock:has( .composer-status-row + .composer-status-row )::before, .conversation-status-dock:has( .composer-status-row + .composer-status-row + .composer-status-row )::after'
+    );
 
     expect(baseTokens['--_radius-composer']?.value).toBe('1.25rem');
     expect(shell.border?.value).toBe('1px solid var(--border-strong)');
     expect(shell['border-radius']?.value).toBe(
+      'var(--radius-composer, var(--radius-container, var(--radius)))'
+    );
+    expect(statusSurface['border-radius']?.value).toBe(
+      'var(--radius-composer, var(--radius-container, var(--radius)))'
+    );
+    expect(stackedStatusLayers['border-radius']?.value).toBe(
       'var(--radius-composer, var(--radius-container, var(--radius)))'
     );
     expect(body['border-radius']?.value).toBe(

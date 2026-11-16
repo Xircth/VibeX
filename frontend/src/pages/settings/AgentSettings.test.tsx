@@ -4,8 +4,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { toast } from '@/components/ui/toast';
 import { AGENT_SETTINGS_FOCUS_KEY } from '@/features/agent-management/agentSettingsFocus';
+import { clearLocalStorageCache } from '@/lib/safeStorage';
 import { renderWithQueryClient as render } from '@/test/QueryClientHarness';
 
+import { AGENT_MODEL_MARKET_INTRO_KEY } from './AgentModelMarketIntroDialog';
 import { AgentSettings } from './AgentSettings';
 import {
   configField,
@@ -1296,5 +1298,29 @@ describe('AgentSettings', () => {
         'prov-router-1'
       )
     );
+  });
+
+  it('pops up the Model Market intro card once on first visit to Agent Settings', async () => {
+    localStorage.removeItem(AGENT_MODEL_MARKET_INTRO_KEY);
+    clearLocalStorageCache(AGENT_MODEL_MARKET_INTRO_KEY);
+
+    const { unmount } = render(<AgentSettings />);
+
+    expect(
+      await screen.findByTestId('agent-model-market-intro-card')
+    ).toBeInTheDocument();
+    expect(screen.getByText('试试 Dimo 官方模型市场？')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: '暂不需要' }));
+    expect(
+      screen.queryByTestId('agent-model-market-intro-card')
+    ).not.toBeInTheDocument();
+    unmount();
+
+    render(<AgentSettings />);
+    await screen.findByRole('button', { name: 'Codex' });
+    expect(
+      screen.queryByTestId('agent-model-market-intro-card')
+    ).not.toBeInTheDocument();
   });
 });

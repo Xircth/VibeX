@@ -134,6 +134,10 @@ describe('BranchInfoHeader', () => {
     expect(screen.getByText('feature/liquid-toolbar')).toBeVisible();
     expect(screen.getByText('–')).toBeVisible();
 
+    expect(
+      screen.queryByTestId('branch-pulse-guard-trigger')
+    ).not.toBeInTheDocument();
+
     const actionsRule =
       legacyStyles.match(/\.branch-info-actions\s*\{[^}]+\}/u)?.[0] ?? '';
     const primaryActionRule =
@@ -145,7 +149,7 @@ describe('BranchInfoHeader', () => {
     );
   });
 
-  it('does not render Git controls for a workspace without a worktree', () => {
+  it('does not render Git controls or branch banner for a workspace without a worktree', () => {
     branchHeaderMocks.useTaskAttempt.mockReturnValue({
       data: {
         task_id: 'task-1',
@@ -154,8 +158,15 @@ describe('BranchInfoHeader', () => {
       },
     });
 
-    render(<BranchInfoHeader />);
+    const { container } = render(<BranchInfoHeader />);
 
+    expect(container).toBeEmptyDOMElement();
+    expect(
+      screen.queryByTestId('branch-info-standard-checkout')
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByTestId('branch-pulse-guard-trigger')
+    ).not.toBeInTheDocument();
     expect(
       screen.queryByRole('toolbar', { name: 'Git 工作区控制' })
     ).not.toBeInTheDocument();

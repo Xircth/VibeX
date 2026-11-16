@@ -66,9 +66,12 @@ import type {
 const SORT_KEYS: SessionListSortKey[] = ['name', 'time', 'agent'];
 
 const QUICK_ACTION_BASE_CLASS =
-  'flex h-7 cursor-pointer items-center gap-2 rounded-md px-2 text-[12px] leading-4 font-medium text-foreground/85 transition-colors hover:bg-foreground/[0.06] hover:text-foreground active:bg-foreground/[0.09] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring';
+  'group/quick-action flex h-7 cursor-pointer items-center gap-2.5 rounded-md px-2 font-sans text-md font-normal tracking-[0.005em] subpixel-antialiased text-foreground/90 transition-colors hover:bg-foreground/[0.06] hover:text-foreground active:bg-foreground/[0.09] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring';
 
 const QUICK_ACTION_ROW_CLASS = `${QUICK_ACTION_BASE_CLASS} w-full`;
+
+const QUICK_ACTION_ICON_CLASS =
+  'h-3.5 w-3.5 shrink-0 text-[var(--text-subtle)] transition-colors group-hover/quick-action:text-[var(--text-muted)]';
 
 function FilterSwitchMenuItem({
   label,
@@ -150,7 +153,7 @@ export function WorkspaceSessionListToolbar({
     isArchiveView || sortSpecs.length > 0 || activeFilterCount > 0;
 
   return (
-    <div className="border-b border-border/60 px-2 pb-2 pt-2">
+    <div className="border-b border-border/60 px-2 pb-2.5 pt-2">
       <div className="flex w-full items-center gap-0.5">
         {isDeleteMode ? (
           <SessionListDeleteControl
@@ -177,7 +180,8 @@ export function WorkspaceSessionListToolbar({
             >
               <Search
                 aria-hidden="true"
-                className="h-3.5 w-3.5 shrink-0 text-muted-foreground"
+                data-testid="search-action-icon"
+                className={QUICK_ACTION_ICON_CLASS}
               />
               <span className="min-w-0 flex-1 truncate text-left">
                 {t('workspaceSessionList.searchShort', '搜索')}
@@ -421,7 +425,7 @@ export function WorkspaceSessionListToolbar({
 
       {!isDeleteMode ? (
         <div
-          className="mt-0.5 flex flex-col gap-0.5"
+          className="mt-1.5 flex flex-col gap-1.5"
           data-testid="session-list-quick-actions"
         >
           <button
@@ -431,7 +435,7 @@ export function WorkspaceSessionListToolbar({
             className={QUICK_ACTION_ROW_CLASS}
           >
             <MessageSquarePlus
-              className="h-3.5 w-3.5 shrink-0 text-muted-foreground"
+              className={QUICK_ACTION_ICON_CLASS}
               aria-hidden="true"
               data-testid="new-session-icon"
             />
@@ -447,14 +451,17 @@ export function WorkspaceSessionListToolbar({
             className={QUICK_ACTION_ROW_CLASS}
           >
             <Smartphone
-              className="h-3.5 w-3.5 shrink-0 text-muted-foreground"
+              className={QUICK_ACTION_ICON_CLASS}
               aria-hidden="true"
+              data-testid="mobile-app-icon"
             />
-            <span className="min-w-0 truncate text-left">
-              {t('workspaceSessionList.mobileApp', '移动端APP')}
-            </span>
-            <span className="shrink-0 rounded-full bg-primary/10 px-1.5 py-0.5 text-[10px] font-semibold leading-none text-primary">
-              Beta
+            <span className="flex min-w-0 flex-1 items-center gap-2">
+              <span className="min-w-0 truncate text-left">
+                {t('workspaceSessionList.mobileApp', '移动端APP')}
+              </span>
+              <span className="shrink-0 rounded-full bg-foreground/[0.07] px-1.5 py-0.5 text-[10px] font-medium leading-none text-foreground/75">
+                Beta
+              </span>
             </span>
           </button>
         </div>

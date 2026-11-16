@@ -49,6 +49,7 @@ import {
   isNativeEngineAgent,
   isPrimaryRuntimePreflightItem,
 } from './agentProvisioning';
+import { AgentModelMarketIntroDialog } from './AgentModelMarketIntroDialog';
 import { AgentRegistryViewPanel } from './AgentRegistryView';
 import { AgentSettingsDetailSections } from './AgentSettingsDetailSections';
 import { AgentSettingsLoading } from './AgentSettingsLoading';
@@ -1478,6 +1479,11 @@ export function AgentSettings() {
           {t('settings:agents.emptyList')}
         </section>
       )}
+
+      <AgentModelMarketIntroDialog
+        ready={!management.loading || management.state.agents.length > 0}
+        selectedAgentId={selectedAgent?.agent_id ?? null}
+      />
     </div>
   );
 }

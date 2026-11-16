@@ -39,6 +39,7 @@ import {
   effectiveWorkspaceTab,
   parsePluginSurfaceId,
 } from '@/lib/hostSurfaceIds';
+import { GithubStarPrompt } from '@/components/layout/GithubStarPrompt';
 import { MobileDeviceConnectBanner } from '@/components/layout/MobileDeviceConnectBanner';
 import { StatusBar } from '@/components/layout/StatusBar';
 import { WorkspaceZeroProjectStage } from '@/components/layout/WorkspaceZeroProjectStage';
@@ -86,7 +87,10 @@ import {
 } from '@/utils/dockviewLayoutTransform';
 import { SearchPalette } from '@/components/search/SearchPalette';
 import { useWorkspaceShortcuts } from '@/hooks/useWorkspaceShortcuts';
-import { isPlaceholderPanelId } from '@/utils/dockviewGroupPolicy';
+import {
+  isPlaceholderPanelId,
+  listSessionGroups,
+} from '@/utils/dockviewGroupPolicy';
 import '@/styles/dockview-ayu.css';
 import { useWorkspaceStageStyle } from '@/lib/workspaceStageStyle';
 import { useDockviewPanelActionsBinding } from '@/hooks/useDockviewPanelActionsBinding';
@@ -99,6 +103,7 @@ import {
 } from '@/utils/dockviewSessionPanel';
 import {
   buildDefaultLayout,
+  closeEmptyTabBarGroups,
   defaultDockWidth,
   defaultSessionWidth,
   ensureDockviewSessionPanel,
@@ -643,6 +648,7 @@ export function IDELayout({
       }
 
       enforceTabVisibilityRef.current(api);
+      closeEmptyTabBarGroups(api);
       setReadyDockviewApi(api);
 
       dockviewListenersCleanupRef.current = attachDockviewWorkspaceListeners(
@@ -773,7 +779,7 @@ export function IDELayout({
   // before the HWND is allowed to paint.
   useLayoutEffect(() => {
     const api = readLiveDockviewApi();
-    if (!api) return;
+    if (!api || effectiveActiveTab !== 'workspace') return;
 
     try {
       const shouldShow =
@@ -781,9 +787,18 @@ export function IDELayout({
       const rightGroup = shouldShow
         ? (ensureSessionPanel(api) ?? getRightGroup(api))
         : getRightGroup(api);
-      if (!rightGroup) return;
+      if (!rightGroup) {
+        if (
+          shouldShow &&
+          !listSessionGroups(api.groups).some((group) => group.panels.length > 0)
+        ) {
+          useLayoutStore.getState().setRightPanelVisible(false);
+        }
+        return;
+      }
 
       setSessionDockVisible(api, getLayoutArrangement(), shouldShow);
+      closeEmptyTabBarGroups(api);
     } catch (error) {
       console.warn(
         'Failed to sync session dock visibility, rebuilding layout.',
@@ -794,6 +809,7 @@ export function IDELayout({
       }
     }
   }, [
+    effectiveActiveTab,
     ensureSessionPanel,
     isRightPanelVisible,
     isWorkspaceCanvasMode,
@@ -825,7 +841,7 @@ export function IDELayout({
       wasEditorAreaCollapsedRef.current = false;
 
       const editorUpdates = getEditorGroups(api).flatMap((group) => {
-        if (group.api.isVisible) return [];
+        if (group.api.isVisible || group.panels.length === 0) return [];
         if (isTerminalShelfGroup(group.id) && !isTerminalShelfOpen()) {
           return [];
         }
@@ -841,6 +857,7 @@ export function IDELayout({
         setColumnsVisible(api, getLayoutArrangement(), editorUpdates);
       }
       ensureWorkspacePanelsVisible(api);
+      closeEmptyTabBarGroups(api);
     } catch {
       // Ignore restore failures; the workspace-tab effect retries.
     }
@@ -878,6 +895,7 @@ export function IDELayout({
         if (rightGroup) {
           setSessionDockVisible(api, getLayoutArrangement(), shouldShow);
         }
+        closeEmptyTabBarGroups(api);
       } catch {
         // HostBrowserPanel still waits for a stable destination slot.
       }
@@ -956,6 +974,7 @@ export function IDELayout({
           data-canvas-stage-active={isWorkspaceCanvasMode ? 'true' : undefined}
         >
           <MobileDeviceConnectBanner />
+          <GithubStarPrompt />
           {showZeroProjectStage ? <WorkspaceZeroProjectStage /> : null}
 
           {hasProject && isDockviewMounted ? (

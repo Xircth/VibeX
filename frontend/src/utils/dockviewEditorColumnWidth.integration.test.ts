@@ -1,7 +1,17 @@
-import { beforeAll, describe, expect, it } from 'vitest';
+import { beforeAll, describe, expect, it, vi } from 'vitest';
 import { createDockview, type DockviewApi } from 'dockview-core';
+import {
+  attachDockviewWorkspaceListeners,
+  registerDockviewOverlayDropGuard,
+  type DropTargetZone,
+} from '@/components/layout/ideLayoutDockviewListeners';
 import { DEFAULT_LAYOUT_ARRANGEMENT } from '@/lib/layoutArrangement';
-import { isEditorGroup, isSessionGroup, listSessionGroups } from './dockviewGroupPolicy';
+import {
+  isEditorGroup,
+  isLeftGroup,
+  isSessionGroup,
+  listSessionGroups,
+} from './dockviewGroupPolicy';
 import { syncDockviewGroupRegistry } from './dockviewHelpers';
 import {
   installEditorColumnWidthRebalance,
@@ -501,6 +511,489 @@ describe('editor column close widths', () => {
       .reduce((sum, group) => sum + group.api.width, 0);
     expectNear(zoneBAfter, zoneBBefore);
     rebalance.dispose();
+    api.dispose();
+  });
+});
+
+interface DockviewHost {
+  moveGroupOrPanel: (options: {
+    from: { groupId: string; panelId?: string };
+    to: {
+      group: ReturnType<DockviewApi['getGroup']>;
+      position: 'left' | 'right' | 'top' | 'bottom' | 'center';
+    };
+  }) => void;
+  _onWillDrop?: {
+    fire: (event: {
+      group: ReturnType<DockviewApi['getGroup']>;
+      position: 'left' | 'right' | 'top' | 'bottom' | 'center';
+    }) => void;
+  };
+  _onWillShowOverlay?: {
+    fire: (event: {
+      kind: 'content';
+      group: ReturnType<DockviewApi['getGroup']>;
+      position: 'left' | 'right' | 'top' | 'bottom' | 'center';
+      panel?: ReturnType<DockviewApi['getPanel']>;
+      getData: () => { groupId: string; panelId: string };
+      preventDefault: () => void;
+    }) => void;
+  };
+}
+
+function dockviewHost(api: DockviewApi): DockviewHost {
+  return (api as unknown as { component: DockviewHost }).component;
+}
+
+describe('tab split column widths', () => {
+  it('preserves Zone A width when drag-splitting an editor tab right in a 2-column A/B layout (hidden Zone C)', async () => {
+    const api = createApi(1600);
+    const rebalance = installEditorColumnWidthRebalance(api);
+
+    const welcome = api.addPanel({
+      id: 'welcome',
+      component: 'welcome',
+      title: 'Welcome',
+    });
+    const editorGroup = welcome.group;
+    (editorGroup as { id: string }).id = 'group-editor-1';
+    syncDockviewGroupRegistry(api);
+
+    api.addPanel({
+      id: 'ai-chat:master',
+      component: 'ai-chat',
+      title: 'Master',
+      position: { referenceGroup: editorGroup, direction: 'within' },
+    });
+    api.addPanel({
+      id: 'ai-chat:new-1',
+      component: 'ai-chat',
+      title: 'New Session',
+      position: { referenceGroup: editorGroup, direction: 'within' },
+    });
+
+    const leftNav = api.addGroup({
+      id: 'group-left',
+      referencePanel: welcome,
+      direction: 'left',
+      initialWidth: 253,
+    });
+    leftNav.element?.setAttribute('data-left-dock', 'true');
+    api.addPanel({
+      id: 'session-list',
+      component: 'session-list',
+      title: 'Sessions',
+      position: { referenceGroup: leftNav, direction: 'within' },
+    });
+
+    const hiddenRight = api.addGroup({
+      id: 'group-right',
+      referencePanel: welcome,
+      direction: 'right',
+      initialWidth: 434,
+    });
+    hiddenRight.element?.setAttribute('data-session-dock', 'true');
+    hiddenRight.api.setVisible(false);
+
+    settleDockviewGroupWidths([
+      { group: leftNav, width: 253 },
+      { group: editorGroup, width: 1347 },
+    ]);
+    await flushMicrotasks();
+
+    const leftBefore = leftNav.api.width;
+    const editorBefore = editorGroup.api.width;
+    const host = dockviewHost(api);
+
+    host._onWillDrop?.fire({ group: editorGroup, position: 'right' });
+    host.moveGroupOrPanel({
+      from: { groupId: editorGroup.id, panelId: 'ai-chat:master' },
+      to: { group: editorGroup, position: 'right' },
+    });
+
+    const masterAfter = api.getPanel('ai-chat:master')!;
+    const splitGroup = masterAfter.group;
+    expect(splitGroup).not.toBe(editorGroup);
+    expectNear(leftNav.api.width, leftBefore);
+    expectNear(editorGroup.api.width, Math.floor(editorBefore / 2));
+    expectNear(splitGroup.api.width, Math.floor(editorBefore / 2));
+    expect(hiddenRight.api.isVisible).toBe(false);
+
+    rebalance.dispose();
+    api.dispose();
+  });
+
+  it('preserves Zone A, Zone C, and unrelated editor columns when splitting one of two editor columns', async () => {
+    const api = createApi(1800);
+    const rebalance = installEditorColumnWidthRebalance(api);
+
+    const p1 = api.addPanel({
+      id: 'file:a.ts',
+      component: 'preview',
+      title: 'a.ts',
+    });
+    const editor1 = p1.group;
+    (editor1 as { id: string }).id = 'group-editor-1';
+    syncDockviewGroupRegistry(api);
+
+    const leftNav = api.addGroup({
+      id: 'group-left',
+      referencePanel: p1,
+      direction: 'left',
+      initialWidth: 220,
+    });
+    leftNav.element?.setAttribute('data-left-dock', 'true');
+    api.addPanel({
+      id: 'file-tree',
+      component: 'file-tree',
+      title: 'Files',
+      position: { referenceGroup: leftNav, direction: 'within' },
+    });
+
+    const session = api.addGroup({
+      id: 'group-right',
+      referencePanel: p1,
+      direction: 'right',
+      initialWidth: 434,
+    });
+    session.element?.setAttribute('data-session-dock', 'true');
+    api.addPanel({
+      id: 'ai-chat',
+      component: 'ai-chat',
+      title: 'Sessions',
+      position: { referenceGroup: session, direction: 'within' },
+    });
+
+    const editor2 = api.addGroup({
+      id: 'group-editor-2',
+      referencePanel: p1,
+      direction: 'right',
+    });
+    const p2 = api.addPanel({
+      id: 'file:b.ts',
+      component: 'preview',
+      title: 'b.ts',
+      position: { referenceGroup: editor2, direction: 'within' },
+    });
+    api.addPanel({
+      id: 'file:c.ts',
+      component: 'preview',
+      title: 'c.ts',
+      position: { referenceGroup: editor2, direction: 'within' },
+    });
+
+    settleDockviewGroupWidths([
+      { group: leftNav, width: 220 },
+      { group: editor1, width: 400 },
+      { group: editor2, width: 746 },
+      { group: session, width: 434 },
+    ]);
+    await flushMicrotasks();
+
+    const host = dockviewHost(api);
+    host._onWillDrop?.fire({ group: editor2, position: 'left' });
+    host.moveGroupOrPanel({
+      from: { groupId: editor2.id, panelId: p2.id },
+      to: { group: editor2, position: 'left' },
+    });
+
+    const splitGroup = api.getPanel(p2.id)!.group;
+    expect(splitGroup).not.toBe(editor2);
+    expectNear(leftNav.api.width, 220);
+    expectNear(editor1.api.width, 400);
+    expectNear(session.api.width, 434);
+    expectNear(editor2.api.width, 373);
+    expectNear(splitGroup.api.width, 373);
+
+    rebalance.dispose();
+    api.dispose();
+  });
+
+  it('preserves Zone A width when moving a 1-tab group out of a vertical stack into a horizontal split (movingLock path)', async () => {
+    const api = createApi(1600);
+    const rebalance = installEditorColumnWidthRebalance(api);
+
+    const p1 = api.addPanel({
+      id: 'file:top.ts',
+      component: 'preview',
+      title: 'top.ts',
+    });
+    const topGroup = p1.group;
+    (topGroup as { id: string }).id = 'group-editor-1';
+    syncDockviewGroupRegistry(api);
+
+    const leftNav = api.addGroup({
+      id: 'group-left',
+      referencePanel: p1,
+      direction: 'left',
+      initialWidth: 240,
+    });
+    leftNav.element?.setAttribute('data-left-dock', 'true');
+    api.addPanel({
+      id: 'file-tree',
+      component: 'file-tree',
+      title: 'Files',
+      position: { referenceGroup: leftNav, direction: 'within' },
+    });
+
+    const session = api.addGroup({
+      id: 'group-right',
+      referencePanel: p1,
+      direction: 'right',
+      initialWidth: 360,
+    });
+    session.element?.setAttribute('data-session-dock', 'true');
+    api.addPanel({
+      id: 'ai-chat',
+      component: 'ai-chat',
+      title: 'Sessions',
+      position: { referenceGroup: session, direction: 'within' },
+    });
+
+    const bottomGroup = api.addGroup({
+      id: 'group-editor-2',
+      referencePanel: p1,
+      direction: 'below',
+    });
+    const p2 = api.addPanel({
+      id: 'file:bottom.ts',
+      component: 'preview',
+      title: 'bottom.ts',
+      position: { referenceGroup: bottomGroup, direction: 'within' },
+    });
+
+    settleDockviewGroupWidths([
+      { group: leftNav, width: 240 },
+      { group: topGroup, width: 1000 },
+      { group: session, width: 360 },
+    ]);
+    await flushMicrotasks();
+
+    const host = dockviewHost(api);
+    host._onWillDrop?.fire({ group: topGroup, position: 'right' });
+    host.moveGroupOrPanel({
+      from: { groupId: bottomGroup.id, panelId: p2.id },
+      to: { group: topGroup, position: 'right' },
+    });
+
+    expectNear(leftNav.api.width, 240);
+    expectNear(session.api.width, 360);
+    expectNear(topGroup.api.width, 500);
+    expectNear(api.getPanel(p2.id)!.group.api.width, 500);
+
+    rebalance.dispose();
+    api.dispose();
+  });
+
+  it('absorbs freed column width into Zone B without widening Zone A when a 1-tab column moves vertically onto another column', async () => {
+    const api = createApi(1600);
+    const rebalance = installEditorColumnWidthRebalance(api);
+
+    const p1 = api.addPanel({
+      id: 'file:left.ts',
+      component: 'preview',
+      title: 'left.ts',
+    });
+    const editor1 = p1.group;
+    (editor1 as { id: string }).id = 'group-editor-1';
+    syncDockviewGroupRegistry(api);
+
+    const leftNav = api.addGroup({
+      id: 'group-left',
+      referencePanel: p1,
+      direction: 'left',
+      initialWidth: 240,
+    });
+    leftNav.element?.setAttribute('data-left-dock', 'true');
+    api.addPanel({
+      id: 'file-tree',
+      component: 'file-tree',
+      title: 'Files',
+      position: { referenceGroup: leftNav, direction: 'within' },
+    });
+
+    const editor2 = api.addGroup({
+      id: 'group-editor-2',
+      referencePanel: p1,
+      direction: 'right',
+    });
+    const p2 = api.addPanel({
+      id: 'file:right.ts',
+      component: 'preview',
+      title: 'right.ts',
+      position: { referenceGroup: editor2, direction: 'within' },
+    });
+
+    settleDockviewGroupWidths([
+      { group: leftNav, width: 240 },
+      { group: editor1, width: 680 },
+      { group: editor2, width: 680 },
+    ]);
+    await flushMicrotasks();
+
+    const host = dockviewHost(api);
+    host._onWillDrop?.fire({ group: editor1, position: 'bottom' });
+    host.moveGroupOrPanel({
+      from: { groupId: editor2.id, panelId: p2.id },
+      to: { group: editor1, position: 'bottom' },
+    });
+
+    expectNear(leftNav.api.width, 240);
+    expectNear(editor1.api.width, 1360);
+    expectNear(api.getPanel(p2.id)!.group.api.width, 1360);
+
+    rebalance.dispose();
+    api.dispose();
+  });
+
+  it('preserves Zone A and Zone B editor columns when horizontally splitting a multi-tab session column', async () => {
+    const api = createApi(1800);
+    const rebalance = installEditorColumnWidthRebalance(api);
+
+    const editor = api.addPanel({
+      id: 'file:app.ts',
+      component: 'preview',
+      title: 'app.ts',
+    });
+    (editor.group as { id: string }).id = 'group-editor-1';
+    syncDockviewGroupRegistry(api);
+
+    const leftNav = api.addGroup({
+      id: 'group-left',
+      referencePanel: editor,
+      direction: 'left',
+      initialWidth: 240,
+    });
+    leftNav.element?.setAttribute('data-left-dock', 'true');
+    api.addPanel({
+      id: 'file-tree',
+      component: 'file-tree',
+      title: 'Files',
+      position: { referenceGroup: leftNav, direction: 'within' },
+    });
+
+    const sessionGroup = api.addGroup({
+      id: 'group-right',
+      referencePanel: editor,
+      direction: 'right',
+      initialWidth: 640,
+    });
+    sessionGroup.element?.setAttribute('data-session-dock', 'true');
+    const s1 = api.addPanel({
+      id: 'ai-chat:1',
+      component: 'ai-chat',
+      title: 'S1',
+      position: { referenceGroup: sessionGroup, direction: 'within' },
+    });
+    const s2 = api.addPanel({
+      id: 'ai-chat:2',
+      component: 'ai-chat',
+      title: 'S2',
+      position: { referenceGroup: sessionGroup, direction: 'within' },
+    });
+
+    settleDockviewGroupWidths([
+      { group: leftNav, width: 240 },
+      { group: editor.group, width: 920 },
+      { group: sessionGroup, width: 640 },
+    ]);
+    await flushMicrotasks();
+
+    const host = dockviewHost(api);
+    host._onWillDrop?.fire({ group: sessionGroup, position: 'right' });
+    host.moveGroupOrPanel({
+      from: { groupId: sessionGroup.id, panelId: s2.id },
+      to: { group: sessionGroup, position: 'right' },
+    });
+
+    expectNear(leftNav.api.width, 240);
+    expectNear(editor.group.api.width, 920);
+    expectNear(s1.group.api.width, 320);
+    expectNear(s2.group.api.width, 320);
+
+    rebalance.dispose();
+    api.dispose();
+  });
+
+  it('normalizes group IDs before rebalancing inside attachDockviewWorkspaceListeners', async () => {
+    const api = createApi(1600);
+    const lastDropTargetZoneRef: { current: DropTargetZone } = {
+      current: null,
+    };
+    const cleanup = attachDockviewWorkspaceListeners(api, {
+      apiRef: { current: api },
+      dockviewRootEl: null,
+      isResettingRef: { current: false },
+      isCollapsedRef: { current: false },
+      lastDropTargetZoneRef,
+      layoutChangeTimerRef: { current: null },
+      lastSelfHealAtRef: { current: 0 },
+      registerDndGuard: (dockApi) =>
+        registerDockviewOverlayDropGuard(dockApi, lastDropTargetZoneRef),
+      applyArrangement: vi.fn(),
+      setSerializedLayout: vi.fn(),
+      setRightPanelWidth: vi.fn(),
+    });
+
+    const welcome = api.addPanel({
+      id: 'welcome',
+      component: 'welcome',
+      title: 'Welcome',
+    });
+    const editorGroup = welcome.group;
+    (editorGroup as { id: string }).id = 'group-editor-1';
+    syncDockviewGroupRegistry(api);
+
+    const masterPanel = api.addPanel({
+      id: 'ai-chat:master',
+      component: 'ai-chat',
+      title: 'Master',
+      position: { referenceGroup: editorGroup, direction: 'within' },
+    });
+
+    const leftNav = api.addGroup({
+      id: 'group-left',
+      referencePanel: welcome,
+      direction: 'left',
+      initialWidth: 253,
+    });
+    leftNav.element?.setAttribute('data-left-dock', 'true');
+    api.addPanel({
+      id: 'session-list',
+      component: 'session-list',
+      title: 'Sessions',
+      position: { referenceGroup: leftNav, direction: 'within' },
+    });
+
+    settleDockviewGroupWidths([
+      { group: leftNav, width: 253 },
+      { group: editorGroup, width: 1347 },
+    ]);
+    await flushMicrotasks();
+
+    const host = dockviewHost(api);
+    host._onWillShowOverlay?.fire({
+      kind: 'content',
+      group: editorGroup,
+      position: 'right',
+      panel: masterPanel,
+      getData: () => ({ groupId: editorGroup.id, panelId: masterPanel.id }),
+      preventDefault: () => {},
+    });
+    host._onWillDrop?.fire({ group: editorGroup, position: 'right' });
+    host.moveGroupOrPanel({
+      from: { groupId: editorGroup.id, panelId: masterPanel.id },
+      to: { group: editorGroup, position: 'right' },
+    });
+
+    expect(masterPanel.group.id).toBe('group-editor-2');
+    expect(isEditorGroup(masterPanel.group)).toBe(true);
+    expect(isLeftGroup(leftNav)).toBe(true);
+    expectNear(leftNav.api.width, 253);
+    expectNear(editorGroup.api.width, 673);
+    expectNear(masterPanel.group.api.width, 673);
+
+    cleanup();
     api.dispose();
   });
 });

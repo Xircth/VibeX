@@ -121,6 +121,7 @@ export function kanbanViewsFromCatalog(
       titleKey: sdkView.titleKey ?? sdkView.title,
       hidesBottomDock: sdkView.hidesBottomDock !== false,
       builtin: false,
+      icon: sdkView.icon,
       pluginId,
       contributionId: rawId,
     });
@@ -139,6 +140,7 @@ export function kanbanViewsFromCatalog(
       titleKey: item.label,
       hidesBottomDock: metadata.hidesBottomDock !== false,
       builtin: false,
+      icon: typeof metadata.icon === 'string' ? metadata.icon : undefined,
       pluginId: item.pluginId,
       contributionId: item.id,
     });

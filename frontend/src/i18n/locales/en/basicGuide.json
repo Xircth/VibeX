@@ -30,7 +30,7 @@
     "kanban-execution": "This is the execution area, where the active conversation lives.",
     "kanban-monitor": "This is the monitor area, for watching several sessions at once.",
     "kanban-move-to-execution": "Click Move to execution to bring a monitored session into the execution area. Monitor is for parallel watch; execution is for the deep conversation.",
-    "usage-next-page": "Use the right arrow to open usage stats.",
+    "usage-next-page": "Click Usage in the left sidebar to open usage stats.",
     "usage-overview-cards": "The top cards summarize usage and cost.",
     "usage-nav-overview": "Overview: totals and trends.",
     "usage-nav-folders": "Projects: usage by project.",

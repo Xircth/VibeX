@@ -70,7 +70,7 @@ export function ConversationStatusDock({
       data-expanded={blockingNotice ? 'true' : undefined}
       aria-live="polite"
     >
-      <div className="composer-status-surface rounded-lg">
+      <div className="composer-status-surface rounded-[var(--radius-composer,0.75rem)]">
         {extra}
         {localError ? (
           <StatusSurface

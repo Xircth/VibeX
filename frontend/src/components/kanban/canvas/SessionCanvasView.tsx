@@ -52,7 +52,8 @@ import {
   applyAlignmentDeltaToOverlay,
   applyDragOverlayToCanvasNodes,
   applyDropHint,
-  buildCanvasFlowLookups,
+  buildCanvasFlowData,
+  flowLookupsFromData,
   computeDropHint,
   dragOverlayFromPositionChanges,
   canGroupSelection,
@@ -702,24 +703,22 @@ function SessionCanvasFlow({
     placedCanvasSessionIds(nodes)
   );
   placedSessionIdsRef.current = allPlacedSessionIds;
-  const runningSessionIds = (() => {
+  const runningSessionIds = useMemo(() => {
     const ids = new Set<string>();
     for (const session of sessionsById.values()) {
       if (sessionAttentionKind(session) === 'running') ids.add(session.id);
     }
-    const stable = reuseSetIfEqual(runningIdsRef.current, ids);
-    runningIdsRef.current = stable;
-    return stable;
-  })();
-  const reviewSessionIds = (() => {
+    return reuseSetIfEqual(runningIdsRef.current, ids);
+  }, [sessionsById]);
+  runningIdsRef.current = runningSessionIds;
+  const reviewSessionIds = useMemo(() => {
     const ids = new Set<string>();
     for (const session of sessionsById.values()) {
       if (sessionAttentionKind(session) === 'review') ids.add(session.id);
     }
-    const stable = reuseSetIfEqual(reviewIdsRef.current, ids);
-    reviewIdsRef.current = stable;
-    return stable;
-  })();
+    return reuseSetIfEqual(reviewIdsRef.current, ids);
+  }, [sessionsById]);
+  reviewIdsRef.current = reviewSessionIds;
   useLayoutEffect(() => {
     sessionStoreRef.current.replace(sessionsById, sessionsReady);
   }, [sessionsById, sessionsReady]);
@@ -785,8 +784,9 @@ function SessionCanvasFlow({
   }, [queryClient, selectedIds, sessionsById, runningSessionIds]);
 
   useEffect(() => {
-    if (nodes.length === documentState.nodes.length) return;
-    persist({ ...documentRef.current, nodes });
+    if (nodes.length < documentState.nodes.length) {
+      persist({ ...documentRef.current, nodes });
+    }
   }, [documentState.nodes.length, nodes, persist]);
 
   const updateNodes = useCallback(
@@ -856,15 +856,15 @@ function SessionCanvasFlow({
     [dragOverlay, layoutNodes]
   );
 
+  const flowData = useMemo(
+    () => buildCanvasFlowData(layoutNodes, runningSessionIds, reviewSessionIds),
+    [layoutNodes, runningSessionIds, reviewSessionIds]
+  );
+
   const rfNodes = useMemo(() => {
     const cache = flowNodeCacheRef.current;
     const nextCache = new Map<string, Node>();
-    const lookups = buildCanvasFlowLookups(layoutNodes, {
-      draggedId,
-      selectedIds,
-      runningSessionIds,
-      reviewSessionIds,
-    });
+    const lookups = flowLookupsFromData(flowData, draggedId, selectedIds);
     const result = orderCanvasNodes(layoutNodes).map((node) => {
       const built = toFlowNode(
         node,
@@ -886,8 +886,9 @@ function SessionCanvasFlow({
     dragOverlay,
     draggedId,
     dropHint,
+    flowData,
     layoutNodes,
-    reviewSessionIds,
+    allPlacedSessionIds,
     runningSessionIds,
     selectedIds,
     windowSessionIds,
@@ -910,9 +911,9 @@ function SessionCanvasFlow({
   const autoSessionLinks = useMemo(
     () =>
       sameSessionLinks(
-        layoutNodes.filter((node) => !isOverflowHidden(layoutNodes, node))
+        nodes.filter((node) => !isOverflowHidden(nodes, node))
       ),
-    [layoutNodes]
+    [nodes]
   );
 
   const sessionLinks = useMemo(() => {
@@ -2632,8 +2633,8 @@ function SessionCanvasFlow({
                       key={`disconnect-${link.id}`}
                       type="button"
                       data-testid={`canvas-link-disconnect-${link.id}`}
-                      aria-label="断开连接"
-                      title="断开连接"
+                      aria-label={t('hubCanvas.disconnectLink')}
+                      title={t('hubCanvas.disconnectLink')}
                       onMouseEnter={() => setHoveredLinkId(link.id)}
                       onMouseLeave={() =>
                         setHoveredLinkId((prev) =>

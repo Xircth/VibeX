@@ -128,6 +128,7 @@
     "expandGroupFrame": "Expand group",
     "emptyGroup": "Drop sessions here",
     "mergeIntoGroup": "Group",
+    "disconnectLink": "Disconnect",
     "groupSelection": "Group",
     "arrangeSelection": "Arrange",
     "dissolveGroup": "Ungroup",

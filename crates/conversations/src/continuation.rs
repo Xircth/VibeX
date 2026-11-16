@@ -147,7 +147,7 @@ pub fn select_history_with_older_omitted(
         group.items.push(item);
     }
 
-    const PROMPT_WRAPPER_STATIC_OVERHEAD: &str = " Hidden reasoning, permissions and running tools are not transferred.  earlier items omitted; attachments may be omitted. Additional history is available in VibeX, but no Agent reading tool is assumed.\n[]\n";
+    const PROMPT_WRAPPER_STATIC_OVERHEAD: &str = " Hidden reasoning, permissions and running tools are not transferred.  earlier items omitted; attachments may be omitted. Additional history is available in Dimo, but no Agent reading tool is assumed.\n[]\n";
     let base_bytes = HANDOFF_MARKER.len()
         + PROMPT_WRAPPER_STATIC_OVERHEAD.len()
         + HANDOFF_END.len();

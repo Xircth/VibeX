@@ -620,6 +620,20 @@ mod tests {
                 .env
                 .insert(key.to_string(), home.to_string_lossy().into_owned());
         }
+        // Clear ambient home-override env vars so scratch-home tests do not
+        // resolve into the host runner's configured directory (e.g. GEMINI_HOME).
+        for key in [
+            "CODEX_HOME",
+            "CLAUDE_CONFIG_DIR",
+            "PI_CODING_AGENT_DIR",
+            "PI_HOME",
+            "GROK_HOME",
+            "OPENCLAW_HOME",
+            "XDG_CONFIG_HOME",
+            "GEMINI_HOME",
+        ] {
+            launch.env.insert(key.to_string(), String::new());
+        }
         launch
     }
 

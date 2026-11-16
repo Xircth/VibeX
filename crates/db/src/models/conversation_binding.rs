@@ -153,6 +153,7 @@ impl ConversationAgentBindingRecord {
             working_dir,
             native_id,
             connection_id,
+            None,
             true,
         )
         .await
@@ -174,6 +175,31 @@ impl ConversationAgentBindingRecord {
             working_dir,
             native_id,
             connection_id,
+            None,
+            false,
+        )
+        .await
+    }
+
+    /// Reserve a generation scoped to a specific continuation key without
+    /// changing the selected execution identity.
+    pub async fn prepare_native_session_with_continuation_key(
+        pool: &SqlitePool,
+        conversation_id: Uuid,
+        agent_id: &AgentId,
+        working_dir: &str,
+        native_id: &str,
+        connection_id: &str,
+        continuation_key: Option<&str>,
+    ) -> Result<Self, sqlx::Error> {
+        Self::store_native_session(
+            pool,
+            conversation_id,
+            agent_id,
+            working_dir,
+            native_id,
+            connection_id,
+            continuation_key,
             false,
         )
         .await
@@ -187,8 +213,12 @@ impl ConversationAgentBindingRecord {
         working_dir: &str,
         native_id: &str,
         connection_id: &str,
+        continuation_key: Option<&str>,
         activate: bool,
     ) -> Result<Self, sqlx::Error> {
+        let requested_continuation_key = continuation_key
+            .map(str::trim)
+            .filter(|value| !value.is_empty());
         let mut tx = pool.begin().await?;
         // The newest generation for this Agent is a barrier after rebind. Never
         // search older generations for a matching native ID.
@@ -215,7 +245,15 @@ impl ConversationAgentBindingRecord {
         let reusable = previous.as_ref().filter(|b| {
             let is_current_generation =
                 latest_overall.as_ref().is_some_and(|latest| latest.id == b.id);
+            let continuation_key_matches = requested_continuation_key.is_none_or(|target_key| {
+                b.continuation_key
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|existing| !existing.is_empty())
+                    .is_none_or(|existing| existing == target_key)
+            });
             b.resume_allowed
+                && continuation_key_matches
                 && (b.working_dir.is_empty()
                     || working_dir.is_empty()
                     || b.working_dir == working_dir)
@@ -245,8 +283,19 @@ impl ConversationAgentBindingRecord {
         } else {
             working_dir
         };
-        let effective_continuation_key = (!effective_working_dir.is_empty())
-            .then(|| format!("{agent_id}|{effective_working_dir}"));
+        let effective_continuation_key = requested_continuation_key
+            .map(str::to_string)
+            .or_else(|| {
+                reusable
+                    .and_then(|b| b.continuation_key.as_deref())
+                    .map(str::trim)
+                    .filter(|existing| !existing.is_empty())
+                    .map(str::to_string)
+            })
+            .or_else(|| {
+                (!effective_working_dir.is_empty())
+                    .then(|| format!("{agent_id}|{effective_working_dir}"))
+            });
         let binding = if let Some(binding) = reusable {
             binding.clone()
         } else {
@@ -332,6 +381,7 @@ impl ConversationAgentBindingRecord {
 
 fn is_placeholder_acp_session_id(acp_session_id: &str) -> bool {
     acp_session_id.is_empty()
+        || acp_session_id.starts_with("dimo-new-session-")
         || acp_session_id.starts_with("vibex-new-session-")
         || acp_session_id.starts_with("prepared-")
         || acp_session_id.starts_with("pending-")

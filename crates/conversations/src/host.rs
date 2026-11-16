@@ -330,7 +330,7 @@ pub(crate) async fn resolve_agent_runtime_launch_settings_with_resolver(
         .filter(|value| !value.is_empty())
     {
         env.insert(
-            "VIBEX_PROVIDER_INSTANCE_ID".to_string(),
+            "DIMO_PROVIDER_INSTANCE_ID".to_string(),
             instance_id.to_string(),
         );
     }

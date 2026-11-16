@@ -389,11 +389,11 @@ export function mergeQuestionRequestWithToolUse(
     };
   }
 
-  const hasExistingVibexQuestions = Array.isArray(root?.['x-vibex-questions']);
+  const hasExistingDimoQuestions = Array.isArray(root?.['x-dimo-questions']);
   const existingTabs = questionTabsFromRequest(request);
   const existingHasChoices = existingTabs.some((t) => t.choices.length > 0);
   if (
-    hasExistingVibexQuestions &&
+    hasExistingDimoQuestions &&
     existingTabs.length >= useQuestions.length &&
     existingHasChoices
   ) {

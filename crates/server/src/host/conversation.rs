@@ -1178,15 +1178,6 @@ async fn load_conversation_session_controls(
     Ok((session_modes, session_config_options))
 }
 
-async fn latest_agent_handoff_sequence(
-    pool: &SqlitePool,
-    conversation_id: Uuid,
-) -> Result<i64, ApplicationError> {
-    ConversationEventRecord::latest_agent_handoff_sequence(pool, conversation_id)
-        .await
-        .map_err(internal_error)
-}
-
 async fn latest_event<T>(
     pool: &SqlitePool,
     conversation_id: Uuid,

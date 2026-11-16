@@ -25,7 +25,7 @@ import { EngineHandoffDialog } from './EngineHandoffDialog';
 import { ProviderInstanceSelector } from './ProviderInstanceSelector';
 
 export const PROVIDER_INSTANCES_CHANGED_EVENT =
-  'vibex:provider-instances-changed';
+  'dimo:provider-instances-changed';
 
 type ProviderInstancesChangedDetail = {
   agentKey: string;

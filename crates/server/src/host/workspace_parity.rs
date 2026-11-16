@@ -993,6 +993,7 @@ impl ServerApplicationDomains {
                 continuation_policy: Some(agents::conversation::ContinuationPolicy::Portable),
                 expected_binding_revision: None,
                 agent_id,
+                provider_instance_id: None,
                 workspace_id: workspace.id,
                 conversation_id: session.id,
                 executor_profile_id: Some(profile.clone()),

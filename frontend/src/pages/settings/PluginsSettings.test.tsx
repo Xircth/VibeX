@@ -1274,7 +1274,7 @@ describe('PluginsSettings', () => {
         throw new Error('Rollback snapshot corrupted');
       },
     });
-    renderSettings(backend.value, false, 'vibex');
+    renderSettings(backend.value, false, 'dimo');
     await user.click(
       await screen.findByRole('button', { name: /Research Toolkit/ })
     );

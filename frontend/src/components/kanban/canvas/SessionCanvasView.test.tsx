@@ -810,7 +810,7 @@ describe('SessionCanvasView', () => {
     kanban.unmount();
 
     const storedAfterUnmount = JSON.parse(
-      window.localStorage.getItem('vibex:kanban-canvas:p1') ?? '{}'
+      window.localStorage.getItem('dimo:kanban-canvas:p1') ?? '{}'
     ) as { nodes?: Array<{ sessionId?: string }> };
     expect(
       storedAfterUnmount.nodes?.some((node) => node.sessionId === 's1')

@@ -66,7 +66,7 @@ describe('WebTransportBootstrap', () => {
 
     expect(await screen.findByText('Connected via web')).toBeInTheDocument();
     expect(localStorageSpy).not.toHaveBeenCalled();
-    expect(window.sessionStorage.getItem('vibex.web_session')).toBe(
+    expect(window.sessionStorage.getItem('dimo.web_session')).toBe(
       JSON.stringify({
         baseUrl: window.location.origin,
         token: 'one-time-server-token',
@@ -174,7 +174,7 @@ describe('WebTransportBootstrap', () => {
 
   it('restores and auto-reconnects from sessionStorage on reload', async () => {
     window.sessionStorage.setItem(
-      'vibex.web_session',
+      'dimo.web_session',
       JSON.stringify({
         baseUrl: 'http://127.0.0.1:17891',
         token: 'saved-device-token',
@@ -208,7 +208,7 @@ describe('WebTransportBootstrap', () => {
 
   it('clears sessionStorage and shows an error when restored token fails with 401', async () => {
     window.sessionStorage.setItem(
-      'vibex.web_session',
+      'dimo.web_session',
       JSON.stringify({
         baseUrl: 'http://127.0.0.1:17891',
         token: 'revoked-token',
@@ -237,12 +237,12 @@ describe('WebTransportBootstrap', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent(
       'Session token expired'
     );
-    expect(window.sessionStorage.getItem('vibex.web_session')).toBeNull();
+    expect(window.sessionStorage.getItem('dimo.web_session')).toBeNull();
   });
 
   it('clears sessionStorage and disconnects on explicit disconnectWebSession()', async () => {
     window.sessionStorage.setItem(
-      'vibex.web_session',
+      'dimo.web_session',
       JSON.stringify({
         baseUrl: 'http://127.0.0.1:17891',
         token: 'active-token',
@@ -277,6 +277,6 @@ describe('WebTransportBootstrap', () => {
         screen.getByRole('button', { name: /^(Connect|连接)$/ })
       ).toBeInTheDocument();
     });
-    expect(window.sessionStorage.getItem('vibex.web_session')).toBeNull();
+    expect(window.sessionStorage.getItem('dimo.web_session')).toBeNull();
   });
 });

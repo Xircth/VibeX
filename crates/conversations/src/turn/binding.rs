@@ -46,14 +46,20 @@ impl ConversationSessionService {
                 )
                 .unwrap_or_default()
         };
+        let key = super::continuation::continuation_key(
+            agent_id.as_str(),
+            &effective_working_dir,
+            provider_instance_id,
+        );
         let result: Result<(), sqlx::Error> = async {
-            let binding = ConversationAgentBindingRecord::prepare_native_session(
+            let binding = ConversationAgentBindingRecord::prepare_native_session_with_continuation_key(
                 pool,
                 conversation_id,
                 agent_id,
                 &effective_working_dir,
                 native_id,
                 &connection_id.to_string(),
+                Some(&key),
             )
             .await?;
             ConversationAgentBindingRecord::activate(pool, conversation_id, binding.id).await
@@ -64,11 +70,6 @@ impl ConversationSessionService {
             return Err(error.into());
         }
         // Always set continuation key and resume head for the active binding.
-        let key = super::continuation::continuation_key(
-            agent_id.as_str(),
-            &effective_working_dir,
-            provider_instance_id,
-        );
         sqlx::query("UPDATE conversation_agent_bindings SET is_resume_head = 0 WHERE conversation_id = ? AND continuation_key = ?")
             .bind(conversation_id).bind(&key).execute(pool).await?;
         let _ = sqlx::query("UPDATE conversation_agent_bindings SET continuation_key = ?, is_resume_head = 1 WHERE id = (SELECT active_agent_binding_id FROM sessions WHERE id = ?)")

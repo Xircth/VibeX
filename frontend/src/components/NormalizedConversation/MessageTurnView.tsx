@@ -657,18 +657,6 @@ export const MessageTurnView = memo(function MessageTurnView({
   questions?: TimelineQuestion[];
 }) {
   const { t } = useTranslation(['conversation', 'common', 'app']);
-  const turnInProgress = phase === 'streaming' || phase === 'optimistic';
-  const needsLiveDurationTick =
-    turn.role === 'assistant' &&
-    turnInProgress &&
-    collapseProcess &&
-    (!slice || slice.kind === 'process-fold');
-  const [nowMs, setNowMs] = useState(() => Date.now());
-  useEffect(() => {
-    if (!needsLiveDurationTick) return;
-    const id = window.setInterval(() => setNowMs(Date.now()), 1000);
-    return () => window.clearInterval(id);
-  }, [needsLiveDurationTick]);
   const { config } = useOptionalUserSystem() ?? {};
   const hideThinking = resolveHideModelThinking(config);
   const [editing, setEditing] = useState(false);
@@ -824,12 +812,16 @@ const AssistantTurnView = memo(function AssistantTurnView({
   isLastSlice: boolean;
 }) {
   const turnInProgress = phase === 'streaming' || phase === 'optimistic';
+  const needsLiveDurationTick =
+    turnInProgress &&
+    collapseProcess &&
+    (!slice || slice.kind === 'process-fold');
   const [nowMs, setNowMs] = useState(() => Date.now());
   useEffect(() => {
-    if (!turnInProgress) return;
+    if (!needsLiveDurationTick) return;
     const id = window.setInterval(() => setNowMs(Date.now()), 1000);
     return () => window.clearInterval(id);
-  }, [turnInProgress]);
+  }, [needsLiveDurationTick]);
 
   const isStreaming = phase === 'streaming';
   const plannedItems = useMemo(

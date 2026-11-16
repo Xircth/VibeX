@@ -772,13 +772,13 @@ fn extract_and_strip_internal_messages_core(
     )
 }
 
-/// Scans `raw_text` and strips all `<!--vibex-internal:...-->`,
-/// ```` ```vibex-internal:...\n...\n``` ````, and `<vibex-internal-meta ...>...</vibex-internal-meta>`
+/// Scans `raw_text` and strips all `<!--dimo-internal:...-->`,
+/// ```` ```dimo-internal:...\n...\n``` ````, and `<dimo-internal-meta ...>...</dimo-internal-meta>`
 /// frames while capturing their structured payloads.
 ///
 /// When `is_streaming` is `true`, any incomplete frame or partial opening marker at the
 /// end of `raw_text` is held back from `visible_text` so streaming deltas never flash
-/// raw `<!--vibex-internal` tags in the chat UI.
+/// raw `<!--dimo-internal` tags in the chat UI.
 pub fn extract_and_strip_internal_messages(
     raw_text: &str,
     conversation_id: Option<Uuid>,
@@ -898,7 +898,7 @@ mod incremental_scan_tests {
 
     #[test]
     fn incremental_matches_full_scan_across_chunks_frames_and_utf8() {
-        let full_raw = "你好世界！\n\n\n第一段文本后面紧跟着内部消息 <!--vibex-internal:p1/c1 {\"ok\":true}-->\n\n\n第二段继续输出，这里还有partial <vibex-internal-meta channel=\"p2/c2\">payload</vibex-internal-meta> 结尾以及 ```vibex-internal:p3/c3\n{\"x\":1}\n``` 完成。".repeat(3);
+        let full_raw = "你好世界！\n\n\n第一段文本后面紧跟着内部消息 <!--dimo-internal:p1/c1 {\"ok\":true}-->\n\n\n第二段继续输出，这里还有partial <dimo-internal-meta channel=\"p2/c2\">payload</dimo-internal-meta> 结尾以及 ```dimo-internal:p3/c3\n{\"x\":1}\n``` 完成。".repeat(3);
 
         for chunk_size in [1usize, 3, 7, 19, 64] {
             let mut incremental_raw = String::new();

@@ -1454,7 +1454,8 @@ readline.createInterface({ input: process.stdin, crlfDelay: Infinity }).on('line
                         .unwrap();
                 }
                 AgentEvent::Usage { usage } => {
-                    assert_eq!(usage.input_tokens, Some(120));
+                    assert_eq!(usage.input_tokens, Some(100));
+                    assert_eq!(usage.cache_read_tokens, Some(20));
                     saw_usage = true;
                 }
                 AgentEvent::MessageChunk { content: AgentContentBlock::Text { text } } => {

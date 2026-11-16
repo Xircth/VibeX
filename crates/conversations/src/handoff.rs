@@ -4,7 +4,7 @@
 
 use std::collections::HashSet;
 
-use agents::conversation::{ContinuationPolicy, ConversationEvent};
+use agents::conversation::{ContinuationPolicy, ConversationEvent, TurnRole};
 use db::models::{conversation::ConversationAgentBindingRecord, session::Session};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -273,7 +273,7 @@ impl DeterministicHandoffService {
     }
 
     /// Build a deterministic handoff selection for turn execution using the exact same
-    /// candidate prioritization, token estimation, and `<vibex-engine-handoff>` rendering
+    /// candidate prioritization, token estimation, and `<dimo-engine-handoff>` rendering
     /// as [`Self::build_handoff_context`], excluding `exclude_turn_id` and any items
     /// already known to the target binding (`known_prefixes` / `delivered_ids`).
     ///

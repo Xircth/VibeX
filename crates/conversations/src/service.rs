@@ -240,7 +240,7 @@ pub trait ConversationHost: Send + Sync {
         {
             settings
                 .env
-                .insert("VIBEX_PROVIDER_INSTANCE_ID".to_string(), instance_id.to_string());
+                .insert("DIMO_PROVIDER_INSTANCE_ID".to_string(), instance_id.to_string());
         }
         Ok(settings)
     }

@@ -540,7 +540,7 @@ describe('agentQuestionModel', () => {
       options: [],
       schema: {
         type: 'object',
-        'x-vibex-questions': [
+        'x-dimo-questions': [
           {
             id: 'interaction_1',
             question: '选择风格',

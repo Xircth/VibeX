@@ -23,8 +23,8 @@ import {
 import '@/styles/legacy/index.css';
 
 const PAIRING_CODE_PATTERN = /^[23456789ABCDEFGHJKLMNPQRSTUVWXYZ]{8}$/;
-const WEB_SESSION_STORAGE_KEY = 'vibex.web_session';
-export const WEB_SESSION_DISCONNECT_EVENT = 'vibex:web-disconnect';
+const WEB_SESSION_STORAGE_KEY = 'dimo.web_session';
+export const WEB_SESSION_DISCONNECT_EVENT = 'dimo:web-disconnect';
 
 interface StoredWebSession {
   baseUrl: string;

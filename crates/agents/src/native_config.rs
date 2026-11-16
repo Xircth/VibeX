@@ -445,16 +445,14 @@ impl NativeConfigProvider {
         }
         let override_directory = binding
             .directory_override_env
-            .and_then(|name| {
-                self.environment
-                    .get(name)
-                    .filter(|value| !value.trim().is_empty())
-                    .map(|value| PathBuf::from(value.trim()))
-                    .or_else(|| {
-                        std::env::var_os(name)
-                            .filter(|value| !value.is_empty())
-                            .map(PathBuf::from)
-                    })
+            .and_then(|name| match self.environment.get(name) {
+                Some(value) => {
+                    let trimmed = value.trim();
+                    (!trimmed.is_empty()).then(|| PathBuf::from(trimmed))
+                }
+                None => std::env::var_os(name)
+                    .filter(|value| !value.is_empty())
+                    .map(PathBuf::from),
             })
             .map(|directory| expand_home_path(&self.home, directory));
         override_directory

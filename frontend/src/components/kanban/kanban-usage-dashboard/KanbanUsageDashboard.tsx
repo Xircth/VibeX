@@ -242,8 +242,7 @@ export function KanbanUsageDashboard() {
   return (
     <div className="kanban-usage-page flex h-full flex-col">
       <div className="flex shrink-0 items-center justify-between gap-3 px-4 py-2.5">
-        <div className="flex h-8 items-center gap-2">
-          <BarChart3 className="h-5 w-5 shrink-0 text-muted-foreground" />
+        <div className="flex h-8 items-center">
           <h2 className="m-0 text-base font-semibold leading-none text-foreground">
             {t('usageDashboard.title')}
           </h2>

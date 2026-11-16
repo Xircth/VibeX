@@ -4,7 +4,6 @@ import {
   QueryClientContext,
   useQuery,
 } from '@tanstack/react-query';
-import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { Activity, AlertTriangle } from 'lucide-react';
 
@@ -31,7 +30,6 @@ const FAILURE_POLL_MS = 60_000;
  * Kanban (or opens an inline Tahoe Pulse Deck popover when in workspace stage).
  */
 export function AutomationFailureBadge() {
-  const navigate = useNavigate();
   const { t } = useTranslation('statusbar');
   const [observePopoverOpen, setObservePopoverOpen] = useState(false);
 
@@ -137,7 +135,7 @@ export function AutomationFailureBadge() {
                 queryKey: ['automation-unseen-failures'],
               });
             });
-            navigate('/settings/automations');
+            requestOpenPulseDeck({ navigateToKanban: true });
           }}
         >
           <AlertTriangle className="h-3 w-3" />

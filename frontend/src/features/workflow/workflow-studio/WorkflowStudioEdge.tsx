@@ -2,6 +2,7 @@ import { memo } from 'react';
 import {
   BaseEdge,
   EdgeLabelRenderer,
+  getBezierPath,
   getSmoothStepPath,
   type EdgeProps,
 } from '@xyflow/react';
@@ -40,18 +41,32 @@ export const WorkflowStudioEdge = memo(function WorkflowStudioEdge({
   data,
 }: EdgeProps) {
   const edgeData = data as
-    | { branchAccent?: StudioPortAccent; isLoopBack?: boolean }
+    | {
+        branchAccent?: StudioPortAccent;
+        isLoopBack?: boolean;
+        isInspectorLink?: boolean;
+      }
     | undefined;
-  const [edgePath, labelX, labelY] = getSmoothStepPath({
-    sourceX,
-    sourceY,
-    sourcePosition,
-    targetX,
-    targetY,
-    targetPosition,
-    borderRadius: 14,
-    offset: edgeData?.isLoopBack ? 30 : 22,
-  });
+  const [edgePath, labelX, labelY] = edgeData?.isInspectorLink
+    ? getBezierPath({
+        sourceX,
+        sourceY,
+        sourcePosition,
+        targetX,
+        targetY,
+        targetPosition,
+        curvature: 0.32,
+      })
+    : getSmoothStepPath({
+        sourceX,
+        sourceY,
+        sourcePosition,
+        targetX,
+        targetY,
+        targetPosition,
+        borderRadius: 14,
+        offset: edgeData?.isLoopBack ? 30 : 22,
+      });
 
   const accent = edgeData?.branchAccent;
 
@@ -74,7 +89,7 @@ export const WorkflowStudioEdge = memo(function WorkflowStudioEdge({
               transform: `translate(-50%, -50%) translate(${labelX}px,${labelY}px)`,
             }}
             className={cn(
-              'nodrag nopan pointer-events-none rounded-[6px] border px-1.5 py-0.5 text-[11px] font-medium leading-none shadow-sm',
+              'nodrag nopan pointer-events-none rounded-[var(--radius-inner)] border px-1.5 py-0.5 text-[11px] font-medium leading-none shadow-sm',
               edgeBadgeClass(accent)
             )}
           >

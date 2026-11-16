@@ -145,12 +145,28 @@ export function defaultSourceHandleFor(
   return 'source';
 }
 
+export const AUXILIARY_SOURCE_HANDLES = new Set([
+  'source:secondary',
+  'source:bottom',
+]);
+
+export const VALID_TARGET_HANDLES = new Set([
+  'target',
+  'target:secondary',
+  'target:top',
+]);
+
 export function resolveValidSourceHandle(
   step: StudioWorkflowStep | undefined,
   requestedHandle: string | null | undefined
 ): string {
   if (!step) {
     return requestedHandle || 'source';
+  }
+  if (requestedHandle && AUXILIARY_SOURCE_HANDLES.has(requestedHandle)) {
+    if (!isMultiPortStep(step) || requestedHandle === 'source:bottom') {
+      return requestedHandle;
+    }
   }
   const ports = getStepOutputPorts(step);
   if (requestedHandle && ports.some((port) => port.id === requestedHandle)) {
@@ -159,10 +175,36 @@ export function resolveValidSourceHandle(
   return defaultSourceHandleFor(step);
 }
 
+export function resolveValidTargetHandle(
+  requestedHandle: string | null | undefined
+): string {
+  if (requestedHandle && VALID_TARGET_HANDLES.has(requestedHandle)) {
+    return requestedHandle;
+  }
+  return 'target';
+}
+
 export function isNamedBranchHandle(
   handleId: string | null | undefined
 ): handleId is string {
   return Boolean(handleId && handleId.startsWith('branch:'));
+}
+
+export function isPersistedSourceHandle(
+  handleId: string | null | undefined
+): handleId is string {
+  return Boolean(
+    handleId &&
+      (handleId.startsWith('branch:') || AUXILIARY_SOURCE_HANDLES.has(handleId))
+  );
+}
+
+export function isPersistedTargetHandle(
+  handleId: string | null | undefined
+): handleId is string {
+  return Boolean(
+    handleId && handleId !== 'target' && VALID_TARGET_HANDLES.has(handleId)
+  );
 }
 
 export function describeBranchEdge(

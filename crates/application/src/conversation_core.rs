@@ -277,6 +277,18 @@ where
         self.workflows.versions(definition_id, limit).await
     }
 
+    pub async fn workflow_runs(
+        &self,
+        principal: &Principal,
+        definition_id: Uuid,
+        limit: u32,
+    ) -> Result<Vec<WorkflowRunView>, ApplicationError> {
+        if !principal.allows("workflow.read") {
+            return Err(ApplicationError::forbidden("principal lacks workflow.read"));
+        }
+        self.workflows.runs(definition_id, limit).await
+    }
+
     pub async fn workflow_events(
         &self,
         principal: &Principal,

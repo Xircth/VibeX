@@ -20,10 +20,19 @@ import type {
 import type { WorkflowStudioAgentOption } from '../workflowAgent';
 import {
   CONFIRMATION_OFFSET,
+  INSPECTOR_DOCK_GAP_X,
+  INSPECTOR_EDGE_PREFIX,
+  WORKFLOW_INSPECTOR_WIDTH,
   WORKFLOW_NODE_WIDTH,
   confirmationParentId,
+  inspectorNodeId,
+  inspectorParentId,
+  isInspectorEdgeId,
+  isStudioStepNode,
+  type StudioInspectorNode,
   type StudioMode,
   type StudioNode,
+  type StudioStepNode,
   type StudioWorkflowDefinition,
   type StudioWorkflowStep,
 } from './types';
@@ -39,8 +48,12 @@ import {
 } from './workflowGraph';
 import {
   defaultSourceHandleFor,
-  isNamedBranchHandle,
+  getStepOutputPorts,
+  isMultiPortStep,
+  isPersistedSourceHandle,
+  isPersistedTargetHandle,
   resolveValidSourceHandle,
+  resolveValidTargetHandle,
   withoutRemovedBranchPorts,
   type PortTranslateFn,
 } from './workflowPorts';
@@ -68,6 +81,9 @@ function applyConnectionToSteps(
     sourceStep,
     connection.sourceHandle
   );
+  const resolvedTargetHandle = resolveValidTargetHandle(
+    connection.targetHandle
+  );
 
   // BoundedLoop loop-back port targeting an ancestor step sets loopTargetStepId cleanly
   // without introducing a cycle into `dependsOn`.
@@ -88,16 +104,24 @@ function applyConnectionToSteps(
   const alreadyDepends = targetStep.dependsOn.includes(sourceId);
   const currentHandle =
     targetStep.branchPorts?.[sourceId] ?? defaultSourceHandleFor(sourceStep);
-  if (alreadyDepends && currentHandle === resolvedHandle) {
+  const currentTargetHandle = targetStep.targetPorts?.[sourceId] ?? 'target';
+  if (
+    alreadyDepends &&
+    currentHandle === resolvedHandle &&
+    currentTargetHandle === resolvedTargetHandle
+  ) {
     return null;
   }
 
   const nextDependsOn = alreadyDepends
     ? targetStep.dependsOn
     : [...targetStep.dependsOn, sourceId];
-  const nextBranchPorts = isNamedBranchHandle(resolvedHandle)
+  const nextBranchPorts = isPersistedSourceHandle(resolvedHandle)
     ? { ...(targetStep.branchPorts ?? {}), [sourceId]: resolvedHandle }
     : withoutRemovedBranchPorts(targetStep.branchPorts, new Set([sourceId]));
+  const nextTargetPorts = isPersistedTargetHandle(resolvedTargetHandle)
+    ? { ...(targetStep.targetPorts ?? {}), [sourceId]: resolvedTargetHandle }
+    : withoutRemovedBranchPorts(targetStep.targetPorts, new Set([sourceId]));
 
   return steps.map((step) =>
     step.id === targetId
@@ -105,6 +129,7 @@ function applyConnectionToSteps(
           ...step,
           dependsOn: nextDependsOn,
           branchPorts: nextBranchPorts,
+          targetPorts: nextTargetPorts,
         }
       : step
   );
@@ -116,6 +141,9 @@ function applyDisconnectToSteps(
   rawTargetId: string,
   sourceHandleId?: string | null
 ): StudioWorkflowStep[] | null {
+  if (inspectorParentId(rawSourceId) || inspectorParentId(rawTargetId)) {
+    return null;
+  }
   const sourceId = confirmationParentId(rawSourceId) ?? rawSourceId;
   const targetId = confirmationParentId(rawTargetId) ?? rawTargetId;
   let changed = false;
@@ -149,6 +177,7 @@ function applyDisconnectToSteps(
         ...step,
         dependsOn: step.dependsOn.filter((dep) => dep !== sourceId),
         branchPorts: withoutRemovedBranchPorts(step.branchPorts, removedSet),
+        targetPorts: withoutRemovedBranchPorts(step.targetPorts, removedSet),
         inputBindings: withoutStepOutputBindings(
           step.inputBindings,
           removedSet
@@ -174,7 +203,11 @@ function computeTopologySignature(definition: StudioWorkflowDefinition): string 
         .sort(([a], [b]) => a.localeCompare(b))
         .map(([k, v]) => `${k}=${v}`)
         .join(',');
-      return `${step.id}:${manual}:${step.dependsOn.join(',')}:${ports}`;
+      const targets = Object.entries(step.targetPorts ?? {})
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([k, v]) => `${k}=${v}`)
+        .join(',');
+      return `${step.id}:${manual}:${step.dependsOn.join(',')}:${ports}:${targets}`;
     })
     .join('|');
 }
@@ -257,24 +290,42 @@ export function useWorkflowStudioGraph({
     ]
   );
   const draggedNodeIdsRef = useRef(new Set<string>());
+  const inspectorManualPositionsRef = useRef(
+    new Map<string, { x: number; y: number }>()
+  );
   const topologySignature = useMemo(
     () => computeTopologySignature(definition),
     [definition]
   );
   const prevTopologySignatureRef = useRef(topologySignature);
 
-  const [nodes, setNodes, rawOnNodesChange] = useNodesState(layoutedNodes);
+  const [nodes, setNodes, rawOnNodesChange] =
+    useNodesState<StudioNode>(layoutedNodes);
   const onNodesChange = useCallback(
     (changes: NodeChange<StudioNode>[]) => {
       for (const change of changes) {
         if (change.type === 'position' && change.dragging) {
-          draggedNodeIdsRef.current.add(change.id);
+          const inspectorOwner = inspectorParentId(change.id);
+          if (inspectorOwner && change.position) {
+            inspectorManualPositionsRef.current.set(
+              inspectorOwner,
+              change.position
+            );
+          } else {
+            draggedNodeIdsRef.current.add(change.id);
+          }
         }
       }
       rawOnNodesChange(changes);
     },
     [rawOnNodesChange]
   );
+
+  useEffect(() => {
+    if (!selectedStepId) {
+      inspectorManualPositionsRef.current.clear();
+    }
+  }, [selectedStepId]);
 
   useEffect(() => {
     const topologyChanged =
@@ -292,8 +343,11 @@ export function useWorkflowStudioGraph({
 
     setNodes((current) => {
       const placedStepPositions: Array<{ x: number; y: number }> = [];
-      return layoutedNodes.map((next) => {
-        const existing = current.find((node) => node.id === next.id);
+      const nextStepNodes: StudioStepNode[] = layoutedNodes.map((next) => {
+        const existing = current.find(
+          (node): node is StudioStepNode =>
+            isStudioStepNode(node) && node.id === next.id
+        );
         const isConfirmation = Boolean(next.data.confirmationFor);
         const keepExistingPosition = Boolean(
           existing &&
@@ -324,13 +378,85 @@ export function useWorkflowStudioGraph({
           ...(existing?.measured ? { measured: existing.measured } : {}),
         };
       });
-    });
-  }, [layoutedNodes, setNodes, topologySignature]);
 
-  const derivedEdges = useMemo(
-    () => buildEdges(definition, latest, t),
-    [definition, latest, t]
+      if (!selectedStepId) {
+        return nextStepNodes;
+      }
+
+      const parentNode = nextStepNodes.find(
+        (candidate) => candidate.id === selectedStepId
+      );
+      if (!parentNode) {
+        return nextStepNodes;
+      }
+
+      const inspId = inspectorNodeId(selectedStepId);
+      const existingInspector = current.find(
+        (node): node is StudioInspectorNode =>
+          !isStudioStepNode(node) && node.id === inspId
+      );
+      const manualPosition =
+        inspectorManualPositionsRef.current.get(selectedStepId);
+      const dockedPosition = {
+        x: parentNode.position.x + WORKFLOW_NODE_WIDTH + INSPECTOR_DOCK_GAP_X,
+        y: parentNode.position.y,
+      };
+      const inspectorNode: StudioInspectorNode = {
+        id: inspId,
+        type: 'workflowInspector',
+        position: manualPosition ?? dockedPosition,
+        initialWidth: WORKFLOW_INSPECTOR_WIDTH,
+        initialHeight: 460,
+        draggable: true,
+        selectable: false,
+        deletable: false,
+        connectable: false,
+        dragHandle: '.workflow-inspector-drag-handle',
+        zIndex: 40,
+        style: { width: WORKFLOW_INSPECTOR_WIDTH },
+        data: { stepId: selectedStepId },
+        ...(existingInspector?.measured
+          ? { measured: existingInspector.measured }
+          : {}),
+      };
+
+      return [...nextStepNodes, inspectorNode];
+    });
+  }, [layoutedNodes, selectedStepId, setNodes, topologySignature]);
+
+  const nodePositionMap = useMemo(
+    () => new Map(nodes.map((node) => [node.id, node.position])),
+    [nodes]
   );
+
+  const derivedEdges = useMemo(() => {
+    const baseEdges = buildEdges(definition, latest, t, nodePositionMap);
+    if (!selectedStepId) return baseEdges;
+    const selectedStep = definition.steps.find(
+      (step) => step.id === selectedStepId
+    );
+    if (!selectedStep) return baseEdges;
+    const sourceHandle = isMultiPortStep(selectedStep)
+      ? (getStepOutputPorts(selectedStep, t)[0]?.id ?? 'source')
+      : 'source';
+    const inspectorEdge: Edge = {
+      id: `${INSPECTOR_EDGE_PREFIX}${selectedStepId}`,
+      type: 'workflowEdge',
+      source: selectedStepId,
+      target: inspectorNodeId(selectedStepId),
+      sourceHandle,
+      targetHandle: 'inspector-target',
+      deletable: false,
+      reconnectable: false,
+      selectable: false,
+      focusable: false,
+      zIndex: 35,
+      data: { isInspectorLink: true },
+      className: 'workflow-studio-edge workflow-inspector-edge',
+    };
+    return [...baseEdges, inspectorEdge];
+  }, [definition, latest, nodePositionMap, selectedStepId, t]);
+
   const [edges, setEdges, rawOnEdgesChange] = useEdgesState<Edge>(derivedEdges);
   useEffect(() => {
     setEdges((current) =>
@@ -345,28 +471,48 @@ export function useWorkflowStudioGraph({
   const inspectorRef = useRef<HTMLElement | null>(null);
   const [flowInstance, setFlowInstance] =
     useState<ReactFlowInstance<StudioNode> | null>(null);
-  const [tetherPath, setTetherPath] = useState('');
 
   const revealSelectedNode = useCallback(() => {
-    if (
-      !selectedStepId ||
-      !stageRef.current ||
-      !inspectorRef.current ||
-      !flowInstance
-    ) {
+    if (!selectedStepId || !stageRef.current || !flowInstance) {
       return;
     }
-    const node = stageRef.current.querySelector<HTMLElement>(
+    const stageRect = stageRef.current.getBoundingClientRect();
+    if (!stageRect.width || !stageRect.height) return;
+
+    const inspectorEl = stageRef.current.querySelector<HTMLElement>(
+      `.react-flow__node[data-id="${CSS.escape(inspectorNodeId(selectedStepId))}"]`
+    );
+    const stepEl = stageRef.current.querySelector<HTMLElement>(
       `.react-flow__node[data-id="${CSS.escape(selectedStepId)}"]`
     );
-    if (!node) return;
-    const nodeRect = node.getBoundingClientRect();
-    const inspectorRect = inspectorRef.current.getBoundingClientRect();
-    const overlap = nodeRect.right - (inspectorRect.left - 28);
-    if (overlap <= 0) return;
+    const targetEl = inspectorEl ?? stepEl;
+    if (!targetEl) return;
+
+    const targetRect = targetEl.getBoundingClientRect();
+    if (!targetRect.width && !targetRect.height) return;
+
+    let dx = 0;
+    let dy = 0;
+    const rightOverflow = targetRect.right - (stageRect.right - 24);
+    if (rightOverflow > 0) {
+      dx = -rightOverflow;
+    }
+    const leftEdge = stepEl ? stepEl.getBoundingClientRect().left : targetRect.left;
+    if (leftEdge + dx < stageRect.left + 24) {
+      dx += stageRect.left + 24 - (leftEdge + dx);
+    }
+    const bottomOverflow = targetRect.bottom - (stageRect.bottom - 56);
+    if (bottomOverflow > 0) {
+      dy = -bottomOverflow;
+    }
+    if (targetRect.top + dy < stageRect.top + 56) {
+      dy += stageRect.top + 56 - (targetRect.top + dy);
+    }
+
+    if (Math.abs(dx) < 2 && Math.abs(dy) < 2) return;
     const viewport = flowInstance.getViewport();
     void flowInstance.setViewport(
-      { ...viewport, x: viewport.x - overlap },
+      { ...viewport, x: viewport.x + dx, y: viewport.y + dy },
       { duration: 180 }
     );
   }, [flowInstance, selectedStepId]);
@@ -376,6 +522,12 @@ export function useWorkflowStudioGraph({
   );
   const syncConfirmationDrag = useCallback(
     (node: StudioNode) => {
+      const inspectorOwner = inspectorParentId(node.id);
+      if (inspectorOwner) {
+        inspectorManualPositionsRef.current.set(inspectorOwner, node.position);
+        return;
+      }
+
       const parentId = confirmationParentId(node.id);
       if (parentId) {
         setNodes((current) => {
@@ -390,79 +542,53 @@ export function useWorkflowStudioGraph({
         });
         return;
       }
+
       const offset =
         confirmationOffsets.current.get(node.id) ?? CONFIRMATION_OFFSET;
+      const followInspector = !inspectorManualPositionsRef.current.has(node.id);
       setNodes((current) =>
-        current.map((candidate) =>
-          candidate.data.confirmationFor === node.id
-            ? {
-                ...candidate,
-                position: {
-                  x: node.position.x + offset.x,
-                  y: node.position.y + offset.y,
-                },
-              }
-            : candidate
-        )
+        current.map((candidate) => {
+          if (
+            isStudioStepNode(candidate) &&
+            candidate.data.confirmationFor === node.id
+          ) {
+            return {
+              ...candidate,
+              position: {
+                x: node.position.x + offset.x,
+                y: node.position.y + offset.y,
+              },
+            };
+          }
+          if (
+            followInspector &&
+            !isStudioStepNode(candidate) &&
+            candidate.id === inspectorNodeId(node.id)
+          ) {
+            return {
+              ...candidate,
+              position: {
+                x: node.position.x + WORKFLOW_NODE_WIDTH + INSPECTOR_DOCK_GAP_X,
+                y: node.position.y,
+              },
+            };
+          }
+          return candidate;
+        })
       );
     },
     [setNodes]
-  );
-
-  const updateTether = useCallback(() => {
-    if (!selectedStepId || !stageRef.current || !inspectorRef.current) {
-      setTetherPath('');
-      return;
-    }
-    const stageRect = stageRef.current.getBoundingClientRect();
-    const node = stageRef.current.querySelector<HTMLElement>(
-      `.react-flow__node[data-id="${CSS.escape(selectedStepId)}"]`
-    );
-    if (!node) {
-      setTetherPath('');
-      return;
-    }
-    const nodeRect = node.getBoundingClientRect();
-    const inspectorRect = inspectorRef.current.getBoundingClientRect();
-    const startX = nodeRect.left - stageRect.left + nodeRect.width * 0.72;
-    const startY = nodeRect.top - stageRect.top;
-    const endX = inspectorRect.left - stageRect.left;
-    const endY = inspectorRect.top - stageRect.top + 38;
-    setTetherPath(`M ${startX} ${startY} V ${endY} H ${endX}`);
-  }, [selectedStepId]);
-  const tetherFrameRef = useRef(0);
-  const scheduleTetherUpdate = useCallback(() => {
-    if (tetherFrameRef.current) return;
-    tetherFrameRef.current = window.requestAnimationFrame(() => {
-      tetherFrameRef.current = 0;
-      updateTether();
-    });
-  }, [updateTether]);
-  useEffect(
-    () => () => {
-      if (tetherFrameRef.current) {
-        window.cancelAnimationFrame(tetherFrameRef.current);
-      }
-    },
-    []
   );
 
   useEffect(() => {
     if (!selectedStepId) return;
     const frame = requestAnimationFrame(() => {
       revealSelectedNode();
-      updateTether();
     });
-    const observer = new ResizeObserver(updateTether);
-    if (stageRef.current) observer.observe(stageRef.current);
-    if (inspectorRef.current) observer.observe(inspectorRef.current);
-    window.addEventListener('resize', updateTether);
     return () => {
       cancelAnimationFrame(frame);
-      observer.disconnect();
-      window.removeEventListener('resize', updateTether);
     };
-  }, [revealSelectedNode, selectedStepId, updateTether]);
+  }, [revealSelectedNode, selectedStepId]);
 
   useEffect(() => {
     if (
@@ -508,7 +634,8 @@ export function useWorkflowStudioGraph({
     (deletedEdges: Edge[]) => {
       if (!onDefinitionChange) return;
       const removable = deletedEdges.filter(
-        (edge) => !edge.id.includes('->confirmation:')
+        (edge) =>
+          !edge.id.includes('->confirmation:') && !isInspectorEdgeId(edge.id)
       );
       if (removable.length === 0) return;
 
@@ -561,7 +688,9 @@ export function useWorkflowStudioGraph({
       const passthroughChanges = changes.filter(
         (change) =>
           change.type !== 'remove' ||
-          (!change.id.includes('->confirmation:') && Boolean(onDefinitionChange))
+          (!change.id.includes('->confirmation:') &&
+            !isInspectorEdgeId(change.id) &&
+            Boolean(onDefinitionChange))
       );
       rawOnEdgesChange(passthroughChanges);
     },
@@ -570,7 +699,11 @@ export function useWorkflowStudioGraph({
 
   const reconnect = useCallback(
     (oldEdge: Edge, newConnection: Connection) => {
-      if (!onDefinitionChange || oldEdge.id.includes('->confirmation:')) {
+      if (
+        !onDefinitionChange ||
+        oldEdge.id.includes('->confirmation:') ||
+        isInspectorEdgeId(oldEdge.id)
+      ) {
         return;
       }
       const afterDisconnect =
@@ -596,16 +729,16 @@ export function useWorkflowStudioGraph({
     logStepId,
     setLogStepId,
     latest,
+    eventsByStepId,
     nodes,
     edges,
     onNodesChange,
     onEdgesChange,
     stageRef,
     inspectorRef,
+    flowInstance,
     setFlowInstance,
-    tetherPath,
     syncConfirmationDrag,
-    updateTether: scheduleTetherUpdate,
     connect,
     disconnect,
     reconnect,

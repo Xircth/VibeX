@@ -15,6 +15,7 @@ import {
   GitFork,
   ListTree,
   MoreHorizontal,
+  Plus,
   Repeat,
   Send,
   ShieldCheck,
@@ -27,11 +28,15 @@ import { MemberBotAvatar } from '@/features/collaboration/MemberBotAvatar';
 import { cn } from '@/lib/utils';
 
 import { StudioAgentIcon } from './StudioAgentIcon';
+import { useOptionalWorkflowStudioContext } from './WorkflowStudioContext';
+import { WorkflowStudioInspector } from './WorkflowStudioInspector';
 import {
   CONFIRMATION_NODE_HEIGHT,
   CONFIRMATION_NODE_WIDTH,
+  WORKFLOW_INSPECTOR_WIDTH,
   WORKFLOW_NODE_WIDTH,
-  type StudioNode,
+  type StudioInspectorNode,
+  type StudioStepNode,
 } from './types';
 import { getStepOutputPorts, type StudioPortAccent } from './workflowPorts';
 import {
@@ -60,7 +65,7 @@ function portPillClass(accent: StudioPortAccent): string {
 export const WorkflowStepNode = memo(function WorkflowStepNode({
   id,
   data,
-}: NodeProps<StudioNode>) {
+}: NodeProps<StudioStepNode>) {
   const { t, i18n } = useTranslation('workflow');
   const articleRef = useRef<HTMLElement | null>(null);
   const prevPortSignatureRef = useRef<string | null>(null);
@@ -77,9 +82,11 @@ export const WorkflowStepNode = memo(function WorkflowStepNode({
     Boolean(data.confirmationFor) || data.step.kind !== 'trigger';
   const portSignature = data.confirmationFor
     ? 'confirm:target|source'
-    : `${hasTargetPort ? 'target' : 'none'}|${outputPorts
-        .map((port) => port.id)
-        .join(',')}`;
+    : `${hasTargetPort ? 'target,target:secondary,target:top' : 'none'}|${
+        isMultiPort
+          ? `${outputPorts.map((port) => port.id).join(',')},source:bottom`
+          : 'source,source:secondary,source:bottom'
+      }`;
 
   const needsHeadlessBounds = useStore(
     useCallback(
@@ -141,7 +148,8 @@ export const WorkflowStepNode = memo(function WorkflowStepNode({
       height: number;
     }> = [];
 
-    let sourceIndex = 0;
+    let rightSourceIndex = 0;
+    let leftTargetIndex = 0;
     element
       .querySelectorAll<HTMLElement>('.react-flow__handle')
       .forEach((handleEl) => {
@@ -150,32 +158,61 @@ export const WorkflowStepNode = memo(function WorkflowStepNode({
           'data-handlepos'
         ) as Position | null;
         if (handleEl.classList.contains('source')) {
-          source.push({
-            id: handleId,
-            type: 'source',
-            nodeId: id,
-            position: positionAttr ?? Position.Right,
-            x: width - 8,
-            y: data.confirmationFor
-              ? 18
-              : isMultiPort
-                ? 96 + sourceIndex * 28
-                : 38,
-            width: 8,
-            height: 8,
-          });
-          sourceIndex += 1;
+          const pos = positionAttr ?? Position.Right;
+          if (pos === Position.Bottom) {
+            source.push({
+              id: handleId,
+              type: 'source',
+              nodeId: id,
+              position: Position.Bottom,
+              x: Math.round(width / 2) - 4,
+              y: height - 8,
+              width: 8,
+              height: 8,
+            });
+          } else {
+            source.push({
+              id: handleId,
+              type: 'source',
+              nodeId: id,
+              position: pos,
+              x: width - 8,
+              y: data.confirmationFor
+                ? 18
+                : isMultiPort
+                  ? 96 + rightSourceIndex * 28
+                  : 30 + rightSourceIndex * 54,
+              width: 8,
+              height: 8,
+            });
+            rightSourceIndex += 1;
+          }
         } else {
-          target.push({
-            id: handleId,
-            type: 'target',
-            nodeId: id,
-            position: positionAttr ?? Position.Left,
-            x: 0,
-            y: data.confirmationFor ? 18 : 38,
-            width: 8,
-            height: 8,
-          });
+          const pos = positionAttr ?? Position.Left;
+          if (pos === Position.Top) {
+            target.push({
+              id: handleId,
+              type: 'target',
+              nodeId: id,
+              position: Position.Top,
+              x: Math.round(width / 2) - 4,
+              y: 0,
+              width: 8,
+              height: 8,
+            });
+          } else {
+            target.push({
+              id: handleId,
+              type: 'target',
+              nodeId: id,
+              position: pos,
+              x: 0,
+              y: data.confirmationFor ? 18 : 30 + leftTargetIndex * 54,
+              width: 8,
+              height: 8,
+            });
+            leftTargetIndex += 1;
+          }
         }
       });
 
@@ -214,6 +251,11 @@ export const WorkflowStepNode = memo(function WorkflowStepNode({
     [data.logExpanded, logEvents]
   );
 
+  const portStateClass = (handleId: string) =>
+    data.connectedHandles?.has(handleId)
+      ? 'workflow-port-connected'
+      : 'workflow-port-idle';
+
   if (data.confirmationFor) {
     const waiting = data.stepRun?.awaitingAcceptance === true;
     const completed = data.stepRun?.status === 'completed';
@@ -221,7 +263,7 @@ export const WorkflowStepNode = memo(function WorkflowStepNode({
       <article
         ref={articleRef}
         className={cn(
-          'workflow-confirmation-node relative flex h-11 w-[148px] items-center gap-2 px-3 text-left',
+          'canvas-node-context-menu workflow-confirmation-node relative flex h-11 w-[148px] items-center gap-2 px-3 text-left',
           data.selected && 'workflow-node-selected',
           waiting && 'workflow-confirmation-waiting',
           completed && 'workflow-node-completed'
@@ -235,7 +277,7 @@ export const WorkflowStepNode = memo(function WorkflowStepNode({
           title={t('ports.targetInputTooltip')}
           aria-label={t('ports.targetInputTooltip')}
           onClick={(event) => event.stopPropagation()}
-          className="nodrag nopan workflow-port-handle"
+          className="nodrag nopan workflow-port-handle workflow-port-connected"
         />
         <button
           type="button"
@@ -249,7 +291,7 @@ export const WorkflowStepNode = memo(function WorkflowStepNode({
         >
           <span
             className={cn(
-              'grid size-5 shrink-0 place-items-center rounded-[6px]',
+              'grid size-5 shrink-0 place-items-center rounded-[var(--radius-inner)]',
               completed
                 ? 'workflow-node-kind-outbox_action'
                 : waiting
@@ -275,7 +317,10 @@ export const WorkflowStepNode = memo(function WorkflowStepNode({
           title={t('ports.sourceOutputTooltip')}
           aria-label={t('ports.sourceOutputTooltip')}
           onClick={(event) => event.stopPropagation()}
-          className="nodrag nopan workflow-port-handle"
+          className={cn(
+            'nodrag nopan workflow-port-handle',
+            portStateClass('source')
+          )}
         />
       </article>
     );
@@ -349,28 +394,61 @@ export const WorkflowStepNode = memo(function WorkflowStepNode({
   };
 
   return (
-    <article
-      ref={articleRef}
-      data-testid={`workflow-node-${data.step.id}`}
-      data-node-category={presentation.category}
-      className={cn(
-        'workflow-studio-node group relative w-[280px] text-left outline-none',
-        data.selected && 'workflow-node-selected',
-        statusClass(data.stepRun?.status)
-      )}
-    >
+      <article
+        ref={articleRef}
+        data-testid={`workflow-node-${data.step.id}`}
+        data-node-category={presentation.category}
+        className={cn(
+          'canvas-node-context-menu workflow-studio-node group relative w-[280px] text-left outline-none',
+          data.selected && 'workflow-node-selected',
+          statusClass(data.stepRun?.status)
+        )}
+      >
       {hasTargetPort ? (
-        <Handle
-          id="target"
-          type="target"
-          position={Position.Left}
-          isConnectable
-          title={t('ports.targetInputTooltip')}
-          aria-label={`${presentation.headline} ${t('ports.targetInputTooltip')}`}
-          data-testid={`workflow-port-${data.step.id}-target`}
-          onClick={(event) => event.stopPropagation()}
-          className="nodrag nopan workflow-port-handle workflow-port-deck-anchor"
-        />
+        <>
+          <Handle
+            id="target"
+            type="target"
+            position={Position.Left}
+            isConnectable
+            title={t('ports.targetInputTooltip')}
+            aria-label={`${presentation.headline} ${t('ports.targetInputTooltip')}`}
+            data-testid={`workflow-port-${data.step.id}-target`}
+            onClick={(event) => event.stopPropagation()}
+            className={cn(
+              'nodrag nopan workflow-port-handle workflow-port-left-primary',
+              portStateClass('target')
+            )}
+          />
+          <Handle
+            id="target:secondary"
+            type="target"
+            position={Position.Left}
+            isConnectable
+            title={t('ports.targetInputTooltip')}
+            aria-label={`${presentation.headline} ${t('ports.targetInputTooltip')}`}
+            data-testid={`workflow-port-${data.step.id}-target:secondary`}
+            onClick={(event) => event.stopPropagation()}
+            className={cn(
+              'nodrag nopan workflow-port-handle workflow-port-left-secondary',
+              portStateClass('target:secondary')
+            )}
+          />
+          <Handle
+            id="target:top"
+            type="target"
+            position={Position.Top}
+            isConnectable
+            title={t('ports.targetInputTooltip')}
+            aria-label={`${presentation.headline} ${t('ports.targetInputTooltip')}`}
+            data-testid={`workflow-port-${data.step.id}-target:top`}
+            onClick={(event) => event.stopPropagation()}
+            className={cn(
+              'nodrag nopan workflow-port-handle workflow-port-top',
+              portStateClass('target:top')
+            )}
+          />
+        </>
       ) : null}
 
       <button
@@ -385,7 +463,7 @@ export const WorkflowStepNode = memo(function WorkflowStepNode({
           {sessionOrAgentStep ? (
             <span
               data-testid={`workflow-node-category-badge-${data.step.id}`}
-              className="workflow-node-chip inline-flex h-5 max-w-[188px] items-center gap-1.5 rounded-[6px] px-1.5 text-[11px] font-medium leading-none text-foreground"
+              className="workflow-node-chip inline-flex h-5 max-w-[188px] items-center gap-1.5 rounded-[var(--radius-inner)] px-1.5 text-[11px] font-medium leading-none text-foreground"
             >
               <StudioAgentIcon
                 agentId={sessionOrAgentStep.agentId}
@@ -397,7 +475,7 @@ export const WorkflowStepNode = memo(function WorkflowStepNode({
           ) : presentation.category === 'bot' && presentation.botAvatar ? (
             <span
               data-testid={`workflow-node-category-badge-${data.step.id}`}
-              className="workflow-node-chip inline-flex h-5 max-w-[188px] items-center gap-1.5 rounded-[6px] px-1.5 text-[11px] font-medium leading-none text-foreground"
+              className="workflow-node-chip inline-flex h-5 max-w-[188px] items-center gap-1.5 rounded-[var(--radius-inner)] px-1.5 text-[11px] font-medium leading-none text-foreground"
             >
               <MemberBotAvatar
                 config={presentation.botAvatar}
@@ -409,11 +487,11 @@ export const WorkflowStepNode = memo(function WorkflowStepNode({
           ) : (
             <span
               data-testid={`workflow-node-category-badge-${data.step.id}`}
-              className="workflow-node-chip inline-flex h-5 max-w-[188px] items-center gap-1.5 rounded-[6px] px-1.5 text-[11px] font-medium leading-none text-foreground"
+              className="workflow-node-chip inline-flex h-5 max-w-[188px] items-center gap-1.5 rounded-[var(--radius-inner)] px-1.5 text-[11px] font-medium leading-none text-foreground"
             >
               <span
                 className={cn(
-                  'grid size-3.5 shrink-0 place-items-center rounded-[4px]',
+                  'grid size-3.5 shrink-0 place-items-center rounded-[var(--radius-inner)]',
                   `workflow-node-kind-${presentation.category}`
                 )}
               >
@@ -424,7 +502,7 @@ export const WorkflowStepNode = memo(function WorkflowStepNode({
           )}
 
           {presentation.detailBadge ? (
-            <span className="workflow-node-tag inline-flex h-5 min-w-0 items-center rounded-[6px] px-1.5 text-[10.5px] leading-none text-muted-foreground tabular-nums">
+            <span className="workflow-node-tag inline-flex h-5 min-w-0 items-center rounded-[var(--radius-inner)] px-1.5 text-[10.5px] leading-none text-muted-foreground tabular-nums">
               <span className="truncate">{presentation.detailBadge}</span>
             </span>
           ) : null}
@@ -475,7 +553,7 @@ export const WorkflowStepNode = memo(function WorkflowStepNode({
                       title={t('ports.fanOutBadgeTooltip', {
                         count: portOutCount,
                       })}
-                      className="workflow-node-tag inline-flex h-5 items-center rounded-[6px] px-1.5 font-mono text-[10.5px] font-semibold tabular-nums text-muted-foreground"
+                      className="workflow-node-tag inline-flex h-5 items-center rounded-[var(--radius-inner)] px-1.5 font-mono text-[10.5px] font-semibold tabular-nums text-muted-foreground"
                     >
                       {t('ports.fanOutCount', { count: portOutCount })}
                     </span>
@@ -483,7 +561,7 @@ export const WorkflowStepNode = memo(function WorkflowStepNode({
                   <span
                     data-testid={`workflow-port-pill-${data.step.id}-${port.id}`}
                     className={cn(
-                      'inline-flex h-[21px] items-center rounded-[6px] border px-2 text-[11px] font-medium leading-none',
+                      'inline-flex h-[21px] items-center rounded-[var(--radius-inner)] border px-2 text-[11px] font-medium leading-none',
                       portPillClass(port.accent)
                     )}
                   >
@@ -500,7 +578,8 @@ export const WorkflowStepNode = memo(function WorkflowStepNode({
                     onClick={(event) => event.stopPropagation()}
                     className={cn(
                       'nodrag nopan workflow-port-handle',
-                      `workflow-port-accent-${port.accent}`
+                      `workflow-port-accent-${port.accent}`,
+                      portStateClass(port.id)
                     )}
                   />
                 </div>
@@ -514,7 +593,7 @@ export const WorkflowStepNode = memo(function WorkflowStepNode({
             {fanInCount >= 2 ? (
               <span
                 data-testid={`workflow-fan-in-badge-${data.step.id}`}
-                className="inline-flex h-[21px] shrink-0 items-center rounded-[6px] bg-primary/12 px-1.5 text-[11px] font-semibold tabular-nums text-primary"
+                className="inline-flex h-[21px] shrink-0 items-center rounded-[var(--radius-inner)] bg-primary/12 px-1.5 text-[11px] font-semibold tabular-nums text-primary"
               >
                 {t(
                   joinMode === 'any'
@@ -526,7 +605,7 @@ export const WorkflowStepNode = memo(function WorkflowStepNode({
             ) : null}
             <button
               type="button"
-              className="nodrag workflow-node-tag inline-flex !h-[22px] items-center gap-1.5 rounded-[6px] px-2 text-[11px] font-medium text-foreground transition-colors hover:bg-muted"
+              className="nodrag workflow-node-tag inline-flex !h-[22px] items-center gap-1.5 rounded-[var(--radius-inner)] px-2 text-[11px] font-medium text-foreground transition-colors hover:bg-muted"
               aria-expanded={data.logExpanded}
               onClick={(event) => {
                 event.stopPropagation();
@@ -546,7 +625,7 @@ export const WorkflowStepNode = memo(function WorkflowStepNode({
             <span
               data-testid={`workflow-fan-out-badge-${data.step.id}`}
               title={t('ports.fanOutBadgeTooltip', { count: totalOutgoing })}
-              className="workflow-node-tag inline-flex h-[21px] shrink-0 items-center rounded-[6px] px-1.5 font-mono text-[10.5px] font-semibold tabular-nums text-muted-foreground"
+              className="workflow-node-tag inline-flex h-[21px] shrink-0 items-center rounded-[var(--radius-inner)] px-1.5 font-mono text-[10.5px] font-semibold tabular-nums text-muted-foreground"
             >
               {t('ports.fanOutCount', { count: totalOutgoing })}
             </span>
@@ -556,20 +635,20 @@ export const WorkflowStepNode = memo(function WorkflowStepNode({
 
       {data.logExpanded ? (
         <div
-          className="nodrag nowheel workflow-node-log absolute left-0 top-[calc(100%+10px)] z-30 w-[320px] rounded-[14px] border bg-card p-3 shadow-lg"
+          className="nodrag nowheel workflow-node-log absolute left-0 top-[calc(100%+10px)] z-30 w-[320px] rounded-[var(--radius-container)] border bg-card p-3 shadow-lg"
           data-testid={`workflow-node-log-${data.step.id}`}
           onClick={(event) => event.stopPropagation()}
         >
           <div className="mb-2 flex items-center gap-1.5 text-xs font-semibold">
             <ListTree className="size-3.5" />
             {data.stepRun?.status === 'completed' ? (
-              <div className="flex flex-1 items-center rounded-md bg-muted/65 p-0.5">
+              <div className="flex flex-1 items-center rounded-[var(--radius-inner)] bg-muted/65 p-0.5">
                 {(['log', 'preview'] as const).map((view) => (
                   <button
                     type="button"
                     key={view}
                     className={cn(
-                      'flex !h-6 flex-1 items-center justify-center rounded-md px-2 text-2xs font-medium',
+                      'flex !h-6 flex-1 items-center justify-center rounded-[var(--radius-inner)] px-2 text-2xs font-medium',
                       logView === view
                         ? 'bg-card text-foreground shadow-sm'
                         : 'text-muted-foreground'
@@ -596,7 +675,7 @@ export const WorkflowStepNode = memo(function WorkflowStepNode({
                 data.predecessorRuns.map((run) => (
                   <details
                     key={run.id}
-                    className="rounded-md border bg-muted/20"
+                    className="rounded-[var(--radius-inner)] border bg-muted/20"
                     open
                   >
                     <summary className="cursor-pointer px-2 py-1.5 font-medium">
@@ -675,22 +754,157 @@ export const WorkflowStepNode = memo(function WorkflowStepNode({
       ) : null}
 
       {!isMultiPort ? (
-        <Handle
-          id="source"
-          type="source"
-          position={Position.Right}
-          isConnectable
-          title={outputPorts[0]?.tooltip ?? t('ports.sourceOutputTooltip')}
-          aria-label={`${presentation.headline} ${
-            outputPorts[0]?.tooltip ?? t('ports.sourceOutputTooltip')
-          }`}
-          data-testid={`workflow-port-${data.step.id}-source`}
-          onClick={(event) => event.stopPropagation()}
-          className="nodrag nopan workflow-port-handle workflow-port-deck-anchor"
-        />
+        <>
+          <Handle
+            id="source"
+            type="source"
+            position={Position.Right}
+            isConnectable
+            title={outputPorts[0]?.tooltip ?? t('ports.sourceOutputTooltip')}
+            aria-label={`${presentation.headline} ${
+              outputPorts[0]?.tooltip ?? t('ports.sourceOutputTooltip')
+            }`}
+            data-testid={`workflow-port-${data.step.id}-source`}
+            onClick={(event) => event.stopPropagation()}
+            className={cn(
+              'nodrag nopan workflow-port-handle workflow-port-right-primary',
+              portStateClass('source')
+            )}
+          />
+          <Handle
+            id="source:secondary"
+            type="source"
+            position={Position.Right}
+            isConnectable
+            title={outputPorts[0]?.tooltip ?? t('ports.sourceOutputTooltip')}
+            aria-label={`${presentation.headline} ${
+              outputPorts[0]?.tooltip ?? t('ports.sourceOutputTooltip')
+            }`}
+            data-testid={`workflow-port-${data.step.id}-source:secondary`}
+            onClick={(event) => event.stopPropagation()}
+            className={cn(
+              'nodrag nopan workflow-port-handle workflow-port-right-secondary',
+              portStateClass('source:secondary')
+            )}
+          />
+        </>
+      ) : null}
+
+      <Handle
+        id="source:bottom"
+        type="source"
+        position={Position.Bottom}
+        isConnectable
+        title={t('ports.sourceOutputTooltip')}
+        aria-label={`${presentation.headline} ${t('ports.sourceOutputTooltip')}`}
+        data-testid={`workflow-port-${data.step.id}-source:bottom`}
+        onClick={(event) => event.stopPropagation()}
+        className={cn(
+          'nodrag nopan workflow-port-handle workflow-port-bottom',
+          portStateClass('source:bottom')
+        )}
+      />
+
+      {!isMultiPort && totalOutgoing === 0 && data.onQuickAddStep ? (
+        <div
+          className={cn(
+            'nodrag nopan absolute -right-11 top-[23px] z-20 flex items-center transition-opacity duration-150',
+            data.selected
+              ? 'opacity-100'
+              : 'opacity-0 group-hover:opacity-100 focus-within:opacity-100'
+          )}
+        >
+          <span
+            aria-hidden="true"
+            className="h-[1.5px] w-3.5 bg-[var(--workflow-edge-ink)]"
+          />
+          <button
+            type="button"
+            data-testid={`workflow-quick-add-${data.step.id}`}
+            title={t('nodes.quickAddNext')}
+            aria-label={`${presentation.headline} · ${t('nodes.quickAddNext')}`}
+            onClick={(event) => {
+              event.stopPropagation();
+              data.onQuickAddStep?.(data.step.id);
+            }}
+            className="nodrag nopan workflow-quick-add-btn grid size-6 place-items-center"
+          >
+            <Plus className="size-3.5" />
+          </button>
+        </div>
       ) : null}
     </article>
   );
 });
 
-export const nodeTypes = { workflowStep: WorkflowStepNode };
+export const WorkflowInspectorNode = memo(function WorkflowInspectorNode({
+  id,
+}: NodeProps<StudioInspectorNode>) {
+  const studio = useOptionalWorkflowStudioContext();
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const storeApi = useStoreApi();
+  const updateNodeInternals = useUpdateNodeInternals();
+
+  useEffect(() => {
+    const element = containerRef.current;
+    if (!element) return;
+
+    if (element.offsetWidth > 0 || element.offsetHeight > 0) {
+      updateNodeInternals(id);
+      return;
+    }
+
+    const state = storeApi.getState();
+    const internal = state.nodeLookup.get(id);
+    if (!internal || internal.internals.handleBounds) return;
+
+    const width = internal.initialWidth ?? WORKFLOW_INSPECTOR_WIDTH;
+    const height = internal.initialHeight ?? 440;
+    const target = [
+      {
+        id: 'inspector-target',
+        type: 'target' as const,
+        nodeId: id,
+        position: Position.Left,
+        x: 0,
+        y: 26,
+        width: 8,
+        height: 8,
+      },
+    ];
+    const nextLookup = new Map(state.nodeLookup);
+    nextLookup.set(id, {
+      ...internal,
+      measured: { width, height },
+      internals: {
+        ...internal.internals,
+        handleBounds: { source: [], target },
+      },
+    });
+    storeApi.setState({ nodeLookup: nextLookup });
+    state.triggerNodeChanges([
+      { id, type: 'dimensions', dimensions: { width, height } },
+    ]);
+  }, [id, storeApi, updateNodeInternals]);
+
+  return (
+    <div
+      ref={containerRef}
+      className="canvas-node-context-menu workflow-inspector-node-shell relative"
+    >
+      <Handle
+        id="inspector-target"
+        type="target"
+        position={Position.Left}
+        isConnectable={false}
+        className="workflow-inspector-handle pointer-events-none"
+      />
+      {studio ? <WorkflowStudioInspector studio={studio} /> : null}
+    </div>
+  );
+});
+
+export const nodeTypes = {
+  workflowStep: WorkflowStepNode,
+  workflowInspector: WorkflowInspectorNode,
+};

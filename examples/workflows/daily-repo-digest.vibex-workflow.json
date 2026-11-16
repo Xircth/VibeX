@@ -15,7 +15,7 @@
     {
       "id": "morning-schedule",
       "dependsOn": [],
-      "phase": "[vibex-studio:v1]{\"hasOrchestratorPreset\":true,\"orchestratorPreset\":\"window_aggregator\",\"trigger\":{\"title\":\"每工作日 09:30 定时触发\",\"triggerKind\":\"temporal\",\"sourceKind\":\"time_cron\",\"eventType\":\"pulse.timer.fired\",\"evalMode\":\"auto\",\"hasTemporal\":true,\"temporal\":{\"kind\":\"cron\",\"expression\":\"30 9 * * 1-5\",\"weekdaysOnly\":true},\"filter\":{\"sourceKinds\":[\"time_cron\"],\"sourceInstanceIds\":[],\"eventTypes\":[],\"allowedActors\":[],\"conditions\":[]}},\"userPhase\":null}",
+      "phase": "[vibex-studio:v1]{\"hasOrchestratorPreset\":true,\"orchestratorPreset\":\"window_aggregator\",\"trigger\":{\"title\":\"每工作日 09:30 定时触发\",\"triggerKind\":\"temporal\",\"sourceKind\":\"time_cron\",\"eventType\":\"pulse.timer.fired\",\"evalMode\":\"auto\",\"hasTemporal\":true,\"temporal\":{\"kind\":\"cron\",\"expression\":\"30 9 * * 1-5\",\"timezone\":\"Asia/Shanghai\",\"weekdaysOnly\":true},\"filter\":{\"sourceKinds\":[\"time_cron\"],\"sourceInstanceIds\":[],\"eventTypes\":[],\"allowedActors\":[],\"conditions\":[]}},\"userPhase\":null}",
       "inputBindings": {},
       "kind": "notify",
       "title": "[pulse-trigger] 每工作日 09:30 定时触发"
@@ -46,7 +46,7 @@
       "inputBindings": {
         "digest": {
           "source": "step_output",
-          "stepId": "digest-bot",
+          "step_id": "digest-bot",
           "pointer": "/summary"
         }
       },

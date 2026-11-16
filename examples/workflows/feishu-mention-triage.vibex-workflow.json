@@ -46,7 +46,7 @@
       "inputBindings": {
         "triage": {
           "source": "step_output",
-          "stepId": "triage-bot",
+          "step_id": "triage-bot",
           "pointer": "/summary"
         }
       },
@@ -72,7 +72,7 @@
       "inputBindings": {
         "answer": {
           "source": "step_output",
-          "stepId": "investigate-code",
+          "step_id": "investigate-code",
           "pointer": "/summary"
         }
       },

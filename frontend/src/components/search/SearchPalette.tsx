@@ -249,7 +249,7 @@ export const BUILTIN_PALETTE_COMMANDS: readonly CommandContribution[] = [
     icon: 'clock',
     order: 250,
     handler: () => {
-      dispatchHostEvent('vibex:open-settings', { section: 'automations' });
+      requestOpenPulseDeck({ navigateToKanban: true });
     },
   },
   {

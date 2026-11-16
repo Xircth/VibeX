@@ -1,4 +1,5 @@
 import {
+  useCallback,
   useEffect,
   useMemo,
   useRef,
@@ -6,25 +7,10 @@ import {
   type ReactNode,
 } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Badge } from '@astryxdesign/core/Badge';
-import { Button as AstryxButton } from '@astryxdesign/core/Button';
-import { Icon } from '@astryxdesign/core/Icon';
 import { HStack, VStack } from '@astryxdesign/core/Layout';
-import { StatusDot } from '@astryxdesign/core/StatusDot';
-import {
-  proportional,
-  resolveColumnWidths,
-  Table,
-  TableBody,
-  TableCell,
-  TableRow,
-  type TableColumn,
-} from '@astryxdesign/core/Table';
-import { Text } from '@astryxdesign/core/Text';
 import {
   CheckCircle2,
-  ChevronDown,
-  ChevronRight,
+  Loader2,
   Play,
   Plus,
   Save,
@@ -32,6 +18,11 @@ import {
   XCircle,
 } from 'lucide-react';
 
+import {
+  AstryxSelect,
+  type AstryxSelectOption,
+} from '@/components/ui/astryx-select';
+import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import type {
@@ -42,12 +33,13 @@ import type {
 } from '@/lib/api/pulse';
 import { cn } from '@/lib/utils';
 
+import { AutomationSplitFrame } from './AutomationSplitFrame';
 import {
-  AutomationSplitFrame,
-  groupHeaderCell,
-  interactiveRowStyle,
-  selectedTableRowStyle,
-} from './AutomationSplitFrame';
+  FilterStatusPill,
+  FilterTable,
+  type FilterChipItem,
+  type FilterTableRow,
+} from './FilterTable';
 import { buildWebhookCurlSnippet } from './automationModels';
 import { SourceConnectorFields } from './SourceConnectorFields';
 
@@ -73,6 +65,20 @@ const SOURCE_KIND_OPTIONS: ReadonlyArray<{
   { kind: 'jira', labelKey: 'pulseDeck.workbench.sources.kindJira' },
 ];
 
+const SOURCE_TEMPLATE_KINDS: ReadonlyArray<{
+  kind: EventSourceKind;
+  labelKey: string;
+}> = [
+  { kind: 'github', labelKey: 'pulseDeck.workbench.sources.kindGithub' },
+  { kind: 'feishu', labelKey: 'pulseDeck.workbench.sources.kindFeishu' },
+  {
+    kind: 'webhook_standard',
+    labelKey: 'pulseDeck.workbench.sources.kindWebhookStandard',
+  },
+  { kind: 'time_cron', labelKey: 'pulseDeck.workbench.sources.kindTimeCron' },
+  { kind: 'jira', labelKey: 'pulseDeck.workbench.sources.kindJira' },
+];
+
 function readStringConfig(
   cfg: Record<string, unknown> | undefined,
   key: string,
@@ -91,11 +97,32 @@ function readNumberConfig(
   return typeof val === 'number' && Number.isFinite(val) ? val : fallback;
 }
 
+export function toFullGithubRepoUrl(raw: string): string {
+  const trimmed = raw.trim();
+  if (!trimmed) return '';
+  if (
+    trimmed.startsWith('http://') ||
+    trimmed.startsWith('https://') ||
+    trimmed.startsWith('git@') ||
+    trimmed.startsWith('ssh://')
+  ) {
+    return trimmed;
+  }
+  const clean = trimmed.replace(/^\/+|\/+$/g, '').replace(/\.git$/i, '');
+  if (/^[^/\s]+\/[^/\s]+$/.test(clean)) {
+    return `https://github.com/${clean}`;
+  }
+  return trimmed;
+}
+
+export type SourceFilterKey = 'connected' | 'template';
+
 export interface AutomationSourcesTabProps {
-  renderHeader?: (
-    toolbarRow?: ReactNode,
-    contextualAction?: ReactNode
-  ) => ReactNode;
+  renderShell: (options: {
+    headerSearch?: ReactNode;
+    contextualAction?: ReactNode;
+    children: ReactNode;
+  }) => ReactNode;
   sources: readonly PulseSourceView[];
   initialAddingNew?: boolean;
   onUpsertSource: (
@@ -109,27 +136,53 @@ export interface AutomationSourcesTabProps {
 }
 
 export function AutomationSourcesTab({
-  renderHeader,
+  renderShell,
   sources,
   initialAddingNew = false,
   onUpsertSource,
   onDeleteSource,
   onTestSource,
 }: AutomationSourcesTabProps) {
-  const { t, i18n } = useTranslation('panels');
+  const { t } = useTranslation('panels');
+
+  const connectedSources = useMemo(
+    () => sources.filter((src) => !src.id.startsWith('placeholder-')),
+    [sources]
+  );
+
+  const templateItems = useMemo(() => {
+    const connectedKinds = new Set(connectedSources.map((src) => src.kind));
+    return SOURCE_TEMPLATE_KINDS.filter(
+      (tpl) => !connectedKinds.has(tpl.kind)
+    );
+  }, [connectedSources]);
 
   const [selectedSourceId, setSelectedSourceId] = useState<string | null>(() =>
-    initialAddingNew ? null : (sources[0]?.id ?? null)
+    initialAddingNew ? null : (connectedSources[0]?.id ?? null)
   );
+  const [selectedTemplateKind, setSelectedTemplateKind] =
+    useState<EventSourceKind | null>(() =>
+      !initialAddingNew && connectedSources.length === 0 ? 'github' : null
+    );
   const [creatingNew, setCreatingNew] = useState(
-    initialAddingNew || sources.length === 0
+    initialAddingNew || connectedSources.length === 0
   );
-  const [sourcesExpanded, setSourcesExpanded] = useState(true);
+  const [sourceFilter, setSourceFilter] = useState<SourceFilterKey | 'all'>(
+    'all'
+  );
   const hydratedSourceIdRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (connectedSources.length === 0 && sourceFilter === 'connected') {
+      setSourceFilter('all');
+    }
+  }, [connectedSources.length, sourceFilter]);
 
   // Connector form states
   const [kind, setKind] = useState<EventSourceKind>('github');
-  const [title, setTitle] = useState('GitHub CI/CD');
+  const [title, setTitle] = useState(() =>
+    t('pulseDeck.workbench.sources.kindGithub')
+  );
   const [enabled, setEnabled] = useState(true);
   const [signingSecret, setSigningSecret] = useState('');
   const [allowUnsigned, setAllowUnsigned] = useState(false);
@@ -158,6 +211,15 @@ export function AutomationSourcesTab({
     null
   );
 
+  const sourceKindSelectOptions = useMemo<AstryxSelectOption[]>(
+    () =>
+      SOURCE_KIND_OPTIONS.map((opt) => ({
+        value: opt.kind,
+        label: t(opt.labelKey),
+      })),
+    [t]
+  );
+
   const hydrateFromSource = (src: PulseSourceView) => {
     const cfg = src.configJson;
     hydratedSourceIdRef.current = src.id;
@@ -168,7 +230,7 @@ export function AutomationSourcesTab({
     setAllowUnsigned(Boolean(cfg?.allowUnsigned));
     if (src.kind === 'github') {
       setGithubMode(cfg?.mode === 'webhook' ? 'webhook' : 'poll');
-      setGithubRepo(readStringConfig(cfg, 'repo'));
+      setGithubRepo(toFullGithubRepoUrl(readStringConfig(cfg, 'repo')));
       setGithubPollSeconds(readNumberConfig(cfg, 'pollIntervalSeconds', 60));
       setGithubToken(readStringConfig(cfg, 'githubToken'));
       setGithubBranch(readStringConfig(cfg, 'branch'));
@@ -183,16 +245,57 @@ export function AutomationSourcesTab({
     setTestResult(null);
   };
 
+  const applyTemplateDefaults = useCallback(
+    (tplKind: EventSourceKind) => {
+      hydratedSourceIdRef.current = null;
+      setCreatingNew(true);
+      setSelectedSourceId(null);
+      setSelectedTemplateKind(tplKind);
+      setKind(tplKind);
+      const matched = SOURCE_KIND_OPTIONS.find((opt) => opt.kind === tplKind);
+      setTitle(matched ? t(matched.labelKey) : tplKind);
+      setEnabled(true);
+      setSigningSecret('');
+      setAllowUnsigned(false);
+      if (tplKind === 'github') {
+        setGithubMode('poll');
+        setGithubRepo('');
+        setGithubPollSeconds(60);
+        setGithubToken('');
+        setGithubBranch('');
+      } else if (tplKind === 'feishu') {
+        setFeishuMode('long_connection');
+        setFeishuBotOpenId('');
+      } else if (tplKind === 'time_cron') {
+        setCronExpression('0 9 * * *');
+      } else if (tplKind === 'time_interval') {
+        setIntervalSeconds(300);
+      }
+      setTestResult(null);
+    },
+    [t]
+  );
+
   useEffect(() => {
     if (initialAddingNew) {
       hydratedSourceIdRef.current = null;
       setCreatingNew(true);
       setSelectedSourceId(null);
+      setSelectedTemplateKind(null);
       return;
     }
-    if (creatingNew) return;
+    if (creatingNew && connectedSources.length === 0) {
+      return;
+    }
+    if (creatingNew && selectedTemplateKind !== null) {
+      return;
+    }
+    if (creatingNew && selectedSourceId === null) {
+      return;
+    }
     const match =
-      sources.find((item) => item.id === selectedSourceId) ?? sources[0];
+      connectedSources.find((item) => item.id === selectedSourceId) ??
+      connectedSources[0];
     if (match) {
       if (selectedSourceId !== match.id) {
         setSelectedSourceId(match.id);
@@ -200,12 +303,22 @@ export function AutomationSourcesTab({
       if (hydratedSourceIdRef.current !== match.id) {
         hydrateFromSource(match);
       }
+    } else if (connectedSources.length === 0) {
+      setCreatingNew(true);
+      setSelectedSourceId(null);
+      setSelectedTemplateKind((prev) => prev ?? 'github');
     }
-  }, [creatingNew, initialAddingNew, selectedSourceId, sources]);
+  }, [
+    connectedSources,
+    creatingNew,
+    initialAddingNew,
+    selectedSourceId,
+    selectedTemplateKind,
+  ]);
 
   const selectedSource = creatingNew
     ? null
-    : (sources.find((item) => item.id === selectedSourceId) ?? null);
+    : (connectedSources.find((item) => item.id === selectedSourceId) ?? null);
 
   const origin =
     typeof window !== 'undefined' && window.location?.origin
@@ -234,7 +347,7 @@ export function AutomationSourcesTab({
       return githubMode === 'poll'
         ? {
             mode: 'poll',
-            repo: githubRepo.trim(),
+            repo: toFullGithubRepoUrl(githubRepo),
             pollIntervalSeconds: githubPollSeconds,
             githubToken: githubToken.trim() || null,
             branch: githubBranch.trim() || null,
@@ -271,10 +384,7 @@ export function AutomationSourcesTab({
     setSavingAndTesting(true);
     try {
       const saved = await onUpsertSource({
-        id:
-          selectedSource && !selectedSource.id.startsWith('placeholder-')
-            ? selectedSource.id
-            : null,
+        id: selectedSource ? selectedSource.id : null,
         kind,
         title: trimmedTitle,
         enabled,
@@ -285,6 +395,7 @@ export function AutomationSourcesTab({
       if (saved) {
         hydratedSourceIdRef.current = saved.id;
         setCreatingNew(false);
+        setSelectedTemplateKind(null);
         setSelectedSourceId(saved.id);
       }
       if (targetId) {
@@ -298,174 +409,181 @@ export function AutomationSourcesTab({
     }
   };
 
-  const columns = useMemo<TableColumn<Record<string, unknown>>[]>(
+  const filterChips = useMemo<FilterChipItem<SourceFilterKey | 'all'>[]>(() => {
+    const chips: FilterChipItem<SourceFilterKey | 'all'>[] = [
+      {
+        key: 'all',
+        label: t('pulseDeck.workbench.sources.filterAll'),
+        count: connectedSources.length + templateItems.length,
+        testId: 'sources-filter-chip-all',
+      },
+    ];
+    if (connectedSources.length > 0) {
+      chips.push({
+        key: 'connected',
+        label: t('pulseDeck.workbench.sources.sourcesHeader'),
+        dot: '#25a878',
+        count: connectedSources.length,
+        testId: 'sources-connected-group-header',
+      });
+    }
+    if (templateItems.length > 0) {
+      chips.push({
+        key: 'template',
+        label: t('pulseDeck.workbench.sources.templatesHeader'),
+        dot: '#16a6c7',
+        count: templateItems.length,
+        testId: 'sources-templates-group-header',
+      });
+    }
+    return chips;
+  }, [connectedSources.length, templateItems.length, t]);
+
+  const columns = useMemo(
     () => [
-      {
-        key: 'source',
-        header: t('pulseDeck.workbench.sources.colSource'),
-        width: proportional(1.2),
-      },
-      {
-        key: 'health',
-        header: t('pulseDeck.workbench.sources.colHealth'),
-        width: proportional(1),
-      },
-      {
-        key: 'volume',
-        header: t('pulseDeck.workbench.sources.colVolume'),
-        width: proportional(0.8),
-      },
+      { key: 'source', label: t('pulseDeck.workbench.sources.colSource') },
+      { key: 'health', label: t('pulseDeck.workbench.sources.colHealth') },
+      { key: 'volume', label: t('pulseDeck.workbench.sources.colVolume') },
     ],
-    [t, i18n.language]
+    [t]
   );
 
-  const resolvedWidths = useMemo(
-    () => resolveColumnWidths(columns),
-    [columns]
-  );
+  const tableRows = useMemo<FilterTableRow<SourceFilterKey>[]>(() => {
+    const rows: FilterTableRow<SourceFilterKey>[] = [];
+
+    for (const src of connectedSources) {
+      const active = !creatingNew && selectedSourceId === src.id;
+      const statusLabel = !src.enabled
+        ? t('pulseDeck.sourceDisabled')
+        : src.healthy
+          ? t('pulseDeck.sourceHealthy')
+          : t('pulseDeck.sourceUnhealthy');
+      const tone = !src.enabled ? 'paused' : src.healthy ? 'done' : 'error';
+      const cursorText =
+        src.enabled && src.cursorWatermark && src.cursorWatermark !== '0'
+          ? t('pulseDeck.sourceCursor', { cursor: src.cursorWatermark })
+          : null;
+
+      rows.push({
+        key: src.id,
+        statusKey: 'connected',
+        selected: active,
+        testId: `source-row-${src.id}`,
+        onClick: () => {
+          setCreatingNew(false);
+          setSelectedTemplateKind(null);
+          setSelectedSourceId(src.id);
+          hydrateFromSource(src);
+        },
+        cells: [
+          <span
+            key="source"
+            className="truncate font-medium text-foreground"
+          >
+            {src.title}
+          </span>,
+          <div
+            key="health"
+            data-testid={`pulse-source-watermark-${src.id}`}
+            className="flex min-w-0 items-center gap-1.5"
+          >
+            <FilterStatusPill tone={tone} label={statusLabel} />
+            {cursorText ? (
+              <span className="truncate text-[11.5px] tabular-nums text-muted-foreground">
+                {` · ${cursorText}`}
+              </span>
+            ) : null}
+          </div>,
+          <span
+            key="volume"
+            data-testid={`pulse-source-counts-${src.id}`}
+            className="truncate text-xs tabular-nums text-muted-foreground"
+          >
+            {t('pulseDeck.sourceReceived24h', {
+              count: src.receivedCount24h,
+            })}
+            {src.rejectedCount24h > 0
+              ? ` · ${t('pulseDeck.sourceRejected24h', {
+                  count: src.rejectedCount24h,
+                })}`
+              : ''}
+          </span>,
+        ],
+      });
+    }
+
+    for (const tpl of templateItems) {
+      const active = creatingNew && selectedTemplateKind === tpl.kind;
+      const tplTitle = t(tpl.labelKey);
+      const hintLabel = t('pulseDeck.workbench.sources.templateStatusHint');
+
+      rows.push({
+        key: `tpl-${tpl.kind}`,
+        statusKey: 'template',
+        selected: active,
+        testId: `source-template-row-${tpl.kind}`,
+        onClick: () => applyTemplateDefaults(tpl.kind),
+        cells: [
+          <span
+            key="source"
+            className="truncate font-medium text-muted-foreground"
+          >
+            {tplTitle}
+          </span>,
+          <FilterStatusPill key="health" tone="progress" label={hintLabel} />,
+          <span
+            key="volume"
+            className="text-xs tabular-nums text-muted-foreground/60"
+          >
+            —
+          </span>,
+        ],
+      });
+    }
+
+    return rows;
+  }, [
+    applyTemplateDefaults,
+    connectedSources,
+    creatingNew,
+    selectedSourceId,
+    selectedTemplateKind,
+    templateItems,
+    t,
+  ]);
 
   const addSourceAction = (
-    <AstryxButton
-      label={t('pulseDeck.workbench.sources.addSourceBtn')}
-      variant="secondary"
-      size="md"
-      icon={<Icon icon={Plus} size="sm" />}
+    <Button
+      type="button"
+      variant="outline"
+      size="sm"
       data-testid="sources-add-btn"
       onClick={() => {
-        hydratedSourceIdRef.current = null;
-        setCreatingNew(true);
-        setSelectedSourceId(null);
-        setKind('github');
-        setTitle('GitHub CI/CD');
-        setGithubMode('poll');
-        setSigningSecret('');
-        setTestResult(null);
+        applyTemplateDefaults('github');
+        setSelectedTemplateKind(null);
       }}
-    />
+      className="h-7 shrink-0 gap-1 px-2.5 text-xs"
+    >
+      <Plus className="h-3.5 w-3.5" />
+      {t('pulseDeck.workbench.sources.addSourceBtn')}
+    </Button>
   );
 
   const masterPane = (
-    <div data-testid="pulse-deck-sources-strip" className="min-h-0 flex-1">
-      <Table
+    <div
+      data-testid="pulse-deck-sources-strip"
+      className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden"
+    >
+      <FilterTable
+        filters={filterChips}
         columns={columns}
-        density="balanced"
-        dividers="rows"
-        textOverflow="truncate"
-        hasHover
-      >
-        <colgroup>
-          {columns.map((col) => (
-            <col
-              key={col.key}
-              style={resolvedWidths.columns.get(col.key)?.style}
-            />
-          ))}
-        </colgroup>
-        <TableBody>
-          <TableRow
-            role="button"
-            tabIndex={0}
-            onClick={() => setSourcesExpanded((prev) => !prev)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' || e.key === ' ') {
-                e.preventDefault();
-                setSourcesExpanded((prev) => !prev);
-              }
-            }}
-          >
-            <TableCell colSpan={columns.length} style={groupHeaderCell}>
-              <HStack gap={2} vAlign="center">
-                <Icon
-                  icon={sourcesExpanded ? ChevronDown : ChevronRight}
-                  size="sm"
-                  color="secondary"
-                />
-                <Text type="body" weight="bold">
-                  {t('pulseDeck.workbench.sources.sourcesHeader')}
-                </Text>
-                <Badge
-                  variant="neutral"
-                  label={String(sources.length)}
-                  className="tabular-nums"
-                />
-              </HStack>
-            </TableCell>
-          </TableRow>
-
-          {sourcesExpanded &&
-            sources.map((src) => {
-              const active = !creatingNew && selectedSourceId === src.id;
-              const statusLabel = !src.enabled
-                ? t('pulseDeck.sourceDisabled')
-                : src.healthy
-                  ? t('pulseDeck.sourceHealthy')
-                  : t('pulseDeck.sourceUnhealthy');
-              const watermarkText =
-                src.enabled && src.cursorWatermark && src.cursorWatermark !== '0'
-                  ? `${statusLabel} · ${t('pulseDeck.sourceCursor', {
-                      cursor: src.cursorWatermark,
-                    })}`
-                  : statusLabel;
-              const rowStyle = active
-                ? { ...interactiveRowStyle, ...selectedTableRowStyle }
-                : interactiveRowStyle;
-
-              return (
-                <TableRow
-                  key={src.id}
-                  data-testid={`source-row-${src.id}`}
-                  style={rowStyle}
-                  onClick={() => {
-                    setCreatingNew(false);
-                    setSelectedSourceId(src.id);
-                    hydrateFromSource(src);
-                  }}
-                >
-                  <TableCell>
-                    <HStack gap={2} vAlign="center">
-                      <StatusDot
-                        variant={
-                          !src.enabled
-                            ? 'neutral'
-                            : src.healthy
-                              ? 'success'
-                              : 'error'
-                        }
-                        label={statusLabel}
-                      />
-                      <Text type="body" weight="medium" maxLines={1}>
-                        {src.title}
-                      </Text>
-                    </HStack>
-                  </TableCell>
-                  <TableCell>
-                    <span
-                      data-testid={`pulse-source-watermark-${src.id}`}
-                      className="text-xs tabular-nums text-muted-foreground"
-                    >
-                      {watermarkText}
-                    </span>
-                  </TableCell>
-                  <TableCell>
-                    <span
-                      data-testid={`pulse-source-counts-${src.id}`}
-                      className="text-xs tabular-nums text-muted-foreground"
-                    >
-                      {t('pulseDeck.sourceReceived24h', {
-                        count: src.receivedCount24h,
-                      })}
-                      {src.rejectedCount24h > 0
-                        ? ` · ${t('pulseDeck.sourceRejected24h', {
-                            count: src.rejectedCount24h,
-                          })}`
-                        : ''}
-                    </span>
-                  </TableCell>
-                </TableRow>
-              );
-            })}
-        </TableBody>
-      </Table>
+        rows={tableRows}
+        activeFilter={sourceFilter}
+        onFilterChange={setSourceFilter}
+        gridTemplateColumns="minmax(120px,1.15fr) minmax(150px,1.35fr) minmax(90px,0.8fr)"
+        minTableWidthClass="min-w-[380px]"
+        ariaLabel={t('pulseDeck.workbench.sources.panelAria')}
+      />
     </div>
   );
 
@@ -474,64 +592,62 @@ export function AutomationSourcesTab({
   const detailPane = (
     <div data-testid="automation-source-editor">
       <VStack gap={4}>
-        <VStack gap={3}>
-          <div className="flex flex-wrap gap-1.5">
-            {SOURCE_KIND_OPTIONS.map((opt) => {
-              const active = kind === opt.kind;
-              return (
-                <button
-                  key={opt.kind}
-                  type="button"
-                  data-testid={`source-kind-${opt.kind}`}
-                  aria-pressed={active}
-                  onClick={() => {
-                    setKind(opt.kind);
-                    if (creatingNew) {
-                      setTitle(t(opt.labelKey));
-                    }
-                    setTestResult(null);
-                  }}
-                  className={cn(
-                    'rounded-full px-2.5 py-1 text-2xs font-medium transition-colors',
-                    active
-                      ? 'bg-primary text-primary-foreground'
-                      : 'bg-[var(--color-background-muted)] text-muted-foreground hover:text-foreground'
-                  )}
-                >
-                  {t(opt.labelKey)}
-                </button>
-              );
-            })}
+        <div className="grid gap-3 sm:grid-cols-2">
+          <div className="space-y-1">
+            <Label htmlFor="source-kind-select" className="text-xs">
+              {t('pulseDeck.workbench.sources.kindSelectLabel')}
+            </Label>
+            <AstryxSelect
+              id="source-kind-select"
+              value={kind}
+              options={sourceKindSelectOptions}
+              ariaLabel={t('pulseDeck.workbench.sources.kindSelectLabel')}
+              onChange={(nextValue) => {
+                const nextKind = nextValue as EventSourceKind;
+                setKind(nextKind);
+                if (creatingNew) {
+                  setSelectedTemplateKind(nextKind);
+                  const matched = SOURCE_KIND_OPTIONS.find(
+                    (opt) => opt.kind === nextKind
+                  );
+                  if (matched) {
+                    setTitle(t(matched.labelKey));
+                  }
+                }
+                setTestResult(null);
+              }}
+              size="compact"
+              className="w-full"
+            />
           </div>
 
-          <div className="flex flex-wrap items-end justify-between gap-2">
-            <div className="min-w-[200px] flex-1 space-y-1">
+          <div className="space-y-1">
+            <div className="flex items-center justify-between gap-2">
               <Label htmlFor="source-title-input" className="text-xs">
                 {t('pulseDeck.sourceTitleLabel')}
               </Label>
-              <Input
-                id="source-title-input"
-                data-testid="source-title-input"
-                placeholder={t('pulseDeck.sourceTitlePlaceholder')}
-                value={title}
-                onChange={(e) => setTitle(e.target.value)}
-                className="h-8 text-xs"
-              />
+              {selectedSource ? (
+                <button
+                  type="button"
+                  data-testid="source-delete-btn"
+                  onClick={() => void onDeleteSource(selectedSource.id)}
+                  className="inline-flex items-center gap-1 text-2xs text-muted-foreground transition-colors hover:text-destructive"
+                >
+                  <Trash2 className="h-3 w-3" />
+                  {t('pulseDeck.workbench.sources.deleteSourceBtn')}
+                </button>
+              ) : null}
             </div>
-
-            {selectedSource &&
-            !selectedSource.id.startsWith('placeholder-') ? (
-              <AstryxButton
-                label={t('pulseDeck.workbench.sources.deleteSourceBtn')}
-                variant="ghost"
-                size="sm"
-                icon={<Icon icon={Trash2} size="sm" />}
-                data-testid="source-delete-btn"
-                onClick={() => void onDeleteSource(selectedSource.id)}
-              />
-            ) : null}
+            <Input
+              id="source-title-input"
+              data-testid="source-title-input"
+              placeholder={t('pulseDeck.sourceTitlePlaceholder')}
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              className="h-8 text-xs"
+            />
           </div>
-        </VStack>
+        </div>
 
         <SourceConnectorFields
           kind={kind}
@@ -564,35 +680,45 @@ export function AutomationSourcesTab({
         />
 
         <HStack gap={2} vAlign="center" wrap="wrap">
-          <AstryxButton
-            label={
-              savingAndTesting
-                ? t('pulseDeck.workbench.sources.testingBtn')
-                : t('pulseDeck.workbench.sources.saveAndTestBtn')
-            }
-            variant="primary"
+          <Button
+            type="button"
+            variant="default"
             size="sm"
-            isDisabled={savingAndTesting}
-            icon={<Icon icon={Save} size="sm" />}
+            disabled={savingAndTesting}
             data-testid="source-save-and-test-btn"
             onClick={() => void handleSaveAndTest(false)}
-          />
+            className="h-7 gap-1.5 px-2.5 text-xs"
+          >
+            {savingAndTesting ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <Save className="h-3.5 w-3.5" />
+            )}
+            <span>
+              {savingAndTesting
+                ? t('pulseDeck.workbench.sources.testingBtn')
+                : t('pulseDeck.workbench.sources.saveAndTestBtn')}
+            </span>
+          </Button>
 
-          <AstryxButton
-            label={
-              kind === 'feishu'
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            disabled={savingAndTesting}
+            data-testid="source-emit-live-test-btn"
+            onClick={() => void handleSaveAndTest(true)}
+            className="h-7 gap-1.5 px-2.5 text-xs"
+          >
+            <Play className="h-3.5 w-3.5" />
+            <span>
+              {kind === 'feishu'
                 ? t('pulseDeck.workbench.sources.feishuSelfTestBtn')
                 : kind === 'webhook_standard' || kind === 'webhook_custom'
                   ? t('pulseDeck.workbench.sources.sendTestRequestBtn')
-                  : t('pulseDeck.workbench.sources.emitLiveTestBtn')
-            }
-            variant="secondary"
-            size="sm"
-            isDisabled={savingAndTesting}
-            icon={<Icon icon={Play} size="sm" />}
-            data-testid="source-emit-live-test-btn"
-            onClick={() => void handleSaveAndTest(true)}
-          />
+                  : t('pulseDeck.workbench.sources.emitLiveTestBtn')}
+            </span>
+          </Button>
         </HStack>
 
         {testResult ? (
@@ -631,12 +757,18 @@ export function AutomationSourcesTab({
   );
 
   return (
-    <AutomationSplitFrame
-      testId="automation-tab-sources-split"
-      panelLabel={t('pulseDeck.workbench.sources.panelAria')}
-      header={renderHeader?.(undefined, addSourceAction)}
-      master={masterPane}
-      detail={detailPane}
-    />
+    <>
+      {renderShell({
+        contextualAction: addSourceAction,
+        children: (
+          <AutomationSplitFrame
+            testId="automation-tab-sources-split"
+            panelLabel={t('pulseDeck.workbench.sources.panelAria')}
+            master={masterPane}
+            detail={detailPane}
+          />
+        ),
+      })}
+    </>
   );
 }

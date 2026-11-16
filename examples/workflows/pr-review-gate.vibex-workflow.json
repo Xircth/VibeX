@@ -27,7 +27,7 @@
       "inputBindings": {},
       "kind": "bot",
       "memberId": "reviewer-bot",
-      "conversationScope": "per_thread",
+      "conversationScope": "per_thread_topic",
       "mailboxPolicy": "fifo_serial",
       "promptTemplate": "审查当前 PR 变更内容与架构影响面，列出关键风险点与验证建议。",
       "completion": "automatic",
@@ -46,7 +46,7 @@
       "inputBindings": {
         "review": {
           "source": "step_output",
-          "stepId": "review-bot",
+          "step_id": "review-bot",
           "pointer": "/summary"
         }
       },
@@ -74,7 +74,21 @@
       "kind": "user_gate",
       "interactionKind": "approval",
       "titleTemplate": "等待我确认是否发布审查放行结论",
-      "bodyTemplate": "{{steps.verify-session.output.summary}}"
+      "bodyTemplate": "{{steps.verify-session.output.summary}}",
+      "approvalOptions": [
+        {
+          "id": "approve",
+          "label": "确认放行",
+          "destructive": false,
+          "requireNote": false
+        },
+        {
+          "id": "reject",
+          "label": "退回修改",
+          "destructive": true,
+          "requireNote": true
+        }
+      ]
     },
     {
       "id": "publish-review",

@@ -193,6 +193,13 @@ pub trait WorkflowExecutionPort: Send + Sync {
         definition_id: Uuid,
         limit: u32,
     ) -> Result<Vec<WorkflowVersionView>, ApplicationError>;
+    async fn runs(
+        &self,
+        _definition_id: Uuid,
+        _limit: u32,
+    ) -> Result<Vec<WorkflowRunView>, ApplicationError> {
+        Ok(Vec::new())
+    }
     async fn steps(&self, run_id: Uuid) -> Result<Vec<WorkflowStepView>, ApplicationError>;
     async fn events(
         &self,

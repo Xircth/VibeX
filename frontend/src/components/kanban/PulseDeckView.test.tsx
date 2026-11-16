@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react';
 import { Theme as AstryxTheme } from '@astryxdesign/core/theme';
 import { neutralTheme } from '@astryxdesign/theme-neutral/built';
 import { act, render, screen, waitFor } from '@testing-library/react';
@@ -8,16 +9,23 @@ import type {
   WorkflowVersionView,
 } from 'shared/types';
 import { CANONICAL_WORKFLOW_STARTERS } from '@/components/kanban/automation/automationAgentBridge';
+import * as openExternalModule from '@/features/model-router/openExternal';
 import { workflowsApi } from '@/features/workflow/workflowApi';
 import i18n from '@/i18n';
 import { projectsApi } from '@/lib/api/projects';
 import { pulseApi, type PulseDeckSnapshot } from '@/lib/api/pulse';
 import { sessionsApi } from '@/lib/api/sessions';
 import { shouldShowKanbanMonitor } from '@/lib/kanbanZoneVisibility';
+import { REQUEST_CREATE_SESSION_OVERLAY_EVENT } from '@/lib/requestCreateSession';
 import { BoundHostTransport } from '@/lib/transport/boundHostTransport';
 import type { RemoteDesktopTransport } from '@/lib/transport/remoteDesktopTransport';
+import { useLayoutStore } from '@/stores/useLayoutStore';
 import { PulseDeckView } from './PulseDeckView';
-import { stashPendingWorkflowStudioOpen } from './pulseDeckEvents';
+import {
+  consumePendingWorkflowStudioOpen,
+  requestOpenWorkflowStudio,
+  stashPendingWorkflowStudioOpen,
+} from './pulseDeckEvents';
 
 function renderDeck(projectId = 'proj-1') {
   return render(
@@ -28,8 +36,24 @@ function renderDeck(projectId = 'proj-1') {
 }
 
 vi.mock('@/features/workflow/WorkflowStudioDockPanel', () => ({
-  WorkflowStudioDockPanel: () => (
+  WorkflowStudioDockPanel: ({
+    onBack,
+    rightToolbarSlot,
+  }: {
+    onBack?: () => void;
+    rightToolbarSlot?: ReactNode;
+  }) => (
     <div data-testid="mock-embedded-workflow-studio-canvas">
+      {onBack ? (
+        <button
+          type="button"
+          data-testid="embedded-studio-back-btn"
+          onClick={onBack}
+        >
+          Back
+        </button>
+      ) : null}
+      {rightToolbarSlot}
       Embedded Workflow Studio Canvas
     </div>
   ),
@@ -261,6 +285,7 @@ describe('PulseDeckView (Agent-First 2-Tab Automation Workbench)', () => {
   beforeEach(async () => {
     vi.clearAllMocks();
     stashPendingWorkflowStudioOpen(null);
+    useLayoutStore.getState().setKanbanSessionVisible(false);
     await act(async () => {
       await i18n.changeLanguage('zh-CN');
     });
@@ -286,127 +311,222 @@ describe('PulseDeckView (Agent-First 2-Tab Automation Workbench)', () => {
     expect(shouldShowKanbanMonitor(false, 0, true)).toBe(true);
   });
 
-  it('renders only 2 primary tabs (自动化任务 + 事件源), unified semantic chains, governance groups, enable switch, delete, and embedded Workflow Studio', async () => {
+  it('renders compact Usage-style header without engine badge, left navigation rail, right-sidebar session activation, and embedded Workflow Studio', async () => {
     const user = userEvent.setup();
     vi.mocked(pulseApi.setRuleEnabled).mockResolvedValue({
       ...makeSnapshot().rules[1]!,
       enabled: false,
     });
 
-    renderDeck('proj-1');
+    const overlayEvents: Event[] = [];
+    const onOverlay = (event: Event) => overlayEvents.push(event);
+    window.addEventListener(REQUEST_CREATE_SESSION_OVERLAY_EVENT, onOverlay);
 
-    // Only 2 primary tabs exist; Pending Events and Rules tabs are completely removed
-    expect(await screen.findByTestId('pulse-deck-tab-tasks')).toHaveAttribute(
-      'aria-current',
-      'page'
-    );
-    expect(screen.getByTestId('pulse-deck-tab-tasks')).toHaveTextContent(
-      '自动化任务'
-    );
-    expect(screen.getByTestId('pulse-deck-tab-sources')).toHaveTextContent(
-      '事件源'
-    );
-    expect(
-      screen.queryByTestId('pulse-deck-tab-pending')
-    ).not.toBeInTheDocument();
-    expect(
-      screen.queryByTestId('pulse-deck-tab-rules')
-    ).not.toBeInTheDocument();
+    try {
+      // Simulate default layout state where isKanbanSessionVisible starts true
+      useLayoutStore.getState().setKanbanSessionVisible(true);
+      renderDeck('proj-1');
 
-    // Agent-First creation CTA replaces legacy manual split menus
-    expect(screen.getByTestId('automation-agent-create-btn')).toHaveTextContent(
-      '让 Agent 创建'
-    );
-    expect(
-      screen.queryByTestId('automation-new-menu-btn')
-    ).not.toBeInTheDocument();
+      // Right-side Agent Session sidebar does NOT auto-open when entering the Automation Tasks page
+      expect(useLayoutStore.getState().isKanbanSessionVisible).toBe(false);
 
-    // Both WorkflowDefinition and legacy PulseRule project into unified task rows; routing/reusable rules stay hidden
-    expect(
-      await screen.findByTestId('automation-task-row-wf-triage')
-    ).toBeInTheDocument();
-    expect(
-      await screen.findByTestId('automation-task-row-rule-1')
-    ).toBeInTheDocument();
-    expect(
-      screen.queryByTestId('automation-task-row-rule-wf-trigger')
-    ).not.toBeInTheDocument();
-    expect(
-      screen.queryByTestId('automation-task-row-rule-tpl-1')
-    ).not.toBeInTheDocument();
-
-    // Semantic chains display human-centric [从哪来 → 触发谁 → 结果给谁]
-    expect(
-      screen.getByTestId('automation-task-pipeline-wf-triage')
-    ).toHaveTextContent('GitHub');
-    expect(
-      screen.getByTestId('automation-task-pipeline-rule-1')
-    ).toHaveTextContent('Jira');
-
-    // Governance group header collapses and expands cleanly
-    expect(
-      screen.getByTestId('automation-group-header-active')
-    ).toHaveTextContent('启用中');
-    await user.click(screen.getByTestId('automation-group-header-active'));
-    expect(
-      screen.queryByTestId('automation-task-row-wf-triage')
-    ).not.toBeInTheDocument();
-    await user.click(screen.getByTestId('automation-group-header-active'));
-    expect(
-      await screen.findByTestId('automation-task-row-wf-triage')
-    ).toBeInTheDocument();
-
-    // Enable/disable switch calls pulseApi.setRuleEnabled without opening canvas
-    await user.click(
-      screen.getByRole('switch', { name: /CI Incident Multi-Step Triage/ })
-    );
-    await waitFor(() => {
-      expect(pulseApi.setRuleEnabled).toHaveBeenCalledWith(
-        'rule-wf-trigger',
-        false
+      // Manual header toggle still opens and closes the right-side Agent Session sidebar
+      const toggleSidebarBtn = screen.getByTestId(
+        'automation-toggle-session-sidebar-btn'
       );
-    });
+      expect(toggleSidebarBtn).toHaveAttribute('aria-pressed', 'false');
+      await user.click(toggleSidebarBtn);
+      expect(useLayoutStore.getState().isKanbanSessionVisible).toBe(true);
+      expect(toggleSidebarBtn).toHaveAttribute('aria-pressed', 'true');
+      await user.click(toggleSidebarBtn);
+      expect(useLayoutStore.getState().isKanbanSessionVisible).toBe(false);
 
-    // Clicking any task row opens the embedded Workflow Canvas directly
-    await user.click(screen.getByTestId('automation-task-row-wf-triage'));
-    expect(
-      await screen.findByTestId('automation-embedded-workflow-studio')
-    ).toBeInTheDocument();
-    expect(
-      await screen.findByTestId('mock-embedded-workflow-studio-canvas')
-    ).toBeInTheDocument();
+      // Compact heading matching KanbanUsageDashboard (`text-base`), with "运行中" status dot removed
+      const heading = await screen.findByTestId('pulse-deck-heading');
+      expect(heading).toHaveTextContent('自动化任务');
+      expect(heading).toHaveClass('text-base');
+      expect(
+        screen.queryByTestId('pulse-deck-engine-badge')
+      ).not.toBeInTheDocument();
 
-    // Back button returns cleanly to Task List
-    await user.click(screen.getByTestId('embedded-studio-back-btn'));
-    expect(
-      await screen.findByTestId('automation-tasks-list')
-    ).toBeInTheDocument();
+      // Left floating navigation rail matching KanbanUsageDashboard
+      expect(
+        screen.getByTestId('automation-left-nav-rail')
+      ).toHaveClass('kanban-usage-tab-rail');
+      expect(screen.getByTestId('pulse-deck-tab-tasks')).toHaveAttribute(
+        'aria-selected',
+        'true'
+      );
+      expect(screen.getByTestId('pulse-deck-tab-tasks')).toHaveAttribute(
+        'aria-label',
+        '自动化任务'
+      );
+      expect(screen.getByTestId('pulse-deck-tab-sources')).toHaveAttribute(
+        'aria-selected',
+        'false'
+      );
+      expect(screen.getByTestId('pulse-deck-tab-sources')).toHaveAttribute(
+        'aria-label',
+        '事件源'
+      );
+      expect(
+        screen.queryByTestId('pulse-deck-tab-pending')
+      ).not.toBeInTheDocument();
+      expect(
+        screen.queryByTestId('pulse-deck-tab-rules')
+      ).not.toBeInTheDocument();
 
-    // Unified delete removes both the WorkflowDefinition and its linked trigger rule
-    await user.click(screen.getByTestId('automation-task-delete-wf-triage'));
-    await waitFor(() => {
-      expect(workflowsApi.deleteDefinition).toHaveBeenCalledWith('wf-triage');
-      expect(pulseApi.deleteRule).toHaveBeenCalledWith('rule-wf-trigger');
-    });
+      // Clicking "让 Agent 创建" opens the embedded Workflow Canvas in createNew mode + opens right-side Session sidebar without blocking modal overlay
+      await user.click(screen.getByTestId('automation-agent-create-btn'));
+      expect(
+        await screen.findByTestId('automation-embedded-workflow-studio')
+      ).toBeInTheDocument();
+      expect(
+        await screen.findByTestId('mock-embedded-workflow-studio-canvas')
+      ).toBeInTheDocument();
+      expect(consumePendingWorkflowStudioOpen()).toEqual({ createNew: true });
+      expect(overlayEvents.length).toBe(0);
+      expect(useLayoutStore.getState().isKanbanSessionVisible).toBe(true);
+      expect(useLayoutStore.getState().isRightPanelVisible).toBe(true);
+
+      // Return from new workflow draft back to the Task List restores the closed right sidebar
+      await user.click(await screen.findByTestId('embedded-studio-back-btn'));
+      expect(
+        await screen.findByTestId('automation-tasks-list')
+      ).toBeInTheDocument();
+      expect(useLayoutStore.getState().isKanbanSessionVisible).toBe(false);
+
+      // Both WorkflowDefinition and legacy PulseRule project into unified task rows; routing/reusable rules stay hidden
+      expect(
+        await screen.findByTestId('automation-task-row-wf-triage')
+      ).toBeInTheDocument();
+      expect(
+        await screen.findByTestId('automation-task-row-rule-1')
+      ).toBeInTheDocument();
+      expect(
+        screen.queryByTestId('automation-task-row-rule-wf-trigger')
+      ).not.toBeInTheDocument();
+      expect(
+        screen.queryByTestId('automation-task-row-rule-tpl-1')
+      ).not.toBeInTheDocument();
+
+      // "Agent修改" row button is removed; "修改" button uses solid black primary styling
+      expect(
+        screen.queryByTestId('automation-task-agent-edit-wf-triage')
+      ).not.toBeInTheDocument();
+      const editBtn = screen.getByTestId(
+        'automation-task-open-workflow-wf-triage'
+      );
+      expect(editBtn).toHaveTextContent('修改');
+      expect(editBtn).toHaveClass('bg-primary');
+
+      // Semantic chains display human-centric [从哪来 → 触发谁 → 结果给谁]
+      expect(
+        screen.getByTestId('automation-task-pipeline-wf-triage')
+      ).toHaveTextContent('GitHub');
+      expect(
+        screen.getByTestId('automation-task-pipeline-rule-1')
+      ).toHaveTextContent('Jira');
+
+      // Grouping / view-options popover has been removed; status chips drive filtering directly
+      expect(
+        screen.queryByTestId('automation-view-options-btn')
+      ).not.toBeInTheDocument();
+
+      // FilterTable status chips display counts and filter rows smoothly
+      const activeChip = screen.getByTestId('automation-filter-chip-active');
+      expect(activeChip).toHaveTextContent('启用中');
+      expect(activeChip).toHaveTextContent('2');
+      await user.click(activeChip);
+      expect(activeChip).toHaveAttribute('aria-pressed', 'true');
+      await user.click(screen.getByTestId('automation-filter-chip-all'));
+
+      // Compact header search filters tasks and clears cleanly
+      const headerSearch = screen.getByTestId('automation-header-search');
+      await user.type(headerSearch, 'Jira');
+      expect(
+        screen.queryByTestId('automation-task-row-wf-triage')
+      ).not.toBeInTheDocument();
+      expect(
+        screen.getByTestId('automation-task-row-rule-1')
+      ).toBeInTheDocument();
+      await user.click(screen.getByTestId('automation-header-search-clear'));
+      expect(
+        await screen.findByTestId('automation-task-row-wf-triage')
+      ).toBeInTheDocument();
+
+      // Enable/disable switch calls pulseApi.setRuleEnabled without opening canvas
+      await user.click(
+        screen.getByRole('switch', { name: /CI Incident Multi-Step Triage/ })
+      );
+      await waitFor(() => {
+        expect(pulseApi.setRuleEnabled).toHaveBeenCalledWith(
+          'rule-wf-trigger',
+          false
+        );
+      });
+
+      // Explicit "修改" button opens the embedded Workflow Canvas directly with right Session sidebar visible
+      useLayoutStore.getState().setKanbanSessionVisible(false);
+      await user.click(
+        screen.getByTestId('automation-task-open-workflow-wf-triage')
+      );
+      expect(
+        await screen.findByTestId('automation-embedded-workflow-studio')
+      ).toBeInTheDocument();
+      expect(
+        await screen.findByTestId('mock-embedded-workflow-studio-canvas')
+      ).toBeInTheDocument();
+      expect(useLayoutStore.getState().isKanbanSessionVisible).toBe(true);
+      expect(useLayoutStore.getState().isRightPanelVisible).toBe(true);
+
+      // Back button returns cleanly to Task List, and clicking any task row also opens the canvas
+      await user.click(screen.getByTestId('embedded-studio-back-btn'));
+      expect(
+        await screen.findByTestId('automation-tasks-list')
+      ).toBeInTheDocument();
+      await user.click(screen.getByTestId('automation-task-row-wf-triage'));
+      expect(
+        await screen.findByTestId('automation-embedded-workflow-studio')
+      ).toBeInTheDocument();
+
+      // Back button returns cleanly to Task List
+      await user.click(screen.getByTestId('embedded-studio-back-btn'));
+      expect(
+        await screen.findByTestId('automation-tasks-list')
+      ).toBeInTheDocument();
+
+      // Unified delete removes both the WorkflowDefinition and its linked trigger rule
+      await user.click(screen.getByTestId('automation-task-delete-wf-triage'));
+      await waitFor(() => {
+        expect(workflowsApi.deleteDefinition).toHaveBeenCalledWith('wf-triage');
+        expect(pulseApi.deleteRule).toHaveBeenCalledWith('rule-wf-trigger');
+      });
+    } finally {
+      window.removeEventListener(
+        REQUEST_CREATE_SESSION_OVERLAY_EVENT,
+        onOverlay
+      );
+    }
   });
 
-  it('renders the 4 canonical workflow starter cards when empty, enables starters in 1 click, and dispatches Agent authoring sessions', async () => {
+  it('enables all 4 canonical workflow starters in 1 click (including cron timezone & approval options) and customizes starters via right-side Agent session', async () => {
     const user = userEvent.setup();
     const emptySnapshot = makeSnapshot();
     emptySnapshot.rules = [];
     vi.mocked(pulseApi.deckSnapshot).mockResolvedValue(emptySnapshot);
     vi.mocked(workflowsApi.listDefinitions).mockResolvedValue([]);
-    vi.mocked(workflowsApi.publish).mockResolvedValue({
-      id: 'wfv-starter-1',
-      definitionId: 'wf-ci-autofix',
+    vi.mocked(workflowsApi.publish).mockImplementation(async (def) => ({
+      id: `wfv-${def.name}`,
+      definitionId: `wf-${def.name}`,
       version: 1n,
       digest: 'sha256:starter',
-      normalizedJson: '{}',
+      normalizedJson: JSON.stringify(def),
       sourcePath: null,
       createdAt: '2026-11-16T00:00:00Z',
-    } as WorkflowVersionView);
+    } as WorkflowVersionView));
     vi.mocked(pulseApi.saveRule).mockImplementation(async ({ spec }) => ({
-      id: 'rule-starter-1',
+      id: `rule-${spec.name}`,
       revision: 1,
       enabled: true,
       draftOnly: false,
@@ -418,7 +538,8 @@ describe('PulseDeckView (Agent-First 2-Tab Automation Workbench)', () => {
       updatedAt: '2026-11-16T00:00:00Z',
     }));
     vi.mocked(sessionsApi.createProject).mockResolvedValue({
-      conversation: { id: 'conv-agent-1' },
+      id: 'sess-agent-1',
+      workspace_id: 'ws-agent-1',
     } as never);
 
     renderDeck('proj-1');
@@ -432,53 +553,49 @@ describe('PulseDeckView (Agent-First 2-Tab Automation Workbench)', () => {
       ).toBeInTheDocument();
     }
 
-    // 1-click enable starter publishes canonical workflow and saves workflow_trigger rule
+    // Dispatch starter customization to the dedicated right-side Agent Session sidebar
     await user.click(
-      screen.getByTestId('automation-apply-starter-github-ci-autofix')
+      screen.getByTestId('automation-customize-starter-feishu-mention-triage')
+    );
+    await waitFor(() => {
+      expect(sessionsApi.createProject).toHaveBeenCalledWith(
+        expect.objectContaining({
+          project_id: 'proj-1',
+          initial_prompt: expect.stringContaining('feishu-mention-triage'),
+        })
+      );
+      expect(useLayoutStore.getState().isKanbanSessionVisible).toBe(true);
+    });
+
+    // Enable daily-repo-digest starter -> verifies non-empty IANA timezone on temporal cron rule
+    await user.click(
+      screen.getByTestId('automation-apply-starter-daily-repo-digest')
     );
     await waitFor(() => {
       expect(workflowsApi.publish).toHaveBeenCalledWith(
-        expect.objectContaining({ name: 'PR CI 失败自动排查并评论' })
+        expect.objectContaining({ name: '每日代码进展与风险晨报' })
       );
       expect(pulseApi.saveRule).toHaveBeenCalledWith(
         expect.objectContaining({
           enabled: true,
           spec: expect.objectContaining({
-            targets: [
-              expect.objectContaining({
-                kind: 'workflow',
-                workflowId: 'wf-ci-autofix',
-                pinnedVersion: 1,
-              }),
-            ],
+            temporal: expect.objectContaining({
+              kind: 'cron',
+              expression: '30 9 * * 1-5',
+              timezone: 'Asia/Shanghai',
+            }),
           }),
-        })
-      );
-    });
-
-    // Open "让 Agent 创建" popover and dispatch a natural-language instruction
-    await user.click(screen.getByTestId('automation-agent-create-btn'));
-    const promptBox = await screen.findByTestId(
-      'automation-agent-create-btn-input'
-    );
-    await user.type(
-      promptBox,
-      '当收到 GitHub PR 评论 @fix 时自动在隔离分支修复并回复'
-    );
-    await user.click(screen.getByTestId('automation-agent-create-btn-submit'));
-
-    await waitFor(() => {
-      expect(sessionsApi.createProject).toHaveBeenCalledWith(
-        expect.objectContaining({
-          project_id: 'proj-1',
-          initial_prompt: expect.stringContaining('pulse-workflow-author'),
         })
       );
     });
   });
 
-  it('configures Event Sources cleanly without exposing low-level thread subscriptions', async () => {
+  it('renders AstryxSelect source selector, SegmentedControl mode switchers, full GitHub repo URL, external credential links, and zero raw i18n keys', async () => {
     const user = userEvent.setup();
+    const openExternalSpy = vi
+      .spyOn(openExternalModule, 'openExternal')
+      .mockResolvedValue(undefined);
+
     vi.mocked(pulseApi.upsertSource).mockImplementation(async (input) => ({
       id: input.id ?? 'src-created',
       kind: input.kind,
@@ -499,51 +616,129 @@ describe('PulseDeckView (Agent-First 2-Tab Automation Workbench)', () => {
       message: 'GitHub CLI token verified',
     });
 
+    try {
+      renderDeck('proj-1');
+      await screen.findByTestId('pulse-deck-tab-tasks');
+
+      await user.click(screen.getByTestId('pulse-deck-tab-sources'));
+
+      // Connected source appears under "已接入事件源", while unconfigured kinds appear in separate "事件源模板" chip & rows
+      expect(
+        screen.getByTestId('sources-connected-group-header')
+      ).toHaveTextContent('已接入事件源');
+      expect(
+        screen.getByTestId('sources-templates-group-header')
+      ).toHaveTextContent('事件源模板');
+      expect(
+        screen.getByTestId('source-template-row-feishu')
+      ).toHaveTextContent('模板 · 点击配置');
+      expect(
+        screen.queryByTestId('source-template-row-github')
+      ).not.toBeInTheDocument();
+
+      // Clicking "事件源模板" chip filters out connected sources and keeps templates visible
+      await user.click(screen.getByTestId('sources-templates-group-header'));
+      expect(
+        screen
+          .getByTestId('source-row-src-gh')
+          .closest('[data-row-visible]')
+      ).toHaveAttribute('data-row-visible', 'false');
+      expect(
+        screen
+          .getByTestId('source-template-row-feishu')
+          .closest('[data-row-visible]')
+      ).toHaveAttribute('data-row-visible', 'true');
+      await user.click(screen.getByTestId('sources-filter-chip-all'));
+
+      expect(
+        screen.getByTestId('pulse-source-watermark-src-gh')
+      ).toHaveTextContent('已连接 · 游标 ev_1092');
+      expect(
+        screen.getByTestId('pulse-source-counts-src-gh')
+      ).toHaveTextContent('24h 接收 42');
+
+      // Legacy bare "vibex/core" automatically hydrates as a full GitHub repository URL
+      expect(screen.getByTestId('github-repo-input')).toHaveValue(
+        'https://github.com/vibex/core'
+      );
+
+      // GitHub Token external jump-link icon button opens GitHub PAT creation URL
+      await user.click(screen.getByTestId('github-token-link-btn'));
+      expect(openExternalSpy).toHaveBeenCalledWith(
+        expect.stringContaining('https://github.com/settings/tokens/new')
+      );
+
+      // SegmentedControl switches cleanly between Poll and Webhook modes
+      expect(screen.getByTestId('github-mode-poll')).toHaveAttribute(
+        'role',
+        'radio'
+      );
+      await user.click(screen.getByTestId('github-mode-webhook'));
+      expect(screen.getByTestId('source-webhook-url')).toHaveValue(
+        `${window.location.origin}/api/pulse/webhooks/src-gh`
+      );
+      await user.click(screen.getByTestId('source-generate-secret-btn'));
+      expect(
+        (screen.getByTestId('source-signing-secret') as HTMLInputElement).value
+      ).toMatch(/^whsec_/);
+
+      await user.click(screen.getByTestId('source-save-and-test-btn'));
+      await waitFor(() => {
+        expect(pulseApi.upsertSource).toHaveBeenCalled();
+        expect(pulseApi.testSource).toHaveBeenCalledWith('src-gh', false);
+      });
+      expect(
+        await screen.findByTestId('source-test-result')
+      ).toHaveTextContent('GitHub CLI token verified');
+
+      // Switch source type via AstryxSelect combobox (`#source-kind-select`) -> Feishu
+      const kindSelectTrigger = document.getElementById('source-kind-select')!;
+      expect(kindSelectTrigger).toHaveAttribute('role', 'combobox');
+      await user.click(kindSelectTrigger);
+      await user.click(await screen.findByRole('option', { name: '飞书' }));
+      expect(screen.getByTestId('feishu-mode-long-connection')).toHaveAttribute(
+        'aria-checked',
+        'true'
+      );
+      await user.click(screen.getByTestId('feishu-mode-webhook'));
+      expect(screen.getByTestId('source-webhook-url')).toBeInTheDocument();
+
+      // Switch source type via AstryxSelect -> 定时间隔触发 and verify translated label (no raw key)
+      await user.click(kindSelectTrigger);
+      await user.click(
+        await screen.findByRole('option', { name: '定时间隔触发' })
+      );
+      expect(screen.getByText('触发间隔（秒）')).toBeInTheDocument();
+      expect(
+        screen.queryByText(/pulseDeck\.workbench\./)
+      ).not.toBeInTheDocument();
+    } finally {
+      openExternalSpy.mockRestore();
+    }
+  });
+
+  it('hides "已接入事件源" when zero sources are connected and displays only "事件源模板"', async () => {
+    const user = userEvent.setup();
+    const emptySourcesSnapshot = makeSnapshot();
+    emptySourcesSnapshot.sources = [];
+    vi.mocked(pulseApi.deckSnapshot).mockResolvedValue(emptySourcesSnapshot);
+
     renderDeck('proj-1');
     await screen.findByTestId('pulse-deck-tab-tasks');
-
     await user.click(screen.getByTestId('pulse-deck-tab-sources'));
 
     expect(
-      screen.getByTestId('pulse-source-watermark-src-gh')
-    ).toHaveTextContent('已连接 · 游标 ev_1092');
-    expect(screen.getByTestId('pulse-source-counts-src-gh')).toHaveTextContent(
-      '24h 接收 42'
-    );
-
-    // No runtime thread subscriptions section is rendered in the UI
-    expect(
-      screen.queryByTestId('pulse-deck-subscribe-btn')
+      screen.queryByTestId('sources-connected-group-header')
     ).not.toBeInTheDocument();
-
-    // GitHub Poll & Webhook modes + secret generation + Save & Test
-    expect(screen.getByTestId('github-repo-input')).toHaveValue('vibex/core');
-    await user.click(screen.getByTestId('github-mode-webhook'));
-    expect(screen.getByTestId('source-webhook-url')).toHaveValue(
-      `${window.location.origin}/api/pulse/webhooks/src-gh`
-    );
-    await user.click(screen.getByTestId('source-generate-secret-btn'));
     expect(
-      (screen.getByTestId('source-signing-secret') as HTMLInputElement).value
-    ).toMatch(/^whsec_/);
-
-    await user.click(screen.getByTestId('source-save-and-test-btn'));
-    await waitFor(() => {
-      expect(pulseApi.upsertSource).toHaveBeenCalled();
-      expect(pulseApi.testSource).toHaveBeenCalledWith('src-gh', false);
-    });
-    expect(await screen.findByTestId('source-test-result')).toHaveTextContent(
-      'GitHub CLI token verified'
-    );
-
-    // Feishu connector long-connection & webhook modes
-    await user.click(screen.getByTestId('source-kind-feishu'));
-    expect(screen.getByTestId('feishu-mode-long-connection')).toHaveAttribute(
-      'aria-pressed',
-      'true'
-    );
-    await user.click(screen.getByTestId('feishu-mode-webhook'));
-    expect(screen.getByTestId('source-webhook-url')).toBeInTheDocument();
+      screen.getByTestId('sources-templates-group-header')
+    ).toHaveTextContent('事件源模板');
+    expect(
+      screen.getByTestId('source-template-row-github')
+    ).toBeInTheDocument();
+    expect(
+      screen.getByTestId('source-template-row-feishu')
+    ).toBeInTheDocument();
   });
 
   it('surfaces inline pending approvals directly at the top of the Task List', async () => {
@@ -598,46 +793,113 @@ describe('PulseDeckView (Agent-First 2-Tab Automation Workbench)', () => {
     try {
       renderDeck('proj-1');
 
-      expect(await screen.findByTestId('pulse-deck-tab-tasks')).toHaveTextContent(
+      expect(await screen.findByTestId('pulse-deck-heading')).toHaveTextContent(
         '自动化任务'
       );
-      expect(screen.getByTestId('pulse-deck-engine-badge')).toHaveTextContent(
-        '运行中'
+      expect(
+        screen.queryByTestId('pulse-deck-engine-badge')
+      ).not.toBeInTheDocument();
+      expect(screen.getByTestId('pulse-deck-tab-tasks')).toHaveAttribute(
+        'aria-label',
+        '自动化任务'
       );
-      expect(screen.getByTestId('pulse-deck-tab-sources')).toHaveTextContent(
+      expect(screen.getByTestId('pulse-deck-tab-sources')).toHaveAttribute(
+        'aria-label',
         '事件源'
       );
       expect(
         screen.getByTestId('automation-agent-create-btn')
       ).toHaveTextContent('让 Agent 创建');
       expect(
-        await screen.findByTestId('automation-group-header-active')
+        await screen.findByTestId('automation-filter-chip-active')
       ).toHaveTextContent('启用中');
+      expect(
+        screen.getByTestId('automation-filter-chip-all')
+      ).toHaveTextContent('全部');
+      expect(
+        screen.getByTestId('automation-task-open-workflow-wf-triage')
+      ).toHaveTextContent('修改');
 
       await act(async () => {
         await i18n.changeLanguage('en');
       });
 
-      expect(await screen.findByText('Automation Tasks')).toBeInTheDocument();
-      expect(screen.getByTestId('pulse-deck-engine-badge')).toHaveTextContent(
-        'Running'
+      expect(await screen.findByTestId('pulse-deck-heading')).toHaveTextContent(
+        'Automation Tasks'
       );
-      expect(screen.getByTestId('pulse-deck-tab-tasks')).toHaveTextContent(
+      expect(screen.getByTestId('pulse-deck-tab-tasks')).toHaveAttribute(
+        'aria-label',
         'Tasks'
       );
-      expect(screen.getByTestId('pulse-deck-tab-sources')).toHaveTextContent(
+      expect(screen.getByTestId('pulse-deck-tab-sources')).toHaveAttribute(
+        'aria-label',
         'Event Sources'
       );
       expect(
         screen.getByTestId('automation-agent-create-btn')
       ).toHaveTextContent('Create with Agent');
       expect(
-        screen.getByTestId('automation-group-header-active')
+        screen.getByTestId('automation-filter-chip-active')
       ).toHaveTextContent('Active');
+      expect(
+        screen.getByTestId('automation-filter-chip-all')
+      ).toHaveTextContent('All');
+      expect(
+        screen.getByTestId('automation-task-open-workflow-wf-triage')
+      ).toHaveTextContent('Edit');
     } finally {
       await act(async () => {
         await i18n.changeLanguage('zh-CN');
       });
+    }
+  });
+
+  it('opens the embedded Workflow Studio even when a parent view-switcher calls event.preventDefault() on vibex:open-workflow-studio, while ignoring hidden surfaces', async () => {
+    const parentPreventDefaultListener = (event: Event) => {
+      event.preventDefault();
+    };
+    // Simulate parent KanbanBoard registering its listener BEFORE PulseDeckView mounts
+    window.addEventListener(
+      'vibex:open-workflow-studio',
+      parentPreventDefaultListener
+    );
+
+    try {
+      const { unmount } = renderDeck('proj-1');
+      await screen.findByTestId('automation-tasks-list');
+
+      act(() => {
+        requestOpenWorkflowStudio({ definitionId: 'wf-triage' });
+      });
+
+      expect(
+        await screen.findByTestId('automation-embedded-workflow-studio')
+      ).toBeInTheDocument();
+      unmount();
+      stashPendingWorkflowStudioOpen(null);
+
+      // Hidden background surfaces must ignore the open event
+      render(
+        <AstryxTheme theme={neutralTheme} mode="light">
+          <div aria-hidden="true">
+            <PulseDeckView projectId="proj-1" />
+          </div>
+        </AstryxTheme>
+      );
+      await screen.findByTestId('automation-tasks-list');
+
+      act(() => {
+        requestOpenWorkflowStudio({ createNew: true });
+      });
+
+      expect(
+        screen.queryByTestId('automation-embedded-workflow-studio')
+      ).not.toBeInTheDocument();
+    } finally {
+      window.removeEventListener(
+        'vibex:open-workflow-studio',
+        parentPreventDefaultListener
+      );
     }
   });
 
@@ -662,3 +924,4 @@ describe('PulseDeckView (Agent-First 2-Tab Automation Workbench)', () => {
     expect(remoteUnlisten).toHaveBeenCalledOnce();
   });
 });
+

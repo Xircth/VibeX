@@ -56,8 +56,7 @@ export function kanbanViewHidesSessionSlot(viewId: string): boolean {
   return (
     viewId === 'builtin:canvas' ||
     viewId === 'builtin:usage' ||
-    viewId === 'builtin:repos' ||
-    viewId === 'builtin:pulse'
+    viewId === 'builtin:repos'
   );
 }
 

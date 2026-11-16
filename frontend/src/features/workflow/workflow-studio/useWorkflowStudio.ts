@@ -4,6 +4,7 @@ import {
   SoundFile,
   type AgentSessionControlsSnapshot,
   type JsonValue,
+  type WorkflowRunView,
 } from 'shared/types';
 
 import { useOptionalUserSystem } from '@/components/ConfigProvider';
@@ -13,6 +14,7 @@ import type {
   EventEnvelope,
   PresetOrchestratorKind,
   PulseEvalMode,
+  PulseOutboxEntryView,
 } from '@/lib/api/pulse';
 import { showDesktopToast } from '@/lib/desktopToast';
 
@@ -31,6 +33,9 @@ import {
   type WorkflowStudioDefinitionInput,
   type WorkflowStudioProps,
 } from './types';
+
+const EMPTY_RUNS: WorkflowRunView[] = [];
+const EMPTY_OUTBOX_ENTRIES: PulseOutboxEntryView[] = [];
 import { useWorkflowStudioGraph } from './useWorkflowStudioGraph';
 import { withoutStepOutputBindings } from './workflowGraph';
 import { withoutRemovedBranchPorts } from './workflowPorts';
@@ -48,8 +53,13 @@ export function useWorkflowStudio<
   definition: rawDefinition,
   onDefinitionChange: rawOnDefinitionChange,
   run,
+  runs = EMPTY_RUNS,
+  selectedRunId: propSelectedRunId,
+  onSelectRunId,
+  recordsLoading = false,
   steps = EMPTY_STEPS,
   events = EMPTY_EVENTS,
+  outboxEntries = EMPTY_OUTBOX_ENTRIES,
   dirty,
   saving,
   publishing,
@@ -63,6 +73,11 @@ export function useWorkflowStudio<
   onBack,
   editorName,
   onEditorNameChange,
+  taskCatalog,
+  selectedDefinitionId,
+  onSelectTask,
+  onCreateNewTask,
+  rightToolbarSlot,
   agentOptions = EMPTY_AGENT_OPTIONS,
   bots: propBots,
   spaces: propSpaces,
@@ -178,6 +193,49 @@ export function useWorkflowStudio<
     [onDefinitionChange, updateStep]
   );
 
+  const defaultAgentId = useMemo(
+    () =>
+      resolveWorkflowAgentId(agentOptions, config?.executor_profile?.executor),
+    [agentOptions, config?.executor_profile?.executor]
+  );
+
+  const nextStepId = useCallback(
+    (prefix = 'step') => {
+      let ordinal = definition.steps.length + 1;
+      while (definition.steps.some((step) => step.id === `${prefix}-${ordinal}`))
+        ordinal += 1;
+      return `${prefix}-${ordinal}`;
+    },
+    [definition.steps]
+  );
+
+  const setSelectedStepIdRef = useRef<(id: string | null) => void>(
+    () => undefined
+  );
+
+  const quickAddStep = useCallback(
+    (parentStepId: string) => {
+      if (!onDefinitionChange) return;
+      const step = createDefaultStepForKind(
+        'session',
+        {
+          id: nextStepId('session'),
+          dependsOn: [parentStepId],
+          phase: null,
+          inputBindings: {},
+        },
+        defaultAgentId,
+        language,
+        t('studio.newNotify'),
+        t
+      );
+      onDefinitionChange({ ...definition, steps: [...definition.steps, step] });
+      setSelectedStepIdRef.current(step.id);
+      setInspectorTab('info');
+    },
+    [defaultAgentId, definition, language, nextStepId, onDefinitionChange, t]
+  );
+
   const graph = useWorkflowStudioGraph({
     definition,
     onDefinitionChange,
@@ -191,10 +249,11 @@ export function useWorkflowStudio<
     onTriggerEvalModeChange: onDefinitionChange
       ? updateTriggerEvalMode
       : undefined,
-    onQuickAddStep: undefined,
+    onQuickAddStep: onDefinitionChange ? quickAddStep : undefined,
     t,
   });
   const { selectedStepId, setSelectedStepId, latest } = graph;
+  setSelectedStepIdRef.current = setSelectedStepId;
   const notifiedRuns = useRef(new Set<string>());
 
   useEffect(() => {
@@ -238,6 +297,17 @@ export function useWorkflowStudio<
   const selectedStep =
     definition.steps.find((step) => step.id === selectedStepId) ?? null;
   const selectedRun = selectedStepId ? latest.get(selectedStepId) : undefined;
+  const selectedRunId = propSelectedRunId ?? run?.id ?? null;
+  const selectedStepRuns = useMemo(
+    () =>
+      selectedStepId
+        ? steps.filter((step) => step.stepId === selectedStepId)
+        : EMPTY_STEPS,
+    [selectedStepId, steps]
+  );
+  const selectedStepEvents = selectedStepId
+    ? (graph.eventsByStepId.get(selectedStepId) ?? EMPTY_EVENTS)
+    : EMPTY_EVENTS;
   const selectedStepSaved = selectedStepId
     ? !unsavedStepIds.has(selectedStepId)
     : false;
@@ -314,19 +384,6 @@ export function useWorkflowStudio<
     [definition, t]
   );
 
-  const defaultAgentId = useMemo(
-    () =>
-      resolveWorkflowAgentId(agentOptions, config?.executor_profile?.executor),
-    [agentOptions, config?.executor_profile?.executor]
-  );
-
-  const nextStepId = (prefix = 'step') => {
-    let ordinal = definition.steps.length + 1;
-    while (definition.steps.some((step) => step.id === `${prefix}-${ordinal}`))
-      ordinal += 1;
-    return `${prefix}-${ordinal}`;
-  };
-
   const addStep = (kind: StudioAddableStepKind, dependsOn: string[] = []) => {
     if (!onDefinitionChange) return;
     const prefix =
@@ -398,6 +455,7 @@ export function useWorkflowStudio<
             (dependency) => dependency !== stepId
           ),
           branchPorts: withoutRemovedBranchPorts(step.branchPorts, removedSet),
+          targetPorts: withoutRemovedBranchPorts(step.targetPorts, removedSet),
           inputBindings: withoutStepOutputBindings(
             step.inputBindings,
             removedSet
@@ -426,7 +484,12 @@ export function useWorkflowStudio<
     onDefinitionChange,
     studioMode: studioModeInput,
     run,
+    runs,
+    selectedRunId,
+    onSelectRunId,
+    recordsLoading,
     events,
+    outboxEntries,
     dirty,
     saving,
     publishing,
@@ -440,6 +503,11 @@ export function useWorkflowStudio<
     onBack,
     editorName,
     onEditorNameChange,
+    taskCatalog,
+    selectedDefinitionId,
+    onSelectTask,
+    onCreateNewTask,
+    rightToolbarSlot,
     agentOptions,
     bots,
     spaces,
@@ -499,6 +567,8 @@ export function useWorkflowStudio<
     agentControlsError,
     selectedStep,
     selectedRun,
+    selectedStepRuns,
+    selectedStepEvents,
     selectedStepSaved,
     selectedSuccessors,
     updateJson,

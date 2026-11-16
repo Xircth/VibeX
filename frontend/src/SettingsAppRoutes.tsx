@@ -6,8 +6,6 @@ import {
   loadAccountSettings,
   loadAgentSettings,
   loadAppearanceSettings,
-  loadAutomationCenter,
-  loadAutomationEditorRoutes,
   loadChatChannelSettings,
   loadEditorSettings,
   loadGeneralSettings,
@@ -44,19 +42,6 @@ const AgentSettings = lazyNamed(loadAgentSettings, 'AgentSettings');
 const AppearanceSettings = lazyNamed(
   loadAppearanceSettings,
   'AppearanceSettings'
-);
-const AutomationCenter = lazyNamed(loadAutomationCenter, 'AutomationCenter');
-const AutomationEditRoute = lazyNamed(
-  loadAutomationEditorRoutes,
-  'AutomationEditRoute'
-);
-const TurnAutomationEditorRoute = lazyNamed(
-  loadAutomationEditorRoutes,
-  'TurnAutomationEditorRoute'
-);
-const WorkflowAutomationEditorRoute = lazyNamed(
-  loadAutomationEditorRoutes,
-  'WorkflowAutomationEditorRoute'
 );
 const ChatChannelSettings = lazyNamed(
   loadChatChannelSettings,
@@ -115,23 +100,6 @@ export function SettingsAppRoutes() {
           <Route path="version-control" element={<VersionControlSettings />} />
           <Route path="worktrees" element={<WorktreeSettings />} />
           <Route path="chat-channels" element={<ChatChannelSettings />} />
-          <Route path="automations" element={<AutomationCenter />} />
-          <Route
-            path="automations/new"
-            element={<Navigate to="/settings/automations" replace />}
-          />
-          <Route
-            path="automations/new/turn"
-            element={<TurnAutomationEditorRoute />}
-          />
-          <Route
-            path="automations/new/workflow"
-            element={<WorkflowAutomationEditorRoute />}
-          />
-          <Route
-            path="automations/:automationId/edit"
-            element={<AutomationEditRoute />}
-          />
           <Route path="plugins" element={<Navigate to="/plugins" replace />} />
           <Route path="web-service" element={<WebServiceSettings />} />
           <Route

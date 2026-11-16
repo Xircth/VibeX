@@ -78,6 +78,7 @@ pub enum RegisteredCommand {
     WorkflowVersion,
     WorkflowList,
     WorkflowVersions,
+    WorkflowRuns,
     WorkflowSteps,
     WorkflowEvents,
     WorkflowCompleteStep,
@@ -137,6 +138,7 @@ impl RegisteredCommand {
             Self::WorkflowVersion => "workflow_version",
             Self::WorkflowList => "workflow_list",
             Self::WorkflowVersions => "workflow_versions",
+            Self::WorkflowRuns => "workflow_runs",
             Self::WorkflowSteps => "workflow_steps",
             Self::WorkflowEvents => "workflow_events",
             Self::WorkflowCompleteStep => "workflow_complete_step",
@@ -196,6 +198,7 @@ impl RegisteredCommand {
             RegisteredCommand::WorkflowVersion,
             RegisteredCommand::WorkflowList,
             RegisteredCommand::WorkflowVersions,
+            RegisteredCommand::WorkflowRuns,
             RegisteredCommand::WorkflowSteps,
             RegisteredCommand::WorkflowEvents,
             RegisteredCommand::WorkflowCompleteStep,
@@ -261,6 +264,7 @@ impl RegisteredCommand {
             | Self::WorkflowVersion
             | Self::WorkflowList
             | Self::WorkflowVersions
+            | Self::WorkflowRuns
             | Self::WorkflowSteps
             | Self::WorkflowEvents => "workflow.read",
             Self::WorkflowPublish | Self::WorkflowValidate | Self::WorkflowDelete => "workflow.write",
@@ -353,6 +357,7 @@ impl FromStr for RegisteredCommand {
             "workflow_version" => Ok(Self::WorkflowVersion),
             "workflow_list" => Ok(Self::WorkflowList),
             "workflow_versions" => Ok(Self::WorkflowVersions),
+            "workflow_runs" => Ok(Self::WorkflowRuns),
             "workflow_steps" => Ok(Self::WorkflowSteps),
             "workflow_events" => Ok(Self::WorkflowEvents),
             "workflow_complete_step" => Ok(Self::WorkflowCompleteStep),
@@ -1379,6 +1384,15 @@ where
                 let result = self
                     .core
                     .workflow_versions(principal, args.definition_id, args.limit)
+                    .await
+                    .map_err(|error| with_operation_id(error, operation_id))?;
+                serialize_result(command, operation_id, result)?
+            }
+            RegisteredCommand::WorkflowRuns => {
+                let args = parse_args::<WorkflowVersionsArgs>(command, operation_id, args)?;
+                let result = self
+                    .core
+                    .workflow_runs(principal, args.definition_id, args.limit)
                     .await
                     .map_err(|error| with_operation_id(error, operation_id))?;
                 serialize_result(command, operation_id, result)?

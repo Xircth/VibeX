@@ -1,8 +1,10 @@
 import {
   ArrowLeft,
+  Check,
   ChevronDown,
   CirclePause,
   CirclePlay,
+  Plus,
   RotateCcw,
   SlidersHorizontal,
   Square,
@@ -14,12 +16,21 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { Input } from '@/components/ui/input';
 
 import type { WorkflowStudioView } from './useWorkflowStudio';
 import { WorkflowMetrics } from './WorkflowMetrics';
+
+function formatTaskVersionBadge(
+  version: bigint | number | null | undefined
+): string {
+  if (version == null) return 'v0.1';
+  const numeric = typeof version === 'bigint' ? Number(version) : version;
+  return `v${(Math.max(1, numeric) / 10).toFixed(1)}`;
+}
 
 export function WorkflowStudioToolbar({
   studio,
@@ -34,6 +45,11 @@ export function WorkflowStudioToolbar({
     editorName,
     definition,
     onEditorNameChange,
+    taskCatalog,
+    selectedDefinitionId,
+    onSelectTask,
+    onCreateNewTask,
+    rightToolbarSlot,
     releaseVersion,
     dirty,
     workspaceConfig,
@@ -71,6 +87,8 @@ export function WorkflowStudioToolbar({
         count: validationIssues.length,
       })
     : undefined;
+  const showTaskSwitcher = Boolean(onSelectTask || onCreateNewTask);
+  const catalogItems = taskCatalog ?? [];
 
   return (
     <div className="pointer-events-none absolute inset-x-3 top-3 z-40 flex items-start gap-2 overflow-x-auto pb-2">
@@ -80,19 +98,23 @@ export function WorkflowStudioToolbar({
             size="icon"
             variant="ghost"
             className="size-7"
+            data-testid="embedded-studio-back-btn"
             onClick={onBack}
             aria-label={t('studio.back')}
+            title={t('studio.back')}
           >
             <ArrowLeft className="size-3.5" />
           </Button>
         </div>
       ) : null}
 
-      <div className="workflow-studio-floating-controls pointer-events-auto flex shrink-0 items-center gap-1.5 p-1">
+      <div className="workflow-studio-floating-controls pointer-events-auto flex shrink-0 items-center gap-1 p-1">
         {onDefinitionChange ? (
           <Input
+            data-testid="workflow-task-name-input"
             aria-label={t('studio.name')}
-            className="h-8 w-44 border-transparent bg-transparent text-sm font-semibold"
+            placeholder={t('studio.taskNamePlaceholder')}
+            className="h-8 w-52 border-transparent bg-transparent text-sm font-semibold focus-visible:ring-0"
             value={editorName ?? definition.name}
             onChange={(event) => onEditorNameChange?.(event.target.value)}
           />
@@ -101,6 +123,93 @@ export function WorkflowStudioToolbar({
             {definition.name}
           </span>
         )}
+
+        {showTaskSwitcher ? (
+          <>
+            <span className="h-4 w-px bg-border" aria-hidden="true" />
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  type="button"
+                  size="icon"
+                  variant="ghost"
+                  className="size-7 shrink-0"
+                  data-testid="workflow-task-switcher-btn"
+                  aria-label={t('studio.taskListAria')}
+                  title={t('studio.taskListAria')}
+                >
+                  <ChevronDown className="size-3.5" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start" className="w-64">
+                {onCreateNewTask ? (
+                  <>
+                    <DropdownMenuItem
+                      data-testid="workflow-task-create-new"
+                      onSelect={() => onCreateNewTask()}
+                    >
+                      <Plus className="size-3.5" />
+                      <span>{t('studio.createNewTask')}</span>
+                    </DropdownMenuItem>
+                    <DropdownMenuSeparator />
+                  </>
+                ) : null}
+
+                {selectedDefinitionId == null ? (
+                  <DropdownMenuItem
+                    data-testid="workflow-task-option-draft"
+                    className="justify-between gap-2"
+                    onSelect={(event) => event.preventDefault()}
+                  >
+                    <span className="flex min-w-0 items-center gap-1.5">
+                      <Check className="size-3.5 shrink-0 text-primary" />
+                      <span className="truncate">
+                        {(editorName ?? definition.name).trim() ||
+                          t('studio.newWorkflowDefaultName')}
+                      </span>
+                    </span>
+                    <span className="shrink-0 rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+                      {t('studio.currentDraftBadge')}
+                    </span>
+                  </DropdownMenuItem>
+                ) : null}
+
+                {catalogItems.length === 0 ? (
+                  <div className="px-2 py-2 text-xs text-muted-foreground">
+                    {t('studio.emptyTaskCatalog')}
+                  </div>
+                ) : (
+                  catalogItems.map((item) => {
+                    const isSelected = item.id === selectedDefinitionId;
+                    return (
+                      <DropdownMenuItem
+                        key={item.id}
+                        data-testid={`workflow-task-option-${item.id}`}
+                        className="justify-between gap-2"
+                        onSelect={() => onSelectTask?.(item.id)}
+                      >
+                        <span className="flex min-w-0 items-center gap-1.5">
+                          {isSelected ? (
+                            <Check className="size-3.5 shrink-0 text-primary" />
+                          ) : (
+                            <span
+                              className="size-3.5 shrink-0"
+                              aria-hidden="true"
+                            />
+                          )}
+                          <span className="truncate">{item.name}</span>
+                        </span>
+                        <span className="shrink-0 font-mono text-[11px] text-muted-foreground tabular-nums">
+                          {formatTaskVersionBadge(item.latestVersion)}
+                        </span>
+                      </DropdownMenuItem>
+                    );
+                  })
+                )}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </>
+        ) : null}
       </div>
 
       <WorkflowMetrics
@@ -286,6 +395,13 @@ export function WorkflowStudioToolbar({
             ) : null}
           </>
         )}
+
+        {rightToolbarSlot ? (
+          <>
+            <span className="mx-0.5 h-4 w-px bg-border" aria-hidden="true" />
+            {rightToolbarSlot}
+          </>
+        ) : null}
       </div>
     </div>
   );

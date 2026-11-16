@@ -135,13 +135,13 @@ describe('kanbanViews', () => {
     );
   });
 
-  it('hides the execution column on canvas, usage, and pulse views', () => {
+  it('hides the execution column on canvas and usage views while keeping it visible on pulse', () => {
     expect(kanbanViewHidesSessionSlot('builtin:columns')).toBe(false);
     expect(kanbanViewHidesSessionSlot('builtin:sessions')).toBe(false);
+    expect(kanbanViewHidesSessionSlot('builtin:pulse')).toBe(false);
     expect(kanbanViewHidesSessionSlot('plugin:sample/view')).toBe(false);
     expect(kanbanViewHidesSessionSlot('builtin:canvas')).toBe(true);
     expect(kanbanViewHidesSessionSlot('builtin:usage')).toBe(true);
-    expect(kanbanViewHidesSessionSlot('builtin:pulse')).toBe(true);
   });
 
   it('keeps the execution conversation bound on workspace even when the kanban slot is hidden', () => {
@@ -156,7 +156,7 @@ describe('kanbanViews', () => {
     );
   });
 
-  it('unbinds the hidden kanban execution conversation on canvas, usage, and pulse', () => {
+  it('unbinds the hidden kanban execution conversation on canvas and usage while binding it on pulse', () => {
     expect(kanbanBindsExecutionConversation('builtin:canvas', 'kanban')).toBe(
       false
     );
@@ -164,7 +164,7 @@ describe('kanbanViews', () => {
       false
     );
     expect(kanbanBindsExecutionConversation('builtin:pulse', 'kanban')).toBe(
-      false
+      true
     );
     expect(kanbanBindsExecutionConversation('builtin:sessions', 'kanban')).toBe(
       true

@@ -97,6 +97,11 @@ export function createWorkflowApi(transport: BackendTransport) {
         definitionId,
         limit,
       }),
+    runs: (definitionId: string, limit = 20): Promise<WorkflowRunView[]> =>
+      callApplicationCommand(transport, 'workflow_runs', {
+        definitionId,
+        limit,
+      }),
     steps: (runId: string) =>
       callApplicationCommand(transport, 'workflow_steps', { runId }),
     events: (runId: string, afterSequence = 0, limit = 200) =>

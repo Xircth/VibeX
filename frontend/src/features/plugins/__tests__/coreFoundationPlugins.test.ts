@@ -193,7 +193,6 @@ describe('System Bundle (coreFoundationPlugins) lifecycle & EffectScope isolatio
       ['builtin:/settings/subagents', 'vibex.core.delegation'],
       ['builtin:/settings/compaction', 'vibex.core.compaction'],
       ['builtin:/settings/approval', 'vibex.core.approval'],
-      ['builtin:/settings/automations', 'vibex.core.automation'],
       ['builtin:/settings/chat-channels', 'vibex.core.channels'],
       ['builtin:/settings/instructions', 'vibex.webui.conversation'],
       ['builtin:/settings/shortcuts', 'vibex.webui.commands'],
@@ -206,6 +205,9 @@ describe('System Bundle (coreFoundationPlugins) lifecycle & EffectScope isolatio
         `Settings page ${pageId} should be owned by ${expectedOwner}`
       ).toBe(expectedOwner);
     }
+    expect(settingsPageRegistry.has('builtin:/settings/automations')).toBe(
+      false
+    );
 
     // 6. vibex.webui.theme
     const themeService = serviceContainer.get<{

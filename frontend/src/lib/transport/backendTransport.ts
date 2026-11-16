@@ -257,6 +257,10 @@ export interface ApplicationCommandMap {
     args: { definitionId: string; limit?: number };
     result: WorkflowVersionView[];
   };
+  workflow_runs: {
+    args: { definitionId: string; limit?: number };
+    result: WorkflowRunView[];
+  };
   workflow_steps: {
     args: { runId: string };
     result: WorkflowStepView[];

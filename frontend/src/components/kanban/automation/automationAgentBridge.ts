@@ -10,6 +10,12 @@ import type { WorkflowStudioAgentOption } from '@/features/workflow/workflowAgen
 import { projectsApi } from '@/lib/api/projects';
 import type { PulseRuleSpec, PulseSourceView } from '@/lib/api/pulse';
 import { sessionsApi } from '@/lib/api/sessions';
+import type { KanbanSessionPlacement } from '@/lib/kanbanSessionLayout';
+import {
+  dismissCollaborationCreateOverlays,
+  dismissCreateSessionOverlays,
+} from '@/lib/requestCreateSession';
+import { useLayoutStore } from '@/stores/useLayoutStore';
 
 import dailyRepoDigestJson from '../../../../../examples/workflows/daily-repo-digest.vibex-workflow.json';
 import feishuMentionTriageJson from '../../../../../examples/workflows/feishu-mention-triage.vibex-workflow.json';
@@ -98,6 +104,18 @@ export function buildWorkflowTriggerRuleSpec(input: {
   if (triggerStep) {
     const isTemporal =
       triggerStep.triggerKind === 'temporal' && Boolean(triggerStep.temporal);
+    const normalizedTemporal =
+      isTemporal && triggerStep.temporal
+        ? triggerStep.temporal.kind === 'cron'
+          ? {
+              ...triggerStep.temporal,
+              timezone:
+                triggerStep.temporal.timezone?.trim() ||
+                Intl.DateTimeFormat().resolvedOptions().timeZone ||
+                'UTC',
+            }
+          : triggerStep.temporal
+        : null;
     return {
       name: input.studio.name,
       description: input.studio.description ?? null,
@@ -120,7 +138,7 @@ export function buildWorkflowTriggerRuleSpec(input: {
         allowedActors: triggerStep.filter.allowedActors ?? [],
         conditions: triggerStep.filter.conditions ?? [],
       },
-      temporal: isTemporal ? triggerStep.temporal ?? null : null,
+      temporal: normalizedTemporal,
       targets: [
         {
           kind: 'workflow',
@@ -297,3 +315,51 @@ export async function dispatchAutomationAgentRequest(
     title: sessionTitle,
   };
 }
+
+export function extractPulseErrorMessage(
+  err: unknown,
+  fallback: string
+): string {
+  if (err instanceof Error && err.message.trim()) {
+    return err.message;
+  }
+  if (typeof err === 'string' && err.trim()) {
+    return err;
+  }
+  if (
+    typeof err === 'object' &&
+    err !== null &&
+    'message' in err &&
+    typeof (err as { message?: unknown }).message === 'string' &&
+    (err as { message: string }).message.trim()
+  ) {
+    return (err as { message: string }).message;
+  }
+  return fallback;
+}
+
+export function activateAutomationSessionInRightSidebar(
+  dispatched: DispatchedAutomationAgentSession,
+  activateExecutionSession?: (placement: KanbanSessionPlacement) => void
+): void {
+  const layout = useLayoutStore.getState();
+  layout.setRightPanelVisible(true);
+  layout.setKanbanSessionVisible(true);
+  dismissCreateSessionOverlays();
+  if (dispatched.sessionId && dispatched.workspaceId) {
+    activateExecutionSession?.({
+      sessionId: dispatched.sessionId,
+      workspaceId: dispatched.workspaceId,
+    });
+  }
+}
+
+export function ensureRightSessionSidebarOpen(): void {
+  dismissCollaborationCreateOverlays();
+  dismissCreateSessionOverlays();
+  const layout = useLayoutStore.getState();
+  layout.setRightPanelVisible(true);
+  layout.setKanbanSessionVisible(true);
+}
+
+

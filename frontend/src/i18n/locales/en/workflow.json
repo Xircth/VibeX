@@ -164,11 +164,16 @@
     "sourceSaved": "Workflow source saved",
     "close": "Close",
     "selectWorkflow": "Select workflow",
+    "taskListAria": "Switch or create task",
+    "taskNamePlaceholder": "Enter task name…",
+    "createNewTask": "New task",
+    "emptyTaskCatalog": "No saved tasks yet",
+    "currentDraftBadge": "Draft",
     "draftBadge": "Draft",
     "unsavedDraftOption": "{{name}} (Draft)",
     "newDraftOption": "New Draft…",
     "newWorkflow": "New Workflow",
-    "newWorkflowDefaultName": "New Workflow",
+    "newWorkflowDefaultName": "New Task",
     "openPulseDeck": "Automation Tasks",
     "openPulseDeckTooltip": "Jump to Automation Tasks to inspect trigger rules and candidate events",
     "refreshCatalog": "Refresh workflows and captured events",
@@ -220,7 +225,14 @@
       "terminateArtifact": "Terminated from Workflow artifact editor",
       "pauseStepConversation": "Paused in node conversation",
       "pauseForGuidance": "Paused for user guidance"
-    }
+    },
+    "canvasSelectTool": "Select tool",
+    "canvasPanTool": "Pan tool",
+    "canvasZoomIn": "Zoom in",
+    "canvasZoomOut": "Zoom out",
+    "canvasZoomReset": "Zoom to 100%",
+    "canvasFitView": "Fit view",
+    "canvasMiniMap": "MiniMap"
   },
   "sources": {
     "feishu": "Feishu",
@@ -432,22 +444,22 @@
       "outbox": "Sends the result back via {{target}}."
     },
     "lightTweaks": {
-      "triggerTitle": "Event summary",
-      "cronExpression": "Schedule (Cron)",
-      "agentLabel": "Execution Agent",
-      "botLabel": "Assigned Bot",
-      "groupLabel": "Collaboration group",
-      "promptLabel": "Task instructions",
-      "gateTitle": "Summary title",
-      "gateMessage": "Notification / approval message",
-      "outboxTitle": "Action summary",
-      "outboxMessage": "Reply content",
-      "controlTitle": "Step summary",
+      "triggerTitle": "Name",
+      "cronExpression": "Cron",
+      "agentLabel": "Agent",
+      "botLabel": "Bot",
+      "groupLabel": "Group",
+      "promptLabel": "Prompt",
+      "gateTitle": "Title",
+      "gateMessage": "Message",
+      "outboxTitle": "Title",
+      "outboxMessage": "Message",
+      "controlTitle": "Title",
       "maxRounds": "Max rounds"
     },
     "agentEdit": {
-      "label": "Ask Agent to adjust this step",
-      "placeholder": "Describe how Agent should change this step…",
+      "label": "Ask Agent",
+      "placeholder": "Ask Agent to adjust…",
       "submitAria": "Send step edit request to Agent",
       "dispatchedToast": "Dispatched to Agent: {{title}}"
     },
@@ -626,6 +638,67 @@
       "movePredecessorUp": "Move predecessor {{id}} earlier",
       "movePredecessorDown": "Move predecessor {{id}} later",
       "branchPortAria": "Branch port from {{id}}"
+    },
+    "records": {
+      "runPickerAria": "Select workflow run",
+      "runOption": "{{status}} · {{time}}",
+      "attemptLabel": "Attempt #{{attempt}}",
+      "noRunsYet": "No execution runs yet",
+      "loadingRecords": "Loading execution records…",
+      "noStepAttempt": "This node has not run in the selected execution.",
+      "auditEvents": "Durable events",
+      "noAuditEvents": "No correlated durable events",
+      "rawJson": "Raw JSON payload",
+      "trigger": {
+        "sourceLabel": "Source",
+        "eventTypeLabel": "Event type",
+        "scheduleLabel": "Schedule",
+        "gateLabel": "Gate outcome",
+        "matched": "Matched & Dispatched",
+        "payloadLabel": "Trigger input payload",
+        "capturedTitle": "Recent captured events"
+      },
+      "bot": {
+        "memberLabel": "Bound Bot",
+        "scopeLabel": "Memory scope",
+        "mailboxLabel": "Mailbox policy",
+        "conversationLabel": "Conversation",
+        "inputLabel": "Resolved input",
+        "outputLabel": "Bot output",
+        "evidenceLabel": "Execution evidence"
+      },
+      "group": {
+        "spaceLabel": "Space",
+        "dispatchLabel": "Dispatch",
+        "roundsLabel": "Max rounds",
+        "quorumLabel": "Quorum",
+        "outputLabel": "Converged output"
+      },
+      "gate": {
+        "kindLabel": "Gate kind",
+        "severityLabel": "Severity",
+        "slaLabel": "SLA timeout",
+        "decisionLabel": "Human decision",
+        "pendingApproval": "Awaiting decision"
+      },
+      "control": {
+        "kindLabel": "Control",
+        "expressionLabel": "Expression",
+        "iterationsLabel": "Iterations",
+        "waitEventLabel": "Wait event",
+        "threadKeyLabel": "Thread key",
+        "timeoutLabel": "Timeout",
+        "outputLabel": "Control outcome"
+      },
+      "outbox": {
+        "channelLabel": "Channel",
+        "destinationLabel": "Destination",
+        "attemptsLabel": "Attempts",
+        "errorLabel": "Last error",
+        "payloadLabel": "Outbox payload / receipt",
+        "recentDispatches": "Outbox queue",
+        "noDispatches": "No outbox dispatches recorded"
+      }
     }
   },
   "ports": {

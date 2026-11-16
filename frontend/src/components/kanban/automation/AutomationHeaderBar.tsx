@@ -1,30 +1,25 @@
-import { lazy, Suspense, type ReactNode } from 'react';
+import { lazy, Suspense, type ReactNode, type Ref } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Badge } from '@astryxdesign/core/Badge';
 import { Banner } from '@astryxdesign/core/Banner';
-import { Button } from '@astryxdesign/core/Button';
-import { Icon } from '@astryxdesign/core/Icon';
+import { Text } from '@astryxdesign/core/Text';
 import {
-  HStack,
-  Layout,
-  LayoutContent,
-  LayoutHeader,
-  StackItem,
-  VStack,
-} from '@astryxdesign/core/Layout';
-import { StatusDot } from '@astryxdesign/core/StatusDot';
-import { Tab, TabList } from '@astryxdesign/core/TabList';
-import { Heading, Text } from '@astryxdesign/core/Text';
-import { ArrowLeft, GitFork, RefreshCw } from 'lucide-react';
-import type { WorkflowDefinitionSummary } from 'shared/types';
+  PanelRight,
+  RefreshCw,
+  Sparkles,
+  Webhook,
+  Zap,
+} from 'lucide-react';
 
-import type { CollaborationBotOption } from '@/features/workflow/useCollaborationBotRoster';
-import type { PulseSourceView } from '@/lib/api/pulse';
+import { Button } from '@/components/ui/button';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
+import { useLayoutStore } from '@/stores/useLayoutStore';
 
-import type { PendingWorkflowStudioOpenDetail } from '../pulseDeckEvents';
-import { AutomationAgentComposerPopover } from './AutomationAgentComposerPopover';
-import type { DispatchedAutomationAgentSession } from './automationAgentBridge';
 import type { AutomationPrimaryTab } from './automationModels';
 
 const LazyWorkflowStudioDockPanel = lazy(() =>
@@ -34,257 +29,308 @@ const LazyWorkflowStudioDockPanel = lazy(() =>
 );
 
 export interface EmbeddedWorkflowStudioShellProps {
-  embeddedStudio: PendingWorkflowStudioOpenDetail;
-  workflowDefinitions: readonly WorkflowDefinitionSummary[];
   projectId?: string | null;
-  sources?: readonly PulseSourceView[];
-  bots?: readonly CollaborationBotOption[];
   className?: string;
-  onAgentDispatched?: (session: DispatchedAutomationAgentSession) => void;
+  rootRef?: Ref<HTMLDivElement>;
   onBackToTaskList: () => void;
 }
 
 export function EmbeddedWorkflowStudioShell({
-  embeddedStudio,
-  workflowDefinitions,
   projectId,
-  sources,
-  bots,
   className,
-  onAgentDispatched,
+  rootRef,
   onBackToTaskList,
 }: EmbeddedWorkflowStudioShellProps) {
   const { t } = useTranslation('panels');
-  const activeWf = embeddedStudio.definitionId
-    ? workflowDefinitions.find((wf) => wf.id === embeddedStudio.definitionId)
-    : null;
-  const resolvedTitle =
-    activeWf?.name ??
-    embeddedStudio.initialDefinition?.name ??
-    embeddedStudio.definitionId ??
-    null;
+  const isKanbanSessionVisible = useLayoutStore(
+    (state) => state.isKanbanSessionVisible
+  );
+  const toggleKanbanSession = useLayoutStore(
+    (state) => state.toggleKanbanSession
+  );
+
+  const sessionToggleSlot = (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          aria-label={t('pulseDeck.workbench.agent.toggleSidebarAria')}
+          aria-pressed={isKanbanSessionVisible}
+          data-testid="embedded-studio-toggle-session-sidebar-btn"
+          onClick={toggleKanbanSession}
+          className={cn(
+            'h-7 w-7 shrink-0',
+            isKanbanSessionVisible && 'bg-muted text-foreground'
+          )}
+        >
+          <PanelRight className="h-3.5 w-3.5" />
+        </Button>
+      </TooltipTrigger>
+      <TooltipContent side="bottom">
+        {t('pulseDeck.workbench.agent.toggleSidebarAria')}
+      </TooltipContent>
+    </Tooltip>
+  );
 
   return (
-    <div
-      data-testid="automation-embedded-workflow-studio"
-      className={cn(
-        'flex h-full min-h-0 flex-col bg-background text-foreground',
-        className
-      )}
-    >
-      <Layout
-        height="fill"
-        header={
-          <LayoutHeader hasDivider padding={3}>
-            <HStack gap={3} vAlign="center">
-              <Button
-                label={t('pulseDeck.workbench.actions.backToTaskList')}
-                variant="secondary"
-                size="sm"
-                icon={<Icon icon={ArrowLeft} size="sm" />}
-                data-testid="embedded-studio-back-btn"
-                onClick={onBackToTaskList}
-              />
-              <Badge
-                variant="purple"
-                icon={<Icon icon={GitFork} size="xsm" />}
-                label={t('pulseDeck.workbench.actions.embeddedStudioBadge')}
-              />
-              {resolvedTitle ? (
-                <Text type="body" weight="semibold" maxLines={1}>
-                  {resolvedTitle}
-                </Text>
-              ) : null}
-              <div className="ml-auto flex items-center gap-2">
-                <AutomationAgentComposerPopover
-                  mode="edit_workflow"
-                  projectId={projectId}
-                  definitionId={embeddedStudio.definitionId ?? null}
-                  sourceRuleId={embeddedStudio.sourceRuleId ?? null}
-                  currentDefinition={embeddedStudio.initialDefinition ?? null}
-                  sources={sources}
-                  bots={bots}
-                  buttonVariant="secondary"
-                  buttonSize="sm"
-                  testId="embedded-studio-agent-edit-btn"
-                  onDispatched={onAgentDispatched}
-                />
-              </div>
-            </HStack>
-          </LayoutHeader>
-        }
-        content={
-          <LayoutContent padding={0}>
-            <div className="flex h-full min-h-0 flex-1 flex-col overflow-hidden">
-              <Suspense
-                fallback={
-                  <div className="flex flex-1 items-center justify-center p-6">
-                    <Text type="supporting" color="secondary">
-                      {t('pulseDeck.workbench.actions.loadingStudio')}
-                    </Text>
-                  </div>
-                }
-              >
-                <LazyWorkflowStudioDockPanel embedded projectId={projectId} />
-              </Suspense>
+    <TooltipProvider delayDuration={200}>
+      <div
+        ref={rootRef}
+        data-testid="automation-embedded-workflow-studio"
+        className={cn(
+          'pulse-automation-page flex h-full min-h-0 flex-1 flex-col overflow-hidden bg-background text-foreground',
+          className
+        )}
+      >
+        <Suspense
+          fallback={
+            <div className="flex flex-1 items-center justify-center p-6">
+              <Text type="supporting" color="secondary">
+                {t('pulseDeck.workbench.actions.loadingStudio')}
+              </Text>
             </div>
-          </LayoutContent>
-        }
-      />
-    </div>
+          }
+        >
+          <LazyWorkflowStudioDockPanel
+            embedded
+            projectId={projectId}
+            onBack={onBackToTaskList}
+            rightToolbarSlot={sessionToggleSlot}
+          />
+        </Suspense>
+      </div>
+    </TooltipProvider>
   );
 }
 
-export interface AutomationHeaderBarProps {
-  engineActive: boolean;
+export interface AutomationPageShellProps {
   totalTasksCount: number;
   pendingApprovalsCount: number;
   activeTab: AutomationPrimaryTab;
   isRefreshing: boolean;
   errorMessage: string;
-  projectId?: string | null;
-  sources?: readonly PulseSourceView[];
-  bots?: readonly CollaborationBotOption[];
-  toolbarRow?: ReactNode;
+  headerSearch?: ReactNode;
   contextualAction?: ReactNode;
+  children: ReactNode;
+  className?: string;
+  rootRef?: Ref<HTMLDivElement>;
   onSelectTab: (tab: AutomationPrimaryTab) => void;
-  onAgentDispatched?: (session: DispatchedAutomationAgentSession) => void;
   onRefresh: () => void;
   onRetryError: () => void;
+  onCreateWorkflowWithAgent: () => void;
 }
 
-export function AutomationHeaderBar({
-  engineActive,
+export function AutomationPageShell({
   totalTasksCount,
   pendingApprovalsCount,
   activeTab,
   isRefreshing,
   errorMessage,
-  projectId,
-  sources,
-  bots,
-  toolbarRow,
+  headerSearch,
   contextualAction,
+  children,
+  className,
+  rootRef,
   onSelectTab,
-  onAgentDispatched,
   onRefresh,
   onRetryError,
-}: AutomationHeaderBarProps) {
+  onCreateWorkflowWithAgent,
+}: AutomationPageShellProps) {
   const { t } = useTranslation('panels');
-  const engineLabel = engineActive
-    ? t('pulseDeck.engineActive')
-    : t('pulseDeck.enginePaused');
+  const isKanbanSessionVisible = useLayoutStore(
+    (state) => state.isKanbanSessionVisible
+  );
+  const toggleKanbanSession = useLayoutStore(
+    (state) => state.toggleKanbanSession
+  );
+
+  const navItems: ReadonlyArray<{
+    key: AutomationPrimaryTab;
+    label: string;
+    testId: string;
+    icon: typeof Zap;
+    badgeDot?: boolean;
+    countSuffix?: string;
+  }> = [
+    {
+      key: 'tasks',
+      label: t('pulseDeck.workbench.primaryTabs.tasks'),
+      testId: 'pulse-deck-tab-tasks',
+      icon: Zap,
+      badgeDot: pendingApprovalsCount > 0,
+      countSuffix: totalTasksCount > 0 ? ` (${totalTasksCount})` : undefined,
+    },
+    {
+      key: 'sources',
+      label: t('pulseDeck.workbench.primaryTabs.sources'),
+      testId: 'pulse-deck-tab-sources',
+      icon: Webhook,
+    },
+  ];
 
   return (
-    <LayoutHeader hasDivider padding={4}>
-      <VStack gap={4}>
-        <HStack gap={3} vAlign="center">
-          <HStack gap={2} vAlign="center">
-            <Heading level={2}>{t('pulseDeck.title')}</Heading>
-            <HStack
-              gap={1.5}
-              vAlign="center"
-              data-testid="pulse-deck-engine-badge"
+    <TooltipProvider delayDuration={200}>
+      <div
+        ref={rootRef}
+        data-testid="pulse-deck-view"
+        className={cn(
+          'kanban-usage-page pulse-automation-page flex h-full min-h-0 flex-1 flex-col overflow-hidden text-foreground',
+          className
+        )}
+      >
+        {/* Compact page header aligned 1:1 with KanbanUsageDashboard */}
+        <div className="flex shrink-0 items-center justify-between gap-3 px-4 py-2.5">
+          <div className="flex h-8 items-center">
+            <h2
+              data-testid="pulse-deck-heading"
+              className="m-0 text-base font-semibold leading-none text-foreground"
             >
-              <StatusDot
-                variant={engineActive ? 'success' : 'neutral'}
-                label={engineLabel}
-                isPulsing={engineActive}
-              />
-              <Text type="supporting" color="secondary">
-                {engineLabel}
-              </Text>
-            </HStack>
-          </HStack>
+              {t('pulseDeck.title')}
+            </h2>
+          </div>
 
-          <span
-            aria-hidden="true"
-            className="mx-1 h-4 w-px shrink-0 bg-border/70"
-          />
+          <div className="flex min-w-0 items-center gap-1.5">
+            {contextualAction}
+            {headerSearch}
 
-          <StackItem size="fill">
-            <TabList
-              value={activeTab}
-              onChange={(val) => onSelectTab(val as AutomationPrimaryTab)}
-              size="md"
-              hasDivider={false}
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  aria-label={t('pulseDeck.refreshAria')}
+                  data-testid="pulse-deck-refresh"
+                  onClick={onRefresh}
+                  disabled={isRefreshing}
+                  className="h-7 w-7 shrink-0"
+                >
+                  <RefreshCw
+                    className={cn('h-3.5 w-3.5', isRefreshing && 'animate-spin')}
+                  />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="bottom">
+                {t('pulseDeck.refreshAria')}
+              </TooltipContent>
+            </Tooltip>
+
+            <Button
+              type="button"
+              variant="default"
+              size="sm"
+              data-testid="automation-agent-create-btn"
+              onClick={onCreateWorkflowWithAgent}
+              className="h-7 shrink-0 gap-1 px-2.5 text-xs"
+            >
+              <Sparkles className="h-3.5 w-3.5" />
+              {t('pulseDeck.workbench.agent.createBtn')}
+            </Button>
+
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  aria-label={t('pulseDeck.workbench.agent.toggleSidebarAria')}
+                  aria-pressed={isKanbanSessionVisible}
+                  data-testid="automation-toggle-session-sidebar-btn"
+                  onClick={toggleKanbanSession}
+                  className={cn(
+                    'h-7 w-7 shrink-0',
+                    isKanbanSessionVisible && 'bg-muted text-foreground'
+                  )}
+                >
+                  <PanelRight className="h-3.5 w-3.5" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="bottom">
+                {t('pulseDeck.workbench.agent.toggleSidebarAria')}
+              </TooltipContent>
+            </Tooltip>
+          </div>
+        </div>
+
+        {/* Left floating navigation rail + main content area aligned 1:1 with KanbanUsageDashboard */}
+        <div className="relative flex min-h-0 flex-1">
+          <div className="absolute left-10 top-1/2 z-10 -translate-y-1/2">
+            <div
+              role="tablist"
+              aria-orientation="vertical"
               aria-label={t('pulseDeck.workbench.primaryTabs.aria')}
+              data-testid="automation-left-nav-rail"
+              className="kanban-usage-tab-rail flex flex-col gap-1 px-1 py-2"
             >
-              <Tab
-                value="tasks"
-                label={t('pulseDeck.workbench.primaryTabs.tasks')}
-                data-testid="pulse-deck-tab-tasks"
+              {navItems.map((item) => {
+                const active = activeTab === item.key;
+                return (
+                  <Tooltip key={item.key}>
+                    <TooltipTrigger asChild>
+                      <button
+                        type="button"
+                        role="tab"
+                        aria-selected={active}
+                        aria-label={item.label}
+                        title={item.label}
+                        data-testid={item.testId}
+                        className={cn(
+                          'kanban-usage-tab relative flex items-center justify-center rounded-md px-2 py-3 transition-colors',
+                          active && 'is-active'
+                        )}
+                        onClick={() => onSelectTab(item.key)}
+                      >
+                        <item.icon className="h-4 w-4" />
+                        {item.badgeDot ? (
+                          <span
+                            aria-hidden="true"
+                            className="absolute right-1.5 top-1.5 h-1.5 w-1.5 rounded-full bg-warning"
+                          />
+                        ) : null}
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent side="right">
+                      <span className="tabular-nums">
+                        {item.label}
+                        {item.countSuffix ?? ''}
+                      </span>
+                    </TooltipContent>
+                  </Tooltip>
+                );
+              })}
+            </div>
+          </div>
+
+          <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-hidden p-4 pl-24">
+            {errorMessage ? (
+              <Banner
+                status="error"
+                container="card"
+                title={errorMessage}
+                isDismissable
                 endContent={
-                  <HStack gap={1} vAlign="center">
-                    <Badge
-                      variant="neutral"
-                      label={String(totalTasksCount)}
-                      className="tabular-nums"
-                    />
-                    {pendingApprovalsCount > 0 ? (
-                      <Badge
-                        variant="warning"
-                        label={String(pendingApprovalsCount)}
-                        className="tabular-nums"
-                      />
-                    ) : null}
-                  </HStack>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="xs"
+                    onClick={onRetryError}
+                    className="h-6 px-2 text-[11px]"
+                  >
+                    {t('pulseDeck.retry')}
+                  </Button>
                 }
               />
-              <Tab
-                value="sources"
-                label={t('pulseDeck.workbench.primaryTabs.sources')}
-                data-testid="pulse-deck-tab-sources"
-              />
-            </TabList>
-          </StackItem>
+            ) : null}
 
-          <HStack gap={2} vAlign="center">
-            {contextualAction}
-            <Button
-              label={t('pulseDeck.refreshAria')}
-              variant="ghost"
-              size="md"
-              isIconOnly
-              data-testid="pulse-deck-refresh"
-              onClick={onRefresh}
-              icon={
-                <RefreshCw
-                  className={cn('h-4 w-4', isRefreshing && 'animate-spin')}
-                />
-              }
-            />
-            <AutomationAgentComposerPopover
-              mode="create"
-              projectId={projectId}
-              sources={sources}
-              bots={bots}
-              buttonSize="md"
-              testId="automation-agent-create-btn"
-              onDispatched={onAgentDispatched}
-            />
-          </HStack>
-        </HStack>
-
-        {toolbarRow}
-
-        {errorMessage ? (
-          <Banner
-            status="error"
-            container="card"
-            title={errorMessage}
-            isDismissable
-            endContent={
-              <Button
-                label={t('pulseDeck.retry')}
-                variant="ghost"
-                size="sm"
-                onClick={onRetryError}
-              />
-            }
-          />
-        ) : null}
-      </VStack>
-    </LayoutHeader>
+            <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+              {children}
+            </div>
+          </div>
+        </div>
+      </div>
+    </TooltipProvider>
   );
 }
+

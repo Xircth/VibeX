@@ -164,11 +164,16 @@
     "sourceSaved": "已保存 Workflow 源产物",
     "close": "关闭",
     "selectWorkflow": "选择工作流",
+    "taskListAria": "切换或新建任务",
+    "taskNamePlaceholder": "输入任务名称…",
+    "createNewTask": "新建任务",
+    "emptyTaskCatalog": "暂无已保存任务",
+    "currentDraftBadge": "草稿",
     "draftBadge": "草稿",
     "unsavedDraftOption": "{{name}}（草稿）",
     "newDraftOption": "新建草稿…",
     "newWorkflow": "新建工作流",
-    "newWorkflowDefaultName": "新建工作流",
+    "newWorkflowDefaultName": "新建任务",
     "openPulseDeck": "自动化任务",
     "openPulseDeckTooltip": "切换到自动化任务面板查看触发规则与候选事件",
     "refreshCatalog": "刷新工作流与捕获事件",
@@ -220,7 +225,14 @@
       "terminateArtifact": "从工作流编辑器终止",
       "pauseStepConversation": "在节点对话中暂停",
       "pauseForGuidance": "暂停以补充人工指导"
-    }
+    },
+    "canvasSelectTool": "选择模式",
+    "canvasPanTool": "平移模式",
+    "canvasZoomIn": "放大",
+    "canvasZoomOut": "缩小",
+    "canvasZoomReset": "100% 原始比例",
+    "canvasFitView": "适应视图",
+    "canvasMiniMap": "缩略图"
   },
   "sources": {
     "feishu": "飞书",
@@ -432,22 +444,22 @@
       "outbox": "将处理结论自动发送至 {{target}}。"
     },
     "lightTweaks": {
-      "triggerTitle": "事件说明",
-      "cronExpression": "定时规则 (Cron)",
-      "agentLabel": "执行 Agent",
-      "botLabel": "执行 Bot",
-      "groupLabel": "协作群组",
-      "promptLabel": "任务指令",
-      "gateTitle": "提醒标题",
-      "gateMessage": "通知与审批说明",
-      "outboxTitle": "回写说明",
-      "outboxMessage": "回复内容",
-      "controlTitle": "步骤说明",
-      "maxRounds": "最大重试轮次"
+      "triggerTitle": "名称",
+      "cronExpression": "Cron",
+      "agentLabel": "Agent",
+      "botLabel": "Bot",
+      "groupLabel": "群组",
+      "promptLabel": "指令",
+      "gateTitle": "标题",
+      "gateMessage": "内容",
+      "outboxTitle": "标题",
+      "outboxMessage": "内容",
+      "controlTitle": "标题",
+      "maxRounds": "最大轮次"
     },
     "agentEdit": {
-      "label": "让 Agent 修改此步",
-      "placeholder": "告诉 Agent 如何调整此步骤，回车发送…",
+      "label": "让 Agent 修改",
+      "placeholder": "让 Agent 调整此步…",
       "submitAria": "发送步骤修改请求给 Agent",
       "dispatchedToast": "已派发给 Agent：{{title}}"
     },
@@ -626,6 +638,67 @@
       "movePredecessorUp": "上移前置节点 {{id}}",
       "movePredecessorDown": "下移前置节点 {{id}}",
       "branchPortAria": "来自 {{id}} 的分支端口"
+    },
+    "records": {
+      "runPickerAria": "选择工作流运行记录",
+      "runOption": "{{status}} · {{time}}",
+      "attemptLabel": "第 {{attempt}} 次尝试",
+      "noRunsYet": "暂无运行记录",
+      "loadingRecords": "正在加载执行记录…",
+      "noStepAttempt": "该节点在所选运行中尚未执行。",
+      "auditEvents": "持久事件",
+      "noAuditEvents": "暂无关联持久事件",
+      "rawJson": "原始数据 JSON",
+      "trigger": {
+        "sourceLabel": "事件源",
+        "eventTypeLabel": "事件类型",
+        "scheduleLabel": "调度规则",
+        "gateLabel": "门控结果",
+        "matched": "已命中并触发",
+        "payloadLabel": "触发输入载荷",
+        "capturedTitle": "近期捕获事件"
+      },
+      "bot": {
+        "memberLabel": "绑定 Bot",
+        "scopeLabel": "记忆范围",
+        "mailboxLabel": "投递策略",
+        "conversationLabel": "持久会话",
+        "inputLabel": "输入上下文",
+        "outputLabel": "Bot 响应输出",
+        "evidenceLabel": "执行证据"
+      },
+      "group": {
+        "spaceLabel": "协作群组",
+        "dispatchLabel": "调度模式",
+        "roundsLabel": "最大轮次",
+        "quorumLabel": "收敛席位",
+        "outputLabel": "群组收敛结果"
+      },
+      "gate": {
+        "kindLabel": "门控类型",
+        "severityLabel": "紧急程度",
+        "slaLabel": "SLA 超时",
+        "decisionLabel": "人工审批决定",
+        "pendingApproval": "等待审批决策"
+      },
+      "control": {
+        "kindLabel": "控制流",
+        "expressionLabel": "分支表达式",
+        "iterationsLabel": "循环进度",
+        "waitEventLabel": "等待事件",
+        "threadKeyLabel": "关联键",
+        "timeoutLabel": "超时秒数",
+        "outputLabel": "控制流结果"
+      },
+      "outbox": {
+        "channelLabel": "回写渠道",
+        "destinationLabel": "目标地址",
+        "attemptsLabel": "投递次数",
+        "errorLabel": "最近错误",
+        "payloadLabel": "回写内容 / 回执",
+        "recentDispatches": "Outbox 投递队列",
+        "noDispatches": "暂无 Outbox 投递记录"
+      }
     }
   },
   "ports": {

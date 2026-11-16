@@ -14,14 +14,6 @@ export function loadAppearanceSettings() {
   return import('@/pages/settings/AppearanceSettings');
 }
 
-export function loadAutomationCenter() {
-  return import('@/pages/settings/AutomationCenter');
-}
-
-export function loadAutomationEditorRoutes() {
-  return import('@/pages/settings/AutomationEditorRoutes');
-}
-
 export function loadChatChannelSettings() {
   return import('@/pages/settings/ChatChannelSettings');
 }
@@ -93,7 +85,6 @@ const SETTINGS_PATH_LOADERS: Record<string, () => Promise<unknown>> = {
   '/settings/version-control': loadVersionControlSettings,
   '/settings/worktrees': loadWorktreeSettings,
   '/settings/chat-channels': loadChatChannelSettings,
-  '/settings/automations': loadAutomationCenter,
   '/settings/web-service': loadWebServiceSettings,
   '/settings/remote-client': loadWebServiceSettings,
   '/settings/devices': loadWebServiceSettings,

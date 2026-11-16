@@ -34,6 +34,21 @@ vi.mock('@/lib/api/sessions', () => ({
   },
 }));
 
+const embeddedSessionPropsSpy = vi.hoisted(() => vi.fn());
+
+vi.mock('@/components/kanban/KanbanSessionConversationView', () => ({
+  KanbanSessionConversationView: (props: Record<string, unknown>) => {
+    embeddedSessionPropsSpy(props);
+    return (
+      <div
+        data-testid="mock-kanban-session-conversation"
+        data-workspace-id={String(props.workspaceId ?? '')}
+        data-session-id={String(props.sessionId ?? '')}
+      />
+    );
+  },
+}));
+
 vi.mock('@/lib/api/projects', () => ({
   projectsApi: {
     getAll: vi.fn().mockResolvedValue([
@@ -136,7 +151,7 @@ describe('WorkflowStudio (Semantic Human-Centric Canvas & Simple Side Card)', ()
     );
   });
 
-  it('selects a node, anchors an inspector tether, opens the simple 2-tab side card, and supports light tweaks + Agent step edits', async () => {
+  it('selects a node, opens the divider-free floating 2-tab side card without tether clutter, and supports AstryxSelect light tweaks + Agent step edits', async () => {
     const user = userEvent.setup();
     const onDefinitionChange = vi.fn();
     render(
@@ -155,7 +170,11 @@ describe('WorkflowStudio (Semantic Human-Centric Canvas & Simple Side Card)', ()
     fireEvent.click(deckBtn);
 
     expect(deckBtn).toHaveAttribute('aria-pressed', 'true');
-    expect(screen.getByTestId('workflow-inspector-tether')).toBeInTheDocument();
+    expect(screen.queryByTestId('workflow-inspector-tether')).toBeNull();
+    const inspector = screen.getByTestId('workflow-node-inspector');
+    expect(inspector.querySelector('hr')).toBeNull();
+    expect(inspector.innerHTML).not.toMatch(/\bborder-[bt]\b/);
+    expect(inspector).not.toHaveTextContent(/干净隔离会话|isolated session/i);
     expect(screen.getByTestId('inspector-simple-overview')).toBeInTheDocument();
     expect(screen.getByTestId('inspector-tab-info')).toHaveTextContent(
       /节点概览|Overview/
@@ -164,8 +183,9 @@ describe('WorkflowStudio (Semantic Human-Centric Canvas & Simple Side Card)', ()
       /执行记录|Records/
     );
 
-    // Light tweak 1: swap Execution Agent
-    await user.selectOptions(screen.getByTestId('inspector-step-agent'), 'grok');
+    // Light tweak 1: swap Execution Agent via AstryxSelect combobox
+    await user.click(screen.getByTestId('inspector-step-agent'));
+    await user.click(screen.getByRole('option', { name: /Grok/i }));
     expect(onDefinitionChange).toHaveBeenCalledWith(
       expect.objectContaining({
         steps: [expect.objectContaining({ id: 'start', agentId: 'grok' })],
@@ -187,7 +207,7 @@ describe('WorkflowStudio (Semantic Human-Centric Canvas & Simple Side Card)', ()
       })
     );
 
-    // Pinned "让 Agent 修改此步" dispatches a contextual Agent session
+    // Pinned inline Agent bar dispatches a contextual Agent session without verbose label header
     await user.type(
       screen.getByTestId('inspector-agent-step-input'),
       '在此步完成后增加我的人工审批门控'
@@ -821,7 +841,7 @@ describe('Bilingual zh-CN/en Localization & Semantic Node Presentation', () => {
         ).toHaveTextContent('Automation Tasks');
       });
       expect(screen.getByRole('textbox', { name: 'Name' })).toHaveValue(
-        'New Workflow'
+        'New Task'
       );
 
       await act(async () => {
@@ -984,3 +1004,376 @@ describe('Multi-Port Semantic Branching & Fan-In/Fan-Out Badges', () => {
     });
   });
 });
+
+describe('Workflow Studio 5-Point UI/UX Optimization', () => {
+  it('renders multi-point Left/Right/Top/Bottom handles, preserves targetPorts across codec round-trips, and supports leaf quick-add + floating canvas controls', async () => {
+    const user = userEvent.setup();
+    const { toBackendWorkflowDefinition, toStudioWorkflowDefinition } =
+      await import('./WorkflowStudio');
+
+    const studioDef: import('./WorkflowStudio').StudioWorkflowDefinition = {
+      formatVersion: 1,
+      name: 'Multi-Point Canvas',
+      description: null,
+      inputSchema: { type: 'object' },
+      policy: {
+        maxConcurrentAgentSteps: 2,
+        maxAgentCalls: 8,
+        deadlineSeconds: 600,
+        maxOutputBytes: 32768,
+      },
+      steps: [
+        {
+          id: 'step-a',
+          dependsOn: [],
+          phase: null,
+          inputBindings: {},
+          kind: 'session',
+          agentId: 'codex',
+          prompt: 'Step A',
+          workspaceIsolation: 'isolated_worktree',
+          executorProfileId: null,
+          modeOverride: null,
+          configOverrides: {},
+          outputLanguage: 'zh-CN',
+          outputDescription: null,
+          outputSchema: null,
+          completionPolicy: 'automatic',
+        },
+        {
+          id: 'step-b',
+          dependsOn: ['step-a'],
+          branchPorts: { 'step-a': 'source:secondary' },
+          targetPorts: { 'step-a': 'target:secondary' },
+          phase: null,
+          inputBindings: {},
+          kind: 'session',
+          agentId: 'codex',
+          prompt: 'Step B',
+          workspaceIsolation: 'isolated_worktree',
+          executorProfileId: null,
+          modeOverride: null,
+          configOverrides: {},
+          outputLanguage: 'zh-CN',
+          outputDescription: null,
+          outputSchema: null,
+          completionPolicy: 'automatic',
+        },
+      ],
+    };
+
+    const roundTripped = toStudioWorkflowDefinition(
+      toBackendWorkflowDefinition(studioDef)
+    );
+    const rtStepB = roundTripped.steps.find((s) => s.id === 'step-b');
+    expect(rtStepB?.branchPorts).toEqual({ 'step-a': 'source:secondary' });
+    expect(rtStepB?.targetPorts).toEqual({ 'step-a': 'target:secondary' });
+
+    let latest = studioDef;
+    function Harness() {
+      const [state, setState] = useState(studioDef);
+      latest = state;
+      return (
+        <WorkflowStudio
+          studioMode
+          definition={state}
+          onDefinitionChange={setState}
+        />
+      );
+    }
+
+    const { container } = render(<Harness />);
+
+    // Multi-point handles on step-b: dual Left (target, target:secondary), dual Right (source, source:secondary), Top (target:top), Bottom (source:bottom)
+    expect(screen.getByTestId('workflow-port-step-b-target')).toBeInTheDocument();
+    expect(
+      screen.getByTestId('workflow-port-step-b-target:secondary')
+    ).toHaveClass('workflow-port-connected');
+    expect(screen.getByTestId('workflow-port-step-b-source')).toBeInTheDocument();
+    expect(
+      screen.getByTestId('workflow-port-step-b-source:secondary')
+    ).toBeInTheDocument();
+    expect(
+      screen.getByTestId('workflow-port-step-b-target:top')
+    ).toBeInTheDocument();
+    expect(
+      screen.getByTestId('workflow-port-step-b-source:bottom')
+    ).toBeInTheDocument();
+
+    // Floating centered bottom canvas controls
+    expect(screen.getByTestId('workflow-canvas-controls')).toBeInTheDocument();
+    expect(container.querySelector('.react-flow__minimap')).toBeNull();
+    await user.click(screen.getByTestId('workflow-canvas-minimap-toggle'));
+    expect(container.querySelector('.react-flow__minimap')).toBeInTheDocument();
+
+    // Leaf '+' quick-add button chains a downstream step onto step-b
+    expect(screen.queryByTestId('workflow-quick-add-step-a')).toBeNull();
+    const quickAddBtn = screen.getByTestId('workflow-quick-add-step-b');
+    fireEvent.click(quickAddBtn);
+    expect(latest.steps).toHaveLength(3);
+    expect(latest.steps[2].dependsOn).toEqual(['step-b']);
+  });
+
+  it('reuses KanbanSessionConversationView from the Sessions tab for single-node Agent testing', async () => {
+    const user = userEvent.setup();
+    const { QueryClient, QueryClientProvider } = await import(
+      '@tanstack/react-query'
+    );
+    const { MemoryRouter } = await import('react-router-dom');
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    const onTestNode = vi.fn();
+
+    const { rerender } = render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter>
+          <WorkflowStudio
+            studioMode
+            definition={definition}
+            onDefinitionChange={() => undefined}
+            onTestNode={onTestNode}
+          />
+        </MemoryRouter>
+      </QueryClientProvider>
+    );
+
+    fireEvent.click(screen.getByTestId('workflow-node-deck-start'));
+    await user.click(screen.getByTestId('inspector-tab-conversation'));
+
+    const startTestBtn = screen.getByTestId('workflow-step-start-test');
+    await user.click(startTestBtn);
+    expect(onTestNode).toHaveBeenCalledWith('start');
+
+    rerender(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter>
+          <WorkflowStudio
+            studioMode
+            definition={definition}
+            onDefinitionChange={() => undefined}
+            onTestNode={onTestNode}
+            steps={[
+              {
+                id: 'test-step-start',
+                runId: 'test-run',
+                stepId: 'start',
+                attempt: 1n,
+                status: 'running',
+                conversationId: 'conv-test-session-1',
+                turnId: null,
+                outputJson: null,
+                outputSchemaDigest: null,
+                candidateOutputJson: null,
+                candidateSchemaDigest: null,
+                awaitingAcceptance: false,
+                awaitingInput: false,
+                executionMode: 'debug',
+                resolvedInputJson: null,
+                resolvedInputDigest: null,
+                executionEvidenceJson: null,
+                workspaceId: 'proj-workspace-1',
+                waitingInteraction: false,
+                repairCount: 0n,
+                claimToken: null,
+                claimDeadline: null,
+                startedAt: '2026-11-16T00:00:00Z',
+                completedAt: null,
+                updatedAt: '2026-11-16T00:00:00Z',
+              },
+            ]}
+          />
+        </MemoryRouter>
+      </QueryClientProvider>
+    );
+
+    expect(
+      screen.getByTestId('workflow-step-embedded-session')
+    ).toBeInTheDocument();
+    expect(
+      screen.getByTestId('mock-kanban-session-conversation')
+    ).toHaveAttribute('data-session-id', 'conv-test-session-1');
+    expect(embeddedSessionPropsSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        workspaceId: 'proj-workspace-1',
+        sessionId: 'conv-test-session-1',
+        embedded: true,
+        interactive: true,
+        showSessionSelector: false,
+      })
+    );
+  });
+
+  it('provides a top-left unified task switcher + editable task name input and renders rightToolbarSlot', async () => {
+    const user = userEvent.setup();
+    const onEditorNameChange = vi.fn();
+    const onSelectTask = vi.fn();
+    const onCreateNewTask = vi.fn();
+    const onBack = vi.fn();
+
+    render(
+      <WorkflowStudio
+        studioMode
+        definition={definition}
+        onDefinitionChange={() => undefined}
+        onBack={onBack}
+        editorName={definition.name}
+        onEditorNameChange={onEditorNameChange}
+        selectedDefinitionId="wf-1"
+        taskCatalog={[
+          {
+            id: 'wf-1',
+            name: 'Visible workflow',
+            latestVersionId: 'wfv-1',
+            latestVersion: 2n,
+            latestNormalizedJson: null,
+            updatedAt: '2026-11-16T00:00:00Z',
+          },
+          {
+            id: 'wf-2',
+            name: 'PR Review Guard',
+            latestVersionId: 'wfv-2',
+            latestVersion: 12n,
+            latestNormalizedJson: null,
+            updatedAt: '2026-11-16T00:00:00Z',
+          },
+        ]}
+        onSelectTask={onSelectTask}
+        onCreateNewTask={onCreateNewTask}
+        rightToolbarSlot={
+          <button type="button" data-testid="custom-right-toolbar-slot">
+            Sidebar
+          </button>
+        }
+      />
+    );
+
+    const nameInput = screen.getByTestId('workflow-task-name-input');
+    expect(nameInput).toHaveValue('Visible workflow');
+    fireEvent.change(nameInput, { target: { value: 'Renamed task' } });
+    expect(onEditorNameChange).toHaveBeenCalledWith('Renamed task');
+
+    expect(screen.getByTestId('custom-right-toolbar-slot')).toBeInTheDocument();
+    await user.click(screen.getByTestId('embedded-studio-back-btn'));
+    expect(onBack).toHaveBeenCalledOnce();
+
+    // Open top-left task list switcher dropdown
+    await user.click(screen.getByTestId('workflow-task-switcher-btn'));
+    expect(
+      await screen.findByTestId('workflow-task-option-wf-1')
+    ).toHaveTextContent('Visible workflow');
+    expect(screen.getByTestId('workflow-task-option-wf-2')).toHaveTextContent(
+      'PR Review Guard'
+    );
+    expect(screen.getByTestId('workflow-task-option-wf-2')).toHaveTextContent(
+      'v1.2'
+    );
+
+    await user.click(screen.getByTestId('workflow-task-option-wf-2'));
+    expect(onSelectTask).toHaveBeenCalledWith('wf-2');
+
+    // Re-open switcher and click "+ 新建任务 / New task"
+    await user.click(screen.getByTestId('workflow-task-switcher-btn'));
+    await user.click(await screen.findByTestId('workflow-task-create-new'));
+    expect(onCreateNewTask).toHaveBeenCalledOnce();
+  });
+});
+
+describe('Docked Edge-Connected Inspector Node & Workspace Canvas Parity', () => {
+  it('mounts the inspector inside ReactFlow docked right of the selected step with a connecting bezier edge and clears on pane click', async () => {
+    const user = userEvent.setup();
+    const { container } = render(
+      <WorkflowStudio
+        studioMode
+        definition={definition}
+        onDefinitionChange={() => undefined}
+      />
+    );
+
+    const stepNodeEl = container.querySelector<HTMLElement>(
+      '.react-flow__node[data-id="start"]'
+    );
+    expect(stepNodeEl).toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId('workflow-node-deck-start'));
+
+    const inspectorNodeEl = container.querySelector<HTMLElement>(
+      '.react-flow__node[data-id="workflow-inspector:start"]'
+    );
+    expect(inspectorNodeEl).toBeInTheDocument();
+    expect(inspectorNodeEl).toHaveClass('draggable');
+    expect(
+      inspectorNodeEl?.querySelector('.workflow-inspector-drag-handle')
+    ).toBeInTheDocument();
+    expect(
+      inspectorNodeEl?.querySelector('[data-testid="workflow-node-inspector"]')
+    ).toBeInTheDocument();
+
+    const stepMatch = stepNodeEl?.style.transform.match(
+      /translate\(([-\d.]+)px,\s*([-\d.]+)px\)/
+    );
+    const inspMatch = inspectorNodeEl?.style.transform.match(
+      /translate\(([-\d.]+)px,\s*([-\d.]+)px\)/
+    );
+    expect(stepMatch).not.toBeNull();
+    expect(inspMatch).not.toBeNull();
+    const stepX = Number(stepMatch![1]);
+    const stepY = Number(stepMatch![2]);
+    const inspX = Number(inspMatch![1]);
+    const inspY = Number(inspMatch![2]);
+    expect(inspX).toBe(stepX + 280 + 48);
+    expect(inspY).toBe(stepY);
+
+    const inspectorEdge = container.querySelector(
+      '.workflow-inspector-edge'
+    );
+    expect(inspectorEdge).toBeInTheDocument();
+
+    const pane = container.querySelector('.react-flow__pane');
+    expect(pane).toBeInTheDocument();
+    await user.click(pane!);
+
+    expect(
+      container.querySelector(
+        '.react-flow__node[data-id="workflow-inspector:start"]'
+      )
+    ).toBeNull();
+    expect(container.querySelector('.workflow-inspector-edge')).toBeNull();
+  });
+
+  it('uses .canvas-surface, 24px .canvas-dots grid, and defaults to marquee select tool matching Workspace Canvas', async () => {
+    const user = userEvent.setup();
+    const { container } = render(
+      <WorkflowStudio
+        studioMode
+        definition={definition}
+        onDefinitionChange={() => undefined}
+      />
+    );
+
+    const studioSection = container.querySelector('.workflow-studio');
+    expect(studioSection).toHaveAttribute('data-canvas-tool', 'select');
+    expect(container.querySelector('.workflow-studio-stage')).toHaveClass(
+      'canvas-surface'
+    );
+    const dotsSvg = container.querySelector('.canvas-dots');
+    expect(dotsSvg).toBeInTheDocument();
+    const dotsPattern = dotsSvg?.querySelector('pattern');
+    expect(dotsPattern).toBeInTheDocument();
+    const patternWidth = Number(dotsPattern?.getAttribute('width'));
+    const patternHeight = Number(dotsPattern?.getAttribute('height'));
+    expect(patternWidth).toBeGreaterThan(0);
+    expect(patternWidth).toBe(patternHeight);
+
+    const selectBtn = screen.getByTestId('workflow-canvas-tool-select');
+    const panBtn = screen.getByTestId('workflow-canvas-tool-pan');
+    expect(selectBtn).toHaveAttribute('aria-pressed', 'true');
+    expect(panBtn).toHaveAttribute('aria-pressed', 'false');
+
+    await user.click(panBtn);
+    expect(studioSection).toHaveAttribute('data-canvas-tool', 'pan');
+    expect(panBtn).toHaveAttribute('aria-pressed', 'true');
+    expect(selectBtn).toHaveAttribute('aria-pressed', 'false');
+  });
+});
+

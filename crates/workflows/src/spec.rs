@@ -174,8 +174,14 @@ pub struct NotifyStepSpec {
 #[serde(tag = "source", rename_all = "snake_case")]
 #[ts(export)]
 pub enum WorkflowBinding {
-    RunInput { pointer: String },
-    StepOutput { step_id: String, pointer: String },
+    RunInput {
+        pointer: String,
+    },
+    StepOutput {
+        #[serde(alias = "stepId")]
+        step_id: String,
+        pointer: String,
+    },
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, TS)]

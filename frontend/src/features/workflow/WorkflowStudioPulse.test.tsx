@@ -8,6 +8,7 @@ import {
   waitFor,
   within,
 } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import type { IDockviewHeaderActionsProps } from 'dockview-react';
 import type {
   WorkflowDefinition,
@@ -302,16 +303,16 @@ describe('Semantic WorkflowStudio Canvas & Simple 2-Tab Node Side Card', () => {
     ).toBeInTheDocument();
   });
 
-  it('supports simple light tweaks in the 2-tab side card (swap Bot, swap Agent, adjust loop max rounds) without exposing JSON/AST editors', () => {
+  it('supports simple light tweaks in the 2-tab side card (swap Bot, swap Agent, adjust loop max rounds) without exposing JSON/AST editors', async () => {
+    const user = userEvent.setup();
     render(<StatefulStudioHarness />);
 
     // Swap Bot on triage-bot
     fireEvent.click(screen.getByTestId('workflow-node-deck-triage-bot'));
     expect(screen.queryByTestId('inspector-tier-json')).toBeNull();
     expect(screen.queryByTestId('inspector-tier-advanced')).toBeNull();
-    fireEvent.change(screen.getByTestId('inspector-step-bot'), {
-      target: { value: 'review-bot' },
-    });
+    await user.click(screen.getByTestId('inspector-step-bot'));
+    await user.click(screen.getByRole('option', { name: /代码审查 Bot/i }));
     expect(
       within(screen.getByTestId('workflow-node-triage-bot')).getByText(
         '代码审查 Bot'
@@ -320,9 +321,8 @@ describe('Semantic WorkflowStudio Canvas & Simple 2-Tab Node Side Card', () => {
 
     // Swap Agent on coder-session
     fireEvent.click(screen.getByTestId('workflow-node-deck-coder-session'));
-    fireEvent.change(screen.getByTestId('inspector-step-agent'), {
-      target: { value: 'claude_code' },
-    });
+    await user.click(screen.getByTestId('inspector-step-agent'));
+    await user.click(screen.getByRole('option', { name: /Claude Code/i }));
     expect(
       within(screen.getByTestId('workflow-node-coder-session')).getByText(
         'Claude Code'
@@ -657,8 +657,8 @@ describe('Built-in Dockview Panel & WorkflowStudioDockPanel', () => {
       });
       const selector = screen.getByRole('combobox', {
         name: /选择工作流|Select workflow/i,
-      }) as HTMLSelectElement;
-      expect(selector.value).toBe('wf-second');
+      });
+      expect(selector).toHaveTextContent('Seven Category Hybrid Graph');
       expect(win.__VIBEX_PENDING_WORKFLOW_STUDIO_OPEN__).toBeNull();
 
       // Quick return shortcut dispatches vibex:open-pulse-deck
@@ -1214,4 +1214,507 @@ describe('Guarded Run Polling & ReactFlow O(N) Event Indexing + React.memo', () 
     expect(triggerNode?.data.events).toHaveLength(0);
     expect(triggerNode?.data.events).toBe(gateNode?.data.events);
   });
+
+  it('handles { createNew: true } handoff without overwriting with list[0] and switches tasks via top-left switcher', async () => {
+    const user = userEvent.setup();
+    const firstBackend = toBackendWorkflowDefinition(
+      WORKFLOW_PRESET_TEMPLATES[0].build('codex')
+    );
+    const secondBackend = toBackendWorkflowDefinition(sevenCategoryWorkflow);
+    const callSpy = vi.fn(
+      async (command: string, args?: Record<string, unknown>) => {
+        if (command === 'workflow_list') {
+          return [
+            {
+              id: 'wf-first',
+              name: 'First Existing Task',
+              latestVersionId: 'ver-first',
+              latestVersion: 10n,
+              createdAt: '2026-11-15T10:00:00Z',
+              updatedAt: '2026-11-15T10:00:00Z',
+            },
+            {
+              id: 'wf-second',
+              name: 'Seven Category Hybrid Graph',
+              latestVersionId: 'ver-second',
+              latestVersion: 20n,
+              createdAt: '2026-11-15T10:05:00Z',
+              updatedAt: '2026-11-15T10:05:00Z',
+            },
+          ];
+        }
+        if (command === 'workflow_version') {
+          const versionId = (args as { versionId?: string })?.versionId;
+          return {
+            id: versionId,
+            definitionId: versionId === 'ver-second' ? 'wf-second' : 'wf-first',
+            version: versionId === 'ver-second' ? 20n : 10n,
+            normalizedJson: JSON.stringify(
+              versionId === 'ver-second' ? secondBackend : firstBackend
+            ),
+            digest: 'sha256:handoff',
+            createdAt: '2026-11-15T10:05:00Z',
+          };
+        }
+        if (command === 'pulse_captured_events') return [];
+        if (command === 'pulse_sources_list') return [];
+        return null;
+      }
+    );
+
+    const win = window as unknown as {
+      __VIBEX_PENDING_WORKFLOW_STUDIO_OPEN__?: {
+        createNew?: boolean;
+      } | null;
+    };
+    win.__VIBEX_PENDING_WORKFLOW_STUDIO_OPEN__ = { createNew: true };
+
+    try {
+      render(
+        <BackendTransportProvider
+          transport={{ environment: 'desktop', call: callSpy }}
+        >
+          <WorkflowStudioDockPanel embedded />
+        </BackendTransportProvider>
+      );
+
+      // Should preserve fresh draft instead of loading list[0] ('First Existing Task')
+      const nameInput = (await screen.findByTestId(
+        'workflow-task-name-input'
+      )) as HTMLInputElement;
+      await waitFor(() => {
+        expect(callSpy).toHaveBeenCalledWith('workflow_list', { limit: 100 });
+      });
+      expect(nameInput.value).toMatch(/^(新建任务|New Task)$/);
+
+      // Switch to wf-second via top-left switcher dropdown
+      await user.click(screen.getByTestId('workflow-task-switcher-btn'));
+      expect(
+        await screen.findByTestId('workflow-task-option-draft')
+      ).toBeInTheDocument();
+      await user.click(screen.getByTestId('workflow-task-option-wf-second'));
+
+      expect(
+        await screen.findByTestId('workflow-node-council-stage')
+      ).toBeInTheDocument();
+      expect(screen.getByTestId('workflow-task-name-input')).toHaveValue(
+        'Seven Category Hybrid Graph'
+      );
+
+      // Trigger "+ 新建任务" from the top-left switcher dropdown
+      await user.click(screen.getByTestId('workflow-task-switcher-btn'));
+      await user.click(await screen.findByTestId('workflow-task-create-new'));
+      expect(
+        (screen.getByTestId('workflow-task-name-input') as HTMLInputElement)
+          .value
+      ).toMatch(/^(新建任务|New Task)$/);
+    } finally {
+      win.__VIBEX_PENDING_WORKFLOW_STUDIO_OPEN__ = null;
+    }
+  });
 });
+
+describe('Customized Real-Data Execution Records & DockPanel Wiring', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    HTMLElement.prototype.hasPointerCapture = vi.fn(() => false);
+    HTMLElement.prototype.setPointerCapture = vi.fn();
+    HTMLElement.prototype.releasePointerCapture = vi.fn();
+    HTMLElement.prototype.scrollIntoView = vi.fn();
+  });
+
+  it('renders customized execution records per node category instead of generic chat boxes and supports inline approval actions', async () => {
+    const user = userEvent.setup();
+    const onDecideApproval = vi.fn().mockResolvedValue(undefined);
+    const onSelectRunId = vi.fn();
+
+    const run1: WorkflowRunView = {
+      id: 'run-rec-1',
+      definitionVersionId: 'ver-1',
+      workspaceId: 'ws-1',
+      status: 'waiting_approval',
+      controlState: 'active',
+      pauseReason: null,
+      pausedAt: null,
+      parentRunId: null,
+      forkStepId: null,
+      runMode: 'normal',
+      inputJson: JSON.stringify({ prNumber: 42, failedJob: 'clippy' }),
+      policyJson: '{}',
+      deadlineAt: '2026-11-16T10:00:00Z',
+      agentCallsStarted: 1n,
+      lastSequence: 5n,
+      createdAt: '2026-11-16T09:00:00Z',
+      updatedAt: '2026-11-16T09:02:00Z',
+    };
+
+    const run2: WorkflowRunView = {
+      ...run1,
+      id: 'run-rec-0',
+      status: 'completed',
+      createdAt: '2026-11-15T18:00:00Z',
+      updatedAt: '2026-11-15T18:05:00Z',
+    };
+
+    const mkStepView = (
+      stepId: string,
+      status: string,
+      extras: Partial<WorkflowStepView> = {}
+    ): WorkflowStepView => ({
+      id: `sv-${stepId}`,
+      runId: 'run-rec-1',
+      stepId,
+      attempt: 1n,
+      status,
+      conversationId: null,
+      turnId: null,
+      outputJson: null,
+      outputSchemaDigest: null,
+      candidateOutputJson: null,
+      candidateSchemaDigest: null,
+      awaitingAcceptance: false,
+      awaitingInput: false,
+      executionMode: 'normal',
+      resolvedInputJson: null,
+      resolvedInputDigest: null,
+      executionEvidenceJson: null,
+      workspaceId: 'ws-1',
+      waitingInteraction: false,
+      repairCount: 0n,
+      claimToken: null,
+      claimDeadline: null,
+      startedAt: '2026-11-16T09:00:10Z',
+      completedAt: null,
+      updatedAt: '2026-11-16T09:01:00Z',
+      ...extras,
+    });
+
+    const stepViews: WorkflowStepView[] = [
+      mkStepView('triage-bot', 'completed', {
+        conversationId: 'bot-conv-77',
+        turnId: 'turn-12',
+        outputJson: JSON.stringify({ severity: 'P0', rootCause: 'clippy' }),
+        completedAt: '2026-11-16T09:00:30Z',
+      }),
+      mkStepView('council-stage', 'completed', {
+        outputJson: JSON.stringify({ consensus: 'hotfix-required' }),
+        completedAt: '2026-11-16T09:01:00Z',
+      }),
+      mkStepView('owner-gate', 'waiting_approval', {
+        waitingInteraction: true,
+      }),
+      mkStepView('review-loop', 'running', {
+        attempt: 2n,
+        outputJson: JSON.stringify({ iteration: 2 }),
+      }),
+      mkStepView('gh-outbox', 'completed', {
+        outputJson: JSON.stringify({ delivered: true }),
+        completedAt: '2026-11-16T09:01:40Z',
+      }),
+    ];
+
+    const events: WorkflowEventRecord[] = [
+      {
+        id: 'evt-bot-1',
+        runId: 'run-rec-1',
+        sequence: 2n,
+        eventVersion: 1n,
+        eventKind: 'step_completed',
+        payloadJson: JSON.stringify({ step_id: 'triage-bot' }),
+        operationId: null,
+        createdAt: '2026-11-16T09:00:30Z',
+      },
+      {
+        id: 'evt-gate-1',
+        runId: 'run-rec-1',
+        sequence: 4n,
+        eventVersion: 1n,
+        eventKind: 'approval_requested',
+        payloadJson: JSON.stringify({ step_id: 'owner-gate' }),
+        operationId: null,
+        createdAt: '2026-11-16T09:01:15Z',
+      },
+    ];
+
+    const { container } = render(
+      <WorkflowStudio
+        studioMode
+        definition={sevenCategoryWorkflow}
+        onDefinitionChange={() => undefined}
+        run={run1}
+        runs={[run1, run2]}
+        selectedRunId={run1.id}
+        onSelectRunId={onSelectRunId}
+        steps={stepViews}
+        events={events}
+        capturedEvents={[...BUILT_IN_SAMPLE_EVENTS]}
+        outboxEntries={[
+          {
+            id: 'ob-1',
+            ruleId: 'rule-1',
+            targetKind: 'github_comment',
+            destination: '#42',
+            status: 'delivered',
+            attempts: 1,
+            lastError: null,
+            createdAt: '2026-11-16T09:01:35Z',
+            updatedAt: '2026-11-16T09:01:40Z',
+          },
+        ]}
+        onDecideApproval={onDecideApproval}
+      />
+    );
+
+    // 1. Trigger node shows run trigger input payload & captured events (not chat composer)
+    fireEvent.click(screen.getByTestId('workflow-node-deck-gh-trigger'));
+    await user.click(screen.getByTestId('inspector-tab-conversation'));
+    expect(screen.getByTestId('workflow-step-records')).toHaveAttribute(
+      'data-record-kind',
+      'trigger'
+    );
+    expect(screen.getByTestId('trigger-record-run-input')).toHaveTextContent(
+      'clippy'
+    );
+    expect(container.querySelector('.workflow-step-chat-composer')).toBeNull();
+
+    // 2. Bot node shows bot conversation ID, output payload, and durable audit events
+    fireEvent.click(screen.getByTestId('workflow-node-deck-triage-bot'));
+    expect(screen.getByTestId('workflow-step-records')).toHaveAttribute(
+      'data-record-kind',
+      'bot'
+    );
+    expect(screen.getByTestId('workflow-step-records')).toHaveTextContent(
+      'bot-conv-77'
+    );
+    expect(screen.getByTestId('bot-record-output')).toHaveTextContent('P0');
+    expect(screen.getByTestId('step-records-events')).toHaveTextContent(
+      '#2step_completed'
+    );
+
+    // 3. Group stage node shows group output
+    fireEvent.click(screen.getByTestId('workflow-node-deck-council-stage'));
+    expect(screen.getByTestId('workflow-step-records')).toHaveAttribute(
+      'data-record-kind',
+      'group_stage'
+    );
+    expect(screen.getByTestId('group-record-output')).toHaveTextContent(
+      'hotfix-required'
+    );
+
+    // 4. Control loop node shows iteration telemetry & audit list
+    fireEvent.click(screen.getByTestId('workflow-node-deck-review-loop'));
+    expect(screen.getByTestId('workflow-step-records')).toHaveAttribute(
+      'data-record-kind',
+      'control'
+    );
+    expect(screen.getByTestId('workflow-step-records')).toHaveTextContent(
+      '2 / 4'
+    );
+
+    // 5. Outbox action node shows recent delivery attempts from Pulse outbox
+    fireEvent.click(screen.getByTestId('workflow-node-deck-gh-outbox'));
+    expect(screen.getByTestId('workflow-step-records')).toHaveAttribute(
+      'data-record-kind',
+      'outbox_action'
+    );
+    expect(screen.getByTestId('workflow-step-records')).toHaveTextContent(
+      'delivered · 1x'
+    );
+
+    // 6. User gate node renders inline Approve/Reject actions when awaiting approval
+    fireEvent.click(screen.getByTestId('workflow-node-deck-owner-gate'));
+    expect(screen.getByTestId('workflow-step-records')).toHaveAttribute(
+      'data-record-kind',
+      'user_gate'
+    );
+    expect(
+      screen.getByTestId('gate-record-approval-actions')
+    ).toBeInTheDocument();
+    await user.click(screen.getByTestId('records-approve-btn'));
+    expect(onDecideApproval).toHaveBeenCalledWith('owner-gate', {
+      approved: true,
+    });
+  });
+
+  it('hydrates real workflow_runs, workflow_steps, workflow_events, and recentOutbox in WorkflowStudioDockPanel', async () => {
+    const user = userEvent.setup();
+    const storedBackendDef = toBackendWorkflowDefinition(sevenCategoryWorkflow);
+    const liveRun: WorkflowRunView = {
+      id: 'run-live-dock-1',
+      definitionVersionId: 'wf-ver-10',
+      workspaceId: 'ws-dock-1',
+      status: 'waiting_approval',
+      controlState: 'active',
+      pauseReason: null,
+      pausedAt: null,
+      parentRunId: null,
+      forkStepId: null,
+      runMode: 'normal',
+      inputJson: JSON.stringify({ source: 'github' }),
+      policyJson: '{}',
+      deadlineAt: '2026-11-16T11:00:00Z',
+      agentCallsStarted: 1n,
+      lastSequence: 2n,
+      createdAt: '2026-11-16T10:00:00Z',
+      updatedAt: '2026-11-16T10:01:00Z',
+    };
+
+    const callSpy = vi.fn(
+      async (command: string, args?: Record<string, unknown>) => {
+        switch (command) {
+          case 'workflow_list':
+            return [
+              {
+                id: 'wf-hybrid-1',
+                name: 'Seven Category Hybrid Graph',
+                latestVersionId: 'wf-ver-10',
+                latestVersion: 10n,
+                createdAt: '2026-11-15T10:00:00Z',
+                updatedAt: '2026-11-15T10:00:00Z',
+              },
+            ];
+          case 'workflow_version':
+            return {
+              id: 'wf-ver-10',
+              definitionId: 'wf-hybrid-1',
+              version: 10n,
+              normalizedJson: JSON.stringify(storedBackendDef),
+              digest: 'sha256:dock-1',
+              createdAt: '2026-11-15T10:00:00Z',
+            };
+          case 'workflow_runs':
+            return [liveRun];
+          case 'workflow_show':
+            return liveRun;
+          case 'workflow_steps':
+            return [
+              {
+                id: 'sv-owner-gate',
+                runId: liveRun.id,
+                stepId: 'owner-gate',
+                attempt: 1n,
+                status: 'waiting_approval',
+                conversationId: null,
+                turnId: null,
+                outputJson: null,
+                outputSchemaDigest: null,
+                candidateOutputJson: null,
+                candidateSchemaDigest: null,
+                awaitingAcceptance: false,
+                awaitingInput: false,
+                executionMode: 'normal',
+                resolvedInputJson: null,
+                resolvedInputDigest: null,
+                executionEvidenceJson: null,
+                workspaceId: 'ws-dock-1',
+                waitingInteraction: true,
+                repairCount: 0n,
+                claimToken: null,
+                claimDeadline: null,
+                startedAt: '2026-11-16T10:00:15Z',
+                completedAt: null,
+                updatedAt: '2026-11-16T10:01:00Z',
+              },
+            ];
+          case 'workflow_events':
+            return [
+              {
+                id: 'evt-live-1',
+                runId: liveRun.id,
+                sequence: 1n,
+                eventVersion: 1n,
+                eventKind: 'approval_waiting',
+                payloadJson: JSON.stringify({ step_id: 'owner-gate' }),
+                operationId: null,
+                createdAt: '2026-11-16T10:00:20Z',
+              },
+            ];
+          case 'pulse_deck_snapshot':
+            return {
+              engineActive: true,
+              activeTicketCount: 0,
+              pendingUserInteractionCount: 0,
+              sources: [],
+              rules: [],
+              observedCandidates: [],
+              subscriptions: [],
+              pendingInteractions: [],
+              recentOutbox: [
+                {
+                  id: 'ob-live-1',
+                  ruleId: 'rule-1',
+                  targetKind: 'github_comment',
+                  destination: '#42',
+                  status: 'queued',
+                  attempts: 1,
+                  lastError: null,
+                  createdAt: '2026-11-16T10:00:30Z',
+                  updatedAt: '2026-11-16T10:00:30Z',
+                },
+              ],
+            };
+          case 'workflow_decide':
+            return {
+              ...liveRun,
+              status: 'running',
+              ...(args ?? {}),
+            };
+          case 'pulse_captured_events':
+            return [];
+          case 'pulse_sources_list':
+            return [];
+          default:
+            return null;
+        }
+      }
+    );
+
+    render(
+      <BackendTransportProvider
+        transport={{ environment: 'desktop', call: callSpy }}
+      >
+        <WorkflowStudioDockPanel embedded />
+      </BackendTransportProvider>
+    );
+
+    await waitFor(() => {
+      expect(callSpy).toHaveBeenCalledWith('workflow_runs', {
+        definitionId: 'wf-hybrid-1',
+        limit: 20,
+      });
+      expect(callSpy).toHaveBeenCalledWith('workflow_steps', {
+        runId: 'run-live-dock-1',
+      });
+      expect(callSpy).toHaveBeenCalledWith('workflow_events', {
+        runId: 'run-live-dock-1',
+        afterSequence: 0,
+        limit: 500,
+      });
+    });
+
+    fireEvent.click(screen.getByTestId('workflow-node-deck-owner-gate'));
+    await user.click(screen.getByTestId('inspector-tab-conversation'));
+
+    expect(
+      await screen.findByTestId('gate-record-approval-actions')
+    ).toBeInTheDocument();
+    expect(screen.getByTestId('step-records-events')).toHaveTextContent(
+      'approval_waiting'
+    );
+
+    await user.click(screen.getByTestId('records-approve-btn'));
+    await waitFor(() => {
+      expect(callSpy).toHaveBeenCalledWith(
+        'workflow_decide',
+        expect.objectContaining({
+          request: {
+            runId: 'run-live-dock-1',
+            stepId: 'owner-gate',
+            decision: { approved: true },
+          },
+        })
+      );
+    });
+  });
+});
+

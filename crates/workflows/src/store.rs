@@ -850,6 +850,29 @@ impl WorkflowStore {
         find_run(&mut conn, run_id).await
     }
 
+    pub async fn runs(
+        &self,
+        definition_id: Uuid,
+        limit: u32,
+    ) -> Result<Vec<WorkflowRunView>, WorkflowError> {
+        sqlx::query_as::<_, WorkflowRunView>(
+            "SELECT r.id, r.definition_version_id, r.workspace_id, r.status, r.control_state,
+                    r.pause_reason, r.paused_at, r.parent_run_id, r.fork_step_id, r.run_mode,
+                    r.input_json, r.policy_json,
+                    r.deadline_at, r.agent_calls_started, r.last_sequence, r.created_at, r.updated_at
+             FROM workflow_runs r
+             INNER JOIN workflow_definition_versions v ON v.id = r.definition_version_id
+             WHERE v.definition_id = ?
+             ORDER BY r.created_at DESC, r.id DESC
+             LIMIT ?",
+        )
+        .bind(definition_id)
+        .bind(i64::from(limit.clamp(1, 1_000)))
+        .fetch_all(&self.pool)
+        .await
+        .map_err(WorkflowError::from)
+    }
+
     pub async fn runs_awaiting_dispatch(
         &self,
         limit: u32,

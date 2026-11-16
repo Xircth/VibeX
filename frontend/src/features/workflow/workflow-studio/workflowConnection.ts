@@ -1,4 +1,8 @@
-import { confirmationParentId, type StudioWorkflowStep } from './types';
+import {
+  confirmationParentId,
+  inspectorParentId,
+  type StudioWorkflowStep,
+} from './types';
 
 export type WorkflowGraphStepLike = {
   id: string;
@@ -55,6 +59,12 @@ export function isWorkflowConnectionValid(
 ): boolean {
   if (!connection.source || !connection.target) return false;
   if (connection.source === connection.target) return false;
+  if (
+    inspectorParentId(connection.source) ||
+    inspectorParentId(connection.target)
+  ) {
+    return false;
+  }
 
   const sourceParent =
     confirmationParentId(connection.source) ?? connection.source;

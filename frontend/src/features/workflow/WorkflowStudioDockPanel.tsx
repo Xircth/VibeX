@@ -1,4 +1,11 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from 'react';
 import {
   Activity,
   AlertTriangle,
@@ -9,30 +16,44 @@ import {
 import type { IDockviewPanelProps } from 'dockview-react';
 import { useTranslation } from 'react-i18next';
 import type {
+  JsonValue,
   WorkflowDefinition,
   WorkflowDefinitionSummary,
+  WorkflowEventRecord,
+  WorkflowRunView,
+  WorkflowStepView,
   WorkflowVersionView,
 } from 'shared/types';
 
 import { buildWorkflowTriggerRuleSpec } from '@/components/kanban/automation/automationAgentBridge';
 import { useOptionalUserSystem } from '@/components/ConfigProvider';
+import {
+  AstryxSelect,
+  type AstryxSelectOption,
+} from '@/components/ui/astryx-select';
 import { Button } from '@/components/ui/button';
 import { toast } from '@/components/ui/toast';
 import { useManagedAgentOptions } from '@/features/agent-management';
 import { loadAgentSessionControlsCatalog } from '@/features/agents/sessionControlsQuery';
 import { BUILT_IN_SAMPLE_EVENTS } from '@/features/pulse';
+import { PULSE_DECK_CHANGED_EVENT } from '@/hooks/usePulseDeckSnapshot';
+import { projectsApi } from '@/lib/api/projects';
 import {
   createPulseApi,
   pulseApi,
   type EventEnvelope,
+  type PulseOutboxEntryView,
   type PulseSourceView,
 } from '@/lib/api/pulse';
+import { sessionsApi } from '@/lib/api/sessions';
+import { backendListen } from '@/lib/backendTransport';
 import {
   configuredBackendTransport,
   useBackendTransport,
 } from '@/lib/transport';
 
 import { useCollaborationBotRoster } from './useCollaborationBotRoster';
+import { useGuardedWorkflowRunPolling } from './useGuardedWorkflowRunPolling';
 import {
   WorkflowStudio,
   getWorkflowPresetTemplates,
@@ -53,6 +74,7 @@ export type WorkflowStudioOpenDetail = {
   presetId?: string | null;
   initialDefinition?: StudioWorkflowDefinition | null;
   sourceRuleId?: string | null;
+  createNew?: boolean;
 };
 
 type WorkflowStudioWindow = Window & {
@@ -62,6 +84,8 @@ type WorkflowStudioWindow = Window & {
 export type WorkflowStudioDockPanelProps = Partial<IDockviewPanelProps> & {
   embedded?: boolean;
   projectId?: string | null;
+  onBack?: () => void;
+  rightToolbarSlot?: ReactNode;
 };
 
 function serializeStudioDefinition(
@@ -147,6 +171,15 @@ export function WorkflowStudioDockPanel(props?: WorkflowStudioDockPanelProps) {
   const [saving, setSaving] = useState(false);
   const [publishing, setPublishing] = useState(false);
   const [savedRuleIds, setSavedRuleIds] = useState<Record<string, string>>({});
+  const [runs, setRuns] = useState<WorkflowRunView[]>([]);
+  const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
+  const [activeRun, setActiveRun] = useState<WorkflowRunView | null>(null);
+  const [runSteps, setRunSteps] = useState<WorkflowStepView[]>([]);
+  const [runEvents, setRunEvents] = useState<WorkflowEventRecord[]>([]);
+  const [recordsLoading, setRecordsLoading] = useState(false);
+  const [outboxEntries, setOutboxEntries] = useState<PulseOutboxEntryView[]>(
+    []
+  );
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
 
@@ -251,6 +284,20 @@ export function WorkflowStudioDockPanel(props?: WorkflowStudioDockPanelProps) {
     [defaultAgentId, t]
   );
 
+  const startNewWorkflowDraft = useCallback(() => {
+    hasUserEditedRef.current = true;
+    const fresh = createStarterWorkflow(defaultAgentId, t);
+    setSelectedDefinitionId(null);
+    setSourceRuleId(null);
+    setActiveVersion(null);
+    setSavedRuleIds({});
+    setDefinition(fresh);
+    setSavedDefinition(fresh);
+    setUndoStack([]);
+    setErrorMessage(null);
+    setStatusMessage(null);
+  }, [defaultAgentId, t]);
+
   const handleOpenRequest = useCallback(
     async (
       detail: WorkflowStudioOpenDetail | null | undefined,
@@ -259,6 +306,11 @@ export function WorkflowStudioDockPanel(props?: WorkflowStudioDockPanelProps) {
     ): Promise<boolean> => {
       if (!detail) return false;
       setSourceRuleId(detail.sourceRuleId ?? null);
+
+      if (detail.createNew) {
+        startNewWorkflowDraft();
+        return true;
+      }
 
       const targetDefinitionId = detail.definitionId?.trim();
       if (targetDefinitionId) {
@@ -310,7 +362,12 @@ export function WorkflowStudioDockPanel(props?: WorkflowStudioDockPanelProps) {
 
       return false;
     },
-    [applyPresetTemplateById, loadWorkflowSelection, workflowClient]
+    [
+      applyPresetTemplateById,
+      loadWorkflowSelection,
+      startNewWorkflowDraft,
+      workflowClient,
+    ]
   );
 
   const loadWorkspaceData = useCallback(
@@ -346,7 +403,7 @@ export function WorkflowStudioDockPanel(props?: WorkflowStudioDockPanelProps) {
         );
         loadingCatalogRef.current = false;
         setLoadingCatalog(false);
-        if (pending !== undefined) {
+        if (pending) {
           win.__VIBEX_PENDING_WORKFLOW_STUDIO_OPEN__ = null;
           await handleOpenRequest(pending, [], false);
         }
@@ -359,7 +416,7 @@ export function WorkflowStudioDockPanel(props?: WorkflowStudioDockPanelProps) {
       loadingCatalogRef.current = false;
       setLoadingCatalog(false);
 
-      if (pending !== undefined) {
+      if (pending) {
         win.__VIBEX_PENDING_WORKFLOW_STUDIO_OPEN__ = null;
         const handled = await handleOpenRequest(pending, list, false);
         if (handled) {
@@ -411,6 +468,211 @@ export function WorkflowStudioDockPanel(props?: WorkflowStudioDockPanelProps) {
       );
     };
   }, [handleOpenRequest]);
+
+  const loadExecutionHistory = useCallback(
+    async (definitionIdToLoad: string | null) => {
+      const [runsResult, deckResult] = await Promise.allSettled([
+        definitionIdToLoad
+          ? workflowClient.runs(definitionIdToLoad, 20)
+          : Promise.resolve([]),
+        pulseClient.deckSnapshot(projectId),
+      ]);
+      if (
+        deckResult.status === 'fulfilled' &&
+        deckResult.value &&
+        Array.isArray(deckResult.value.recentOutbox)
+      ) {
+        setOutboxEntries(deckResult.value.recentOutbox);
+      } else {
+        setOutboxEntries([]);
+      }
+      const nextRuns =
+        runsResult.status === 'fulfilled' && Array.isArray(runsResult.value)
+          ? runsResult.value
+          : [];
+      setRuns(nextRuns);
+      setSelectedRunId((current) =>
+        current && nextRuns.some((item) => item.id === current)
+          ? current
+          : (nextRuns[0]?.id ?? null)
+      );
+    },
+    [projectId, pulseClient, workflowClient]
+  );
+
+  const refreshRunDetails = useCallback(
+    async (runId: string) => {
+      const [runResult, stepsResult, eventsResult] = await Promise.allSettled([
+        workflowClient.show(runId),
+        workflowClient.steps(runId),
+        workflowClient.events(runId, 0, 500),
+      ]);
+      if (runResult.status === 'fulfilled' && runResult.value) {
+        const fetchedRun = runResult.value;
+        setActiveRun(fetchedRun);
+        setRuns((current) =>
+          current.map((item) => (item.id === runId ? fetchedRun : item))
+        );
+      }
+      if (stepsResult.status === 'fulfilled') {
+        setRunSteps(Array.isArray(stepsResult.value) ? stepsResult.value : []);
+      }
+      if (eventsResult.status === 'fulfilled') {
+        setRunEvents(
+          Array.isArray(eventsResult.value) ? eventsResult.value : []
+        );
+      }
+    },
+    [workflowClient]
+  );
+
+  useEffect(() => {
+    let cancelled = false;
+    setSelectedRunId(null);
+    setActiveRun(null);
+    setRunSteps([]);
+    setRunEvents([]);
+    void Promise.allSettled([
+      selectedDefinitionId
+        ? workflowClient.runs(selectedDefinitionId, 20)
+        : Promise.resolve([]),
+      pulseClient.deckSnapshot(projectId),
+    ]).then(([runsResult, deckResult]) => {
+      if (cancelled) return;
+      if (
+        deckResult.status === 'fulfilled' &&
+        deckResult.value &&
+        Array.isArray(deckResult.value.recentOutbox)
+      ) {
+        setOutboxEntries(deckResult.value.recentOutbox);
+      } else {
+        setOutboxEntries([]);
+      }
+      const nextRuns =
+        runsResult.status === 'fulfilled' && Array.isArray(runsResult.value)
+          ? runsResult.value
+          : [];
+      setRuns(nextRuns);
+      setSelectedRunId(nextRuns[0]?.id ?? null);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [projectId, pulseClient, selectedDefinitionId, workflowClient]);
+
+  const runsRef = useRef(runs);
+  runsRef.current = runs;
+
+  useEffect(() => {
+    if (!selectedRunId) {
+      setActiveRun(null);
+      setRunSteps([]);
+      setRunEvents([]);
+      setRecordsLoading(false);
+      return;
+    }
+    let cancelled = false;
+    setRecordsLoading(true);
+    void Promise.allSettled([
+      workflowClient.show(selectedRunId),
+      workflowClient.steps(selectedRunId),
+      workflowClient.events(selectedRunId, 0, 500),
+    ])
+      .then(([runResult, stepsResult, eventsResult]) => {
+        if (cancelled) return;
+        const matchedSummary =
+          runsRef.current.find((item) => item.id === selectedRunId) ?? null;
+        if (runResult.status === 'fulfilled' && runResult.value) {
+          setActiveRun(runResult.value);
+        } else {
+          setActiveRun(matchedSummary);
+        }
+        setRunSteps(
+          stepsResult.status === 'fulfilled' && Array.isArray(stepsResult.value)
+            ? stepsResult.value
+            : []
+        );
+        setRunEvents(
+          eventsResult.status === 'fulfilled' &&
+            Array.isArray(eventsResult.value)
+            ? eventsResult.value
+            : []
+        );
+      })
+      .finally(() => {
+        if (!cancelled) setRecordsLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedRunId, workflowClient]);
+
+  useGuardedWorkflowRunPolling({
+    runId: activeRun?.id ?? null,
+    status: activeRun?.status ?? null,
+    refresh: refreshRunDetails,
+  });
+
+  useEffect(() => {
+    let cancelled = false;
+    let unlisten: (() => void) | null = null;
+    try {
+      void Promise.resolve(
+        backendListen(PULSE_DECK_CHANGED_EVENT, () => {
+          void Promise.allSettled([
+            workflowClient.listDefinitions(100),
+            pulseClient.listSources(),
+            loadExecutionHistory(selectedDefinitionId),
+          ]).then(([defsRes, sourcesRes]) => {
+            if (cancelled) return;
+            if (sourcesRes.status === 'fulfilled') {
+              setSources(sourcesRes.value);
+            }
+            if (defsRes.status === 'fulfilled') {
+              const list = defsRes.value;
+              definitionsRef.current = list;
+              setDefinitions(list);
+              if (!dirty && selectedDefinitionId) {
+                const updated = list.find(
+                  (item) => item.id === selectedDefinitionId
+                );
+                if (
+                  updated?.latestVersionId &&
+                  updated.latestVersionId !== (activeVersion?.id ?? null)
+                ) {
+                  void loadWorkflowSelection(updated);
+                }
+              }
+            }
+          });
+        })
+      )
+        .then((dispose) => {
+          if (typeof dispose === 'function') {
+            if (cancelled) {
+              dispose();
+            } else {
+              unlisten = dispose;
+            }
+          }
+        })
+        .catch(() => undefined);
+    } catch {
+      // Non-fatal in offline/test environments without push listener support
+    }
+    return () => {
+      cancelled = true;
+      unlisten?.();
+    };
+  }, [
+    activeVersion?.id,
+    dirty,
+    loadExecutionHistory,
+    loadWorkflowSelection,
+    pulseClient,
+    selectedDefinitionId,
+    workflowClient,
+  ]);
 
   const applyDefinitionChange = useCallback((next: StudioWorkflowDefinition) => {
     hasUserEditedRef.current = true;
@@ -599,6 +861,159 @@ export function WorkflowStudioDockPanel(props?: WorkflowStudioDockPanelProps) {
     []
   );
 
+  const [testSteps, setTestSteps] = useState<WorkflowStepView[]>([]);
+  useEffect(() => {
+    setTestSteps([]);
+  }, [selectedDefinitionId]);
+
+  const handleTestNode = useCallback(
+    async (stepId: string) => {
+      const target = definition.steps.find((item) => item.id === stepId);
+      if (
+        !target ||
+        (target.kind !== 'session' && target.kind !== 'agent')
+      ) {
+        return;
+      }
+      try {
+        let resolvedProjectId = projectId?.trim() || '';
+        if (!resolvedProjectId) {
+          const projects = await projectsApi.getAll();
+          resolvedProjectId = projects[0]?.id ?? '';
+        }
+        if (!resolvedProjectId) {
+          toast.error(t('studio.needWorkspaceToTest'));
+          return;
+        }
+        const executor = (target.agentId || defaultAgentId || 'claude-code')
+          .trim()
+          .toUpperCase()
+          .replace(/-/g, '_');
+        const created = await sessionsApi.createProject({
+          project_id: resolvedProjectId,
+          workspace_id: null,
+          executor,
+          name: `${definition.name} · ${stepId}`.slice(0, 60),
+          initial_prompt: target.prompt,
+        });
+        const now = new Date().toISOString();
+        const view: WorkflowStepView = {
+          id: `test-${stepId}-${Date.now()}`,
+          runId: `test-run-${selectedDefinitionId ?? 'draft'}`,
+          stepId,
+          attempt: 1n,
+          status: 'running',
+          conversationId: created.id,
+          turnId: null,
+          outputJson: null,
+          outputSchemaDigest: null,
+          candidateOutputJson: null,
+          candidateSchemaDigest: null,
+          awaitingAcceptance: false,
+          awaitingInput: false,
+          executionMode: 'debug',
+          resolvedInputJson: null,
+          resolvedInputDigest: null,
+          executionEvidenceJson: null,
+          workspaceId: created.workspace_id,
+          waitingInteraction: false,
+          repairCount: 0n,
+          claimToken: null,
+          claimDeadline: null,
+          startedAt: now,
+          completedAt: null,
+          updatedAt: now,
+        };
+        setTestSteps((current) => [
+          ...current.filter((item) => item.stepId !== stepId),
+          view,
+        ]);
+        toast.success(t('studio.debugStarted', { step: stepId }));
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : String(error));
+      }
+    },
+    [defaultAgentId, definition.name, definition.steps, projectId, selectedDefinitionId, t]
+  );
+
+  const mergedSteps = useMemo(() => {
+    if (testSteps.length === 0) return runSteps;
+    const testedStepIds = new Set(testSteps.map((item) => item.stepId));
+    return [
+      ...runSteps.filter((item) => !testedStepIds.has(item.stepId)),
+      ...testSteps,
+    ];
+  }, [runSteps, testSteps]);
+
+  const handleDecideApproval = useCallback(
+    async (stepId: string, decision: JsonValue) => {
+      if (!selectedRunId) return;
+      try {
+        await workflowClient.decide(selectedRunId, stepId, decision);
+        await refreshRunDetails(selectedRunId);
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : String(error));
+      }
+    },
+    [refreshRunDetails, selectedRunId, workflowClient]
+  );
+
+  const handleAcceptCandidate = useCallback(
+    async (stepId: string) => {
+      if (!selectedRunId) return;
+      try {
+        await workflowClient.acceptCandidate(selectedRunId, stepId);
+        await refreshRunDetails(selectedRunId);
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : String(error));
+      }
+    },
+    [refreshRunDetails, selectedRunId, workflowClient]
+  );
+
+  const handlePauseStep = useCallback(
+    async (stepId: string) => {
+      if (!selectedRunId) return;
+      try {
+        await workflowClient.pauseStep(selectedRunId, stepId);
+        await refreshRunDetails(selectedRunId);
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : String(error));
+      }
+    },
+    [refreshRunDetails, selectedRunId, workflowClient]
+  );
+
+  const handleSubmitStepInput = useCallback(
+    async (stepId: string, text: string) => {
+      if (!selectedRunId) return;
+      try {
+        await workflowClient.submitStepInput(selectedRunId, stepId, text);
+        await refreshRunDetails(selectedRunId);
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : String(error));
+      }
+    },
+    [refreshRunDetails, selectedRunId, workflowClient]
+  );
+
+  const workflowSelectOptions = useMemo<AstryxSelectOption[]>(() => {
+    const base: AstryxSelectOption[] = [];
+    if (selectedDefinitionId == null) {
+      base.push({
+        value: '__draft__',
+        label: t('studio.unsavedDraftOption', { name: definition.name }),
+      });
+    }
+    for (const item of definitions) {
+      base.push({
+        value: item.id,
+        label: item.name,
+      });
+    }
+    return base;
+  }, [definition.name, definitions, selectedDefinitionId, t]);
+
   return (
     <div
       className="flex h-full min-h-0 w-full flex-col bg-background text-foreground"
@@ -607,12 +1022,14 @@ export function WorkflowStudioDockPanel(props?: WorkflowStudioDockPanelProps) {
       {!embedded ? (
         <div className="flex h-10 shrink-0 items-center justify-between gap-2 border-b border-border bg-[var(--surface-panel)] px-3">
           <div className="flex min-w-0 items-center gap-2">
-            <select
-              aria-label={t('studio.selectWorkflow')}
+            <AstryxSelect
+              ariaLabel={t('studio.selectWorkflow')}
               value={selectedDefinitionId ?? '__draft__'}
+              options={workflowSelectOptions}
               disabled={loadingCatalog || loadingWorkflow}
-              onChange={(event) => {
-                const nextId = event.target.value;
+              size="compact"
+              className="w-[210px] max-w-[240px]"
+              onChange={(nextId) => {
                 if (nextId === '__draft__') return;
                 const match = definitions.find((item) => item.id === nextId);
                 if (match) {
@@ -620,19 +1037,7 @@ export function WorkflowStudioDockPanel(props?: WorkflowStudioDockPanelProps) {
                   void loadWorkflowSelection(match);
                 }
               }}
-              className="raised-control h-7 max-w-[220px] truncate rounded-md border border-border bg-[var(--surface-control)] px-2 text-xs font-medium text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-            >
-              {selectedDefinitionId == null ? (
-                <option value="__draft__">
-                  {t('studio.unsavedDraftOption', { name: definition.name })}
-                </option>
-              ) : null}
-              {definitions.map((item) => (
-                <option key={item.id} value={item.id}>
-                  {item.name}
-                </option>
-              ))}
-            </select>
+            />
 
             <Button
               type="button"
@@ -713,16 +1118,41 @@ export function WorkflowStudioDockPanel(props?: WorkflowStudioDockPanelProps) {
         </div>
       ) : null}
 
-      <div className="min-h-0 flex-1">
+      <div className="flex min-h-0 flex-1 flex-col">
         <WorkflowStudio
           studioMode
           className="h-full min-h-0"
           definition={definition}
           onDefinitionChange={applyDefinitionChange}
+          run={activeRun}
+          runs={runs}
+          selectedRunId={selectedRunId}
+          onSelectRunId={setSelectedRunId}
+          recordsLoading={recordsLoading}
+          steps={mergedSteps}
+          events={runEvents}
+          outboxEntries={outboxEntries}
+          onTestNode={(stepId) => void handleTestNode(stepId)}
+          onAcceptCandidate={(stepId) => void handleAcceptCandidate(stepId)}
+          onPauseStep={(stepId) => void handlePauseStep(stepId)}
+          onSubmitStepInput={handleSubmitStepInput}
+          onDecideApproval={handleDecideApproval}
+          onBack={props?.onBack}
           editorName={definition.name}
           onEditorNameChange={(nextName) =>
             applyDefinitionChange({ ...definition, name: nextName })
           }
+          taskCatalog={definitions}
+          selectedDefinitionId={selectedDefinitionId}
+          onSelectTask={(nextId) => {
+            const match = definitions.find((item) => item.id === nextId);
+            if (match) {
+              hasUserEditedRef.current = true;
+              void loadWorkflowSelection(match);
+            }
+          }}
+          onCreateNewTask={startNewWorkflowDraft}
+          rightToolbarSlot={props?.rightToolbarSlot}
           dirty={dirty}
           saving={saving}
           publishing={publishing}

@@ -15,6 +15,7 @@ export interface PendingWorkflowStudioOpenDetail {
   presetId?: string | null;
   initialDefinition?: StudioWorkflowDefinition | null;
   sourceRuleId?: string | null;
+  createNew?: boolean;
 }
 
 interface PulseWindowState extends Window {

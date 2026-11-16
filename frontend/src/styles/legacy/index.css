@@ -19529,3 +19529,23 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
   white-space: nowrap;
   font-weight: 500;
 }
+
+/* ──────────────────────────────────────────────────────────────────────────
+ * Pulse Automation Page — Compact Button & Control Typography
+ * Shrinks button, combobox, and segmented-control typography across the
+ * Automation workbench for lighter visual density.
+ * ────────────────────────────────────────────────────────────────────────── */
+.pulse-automation-page .astryx-button:not([data-size='lg']),
+.pulse-automation-page button[role='combobox'],
+.pulse-automation-page .astryx-segmented-control-item {
+  --_button-font-size: 0.71875rem;
+  font-size: 0.71875rem !important;
+  line-height: 1rem;
+}
+
+.pulse-automation-page .astryx-button[data-size='xs'] {
+  --_button-font-size: 0.6875rem;
+  font-size: 0.6875rem !important;
+  line-height: 0.9375rem;
+}
+

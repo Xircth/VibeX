@@ -14,7 +14,10 @@ import { useBranchStatus } from '@/hooks';
 import { useAttemptRepo } from '@/hooks/useAttemptRepo';
 import { useAttemptExecution } from '@/hooks/useAttemptExecution';
 import { cn } from '@/lib/utils';
-import { useReview } from '@/contexts/ReviewProvider';
+import {
+  useReviewOptional,
+  type ReviewComment,
+} from '@/contexts/ReviewProvider';
 import { useEntries } from '@/contexts/EntriesContext';
 import { useConversationStatus } from '@/contexts/ConversationStatusContext';
 import { useHotkeysContext } from 'react-hotkeys-hook';
@@ -48,7 +51,7 @@ import {
 import type { Session, Workspace } from 'shared/types';
 import { buildPromptEnhancementContext } from '@/lib/promptEnhancement';
 import type { UseWorkspaceSessionsResult } from '@/hooks/useWorkspaceSessions';
-import { useWorktree } from '@/contexts/WorktreeContext';
+import { useOptionalWorktree } from '@/contexts/WorktreeContext';
 import { useParams } from 'react-router-dom';
 
 import { ReviewCommentsPreview } from './follow-up/ReviewCommentsPreview';
@@ -149,6 +152,8 @@ import { useConversationAvailableCommands } from '@/features/conversation/useCon
 import { conversationThreadMaxWidthClass } from '@/components/NormalizedConversation/ConversationTimeline';
 import { useLayoutStore } from '@/stores/useLayoutStore';
 
+const EMPTY_REVIEW_COMMENTS: ReviewComment[] = [];
+
 interface TaskFollowUpSectionProps {
   taskId?: string | null;
   session?: Session;
@@ -187,7 +192,7 @@ export function TaskFollowUpSection({
     widthMode,
     isEditorAreaVisible
   );
-  const { activeWorktreeId } = useWorktree();
+  const activeWorktreeId = useOptionalWorktree()?.activeWorktreeId ?? null;
   const { workspaceId: routeWorkspaceId } = useParams<{
     workspaceId?: string;
   }>();
@@ -261,7 +266,17 @@ export function TaskFollowUpSection({
   );
   const { branch: attemptBranch, refetch: refetchAttemptBranch } =
     useAttemptBranch(workspaceIdValue);
-  const { comments, generateReviewMarkdown, clearComments } = useReview();
+  const reviewContext = useReviewOptional();
+  const comments = reviewContext?.comments ?? EMPTY_REVIEW_COMMENTS;
+  const generateReviewMarkdownFn = reviewContext?.generateReviewMarkdown;
+  const clearCommentsFn = reviewContext?.clearComments;
+  const generateReviewMarkdown = useCallback(
+    () => generateReviewMarkdownFn?.() ?? '',
+    [generateReviewMarkdownFn]
+  );
+  const clearComments = useCallback(() => {
+    clearCommentsFn?.();
+  }, [clearCommentsFn]);
 
   const { enableScope, disableScope } = useHotkeysContext();
 
@@ -1194,7 +1209,6 @@ export function TaskFollowUpSection({
     }),
     [
       composerWorkspacePath,
-      configuredBackendTransport,
       effectiveExecutorProfile,
       liveCommands.commands,
       liveCommands.loading,

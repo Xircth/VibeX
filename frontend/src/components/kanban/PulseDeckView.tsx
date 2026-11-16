@@ -2,6 +2,7 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from 'react';
@@ -9,30 +10,34 @@ import { useTranslation } from 'react-i18next';
 import type { WorkflowDefinitionSummary } from 'shared/types';
 
 import { toast } from '@/components/ui/toast';
+import { useOptionalKanbanSessionContext } from '@/contexts/KanbanSessionContext';
 import { useManagedAgentOptions } from '@/features/agent-management';
 import { toStudioWorkflowDefinition } from '@/features/workflow/WorkflowStudio';
 import { useCollaborationBotRoster } from '@/features/workflow/useCollaborationBotRoster';
+import { resolveWorkflowAgentId } from '@/features/workflow/workflowAgent';
 import { workflowsApi } from '@/features/workflow/workflowApi';
 import { usePulseDeckSnapshot } from '@/hooks/usePulseDeckSnapshot';
 import {
   pulseApi,
-  type EventSourceKind,
   type PulseRuleSaveInput,
   type PulseRuleView,
   type PulseSourceTestResult,
   type PulseSourceUpsertInput,
-  type PulseSourceView,
 } from '@/lib/api/pulse';
-import { cn } from '@/lib/utils';
+import { useLayoutStore } from '@/stores/useLayoutStore';
 
 import {
-  AutomationHeaderBar,
+  AutomationPageShell,
   EmbeddedWorkflowStudioShell,
 } from './automation/AutomationHeaderBar';
 import { AutomationSourcesTab } from './automation/AutomationSourcesTab';
 import { AutomationTasksTab } from './automation/AutomationTasksTab';
 import {
+  activateAutomationSessionInRightSidebar,
   buildWorkflowTriggerRuleSpec,
+  dispatchAutomationAgentRequest,
+  ensureRightSessionSidebarOpen,
+  extractPulseErrorMessage,
   type CanonicalWorkflowStarter,
 } from './automation/automationAgentBridge';
 import {
@@ -49,13 +54,10 @@ import {
   type PendingWorkflowStudioOpenDetail,
 } from './pulseDeckEvents';
 
-const DEFAULT_SOURCE_KINDS: readonly EventSourceKind[] = [
-  'github',
-  'feishu',
-  'webhook_standard',
-  'time_cron',
-  'jira',
-];
+function isActiveVisibleSurface(element: HTMLElement | null): boolean {
+  if (!element) return true;
+  return !element.closest('[aria-hidden="true"], [hidden], [inert]');
+}
 
 async function invokeSaveRule(
   input: PulseRuleSaveInput
@@ -82,8 +84,12 @@ export function PulseDeckView({
 }) {
   const { t, i18n } = useTranslation('panels');
   const language = i18n.resolvedLanguage ?? i18n.language ?? 'zh-CN';
+  const isZh = language.startsWith('zh');
+  const kanbanSession = useOptionalKanbanSessionContext();
   const agentOptions = useManagedAgentOptions(undefined, true);
+  const defaultAgentId = resolveWorkflowAgentId(agentOptions, undefined);
   const { bots, spaces } = useCollaborationBotRoster();
+  const rootSurfaceRef = useRef<HTMLDivElement | null>(null);
 
   const {
     snapshot,
@@ -113,7 +119,23 @@ export function PulseDeckView({
   const [applyingStarterId, setApplyingStarterId] = useState<string | null>(
     null
   );
+  const [customizingStarterId, setCustomizingStarterId] = useState<
+    string | null
+  >(null);
   const [agentWatchUntil, setAgentWatchUntil] = useState<number>(0);
+
+  const sidebarAutoOpenedForStudioRef = useRef(false);
+  const initialEmbeddedStudioRef = useRef(embeddedStudio !== null);
+
+  // Keep the right-side AI conversation sidebar closed when opening the Automation Tasks page
+  // (it can still be opened manually via the header toggle or when launching Workflow Studio / Agent creation).
+  useEffect(() => {
+    if (initialEmbeddedStudioRef.current) return;
+    const layout = useLayoutStore.getState();
+    if (layout.isKanbanSessionVisible) {
+      layout.setKanbanSessionVisible(false);
+    }
+  }, []);
 
   const loadAuxiliaryCatalog = useCallback(async () => {
     if (typeof workflowsApi?.listDefinitions !== 'function') {
@@ -143,10 +165,12 @@ export function PulseDeckView({
     return () => window.clearInterval(timer);
   }, [agentWatchUntil, loadAuxiliaryCatalog, refetch]);
 
-  // Listen for embedded Workflow Studio open/close events
+  // Listen for embedded Workflow Studio open/close events.
+  // Do NOT bail out on `event.defaultPrevented`: parent KanbanBoard calls preventDefault()
+  // when switching views to `builtin:pulse` during the same synchronous dispatch.
   useEffect(() => {
     const onOpenStudio = (event: Event) => {
-      if (event.defaultPrevented) return;
+      if (!isActiveVisibleSurface(rootSurfaceRef.current)) return;
       event.preventDefault();
       const custom = event as CustomEvent<
         PendingWorkflowStudioOpenDetail | undefined
@@ -157,9 +181,15 @@ export function PulseDeckView({
     };
 
     const onOpenPulseDeck = (event: Event) => {
+      if (!isActiveVisibleSurface(rootSurfaceRef.current)) return;
       event.preventDefault();
       stashPendingWorkflowStudioOpen(null);
       setEmbeddedStudio(null);
+      const layout = useLayoutStore.getState();
+      if (layout.isKanbanSessionVisible) {
+        layout.setKanbanSessionVisible(false);
+      }
+      sidebarAutoOpenedForStudioRef.current = false;
       void loadAuxiliaryCatalog();
       void refetch();
     };
@@ -171,24 +201,6 @@ export function PulseDeckView({
       window.removeEventListener(OPEN_PULSE_DECK_EVENT, onOpenPulseDeck);
     };
   }, [loadAuxiliaryCatalog, refetch]);
-
-  const displayedSources = useMemo<PulseSourceView[]>(() => {
-    const existing = snapshot?.sources ?? [];
-    if (existing.length > 0) return existing;
-    return DEFAULT_SOURCE_KINDS.map((kind) => ({
-      id: `placeholder-${kind}`,
-      kind,
-      title: t(
-        `pulseDeck.sources.${kind.replace(/_([a-z])/g, (_, ch: string) => ch.toUpperCase())}`
-      ),
-      enabled: false,
-      healthy: true,
-      cursorWatermark: '0',
-      receivedCount24h: 0,
-      rejectedCount24h: 0,
-      updatedAt: '',
-    }));
-  }, [snapshot?.sources, t, language]);
 
   const unifiedTasks = useMemo(
     () =>
@@ -246,10 +258,22 @@ export function PulseDeckView({
   );
 
   const handleOpenTaskCanvas = (task: UnifiedAutomationTask) => {
+    sidebarAutoOpenedForStudioRef.current =
+      !useLayoutStore.getState().isKanbanSessionVisible;
+    ensureRightSessionSidebarOpen();
     requestOpenWorkflowStudio({
       definitionId: task.workflowId,
       initialDefinition: task.studioDefinition,
       sourceRuleId: task.linkedRule?.id ?? null,
+    });
+  };
+
+  const handleCreateWorkflowWithAgent = () => {
+    sidebarAutoOpenedForStudioRef.current =
+      !useLayoutStore.getState().isKanbanSessionVisible;
+    ensureRightSessionSidebarOpen();
+    requestOpenWorkflowStudio({
+      createNew: true,
     });
   };
 
@@ -281,7 +305,7 @@ export function PulseDeckView({
       }
     } catch (err) {
       setActionError(
-        err instanceof Error ? err.message : t('pulseDeck.errToggleRule')
+        extractPulseErrorMessage(err, t('pulseDeck.errToggleRule'))
       );
     }
   };
@@ -312,13 +336,13 @@ export function PulseDeckView({
       }
     } catch (err) {
       setActionError(
-        err instanceof Error ? err.message : t('pulseDeck.errDeleteTask')
+        extractPulseErrorMessage(err, t('pulseDeck.errDeleteTask'))
       );
     }
   };
 
   const handleApplyStarter = async (starter: CanonicalWorkflowStarter) => {
-    if (applyingStarterId) return;
+    if (applyingStarterId || customizingStarterId) return;
     setApplyingStarterId(starter.id);
     setActionError('');
     try {
@@ -354,9 +378,7 @@ export function PulseDeckView({
         })
       );
     } catch (err) {
-      setActionError(
-        err instanceof Error ? err.message : t('pulseDeck.errSaveRule')
-      );
+      setActionError(extractPulseErrorMessage(err, t('pulseDeck.errSaveRule')));
     } finally {
       setApplyingStarterId(null);
     }
@@ -366,19 +388,55 @@ export function PulseDeckView({
     setAgentWatchUntil(Date.now() + 60_000);
   };
 
+  const handleCustomizeStarter = async (starter: CanonicalWorkflowStarter) => {
+    if (applyingStarterId || customizingStarterId) return;
+    setCustomizingStarterId(starter.id);
+    setActionError('');
+    try {
+      const dispatched = await dispatchAutomationAgentRequest({
+        mode: 'create',
+        instruction: isZh ? starter.promptZh : starter.promptEn,
+        agentId: defaultAgentId,
+        projectId,
+        sources: snapshot?.sources ?? [],
+        agentOptions,
+        bots,
+      });
+      activateAutomationSessionInRightSidebar(
+        dispatched,
+        kanbanSession?.activateExecutionSession
+      );
+      handleAgentDispatched();
+      toast.success(
+        t('pulseDeck.workbench.agent.dispatchedToast', {
+          title: dispatched.title,
+        })
+      );
+    } catch (err) {
+      setActionError(
+        extractPulseErrorMessage(
+          err,
+          t('pulseDeck.workbench.agent.dispatchFailedToast')
+        )
+      );
+    } finally {
+      setCustomizingStarterId(null);
+    }
+  };
+
   if (embeddedStudio !== null) {
     return (
       <EmbeddedWorkflowStudioShell
-        embeddedStudio={embeddedStudio}
-        workflowDefinitions={workflowDefinitions}
         projectId={projectId}
-        sources={snapshot?.sources ?? []}
-        bots={bots}
         className={className}
-        onAgentDispatched={handleAgentDispatched}
+        rootRef={rootSurfaceRef}
         onBackToTaskList={() => {
           stashPendingWorkflowStudioOpen(null);
           setEmbeddedStudio(null);
+          if (sidebarAutoOpenedForStudioRef.current) {
+            sidebarAutoOpenedForStudioRef.current = false;
+            useLayoutStore.getState().setKanbanSessionVisible(false);
+          }
           void loadAuxiliaryCatalog();
           void refetch();
         }}
@@ -386,27 +444,29 @@ export function PulseDeckView({
     );
   }
 
-  const renderHeader = (
-    toolbarRow?: ReactNode,
-    contextualAction?: ReactNode
-  ) => (
-    <AutomationHeaderBar
-      engineActive={snapshot?.engineActive !== false}
+  const renderShell = ({
+    headerSearch,
+    contextualAction,
+    children,
+  }: {
+    headerSearch?: ReactNode;
+    contextualAction?: ReactNode;
+    children: ReactNode;
+  }) => (
+    <AutomationPageShell
       totalTasksCount={unifiedTasks.length}
       pendingApprovalsCount={pendingApprovalsCount}
       activeTab={activeTab}
       isRefreshing={isLoading || isFetching}
       errorMessage={errorMessage}
-      projectId={projectId}
-      sources={snapshot?.sources ?? []}
-      bots={bots}
-      toolbarRow={toolbarRow}
+      headerSearch={headerSearch}
       contextualAction={contextualAction}
+      className={className}
+      rootRef={rootSurfaceRef}
       onSelectTab={(tab) => {
         setSourcesInitialAdding(false);
         setActiveTab(tab);
       }}
-      onAgentDispatched={handleAgentDispatched}
       onRefresh={() => {
         setActionError('');
         void loadAuxiliaryCatalog();
@@ -416,132 +476,118 @@ export function PulseDeckView({
         setActionError('');
         void refetch();
       }}
-    />
+      onCreateWorkflowWithAgent={handleCreateWorkflowWithAgent}
+    >
+      {children}
+    </AutomationPageShell>
   );
 
-  return (
-    <div
-      data-testid="pulse-deck-view"
-      className={cn(
-        'flex h-full min-h-0 flex-col bg-background text-foreground',
-        className
-      )}
-    >
-      {activeTab === 'tasks' ? (
-        <AutomationTasksTab
-          renderHeader={(toolbarRow) => renderHeader(toolbarRow)}
-          projectId={projectId}
-          tasks={unifiedTasks}
-          pendingInteractions={snapshot?.pendingInteractions ?? []}
-          sources={snapshot?.sources ?? []}
-          agentOptions={agentOptions}
-          bots={bots}
-          applyingStarterId={applyingStarterId}
-          onOpenTaskCanvas={handleOpenTaskCanvas}
-          onToggleTaskEnabled={(task) => void handleToggleTaskEnabled(task)}
-          onDeleteTask={(task) => void handleDeleteTask(task)}
-          onApplyStarter={(starter) => void handleApplyStarter(starter)}
-          onAgentDispatched={handleAgentDispatched}
-          onInteractionResolved={(interactionId) => {
+  if (activeTab === 'sources') {
+    return (
+      <AutomationSourcesTab
+        renderShell={renderShell}
+        sources={snapshot?.sources ?? []}
+        initialAddingNew={sourcesInitialAdding}
+        onUpsertSource={async (input: PulseSourceUpsertInput) => {
+          setActionError('');
+          try {
+            const created = await pulseApi.upsertSource(input);
             setSnapshotData((prev) =>
               prev
                 ? {
                     ...prev,
-                    pendingUserInteractionCount: Math.max(
-                      0,
-                      (prev.pendingUserInteractionCount ?? 0) - 1
-                    ),
-                    pendingInteractions: (
-                      prev.pendingInteractions ?? []
-                    ).filter((item) => item.id !== interactionId),
+                    sources: [
+                      created,
+                      ...prev.sources.filter((item) => item.id !== created.id),
+                    ],
                   }
                 : null
             );
-            void invalidateSnapshot();
-          }}
-        />
-      ) : null}
+            return created;
+          } catch (err) {
+            setActionError(
+              extractPulseErrorMessage(err, t('pulseDeck.errSaveSource'))
+            );
+            return null;
+          }
+        }}
+        onDeleteSource={async (id) => {
+          setActionError('');
+          try {
+            if (typeof pulseApi.deleteSource === 'function') {
+              await pulseApi.deleteSource(id);
+            }
+            setSnapshotData((prev) =>
+              prev
+                ? {
+                    ...prev,
+                    sources: prev.sources.filter((item) => item.id !== id),
+                  }
+                : null
+            );
+          } catch (err) {
+            setActionError(
+              extractPulseErrorMessage(err, t('pulseDeck.errSaveSource'))
+            );
+          }
+        }}
+        onTestSource={async (
+          id,
+          ingest
+        ): Promise<PulseSourceTestResult | null> => {
+          setActionError('');
+          try {
+            if (typeof pulseApi.testSource === 'function') {
+              return await pulseApi.testSource(id, ingest);
+            }
+            return {
+              ok: true,
+              sourceId: id,
+              mode: 'mock',
+              message: 'Connectivity probe succeeded.',
+            };
+          } catch (err) {
+            setActionError(
+              extractPulseErrorMessage(err, t('pulseDeck.errSaveSource'))
+            );
+            return null;
+          }
+        }}
+      />
+    );
+  }
 
-      {activeTab === 'sources' ? (
-        <AutomationSourcesTab
-          renderHeader={renderHeader}
-          sources={displayedSources}
-          initialAddingNew={sourcesInitialAdding}
-          onUpsertSource={async (input: PulseSourceUpsertInput) => {
-            setActionError('');
-            try {
-              const created = await pulseApi.upsertSource(input);
-              setSnapshotData((prev) =>
-                prev
-                  ? {
-                      ...prev,
-                      sources: [
-                        created,
-                        ...prev.sources.filter(
-                          (item) => item.id !== created.id
-                        ),
-                      ],
-                    }
-                  : null
-              );
-              return created;
-            } catch (err) {
-              setActionError(
-                err instanceof Error
-                  ? err.message
-                  : t('pulseDeck.errSaveSource')
-              );
-              return null;
-            }
-          }}
-          onDeleteSource={async (id) => {
-            setActionError('');
-            try {
-              if (typeof pulseApi.deleteSource === 'function') {
-                await pulseApi.deleteSource(id);
+  return (
+    <AutomationTasksTab
+      renderShell={renderShell}
+      tasks={unifiedTasks}
+      pendingInteractions={snapshot?.pendingInteractions ?? []}
+      agentOptions={agentOptions}
+      applyingStarterId={applyingStarterId}
+      customizingStarterId={customizingStarterId}
+      onOpenTaskCanvas={handleOpenTaskCanvas}
+      onToggleTaskEnabled={(task) => void handleToggleTaskEnabled(task)}
+      onDeleteTask={(task) => void handleDeleteTask(task)}
+      onApplyStarter={(starter) => void handleApplyStarter(starter)}
+      onCustomizeStarter={(starter) => void handleCustomizeStarter(starter)}
+      onInteractionResolved={(interactionId) => {
+        setSnapshotData((prev) =>
+          prev
+            ? {
+                ...prev,
+                pendingUserInteractionCount: Math.max(
+                  0,
+                  (prev.pendingUserInteractionCount ?? 0) - 1
+                ),
+                pendingInteractions: (prev.pendingInteractions ?? []).filter(
+                  (item) => item.id !== interactionId
+                ),
               }
-              setSnapshotData((prev) =>
-                prev
-                  ? {
-                      ...prev,
-                      sources: prev.sources.filter((item) => item.id !== id),
-                    }
-                  : null
-              );
-            } catch (err) {
-              setActionError(
-                err instanceof Error
-                  ? err.message
-                  : t('pulseDeck.errSaveSource')
-              );
-            }
-          }}
-          onTestSource={async (
-            id,
-            ingest
-          ): Promise<PulseSourceTestResult | null> => {
-            setActionError('');
-            try {
-              if (typeof pulseApi.testSource === 'function') {
-                return await pulseApi.testSource(id, ingest);
-              }
-              return {
-                ok: true,
-                sourceId: id,
-                mode: 'mock',
-                message: 'Connectivity probe succeeded.',
-              };
-            } catch (err) {
-              setActionError(
-                err instanceof Error
-                  ? err.message
-                  : t('pulseDeck.errSaveSource')
-              );
-              return null;
-            }
-          }}
-        />
-      ) : null}
-    </div>
+            : null
+        );
+        void invalidateSnapshot();
+      }}
+    />
   );
 }
+

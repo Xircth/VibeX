@@ -47,7 +47,7 @@
       "inputBindings": {
         "fixResult": {
           "source": "step_output",
-          "stepId": "diagnose-and-fix",
+          "step_id": "diagnose-and-fix",
           "pointer": "/summary"
         }
       },

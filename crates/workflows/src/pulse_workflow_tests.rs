@@ -1386,3 +1386,33 @@ async fn user_gate_ask_form_validates_schema_and_bounded_loop_caps_at_max_iterat
     );
     assert_eq!(store.run(run.id).await.unwrap().status, "completed");
 }
+
+#[test]
+fn canonical_workflow_examples_deserialize_and_normalize_cleanly() {
+    let examples = [
+        (
+            "github-ci-autofix",
+            include_str!("../../../examples/workflows/github-ci-autofix.vibex-workflow.json"),
+        ),
+        (
+            "feishu-mention-triage",
+            include_str!("../../../examples/workflows/feishu-mention-triage.vibex-workflow.json"),
+        ),
+        (
+            "daily-repo-digest",
+            include_str!("../../../examples/workflows/daily-repo-digest.vibex-workflow.json"),
+        ),
+        (
+            "pr-review-gate",
+            include_str!("../../../examples/workflows/pr-review-gate.vibex-workflow.json"),
+        ),
+    ];
+
+    for (slug, raw) in examples {
+        let definition: WorkflowDefinition = serde_json::from_str(raw)
+            .unwrap_or_else(|err| panic!("failed to deserialize example `{slug}`: {err}"));
+        normalize_definition(definition)
+            .unwrap_or_else(|err| panic!("failed to normalize example `{slug}`: {err}"));
+    }
+}
+

@@ -342,6 +342,17 @@ impl WorkflowExecutionPort for WorkflowStoreExecutionPort {
             .map_err(map_error)
     }
 
+    async fn runs(
+        &self,
+        definition_id: Uuid,
+        limit: u32,
+    ) -> Result<Vec<WorkflowRunView>, ApplicationError> {
+        self.core
+            .runs(definition_id, limit)
+            .await
+            .map_err(map_error)
+    }
+
     async fn steps(&self, run_id: Uuid) -> Result<Vec<WorkflowStepView>, ApplicationError> {
         self.store.steps(run_id).await.map_err(map_error)
     }

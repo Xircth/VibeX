@@ -367,7 +367,7 @@ impl ServerApplicationDomains {
                     "poll",
                     None,
                     None,
-                    "GitHub poll source requires `configJson.repo` in `owner/repo` format"
+                    "GitHub poll source requires a valid repository URL (e.g. `https://github.com/owner/repo`)"
                         .to_string(),
                     now_iso,
                 )
@@ -900,7 +900,7 @@ impl ServerApplicationDomains {
                 .and_then(Value::as_str)
                 .unwrap_or("");
             let Some(repo) = normalize_github_repo(raw_repo) else {
-                let msg = "Invalid GitHub `repo` format; expected `owner/repo`";
+                let msg = "Invalid GitHub repository URL; expected `https://github.com/owner/repo`";
                 let _ = engine
                     .store()
                     .update_source_health_and_cursor(
@@ -1028,21 +1028,60 @@ fn should_poll_github_source(source_id: &str, now_epoch: i64, interval_secs: i64
 }
 
 pub(crate) fn normalize_github_repo(raw: &str) -> Option<String> {
-    let trimmed = raw
-        .trim()
-        .trim_start_matches("https://github.com/")
-        .trim_start_matches("http://github.com/")
-        .trim_matches('/');
-    let cleaned = trimmed.strip_suffix(".git").unwrap_or(trimmed);
-    let (owner, repo) = cleaned.split_once('/')?;
-    if owner.is_empty()
-        || repo.is_empty()
-        || repo.contains('/')
-        || cleaned.chars().any(char::is_whitespace)
+    let without_query = raw.trim().split(['?', '#']).next()?.trim();
+    if without_query.is_empty() || without_query.chars().any(char::is_whitespace) {
+        return None;
+    }
+
+    let path = if let Some(rest) = without_query
+        .strip_prefix("https://")
+        .or_else(|| without_query.strip_prefix("http://"))
     {
+        let (_host, after_host) = rest.split_once('/')?;
+        after_host
+    } else if let Some(rest) = without_query.strip_prefix("ssh://") {
+        let (_host, after_host) = rest.split_once('/')?;
+        after_host
+    } else if let Some(rest) = without_query.strip_prefix("git@") {
+        let (_host, after_colon) = rest.split_once(':')?;
+        after_colon
+    } else {
+        without_query
+    };
+
+    let mut segments = path.trim_matches('/').split('/');
+    let owner = segments.next()?.trim();
+    let repo_raw = segments.next()?.trim();
+    let repo = repo_raw.strip_suffix(".git").unwrap_or(repo_raw);
+    if owner.is_empty() || repo.is_empty() {
+        return None;
+    }
+    // For bare `owner/repo`, reject extra path segments; for full URLs, ignore trailing `/tree/...` or `/actions`.
+    let is_url_like = without_query.contains("://") || without_query.starts_with("git@");
+    if !is_url_like && segments.next().is_some() {
         return None;
     }
     Some(format!("{owner}/{repo}"))
+}
+
+fn infer_github_api_base_from_repo_url(raw_repo: &str) -> Option<String> {
+    let trimmed = raw_repo.trim();
+    let (scheme, rest) = if let Some(r) = trimmed.strip_prefix("https://") {
+        ("https", r)
+    } else if let Some(r) = trimmed.strip_prefix("http://") {
+        ("http", r)
+    } else {
+        return None;
+    };
+    let (host, _) = rest.split_once('/')?;
+    let host_clean = host.trim();
+    if host_clean.is_empty()
+        || host_clean.eq_ignore_ascii_case("github.com")
+        || host_clean.eq_ignore_ascii_case("www.github.com")
+    {
+        return None;
+    }
+    Some(format!("{scheme}://{host_clean}/api/v3"))
 }
 
 async fn fetch_github_workflow_runs(
@@ -1051,11 +1090,17 @@ async fn fetch_github_workflow_runs(
     repo: &str,
     per_page: u32,
 ) -> Result<Vec<Value>, String> {
+    let raw_repo = config_json
+        .get("repo")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    let inferred_api_base = infer_github_api_base_from_repo_url(raw_repo);
     let api_base = config_json
         .get("apiBaseUrl")
         .and_then(Value::as_str)
         .map(str::trim)
         .filter(|s| !s.is_empty())
+        .or(inferred_api_base.as_deref())
         .unwrap_or(DEFAULT_GITHUB_API_BASE)
         .trim_end_matches('/');
     let token = config_json
@@ -1421,3 +1466,56 @@ fn truncate_snippet(raw: &str, max_chars: usize) -> String {
         format!("{}…", trimmed.chars().take(max_chars).collect::<String>())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{infer_github_api_base_from_repo_url, normalize_github_repo};
+
+    #[test]
+    fn normalize_github_repo_accepts_full_urls_ssh_and_legacy_slugs() {
+        assert_eq!(
+            normalize_github_repo("https://github.com/octocat/Hello-World"),
+            Some("octocat/Hello-World".to_string())
+        );
+        assert_eq!(
+            normalize_github_repo("https://github.com/octocat/Hello-World.git/"),
+            Some("octocat/Hello-World".to_string())
+        );
+        assert_eq!(
+            normalize_github_repo("https://github.com/octocat/Hello-World/actions?query=branch%3Amain#run"),
+            Some("octocat/Hello-World".to_string())
+        );
+        assert_eq!(
+            normalize_github_repo("git@github.com:octocat/Hello-World.git"),
+            Some("octocat/Hello-World".to_string())
+        );
+        assert_eq!(
+            normalize_github_repo("https://ghe.internal.example/org/service"),
+            Some("org/service".to_string())
+        );
+        assert_eq!(
+            normalize_github_repo("octocat/Hello-World"),
+            Some("octocat/Hello-World".to_string())
+        );
+        assert_eq!(normalize_github_repo("https://github.com/only-owner"), None);
+        assert_eq!(normalize_github_repo("octocat/Hello-World/extra"), None);
+        assert_eq!(normalize_github_repo(""), None);
+    }
+
+    #[test]
+    fn infer_github_api_base_detects_enterprise_hosts_only() {
+        assert_eq!(
+            infer_github_api_base_from_repo_url("https://github.com/octocat/Hello-World"),
+            None
+        );
+        assert_eq!(
+            infer_github_api_base_from_repo_url("octocat/Hello-World"),
+            None
+        );
+        assert_eq!(
+            infer_github_api_base_from_repo_url("https://ghe.internal.example/org/service"),
+            Some("https://ghe.internal.example/api/v3".to_string())
+        );
+    }
+}
+

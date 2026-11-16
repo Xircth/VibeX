@@ -13,6 +13,7 @@ import {
 } from '@vibex/plugin-sdk';
 
 import { registerBuiltinPanels } from '@/components/layout/panels/PanelRegistry';
+import { requestOpenPulseDeck } from '@/components/kanban/pulseDeckEvents';
 import { clearPluginCrashState } from '@/components/plugins/PluginBoundary';
 import { registerBuiltinCommands } from '@/components/search/SearchPalette';
 import { conversationApi } from '@/features/conversation/conversationApi';
@@ -1562,12 +1563,7 @@ export const CORE_FOUNDATION_PLUGIN_DESCRIPTORS: readonly CoreFoundationPluginDe
         'vibex.workflow-runner',
       ],
       injects: ['vibex.agent-runtime'],
-      settingsPath: '/settings/automations',
       onActivate: (ctx) => {
-        registerBuiltinSettingsPages({
-          ctx,
-          paths: ['/settings/automations'],
-        });
         registerBuiltinCommands({ ctx });
         ctx.ui.registerSlashCommand({
           id: 'vibex.core.automation:schedule',
@@ -1575,9 +1571,7 @@ export const CORE_FOUNDATION_PLUGIN_DESCRIPTORS: readonly CoreFoundationPluginDe
           title: 'Schedule Automation',
           description: 'Create or manage a recurring scheduled automation',
           execute: () => {
-            dispatchHostCustomEvent('vibex:open-settings', {
-              section: 'automations',
-            });
+            requestOpenPulseDeck({ navigateToKanban: true });
           },
         });
         bindCoreDomainServices(
@@ -1595,12 +1589,10 @@ export const CORE_FOUNDATION_PLUGIN_DESCRIPTORS: readonly CoreFoundationPluginDe
             injects: ['vibex.agent-runtime'],
           },
           {
-            getSettingsPath: () => '/settings/automations',
+            getSettingsPath: () => null,
             getSupportedTriggers: () => ['cron', 'interval', 'manual'] as const,
             openAutomationSettings: () =>
-              dispatchHostCustomEvent('vibex:open-settings', {
-                section: 'automations',
-              }),
+              requestOpenPulseDeck({ navigateToKanban: true }),
           },
           [],
           ['vibex.core.agent-runtime']

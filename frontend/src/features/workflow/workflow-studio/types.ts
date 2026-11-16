@@ -9,6 +9,7 @@ import type {
   NotifyStepSpec,
   WorkflowBinding,
   WorkflowDefinition,
+  WorkflowDefinitionSummary,
   WorkflowEventRecord,
   WorkflowReviewDecision,
   WorkflowRunView,
@@ -25,6 +26,7 @@ import type {
   GroupDispatchMode,
   PresetOrchestratorKind,
   PulseEvalMode,
+  PulseOutboxEntryView,
   PulseSourceView,
   PulseTemporalSpec,
   PulseWorkspaceIsolation,
@@ -69,6 +71,7 @@ export type StudioStepCommon = {
   subscribeThread?: boolean;
   threadKeyTemplate?: string | null;
   branchPorts?: Record<string, string>;
+  targetPorts?: Record<string, string>;
   joinMode?: StudioJoinMode;
 };
 
@@ -225,13 +228,20 @@ export type StudioNodeData = {
   replayEnvelope?: EventEnvelope | null;
   outgoingCounts?: Record<string, number>;
   totalOutgoingCount?: number;
+  connectedHandles?: ReadonlySet<string>;
   onSelect: (stepId: string) => void;
   onToggleLog: (stepId: string) => void;
   onTriggerEvalModeChange?: (stepId: string, evalMode: PulseEvalMode) => void;
   onQuickAddStep?: (parentStepId: string) => void;
 };
 
-export type StudioNode = Node<StudioNodeData, 'workflowStep'>;
+export type StudioStepNode = Node<StudioNodeData, 'workflowStep'>;
+export type StudioInspectorNode = Node<{ stepId: string }, 'workflowInspector'>;
+export type StudioNode = StudioStepNode | StudioInspectorNode;
+
+export function isStudioStepNode(node: StudioNode): node is StudioStepNode {
+  return node.type !== 'workflowInspector';
+}
 
 export type WorkflowStudioDefinitionInput =
   | StudioWorkflowDefinition
@@ -243,8 +253,13 @@ export type WorkflowStudioProps<
   definition: TDef;
   onDefinitionChange?: (definition: TDef) => void;
   run?: WorkflowRunView | null;
+  runs?: WorkflowRunView[];
+  selectedRunId?: string | null;
+  onSelectRunId?: (runId: string) => void;
+  recordsLoading?: boolean;
   steps?: WorkflowStepView[];
   events?: WorkflowEventRecord[];
+  outboxEntries?: PulseOutboxEntryView[];
   dirty?: boolean;
   saving?: boolean;
   publishing?: boolean;
@@ -258,6 +273,11 @@ export type WorkflowStudioProps<
   onBack?: () => void;
   editorName?: string;
   onEditorNameChange?: (name: string) => void;
+  taskCatalog?: readonly WorkflowDefinitionSummary[];
+  selectedDefinitionId?: string | null;
+  onSelectTask?: (definitionId: string) => void;
+  onCreateNewTask?: () => void;
+  rightToolbarSlot?: ReactNode;
   agentOptions?: WorkflowStudioAgentOption[];
   bots?: readonly CollaborationBotOption[];
   spaces?: readonly CollaborationSpaceOption[];
@@ -295,6 +315,10 @@ export type WorkflowStudioProps<
 };
 
 export const WORKFLOW_NODE_WIDTH = 280;
+export const WORKFLOW_INSPECTOR_WIDTH = 400;
+export const INSPECTOR_DOCK_GAP_X = 48;
+export const INSPECTOR_NODE_PREFIX = 'workflow-inspector:';
+export const INSPECTOR_EDGE_PREFIX = 'inspector-link:';
 export const CONFIRMATION_NODE_WIDTH = 148;
 export const CONFIRMATION_NODE_HEIGHT = 44;
 export const CONFIRMATION_OFFSET = { x: 324, y: 20 };
@@ -303,6 +327,20 @@ export function confirmationParentId(nodeId: string) {
   return nodeId.startsWith('confirmation:')
     ? nodeId.slice('confirmation:'.length)
     : null;
+}
+
+export function inspectorNodeId(stepId: string) {
+  return `${INSPECTOR_NODE_PREFIX}${stepId}`;
+}
+
+export function inspectorParentId(nodeId: string) {
+  return nodeId.startsWith(INSPECTOR_NODE_PREFIX)
+    ? nodeId.slice(INSPECTOR_NODE_PREFIX.length)
+    : null;
+}
+
+export function isInspectorEdgeId(edgeId: string) {
+  return edgeId.startsWith(INSPECTOR_EDGE_PREFIX);
 }
 
 export const EMPTY_STEPS: WorkflowStepView[] = [];

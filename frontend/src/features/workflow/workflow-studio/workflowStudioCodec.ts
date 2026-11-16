@@ -42,6 +42,8 @@ type StudioPhaseMetadata = {
   threadKeyTemplate?: string | null;
   hasBranchPorts?: boolean;
   branchPorts?: Record<string, string>;
+  hasTargetPorts?: boolean;
+  targetPorts?: Record<string, string>;
   hasJoinMode?: boolean;
   joinMode?: StudioJoinMode;
   trigger?: {
@@ -165,6 +167,13 @@ function applyCommonStudioMetadata<T extends StudioStepCommon>(
   } else if (inferredBranchPorts && Object.keys(inferredBranchPorts).length > 0) {
     next.branchPorts = inferredBranchPorts;
   }
+  if (
+    meta?.hasTargetPorts &&
+    meta.targetPorts &&
+    Object.keys(meta.targetPorts).length > 0
+  ) {
+    next.targetPorts = meta.targetPorts;
+  }
   if (meta?.hasJoinMode && meta.joinMode) {
     next.joinMode = meta.joinMode;
   }
@@ -198,6 +207,13 @@ function captureCommonStudioMetadata(
   ) {
     meta.hasBranchPorts = true;
     meta.branchPorts = step.branchPorts;
+  }
+  if (
+    step.targetPorts !== undefined &&
+    Object.keys(step.targetPorts).length > 0
+  ) {
+    meta.hasTargetPorts = true;
+    meta.targetPorts = step.targetPorts;
   }
   if (step.joinMode !== undefined) {
     meta.hasJoinMode = true;

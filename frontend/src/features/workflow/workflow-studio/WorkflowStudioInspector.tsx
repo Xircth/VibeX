@@ -12,10 +12,13 @@ import { dispatchAutomationAgentRequest } from '@/components/kanban/automation/a
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { toast } from '@/components/ui/toast';
+import { useOptionalKanbanSessionContext } from '@/contexts/KanbanSessionContext';
 import { MemberBotAvatar } from '@/features/collaboration/MemberBotAvatar';
+import { dismissCreateSessionOverlays } from '@/lib/requestCreateSession';
 import { cn } from '@/lib/utils';
+import { useLayoutStore } from '@/stores/useLayoutStore';
 
-import { WorkflowStepConversation } from '../WorkflowStepConversation';
+import { WorkflowStepExecutionRecords } from './WorkflowStepExecutionRecords';
 import { StudioAgentIcon } from './StudioAgentIcon';
 import type { WorkflowStudioView } from './useWorkflowStudio';
 import { describeStepPresentation } from './workflowStepPresentation';
@@ -35,24 +38,19 @@ export function WorkflowStudioInspector({
     setSelectedStepId,
     inspectorTab,
     setInspectorTab,
-    unsavedStepIds,
-    selectedRun,
-    activeWorktree,
-    onPauseStep,
-    onSubmitStepInput,
-    onAcceptCandidate,
     agentOptions,
     bots,
-    spaces,
     sources,
     projectId,
     definitionId,
     sourceRuleId,
     defaultAgentId,
     outputLanguage,
+    spaces,
     onAgentDispatched,
   } = studio;
 
+  const kanbanSession = useOptionalKanbanSessionContext();
   const [agentInstruction, setAgentInstruction] = useState('');
   const [dispatchingAgent, setDispatchingAgent] = useState(false);
 
@@ -94,12 +92,31 @@ export function WorkflowStudioInspector({
         bots,
       });
       setAgentInstruction('');
+      if (dispatched.sessionId && dispatched.workspaceId) {
+        const layout = useLayoutStore.getState();
+        layout.setRightPanelVisible(true);
+        layout.setKanbanSessionVisible(true);
+        dismissCreateSessionOverlays();
+        kanbanSession?.activateExecutionSession({
+          sessionId: dispatched.sessionId,
+          workspaceId: dispatched.workspaceId,
+        });
+      }
       toast.success(
         t('inspector.agentEdit.dispatchedToast', { title: dispatched.title })
       );
       onAgentDispatched?.();
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : String(error));
+      const msg =
+        error instanceof Error
+          ? error.message
+          : typeof error === 'object' &&
+              error !== null &&
+              'message' in error &&
+              typeof (error as { message?: unknown }).message === 'string'
+            ? (error as { message: string }).message
+            : String(error);
+      toast.error(msg);
     } finally {
       setDispatchingAgent(false);
     }
@@ -109,9 +126,12 @@ export function WorkflowStudioInspector({
     <aside
       ref={inspectorRef}
       data-testid="workflow-node-inspector"
-      className="workflow-node-inspector absolute right-3 top-16 z-20 flex max-h-[calc(100%-76px)] w-[min(400px,calc(100%-24px))] flex-col overflow-hidden rounded-xl border border-border bg-card shadow-xl"
+      className={cn(
+        'workflow-node-inspector flex w-[400px] flex-col overflow-hidden rounded-[var(--radius-container)] border border-border bg-card shadow-xl',
+        inspectorTab === 'conversation' ? 'h-[520px]' : 'max-h-[540px]'
+      )}
     >
-      <div className="flex items-center gap-2 border-b border-border/70 px-3.5 py-2.5">
+      <div className="workflow-inspector-drag-handle flex cursor-grab items-center gap-2 px-3.5 pt-3 pb-1.5 select-none active:cursor-grabbing">
         <div className="flex min-w-0 flex-1 items-center gap-2">
           {sessionOrAgentStep ? (
             <StudioAgentIcon
@@ -128,7 +148,7 @@ export function WorkflowStudioInspector({
           ) : null}
           <span
             data-testid="inspector-node-title"
-            className="truncate text-sm font-semibold text-foreground"
+            className="truncate text-[13px] font-semibold text-foreground"
             title={presentation.headline}
           >
             {presentation.headline}
@@ -138,7 +158,7 @@ export function WorkflowStudioInspector({
         <div
           role="tablist"
           aria-label={t('inspector.tabs.overview')}
-          className="flex shrink-0 items-center rounded-lg bg-muted/65 p-0.5"
+          className="nodrag nopan flex shrink-0 items-center rounded-[var(--radius-element)] bg-muted/65 p-0.5"
         >
           {(['info', 'conversation'] as const).map((tab) => (
             <button
@@ -148,7 +168,7 @@ export function WorkflowStudioInspector({
               key={tab}
               data-testid={`inspector-tab-${tab}`}
               className={cn(
-                'flex h-7 items-center gap-1.5 rounded-md px-2.5 text-xs font-medium transition-colors',
+                'flex h-7 items-center gap-1.5 rounded-[var(--radius-inner)] px-2.5 text-xs font-medium transition-colors',
                 inspectorTab === tab
                   ? 'bg-card text-foreground shadow-sm'
                   : 'text-muted-foreground hover:text-foreground'
@@ -159,9 +179,10 @@ export function WorkflowStudioInspector({
                   event.preventDefault();
                   const nextTab = tab === 'info' ? 'conversation' : 'info';
                   setInspectorTab(nextTab);
-                  const sibling = event.currentTarget.parentElement?.querySelector<HTMLButtonElement>(
-                    `[data-testid="inspector-tab-${nextTab}"]`
-                  );
+                  const sibling =
+                    event.currentTarget.parentElement?.querySelector<HTMLButtonElement>(
+                      `[data-testid="inspector-tab-${nextTab}"]`
+                    );
                   sibling?.focus();
                 }
               }}
@@ -181,7 +202,7 @@ export function WorkflowStudioInspector({
         <Button
           size="icon"
           variant="ghost"
-          className="size-7 shrink-0"
+          className="nodrag nopan size-7 shrink-0"
           onClick={() => setSelectedStepId(null)}
           aria-label={t('studio.close')}
         >
@@ -191,22 +212,16 @@ export function WorkflowStudioInspector({
 
       <div
         className={cn(
-          'min-h-0 flex-1 p-3.5',
-          inspectorTab === 'conversation' ? 'overflow-hidden' : 'overflow-auto'
+          'nodrag nopan nowheel min-h-0 flex-1 select-text',
+          inspectorTab === 'conversation'
+            ? 'overflow-hidden px-2.5 py-1.5'
+            : 'overflow-auto px-3.5 py-2'
         )}
       >
         {inspectorTab === 'conversation' ? (
-          <WorkflowStepConversation
-            stepRun={selectedRun}
-            saved={!unsavedStepIds.has(selectedStep.id)}
-            workspacePath={activeWorktree?.path}
-            onPause={() => onPauseStep?.(selectedStep.id)}
-            onSubmit={(text) => onSubmitStepInput?.(selectedStep.id, text)}
-            onConfirm={
-              selectedRun?.awaitingAcceptance
-                ? () => onAcceptCandidate?.(selectedStep.id)
-                : undefined
-            }
+          <WorkflowStepExecutionRecords
+            selectedStep={selectedStep}
+            studio={studio}
           />
         ) : (
           <WorkflowStudioInspectorInfo
@@ -216,13 +231,10 @@ export function WorkflowStudioInspector({
         )}
       </div>
 
-      {onDefinitionChange ? (
-        <div className="border-t border-border/70 bg-muted/25 px-3.5 py-2.5">
-          <div className="mb-1.5 flex items-center gap-1.5 text-[11px] font-medium text-muted-foreground">
-            <Sparkles className="size-3 text-primary" />
-            <span>{t('inspector.agentEdit.label')}</span>
-          </div>
-          <div className="flex items-center gap-1.5">
+      {onDefinitionChange && inspectorTab === 'info' ? (
+        <div className="nodrag nopan nowheel px-3.5 pb-3 pt-1">
+          <div className="flex items-center gap-1.5 rounded-[var(--radius-element)] bg-muted/45 p-1 pl-2.5">
+            <Sparkles className="size-3.5 shrink-0 text-primary" />
             <Input
               data-testid="inspector-agent-step-input"
               value={agentInstruction}
@@ -235,12 +247,12 @@ export function WorkflowStudioInspector({
                 }
               }}
               placeholder={t('inspector.agentEdit.placeholder')}
-              className="h-8 flex-1 text-xs"
+              className="h-7 flex-1 border-transparent bg-transparent px-1 text-xs shadow-none focus-visible:border-transparent focus-visible:[box-shadow:none]"
             />
             <Button
               type="button"
               size="icon"
-              className="size-8 shrink-0"
+              className="size-7 shrink-0"
               data-testid="inspector-agent-step-submit"
               aria-label={t('inspector.agentEdit.submitAria')}
               disabled={!agentInstruction.trim() || dispatchingAgent}

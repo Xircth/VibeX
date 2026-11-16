@@ -296,6 +296,14 @@ impl WorkflowCore {
         self.store.versions(definition_id, limit).await
     }
 
+    pub async fn runs(
+        &self,
+        definition_id: Uuid,
+        limit: u32,
+    ) -> Result<Vec<WorkflowRunView>, WorkflowError> {
+        self.store.runs(definition_id, limit).await
+    }
+
     pub async fn start(&self, input: StartWorkflow) -> Result<WorkflowRunView, WorkflowError> {
         let version = self.store.version(input.definition_version_id).await?;
         let definition = version.definition()?;

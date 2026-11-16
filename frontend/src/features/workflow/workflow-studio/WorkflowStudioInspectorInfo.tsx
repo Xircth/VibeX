@@ -1,9 +1,14 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Check, CirclePlay, Trash2 } from 'lucide-react';
 
+import {
+  AstryxSelect,
+  type AstryxSelectOption,
+} from '@/components/ui/astryx-select';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
 import { MemberBotAvatar } from '@/features/collaboration/MemberBotAvatar';
 
 import { StudioAgentIcon } from './StudioAgentIcon';
@@ -60,47 +65,116 @@ export function WorkflowStudioInspectorInfo({
   const isSessionTestable =
     selectedStep.kind === 'agent' || selectedStep.kind === 'session';
 
+  const agentSelectOptions = useMemo<AstryxSelectOption[]>(() => {
+    const currentAgentId =
+      selectedStep.kind === 'agent' || selectedStep.kind === 'session'
+        ? selectedStep.agentId
+        : '';
+    const base: AstryxSelectOption[] = [];
+    if (
+      currentAgentId &&
+      !agentOptions.some((option) => option.value === currentAgentId)
+    ) {
+      base.push({
+        value: currentAgentId,
+        label: currentAgentId,
+        icon: (
+          <StudioAgentIcon
+            agentId={currentAgentId}
+            agentOptions={agentOptions}
+            className="size-3.5 shrink-0"
+          />
+        ),
+      });
+    }
+    for (const option of agentOptions) {
+      base.push({
+        value: option.value,
+        label: option.label,
+        icon: (
+          <StudioAgentIcon
+            agentId={option.value}
+            agentOptions={agentOptions}
+            className="size-3.5 shrink-0"
+          />
+        ),
+      });
+    }
+    return base;
+  }, [agentOptions, selectedStep]);
+
+  const botSelectOptions = useMemo<AstryxSelectOption[]>(() => {
+    const currentMemberId =
+      selectedStep.kind === 'bot' ? selectedStep.memberId : '';
+    const base: AstryxSelectOption[] = [];
+    if (
+      currentMemberId &&
+      !bots.some((bot) => bot.memberId === currentMemberId)
+    ) {
+      base.push({
+        value: currentMemberId,
+        label: presentation.identityBadge,
+        icon: presentation.botAvatar ? (
+          <MemberBotAvatar
+            config={presentation.botAvatar}
+            animated={false}
+            className="size-3.5 shrink-0"
+          />
+        ) : undefined,
+      });
+    }
+    for (const bot of bots) {
+      base.push({
+        value: bot.memberId,
+        label: bot.displayName,
+        icon: (
+          <MemberBotAvatar
+            config={bot.avatar}
+            animated={false}
+            className="size-3.5 shrink-0"
+          />
+        ),
+      });
+    }
+    return base;
+  }, [bots, presentation.botAvatar, presentation.identityBadge, selectedStep]);
+
+  const spaceSelectOptions = useMemo<AstryxSelectOption[]>(() => {
+    const currentSpaceId =
+      selectedStep.kind === 'group_stage' ? selectedStep.spaceId : '';
+    const base: AstryxSelectOption[] = [];
+    if (
+      currentSpaceId &&
+      !spaces.some((space) => space.spaceId === currentSpaceId)
+    ) {
+      base.push({
+        value: currentSpaceId,
+        label: currentSpaceId,
+      });
+    }
+    for (const space of spaces) {
+      base.push({
+        value: space.spaceId,
+        label: space.displayName,
+      });
+    }
+    return base;
+  }, [selectedStep, spaces]);
+
   return (
-    <div className="space-y-3.5" data-testid="inspector-simple-overview">
-      <div className="space-y-2 rounded-lg border border-border bg-muted/35 p-3">
+    <div className="space-y-3" data-testid="inspector-simple-overview">
+      {selectedStep.kind === 'trigger' ? (
         <div className="flex flex-wrap items-center gap-1.5">
-          {isSessionTestable ? (
-            <span className="inline-flex h-5 items-center gap-1.5 rounded-md border border-border bg-card px-2 text-2xs font-medium text-foreground">
-              <StudioAgentIcon
-                agentId={selectedStep.agentId}
-                agentOptions={agentOptions}
-                className="size-3.5 shrink-0"
-              />
-              <span>{presentation.identityBadge}</span>
-            </span>
-          ) : selectedStep.kind === 'bot' && presentation.botAvatar ? (
-            <span className="inline-flex h-5 items-center gap-1.5 rounded-md border border-border bg-card px-2 text-2xs font-medium text-foreground">
-              <MemberBotAvatar
-                config={presentation.botAvatar}
-                animated={false}
-                className="size-3.5 shrink-0"
-              />
-              <span>{presentation.identityBadge}</span>
-            </span>
-          ) : (
-            <span className="inline-flex h-5 items-center rounded-md border border-border bg-card px-2 text-2xs font-medium text-foreground">
-              {presentation.identityBadge}
-            </span>
-          )}
-
-          {selectedStep.kind === 'trigger' ? (
-            <span className="inline-flex h-5 items-center rounded-md bg-muted px-2 text-2xs text-muted-foreground tabular-nums">
-              {selectedStep.triggerKind === 'temporal' && selectedStep.temporal
-                ? formatWorkflowTemporalBadge(selectedStep.temporal, t)
-                : `${formatWorkflowEventSource(selectedStep.sourceKind, t)} · ${selectedStep.eventType}`}
-            </span>
-          ) : null}
+          <span className="inline-flex h-5 items-center rounded-[var(--radius-inner)] bg-muted/70 px-2 text-2xs font-medium text-foreground">
+            {presentation.identityBadge}
+          </span>
+          <span className="inline-flex h-5 items-center rounded-[var(--radius-inner)] bg-muted/50 px-2 font-mono text-2xs text-muted-foreground tabular-nums">
+            {selectedStep.triggerKind === 'temporal' && selectedStep.temporal
+              ? formatWorkflowTemporalBadge(selectedStep.temporal, t)
+              : `${formatWorkflowEventSource(selectedStep.sourceKind, t)} · ${selectedStep.eventType}`}
+          </span>
         </div>
-
-        <p className="text-xs leading-relaxed text-muted-foreground">
-          {presentation.humanRoleSummary}
-        </p>
-      </div>
+      ) : null}
 
       {selectedRun?.awaitingAcceptance ? (
         <Button
@@ -117,10 +191,13 @@ export function WorkflowStudioInspectorInfo({
       selectedRun?.status === 'waiting_approval' ? (
         <div
           data-testid="inspector-approval-card"
-          className="space-y-2.5 rounded-lg border border-warning/35 bg-warning/[0.06] p-3"
+          className="space-y-2.5 rounded-[var(--radius-element)] bg-warning/[0.08] p-3"
         >
-          <div className="space-y-1.5">
-            <Label htmlFor="workflow-approval-note">
+          <div className="space-y-1">
+            <Label
+              htmlFor="workflow-approval-note"
+              className="text-[11px] text-muted-foreground"
+            >
               {t('inspector.approvalNoteLabel')}
             </Label>
             <Input
@@ -172,7 +249,7 @@ export function WorkflowStudioInspectorInfo({
       ) : null}
 
       {selectedRun?.status === 'needs_review' && isSessionTestable ? (
-        <div className="grid grid-cols-3 gap-2 rounded-lg border border-warning/35 bg-warning/[0.06] p-3">
+        <div className="grid grid-cols-3 gap-2 rounded-[var(--radius-element)] bg-warning/[0.08] p-2.5">
           <Button
             size="sm"
             onClick={() =>
@@ -214,11 +291,14 @@ export function WorkflowStudioInspectorInfo({
       ) : null}
 
       {onDefinitionChange ? (
-        <div className="space-y-3">
+        <div className="space-y-2.5">
           {selectedStep.kind === 'trigger' ? (
             <>
-              <div className="space-y-1.5">
-                <Label htmlFor="inspector-trigger-title">
+              <div className="space-y-1">
+                <Label
+                  htmlFor="inspector-trigger-title"
+                  className="text-[11px] text-muted-foreground"
+                >
                   {t('inspector.lightTweaks.triggerTitle')}
                 </Label>
                 <Input
@@ -238,8 +318,11 @@ export function WorkflowStudioInspectorInfo({
               </div>
               {selectedStep.triggerKind === 'temporal' &&
               selectedStep.temporal?.kind === 'cron' ? (
-                <div className="space-y-1.5">
-                  <Label htmlFor="inspector-trigger-cron">
+                <div className="space-y-1">
+                  <Label
+                    htmlFor="inspector-trigger-cron"
+                    className="text-[11px] text-muted-foreground"
+                  >
                     {t('inspector.lightTweaks.cronExpression')}
                   </Label>
                   <Input
@@ -270,43 +353,39 @@ export function WorkflowStudioInspectorInfo({
 
           {selectedStep.kind === 'session' || selectedStep.kind === 'agent' ? (
             <>
-              <div className="space-y-1.5">
-                <Label htmlFor="inspector-step-agent">
+              <div className="space-y-1">
+                <Label
+                  htmlFor="inspector-step-agent"
+                  className="text-[11px] text-muted-foreground"
+                >
                   {t('inspector.lightTweaks.agentLabel')}
                 </Label>
-                <select
+                <AstryxSelect
                   id="inspector-step-agent"
                   data-testid="inspector-step-agent"
+                  ariaLabel={t('inspector.lightTweaks.agentLabel')}
                   value={selectedStep.agentId}
-                  onChange={(event) => {
-                    const nextAgentId = event.target.value;
+                  options={agentSelectOptions}
+                  showSelectedIcon
+                  size="compact"
+                  className="w-full"
+                  onChange={(nextAgentId) => {
                     updateStep(selectedStep.id, (step) =>
                       step.kind === 'session' || step.kind === 'agent'
                         ? { ...step, agentId: nextAgentId }
                         : step
                     );
                   }}
-                  className="h-8 w-full rounded-md border border-border bg-background px-2.5 text-xs font-medium text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                >
-                  {!agentOptions.some(
-                    (option) => option.value === selectedStep.agentId
-                  ) ? (
-                    <option value={selectedStep.agentId}>
-                      {selectedStep.agentId}
-                    </option>
-                  ) : null}
-                  {agentOptions.map((option) => (
-                    <option key={option.value} value={option.value}>
-                      {option.label}
-                    </option>
-                  ))}
-                </select>
+                />
               </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="inspector-step-prompt">
+              <div className="space-y-1">
+                <Label
+                  htmlFor="inspector-step-prompt"
+                  className="text-[11px] text-muted-foreground"
+                >
                   {t('inspector.lightTweaks.promptLabel')}
                 </Label>
-                <textarea
+                <Textarea
                   id="inspector-step-prompt"
                   data-testid="inspector-step-prompt"
                   value={selectedStep.prompt}
@@ -319,7 +398,7 @@ export function WorkflowStudioInspectorInfo({
                     );
                   }}
                   rows={4}
-                  className="w-full resize-y rounded-md border border-border bg-background px-3 py-2 text-xs leading-relaxed text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  className="min-h-[88px] resize-y text-xs leading-relaxed"
                 />
               </div>
             </>
@@ -327,43 +406,39 @@ export function WorkflowStudioInspectorInfo({
 
           {selectedStep.kind === 'bot' ? (
             <>
-              <div className="space-y-1.5">
-                <Label htmlFor="inspector-step-bot">
+              <div className="space-y-1">
+                <Label
+                  htmlFor="inspector-step-bot"
+                  className="text-[11px] text-muted-foreground"
+                >
                   {t('inspector.lightTweaks.botLabel')}
                 </Label>
-                <select
+                <AstryxSelect
                   id="inspector-step-bot"
                   data-testid="inspector-step-bot"
+                  ariaLabel={t('inspector.lightTweaks.botLabel')}
                   value={selectedStep.memberId}
-                  onChange={(event) => {
-                    const nextMemberId = event.target.value;
+                  options={botSelectOptions}
+                  showSelectedIcon
+                  size="compact"
+                  className="w-full"
+                  onChange={(nextMemberId) => {
                     updateStep(selectedStep.id, (step) =>
                       step.kind === 'bot'
                         ? { ...step, memberId: nextMemberId }
                         : step
                     );
                   }}
-                  className="h-8 w-full rounded-md border border-border bg-background px-2.5 text-xs font-medium text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                >
-                  {!bots.some(
-                    (bot) => bot.memberId === selectedStep.memberId
-                  ) ? (
-                    <option value={selectedStep.memberId}>
-                      {presentation.identityBadge}
-                    </option>
-                  ) : null}
-                  {bots.map((bot) => (
-                    <option key={bot.memberId} value={bot.memberId}>
-                      {bot.displayName}
-                    </option>
-                  ))}
-                </select>
+                />
               </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="inspector-step-prompt">
+              <div className="space-y-1">
+                <Label
+                  htmlFor="inspector-step-prompt"
+                  className="text-[11px] text-muted-foreground"
+                >
                   {t('inspector.lightTweaks.promptLabel')}
                 </Label>
-                <textarea
+                <Textarea
                   id="inspector-step-prompt"
                   data-testid="inspector-step-prompt"
                   value={selectedStep.prompt}
@@ -376,7 +451,7 @@ export function WorkflowStudioInspectorInfo({
                     );
                   }}
                   rows={4}
-                  className="w-full resize-y rounded-md border border-border bg-background px-3 py-2 text-xs leading-relaxed text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  className="min-h-[88px] resize-y text-xs leading-relaxed"
                 />
               </div>
             </>
@@ -384,38 +459,30 @@ export function WorkflowStudioInspectorInfo({
 
           {selectedStep.kind === 'group_stage' ? (
             <>
-              <div className="space-y-1.5">
-                <Label htmlFor="inspector-step-space">
+              <div className="space-y-1">
+                <Label
+                  htmlFor="inspector-step-space"
+                  className="text-[11px] text-muted-foreground"
+                >
                   {t('inspector.lightTweaks.groupLabel')}
                 </Label>
                 {spaces.length > 0 ? (
-                  <select
+                  <AstryxSelect
                     id="inspector-step-space"
                     data-testid="inspector-step-space"
+                    ariaLabel={t('inspector.lightTweaks.groupLabel')}
                     value={selectedStep.spaceId}
-                    onChange={(event) => {
-                      const nextSpaceId = event.target.value;
+                    options={spaceSelectOptions}
+                    size="compact"
+                    className="w-full"
+                    onChange={(nextSpaceId) => {
                       updateStep(selectedStep.id, (step) =>
                         step.kind === 'group_stage'
                           ? { ...step, spaceId: nextSpaceId }
                           : step
                       );
                     }}
-                    className="h-8 w-full rounded-md border border-border bg-background px-2.5 text-xs font-medium text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                  >
-                    {!spaces.some(
-                      (space) => space.spaceId === selectedStep.spaceId
-                    ) ? (
-                      <option value={selectedStep.spaceId}>
-                        {selectedStep.spaceId}
-                      </option>
-                    ) : null}
-                    {spaces.map((space) => (
-                      <option key={space.spaceId} value={space.spaceId}>
-                        {space.displayName}
-                      </option>
-                    ))}
-                  </select>
+                  />
                 ) : (
                   <Input
                     id="inspector-step-space"
@@ -433,11 +500,14 @@ export function WorkflowStudioInspectorInfo({
                   />
                 )}
               </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="inspector-step-prompt">
+              <div className="space-y-1">
+                <Label
+                  htmlFor="inspector-step-prompt"
+                  className="text-[11px] text-muted-foreground"
+                >
                   {t('inspector.lightTweaks.promptLabel')}
                 </Label>
-                <textarea
+                <Textarea
                   id="inspector-step-prompt"
                   data-testid="inspector-step-prompt"
                   value={selectedStep.prompt}
@@ -450,7 +520,7 @@ export function WorkflowStudioInspectorInfo({
                     );
                   }}
                   rows={3}
-                  className="w-full resize-y rounded-md border border-border bg-background px-3 py-2 text-xs leading-relaxed text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  className="min-h-[76px] resize-y text-xs leading-relaxed"
                 />
               </div>
             </>
@@ -458,8 +528,11 @@ export function WorkflowStudioInspectorInfo({
 
           {selectedStep.kind === 'user_gate' ? (
             <>
-              <div className="space-y-1.5">
-                <Label htmlFor="inspector-gate-title">
+              <div className="space-y-1">
+                <Label
+                  htmlFor="inspector-gate-title"
+                  className="text-[11px] text-muted-foreground"
+                >
                   {t('inspector.lightTweaks.gateTitle')}
                 </Label>
                 <Input
@@ -477,11 +550,14 @@ export function WorkflowStudioInspectorInfo({
                   className="h-8 text-xs"
                 />
               </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="inspector-gate-body">
+              <div className="space-y-1">
+                <Label
+                  htmlFor="inspector-gate-body"
+                  className="text-[11px] text-muted-foreground"
+                >
                   {t('inspector.lightTweaks.gateMessage')}
                 </Label>
-                <textarea
+                <Textarea
                   id="inspector-gate-body"
                   data-testid="inspector-gate-body"
                   value={selectedStep.bodyTemplate}
@@ -494,15 +570,18 @@ export function WorkflowStudioInspectorInfo({
                     );
                   }}
                   rows={3}
-                  className="w-full resize-y rounded-md border border-border bg-background px-3 py-2 text-xs leading-relaxed text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  className="min-h-[76px] resize-y text-xs leading-relaxed"
                 />
               </div>
             </>
           ) : null}
 
           {selectedStep.kind === 'approval' || selectedStep.kind === 'notify' ? (
-            <div className="space-y-1.5">
-              <Label htmlFor="inspector-gate-title">
+            <div className="space-y-1">
+              <Label
+                htmlFor="inspector-gate-title"
+                className="text-[11px] text-muted-foreground"
+              >
                 {t('inspector.lightTweaks.gateTitle')}
               </Label>
               <Input
@@ -524,8 +603,11 @@ export function WorkflowStudioInspectorInfo({
 
           {selectedStep.kind === 'outbox_action' ? (
             <>
-              <div className="space-y-1.5">
-                <Label htmlFor="inspector-outbox-title">
+              <div className="space-y-1">
+                <Label
+                  htmlFor="inspector-outbox-title"
+                  className="text-[11px] text-muted-foreground"
+                >
                   {t('inspector.lightTweaks.outboxTitle')}
                 </Label>
                 <Input
@@ -543,11 +625,14 @@ export function WorkflowStudioInspectorInfo({
                   className="h-8 text-xs"
                 />
               </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="inspector-outbox-message">
+              <div className="space-y-1">
+                <Label
+                  htmlFor="inspector-outbox-message"
+                  className="text-[11px] text-muted-foreground"
+                >
                   {t('inspector.lightTweaks.outboxMessage')}
                 </Label>
-                <textarea
+                <Textarea
                   id="inspector-outbox-message"
                   data-testid="inspector-outbox-message"
                   value={selectedStep.payloadTemplate}
@@ -560,7 +645,7 @@ export function WorkflowStudioInspectorInfo({
                     );
                   }}
                   rows={3}
-                  className="w-full resize-y rounded-md border border-border bg-background px-3 py-2 text-xs leading-relaxed text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  className="min-h-[76px] resize-y text-xs leading-relaxed"
                 />
               </div>
             </>
@@ -568,8 +653,11 @@ export function WorkflowStudioInspectorInfo({
 
           {selectedStep.kind === 'control' ? (
             <>
-              <div className="space-y-1.5">
-                <Label htmlFor="inspector-control-title">
+              <div className="space-y-1">
+                <Label
+                  htmlFor="inspector-control-title"
+                  className="text-[11px] text-muted-foreground"
+                >
                   {t('inspector.lightTweaks.controlTitle')}
                 </Label>
                 <Input
@@ -588,8 +676,11 @@ export function WorkflowStudioInspectorInfo({
                 />
               </div>
               {selectedStep.controlKind === 'bounded_loop' ? (
-                <div className="space-y-1.5">
-                  <Label htmlFor="inspector-loop-max">
+                <div className="space-y-1">
+                  <Label
+                    htmlFor="inspector-loop-max"
+                    className="text-[11px] text-muted-foreground"
+                  >
                     {t('inspector.lightTweaks.maxRounds')}
                   </Label>
                   <Input
@@ -621,57 +712,66 @@ export function WorkflowStudioInspectorInfo({
         </div>
       ) : null}
 
-      {onTestNode && isSessionTestable ? (
-        <div className="flex flex-wrap gap-2">
-          <Button
-            size="sm"
-            variant="outline"
-            className="flex-1"
-            onClick={() => {
-              setInspectorTab('conversation');
-              onTestNode(selectedStep.id);
-            }}
-          >
-            <CirclePlay className="mr-1.5 size-3.5" />
-            {t('studio.testNode')}
-          </Button>
-          {run && !onDefinitionChange && onRerunFromNode ? (
+      {(onTestNode && isSessionTestable) ||
+      (onDefinitionChange && definition.steps.length > 1) ? (
+        <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
+          {onTestNode && isSessionTestable ? (
             <Button
               size="sm"
               variant="outline"
-              className="flex-1"
+              data-testid="inspector-test-node-btn"
+              className="h-7 flex-1 text-xs"
+              onClick={() => {
+                setInspectorTab('conversation');
+                onTestNode(selectedStep.id);
+              }}
+            >
+              <CirclePlay className="mr-1.5 size-3.5" />
+              {t('studio.testNode')}
+            </Button>
+          ) : null}
+          {run && !onDefinitionChange && onRerunFromNode && isSessionTestable ? (
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-7 flex-1 text-xs"
               onClick={() => onRerunFromNode(selectedStep.id)}
             >
               {t('studio.rerunDownstream')}
+            </Button>
+          ) : null}
+          {onDefinitionChange && definition.steps.length > 1 ? (
+            <Button
+              variant="ghost"
+              size="sm"
+              className={
+                onTestNode && isSessionTestable
+                  ? 'h-7 px-2.5 text-xs text-muted-foreground hover:bg-destructive/10 hover:text-destructive'
+                  : 'h-7 w-full text-xs text-muted-foreground hover:bg-destructive/10 hover:text-destructive'
+              }
+              onClick={removeSelected}
+            >
+              <Trash2 className="mr-1 size-3.5" />
+              {t('studio.deleteNode')}
             </Button>
           ) : null}
         </div>
       ) : null}
 
       {selectedRun?.outputJson || selectedRun?.candidateOutputJson ? (
-        <details className="rounded-lg border border-border bg-muted/20" open>
-          <summary className="cursor-pointer px-3 py-2 text-xs font-medium">
+        <details
+          className="rounded-[var(--radius-element)] bg-muted/35 p-2.5"
+          open
+        >
+          <summary className="cursor-pointer text-xs font-medium text-foreground">
             {selectedRun.awaitingAcceptance
               ? t('studio.candidateOutput')
               : t('output')}
           </summary>
-          <pre className="max-h-56 overflow-auto border-t border-border p-3 text-[11px] leading-5">
+          <pre className="mt-2 max-h-56 overflow-auto rounded-[var(--radius-inner)] bg-background/75 p-2.5 text-[11px] leading-5">
             {selectedRun.candidateOutputJson ?? selectedRun.outputJson}
           </pre>
         </details>
-      ) : null}
-
-      {onDefinitionChange && definition.steps.length > 1 ? (
-        <div className="pt-1">
-          <Button
-            variant="ghost"
-            size="sm"
-            className="w-full text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
-            onClick={removeSelected}
-          >
-            <Trash2 className="mr-1.5 size-3.5" /> {t('studio.deleteNode')}
-          </Button>
-        </div>
       ) : null}
     </div>
   );

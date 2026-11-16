@@ -10,6 +10,8 @@ import {
   buildFileContextActions,
   type ContextMenuAction,
 } from './GitContextMenu';
+import { toast } from '@/components/ui/toast';
+import { writeTextToClipboard } from '@/utils/clipboard';
 import i18n from '@/i18n';
 
 interface GitStagingAreaProps {
@@ -176,7 +178,13 @@ export const GitStagingArea = memo(function GitStagingArea({
       onUnstageFile,
       onRevertFile: (path: string) =>
         setDiscardTarget({ type: 'files', paths: [path] }),
-      onCopyPath: (path: string) => navigator.clipboard.writeText(path),
+      onCopyPath: (path: string) => {
+        void writeTextToClipboard(path).then((copied) => {
+          if (!copied) {
+            toast.error('Failed to copy file path');
+          }
+        });
+      },
     });
   }, [contextMenu, selectedPaths, onStageFile, onUnstageFile]);
 

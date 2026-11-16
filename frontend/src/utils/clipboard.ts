@@ -84,3 +84,50 @@ export async function readImageFilesFromNavigatorClipboard(): Promise<File[]> {
 
   return files;
 }
+
+export async function writeTextToClipboard(text: string): Promise<boolean> {
+  if (
+    typeof navigator !== 'undefined' &&
+    navigator.clipboard &&
+    typeof navigator.clipboard.writeText === 'function'
+  ) {
+    try {
+      await navigator.clipboard.writeText(text);
+      return true;
+    } catch {
+      // Fall through to execCommand fallback in insecure HTTP contexts or denied permissions.
+    }
+  }
+
+  if (typeof document === 'undefined' || !document.body) {
+    return false;
+  }
+
+  const textarea = document.createElement('textarea');
+  textarea.value = text;
+  textarea.setAttribute('readonly', '');
+  textarea.style.position = 'fixed';
+  textarea.style.top = '-9999px';
+  textarea.style.left = '-9999px';
+  textarea.style.opacity = '0';
+
+  const activeElement =
+    document.activeElement instanceof HTMLElement
+      ? document.activeElement
+      : null;
+
+  document.body.appendChild(textarea);
+  try {
+    textarea.focus({ preventScroll: true });
+    textarea.select();
+    textarea.setSelectionRange(0, text.length);
+    return typeof document.execCommand === 'function'
+      ? document.execCommand('copy')
+      : false;
+  } catch {
+    return false;
+  } finally {
+    textarea.remove();
+    activeElement?.focus({ preventScroll: true });
+  }
+}

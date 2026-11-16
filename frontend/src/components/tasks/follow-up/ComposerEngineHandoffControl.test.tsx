@@ -4,6 +4,7 @@ import { HotkeysProvider } from 'react-hotkeys-hook';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { DbConversationDetail, ExecutorProfileId } from 'shared/types';
 import { sessionListAgentKey } from '@/components/kanban/session-hub/utils';
+import { toast } from '@/components/ui/toast';
 import { conversationApi } from '@/features/conversation/conversationApi';
 import {
   useConversationSessionFacts,
@@ -159,7 +160,7 @@ describe('ComposerEngineHandoffControl', () => {
     }
   });
 
-  it('mounts ProviderInstanceSelector for matching agent instances in composer', async () => {
+  it('mounts ProviderInstanceSelector, notifies default, persists setDefault, and syncs across slots', async () => {
     trackSpy(
       vi.spyOn(providerInstancesApi, 'list').mockResolvedValue([
         {
@@ -188,17 +189,98 @@ describe('ComposerEngineHandoffControl', () => {
         },
       ])
     );
+    const setDefaultSpy = trackSpy(
+      vi.spyOn(providerInstancesApi, 'setDefault').mockResolvedValue(undefined)
+    );
+    const onSelectPrimary = vi.fn();
+    const onSelectSecondary = vi.fn();
 
-    render(<ComposerProviderInstanceSlot agentId="CLAUDE_CODE" />);
+    render(
+      <>
+        <ComposerProviderInstanceSlot
+          agentId="CLAUDE_CODE"
+          selectedInstanceId={null}
+          onSelectInstance={onSelectPrimary}
+        />
+        <ComposerProviderInstanceSlot
+          agentId="CLAUDE_CODE"
+          onSelectInstance={onSelectSecondary}
+        />
+      </>
+    );
+
+    const selects = (await screen.findAllByTestId(
+      'provider-instance-select'
+    )) as HTMLSelectElement[];
+    expect(selects).toHaveLength(2);
+    expect(selects[0].options).toHaveLength(2);
+    expect(selects[0].value).toBe('claude-work');
+    expect(onSelectPrimary).toHaveBeenCalledWith('claude-work');
+
+    fireEvent.change(selects[0], { target: { value: 'claude-personal' } });
+    expect(selects[0].value).toBe('claude-personal');
+    expect(onSelectPrimary).toHaveBeenCalledWith('claude-personal');
+
+    await waitFor(() => {
+      expect(setDefaultSpy).toHaveBeenCalledWith(
+        'claude-code',
+        'claude-personal'
+      );
+      expect(selects[1].value).toBe('claude-personal');
+      expect(onSelectSecondary).toHaveBeenCalledWith('claude-personal');
+    });
+  });
+
+  it('rolls back ComposerProviderInstanceSlot selection and shows toast.error when setDefault fails', async () => {
+    trackSpy(
+      vi.spyOn(providerInstancesApi, 'list').mockResolvedValue([
+        {
+          instanceId: 'claude-work',
+          agentId: 'claude-code',
+          displayName: 'Work OAuth',
+          authMode: { mode: 'OfficialOAuth' },
+          isDefault: true,
+          hasActiveSessions: false,
+        },
+        {
+          instanceId: 'claude-personal',
+          agentId: 'claude-code',
+          displayName: 'Personal Key',
+          authMode: { mode: 'ApiKey' },
+          isDefault: false,
+          hasActiveSessions: false,
+        },
+      ])
+    );
+    trackSpy(
+      vi
+        .spyOn(providerInstancesApi, 'setDefault')
+        .mockRejectedValue(new Error('Failed to persist default'))
+    );
+    const toastErrorSpy = trackSpy(
+      vi.spyOn(toast, 'error').mockImplementation(() => '')
+    );
+    const onSelect = vi.fn();
+
+    render(
+      <ComposerProviderInstanceSlot
+        agentId="CLAUDE_CODE"
+        onSelectInstance={onSelect}
+      />
+    );
 
     const select = (await screen.findByTestId(
       'provider-instance-select'
     )) as HTMLSelectElement;
-    expect(select.options).toHaveLength(2);
     expect(select.value).toBe('claude-work');
 
     fireEvent.change(select, { target: { value: 'claude-personal' } });
-    expect(select.value).toBe('claude-personal');
+
+    await waitFor(() => {
+      expect(toastErrorSpy).toHaveBeenCalledWith('Failed to persist default');
+      expect(select.value).toBe('claude-work');
+      expect(onSelect).toHaveBeenLastCalledWith('claude-work');
+    });
   });
 
   it('previews and confirms EngineHandoffDialog when switching engines on a session with turns and syncs session list + Bot/Session details', async () => {
@@ -396,6 +478,80 @@ describe('ComposerEngineHandoffControl', () => {
     expect(screen.getByTestId('session-facts-probe')).toHaveAttribute(
       'data-agent-id',
       'codex'
+    );
+  });
+
+  it('rolls back session caches and executor profile when 0-turn confirmEngineHandoff fails with a real error', async () => {
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    queryClient.setQueryData(
+      ['workspaceSessions', 'ws-1', 'summaries'],
+      [makeSummaryRecord('conv-empty-err', 'CLAUDE_CODE', 'claude_code', null)]
+    );
+    trackSpy(
+      vi
+        .spyOn(conversationApi, 'detail')
+        .mockResolvedValue(makeDetail('conv-empty-err', 'claude_code', null))
+    );
+    trackSpy(
+      vi.spyOn(conversationApi, 'touch').mockResolvedValue({
+        ok: true,
+        idleTimeoutSecs: 0,
+      })
+    );
+    trackSpy(
+      vi
+        .spyOn(conversationApi, 'confirmEngineHandoff')
+        .mockRejectedValue(new Error('Engine handoff rejected'))
+    );
+    const toastErrorSpy = trackSpy(
+      vi.spyOn(toast, 'error').mockImplementation(() => '')
+    );
+    const onApply = vi.fn();
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <HandoffHarness
+          sessionId="conv-empty-err"
+          hasExistingTurns={false}
+          currentExecutor="CLAUDE_CODE"
+          onApply={onApply}
+        />
+      </QueryClientProvider>
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId('session-facts-probe')).toHaveAttribute(
+        'data-agent-id',
+        'claude_code'
+      );
+    });
+
+    fireEvent.click(screen.getByTestId('switch-to-codex'));
+
+    await waitFor(() => {
+      expect(toastErrorSpy).toHaveBeenCalledWith('Engine handoff rejected');
+      expect(onApply).toHaveBeenLastCalledWith({
+        executor: 'CLAUDE_CODE',
+        variant: null,
+      });
+    });
+
+    const cachedSummaries = queryClient.getQueryData<SessionSummaryRecord[]>([
+      'workspaceSessions',
+      'ws-1',
+      'summaries',
+    ]);
+    expect(
+      sessionListAgentKey({
+        executor: cachedSummaries?.[0]?.executor ?? null,
+        agentId: cachedSummaries?.[0]?.agent_id,
+      })
+    ).toBe('claude_code');
+    expect(screen.getByTestId('session-facts-probe')).toHaveAttribute(
+      'data-agent-id',
+      'claude_code'
     );
   });
 });

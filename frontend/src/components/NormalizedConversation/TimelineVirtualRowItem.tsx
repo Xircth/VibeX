@@ -14,7 +14,8 @@ import {
 import { TurnFileChangesCard } from '@/components/NormalizedConversation/TurnFileChangesCard';
 import { QuestionRequestCard } from '@/components/NormalizedConversation/conversation/QuestionRequestCard';
 import { ArtifactTimelineCard } from '@/components/NormalizedConversation/ArtifactTimelineCard';
-import type { TimelineQuestion } from '@/components/NormalizedConversation/TurnActivity';
+import { findMatchingAskQuestionTool, type TimelineQuestion } from '@/components/NormalizedConversation/TurnActivity';
+import { mergeQuestionRequestWithToolUse } from '@/components/tasks/follow-up/agentQuestionModel';
 import { TimelineAgentHandoffRow } from '@/components/NormalizedConversation/ContextHandoffDivider';
 import { AgentRuntimeStatus } from '@/components/tasks/follow-up/AgentRuntimeStatus';
 import type { InlineStreamRuntimeStatus } from '@/features/conversation/inlineRuntimeStatus';
@@ -22,6 +23,7 @@ import {
   isDurableHostNote,
   parseAgentHandoffNotice,
   type ConversationTimelineItem,
+  type ConversationTimelineTurn,
 } from '@/features/conversation/conversationStore';
 import {
   virtualRowFoldEdge,
@@ -35,29 +37,40 @@ import type { TurnStatsData } from './thread/turnStatsModel';
 import {
   assistantCopyText,
   buildSettledTurnStats,
+  dimoTurnIdFromTimelineRowId,
   mergeMissingTurnStats,
-  vibexTurnIdFromTimelineRowId,
 } from './timelineMemoHelpers';
 
 export function InlineTimelineSideRow({
   entry,
+  timeline,
+  dismissedQuestionIds,
+  onDismissQuestion,
   onRespondQuestion,
   responding,
 }: {
   entry: TimelineRow;
+  timeline: ConversationTimelineTurn[];
+  dismissedQuestionIds: ReadonlySet<string>;
+  onDismissQuestion: (questionId: string) => void;
   onRespondQuestion: (
     questionId: string,
     response: AgentElicitationResponse
-  ) => void;
+  ) => void | Promise<unknown>;
   responding: boolean;
 }) {
   const row = entry.row;
   if (row.kind === 'question_request') {
+    if (!row.response && dismissedQuestionIds.has(row.request.question_id)) {
+      return null;
+    }
+    const matchedUse = findMatchingAskQuestionTool(row.request, timeline);
     return (
       <QuestionRequestCard
-        request={row.request}
+        request={mergeQuestionRequestWithToolUse(row.request, matchedUse)}
         response={row.response ?? null}
         onRespond={onRespondQuestion}
+        onDismiss={onDismissQuestion}
         responding={responding}
       />
     );
@@ -116,6 +129,7 @@ export interface TimelineVirtualRowItemProps {
   scrollMargin: number;
   measureElement: (node: HTMLDivElement | null) => void;
   item: ConversationTimelineItem;
+  timeline: ConversationTimelineTurn[];
   slice: AssistantBlockSlice | null;
   isLastSlice: boolean;
   foldEdge: ReturnType<typeof virtualRowFoldEdge>;
@@ -128,6 +142,8 @@ export interface TimelineVirtualRowItemProps {
   expandFileChanges: boolean;
   delegations: ConversationDelegationView[];
   questions: TimelineQuestion[];
+  dismissedQuestionIds: ReadonlySet<string>;
+  onDismissQuestion: (questionId: string) => void;
   onOpenChild: (childConversationId: string) => void;
   contextCompact: ContextCompactPresentation | null;
   hasTurnError: boolean;
@@ -141,7 +157,7 @@ export interface TimelineVirtualRowItemProps {
   onRespondQuestion: (
     questionId: string,
     response: AgentElicitationResponse
-  ) => void;
+  ) => void | Promise<unknown>;
   isRespondingQuestion: boolean;
   fileChanges: Extract<
     TimelineRow['row'],
@@ -170,6 +186,7 @@ export const TimelineVirtualRowItem = memo(function TimelineVirtualRowItem({
   scrollMargin,
   measureElement,
   item,
+  timeline,
   slice,
   isLastSlice,
   foldEdge,
@@ -182,6 +199,8 @@ export const TimelineVirtualRowItem = memo(function TimelineVirtualRowItem({
   expandFileChanges,
   delegations,
   questions,
+  dismissedQuestionIds,
+  onDismissQuestion,
   onOpenChild,
   contextCompact,
   hasTurnError,
@@ -204,7 +223,7 @@ export const TimelineVirtualRowItem = memo(function TimelineVirtualRowItem({
   hideAssistantStats = false,
 }: TimelineVirtualRowItemProps) {
   const row = item.kind === 'message' ? item.item : null;
-  const turnId = row ? vibexTurnIdFromTimelineRowId(row.turn.id) : null;
+  const turnId = row ? dimoTurnIdFromTimelineRowId(row.turn.id) : null;
 
   const handleUserRetry = useCallback(() => {
     if (!row) return;
@@ -317,6 +336,9 @@ export const TimelineVirtualRowItem = memo(function TimelineVirtualRowItem({
       {item.kind === 'side' ? (
         <InlineTimelineSideRow
           entry={item.row}
+          timeline={timeline}
+          dismissedQuestionIds={dismissedQuestionIds}
+          onDismissQuestion={onDismissQuestion}
           onRespondQuestion={onRespondQuestion}
           responding={isRespondingQuestion}
         />

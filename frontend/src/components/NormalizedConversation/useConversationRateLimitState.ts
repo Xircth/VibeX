@@ -1,6 +1,8 @@
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ConversationError, TimelineRow } from 'shared/types';
 import { conversationApi } from '@/features/conversation/conversationApi';
+import { conversationRateLimitChannel } from '@/features/conversation/events';
+import { backendListen } from '@/lib/backendTransport';
 import { formatAgentDisplayLabel } from '@/lib/providerInstancesApi';
 import type { RateLimitIndicatorState } from './RateLimitRecoveryBanner';
 
@@ -98,23 +100,27 @@ function isRecordRateLimited(nested: Record<string, unknown>): boolean {
   return false;
 }
 
-function parseExplicitRateLimitRecord(
-  raw: unknown,
-  fallbackEngine: string
-): RateLimitIndicatorState | null {
+function extractRateLimitPayloadObject(
+  raw: unknown
+): Record<string, unknown> | null {
   if (!raw || typeof raw !== 'object') return null;
   const rec = raw as Record<string, unknown>;
-  const nested =
+  return (
     (rec.rateLimit as Record<string, unknown> | undefined) ??
     (rec.rate_limit as Record<string, unknown> | undefined) ??
     (rec.rateLimits as Record<string, unknown> | undefined) ??
     (rec.rate_limits as Record<string, unknown> | undefined) ??
     (rec.rateLimitState as Record<string, unknown> | undefined) ??
     (rec.rate_limit_state as Record<string, unknown> | undefined) ??
-    rec;
+    (rec.state as Record<string, unknown> | undefined) ??
+    rec
+  );
+}
 
-  if (!isRecordRateLimited(nested)) return null;
-
+function buildRateLimitIndicatorState(
+  nested: Record<string, unknown>,
+  fallbackEngine: string
+): RateLimitIndicatorState {
   const limitedAt =
     toIsoTimestamp(nested.limitedAt ?? nested.limited_at) ??
     new Date().toISOString();
@@ -124,13 +130,20 @@ function parseExplicitRateLimitRecord(
     typeof countdownRaw === 'number' && Number.isFinite(countdownRaw)
       ? countdownRaw
       : undefined;
+  const rawEngine =
+    nested.engine ??
+    nested.engineId ??
+    nested.engine_id ??
+    nested.agentKind ??
+    nested.agent_kind;
+  const engine =
+    typeof rawEngine === 'string' && rawEngine.trim().length > 0
+      ? formatAgentDisplayLabel(rawEngine.trim())
+      : fallbackEngine;
 
   return {
     isRateLimited: true,
-    engine:
-      typeof nested.engine === 'string' && nested.engine.trim().length > 0
-        ? nested.engine.trim()
-        : fallbackEngine,
+    engine,
     limitedAt,
     resetAt,
     countdownSeconds,
@@ -145,6 +158,70 @@ function parseExplicitRateLimitRecord(
       'string'
         ? String(nested.continuationPrompt ?? nested.continuation_prompt)
         : undefined,
+  };
+}
+
+function parseExplicitRateLimitRecord(
+  raw: unknown,
+  fallbackEngine: string
+): RateLimitIndicatorState | null {
+  const nested = extractRateLimitPayloadObject(raw);
+  if (!nested || !isRecordRateLimited(nested)) return null;
+  return buildRateLimitIndicatorState(nested, fallbackEngine);
+}
+
+export function parseRateLimitLifecycleEvent(
+  raw: unknown,
+  sessionId: string,
+  fallbackEngine: string
+):
+  | { type: 'updated' | 'limited'; state: RateLimitIndicatorState }
+  | { type: 'cleared' }
+  | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const rec = raw as Record<string, unknown>;
+  const eventConversationId =
+    typeof rec.conversationId === 'string'
+      ? rec.conversationId
+      : typeof rec.conversation_id === 'string'
+        ? rec.conversation_id
+        : typeof rec.sessionId === 'string'
+          ? rec.sessionId
+          : typeof rec.session_id === 'string'
+            ? rec.session_id
+            : null;
+  if (!eventConversationId || eventConversationId !== sessionId) {
+    return null;
+  }
+
+  const kind = typeof rec.kind === 'string' ? rec.kind : null;
+  if (kind === 'rate_limit_cancelled' || kind === 'rate_limit_auto_resume') {
+    return { type: 'cleared' };
+  }
+  if (kind !== 'rate_limit_updated' && kind !== 'rate_limited') {
+    return null;
+  }
+
+  const nested = extractRateLimitPayloadObject(rec);
+  if (!nested) return null;
+  const explicitFlag =
+    nested.isRateLimited ?? nested.is_rate_limited ?? nested.active;
+  if (explicitFlag === false) {
+    return { type: 'cleared' };
+  }
+  const hasLifecycleShape =
+    typeof explicitFlag === 'boolean' ||
+    Boolean(readResetTimestamp(nested)) ||
+    toIsoTimestamp(nested.limitedAt ?? nested.limited_at) !== null ||
+    typeof (nested.autoResume ?? nested.auto_resume) === 'boolean' ||
+    typeof (nested.engineId ?? nested.engine_id ?? nested.engine) === 'string';
+  if (!hasLifecycleShape) {
+    return null;
+  }
+
+  return {
+    type: kind === 'rate_limited' ? 'limited' : 'updated',
+    state: buildRateLimitIndicatorState(nested, fallbackEngine),
   };
 }
 
@@ -289,6 +366,19 @@ export function deriveRateLimitIndicatorState(params: {
   return null;
 }
 
+type SessionRateLimitOverride =
+  | {
+      sessionId: string;
+      status: 'active';
+      state: RateLimitIndicatorState;
+      derivedKey: string | null;
+    }
+  | {
+      sessionId: string;
+      status: 'cleared';
+      derivedKey: string | null;
+    };
+
 export function useConversationRateLimitState(params: {
   sessionId: string | null;
   agentId: string | null | undefined;
@@ -305,7 +395,9 @@ export function useConversationRateLimitState(params: {
     latestTurnError,
     latestTurnErrorRowId,
   } = params;
-  const [dismissedKey, setDismissedKey] = useState<string | null>(null);
+  const [override, setOverride] = useState<SessionRateLimitOverride | null>(
+    null
+  );
 
   const engineLabel = useMemo(
     () => (agentId ? formatAgentDisplayLabel(agentId) : 'Agent'),
@@ -333,8 +425,83 @@ export function useConversationRateLimitState(params: {
     ]
   );
 
-  const rateLimit =
-    derived && derived.key !== dismissedKey ? derived.state : null;
+  const derivedRef = useRef(derived);
+  derivedRef.current = derived;
+
+  useEffect(() => {
+    if (!sessionId) return;
+    let active = true;
+    let unlisten: (() => void) | undefined;
+
+    backendListen<unknown>(conversationRateLimitChannel(sessionId), (payload) => {
+      if (!active) return;
+      const parsed = parseRateLimitLifecycleEvent(
+        payload,
+        sessionId,
+        engineLabel
+      );
+      if (!parsed) return;
+      if (parsed.type === 'cleared') {
+        setOverride({
+          sessionId,
+          status: 'cleared',
+          derivedKey: derivedRef.current?.key ?? null,
+        });
+        return;
+      }
+      setOverride((current) => {
+        if (
+          parsed.type === 'updated' &&
+          current?.sessionId === sessionId &&
+          current.status === 'cleared' &&
+          current.derivedKey === (derivedRef.current?.key ?? null)
+        ) {
+          return current;
+        }
+        return {
+          sessionId,
+          status: 'active',
+          state: parsed.state,
+          derivedKey: derivedRef.current?.key ?? null,
+        };
+      });
+    })
+      .then((unsubscribe) => {
+        if (!active) {
+          unsubscribe();
+          return;
+        }
+        unlisten = unsubscribe;
+      })
+      .catch(() => undefined);
+
+    return () => {
+      active = false;
+      unlisten?.();
+    };
+  }, [engineLabel, sessionId]);
+
+  const activeOverride =
+    sessionId && override?.sessionId === sessionId ? override : null;
+
+  let rateLimit: RateLimitIndicatorState | null = null;
+  if (sessionId) {
+    if (activeOverride?.status === 'cleared') {
+      rateLimit =
+        derived && derived.key !== activeOverride.derivedKey
+          ? derived.state
+          : null;
+    } else if (activeOverride?.status === 'active') {
+      rateLimit =
+        derived &&
+        activeOverride.derivedKey !== null &&
+        derived.key !== activeOverride.derivedKey
+          ? derived.state
+          : activeOverride.state;
+    } else {
+      rateLimit = derived?.state ?? null;
+    }
+  }
 
   const handleUpdateAutoResume = useCallback(
     async (update: {
@@ -343,18 +510,39 @@ export function useConversationRateLimitState(params: {
       continuationPrompt: string;
     }) => {
       await conversationApi.updateRateLimitAutoResume(update);
+      if (!sessionId || update.conversationId !== sessionId) return;
+      setOverride((current) => {
+        const base =
+          current?.sessionId === sessionId && current.status === 'active'
+            ? current.state
+            : derivedRef.current?.state;
+        if (!base) return current;
+        return {
+          sessionId,
+          status: 'active',
+          derivedKey: derivedRef.current?.key ?? null,
+          state: {
+            ...base,
+            autoResume: update.autoResume,
+            continuationPrompt: update.continuationPrompt,
+          },
+        };
+      });
     },
-    []
+    [sessionId]
   );
 
   const handleCancelWait = useCallback(
     async (conversationId: string) => {
       await conversationApi.cancelRateLimitWait({ conversationId });
-      if (derived) {
-        setDismissedKey(derived.key);
-      }
+      if (!sessionId || conversationId !== sessionId) return;
+      setOverride({
+        sessionId,
+        status: 'cleared',
+        derivedKey: derivedRef.current?.key ?? null,
+      });
     },
-    [derived]
+    [sessionId]
   );
 
   return {

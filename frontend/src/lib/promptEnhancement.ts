@@ -10,7 +10,9 @@ const DEFAULT_CONTEXT_CHAR_LIMIT = 32_000;
 const TOOL_CONTENT_CHAR_LIMIT = 400;
 
 function truncateText(text: string, maxLength: number): string {
+  if (maxLength <= 0) return '';
   if (text.length <= maxLength) return text;
+  if (maxLength === 1) return '…';
   return `${text.slice(0, maxLength - 1)}…`;
 }
 
@@ -20,22 +22,24 @@ function summarizeToolEntry(entry: PatchTypeWithKey): string | null {
   if (entryType.type !== 'tool_use') return null;
 
   const parts = [`Tool: ${entryType.tool_name}`];
-  const action = entryType.action_type.action;
-  parts.push(`Action: ${action}`);
-
-  if ('path' in entryType.action_type && entryType.action_type.path) {
-    parts.push(`Path: ${entryType.action_type.path}`);
+  const actionType = entryType.action_type;
+  if (actionType?.action) {
+    parts.push(`Action: ${actionType.action}`);
   }
 
-  if ('query' in entryType.action_type && entryType.action_type.query) {
-    parts.push(`Query: ${entryType.action_type.query}`);
+  if (actionType && 'path' in actionType && actionType.path) {
+    parts.push(`Path: ${actionType.path}`);
   }
 
-  if ('command' in entryType.action_type && entryType.action_type.command) {
-    parts.push(`Command: ${entryType.action_type.command}`);
+  if (actionType && 'query' in actionType && actionType.query) {
+    parts.push(`Query: ${actionType.query}`);
   }
 
-  if (entryType.status.status) {
+  if (actionType && 'command' in actionType && actionType.command) {
+    parts.push(`Command: ${actionType.command}`);
+  }
+
+  if (entryType.status?.status) {
     parts.push(`Status: ${entryType.status.status}`);
   }
 
@@ -97,6 +101,8 @@ export function buildPromptEnhancementContext(
   entries: PatchTypeWithKey[],
   maxChars = DEFAULT_CONTEXT_CHAR_LIMIT
 ): PromptEnhancementContextMessage[] {
+  if (maxChars <= 0) return [];
+
   const normalized = entries
     .map(toContextMessage)
     .filter((entry): entry is PromptEnhancementContextMessage => !!entry);
@@ -106,14 +112,28 @@ export function buildPromptEnhancementContext(
 
   for (let index = normalized.length - 1; index >= 0; index -= 1) {
     const candidate = normalized[index];
-    const candidateSize =
-      candidate.role.length +
-      candidate.content.length +
-      (candidate.timestamp?.length ?? 0) +
-      16;
+    const overhead =
+      candidate.role.length + (candidate.timestamp?.length ?? 0) + 16;
+    const candidateSize = overhead + candidate.content.length;
 
     if (selected.length > 0 && totalChars + candidateSize > maxChars) {
       break;
+    }
+
+    if (selected.length === 0 && candidateSize > maxChars) {
+      const availableContent = maxChars - overhead;
+      if (availableContent <= 0) break;
+      const truncatedContent = truncateText(
+        candidate.content,
+        availableContent
+      );
+      if (!truncatedContent) break;
+      selected.push({
+        ...candidate,
+        content: truncatedContent,
+      });
+      totalChars += overhead + truncatedContent.length;
+      continue;
     }
 
     selected.push(candidate);

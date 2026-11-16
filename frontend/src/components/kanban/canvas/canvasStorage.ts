@@ -54,7 +54,27 @@ export const DEFAULT_CANVAS_DOCUMENT: SessionCanvasDocument = {
 
 const DOCUMENT_KEY_PREFIX = 'dimo:kanban-canvas:';
 export const CANVAS_BUNDLE_KEY = 'dimo:kanban-canvas' as const;
+export const CANVAS_WORKSPACE_UPDATED_EVENT =
+  'dimo:canvas-workspace-updated' as const;
 const MINIMAP_KEY = 'dimo:kanban-canvas-minimap';
+
+export interface CanvasWorkspaceUpdatedDetail {
+  projectId: string;
+  workspace: SessionCanvasWorkspace;
+  sourceInstanceId?: string;
+  revision: number;
+}
+
+export interface SaveCanvasWorkspaceOptions {
+  sourceInstanceId?: string;
+}
+
+let workspaceSaveRevision = 0;
+const projectWorkspaceRevisions = new Map<string, number>();
+
+export function getCanvasWorkspaceRevision(projectId: string): number {
+  return projectWorkspaceRevisions.get(projectId) ?? 0;
+}
 
 function documentKey(projectId: string): string {
   return `${DOCUMENT_KEY_PREFIX}${projectId}`;
@@ -389,15 +409,34 @@ export function loadCanvasWorkspace(projectId: string): SessionCanvasWorkspace {
 
 export function saveCanvasWorkspace(
   projectId: string,
-  workspace: SessionCanvasWorkspace
-): void {
-  if (!projectId) return;
+  workspace: SessionCanvasWorkspace,
+  options?: SaveCanvasWorkspaceOptions
+): number {
+  if (!projectId) return 0;
   const stored = serializeWorkspace(workspace);
   writeJson(documentKey(projectId), stored);
   const bundle = readStoredBundle();
   bundle[projectId] = stored;
   writeJson(CANVAS_BUNDLE_KEY, bundle);
   scheduleBundlePersist(bundle);
+  workspaceSaveRevision += 1;
+  projectWorkspaceRevisions.set(projectId, workspaceSaveRevision);
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(
+      new CustomEvent<CanvasWorkspaceUpdatedDetail>(
+        CANVAS_WORKSPACE_UPDATED_EVENT,
+        {
+          detail: {
+            projectId,
+            workspace,
+            sourceInstanceId: options?.sourceInstanceId,
+            revision: workspaceSaveRevision,
+          },
+        }
+      )
+    );
+  }
+  return workspaceSaveRevision;
 }
 
 export function updateWorkspaceActiveDocument(

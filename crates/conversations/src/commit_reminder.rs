@@ -186,6 +186,7 @@ pub async fn start_commit_reminder_if_needed(
                 queued_input_claim: None,
                 operation_id: None,
                 collaboration_origin: None,
+                provider_instance_id: None,
             },
             COMMIT_REMINDER_ORIGIN,
         )

@@ -213,6 +213,7 @@ impl SteeringFixture {
             queued_input_claim: None,
             operation_id: Some(Uuid::new_v4()),
             collaboration_origin: None,
+            provider_instance_id: None,
         }
     }
 
@@ -232,6 +233,7 @@ impl SteeringFixture {
             file_refs: Vec::new(),
             internal_prompt_contributions: Vec::new(),
             collaboration_origin: None,
+            provider_instance_id: None,
         }
     }
 }

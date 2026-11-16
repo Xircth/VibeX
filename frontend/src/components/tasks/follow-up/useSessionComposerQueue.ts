@@ -34,6 +34,7 @@ export function useSessionComposerQueue({
   configOverrides = [],
   excludeOperationId = null,
   continuationPolicy,
+  providerInstanceId = null,
 }: {
   sessionId: string | undefined;
   workspaceId?: string | null;
@@ -43,6 +44,7 @@ export function useSessionComposerQueue({
   configOverrides?: AgentSessionConfigOverride[];
   excludeOperationId?: string | null;
   continuationPolicy?: 'portable' | 'fresh';
+  providerInstanceId?: string | null;
 }) {
   const queryClient = useQueryClient();
   const editingInputRef = useRef<QueuedMessage | null>(null);
@@ -214,6 +216,7 @@ export function useSessionComposerQueue({
         // File-tree @ tokens live in the composer/display string. The agent
         // text is already serialized to a bare path and would lose the refs.
         fileRefs: getSessionComposerFileRefs(message),
+        ...(providerInstanceId ? { providerInstanceId } : {}),
       };
       const latestStatus =
         queryClient.getQueryData<QueueStatus>(
@@ -307,6 +310,7 @@ export function useSessionComposerQueue({
         modeOverride,
         configOverrides,
         fileRefs: getSessionComposerFileRefs(message.data.message),
+        ...(providerInstanceId ? { providerInstanceId } : {}),
       };
       return conversationApi.updateInput({
         conversationId: message.session_id,

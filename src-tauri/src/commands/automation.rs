@@ -850,6 +850,7 @@ impl TurnLauncherPort for TauriTurnLauncher {
                     workspace_id: workspace.workspace_id,
                     conversation_id,
                     executor_profile_id: spec.agent.executor_profile_id.clone(),
+                    provider_instance_id: None,
                     text,
                     display_text: Some(spec.display_text.clone()),
                     images: Vec::new(),

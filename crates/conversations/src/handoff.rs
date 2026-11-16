@@ -107,6 +107,24 @@ pub(crate) async fn delivered_item_ids(
     Ok(ids)
 }
 
+pub async fn latest_agent_handoff_sequence(
+    pool: &SqlitePool,
+    conversation_id: Uuid,
+) -> Result<i64, sqlx::Error> {
+    let seq: Option<i64> = sqlx::query_scalar(
+        r#"SELECT MAX(sequence)
+           FROM conversation_events
+           WHERE conversation_id = ?
+             AND event_kind = 'raw_diagnostic_recorded'
+             AND normalized_json LIKE '%"agent_handoff"%'"#,
+    )
+    .bind(conversation_id)
+    .fetch_optional(pool)
+    .await?
+    .flatten();
+    Ok(seq.unwrap_or(0))
+}
+
 // ============================================================================
 // Deterministic Cross-Engine Handoff Service (Zero LLM Calls)
 // ============================================================================
@@ -252,6 +270,154 @@ impl DeterministicHandoffService {
             conversation_id,
             candidates,
         ))
+    }
+
+    /// Build a deterministic handoff selection for turn execution using the exact same
+    /// candidate prioritization, token estimation, and `<vibex-engine-handoff>` rendering
+    /// as [`Self::build_handoff_context`], excluding `exclude_turn_id` and any items
+    /// already known to the target binding (`known_prefixes` / `delivered_ids`).
+    ///
+    /// Gracefully degrades (shrinking or returning `Ok(None)`) when `byte_budget` is
+    /// tight instead of failing the turn with `handoff_budget_exceeded`.
+    pub async fn build_execution_handoff(
+        pool: &SqlitePool,
+        conversation_id: Uuid,
+        target_engine: &str,
+        exclude_turn_id: Uuid,
+        known_prefixes: &[String],
+        delivered_ids: &HashSet<String>,
+        byte_budget: usize,
+    ) -> Result<Option<crate::continuation::HistorySelection>, HandoffError> {
+        let session = Session::find_by_id(pool, conversation_id)
+            .await?
+            .ok_or(HandoffError::ConversationNotFound(conversation_id))?;
+
+        let latest_binding =
+            ConversationAgentBindingRecord::latest_for_conversation(pool, conversation_id).await?;
+        let source_engine = latest_binding
+            .as_ref()
+            .map(|b| b.agent_id.as_str().to_string())
+            .or_else(|| session.agent_id.as_ref().map(|a| a.as_str().to_string()))
+            .or_else(|| session.executor.clone())
+            .unwrap_or_else(|| "unknown".to_string());
+
+        let exclude_turn_str = exclude_turn_id.to_string();
+        let exclude_prefix = format!("{exclude_turn_id}:");
+        let candidates: Vec<CandidateItem> = load_candidates(pool, conversation_id)
+            .await?
+            .into_iter()
+            .filter(|c| {
+                if c.turn_id == Some(exclude_turn_id)
+                    || c.id == exclude_turn_str
+                    || c.id.starts_with(&exclude_prefix)
+                {
+                    return false;
+                }
+                if delivered_ids.contains(&c.id) {
+                    return false;
+                }
+                if known_prefixes.iter().any(|prefix| {
+                    let prefix_trimmed = prefix.trim_end_matches(':');
+                    c.id == prefix_trimmed
+                        || c.id.starts_with(prefix)
+                        || c.turn_id.is_some_and(|tid| {
+                            let tid_str = tid.to_string();
+                            tid_str == prefix_trimmed || format!("{tid}:") == *prefix
+                        })
+                }) {
+                    return false;
+                }
+                true
+            })
+            .collect();
+
+        if candidates.is_empty() || byte_budget == 0 {
+            if !candidates.is_empty() && byte_budget == 0 {
+                tracing::warn!(
+                    %conversation_id,
+                    %exclude_turn_id,
+                    "current input exhausts handoff byte budget; skipping inline history context"
+                );
+            }
+            return Ok(None);
+        }
+
+        let target = target_engine.trim();
+        let mut token_budget = ((byte_budget / 4).max(1)).min(DEFAULT_HANDOFF_TOKEN_BUDGET);
+        loop {
+            let ctx = pack_candidates(
+                &source_engine,
+                target,
+                token_budget,
+                conversation_id,
+                candidates.clone(),
+            );
+            if let Some(prompt_text) = ctx.handoff_prompt_text.as_ref()
+                && prompt_text.len() <= byte_budget
+            {
+                let items = ctx
+                    .packed_messages
+                    .iter()
+                    .map(|m| crate::continuation::HistoryItem {
+                        id: m.id.clone(),
+                        role: match m.role.as_str() {
+                            "user" => TurnRole::User,
+                            "system" => TurnRole::System,
+                            _ => TurnRole::Assistant,
+                        },
+                        text: m.content.clone(),
+                        omitted_blocks: 0,
+                    })
+                    .collect::<Vec<_>>();
+                return Ok(Some(crate::continuation::HistorySelection {
+                    omitted_items: ctx.omitted_ids.len(),
+                    omitted_ids: ctx.omitted_ids,
+                    omitted_blocks: 0,
+                    items,
+                    prompt: prompt_text.clone(),
+                }));
+            }
+            if token_budget <= 16 {
+                break;
+            }
+            token_budget = (token_budget / 2).max(16);
+        }
+
+        // Last-resort graceful fallback: omitted-only reference notice if it fits in byte_budget,
+        // otherwise omit the inline handoff block completely so the turn still proceeds.
+        let omitted_ids: Vec<String> = candidates.into_iter().map(|c| c.id).collect();
+        let minimal_prompt = format_handoff_prompt_text(
+            conversation_id,
+            &source_engine,
+            target,
+            &[],
+            &omitted_ids,
+            token_budget,
+        );
+        if minimal_prompt.len() <= byte_budget {
+            tracing::warn!(
+                %conversation_id,
+                %exclude_turn_id,
+                byte_budget,
+                "handoff items exceed byte budget; falling back to omitted-history reference"
+            );
+            return Ok(Some(crate::continuation::HistorySelection {
+                omitted_items: omitted_ids.len(),
+                omitted_ids,
+                omitted_blocks: 0,
+                items: Vec::new(),
+                prompt: minimal_prompt,
+            }));
+        }
+
+        tracing::warn!(
+            %conversation_id,
+            %exclude_turn_id,
+            byte_budget,
+            minimal_bytes = minimal_prompt.len(),
+            "current input leaves insufficient space for handoff wrapper; omitting inline history"
+        );
+        Ok(None)
     }
 
     /// Retrieve full, untruncated historical items by `row_id` (or `turn_id`) to back the

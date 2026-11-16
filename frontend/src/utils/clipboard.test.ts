@@ -4,6 +4,7 @@ import {
   extractImageFilesFromClipboardData,
   fileNameForImageUpload,
   readImageFilesFromNavigatorClipboard,
+  writeTextToClipboard,
 } from './clipboard';
 
 function createClipboardData({
@@ -246,5 +247,80 @@ describe('readImageFilesFromNavigatorClipboard', () => {
     expect(files).toHaveLength(1);
     expect(files[0]?.name).toMatch(/^pasted-video-\d+-0\.mp4$/);
     expect(files[0]?.type).toBe('video/mp4');
+  });
+});
+
+describe('writeTextToClipboard', () => {
+  afterEach(() => {
+    delete (document as unknown as { execCommand?: unknown }).execCommand;
+  });
+
+  it('writes text via navigator.clipboard.writeText when available', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: { writeText },
+    });
+
+    await expect(writeTextToClipboard('hello world')).resolves.toBe(true);
+    expect(writeText).toHaveBeenCalledWith('hello world');
+  });
+
+  it('falls back to hidden textarea + execCommand in non-secure HTTP contexts and cleans up', async () => {
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: undefined,
+    });
+    const execCommand = vi.fn(() => {
+      const textarea = document.body.querySelector('textarea');
+      expect(textarea).not.toBeNull();
+      expect(textarea?.value).toBe('http://192.168.1.20:17891');
+      return true;
+    });
+    Object.defineProperty(document, 'execCommand', {
+      configurable: true,
+      value: execCommand,
+    });
+
+    await expect(
+      writeTextToClipboard('http://192.168.1.20:17891')
+    ).resolves.toBe(true);
+    expect(execCommand).toHaveBeenCalledWith('copy');
+    expect(document.body.querySelector('textarea')).toBeNull();
+  });
+
+  it('falls back to execCommand when navigator.clipboard.writeText rejects', async () => {
+    const writeText = vi
+      .fn()
+      .mockRejectedValue(new DOMException('Not allowed', 'NotAllowedError'));
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: { writeText },
+    });
+    const execCommand = vi.fn(() => true);
+    Object.defineProperty(document, 'execCommand', {
+      configurable: true,
+      value: execCommand,
+    });
+
+    await expect(writeTextToClipboard('fallback text')).resolves.toBe(true);
+    expect(writeText).toHaveBeenCalledWith('fallback text');
+    expect(execCommand).toHaveBeenCalledWith('copy');
+    expect(document.body.querySelector('textarea')).toBeNull();
+  });
+
+  it('returns false and cleans up without throwing when all clipboard paths fail', async () => {
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: undefined,
+    });
+    const execCommand = vi.fn(() => false);
+    Object.defineProperty(document, 'execCommand', {
+      configurable: true,
+      value: execCommand,
+    });
+
+    await expect(writeTextToClipboard('unwritable')).resolves.toBe(false);
+    expect(document.body.querySelector('textarea')).toBeNull();
   });
 });

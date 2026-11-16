@@ -1265,4 +1265,31 @@ describe('PluginsSettings', () => {
       });
     });
   });
+
+  it('surfaces toast and alert errors when plugin rollback fails', async () => {
+    const user = userEvent.setup();
+    const { toast } = await import('@/components/ui/toast');
+    const backend = transport({
+      plugin_control_rollback: () => {
+        throw new Error('Rollback snapshot corrupted');
+      },
+    });
+    renderSettings(backend.value, false, 'vibex');
+    await user.click(
+      await screen.findByRole('button', { name: /Research Toolkit/ })
+    );
+
+    await user.click(
+      screen.getByRole('button', {
+        name: '恢复 Research Toolkit 上一个经过校验的版本',
+      })
+    );
+
+    await waitFor(() => {
+      expect(toast.error).toHaveBeenCalledWith('Rollback snapshot corrupted');
+    });
+    expect(screen.getByRole('alert')).toHaveTextContent(
+      'Rollback snapshot corrupted'
+    );
+  });
 });

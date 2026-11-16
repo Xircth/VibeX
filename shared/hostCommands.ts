@@ -1210,6 +1210,7 @@ export const HOST_COMMAND_DESCRIPTORS = [
 
 export const HOST_EVENT_CHANNELS = [
   { prefix: 'conversation-events', durability: 'invalidation', scope: 'conversation.read' },
+  { prefix: 'conversation-rate-limit', durability: 'best_effort', scope: 'conversation.read' },
   { prefix: 'workspace-sessions-changed', durability: 'invalidation', scope: 'conversation.read' },
   { prefix: 'workspace-focus-conversation', durability: 'best_effort', scope: 'application.call' },
   { prefix: 'agent-management-event', durability: 'invalidation', scope: 'application.call' },

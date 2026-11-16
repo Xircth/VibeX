@@ -119,7 +119,7 @@ pub(crate) async fn update_rate_limit_auto_resume(
     ) {
         Ok(state) => {
             domains.events.emit(
-                "conversation-events",
+                format!("conversation-rate-limit:{}", input.conversation_id),
                 json!({
                     "conversationId": input.conversation_id,
                     "kind": "rate_limit_updated",
@@ -140,7 +140,7 @@ pub(crate) async fn cancel_rate_limit_wait(
     let input: RateLimitCancelWaitArgs = parse(unwrap_request(args))?;
     if domains.rate_limit_recovery.cancel_wait(input.conversation_id) {
         domains.events.emit(
-            "conversation-events",
+            format!("conversation-rate-limit:{}", input.conversation_id),
             json!({
                 "conversationId": input.conversation_id,
                 "kind": "rate_limit_cancelled",

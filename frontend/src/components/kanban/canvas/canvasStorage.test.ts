@@ -9,11 +9,13 @@ vi.mock('@/lib/frontendPreferences', () => ({
 import { CARD_HEIGHT, CARD_WIDTH } from './canvasModel';
 import {
   CANVAS_BUNDLE_KEY,
+  CANVAS_WORKSPACE_UPDATED_EVENT,
   canvasDocumentStorageKey,
   createCanvasBoard,
   deleteCanvasBoard,
   flushCanvasDocumentPersist,
   getActiveCanvasEntry,
+  getCanvasWorkspaceRevision,
   loadCanvasDocument,
   loadCanvasWorkspace,
   renameCanvasBoard,
@@ -21,6 +23,7 @@ import {
   saveCanvasWorkspace,
   saveMinimapVisible,
   selectCanvasBoard,
+  type CanvasWorkspaceUpdatedDetail,
 } from './canvasStorage';
 
 describe('canvasStorage', () => {
@@ -279,5 +282,30 @@ describe('canvasStorage', () => {
     expect(afterDelete.activeCanvasId).toBe(secondId);
     // Cannot delete the last remaining canvas
     expect(deleteCanvasBoard(afterDelete, secondId).canvases).toHaveLength(1);
+  });
+
+  it('dispatches an in-window update event and increments revision on saveCanvasWorkspace', () => {
+    const before = getCanvasWorkspaceRevision(projectId);
+    const received: CanvasWorkspaceUpdatedDetail[] = [];
+    const listener = (event: Event) => {
+      received.push((event as CustomEvent<CanvasWorkspaceUpdatedDetail>).detail);
+    };
+    window.addEventListener(CANVAS_WORKSPACE_UPDATED_EVENT, listener);
+    try {
+      const ws = loadCanvasWorkspace(projectId);
+      const rev = saveCanvasWorkspace(projectId, ws, {
+        sourceInstanceId: 'inst-1',
+      });
+      expect(rev).toBeGreaterThan(before);
+      expect(getCanvasWorkspaceRevision(projectId)).toBe(rev);
+      expect(received).toHaveLength(1);
+      expect(received[0]).toMatchObject({
+        projectId,
+        sourceInstanceId: 'inst-1',
+        revision: rev,
+      });
+    } finally {
+      window.removeEventListener(CANVAS_WORKSPACE_UPDATED_EVENT, listener);
+    }
   });
 });

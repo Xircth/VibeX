@@ -20,6 +20,7 @@ import { useProjects } from '@/hooks/useProjects';
 import { useProjectSwitcher } from '@/hooks/useProjectSwitcher';
 import { fileSystemApi, projectsApi } from '@/lib/api';
 import { APP_NAME } from '@/lib/branding';
+import { useLocalDesktopHost } from '@/lib/desktopShell';
 import { paths } from '@/lib/paths';
 import { cn } from '@/lib/utils';
 import { useWindowProjectsStore } from '@/stores/useWindowProjectsStore';
@@ -83,7 +84,9 @@ function ZeroStageActionRow({
 }
 
 export function WorkspaceZeroProjectStage() {
-  const { t } = useTranslation(['panels', 'app', 'common']);
+  const { t, i18n } = useTranslation(['panels', 'app', 'common']);
+  const localDesktopHost = useLocalDesktopHost();
+  const isZh = (i18n.resolvedLanguage ?? i18n.language ?? '').startsWith('zh');
   const queryClient = useQueryClient();
   const { openSurfaceMenu } = useAppContextMenu();
   const { projects, isLoading } = useProjects();
@@ -162,6 +165,11 @@ export function WorkspaceZeroProjectStage() {
   }, [ensureProjectOpen, queryClient, switchProject, t]);
 
   useEffect(() => {
+    if (!localDesktopHost) {
+      setDropActive(false);
+      return;
+    }
+
     let disposed = false;
     let unlisten: (() => void) | undefined;
 
@@ -210,7 +218,7 @@ export function WorkspaceZeroProjectStage() {
       disposed = true;
       unlisten?.();
     };
-  }, [openExistingFolder, t]);
+  }, [localDesktopHost, openExistingFolder, t]);
 
   if (isLoading) {
     return (
@@ -281,10 +289,16 @@ export function WorkspaceZeroProjectStage() {
               )}
             </h1>
             <p className="mt-1.5 text-xs leading-relaxed text-muted-foreground">
-              {t(
-                'projectSwitcher.zeroStageSubtitle',
-                '打开现有代码目录、创建新项目或克隆远端仓库，也可直接将文件夹拖入当前窗口。'
-              )}
+              {localDesktopHost
+                ? t(
+                    'projectSwitcher.zeroStageSubtitle',
+                    '打开现有代码目录、创建新项目或克隆远端仓库，也可直接将文件夹拖入当前窗口。'
+                  )
+                : t('projectSwitcher.zeroStageSubtitleRemote', {
+                    defaultValue: isZh
+                      ? '打开主机上的已有代码目录、创建新项目或克隆远端仓库。'
+                      : 'Open an existing directory on the host, create a new project, or clone a remote repository.',
+                  })}
             </p>
           </div>
         </div>
@@ -329,10 +343,16 @@ export function WorkspaceZeroProjectStage() {
 
         <div className="mt-6 flex flex-wrap items-center justify-between gap-3 border-t border-border/50 pt-4 text-xs text-muted-foreground">
           <span>
-            {t(
-              'projectSwitcher.dropFolderHint',
-              '支持将本地项目文件夹直接拖入窗口打开'
-            )}
+            {localDesktopHost
+              ? t(
+                  'projectSwitcher.dropFolderHint',
+                  '支持将本地项目文件夹直接拖入窗口打开'
+                )
+              : t('projectSwitcher.remoteFolderHint', {
+                  defaultValue: isZh
+                    ? '通过上方“选择文件夹”浏览主机目录'
+                    : 'Use "Select Folder" above to browse directories on the host',
+                })}
           </span>
 
           {globalProject ? (

@@ -620,19 +620,29 @@ export function SystemSettings() {
             >
               {t('system.changeDataDir', '更改目录…')}
             </Button>
-            <Button
-              variant="outline"
-              className="shrink-0"
-              onClick={() => {
-                if (dataDir.trim()) {
-                  void desktopApi.revealInFileManager(dataDir.trim());
-                }
-              }}
-              disabled={!dataDir.trim() || dataDirBusy}
-            >
-              <FolderOpen className="mr-1 h-3.5 w-3.5" />
-              {t('system.openInFolder', '在文件夹中打开')}
-            </Button>
+            {localDesktopHost ? (
+              <Button
+                variant="outline"
+                className="shrink-0"
+                onClick={() => {
+                  const target = dataDir.trim();
+                  if (!target) return;
+                  void desktopApi
+                    .revealInFileManager(target)
+                    .catch((error) => {
+                      toast.error(
+                        error instanceof Error
+                          ? error.message
+                          : t('system.openInFolderFailed', '无法在文件夹中打开')
+                      );
+                    });
+                }}
+                disabled={!dataDir.trim() || dataDirBusy}
+              >
+                <FolderOpen className="mr-1 h-3.5 w-3.5" />
+                {t('system.openInFolder', '在文件夹中打开')}
+              </Button>
+            ) : null}
           </div>
         </SettingsSection>
 

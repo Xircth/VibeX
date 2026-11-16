@@ -43,9 +43,10 @@ import type { conversationRuntimeStatus } from '@/features/conversation/runtimeS
 import type { TurnStatsData } from './thread/turnStatsModel';
 import {
   buildLiveTurnStats,
+  dimoTurnIdFromTimelineRowId,
   getLatestTimelinePlanEntries,
   latestTokenUsage,
-  vibexTurnIdFromTimelineRowId,
+  timelineToPatchEntries,
 } from './timelineMemoHelpers';
 
 const EMPTY_TIMELINE_SESSION_MODES: ConversationSessionModesState = {
@@ -80,6 +81,7 @@ export function useTimelineContextSync({
   userOrdinalByKey,
   respondingPermissionId,
   respondingQuestionId,
+  dismissedQuestionIds,
   handleRespondPermission,
   handleRespondQuestion,
   handleOpenChild,
@@ -118,6 +120,7 @@ export function useTimelineContextSync({
   userOrdinalByKey: Map<string, number>;
   respondingPermissionId: string | null;
   respondingQuestionId: string | null;
+  dismissedQuestionIds: ReadonlySet<string>;
   handleRespondPermission: (
     permissionId: string,
     response: AgentPermissionResponse
@@ -125,7 +128,7 @@ export function useTimelineContextSync({
   handleRespondQuestion: (
     questionId: string,
     response: AgentElicitationResponse
-  ) => void;
+  ) => void | Promise<unknown>;
   handleOpenChild: (childConversationId: string) => void;
   handleRetry: (
     turn: MessageTurn,
@@ -308,10 +311,12 @@ export function useTimelineContextSync({
       sideRows
         .filter(
           (entry) =>
-            entry.row.kind === 'question_request' && !entry.row.response
+            entry.row.kind === 'question_request' &&
+            !entry.row.response &&
+            !dismissedQuestionIds.has(entry.row.request.question_id)
         )
         .at(-1),
-    [sideRows]
+    [dismissedQuestionIds, sideRows]
   );
   const composerQuestion = useMemo(() => {
     if (
@@ -352,6 +357,15 @@ export function useTimelineContextSync({
       ),
     [sideRows]
   );
+
+  const setEntries = entries?.setEntries;
+  const composerEntries = useMemo(
+    () => timelineToPatchEntries(timeline, sideRows, pendingPermissions),
+    [pendingPermissions, sideRows, timeline]
+  );
+  useEffect(() => {
+    setEntries?.(composerEntries);
+  }, [composerEntries, setEntries]);
 
   const sessionNoticeRows = useMemo(
     () =>
@@ -449,7 +463,7 @@ export function useTimelineContextSync({
         hasInteraction: Boolean(pendingQuestionRow) || hasPendingPermission,
         hasRunningTool,
         currentTurnId: streamingAssistantRow
-          ? vibexTurnIdFromTimelineRowId(streamingAssistantRow.turn.id)
+          ? dimoTurnIdFromTimelineRowId(streamingAssistantRow.turn.id)
           : (currentTurnId ?? undefined),
       }),
     [

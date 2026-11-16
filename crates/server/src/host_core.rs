@@ -203,7 +203,7 @@ pub fn host_application_core(
         agents::rate_limit_recovery::UsageLimitRecovery::with_resume_callback(
             move |session_id, continuation_prompt| {
                 events_for_recovery.emit(
-                    "conversation-events",
+                    format!("conversation-rate-limit:{session_id}"),
                     serde_json::json!({
                         "conversationId": session_id,
                         "kind": "rate_limit_auto_resume",
@@ -319,6 +319,7 @@ async fn dispatch_rate_limit_auto_resume(
             queued_input_claim: None,
             operation_id: Some(uuid::Uuid::new_v4()),
             collaboration_origin: None,
+            provider_instance_id: None,
         })
         .await;
 }

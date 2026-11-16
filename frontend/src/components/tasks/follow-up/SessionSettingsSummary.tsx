@@ -379,10 +379,15 @@ export function SessionSettingsSummary({
       : []),
   ];
 
+  const hasSessionControls =
+    (Boolean(onSelectMode) && presentableModes.length > 0) ||
+    configRows.length > 0;
+
   if (
     !showPersonaOnly &&
     !showAgentRail &&
     !continuation &&
+    !hasSessionControls &&
     summary.length === 0 &&
     !resolvedAgentId
   ) {
@@ -425,14 +430,15 @@ export function SessionSettingsSummary({
   const summaryText =
     summary.length > 0
       ? summary.map((item) => item.label).join(' · ')
-      : selectedAgentLabel;
+      : resolvedAgentId
+        ? selectedAgentLabel
+        : '';
   const triggerLabel =
     showPersonaOnly && persona
       ? persona.name
-      : `${t('sessionSettings.title')}: ${summaryText}`;
-  const hasSessionControls =
-    (Boolean(onSelectMode) && presentableModes.length > 0) ||
-    configRows.length > 0;
+      : summaryText
+        ? `${t('sessionSettings.title')}: ${summaryText}`
+        : t('sessionSettings.title');
   const sessionControlRows = (
     <>
       {onSelectMode && presentableModes.length > 0 ? (

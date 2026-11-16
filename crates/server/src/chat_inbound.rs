@@ -1910,6 +1910,7 @@ async fn send_task(
             queued_input_claim: None,
             operation_id: None,
             collaboration_origin: None,
+            provider_instance_id: None,
         })
         .await
     {
@@ -1936,26 +1937,25 @@ async fn pending_question(
     pool: &SqlitePool,
     conversation_id: Uuid,
 ) -> Option<agents::conversation::ConversationQuestionRequest> {
-    let rows = sqlx::query_as::<_, (String, String)>(
-        r#"SELECT event_kind, normalized_json
-           FROM conversation_events
-           WHERE conversation_id = ?
-             AND event_kind IN ('question_requested', 'question_responded')
-           ORDER BY sequence DESC
-           LIMIT 8"#,
-    )
-    .bind(conversation_id)
-    .fetch_all(pool)
-    .await
-    .ok()?;
-    let latest = rows.first()?;
-    if latest.0 != "question_requested" {
+    let has_active_turn = db::models::conversation::ConversationRecord::find_by_id(pool, conversation_id)
+        .await
+        .ok()
+        .flatten()
+        .and_then(|conv| conv.active_turn_id)
+        .is_some();
+    if !has_active_turn {
         return None;
     }
-    match serde_json::from_str::<ConversationEvent>(&latest.1) {
-        Ok(ConversationEvent::QuestionRequested { request }) => Some(request),
+    let side_rows = conversations::ConversationProjector::persisted_side_rows(pool, conversation_id)
+        .await
+        .ok()?;
+    side_rows.into_iter().rev().find_map(|entry| match entry.row {
+        agents::conversation::ConversationTimelineRow::QuestionRequest {
+            request,
+            response: None,
+        } => Some(request),
         _ => None,
-    }
+    })
 }
 
 fn question_choices(request: &agents::conversation::ConversationQuestionRequest) -> Vec<String> {

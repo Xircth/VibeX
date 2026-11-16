@@ -1,10 +1,13 @@
-import { render, screen } from '@testing-library/react';
+import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import '@/i18n';
 import { useBackendTransport } from '@/lib/transport';
-import { WebTransportBootstrap } from './WebTransportBootstrap';
+import {
+  disconnectWebSession,
+  WebTransportBootstrap,
+} from './WebTransportBootstrap';
 
 function ConnectedApp() {
   const transport = useBackendTransport();
@@ -24,13 +27,16 @@ function jsonFetch(payload: unknown) {
 
 describe('WebTransportBootstrap', () => {
   afterEach(() => {
+    vi.restoreAllMocks();
     vi.unstubAllGlobals();
+    window.sessionStorage.clear();
+    window.localStorage.clear();
     window.history.replaceState({}, '', '/');
   });
 
-  it('authenticates without persisting the Server token in browser storage', async () => {
+  it('persists the authenticated session in tab sessionStorage without using localStorage or URL', async () => {
     const user = userEvent.setup();
-    const storageSpy = vi.spyOn(Storage.prototype, 'setItem');
+    const localStorageSpy = vi.spyOn(window.localStorage, 'setItem');
     vi.stubGlobal(
       'fetch',
       vi.fn(async (input: RequestInfo | URL) => {
@@ -59,7 +65,13 @@ describe('WebTransportBootstrap', () => {
     await user.click(screen.getByRole('button', { name: /^(Connect|连接)$/ }));
 
     expect(await screen.findByText('Connected via web')).toBeInTheDocument();
-    expect(storageSpy).not.toHaveBeenCalled();
+    expect(localStorageSpy).not.toHaveBeenCalled();
+    expect(window.sessionStorage.getItem('vibex.web_session')).toBe(
+      JSON.stringify({
+        baseUrl: window.location.origin,
+        token: 'one-time-server-token',
+      })
+    );
     expect(window.location.href).not.toContain('one-time-server-token');
   });
 
@@ -158,5 +170,113 @@ describe('WebTransportBootstrap', () => {
     expect(screen.getAllByText(/^(Connection code|连接码)$/)).toHaveLength(1);
     expect(container.querySelector('.astryx-text-input')).toBeNull();
     expect(container.querySelector('.web-connect')).not.toBeNull();
+  });
+
+  it('restores and auto-reconnects from sessionStorage on reload', async () => {
+    window.sessionStorage.setItem(
+      'vibex.web_session',
+      JSON.stringify({
+        baseUrl: 'http://127.0.0.1:17891',
+        token: 'saved-device-token',
+      })
+    );
+    const fetchMock = vi.fn(
+      async (input: RequestInfo | URL, init?: RequestInit) => {
+        expect(String(input)).toBe('http://127.0.0.1:17891/api/v1/capabilities');
+        expect(new Headers(init?.headers).get('Authorization')).toBe(
+          'Bearer saved-device-token'
+        );
+        return jsonFetch({
+          server_version: '1.0.0',
+          protocol_version: '1.0',
+          minimum_client_version: '0.1.0',
+          capabilities: ['conversation.read'],
+        });
+      }
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    render(
+      <WebTransportBootstrap>
+        <ConnectedApp />
+      </WebTransportBootstrap>
+    );
+
+    expect(await screen.findByText('Connected via web')).toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('clears sessionStorage and shows an error when restored token fails with 401', async () => {
+    window.sessionStorage.setItem(
+      'vibex.web_session',
+      JSON.stringify({
+        baseUrl: 'http://127.0.0.1:17891',
+        token: 'revoked-token',
+      })
+    );
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => ({
+        ok: false,
+        status: 401,
+        headers: { get: () => 'application/json' },
+        json: async () => ({
+          code: 'unauthorized',
+          message: 'Session token expired',
+          retryable: false,
+        }),
+      }))
+    );
+
+    render(
+      <WebTransportBootstrap>
+        <ConnectedApp />
+      </WebTransportBootstrap>
+    );
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Session token expired'
+    );
+    expect(window.sessionStorage.getItem('vibex.web_session')).toBeNull();
+  });
+
+  it('clears sessionStorage and disconnects on explicit disconnectWebSession()', async () => {
+    window.sessionStorage.setItem(
+      'vibex.web_session',
+      JSON.stringify({
+        baseUrl: 'http://127.0.0.1:17891',
+        token: 'active-token',
+      })
+    );
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        jsonFetch({
+          server_version: '1.0.0',
+          protocol_version: '1.0',
+          minimum_client_version: '0.1.0',
+          capabilities: ['conversation.read'],
+        })
+      )
+    );
+
+    render(
+      <WebTransportBootstrap>
+        <ConnectedApp />
+      </WebTransportBootstrap>
+    );
+
+    expect(await screen.findByText('Connected via web')).toBeInTheDocument();
+
+    act(() => {
+      disconnectWebSession();
+    });
+
+    await waitFor(() => {
+      expect(
+        screen.getByRole('button', { name: /^(Connect|连接)$/ })
+      ).toBeInTheDocument();
+    });
+    expect(window.sessionStorage.getItem('vibex.web_session')).toBeNull();
   });
 });

@@ -8,7 +8,7 @@ use agents::{
     CancelAgentPromptInput,
     conversation::{
         ConversationAgentConnectionStatus, ConversationError, ConversationEvent,
-        ConversationPermissionResponse,
+        ConversationPermissionResponse, ConversationQuestionResponse, ConversationTimelineRow,
     },
 };
 use chrono::{DateTime, Utc};
@@ -160,16 +160,26 @@ impl ConversationSessionService {
             let turn_lock = self.turn_lock(conversation_id).await;
             let _turn_guard = turn_lock.lock().await;
             let pool = &self.ctx.deployment.db().pool;
-            if let Some((_, prompt_id)) = cancel_target {
-                let _ =
+            if let Some((_, prompt_id)) = cancel_target
+                && let Err(error) =
                     ConversationTurnRecord::set_prompt_id(pool, turn_id, &prompt_id.to_string())
-                        .await;
+                        .await
+            {
+                tracing::warn!(
+                    %conversation_id,
+                    %turn_id,
+                    %prompt_id,
+                    %error,
+                    "failed to persist prompt_id while cancelling turn"
+                );
             }
             let still_in_flight = ConversationTurnRecord::find_by_id(pool, turn_id)
                 .await?
                 .is_some_and(|turn| is_in_flight_turn_status(&turn.status));
             if still_in_flight {
                 crate::handoff::settle(pool, turn_id).await?;
+                self.void_pending_turn_interactions(conversation_id, turn_id)
+                    .await?;
                 self.append_event(
                     conversation_id,
                     Some(turn_id),
@@ -198,6 +208,8 @@ impl ConversationSessionService {
                 state.turn_in_flight = false;
                 state.active_turn_id = None;
                 state.active_prompt_id = None;
+                state.pending_permission_id = None;
+                state.pending_question_id = None;
                 state.recovery_status = reason;
             }
         })
@@ -551,7 +563,8 @@ impl ConversationSessionService {
                 let git_ref = i32::try_from(user_ordinal).ok().map(|ord| {
                     agents::checkpoint_ref::CheckpointRef::ref_name(conversation_id, ord)
                 });
-                self.ctx
+                match self
+                    .ctx
                     .agent_runtime
                     .rollback_turns(
                         AgentSessionId(conversation_id),
@@ -561,7 +574,19 @@ impl ConversationSessionService {
                         checkpoint_commit,
                     )
                     .await
-                    .is_ok()
+                {
+                    Ok(()) => true,
+                    Err(error) => {
+                        tracing::warn!(
+                            %conversation_id,
+                            user_ordinal,
+                            turns_to_drop,
+                            %error,
+                            "native turn rollback failed; detaching agent session instead"
+                        );
+                        false
+                    }
+                }
             } else {
                 false
             };
@@ -589,6 +614,8 @@ impl ConversationSessionService {
             self.update_runtime_state(conversation_id, |state| {
                 state.active_turn_id = None;
                 state.active_prompt_id = None;
+                state.pending_permission_id = None;
+                state.pending_question_id = None;
                 state.turn_in_flight = false;
                 state.pending_user_message = None;
             })
@@ -616,7 +643,14 @@ impl ConversationSessionService {
         }
         .await;
 
-        let _ = lease.release().await;
+        if let Err(error) = lease.release().await {
+            tracing::warn!(
+                %conversation_id,
+                user_ordinal,
+                %error,
+                "failed to release checkpoint rollback lease"
+            );
+        }
         truncate_result
     }
 
@@ -674,13 +708,12 @@ impl ConversationSessionService {
         Ok(true)
     }
 
-    async fn fail_dead_in_flight_turn(
+    async fn void_pending_turn_interactions(
         &self,
         conversation_id: Uuid,
         turn_id: Uuid,
     ) -> Result<(), ConversationServiceError> {
         let pool = &self.ctx.deployment.db().pool;
-        crate::handoff::settle(pool, turn_id).await?;
         let permissions = ConversationPermissionRecord::list_for_turn(pool, turn_id).await?;
         for permission in permissions.into_iter().filter(|p| p.status == "pending") {
             self.append_event(
@@ -701,6 +734,45 @@ impl ConversationSessionService {
             )
             .await?;
         }
+
+        let side_rows = ConversationProjector::persisted_side_rows(pool, conversation_id).await?;
+        for entry in side_rows {
+            if let ConversationTimelineRow::QuestionRequest {
+                request,
+                response: None,
+            } = entry.row
+            {
+                self.append_event(
+                    conversation_id,
+                    Some(turn_id),
+                    "runtime",
+                    ConversationEvent::QuestionResponded {
+                        question_id: request.question_id.clone(),
+                        response: ConversationQuestionResponse {
+                            answer: "cancelled".to_string(),
+                            content: None,
+                        },
+                    },
+                    Some(format!(
+                        "conversation:{conversation_id}:question:{}:responded",
+                        request.question_id
+                    )),
+                )
+                .await?;
+            }
+        }
+        Ok(())
+    }
+
+    async fn fail_dead_in_flight_turn(
+        &self,
+        conversation_id: Uuid,
+        turn_id: Uuid,
+    ) -> Result<(), ConversationServiceError> {
+        let pool = &self.ctx.deployment.db().pool;
+        crate::handoff::settle(pool, turn_id).await?;
+        self.void_pending_turn_interactions(conversation_id, turn_id)
+            .await?;
         let agent_id = Session::find_by_id(pool, conversation_id)
             .await?
             .and_then(|session| session.agent_id);
@@ -726,6 +798,8 @@ impl ConversationSessionService {
             state.turn_in_flight = false;
             state.active_turn_id = None;
             state.active_prompt_id = None;
+            state.pending_permission_id = None;
+            state.pending_question_id = None;
             state.recovery_status = Some("connection_closed".to_string());
         })
         .await;
@@ -739,26 +813,8 @@ impl ConversationSessionService {
     ) -> Result<(), ConversationServiceError> {
         let pool = &self.ctx.deployment.db().pool;
         crate::handoff::settle(pool, turn_id).await?;
-        let permissions = ConversationPermissionRecord::list_for_turn(pool, turn_id).await?;
-        for permission in permissions.into_iter().filter(|p| p.status == "pending") {
-            self.append_event(
-                conversation_id,
-                Some(turn_id),
-                "runtime",
-                ConversationEvent::PermissionResponded {
-                    permission_id: permission.permission_id.clone(),
-                    response: ConversationPermissionResponse {
-                        response: AgentPermissionResponse::Cancelled,
-                        auto: true,
-                    },
-                },
-                Some(format!(
-                    "recovery:permission-cancelled:{}",
-                    permission.permission_id
-                )),
-            )
+        self.void_pending_turn_interactions(conversation_id, turn_id)
             .await?;
-        }
         self.append_event(
             conversation_id,
             Some(turn_id),
@@ -934,25 +990,36 @@ impl ConversationSessionService {
             .agent_runtime
             .live_connection_id(AgentSessionId(conversation_id))
             .await;
-        if let Some(connection_id) = from_state.or(from_runtime) {
-            agents::transcript_target::release(connection_id);
+        let mut connection_ids = Vec::with_capacity(2);
+        if let Some(conn_id) = from_state {
+            connection_ids.push(conn_id);
         }
-        if let Some(connection_id) = from_state.or(from_runtime)
-            && let Err(error) = self
+        if let Some(conn_id) = from_runtime
+            && !connection_ids.contains(&conn_id)
+        {
+            connection_ids.push(conn_id);
+        }
+        for connection_id in connection_ids {
+            agents::transcript_target::release(connection_id);
+            if let Err(error) = self
                 .ctx
                 .agent_runtime
                 .discard_connection(connection_id)
                 .await
-        {
-            tracing::warn!(
-                %conversation_id,
-                %error,
-                "failed to drop Agent connection while reloading or cancelling"
-            );
+            {
+                tracing::warn!(
+                    %conversation_id,
+                    %connection_id,
+                    %error,
+                    "failed to drop Agent connection while reloading or cancelling"
+                );
+            }
         }
         self.update_runtime_state(conversation_id, |state| {
             state.connection_id = None;
             state.active_prompt_id = None;
+            state.pending_permission_id = None;
+            state.pending_question_id = None;
             state.connection_status = Some("closed".to_string());
         })
         .await;
@@ -1004,16 +1071,61 @@ impl ConversationSessionService {
             let turn_lock = self.turn_lock(conversation_id).await;
             let _turn_guard = turn_lock.lock().await;
             self.interrupt_orphaned_turn(conversation_id).await?;
-            if let Some(conversation) =
+            let conversation =
                 ConversationRecord::find_by_id(&self.ctx.deployment.db().pool, conversation_id)
                     .await?
-            {
-                super::ensure_conversation_has_no_in_flight_turn(
-                    &self.ctx.deployment.db().pool,
-                    &conversation,
-                )
-                .await?;
+                    .ok_or_else(|| {
+                        ConversationServiceError::NotFound(format!(
+                            "Conversation {conversation_id} not found"
+                        ))
+                    })?;
+            if let Some(active_turn_id) = conversation.active_turn_id {
+                let pool = &self.ctx.deployment.db().pool;
+                if let Some(active_turn) =
+                    ConversationTurnRecord::find_by_id(pool, active_turn_id).await?
+                    && active_turn.status == "blocked"
+                {
+                    if super::turn_is_auth_blocked(pool, active_turn_id).await? {
+                        ConversationRecord::update_active_turn(pool, conversation_id, None).await?;
+                    } else {
+                        let _ = self
+                            .void_pending_turn_interactions(conversation_id, active_turn_id)
+                            .await?;
+                        self.append_event(
+                            conversation_id,
+                            Some(active_turn_id),
+                            "host",
+                            ConversationEvent::TurnCancelled {
+                                reason: Some("Session rebound".to_string()),
+                            },
+                            Some(format!("turn:{active_turn_id}:rebind_cancelled")),
+                        )
+                        .await?;
+                        ConversationRecord::update_active_turn(pool, conversation_id, None).await?;
+                    }
+                    self.update_runtime_state(conversation_id, |state| {
+                        state.turn_in_flight = false;
+                        state.active_turn_id = None;
+                        state.active_prompt_id = None;
+                        state.pending_permission_id = None;
+                        state.pending_question_id = None;
+                    })
+                    .await;
+                }
             }
+            let conversation =
+                ConversationRecord::find_by_id(&self.ctx.deployment.db().pool, conversation_id)
+                    .await?
+                    .ok_or_else(|| {
+                        ConversationServiceError::NotFound(format!(
+                            "Conversation {conversation_id} not found"
+                        ))
+                    })?;
+            super::ensure_conversation_has_no_in_flight_turn(
+                &self.ctx.deployment.db().pool,
+                &conversation,
+            )
+            .await?;
             self.detach_agent_session(conversation_id).await?;
             self.record_agent_binding_recovered(
                 conversation_id,

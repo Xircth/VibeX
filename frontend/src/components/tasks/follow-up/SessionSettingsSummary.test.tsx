@@ -542,4 +542,30 @@ describe('SessionSettingsSummary', () => {
       variant: null,
     });
   });
+
+  it('stays mounted when the only advertised control is an off boolean toggle', async () => {
+    const user = userEvent.setup();
+    const onSelectConfigOption = vi.fn();
+
+    render(
+      <SessionSettingsSummary
+        options={[
+          {
+            key: 'fast_mode',
+            label: 'Fast',
+            value: false,
+          },
+        ]}
+        pending={{}}
+        onSelectConfigOption={onSelectConfigOption}
+      />
+    );
+
+    const trigger = screen.getByTestId('session-settings-summary');
+    expect(trigger).toBeInTheDocument();
+
+    await user.click(trigger);
+    await user.click(screen.getByText('Fast'));
+    expect(onSelectConfigOption).toHaveBeenCalledWith('fast_mode', 'true');
+  });
 });

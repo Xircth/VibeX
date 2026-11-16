@@ -14,6 +14,7 @@ const DESKTOP_SHELL_COMMAND_SET = new Set<string>(DESKTOP_SHELL_COMMANDS);
 
 const HOST_PUSH_EVENT_PREFIXES = [
   'conversation-events',
+  'conversation-rate-limit',
   'workspace-sessions-changed',
   'workspace-focus-conversation',
   'agent-management-event',

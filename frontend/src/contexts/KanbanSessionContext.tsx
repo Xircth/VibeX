@@ -96,6 +96,7 @@ export function KanbanSessionProvider({ children }: { children: ReactNode }) {
   const {
     data: activeWorkspaceWithSession,
     isLoading: isActiveWorkspaceLoading,
+    isError: isActiveWorkspaceError,
   } = useTaskAttemptWithSession(activeWorktreeId ?? undefined);
   const isKanbanSessionVisible = useLayoutStore(
     (state) => state.isKanbanSessionVisible
@@ -383,6 +384,7 @@ export function KanbanSessionProvider({ children }: { children: ReactNode }) {
   const isRightSessionPending =
     !visibleRightSession &&
     !!activeWorktreeId &&
+    !isActiveWorkspaceError &&
     (isActiveWorkspaceLoading ||
       typeof activeWorkspaceWithSession === 'undefined');
 

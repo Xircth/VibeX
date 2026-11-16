@@ -97,7 +97,10 @@ import type { AgentEventEnvelope } from '@/features/agents/types';
 import { useConversationTimeline } from '@/features/conversation/useConversationTimeline';
 import { cn } from '@/lib/utils';
 import { type PreviewPanelParams } from '@/types/panels';
-import { prepareImageFileForUpload } from '@/utils/clipboard';
+import {
+  prepareImageFileForUpload,
+  writeTextToClipboard,
+} from '@/utils/clipboard';
 import '@/styles/conversation.css';
 import '@/styles/dockview-ayu.css';
 
@@ -1251,15 +1254,19 @@ export function useCollaborationSpaceRuntime(
   const spaceCursorsRef = useRef(spaceCursors);
   spaceCursorsRef.current = spaceCursors;
 
-  const listedSelected = selectedId.startsWith('direct:')
-    ? null
-    : (spaces.find((space) => space.space_id === selectedId) ??
-      (initialTarget?.targetType === 'group' && selectedId
-        ? {
-            space_id: selectedId,
-            name: initialTarget.spaceName || '',
-          }
-        : null));
+  const listedSelected = useMemo<Space | null>(
+    () =>
+      selectedId.startsWith('direct:')
+        ? null
+        : (spaces.find((space) => space.space_id === selectedId) ??
+          (initialTarget?.targetType === 'group' && selectedId
+            ? {
+                space_id: selectedId,
+                name: initialTarget.spaceName || '',
+              }
+            : null)),
+    [initialTarget?.spaceName, initialTarget?.targetType, selectedId, spaces]
+  );
   // A private chat addresses `direct:<member_id>`; it is not a group space.
   const selected = useMemo<Space | null>(
     () =>
@@ -2580,6 +2587,7 @@ export function useCollaborationSpaceRuntime(
     };
   }, [
     clearBotBootstrapping,
+    hasScopedTarget,
     loadConversations,
     loadRolesAndAgents,
     markBotBootstrapping,
@@ -7347,7 +7355,15 @@ export function useCollaborationSpaceRuntime(
         },
         onCopyId: () => {
           const id = conversationIdForCopy(entry);
-          void navigator.clipboard?.writeText(id);
+          void writeTextToClipboard(id).then((copied) => {
+            if (!copied) {
+              toast.error(
+                t('common:contextMenu.copyFailed', {
+                  error: 'Clipboard unavailable',
+                })
+              );
+            }
+          });
         },
         onHide: () =>
           persistContactChrome(toggleHiddenThread(contactChrome, threadId)),

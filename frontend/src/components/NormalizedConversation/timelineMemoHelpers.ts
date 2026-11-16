@@ -1,10 +1,25 @@
 import type {
   AgentSessionConfigOption,
+  AgentSessionConfigOverride,
+  ConversationPermissionView,
   MessageTurn,
   PlanEntry,
+  TimelineRow,
   TokenUsageInfo,
 } from 'shared/types';
 import type { ContextCompactPresentation } from '@/components/NormalizedConversation/MessageTurnView';
+import { planTurnBlocks } from '@/components/NormalizedConversation/messageTurnBlocks';
+import { toolBlockToNormalizedEntry } from '@/components/NormalizedConversation/messageTurnTool';
+import {
+  splitDisplayContentImages,
+  splitUserTurnContent,
+} from '@/components/NormalizedConversation/userMessageImages';
+import {
+  getSessionComposerFileRefs,
+  getSessionComposerPluginActionInvocations,
+  serializeSessionComposerBackendMessage,
+} from '@/components/tasks/follow-up/sessionComposerStructuredTokens';
+import type { PatchTypeWithKey } from '@/hooks/conversationEntries';
 import type { ConversationMessageNavEntry } from './thread/messageNavEntries';
 import {
   asFiniteNumber,
@@ -12,6 +27,7 @@ import {
   type TurnStatsData,
 } from './thread/turnStatsModel';
 import type {
+  ConversationSessionModesState,
   ConversationTimelineItem,
   ConversationTimelineTurn,
 } from '@/features/conversation/conversationStore';
@@ -75,7 +91,7 @@ export function buildTimelineNavEntries(
   return entries;
 }
 
-export function vibexTurnIdFromTimelineRowId(rowId: string): string {
+export function dimoTurnIdFromTimelineRowId(rowId: string): string {
   return rowId.replace(/:(?:assistant(?::\d+)?|user)$/u, '');
 }
 
@@ -89,7 +105,7 @@ export function isTimelineTurnInFlight(
     if (row.turn.role !== 'assistant') {
       return true;
     }
-    const baseId = vibexTurnIdFromTimelineRowId(row.turn.id);
+    const baseId = dimoTurnIdFromTimelineRowId(row.turn.id);
     const userId = baseId !== row.turn.id ? `${baseId}:user` : null;
     if (!userId) {
       return true;
@@ -228,7 +244,7 @@ export function contextCompactPresentationForRow(
 ): ContextCompactPresentation | null {
   const row = timeline[index];
   if (!row || row.turn.role !== 'assistant') return null;
-  const baseId = vibexTurnIdFromTimelineRowId(row.turn.id);
+  const baseId = dimoTurnIdFromTimelineRowId(row.turn.id);
   const targetUserId = `${baseId}:user`;
   let userTurn: MessageTurn | undefined;
   for (let i = index - 1; i >= 0; i -= 1) {
@@ -258,7 +274,7 @@ export function buildContextCompactPresentationByRowKey(
 
   for (const row of timeline) {
     if (row.turn.role === 'assistant') {
-      const baseId = vibexTurnIdFromTimelineRowId(row.turn.id);
+      const baseId = dimoTurnIdFromTimelineRowId(row.turn.id);
       const userTurn =
         latestTurnById.get(`${baseId}:user`) ??
         (row.turn.id.startsWith('acp-') ? lastNonSteerUserTurn : undefined);
@@ -373,5 +389,258 @@ export function mergeMissingTurnStats(
     model: settled.model ?? live.model ?? null,
     totalTokens: settled.totalTokens ?? live.totalTokens ?? null,
     contextWindow: settled.contextWindow ?? live.contextWindow ?? null,
+  };
+}
+
+function permissionDetailObject(
+  details: ConversationPermissionView['details']
+): Record<string, unknown> | null {
+  return details && typeof details === 'object' && !Array.isArray(details)
+    ? (details as Record<string, unknown>)
+    : null;
+}
+
+function readPermissionStringFromRecord(
+  record: Record<string, unknown> | null,
+  ...keys: string[]
+): string | null {
+  if (!record) return null;
+  for (const key of keys) {
+    const value = record[key];
+    if (typeof value === 'string' && value.trim()) {
+      return value.trim();
+    }
+  }
+  return null;
+}
+
+function readPermissionString(
+  permission: ConversationPermissionView,
+  ...keys: string[]
+): string | null {
+  const details = permissionDetailObject(permission.details);
+  const fields =
+    details?.fields &&
+    typeof details.fields === 'object' &&
+    !Array.isArray(details.fields)
+      ? (details.fields as Record<string, unknown>)
+      : null;
+  const topLevel = permission as unknown as Record<string, unknown>;
+  for (const source of [fields, details, topLevel]) {
+    const found = readPermissionStringFromRecord(source, ...keys);
+    if (found) return found;
+  }
+  return null;
+}
+
+export function timelineToPatchEntries(
+  timeline: ConversationTimelineTurn[],
+  sideRows: TimelineRow[],
+  pendingPermissions: ConversationPermissionView[]
+): PatchTypeWithKey[] {
+  const result: PatchTypeWithKey[] = [];
+  const pendingByToolId = new Map<string, ConversationPermissionView>();
+  for (const permission of pendingPermissions) {
+    const toolCallId = readPermissionString(
+      permission,
+      'toolCallId',
+      'tool_call_id',
+      'toolUseId',
+      'tool_use_id'
+    );
+    if (toolCallId) {
+      pendingByToolId.set(toolCallId, permission);
+    }
+  }
+  const matchedPermissionIds = new Set<string>();
+
+  for (const row of timeline) {
+    const executionProcessId = row.turn.id;
+    const timestamp = row.turn.timestamp ?? null;
+    if (row.turn.role === 'user') {
+      const { text } = splitUserTurnContent(row.turn.blocks);
+      result.push({
+        type: 'NORMALIZED_ENTRY',
+        patchKey: `${row.key}:user`,
+        executionProcessId,
+        content: {
+          timestamp,
+          entry_type: { type: 'user_message' },
+          content: text,
+        },
+      });
+      continue;
+    }
+
+    const planned = planTurnBlocks(row.turn.blocks);
+    planned.forEach((item, index) => {
+      if (item.kind === 'markdown') {
+        result.push({
+          type: 'NORMALIZED_ENTRY',
+          patchKey: `${row.key}:md:${index}`,
+          executionProcessId,
+          content: {
+            timestamp,
+            entry_type: { type: 'assistant_message' },
+            content: item.text,
+          },
+        });
+        return;
+      }
+      if (item.kind === 'tool' && item.use) {
+        const entry = toolBlockToNormalizedEntry(
+          item.use,
+          item.result,
+          timestamp
+        );
+        const pending = item.use.tool_use_id
+          ? pendingByToolId.get(item.use.tool_use_id)
+          : undefined;
+        if (pending && entry.entry_type.type === 'tool_use') {
+          matchedPermissionIds.add(pending.permission_id);
+          entry.entry_type = {
+            ...entry.entry_type,
+            status: {
+              status: 'pending_approval',
+              approval_id: pending.permission_id,
+              requested_at: timestamp ?? '',
+              timeout_at: '',
+            },
+          };
+        }
+        result.push({
+          type: 'NORMALIZED_ENTRY',
+          patchKey: `${row.key}:tool:${index}`,
+          executionProcessId,
+          content: entry,
+        });
+      }
+    });
+  }
+
+  for (const permission of pendingPermissions) {
+    if (matchedPermissionIds.has(permission.permission_id)) continue;
+    const toolName =
+      readPermissionString(permission, 'toolName', 'tool_name') ?? 'tool';
+    const label = permission.title?.trim() || toolName || 'Pending approval';
+    result.push({
+      type: 'NORMALIZED_ENTRY',
+      patchKey: `perm:${permission.permission_id}`,
+      executionProcessId: permission.permission_id,
+      content: {
+        timestamp: null,
+        entry_type: {
+          type: 'tool_use',
+          tool_name: toolName,
+          action_type: { action: 'other', description: label },
+          status: {
+            status: 'pending_approval',
+            approval_id: permission.permission_id,
+            requested_at: '',
+            timeout_at: '',
+          },
+        },
+        content: label,
+      },
+    });
+  }
+
+  for (const side of sideRows) {
+    if (side.row.kind !== 'turn_error') continue;
+    result.push({
+      type: 'NORMALIZED_ENTRY',
+      patchKey: `err:${side.row_id}`,
+      executionProcessId: side.row.error.turn_id ?? side.row_id,
+      content: {
+        timestamp: null,
+        entry_type: {
+          type: 'error_message',
+          error_type: { type: 'other' },
+        },
+        content: side.row.error.error.message,
+      },
+    });
+  }
+
+  return result;
+}
+
+export function buildResendTurnPayload({
+  turn,
+  replacementText,
+  sessionModes,
+  sessionConfigOptions,
+}: {
+  turn: MessageTurn;
+  replacementText?: string;
+  sessionModes: ConversationSessionModesState;
+  sessionConfigOptions: AgentSessionConfigOption[];
+}): {
+  text: string;
+  displayText: string;
+  images: string[];
+  fileRefs: ReturnType<typeof getSessionComposerFileRefs>;
+  workflowRefs: { pluginId: string; workflowId: string }[];
+  modeOverride: string | null;
+  configOverrides: AgentSessionConfigOverride[];
+} | null {
+  const parsedTurn = splitUserTurnContent(turn.blocks);
+  const imageSet = new Set<string>();
+  for (const attachment of [...parsedTurn.images, ...parsedTurn.files]) {
+    const ref = attachment.path || attachment.sourceUrl;
+    if (ref) imageSet.add(ref);
+  }
+
+  let displayText: string;
+  if (replacementText !== undefined) {
+    const parsedReplacement = splitDisplayContentImages(replacementText);
+    displayText = parsedReplacement.text;
+    for (const attachment of [
+      ...parsedReplacement.images,
+      ...parsedReplacement.files,
+    ]) {
+      const ref = attachment.path || attachment.sourceUrl;
+      if (ref) imageSet.add(ref);
+    }
+  } else {
+    displayText = parsedTurn.text;
+  }
+
+  const text = serializeSessionComposerBackendMessage(displayText).trim();
+  const images = Array.from(imageSet);
+  if (!text && !displayText.trim() && images.length === 0) {
+    return null;
+  }
+
+  const fileRefs = getSessionComposerFileRefs(displayText);
+  const workflowRefs = getSessionComposerPluginActionInvocations(
+    displayText
+  ).map((action) => ({
+    pluginId: action.pluginId,
+    workflowId: action.actionId,
+  }));
+  const modeOverride = sessionModes.current ?? null;
+  const configOverrides: AgentSessionConfigOverride[] =
+    sessionConfigOptions.flatMap((option) => {
+      if (typeof option.value === 'string' && option.value.trim()) {
+        return [{ key: option.key, value: option.value }];
+      }
+      if (
+        typeof option.value === 'number' ||
+        typeof option.value === 'boolean'
+      ) {
+        return [{ key: option.key, value: String(option.value) }];
+      }
+      return [];
+    });
+
+  return {
+    text,
+    displayText,
+    images,
+    fileRefs,
+    workflowRefs,
+    modeOverride,
+    configOverrides,
   };
 }

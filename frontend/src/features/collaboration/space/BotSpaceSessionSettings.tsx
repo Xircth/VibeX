@@ -142,15 +142,28 @@ export const BotSpaceSessionSettings = memo(function BotSpaceSessionSettings({
   const [selectedConfigValues, setSelectedConfigValues] = useState<
     Record<string, string>
   >({});
+  const [selectedInstanceByAgent, setSelectedInstanceByAgent] = useState<
+    Record<string, string>
+  >({});
   const personaPromptRef = useRef<string | null>(null);
+  const persistedConfigValuesRef = useRef<Record<string, string>>({});
+  const persistedModeRef = useRef<string | null>(null);
+  const switchedAgentIdRef = useRef<string | null>(null);
+  const configLoadSeqRef = useRef(0);
+  const effectiveAgentIdRef = useRef('');
 
   const botTargetKey = `${memberId}::${activeBotConversationId}`;
   useEffect(() => {
     setConfigAgentId('');
     setSwitchedAgentId(null);
+    switchedAgentIdRef.current = null;
     setSelectedMode(null);
     setSelectedConfigValues({});
+    setSelectedInstanceByAgent({});
+    persistedConfigValuesRef.current = {};
+    persistedModeRef.current = null;
     personaPromptRef.current = null;
+    configLoadSeqRef.current += 1;
   }, [botTargetKey]);
 
   useEffect(() => {
@@ -158,13 +171,14 @@ export const BotSpaceSessionSettings = memo(function BotSpaceSessionSettings({
     let active = true;
 
     const loadMemberConfig = () => {
+      const seq = ++configLoadSeqRef.current;
       void collaborationCall<{ config?: Record<string, unknown> | null }>(
         'collaboration',
         'member.config.get',
         { memberId }
       )
         .then((page) => {
-          if (!active) return;
+          if (!active || seq !== configLoadSeqRef.current) return;
           const config = page.config ?? null;
           const nextAgent = configField(config, 'agent_id', 'agentId');
           const nextMode = configField(config, 'mode_id', 'modeId');
@@ -176,7 +190,20 @@ export const BotSpaceSessionSettings = memo(function BotSpaceSessionSettings({
             'persona_prompt',
             'personaPrompt'
           );
+
+          const expectedSwitched = switchedAgentIdRef.current;
+          if (
+            expectedSwitched &&
+            (!nextAgent ||
+              canonicalSessionAgentId(nextAgent) !==
+                canonicalSessionAgentId(expectedSwitched))
+          ) {
+            return;
+          }
+
           if (nextAgent) setConfigAgentId(nextAgent);
+          persistedModeRef.current = nextMode || null;
+          persistedConfigValuesRef.current = nextValues;
           setSelectedMode(nextMode || null);
           setSelectedConfigValues(nextValues);
         })
@@ -195,13 +222,18 @@ export const BotSpaceSessionSettings = memo(function BotSpaceSessionSettings({
         return;
       }
       const nextCanonical = canonicalSessionAgentId(detail.agentId);
-      setSwitchedAgentId((prev) => {
-        if (prev && canonicalSessionAgentId(prev) !== nextCanonical) {
-          setSelectedMode(null);
-          setSelectedConfigValues({});
-        }
-        return nextCanonical;
-      });
+      const prevCanonical = effectiveAgentIdRef.current
+        ? canonicalSessionAgentId(effectiveAgentIdRef.current)
+        : '';
+      if (prevCanonical !== nextCanonical) {
+        setSelectedMode(null);
+        setSelectedConfigValues({});
+        persistedConfigValuesRef.current = {};
+        persistedModeRef.current = null;
+      }
+      switchedAgentIdRef.current = nextCanonical;
+      effectiveAgentIdRef.current = nextCanonical;
+      setSwitchedAgentId(nextCanonical);
       loadMemberConfig();
     };
 
@@ -248,6 +280,7 @@ export const BotSpaceSessionSettings = memo(function BotSpaceSessionSettings({
     () => (rawAgentId ? canonicalSessionAgentId(rawAgentId) : ''),
     [rawAgentId]
   );
+  effectiveAgentIdRef.current = effectiveAgentId;
 
   const selectableAgents = useMemo<SelectableAgent[]>(() => {
     if (managementSelectableAgents.length > 0) {
@@ -353,6 +386,7 @@ export const BotSpaceSessionSettings = memo(function BotSpaceSessionSettings({
   );
 
   const displaySessionModes = displayControls.sessionModes;
+  const currentDisplayMode = displaySessionModes.current;
   const displaySessionConfigOptions = useMemo(
     () => visibleSessionConfigOptions(displayControls.sessionConfigOptions),
     [displayControls.sessionConfigOptions]
@@ -368,9 +402,9 @@ export const BotSpaceSessionSettings = memo(function BotSpaceSessionSettings({
   useEffect(() => {
     if (!activeBotConversationId) return;
     setSelectedMode((previous) =>
-      reconcilePendingMode(displaySessionModes.current, previous)
+      reconcilePendingMode(currentDisplayMode, previous)
     );
-  }, [activeBotConversationId, displaySessionModes.current]);
+  }, [activeBotConversationId, currentDisplayMode]);
 
   const effectiveConfigOverrides = useMemo(() => {
     const presentable = presentableSessionConfigOptions(
@@ -396,6 +430,40 @@ export const BotSpaceSessionSettings = memo(function BotSpaceSessionSettings({
     );
   }, [displaySessionConfigOptions, displaySessionModes.modes, selectedConfigValues]);
 
+  const mergePersistedConfigValues = useCallback(
+    (
+      base: Record<string, string>,
+      overrides: Record<string, string>,
+      changedKey?: string,
+      changedValue?: string
+    ): Record<string, string> => {
+      const combined = { ...base, ...overrides };
+      const visibleKeys = new Set(
+        displaySessionConfigOptions.map((option) => option.key)
+      );
+      const preservedHidden = Object.fromEntries(
+        Object.entries(combined).filter(([k]) => !visibleKeys.has(k))
+      );
+      const visibleSubset = Object.fromEntries(
+        Object.entries(combined).filter(([k]) => visibleKeys.has(k))
+      );
+      const nextVisible =
+        changedKey !== undefined && changedValue !== undefined
+          ? selectConfigOptionValue(
+              displaySessionConfigOptions,
+              visibleSubset,
+              changedKey,
+              changedValue
+            )
+          : sanitizeDependentConfigValues(
+              displaySessionConfigOptions,
+              visibleSubset
+            );
+      return { ...preservedHidden, ...nextVisible };
+    },
+    [displaySessionConfigOptions]
+  );
+
   const persistMemberConfig = useCallback(
     async (next: {
       agentId?: string;
@@ -404,24 +472,38 @@ export const BotSpaceSessionSettings = memo(function BotSpaceSessionSettings({
     }) => {
       if (!memberId) return;
       try {
+        let resolvedConfigValues = next.configValues;
+        let resolvedModeId = next.modeId;
         if (personaPromptRef.current === null) {
           const current = await collaborationCall<{
             config?: Record<string, unknown> | null;
-          }>('collaboration', 'member.config.get', { memberId }).catch(
-            () => null
-          );
+          }>('collaboration', 'member.config.get', { memberId });
+          const currentConfig = current?.config ?? null;
           personaPromptRef.current = configField(
-            current?.config ?? null,
+            currentConfig,
             'persona_prompt',
             'personaPrompt'
           );
+          const serverValues = stringRecord(
+            currentConfig?.config_values ?? currentConfig?.configValues
+          );
+          if (Object.keys(serverValues).length > 0 && !next.agentId) {
+            resolvedConfigValues = { ...serverValues, ...next.configValues };
+            persistedConfigValuesRef.current = resolvedConfigValues;
+          }
+          if (!resolvedModeId) {
+            resolvedModeId = configField(currentConfig, 'mode_id', 'modeId');
+          }
+        }
+        if (personaPromptRef.current === null) {
+          return;
         }
         await collaborationCall('collaboration', 'member.config.update', {
           memberId,
           ...(next.agentId ? { agentId: next.agentId } : {}),
-          modeId: next.modeId,
-          configValues: next.configValues,
-          personaPrompt: personaPromptRef.current ?? '',
+          modeId: resolvedModeId,
+          configValues: resolvedConfigValues,
+          personaPrompt: personaPromptRef.current,
         });
       } catch {
         // Ignore persistence errors when capability is unavailable in mock/offline contexts
@@ -443,12 +525,27 @@ export const BotSpaceSessionSettings = memo(function BotSpaceSessionSettings({
 
   const handleApplyExecutorProfile = useCallback(
     (nextProfile: ExecutorProfileId | null) => {
-      if (!nextProfile) return;
+      if (!nextProfile) {
+        switchedAgentIdRef.current = null;
+        setSwitchedAgentId(null);
+        setSelectedMode(null);
+        setSelectedConfigValues({});
+        persistedConfigValuesRef.current = {};
+        persistedModeRef.current = null;
+        return;
+      }
       const nextAgent = canonicalSessionAgentId(nextProfile.executor);
+      const agentChanged = effectiveAgentIdRef.current !== nextAgent;
+      switchedAgentIdRef.current = nextAgent;
+      effectiveAgentIdRef.current = nextAgent;
       setSwitchedAgentId(nextAgent);
       setConfigAgentId(nextAgent);
-      setSelectedMode(null);
-      setSelectedConfigValues({});
+      if (agentChanged) {
+        setSelectedMode(null);
+        setSelectedConfigValues({});
+        persistedConfigValuesRef.current = {};
+        persistedModeRef.current = null;
+      }
       if (!activeBotConversationId && memberId) {
         void persistMemberConfig({
           agentId: nextAgent,
@@ -494,9 +591,15 @@ export const BotSpaceSessionSettings = memo(function BotSpaceSessionSettings({
   const handleSelectMode = useCallback(
     (modeId: string) => {
       setSelectedMode(modeId);
+      const nextPersistedValues = mergePersistedConfigValues(
+        persistedConfigValuesRef.current,
+        effectiveConfigOverrides
+      );
+      persistedModeRef.current = modeId;
+      persistedConfigValuesRef.current = nextPersistedValues;
       void persistMemberConfig({
         modeId,
-        configValues: effectiveConfigOverrides,
+        configValues: nextPersistedValues,
       });
       if (activeBotConversationId) {
         void conversationApi
@@ -507,14 +610,20 @@ export const BotSpaceSessionSettings = memo(function BotSpaceSessionSettings({
           .catch(() => undefined);
       }
     },
-    [activeBotConversationId, effectiveConfigOverrides, persistMemberConfig]
+    [
+      activeBotConversationId,
+      effectiveConfigOverrides,
+      mergePersistedConfigValues,
+      persistMemberConfig,
+    ]
   );
 
   const handleSelectConfigOption = useCallback(
     (key: string, value: string) => {
-      const nextMode = selectedMode || displaySessionModes.current || '';
-      if (!selectedMode && displaySessionModes.current) {
-        setSelectedMode(displaySessionModes.current);
+      const nextMode =
+        selectedMode || persistedModeRef.current || currentDisplayMode || '';
+      if (!selectedMode && currentDisplayMode) {
+        setSelectedMode(currentDisplayMode);
       }
       const nextValues = selectConfigOptionValue(
         displaySessionConfigOptions,
@@ -525,9 +634,17 @@ export const BotSpaceSessionSettings = memo(function BotSpaceSessionSettings({
       const accepted = nextValues[key] === value;
       setSelectedConfigValues(nextValues);
       if (!accepted) return;
+      const nextPersistedValues = mergePersistedConfigValues(
+        persistedConfigValuesRef.current,
+        effectiveConfigOverrides,
+        key,
+        value
+      );
+      persistedModeRef.current = nextMode || null;
+      persistedConfigValuesRef.current = nextPersistedValues;
       void persistMemberConfig({
         modeId: nextMode,
-        configValues: nextValues,
+        configValues: nextPersistedValues,
       });
       if (activeBotConversationId) {
         void conversationApi
@@ -541,12 +658,29 @@ export const BotSpaceSessionSettings = memo(function BotSpaceSessionSettings({
     },
     [
       activeBotConversationId,
+      currentDisplayMode,
       displaySessionConfigOptions,
-      displaySessionModes.current,
       effectiveConfigOverrides,
+      mergePersistedConfigValues,
       persistMemberConfig,
       selectedMode,
     ]
+  );
+
+  const selectedInstanceId = effectiveAgentId
+    ? (selectedInstanceByAgent[effectiveAgentId] ?? null)
+    : null;
+
+  const handleSelectInstance = useCallback(
+    (instanceId: string) => {
+      if (!effectiveAgentId) return;
+      setSelectedInstanceByAgent((prev) =>
+        prev[effectiveAgentId] === instanceId
+          ? prev
+          : { ...prev, [effectiveAgentId]: instanceId }
+      );
+    },
+    [effectiveAgentId]
   );
 
   if (!effectiveAgentId && selectableAgents.length === 0) {
@@ -558,6 +692,8 @@ export const BotSpaceSessionSettings = memo(function BotSpaceSessionSettings({
       <ComposerProviderInstanceSlot
         agentId={effectiveAgentId || null}
         disabled={disabled}
+        selectedInstanceId={selectedInstanceId}
+        onSelectInstance={handleSelectInstance}
       />
       <SessionSettingsSummary
         sessionModes={displaySessionModes}

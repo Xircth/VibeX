@@ -95,6 +95,10 @@ pub struct ConversationInputPayload {
     /// sessions.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub collaboration_origin: Option<CollaborationSpaceOrigin>,
+    /// Selected provider instance (`provider_instances.instance_id`) for multi-instance routing.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub provider_instance_id: Option<String>,
 }
 
 /// Who posted a collaboration-space delivery that became this conversation

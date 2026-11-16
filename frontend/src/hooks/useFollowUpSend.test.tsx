@@ -785,4 +785,37 @@ describe('useFollowUpSend', () => {
       },
     ]);
   });
+
+  it('forwards providerInstanceId to sendAgentRuntimeTurn', async () => {
+    sendTurnMock.mockResolvedValue({ input: { id: 'in-1', status: 'dispatched' } });
+    const queryClient = new QueryClient();
+    const wrapper = ({ children }: { children: React.ReactNode }) => (
+      <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+    );
+    const { result } = renderHook(
+      () =>
+        useFollowUpSend({
+          sessionId: 'conversation-1',
+          workspaceId: 'ws-1',
+          message: 'hello provider',
+          executorProfileId: { executor: 'codex' as const } as never,
+          providerInstanceId: 'inst-custom-9',
+          conflictMarkdown: null,
+          reviewMarkdown: '',
+          clearComments: vi.fn(),
+          onAfterSendCleanup: vi.fn(),
+        }),
+      { wrapper }
+    );
+
+    await act(async () => {
+      await result.current.onSendFollowUp();
+    });
+
+    expect(sendTurnMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        providerInstanceId: 'inst-custom-9',
+      })
+    );
+  });
 });

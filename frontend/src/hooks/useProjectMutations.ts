@@ -17,7 +17,17 @@ export function useProjectMutations(options?: UseProjectMutationsOptions) {
     mutationFn: (data: HostCreateProject) => projectsApi.create(data),
     onSuccess: (project: Project) => {
       queryClient.setQueryData(['project', project.id], project);
-      queryClient.invalidateQueries({ queryKey: ['projects'] });
+      queryClient.setQueriesData<Project[]>(
+        { queryKey: ['projects'] },
+        (old) => {
+          if (!Array.isArray(old)) return old;
+          if (old.some((p) => p.id === project.id)) {
+            return old.map((p) => (p.id === project.id ? project : p));
+          }
+          return [project, ...old];
+        }
+      );
+      void queryClient.invalidateQueries({ queryKey: ['projects'] });
       options?.onCreateSuccess?.(project);
     },
     onError: (err) => {
@@ -39,11 +49,15 @@ export function useProjectMutations(options?: UseProjectMutationsOptions) {
       // Update single project cache
       queryClient.setQueryData(['project', project.id], project);
 
-      // Update the project in the projects list cache immediately
-      queryClient.setQueryData<Project[]>(['projects'], (old) => {
-        if (!old) return old;
-        return old.map((p) => (p.id === project.id ? project : p));
-      });
+      // Update the project across all environment-scoped projects list caches
+      queryClient.setQueriesData<Project[]>(
+        { queryKey: ['projects'] },
+        (old) => {
+          if (!Array.isArray(old)) return old;
+          return old.map((p) => (p.id === project.id ? project : p));
+        }
+      );
+      void queryClient.invalidateQueries({ queryKey: ['projects'] });
 
       options?.onUpdateSuccess?.(project);
     },

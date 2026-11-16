@@ -27,6 +27,7 @@ import type {
   AgentElicitationResponse,
   AgentKind,
   AgentPermissionResponse,
+  AgentSessionConfigOption,
   ConversationFileChange,
   MessageTurn,
   TaskWithAttemptStatus,
@@ -40,6 +41,7 @@ import {
   collectAskQuestionToolUses,
   findMatchingAskQuestionToolInUses,
 } from '@/components/NormalizedConversation/TurnActivity';
+import { isOrphanedQuestionResponseError } from '@/components/tasks/follow-up/AgentQuestionCard';
 import { ChildConversationViewer } from '@/components/NormalizedConversation/conversation/ChildConversationViewer';
 import {
   appendChildConversationStack,
@@ -69,7 +71,9 @@ import { useUserSystem } from '@/components/ConfigProvider';
 import { ConversationMessageNav } from './thread/ConversationMessageNav';
 import {
   isAgentHandoffHostNote,
+  normalizeAgentIdentity,
   shouldShowDurableHostNote,
+  type ConversationSessionModesState,
 } from '@/features/conversation/conversationStore';
 import { useConversationTimeline } from '@/features/conversation/useConversationTimeline';
 import { WorkflowRunCard } from '@/features/workflow/WorkflowRunCard';
@@ -103,10 +107,12 @@ import {
   LOAD_OLDER_THRESHOLD_PX,
   buildContextCompactPresentationByRowKey,
   buildLiveTurnStats,
+  buildResendTurnPayload,
   buildSettledTurnStats,
   buildTimelineNavEntries,
   contextCompactPresentationForRow,
   conversationThreadMaxWidthClass,
+  dimoTurnIdFromTimelineRowId,
   getLatestTimelinePlanEntries,
   isEditableUserTimelineRow,
   isTimelineTurnInFlight,
@@ -114,8 +120,8 @@ import {
   parseSideRowTurnAliases,
   shouldLoadOlderTimelinePage,
   timelineItemAsMessage,
+  timelineToPatchEntries,
   turnCopyText,
-  vibexTurnIdFromTimelineRowId,
 } from './timelineMemoHelpers';
 import {
   InlineStreamRuntimeRow,
@@ -124,13 +130,19 @@ import {
 import { useTimelineContextSync } from './useTimelineContextSync';
 import { useTimelineScrollController } from './useTimelineScrollController';
 
+const EMPTY_TIMELINE_SESSION_MODES: ConversationSessionModesState = {
+  current: null,
+  modes: [],
+};
+const EMPTY_TIMELINE_CONFIG_OPTIONS: AgentSessionConfigOption[] = [];
+
 export {
   computeAnchoredTimelineStartIndex,
   conversationThreadMaxWidthClass,
   LOAD_OLDER_THRESHOLD_PX,
   shouldLoadOlderTimelinePage,
   buildTimelineNavEntries,
-  vibexTurnIdFromTimelineRowId,
+  dimoTurnIdFromTimelineRowId,
   isTimelineTurnInFlight,
   getLatestTimelinePlanEntries,
   isEditableUserTimelineRow,
@@ -139,6 +151,8 @@ export {
   buildLiveTurnStats,
   buildSettledTurnStats,
   mergeMissingTurnStats,
+  timelineToPatchEntries,
+  buildResendTurnPayload,
 };
 
 interface AgentTimelineConversationProps {
@@ -149,7 +163,7 @@ interface AgentTimelineConversationProps {
 }
 
 /**
- * Conversation view backed by the canonical VibeX event log: projected timeline
+ * Conversation view backed by the canonical Dimo event log: projected timeline
  * rows are hydrated from storage and updated from `conversation-events`, then
  * rendered turn-by-turn via {@link MessageTurnView}.
  */
@@ -392,18 +406,41 @@ const AgentTimelineConversation = forwardRef<
   const [respondingQuestionId, setRespondingQuestionId] = useState<
     string | null
   >(null);
+  const [dismissedQuestionIds, setDismissedQuestionIds] = useState<Set<string>>(
+    () => new Set()
+  );
+  useEffect(() => {
+    setDismissedQuestionIds(new Set());
+  }, [sessionId]);
+  const handleDismissQuestion = useCallback((questionId: string) => {
+    setDismissedQuestionIds((prev) => {
+      if (prev.has(questionId)) return prev;
+      const next = new Set(prev);
+      next.add(questionId);
+      return next;
+    });
+  }, []);
   const handleRespondQuestion = useCallback(
-    (questionId: string, response: AgentElicitationResponse) => {
+    async (questionId: string, response: AgentElicitationResponse) => {
       setRespondingQuestionId(questionId);
-      void conversationRespondQuestion(questionId, response)
-        .catch((error: unknown) => toast.error(getErrorMessage(error)))
-        .finally(() =>
-          setRespondingQuestionId((current) =>
-            current === questionId ? null : current
-          )
+      try {
+        await conversationRespondQuestion(questionId, response);
+      } catch (error: unknown) {
+        toast.error(getErrorMessage(error));
+        if (
+          response.action === 'decline' &&
+          isOrphanedQuestionResponseError(error)
+        ) {
+          handleDismissQuestion(questionId);
+        }
+        throw error;
+      } finally {
+        setRespondingQuestionId((current) =>
+          current === questionId ? null : current
         );
+      }
     },
-    [conversationRespondQuestion]
+    [conversationRespondQuestion, handleDismissQuestion]
   );
 
   const isEditorAreaVisible = useLayoutStore(
@@ -517,7 +554,7 @@ const AgentTimelineConversation = forwardRef<
         nextOrdinal += 1;
         map.set(row.turn.id.replace(/:user$/, ''), activeOrdinal);
       } else if (row.turn.role === 'assistant' && activeOrdinal !== null) {
-        map.set(vibexTurnIdFromTimelineRowId(row.turn.id), activeOrdinal);
+        map.set(dimoTurnIdFromTimelineRowId(row.turn.id), activeOrdinal);
       }
     }
     if (
@@ -564,7 +601,7 @@ const AgentTimelineConversation = forwardRef<
       for (let i = timeline.length - 1; i >= 0; i -= 1) {
         const r = timeline[i];
         if (r?.turn.role === 'assistant') {
-          return vibexTurnIdFromTimelineRowId(r.turn.id);
+          return dimoTurnIdFromTimelineRowId(r.turn.id);
         }
       }
       return null;
@@ -611,6 +648,20 @@ const AgentTimelineConversation = forwardRef<
     [attempt.session, t, userOrdinalByTurnId]
   );
 
+  const sessionAgentType = (attempt.session?.agent_id ??
+    attempt.session?.executor) as AgentKind | null;
+  const normalizedSessionAgent = normalizeAgentIdentity(sessionAgentType);
+  const controlsMatchSessionAgent =
+    !normalizedSessionAgent ||
+    !conversation.controlsAgentId ||
+    conversation.controlsAgentId === normalizedSessionAgent;
+  const conversationSessionModes = controlsMatchSessionAgent
+    ? conversation.sessionModes
+    : EMPTY_TIMELINE_SESSION_MODES;
+  const conversationSessionConfigOptions = controlsMatchSessionAgent
+    ? conversation.sessionConfigOptions
+    : EMPTY_TIMELINE_CONFIG_OPTIONS;
+
   const handleRetry = useCallback(
     async (
       turn: MessageTurn,
@@ -619,12 +670,13 @@ const AgentTimelineConversation = forwardRef<
     ): Promise<boolean> => {
       const session = attempt.session;
       if (!session?.executor) return false;
-      const text =
-        replacementText ??
-        turn.blocks
-          .flatMap((block) => (block.type === 'text' ? [block.text] : []))
-          .join('\n\n');
-      if (!text) return false;
+      const resendPayload = buildResendTurnPayload({
+        turn,
+        replacementText,
+        sessionModes: conversationSessionModes,
+        sessionConfigOptions: conversationSessionConfigOptions,
+      });
+      if (!resendPayload) return false;
 
       let rollbackFiles: ConversationFileChange[] = [];
       let previewUnavailable = false;
@@ -697,7 +749,7 @@ const AgentTimelineConversation = forwardRef<
             getActiveExecutorProfile(),
             session.executor as AgentKind
           ),
-          text,
+          ...resendPayload,
         });
         return true;
       } catch (error) {
@@ -709,6 +761,8 @@ const AgentTimelineConversation = forwardRef<
       attempt.id,
       attempt.session,
       conversationResetAndReload,
+      conversationSessionConfigOptions,
+      conversationSessionModes,
       getActiveExecutorProfile,
       t,
     ]
@@ -746,7 +800,6 @@ const AgentTimelineConversation = forwardRef<
   );
 
   const {
-    conversationSessionConfigOptions,
     timelineTurns,
     liveStats,
     pendingQuestionRow,
@@ -783,6 +836,7 @@ const AgentTimelineConversation = forwardRef<
     userOrdinalByKey,
     respondingPermissionId,
     respondingQuestionId,
+    dismissedQuestionIds,
     handleRespondPermission,
     handleRespondQuestion,
     handleOpenChild,
@@ -812,7 +866,7 @@ const AgentTimelineConversation = forwardRef<
     ) {
       return null;
     }
-    const vibexTurnId = vibexTurnIdFromTimelineRowId(
+    const dimoTurnId = dimoTurnIdFromTimelineRowId(
       streamingAssistantRow.turn.id
     );
     const statusLabel =
@@ -830,7 +884,7 @@ const AgentTimelineConversation = forwardRef<
         : t(
             `conversation:runtime.request.${requestStatusKey({
               request: runtimeStatus.request,
-              currentTurnId: vibexTurnId,
+              currentTurnId: dimoTurnId,
               connection: runtimeStatus.connection,
               hasInteraction:
                 Boolean(pendingQuestionRow) || hasPendingPermission,
@@ -964,7 +1018,7 @@ const AgentTimelineConversation = forwardRef<
                   },
                 });
               }
-              const turnId = vibexTurnIdFromTimelineRowId(row.turn.id);
+              const turnId = dimoTurnIdFromTimelineRowId(row.turn.id);
               const forkPointStatus = row.forkPointStatus ?? null;
               const canOfferFork =
                 forkSupported && forkPointStatus !== 'unsupported';
@@ -1089,7 +1143,7 @@ const AgentTimelineConversation = forwardRef<
                           const row =
                             item.kind === 'message' ? item.item : null;
                           const turnId = row
-                            ? vibexTurnIdFromTimelineRowId(row.turn.id)
+                            ? dimoTurnIdFromTimelineRowId(row.turn.id)
                             : null;
                           const isCurrentFindMatch =
                             row != null &&
@@ -1142,6 +1196,7 @@ const AgentTimelineConversation = forwardRef<
                               scrollMargin={scrollMargin}
                               measureElement={rowVirtualizer.measureElement}
                               item={item}
+                              timeline={timeline}
                               slice={entry.slice}
                               isLastSlice={entry.isLast}
                               foldEdge={foldEdge}
@@ -1156,6 +1211,8 @@ const AgentTimelineConversation = forwardRef<
                               expandFileChanges={expandFileChanges}
                               delegations={delegations}
                               questions={timelineQuestions}
+                              dismissedQuestionIds={dismissedQuestionIds}
+                              onDismissQuestion={handleDismissQuestion}
                               onOpenChild={handleOpenChild}
                               contextCompact={
                                 row

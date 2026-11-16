@@ -53,6 +53,10 @@ vi.mock('@/components/ui/toast', () => ({
   },
 }));
 
+vi.mock('@/utils/clipboard', () => ({
+  writeTextToClipboard: vi.fn(async () => true),
+}));
+
 const dimoAccountMock = vi.hoisted(() => ({
   isSignedIn: true,
   overview: {
@@ -616,6 +620,41 @@ describe('WebServiceSettings', () => {
     expect(
       screen.queryByRole('switch', { name: '云服务' })
     ).not.toBeInTheDocument();
+  });
+
+  it('shows toast error and preserves actual tunnel state when selecting cloud mode fails', async () => {
+    const user = userEvent.setup();
+    const { toast } = await import('@/components/ui/toast');
+    hostTunnelApiMock.setEnabled
+      .mockResolvedValueOnce({
+        enabled: false,
+        saved: [],
+        active_id: null,
+        pending: null,
+        relay_state: 'idle',
+        last_error: null,
+      })
+      .mockRejectedValueOnce(new Error('Relay service unreachable'));
+    hostTunnelApiMock.get.mockResolvedValue({
+      enabled: false,
+      saved: [],
+      active_id: null,
+      pending: null,
+      relay_state: 'idle',
+      last_error: null,
+    });
+
+    renderSettings();
+
+    await user.click(await screen.findByRole('switch', { name: '启动' }));
+    const cloudBtn = await screen.findByRole('button', {
+      name: /使用云服务 Beta/,
+    });
+    await user.click(cloudBtn);
+
+    await waitFor(() =>
+      expect(toast.error).toHaveBeenCalledWith('Relay service unreachable')
+    );
   });
 });
 

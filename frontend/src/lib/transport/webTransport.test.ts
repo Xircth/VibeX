@@ -1,6 +1,10 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { WEB_SOCKET_KEEPALIVE_MS, WebTransport } from './webTransport';
+import {
+  WEB_SOCKET_KEEPALIVE_MS,
+  WebTransport,
+  WebTransportError,
+} from './webTransport';
 
 vi.mock('@tauri-apps/api/core', () => {
   throw new Error('WebTransport must not import Tauri');
@@ -398,5 +402,137 @@ describe('WebTransport', () => {
         writable: true,
       });
     }
+  });
+
+  it('rejects awaiting subscription next() when server sends error or detached', async () => {
+    vi.stubGlobal('WebSocket', MockWebSocket);
+    const transport = new WebTransport({
+      baseUrl: 'http://127.0.0.1:17891',
+      token: 'remote-secret',
+    });
+
+    const errIter = transport
+      .subscribe({
+        subscription_id: 'sub-error-1',
+        resource: 'conversation',
+        conversation_id: 'conv-1',
+        after_sequence: 0n,
+      })
+      [Symbol.asyncIterator]();
+    const detachIter = transport
+      .subscribe({
+        subscription_id: 'sub-detach-1',
+        resource: 'patch_stream',
+        stream: 'diff',
+        args: {},
+      })
+      [Symbol.asyncIterator]();
+
+    const pendingErr = errIter.next();
+    const pendingDetach = detachIter.next();
+    const socket = MockWebSocket.instances[0]!;
+    socket.open();
+
+    socket.message({
+      type: 'error',
+      subscription_id: 'sub-error-1',
+      error: { code: 'internal', message: 'Stream crashed', retryable: true },
+    });
+    socket.message({
+      type: 'detached',
+      subscription_id: 'sub-detach-1',
+      reason: 'upstream_closed',
+    });
+
+    await expect(pendingErr).rejects.toBeInstanceOf(WebTransportError);
+    await expect(pendingErr).rejects.toMatchObject({
+      code: 'internal',
+      message: 'Stream crashed',
+      retryable: true,
+    });
+    await expect(pendingDetach).rejects.toBeInstanceOf(WebTransportError);
+    await expect(pendingDetach).rejects.toMatchObject({
+      code: 'subscription_detached',
+      retryable: true,
+    });
+
+    transport.destroy();
+  });
+
+  it('surfaces and reconnects listenHostEvent when the subscription errors', async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal('WebSocket', MockWebSocket);
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const transport = new WebTransport({
+      baseUrl: 'http://127.0.0.1:17891',
+      token: 'remote-secret',
+    });
+    const received: unknown[] = [];
+
+    const stop = await transport.listen('projects-changed', (payload) => {
+      received.push(payload);
+    });
+    const socket = MockWebSocket.instances[0]!;
+    socket.open();
+    const firstSubId = JSON.parse(socket.sent[0]!).request.subscription_id;
+
+    socket.message({
+      type: 'error',
+      subscription_id: firstSubId,
+      error: { code: 'internal', message: 'Temporary error', retryable: true },
+    });
+
+    await vi.advanceTimersByTimeAsync(0);
+    expect(warnSpy).toHaveBeenCalled();
+
+    await vi.advanceTimersByTimeAsync(500);
+    const secondAttach = socket.sent
+      .map((raw) => JSON.parse(raw))
+      .find(
+        (frame) =>
+          frame.type === 'attach' &&
+          frame.request.subscription_id !== firstSubId
+      );
+    expect(secondAttach).toBeDefined();
+
+    socket.message({
+      type: 'event',
+      subscription_id: secondAttach.request.subscription_id,
+      event: { sequence: 1, kind: 'projects-changed', payload: 'recovered' },
+    });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(received).toEqual(['recovered']);
+
+    stop();
+    warnSpy.mockRestore();
+    transport.destroy();
+  });
+
+  it('invokes onAuthError on HTTP 401 responses', async () => {
+    const onAuthError = vi.fn();
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: false,
+        status: 401,
+        json: async () => ({
+          code: 'unauthorized',
+          message: 'Invalid token',
+          retryable: false,
+        }),
+      })
+    );
+    const transport = new WebTransport({
+      baseUrl: 'http://127.0.0.1:17891',
+      token: 'bad-token',
+      onAuthError,
+    });
+
+    await expect(transport.capabilities()).rejects.toMatchObject({
+      name: 'WebTransportError',
+      status: 401,
+      code: 'unauthorized',
+    });
+    expect(onAuthError).toHaveBeenCalledTimes(1);
   });
 });

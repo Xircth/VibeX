@@ -216,11 +216,7 @@ export function AgentConfigurationAndDiagnostics({
     dirtyRef.current = nextDirty;
     setDirty(nextDirty);
     if (!currentConfig) return;
-    const fields = currentConfig.fields.filter(
-      (field) =>
-        nextDirty[field.id] &&
-        (!field.secret || (nextDrafts[field.id] ?? '').length > 0)
-    );
+    const fields = currentConfig.fields.filter((field) => nextDirty[field.id]);
     if (fields.length === 0) return;
     const request: AgentNativeConfigPatchRequest = {
       agent_id: currentConfig.agent_id,
@@ -337,6 +333,7 @@ export function AgentConfigurationAndDiagnostics({
                             {layoutConfigFields(fields).map(({ field }) => (
                               <ConfigField
                                 key={field.id}
+                                dirty={Boolean(dirty[field.id])}
                                 drafts={drafts}
                                 field={field}
                                 fields={fields}
@@ -399,6 +396,7 @@ export function AgentConfigurationAndDiagnostics({
 }
 
 function ConfigField({
+  dirty = false,
   field,
   fields,
   value,
@@ -407,6 +405,7 @@ function ConfigField({
   onBlur,
   onChange,
 }: {
+  dirty?: boolean;
   field: AgentNativeConfigFieldView;
   fields?: AgentNativeConfigFieldView[];
   value: string;
@@ -523,13 +522,13 @@ function ConfigField({
             }
             name={`agent_config_${field.id}`}
             value={
-              field.secret && field.present && value === ''
+              field.secret && field.present && !dirty && value === ''
                 ? (field.masked_value ?? '••••••••')
                 : value
             }
             placeholder={placeholder}
             onFocus={
-              field.secret && field.present
+              field.secret && field.present && !dirty
                 ? (event) => event.currentTarget.select()
                 : undefined
             }

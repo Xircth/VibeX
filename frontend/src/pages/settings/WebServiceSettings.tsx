@@ -184,9 +184,16 @@ export function WebServiceSettings({
             (address) =>
               !address.includes('127.0.0.1') && !address.includes('localhost')
           );
-        const nextStatus = lanMissing
-          ? await webServiceApi.start()
-          : currentStatus;
+        let nextStatus = currentStatus;
+        if (lanMissing) {
+          try {
+            nextStatus = await webServiceApi.start();
+          } catch (startError) {
+            toast.error(
+              getErrorMessage(startError, t('webService.startFailed'))
+            );
+          }
+        }
         const effectiveConfig =
           nextStatus.running && validPort(nextStatus.port)
             ? { ...savedConfig, port: nextStatus.port }
@@ -255,14 +262,26 @@ export function WebServiceSettings({
           commitDraft({ ...draftRef.current, allow_lan: true });
         }
         setStatus(await webServiceApi.getStatus());
-      } catch {
-        setTunnelEnabled(useCloud);
+      } catch (error) {
+        toast.error(getErrorMessage(error, t('webService.tunnelSaveFailed')));
+        try {
+          const [actualStatus, actualTunnel] = await Promise.all([
+            webServiceApi.getStatus(),
+            hostTunnelApi.get().catch(() => null),
+          ]);
+          setStatus(actualStatus);
+          if (actualTunnel) {
+            setTunnelEnabled(Boolean(actualTunnel.enabled));
+          }
+        } catch {
+          // Preserve current state if secondary refresh fails
+        }
         window.dispatchEvent(new CustomEvent('dimo:host-tunnel-updated'));
       } finally {
         setStatusBusy(false);
       }
     },
-    [commitDraft, hasRelayPermission]
+    [commitDraft, hasRelayPermission, t]
   );
 
   const startServer = useCallback(async () => {
@@ -452,13 +471,20 @@ export function WebServiceSettings({
                         }
                         void Promise.resolve(hostTunnelApi.setEnabled?.(false))
                           .then((next) => {
-                            setTunnelEnabled(Boolean(next?.enabled));
+                            if (next) {
+                              setTunnelEnabled(Boolean(next.enabled));
+                            }
                             window.dispatchEvent(
                               new CustomEvent('dimo:host-tunnel-updated')
                             );
                           })
-                          .catch(() => {
-                            setTunnelEnabled(false);
+                          .catch((error) => {
+                            toast.error(
+                              getErrorMessage(
+                                error,
+                                t('webService.tunnelSaveFailed')
+                              )
+                            );
                             window.dispatchEvent(
                               new CustomEvent('dimo:host-tunnel-updated')
                             );

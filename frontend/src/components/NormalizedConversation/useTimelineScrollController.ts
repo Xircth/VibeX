@@ -61,7 +61,7 @@ import {
   shouldLoadOlderTimelinePage,
   timelineItemAsMessage,
   turnCopyText,
-  vibexTurnIdFromTimelineRowId,
+  dimoTurnIdFromTimelineRowId,
 } from './timelineMemoHelpers';
 
 const OVERSCAN = 10;
@@ -309,7 +309,11 @@ export function useTimelineScrollController({
     () => (findOpen ? findInConversationTimeline(timeline, findQuery) : []),
     [findOpen, findQuery, timeline]
   );
-  const currentFindMatch = findMatches[findMatchIndex] ?? null;
+  const safeFindMatchIndex =
+    findMatches.length > 0
+      ? Math.min(findMatchIndex, findMatches.length - 1)
+      : 0;
+  const currentFindMatch = findMatches[safeFindMatchIndex] ?? null;
 
   const detachFromBottom = useCallback(() => {
     cancelVirtualizerFollowScroll(rowVirtualizer);
@@ -398,8 +402,9 @@ export function useTimelineScrollController({
     (direction: 1 | -1) => {
       if (findMatches.length === 0) return;
       setFindMatchIndex((current) => {
+        const clamped = Math.min(current, findMatches.length - 1);
         const next =
-          (current + direction + findMatches.length) % findMatches.length;
+          (clamped + direction + findMatches.length) % findMatches.length;
         queueMicrotask(() => scrollToFindMatch(next));
         return next;
       });
@@ -580,7 +585,7 @@ export function useTimelineScrollController({
         const turnId = item.item.turn.id;
         return (
           turnId === detail.turnId ||
-          vibexTurnIdFromTimelineRowId(turnId) === detail.turnId
+          dimoTurnIdFromTimelineRowId(turnId) === detail.turnId
         );
       });
       if (index < 0) return;
@@ -619,6 +624,7 @@ export function useTimelineScrollController({
   }, [scrollToIndex, sessionId, timelineItems]);
 
   useEffect(() => {
+    const pulseTimers: number[] = [];
     const applyJumpDetail = (detail: ConversationScrollToQuoteDetail) => {
       if (
         detail.conversationId &&
@@ -630,14 +636,14 @@ export function useTimelineScrollController({
       const needle = detail.snippet?.trim();
       let index = -1;
       if (detail.messageId) {
-        const targetTurnPrefix = vibexTurnIdFromTimelineRowId(detail.messageId);
+        const targetTurnPrefix = dimoTurnIdFromTimelineRowId(detail.messageId);
         index = timelineItems.findIndex(
           (item) =>
             (item.kind === 'message' &&
               (item.item.turn.id === detail.messageId ||
                 item.item.key === detail.messageId ||
                 (Boolean(targetTurnPrefix) &&
-                  vibexTurnIdFromTimelineRowId(item.item.turn.id) ===
+                  dimoTurnIdFromTimelineRowId(item.item.turn.id) ===
                     targetTurnPrefix))) ||
             (item.kind === 'side' && item.row.row_id === detail.messageId)
         );
@@ -647,7 +653,7 @@ export function useTimelineScrollController({
           (item) =>
             item.kind === 'message' &&
             (item.item.turn.id === detail.turnId ||
-              vibexTurnIdFromTimelineRowId(item.item.turn.id) === detail.turnId)
+              dimoTurnIdFromTimelineRowId(item.item.turn.id) === detail.turnId)
         );
       }
       if (index < 0 && detail.turnOrdinal != null) {
@@ -676,7 +682,7 @@ export function useTimelineScrollController({
         }
       };
       runPulse();
-      window.setTimeout(runPulse, 140);
+      pulseTimers.push(window.setTimeout(runPulse, 140));
     };
 
     if (timelineItems.length > 0) {
@@ -694,6 +700,7 @@ export function useTimelineScrollController({
     };
     window.addEventListener(CONVERSATION_SCROLL_TO_QUOTE_EVENT, onJumpToQuote);
     return () => {
+      pulseTimers.forEach((timerId) => window.clearTimeout(timerId));
       window.removeEventListener(
         CONVERSATION_SCROLL_TO_QUOTE_EVENT,
         onJumpToQuote
@@ -915,7 +922,7 @@ export function useTimelineScrollController({
     setFindOpen,
     findQuery,
     setFindQuery,
-    findMatchIndex,
+    findMatchIndex: safeFindMatchIndex,
     setFindMatchIndex,
     findMatches,
     currentFindMatch,

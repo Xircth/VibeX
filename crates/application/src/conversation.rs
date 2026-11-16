@@ -188,6 +188,8 @@ pub struct StartConversationTurn {
     pub internal_prompt_contributions: Vec<agents::InternalPromptBlock>,
     #[serde(default)]
     pub operation_id: Option<uuid::Uuid>,
+    #[serde(default)]
+    pub provider_instance_id: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, serde::Deserialize)]

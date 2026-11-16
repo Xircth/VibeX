@@ -1,9 +1,10 @@
 use std::collections::BTreeMap;
 
 use agents::conversation::{
-    ContentBlock, ConversationError, ConversationErrorView, ConversationEvent, ConversationRowOp,
-    ConversationSessionNotice, ConversationTimelineRow, MessageTurn, PlanEntry, TimelineRow,
-    TurnRole, cap_json_value, cap_preview_bytes,
+    ContentBlock, ConversationError, ConversationErrorView, ConversationEvent,
+    ConversationQuestionResponse, ConversationRowOp, ConversationSessionNotice,
+    ConversationTimelineRow, MessageTurn, PlanEntry, TimelineRow, TurnRole, cap_json_value,
+    cap_preview_bytes,
 };
 use db::models::conversation_event::ConversationEventRecord;
 use serde::{Deserialize, Serialize};
@@ -427,6 +428,12 @@ impl ProjectionFold {
             }
             ConversationEvent::TurnCancelled { .. } => {
                 let turn_id = settle_turn(turns, turn_order, record, "cancelled");
+                settle_pending_questions_for_turn(
+                    side_rows,
+                    &self.side_row_turns,
+                    turn_id,
+                    record.sequence,
+                );
                 touched_turn_rows = Some(TouchedTurnRows::ChangedAt(turn_id, record.sequence));
                 clear_session_connect_notices(side_rows, &mut deleted_rows, record.sequence);
             }
@@ -437,11 +444,23 @@ impl ProjectionFold {
                     let turn = turns.get_mut(&turn_id).expect("turn exists");
                     turn.phase = "interrupted".into();
                     turn.bump_all_segment_revisions(record.sequence);
+                    settle_pending_questions_for_turn(
+                        side_rows,
+                        &self.side_row_turns,
+                        turn_id,
+                        record.sequence,
+                    );
                     touched_turn_rows = Some(TouchedTurnRows::ChangedAt(turn_id, record.sequence));
                 }
             }
             ConversationEvent::TurnFailed { error } => {
                 let turn_id = settle_turn(turns, turn_order, record, "failed");
+                settle_pending_questions_for_turn(
+                    side_rows,
+                    &self.side_row_turns,
+                    turn_id,
+                    record.sequence,
+                );
                 touched_turn_rows = Some(TouchedTurnRows::ChangedAt(turn_id, record.sequence));
                 if let Some(turn_id) = record.turn_id.or_else(|| turn_order.last().copied())
                     && let Some(turn) = turns.get_mut(&turn_id)
@@ -724,6 +743,31 @@ fn finalize_trailing_raw_text(
     }
     turn.emitted_internal_count = 0;
     turn.internal_scan_cursor = Default::default();
+}
+
+fn settle_pending_questions_for_turn(
+    side_rows: &mut [TimelineRow],
+    side_row_turns: &BTreeMap<String, Uuid>,
+    turn_id: Uuid,
+    sequence: i64,
+) {
+    for entry in side_rows.iter_mut() {
+        let owned_by_turn = side_row_turns.get(&entry.row_id) == Some(&turn_id);
+        if !owned_by_turn {
+            continue;
+        }
+        if let ConversationTimelineRow::QuestionRequest {
+            response: slot @ None,
+            ..
+        } = &mut entry.row
+        {
+            *slot = Some(ConversationQuestionResponse {
+                answer: "cancelled".to_string(),
+                content: None,
+            });
+            entry.revision = sequence;
+        }
+    }
 }
 
 fn settle_turn(
@@ -1510,5 +1554,85 @@ mod tests {
         assert_eq!(output.as_deref(), Some("chunk-1\nchunk-2\n"));
         let cleared = ConversationProjector::project_records(cid, &[diagnostic_record(cid, 1, &info_on), diagnostic_record(cid, 2, &info_off)]).expect("clears");
         assert!(!cleared.rows.iter().any(|r| r.row_id == "notice:context-compaction" || r.row_id == "notice:rate-limit"));
+    }
+
+    #[test]
+    fn terminal_turn_events_settle_pending_question_requests() {
+        use agents::conversation::{ConversationError, ConversationQuestionRequest};
+        let cid = Uuid::new_v4();
+        let make_question = |tid: Uuid, qid: &str, seq: i64| {
+            let ev = ConversationEvent::QuestionRequested {
+                request: ConversationQuestionRequest {
+                    question_id: qid.to_string(),
+                    prompt: "Proceed?".to_string(),
+                    options: vec!["Yes".to_string(), "No".to_string()],
+                    schema: None,
+                    asked_at: None,
+                },
+            };
+            let mut rec = diagnostic_record(cid, seq, &ev);
+            rec.turn_id = Some(tid);
+            rec.event_kind = "question_requested".to_string();
+            rec
+        };
+        let make_terminal = |tid: Uuid, seq: i64, ev: ConversationEvent, kind: &str| {
+            let mut rec = diagnostic_record(cid, seq, &ev);
+            rec.turn_id = Some(tid);
+            rec.event_kind = kind.to_string();
+            rec
+        };
+
+        let t1 = Uuid::new_v4();
+        let t2 = Uuid::new_v4();
+        let t3 = Uuid::new_v4();
+        let timeline = ConversationProjector::project_records(
+            cid,
+            &[
+                make_question(t1, "q-cancel", 1),
+                make_terminal(
+                    t1,
+                    2,
+                    ConversationEvent::TurnCancelled { reason: None },
+                    "turn_cancelled",
+                ),
+                make_question(t2, "q-interrupt", 3),
+                make_terminal(
+                    t2,
+                    4,
+                    ConversationEvent::TurnInterrupted { reason: None },
+                    "turn_interrupted",
+                ),
+                make_question(t3, "q-fail", 5),
+                make_terminal(
+                    t3,
+                    6,
+                    ConversationEvent::TurnFailed {
+                        error: ConversationError::new("boom", None, None),
+                    },
+                    "turn_failed",
+                ),
+            ],
+        )
+        .expect("projection succeeds");
+
+        let answers: Vec<(String, Option<String>)> = timeline
+            .rows
+            .iter()
+            .filter_map(|row| match &row.row {
+                ConversationTimelineRow::QuestionRequest { request, response } => Some((
+                    request.question_id.clone(),
+                    response.as_ref().map(|r| r.answer.clone()),
+                )),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            answers,
+            vec![
+                ("q-cancel".to_string(), Some("cancelled".to_string())),
+                ("q-interrupt".to_string(), Some("cancelled".to_string())),
+                ("q-fail".to_string(), Some("cancelled".to_string())),
+            ]
+        );
     }
 }

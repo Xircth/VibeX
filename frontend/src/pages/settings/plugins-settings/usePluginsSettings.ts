@@ -124,7 +124,9 @@ export function usePluginsSettings({
       );
     } catch (cause) {
       if (generation !== reloadGenerationRef.current) return;
-      setError(cause instanceof Error ? cause.message : String(cause));
+      const message = getInvokeErrorMessage(cause);
+      setError(message);
+      toast.error(message);
     } finally {
       if (generation === reloadGenerationRef.current) {
         setIsLoading(false);
@@ -166,14 +168,14 @@ export function usePluginsSettings({
 
   const chooseZipImport = async (packageKind: PluginImportPackageKind) => {
     if (!canUseLocalPluginFiles) return;
-    const picked = await pickHostFile({
-      title: 'Select plugin package',
-      extensions: ['zip', 'vxp'],
-    });
-    if (typeof picked !== 'string') return;
-    setBusy(true);
     setError(null);
     try {
+      const picked = await pickHostFile({
+        title: 'Select plugin package',
+        extensions: ['zip', 'vxp'],
+      });
+      if (typeof picked !== 'string') return;
+      setBusy(true);
       const preview = await api.previewImport(picked, false, packageKind);
       setImportPath(picked);
       setImportPackageKind(packageKind);
@@ -181,7 +183,9 @@ export function usePluginsSettings({
       setImportPreview(preview);
       setImportChooserOpen(false);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause));
+      const message = getInvokeErrorMessage(cause);
+      setError(message);
+      toast.error(message);
     } finally {
       setBusy(false);
     }
@@ -237,14 +241,17 @@ export function usePluginsSettings({
       setCliImportStatus('succeeded');
       await reload();
     } catch (cause) {
-      setCliImportError(cause instanceof Error ? cause.message : String(cause));
+      const message = getInvokeErrorMessage(cause);
+      setCliImportError(message);
       setCliImportStatus('failed');
+      toast.error(t('plugins.cliImportFailed'), { description: message });
     }
   };
 
   const applyImport = async (decision: 'reject' | 'keep' | 'replace') => {
     if (!importPath || !canUseLocalPluginFiles) return;
     setBusy(true);
+    setError(null);
     try {
       const imported = await api.import(
         importPath,
@@ -259,7 +266,9 @@ export function usePluginsSettings({
       setSelectedId(imported.id);
       if (!ecosystem) setActiveTab(pluginEcosystem(imported));
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause));
+      const message = getInvokeErrorMessage(cause);
+      setError(message);
+      toast.error(message);
     } finally {
       setBusy(false);
     }
@@ -285,9 +294,6 @@ export function usePluginsSettings({
         }
       }
       const updated = await api.setEnabled(plugin.id, enabled);
-      if (enabled && !plugin.nativeManaged && canWrite) {
-        await api.configureAgents(plugin.id, true, []);
-      }
       setCatalog((current) =>
         current
           ? {
@@ -298,6 +304,9 @@ export function usePluginsSettings({
             }
           : current
       );
+      if (enabled && !plugin.nativeManaged && canWrite) {
+        await api.configureAgents(plugin.id, true, []);
+      }
       if (
         enabled &&
         !plugin.nativeManaged &&
@@ -337,7 +346,9 @@ export function usePluginsSettings({
           : current
       );
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause));
+      const message = getInvokeErrorMessage(cause);
+      setError(message);
+      toast.error(message);
     } finally {
       setBusy(false);
     }
@@ -362,7 +373,9 @@ export function usePluginsSettings({
       setCatalog(refreshed);
       setSelectedId(restored.id);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause));
+      const message = getInvokeErrorMessage(cause);
+      setError(message);
+      toast.error(message);
     } finally {
       setBusy(false);
     }
@@ -371,13 +384,16 @@ export function usePluginsSettings({
   const configureAllAgents = async () => {
     if (!capabilitySetup) return;
     setBusy(true);
+    setError(null);
     try {
       if ((capabilitySetup.mcpCount ?? 0) > 0) {
         await api.configureMcp(capabilitySetup.id, true, []);
       }
       setCapabilitySetup(null);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause));
+      const message = getInvokeErrorMessage(cause);
+      setError(message);
+      toast.error(message);
     } finally {
       setBusy(false);
     }
@@ -386,12 +402,15 @@ export function usePluginsSettings({
   const uninstall = async () => {
     if (!uninstallTarget || !canWrite) return;
     setBusy(true);
+    setError(null);
     try {
       await api.uninstall(uninstallTarget.id);
       setUninstallTarget(null);
       await reload();
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause));
+      const message = getInvokeErrorMessage(cause);
+      setError(message);
+      toast.error(message);
     } finally {
       setBusy(false);
     }
@@ -409,7 +428,9 @@ export function usePluginsSettings({
       await reload();
       setSelectedId(plugin.id);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause));
+      const message = getInvokeErrorMessage(cause);
+      setError(message);
+      toast.error(message);
     } finally {
       setBusy(false);
     }

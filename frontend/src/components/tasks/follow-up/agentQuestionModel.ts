@@ -355,8 +355,9 @@ export function mergeQuestionRequestWithToolUse(
         if (choices.length > 0) {
           const constItems = choices.map((c) => ({
             const: c.value,
-            title: c.label,
+            title: c.recommended ? `${c.label} (Recommended)` : c.label,
             ...(c.description ? { description: c.description } : {}),
+            ...(c.recommended ? { recommended: true } : {}),
           }));
           if (rawType === 'array') {
             nextProp.items = {
@@ -388,9 +389,14 @@ export function mergeQuestionRequestWithToolUse(
     };
   }
 
+  const hasExistingVibexQuestions = Array.isArray(root?.['x-vibex-questions']);
   const existingTabs = questionTabsFromRequest(request);
   const existingHasChoices = existingTabs.some((t) => t.choices.length > 0);
-  if (existingTabs.length >= useQuestions.length && existingHasChoices) {
+  if (
+    hasExistingVibexQuestions &&
+    existingTabs.length >= useQuestions.length &&
+    existingHasChoices
+  ) {
     return request;
   }
 
@@ -684,10 +690,28 @@ function labelsByQuestionId(content: unknown): Map<string, string[]> {
         readString(answer.questionId) ||
         readString(answer.question_id) ||
         `question-${index + 1}`;
-      const labelValues = stringList(answer.labels);
+      const labelValues = primitiveStringList(answer.labels);
+      const selectedValues = primitiveStringList(answer.selected);
+      const customFieldName =
+        readString(answer.customFieldName) ||
+        readString(answer.custom_field_name);
+      const customText = readString(answer.customText ?? answer.custom_text);
       const values =
-        labelValues.length > 0 ? labelValues : stringList(answer.selected);
+        labelValues.length > 0
+          ? labelValues
+          : selectedValues.length > 0
+            ? selectedValues
+            : !customFieldName && customText
+              ? [customText]
+              : [];
       if (id && values.length > 0) labels.set(id, values);
+      if (
+        customFieldName &&
+        customText &&
+        (labelValues.length === 0 || !labelValues.includes(customText))
+      ) {
+        labels.set(customFieldName, [customText]);
+      }
     });
     if (labels.size > 0) return labels;
   }
@@ -695,7 +719,7 @@ function labelsByQuestionId(content: unknown): Map<string, string[]> {
   const answersObject = asObject(root.answers) ?? root;
   for (const [key, value] of Object.entries(answersObject)) {
     if (key === 'answers' || key === 'outcome' || key === 'declined') continue;
-    const values = stringList(value);
+    const values = primitiveStringList(value);
     if (values.length > 0) labels.set(key, values);
   }
   return labels;
@@ -719,6 +743,32 @@ function stringList(value: unknown): string[] {
   );
 }
 
+function primitiveStringList(value: unknown): string[] {
+  if (typeof value === 'string' && value.trim()) return [value.trim()];
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return [String(value)];
+  }
+  if (typeof value === 'boolean') return [String(value)];
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((item) => {
+    if (typeof item === 'string' && item.trim()) return [item.trim()];
+    if (typeof item === 'number' && Number.isFinite(item)) {
+      return [String(item)];
+    }
+    if (typeof item === 'boolean') return [String(item)];
+    return [];
+  });
+}
+
+function readRecommendedFlag(choice: Record<string, unknown> | null): boolean {
+  if (!choice) return false;
+  return (
+    choice.recommended === true ||
+    choice.isRecommended === true ||
+    choice.is_recommended === true
+  );
+}
+
 function parseObjectChoices(rawChoices: unknown): QuestionChoice[] {
   if (!Array.isArray(rawChoices)) return [];
   return rawChoices.flatMap((rawChoice) => {
@@ -726,11 +776,15 @@ function parseObjectChoices(rawChoices: unknown): QuestionChoice[] {
       return [choiceFromLabel(rawChoice.trim(), rawChoice.trim(), '')];
     }
     const choice = asObject(rawChoice);
+    const rawId =
+      isPrimitive(choice?.id) && String(choice.id).trim() !== ''
+        ? choice.id
+        : null;
     const rawValue = isPrimitive(choice?.value)
       ? choice.value
       : isPrimitive(choice?.const)
         ? choice.const
-        : null;
+        : rawId;
     const rawLabel =
       readString(choice?.label) ||
       readString(choice?.title) ||
@@ -740,7 +794,8 @@ function parseObjectChoices(rawChoices: unknown): QuestionChoice[] {
       choiceFromLabel(
         rawValue ?? rawLabel,
         rawLabel,
-        readString(choice?.description)
+        readString(choice?.description),
+        readRecommendedFlag(choice)
       ),
     ];
   });
@@ -767,7 +822,14 @@ function parseConstChoices(rawChoices: unknown[]): QuestionChoice[] {
     const value = choice?.const;
     if (!isPrimitive(value)) return [];
     const label = readString(choice?.title) || String(value);
-    return [choiceFromLabel(value, label, readString(choice?.description))];
+    return [
+      choiceFromLabel(
+        value,
+        label,
+        readString(choice?.description),
+        readRecommendedFlag(choice)
+      ),
+    ];
   });
 }
 
@@ -783,7 +845,8 @@ function booleanChoice(value: boolean, label: string): QuestionChoice {
 function choiceFromLabel(
   value: PrimitiveValue,
   rawLabel: string,
-  description: string
+  description: string,
+  explicitRecommended = false
 ): QuestionChoice {
   const suffixMatch = rawLabel.match(
     /^(.*?)\s*[(（](?:recommended|推荐)[)）]\s*$/i
@@ -796,7 +859,7 @@ function choiceFromLabel(
     value,
     label: visibleLabel || rawLabel,
     description,
-    recommended: Boolean(visibleLabel),
+    recommended: explicitRecommended || Boolean(visibleLabel),
   };
 }
 
@@ -819,8 +882,14 @@ function parseCustomValue(
   value: string,
   valueType: QuestionTab['valueType']
 ): PrimitiveValue {
-  if (valueType === 'number') return Number(value);
-  if (valueType === 'integer') return Number.parseInt(value, 10);
+  if (valueType === 'number') {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : value;
+  }
+  if (valueType === 'integer') {
+    const parsed = Number.parseInt(value, 10);
+    return Number.isFinite(parsed) ? parsed : value;
+  }
   if (valueType === 'boolean') return value.toLowerCase() === 'true';
   return value;
 }

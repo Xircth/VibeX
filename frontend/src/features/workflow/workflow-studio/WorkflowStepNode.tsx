@@ -268,16 +268,16 @@ export function WorkflowStepNode({ data }: NodeProps<StudioNode>) {
                     className="workflow-flame-span"
                     style={{
                       flexGrow: span.durationMs,
-                      background: `hsl(${28 - Math.min(index, 8) * 3} 86% ${62 - Math.min(index, 8) * 4}%)`,
+                      background: `color-mix(in srgb, hsl(var(--warning)) ${100 - Math.min(index, 8) * 8}%, hsl(var(--primary)))`,
                     }}
                     title={`#${span.event.sequence.toString()} ${span.event.eventKind}`}
                   />
                 ))}
               </div>
-              <ol className="max-h-32 space-y-1 overflow-auto font-mono text-[10px]">
+              <ol className="max-h-32 space-y-1 overflow-auto font-mono text-[10px] tabular-nums">
                 {logSpans.map((span) => (
                   <li key={span.event.id} className="flex gap-2">
-                    <span className="text-muted-foreground">
+                    <span className="tabular-nums text-muted-foreground">
                       #{span.event.sequence.toString()}
                     </span>
                     <span className="truncate">{span.event.eventKind}</span>

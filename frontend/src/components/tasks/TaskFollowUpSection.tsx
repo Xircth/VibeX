@@ -466,8 +466,18 @@ export function TaskFollowUpSection({
     targetExecutor,
     resolvedSessionExecutor,
   });
+  const [selectedProviderInstanceId, setSelectedProviderInstanceId] = useState<
+    string | null
+  >(null);
+  const [dismissedQuestionIds, setDismissedQuestionIds] = useState<Set<string>>(
+    () => new Set()
+  );
+  useEffect(() => {
+    setSelectedProviderInstanceId(null);
+  }, [sessionId, targetExecutor, resolvedSessionExecutor]);
   useEffect(() => {
     setContinuationPolicy('portable');
+    setDismissedQuestionIds(new Set());
   }, [sessionId]);
 
   const { handleAfterSendCleanup } = useSessionComposerDraftHydration({
@@ -508,6 +518,7 @@ export function TaskFollowUpSection({
     isAttemptRunning: isComposerExecutionRunning,
     processCount: processes.length,
     continuationPolicy,
+    providerInstanceId: selectedProviderInstanceId,
     modeOverride: selectedMode,
     configOverrides: Object.entries(selectedConfigValues).map(
       ([key, value]) => ({
@@ -534,6 +545,19 @@ export function TaskFollowUpSection({
     rateLimit: activeRateLimit,
     sessionBindReady,
   } = useConversationStatus();
+  const visibleAgentQuestion =
+    pendingAgentQuestion &&
+    !dismissedQuestionIds.has(pendingAgentQuestion.request.question_id)
+      ? pendingAgentQuestion
+      : null;
+  const handleDismissQuestion = useCallback((questionId: string) => {
+    setDismissedQuestionIds((prev) => {
+      if (prev.has(questionId)) return prev;
+      const next = new Set(prev);
+      next.add(questionId);
+      return next;
+    });
+  }, []);
   const engineHandoff = useComposerEngineHandoff({
     sessionId,
     hasExistingTurns: Boolean(sessionId && entries.length > 0),
@@ -800,6 +824,7 @@ export function TaskFollowUpSection({
     conflictMarkdown: conflictResolutionInstructions,
     reviewMarkdown,
     executorProfileId: effectiveExecutorProfile,
+    providerInstanceId: selectedProviderInstanceId,
     modeOverride: selectedMode,
     configOverrides: pendingConfigOverrides,
     clearComments,
@@ -1257,7 +1282,7 @@ export function TaskFollowUpSection({
             />
           }
           overlay={
-            pendingPermissions.length > 0 || pendingAgentQuestion ? (
+            pendingPermissions.length > 0 || visibleAgentQuestion ? (
               <div className="space-y-2">
                 {pendingPermissions.map((permission) => (
                   <PermissionRequestCard
@@ -1267,12 +1292,13 @@ export function TaskFollowUpSection({
                     onRespond={permission.onRespond}
                   />
                 ))}
-                {pendingAgentQuestion ? (
+                {visibleAgentQuestion ? (
                   <AgentQuestionCard
-                    key={pendingAgentQuestion.request.question_id}
-                    request={pendingAgentQuestion.request}
-                    responding={pendingAgentQuestion.responding}
-                    onRespond={pendingAgentQuestion.onRespond}
+                    key={visibleAgentQuestion.request.question_id}
+                    request={visibleAgentQuestion.request}
+                    responding={visibleAgentQuestion.responding}
+                    onRespond={visibleAgentQuestion.onRespond}
+                    onDismiss={handleDismissQuestion}
                   />
                 ) : null}
               </div>
@@ -1327,6 +1353,8 @@ export function TaskFollowUpSection({
             profiles={profiles}
             effectiveExecutorProfile={effectiveExecutorProfile}
             onChangeExecutorProfile={engineHandoff.handleChangeExecutorProfile}
+            selectedProviderInstanceId={selectedProviderInstanceId}
+            onSelectProviderInstance={setSelectedProviderInstanceId}
             sessionModes={displaySessionModes}
             selectedMode={selectedMode}
             onSelectMode={handleSelectMode}

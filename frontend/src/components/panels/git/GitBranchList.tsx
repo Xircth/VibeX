@@ -114,13 +114,44 @@ function getBranchLeafName(name: string): string {
 const BranchRow = memo(function BranchRow({
   branch,
   showLeafName,
+  onCheckout,
   onDelete,
 }: {
   branch: GitBranch;
   showLeafName?: boolean;
+  onCheckout?: (name: string) => Promise<void>;
   onDelete: (name: string) => Promise<void>;
 }) {
   const [actionLoading, setActionLoading] = useState(false);
+  const canCheckout =
+    Boolean(onCheckout) && !branch.is_current && !branch.is_remote;
+
+  const handleCheckout = useCallback(async () => {
+    if (!onCheckout || branch.is_current || branch.is_remote || actionLoading) {
+      return;
+    }
+    setActionLoading(true);
+    try {
+      await onCheckout(branch.name);
+      toast.success(`Switched to branch "${branch.name}"`);
+    } catch (error) {
+      console.error('Failed to checkout branch:', error);
+      const message = error instanceof Error ? error.message : String(error);
+      toast.error(
+        message
+          ? `Failed to switch to branch "${branch.name}": ${message}`
+          : `Failed to switch to branch "${branch.name}"`
+      );
+    } finally {
+      setActionLoading(false);
+    }
+  }, [
+    actionLoading,
+    branch.is_current,
+    branch.is_remote,
+    branch.name,
+    onCheckout,
+  ]);
 
   const handleDelete = useCallback(
     async (e: React.MouseEvent) => {
@@ -142,7 +173,12 @@ const BranchRow = memo(function BranchRow({
         toast.success(`Deleted branch "${branch.name}"`);
       } catch (error) {
         console.error('Failed to delete branch:', error);
-        toast.error(`Failed to delete branch "${branch.name}"`);
+        const message = error instanceof Error ? error.message : String(error);
+        toast.error(
+          message
+            ? `Failed to delete branch "${branch.name}": ${message}`
+            : `Failed to delete branch "${branch.name}"`
+        );
       } finally {
         setActionLoading(false);
       }
@@ -157,11 +193,30 @@ const BranchRow = memo(function BranchRow({
   return (
     <div
       data-testid={`git-branch-row-${branch.name}`}
+      role={canCheckout ? 'button' : undefined}
+      tabIndex={canCheckout && !actionLoading ? 0 : undefined}
+      title={canCheckout ? `Switch to ${branch.name}` : undefined}
+      onClick={canCheckout ? () => void handleCheckout() : undefined}
+      onKeyDown={
+        canCheckout
+          ? (e) => {
+              if (
+                e.target === e.currentTarget &&
+                (e.key === 'Enter' || e.key === ' ')
+              ) {
+                e.preventDefault();
+                void handleCheckout();
+              }
+            }
+          : undefined
+      }
       className={`my-0.5 flex items-center gap-2 rounded-md px-2 py-1 text-xs group transition-colors ${
         branch.is_current
           ? 'bg-[hsl(var(--success)/0.12)] text-foreground'
-          : 'bg-muted/20 text-foreground/80 hover:bg-accent/40'
-      }`}
+          : canCheckout
+            ? 'cursor-pointer bg-muted/20 text-foreground/80 hover:bg-accent/40'
+            : 'bg-muted/20 text-foreground/80 hover:bg-accent/40'
+      }${actionLoading ? ' opacity-70' : ''}`}
     >
       {actionLoading ? (
         <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-muted-foreground" />
@@ -184,7 +239,8 @@ const BranchRow = memo(function BranchRow({
       {!branch.is_current && !branch.is_remote && (
         <button
           type="button"
-          className="opacity-0 group-hover:opacity-100 p-0.5 rounded hover:bg-destructive/20 hover:text-destructive transition-colors"
+          className="opacity-0 group-hover:opacity-100 p-0.5 rounded hover:bg-destructive/20 hover:text-destructive transition-colors disabled:opacity-40"
+          disabled={actionLoading}
           onClick={handleDelete}
           title={`Delete ${branch.name}`}
         >
@@ -198,10 +254,12 @@ const BranchRow = memo(function BranchRow({
 const BranchGroupSection = memo(function BranchGroupSection({
   group,
   defaultOpen,
+  onCheckout,
   onDelete,
 }: {
   group: BranchGroup;
   defaultOpen?: boolean;
+  onCheckout?: (name: string) => Promise<void>;
   onDelete: (name: string) => Promise<void>;
 }) {
   const [isOpen, setIsOpen] = useState(defaultOpen ?? true);
@@ -221,7 +279,7 @@ const BranchGroupSection = memo(function BranchGroupSection({
           <ChevronRight className="h-3 w-3 shrink-0" />
         )}
         <span>{group.label}</span>
-        <span className="ml-auto rounded-full bg-foreground/10 px-1.5 py-0 font-mono text-[10px] text-muted-foreground/70">
+        <span className="ml-auto tabular-nums rounded-full bg-foreground/10 px-1.5 py-0 font-mono text-[10px] text-muted-foreground/70">
           {group.items.length}
         </span>
       </button>
@@ -235,6 +293,7 @@ const BranchGroupSection = memo(function BranchGroupSection({
               key={branch.name}
               branch={branch}
               showLeafName={!isRoot}
+              onCheckout={onCheckout}
               onDelete={onDelete}
             />
           ))}
@@ -249,6 +308,7 @@ export const GitBranchList = memo(function GitBranchList({
   remotes,
   isLoading,
   error,
+  onCheckout,
   onCreate,
   onDelete,
 }: GitBranchListProps) {
@@ -458,6 +518,7 @@ export const GitBranchList = memo(function GitBranchList({
                       <BranchRow
                         key={branch.name}
                         branch={branch}
+                        onCheckout={onCheckout}
                         onDelete={onDelete}
                       />
                     ))
@@ -467,6 +528,7 @@ export const GitBranchList = memo(function GitBranchList({
                         key={group.key}
                         group={group}
                         defaultOpen={group.key === '__root__'}
+                        onCheckout={onCheckout}
                         onDelete={onDelete}
                       />
                     ))}
@@ -517,6 +579,7 @@ export const GitBranchList = memo(function GitBranchList({
                         key={branch.name}
                         branch={branch}
                         showLeafName
+                        onCheckout={onCheckout}
                         onDelete={onDelete}
                       />
                     ))
@@ -526,6 +589,7 @@ export const GitBranchList = memo(function GitBranchList({
                         key={group.key}
                         group={group}
                         defaultOpen={false}
+                        onCheckout={onCheckout}
                         onDelete={onDelete}
                       />
                     ))}

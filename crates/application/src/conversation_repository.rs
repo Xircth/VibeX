@@ -151,7 +151,7 @@ impl ConversationRepository for SqliteConversationRepository {
         &self,
         workspace_id: Uuid,
     ) -> Result<Vec<DbConversationSummary>, ApplicationError> {
-        DbConversationSummary::list_for_workspace(self.pool(), workspace_id)
+        DbConversationSummary::list_for_workspace(self.read_pool(), workspace_id)
             .await
             .map_err(|error| ApplicationError::internal(error.to_string()))
     }
@@ -161,7 +161,7 @@ impl ConversationRepository for SqliteConversationRepository {
         request: ListRecentConversations,
     ) -> Result<Vec<DbConversationSummary>, ApplicationError> {
         DbConversationSummary::list_recent(
-            self.pool(),
+            self.read_pool(),
             request.since_days,
             request.project_id,
             request.limit,
@@ -243,7 +243,7 @@ impl ConversationRepository for SqliteConversationRepository {
             }
         }
         let mut tags = builtin_catalog_tags();
-        if let Ok(rows) = db::models::tag::Tag::find_all(self.pool()).await {
+        if let Ok(rows) = db::models::tag::Tag::find_all(self.read_pool()).await {
             for row in rows {
                 if tags
                     .iter()
@@ -319,7 +319,7 @@ impl ConversationRepository for SqliteConversationRepository {
             return Ok(Vec::new());
         };
         let record = db::models::conversation_event::ConversationEventRecord::latest_of_kind(
-            self.pool(),
+            self.read_pool(),
             conversation_id,
             "available_commands_updated",
         )
@@ -502,19 +502,22 @@ impl ConversationRepository for SqliteConversationRepository {
         &self,
         conversation_id: Uuid,
     ) -> Result<ConversationOutputView, ApplicationError> {
-        let turn = ConversationTurnRecord::latest_for_conversation(self.pool(), conversation_id)
-            .await
-            .map_err(|error| ApplicationError::internal(error.to_string()))?;
+        let turn =
+            ConversationTurnRecord::latest_for_conversation(self.read_pool(), conversation_id)
+                .await
+                .map_err(|error| ApplicationError::internal(error.to_string()))?;
         let last_sequence = self
             .max_event_sequence(conversation_id)
             .await
             .map_err(|error| ApplicationError::internal(error.to_string()))?;
         let assistant_text = match turn.as_ref() {
-            Some(turn) => {
-                crate::workflow::extract_last_assistant_text(self.pool(), conversation_id, turn.id)
-                    .await
-                    .ok()
-            }
+            Some(turn) => crate::workflow::extract_last_assistant_text(
+                self.read_pool(),
+                conversation_id,
+                turn.id,
+            )
+            .await
+            .ok(),
             None => None,
         };
         Ok(ConversationOutputView {
@@ -563,7 +566,7 @@ impl ConversationRepository for SqliteConversationRepository {
             MAX_LIVE_EVENTS
         };
         let records = ConversationEventRecord::events_since(
-            self.pool(),
+            self.read_pool(),
             conversation_uuid,
             after_sequence,
             page_limit,

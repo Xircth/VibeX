@@ -72,7 +72,8 @@ async fn latest_prior_turn_token_usage(
     turn_id: Uuid,
     before_sequence: i64,
 ) -> Result<Option<ConversationUsage>, sqlx::Error> {
-    let prior_jsons: Vec<String> = sqlx::query_scalar(
+    use futures::TryStreamExt;
+    let mut rows = sqlx::query_scalar::<_, String>(
         r#"SELECT normalized_json
            FROM conversation_events
            WHERE conversation_id = ?
@@ -84,13 +85,16 @@ async fn latest_prior_turn_token_usage(
     .bind(conversation_id)
     .bind(turn_id)
     .bind(before_sequence)
-    .fetch_all(&mut *conn)
-    .await?;
+    .fetch(&mut *conn);
 
-    Ok(prior_jsons
-        .into_iter()
-        .filter_map(|json| usage_from_normalized_json(&json))
-        .find(has_provided_tokens))
+    while let Some(json) = rows.try_next().await? {
+        if let Some(usage) = usage_from_normalized_json(&json)
+            && has_provided_tokens(&usage)
+        {
+            return Ok(Some(usage));
+        }
+    }
+    Ok(None)
 }
 
 fn has_provided_tokens(usage: &ConversationUsage) -> bool {

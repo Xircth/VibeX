@@ -1119,11 +1119,22 @@ pub fn spawn_idle_session_sweeper(pool: SqlitePool, delivery: DeliveryContext) {
         }
     });
     tokio::spawn(async move {
+        let notify = round_sweep_notify();
         loop {
+            let notified = notify.notified();
+            tokio::pin!(notified);
             if let Err(error) = sweep_round_grace_detach(&grace_pool, &grace_delivery).await {
                 tracing::warn!(%error, "round grace detach sweep failed");
             }
-            tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+            let wait = if has_active_collaboration_rounds(&grace_pool).await {
+                std::time::Duration::from_secs(1)
+            } else {
+                std::time::Duration::from_secs(30)
+            };
+            tokio::select! {
+                _ = &mut notified => {}
+                _ = tokio::time::sleep(wait) => {}
+            }
         }
     });
 }

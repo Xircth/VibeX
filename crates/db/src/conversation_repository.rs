@@ -52,15 +52,28 @@ pub struct TerminalEventRow {
 #[derive(Clone)]
 pub struct SqliteConversationRepository {
     pool: SqlitePool,
+    read_pool: SqlitePool,
 }
 
 impl SqliteConversationRepository {
-    pub const fn new(pool: SqlitePool) -> Self {
-        Self { pool }
+    pub fn new(pool: SqlitePool) -> Self {
+        Self {
+            read_pool: pool.clone(),
+            pool,
+        }
+    }
+
+    pub fn with_read_pool(mut self, read_pool: SqlitePool) -> Self {
+        self.read_pool = read_pool;
+        self
     }
 
     pub const fn pool(&self) -> &SqlitePool {
         &self.pool
+    }
+
+    pub const fn read_pool(&self) -> &SqlitePool {
+        &self.read_pool
     }
 
     pub async fn workspace_root(&self, workspace_id: Uuid) -> Result<Option<String>, sqlx::Error> {
@@ -83,7 +96,7 @@ impl SqliteConversationRepository {
                WHERE w.id = ?"#,
         )
         .bind(workspace_id)
-        .fetch_optional(&self.pool)
+        .fetch_optional(&self.read_pool)
         .await?;
         let Some((working_dir, container_ref, project_path)) = row else {
             return Ok(None);
@@ -120,7 +133,7 @@ impl SqliteConversationRepository {
                FROM projects p
                ORDER BY p.updated_at DESC, p.created_at DESC"#,
         )
-        .fetch_all(&self.pool)
+        .fetch_all(&self.read_pool)
         .await
     }
 
@@ -131,7 +144,7 @@ impl SqliteConversationRepository {
                WHERE archived = 0
                ORDER BY updated_at DESC"#,
         )
-        .fetch_all(&self.pool)
+        .fetch_all(&self.read_pool)
         .await
     }
 
@@ -149,7 +162,7 @@ impl SqliteConversationRepository {
                WHERE m.retired = 0
                ORDER BY m.position ASC, m.agent_id ASC"#,
         )
-        .fetch_all(&self.pool)
+        .fetch_all(&self.read_pool)
         .await?;
         if agents.is_empty() {
             agents = sqlx::query_as::<_, AgentCatalogRow>(
@@ -168,7 +181,7 @@ impl SqliteConversationRepository {
                    LEFT JOIN agent_probe p ON p.agent_id = s.agent_id
                    ORDER BY s.agent_id"#,
             )
-            .fetch_all(&self.pool)
+            .fetch_all(&self.read_pool)
             .await?;
         }
         Ok(agents)
@@ -186,7 +199,7 @@ impl SqliteConversationRepository {
                LIMIT 1"#,
         )
         .bind(agent_id)
-        .fetch_optional(&self.pool)
+        .fetch_optional(&self.read_pool)
         .await
     }
 
@@ -202,7 +215,7 @@ impl SqliteConversationRepository {
                LIMIT 1"#,
         )
         .bind(agent_id)
-        .fetch_optional(&self.pool)
+        .fetch_optional(&self.read_pool)
         .await
     }
 
@@ -220,7 +233,7 @@ impl SqliteConversationRepository {
                LIMIT 1"#,
         )
         .bind(project_id)
-        .fetch_optional(&self.pool)
+        .fetch_optional(&self.read_pool)
         .await
     }
 
@@ -305,7 +318,7 @@ impl SqliteConversationRepository {
              FROM conversation_events WHERE conversation_id = ?",
         )
         .bind(conversation_id)
-        .fetch_one(&self.pool)
+        .fetch_one(&self.read_pool)
         .await
     }
 
@@ -317,7 +330,7 @@ impl SqliteConversationRepository {
         after_sequence: i64,
         limit: i64,
     ) -> Result<(i64, Vec<ConversationEventRecord>), sqlx::Error> {
-        let mut transaction = self.pool.begin().await?;
+        let mut transaction = self.read_pool.begin().await?;
         let high_water_mark = sqlx::query_scalar::<_, i64>(
             "SELECT COALESCE(MAX(sequence), 0)
              FROM conversation_events
@@ -352,7 +365,7 @@ impl SqliteConversationRepository {
              LIMIT 1",
         )
         .bind(conversation_id)
-        .fetch_optional(&self.pool)
+        .fetch_optional(&self.read_pool)
         .await
         .map(|row| {
             row.map(
@@ -378,7 +391,7 @@ impl SqliteConversationRepository {
              LIMIT 1",
         )
         .bind(conversation_id)
-        .fetch_optional(&self.pool)
+        .fetch_optional(&self.read_pool)
         .await
     }
 }

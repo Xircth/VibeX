@@ -557,6 +557,7 @@ impl ConversationInputControl {
             .bind(&now_stamp)
             .execute(&self.pool)
             .await?;
+            crate::collaboration::notify_delayed_input_changed();
             if let Err(error) = self
                 .cancel(CancelConversationInput {
                     conversation_id: input.conversation_id,
@@ -1197,6 +1198,9 @@ async fn update_delayed_input_if_exists(
     .bind(&row.id)
     .execute(pool)
     .await?;
+    if delay_seconds.is_some_and(|seconds| seconds > 0) {
+        crate::collaboration::notify_delayed_input_changed();
+    }
     row.payload_json = payload_json.to_string();
     row.deliver_at = next_deliver_at;
     Ok(delayed_row_to_view(

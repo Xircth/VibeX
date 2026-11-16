@@ -305,8 +305,8 @@ impl DbConversationSummary {
         };
         sqlx::query(
             r#"UPDATE sessions
-               SET model = ?, updated_at = datetime('now', 'subsec')
-               WHERE id = ?"#,
+               SET model = ?1, updated_at = datetime('now', 'subsec')
+               WHERE id = ?2 AND (model IS NULL OR model != ?1)"#,
         )
         .bind(model)
         .bind(id)

@@ -428,10 +428,75 @@ pub(super) async fn row_turn_ordinal_on_conn(
     Ok(None)
 }
 
+#[derive(Clone)]
+pub(crate) enum DirtyRowAction {
+    Upsert {
+        need_fts: bool,
+        fallback_row: Option<Box<super::TimelineRow>>,
+    },
+    Delete {
+        revision: i64,
+    },
+}
+
+pub(crate) type DirtyRowMap = HashMap<(Uuid, String), DirtyRowAction>;
+
+fn record_dirty_upsert(
+    dirty_rows: &mut DirtyRowMap,
+    cid: Uuid,
+    row_id: String,
+    need_fts: bool,
+    fallback_row: Option<Box<super::TimelineRow>>,
+) {
+    match dirty_rows.get_mut(&(cid, row_id.clone())) {
+        Some(DirtyRowAction::Upsert {
+            need_fts: existing_fts,
+            fallback_row: existing_fallback,
+        }) => {
+            *existing_fts |= need_fts;
+            if fallback_row.is_some() {
+                *existing_fallback = fallback_row;
+            }
+        }
+        _ => {
+            dirty_rows.insert(
+                (cid, row_id),
+                DirtyRowAction::Upsert {
+                    need_fts,
+                    fallback_row,
+                },
+            );
+        }
+    }
+}
+
+pub(crate) fn merge_dirty_rows(target: &mut DirtyRowMap, source: DirtyRowMap) {
+    for ((cid, row_id), action) in source {
+        match action {
+            DirtyRowAction::Upsert {
+                need_fts,
+                fallback_row,
+            } => record_dirty_upsert(target, cid, row_id, need_fts, fallback_row),
+            DirtyRowAction::Delete { revision } => {
+                target.insert((cid, row_id), DirtyRowAction::Delete { revision });
+            }
+        }
+    }
+}
+
 pub(crate) async fn apply_and_persist_incremental_on_conn(
     conn: &mut SqliteConnection,
     state: &mut WriteSideProjectorState,
     record: &ConversationEventRecord,
+) -> Result<(), sqlx::Error> {
+    apply_and_persist_incremental_with_dirty_on_conn(conn, state, record, None).await
+}
+
+pub(crate) async fn apply_and_persist_incremental_with_dirty_on_conn(
+    conn: &mut SqliteConnection,
+    state: &mut WriteSideProjectorState,
+    record: &ConversationEventRecord,
+    mut dirty_rows: Option<&mut DirtyRowMap>,
 ) -> Result<(), sqlx::Error> {
     let cid = record.conversation_id;
     ensure_turn_loaded_on_conn(conn, cid, state, record).await?;
@@ -450,7 +515,11 @@ pub(crate) async fn apply_and_persist_incremental_on_conn(
         if let Some(&first_turn_id) = state.fold.turn_order.first() {
             seeded_first_turn_id = Some(first_turn_id);
             let user_row_id = format!("{first_turn_id}:user");
-            if let Some(mut seeded_user) = find_row_in_fold(&state.fold, &user_row_id) {
+            if let Some(dirty) = dirty_rows.as_deref_mut() {
+                if find_row_in_fold(&state.fold, &user_row_id).is_some() {
+                    record_dirty_upsert(dirty, cid, user_row_id, true, None);
+                }
+            } else if let Some(mut seeded_user) = find_row_in_fold(&state.fold, &user_row_id) {
                 cap_timeline_row_preview_fields(&mut seeded_user);
                 let ord = resolve_turn_ordinal_on_conn(
                     conn,
@@ -513,6 +582,35 @@ pub(crate) async fn apply_and_persist_incremental_on_conn(
                 }
             }
         }
+    }
+
+    if let Some(dirty) = dirty_rows {
+        for op in &ops {
+            match op {
+                ConversationRowOp::Delete { row_id, revision } => {
+                    dirty.insert(
+                        (cid, row_id.clone()),
+                        DirtyRowAction::Delete {
+                            revision: *revision,
+                        },
+                    );
+                }
+                ConversationRowOp::Upsert { row } => {
+                    let need_fts = matches!(row.row, ConversationTimelineRow::MessageTurn { .. });
+                    let fallback = if find_row_in_fold(&state.fold, &row.row_id).is_some() {
+                        None
+                    } else {
+                        Some(Box::new(row.clone()))
+                    };
+                    record_dirty_upsert(dirty, cid, row.row_id.clone(), need_fts, fallback);
+                }
+                ConversationRowOp::AppendText { row_id, .. }
+                | ConversationRowOp::PatchBlocks { row_id, .. } => {
+                    record_dirty_upsert(dirty, cid, row_id.clone(), false, None);
+                }
+            }
+        }
+        return Ok(());
     }
 
     for op in &ops {
@@ -583,6 +681,68 @@ pub(crate) async fn apply_and_persist_incremental_on_conn(
         }
     }
 
+    Ok(())
+}
+
+pub(crate) async fn flush_dirty_rows_on_conn(
+    conn: &mut SqliteConnection,
+    states: &mut HashMap<Uuid, WriteSideProjectorState>,
+    dirty_rows: DirtyRowMap,
+) -> Result<(), sqlx::Error> {
+    for ((cid, row_id), action) in dirty_rows {
+        match action {
+            DirtyRowAction::Delete { revision } => {
+                ConversationTimelineRowRecord::soft_delete_row_on_conn(
+                    conn, cid, &row_id, revision,
+                )
+                .await?;
+                if let Err(error) = crate::search::delete_fts_row_on_conn(conn, cid, &row_id).await
+                {
+                    tracing::warn!("conversation FTS delete failed: {error}");
+                }
+            }
+            DirtyRowAction::Upsert {
+                need_fts,
+                fallback_row,
+            } => {
+                let Some(state) = states.get_mut(&cid) else {
+                    continue;
+                };
+                let Some(mut full_row) = find_row_in_fold(&state.fold, &row_id)
+                    .or_else(|| fallback_row.map(|boxed| *boxed))
+                else {
+                    continue;
+                };
+                cap_timeline_row_preview_fields(&mut full_row);
+                let turn_ordinal = row_turn_ordinal_on_conn(
+                    conn,
+                    cid,
+                    &state.fold,
+                    &mut state.turn_ordinals,
+                    &full_row.row_id,
+                )
+                .await?;
+                let row_json = serde_json::to_string(&full_row).map_err(json_decode_error)?;
+                ConversationTimelineRowRecord::upsert_row_on_conn(
+                    conn,
+                    cid,
+                    turn_ordinal,
+                    &full_row.row_id,
+                    full_row.revision,
+                    &row_json,
+                )
+                .await?;
+                if need_fts
+                    && matches!(full_row.row, ConversationTimelineRow::MessageTurn { .. })
+                    && let Err(error) =
+                        crate::search::upsert_fts_from_timeline_row_on_conn(conn, cid, &full_row)
+                            .await
+                {
+                    tracing::warn!("conversation FTS upsert failed: {error}");
+                }
+            }
+        }
+    }
     Ok(())
 }
 

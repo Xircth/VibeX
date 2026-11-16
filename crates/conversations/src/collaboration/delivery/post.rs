@@ -584,6 +584,9 @@ pub(crate) async fn post_to_space_inner(
         }
     };
     drop(conn);
+    if round_id.is_some() {
+        notify_round_sweep();
+    }
     store_operation(
         pool,
         &message_id,

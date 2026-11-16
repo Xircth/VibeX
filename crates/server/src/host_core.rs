@@ -7,6 +7,7 @@ use application::{
 };
 use async_trait::async_trait;
 use conversations::ConversationContext;
+use deployment::Deployment;
 use plugins::PluginControlPlane;
 use services::services::agent_management_runtime::AgentManagementRuntimeState;
 use sqlx::SqlitePool;
@@ -267,8 +268,9 @@ pub fn host_application_core(
         pool.clone(),
         conversations,
     ));
+    let read_pool = domains.deployment.db().reader().as_pool().clone();
     ApplicationCore::with_all_ports(
-        SqliteConversationRepository::new(pool),
+        SqliteConversationRepository::new(pool).with_read_pool(read_pool),
         execution,
         domains,
         workflows,

@@ -132,7 +132,8 @@ pub async fn start(state: &AppState) -> Result<WorkflowMcpGatewayConnection, Str
         uuid::Uuid::new_v4().simple()
     );
     let core = ApplicationCore::with_execution_and_workflows(
-        SqliteConversationRepository::new(state.deployment.db().pool.clone()),
+        SqliteConversationRepository::new(state.deployment.db().pool.clone())
+            .with_read_pool(state.deployment.db().reader().as_pool().clone()),
         std::sync::Arc::new(ConversationSessionExecutionPort::new(
             state.conversation_context(),
         )),

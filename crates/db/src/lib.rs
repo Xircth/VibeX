@@ -661,7 +661,7 @@ fn sqlite_write_connect_options(database_path: &Path) -> SqliteConnectOptions {
         .journal_mode(SqliteJournalMode::Wal)
         .synchronous(SqliteSynchronous::Normal)
         .busy_timeout(Duration::from_secs(10))
-        .pragma("cache_size", "-4000")
+        .pragma("cache_size", "-16000")
         .pragma("temp_store", "MEMORY")
         .pragma("journal_size_limit", "134217728")
         .pragma("wal_autocheckpoint", "1000")
@@ -673,7 +673,7 @@ fn sqlite_read_connect_options(database_path: &Path) -> SqliteConnectOptions {
         .read_only(true)
         .foreign_keys(true)
         .busy_timeout(Duration::from_secs(10))
-        .pragma("cache_size", "-4000")
+        .pragma("cache_size", "-16000")
         .pragma("temp_store", "MEMORY")
         .pragma("query_only", "ON")
 }

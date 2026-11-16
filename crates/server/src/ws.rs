@@ -19,7 +19,7 @@ use remote_protocol::{
 
 use crate::{AuthenticatedCredential, runtime::ServerState};
 
-const LIVE_POLL_INTERVAL: Duration = Duration::from_millis(12);
+const LIVE_RECONCILE_INTERVAL: Duration = Duration::from_millis(300);
 const REVOCATION_POLL_INTERVAL: Duration = Duration::from_millis(250);
 const KEEP_ALIVE_INTERVAL: Duration = Duration::from_secs(15);
 const MAX_CLIENT_FRAME_BYTES: usize = 1024 * 1024;
@@ -71,6 +71,49 @@ impl ActiveSubscription {
     }
 }
 
+struct PatchStreamRegistry<'a> {
+    bus: &'a crate::HostEventBus,
+    keys: HashMap<SubscriptionId, String>,
+}
+
+impl<'a> PatchStreamRegistry<'a> {
+    fn new(bus: &'a crate::HostEventBus) -> Self {
+        Self {
+            bus,
+            keys: HashMap::new(),
+        }
+    }
+
+    fn track(&mut self, subscription_id: SubscriptionId, task_key: String) {
+        self.release(&subscription_id);
+        self.bus.retain_stream_task(&task_key);
+        self.keys.insert(subscription_id, task_key);
+    }
+
+    fn release(&mut self, subscription_id: &SubscriptionId) {
+        if let Some(previous_key) = self.keys.remove(subscription_id) {
+            self.bus.release_stream_task(&previous_key);
+        }
+    }
+}
+
+impl Drop for PatchStreamRegistry<'_> {
+    fn drop(&mut self) {
+        for (_, task_key) in self.keys.drain() {
+            self.bus.release_stream_task(&task_key);
+        }
+    }
+}
+
+fn has_durable_subscriptions(subscriptions: &HashMap<SubscriptionId, ActiveSubscription>) -> bool {
+    subscriptions.values().any(|sub| {
+        matches!(
+            sub,
+            ActiveSubscription::Conversation { .. } | ActiveSubscription::WorkflowRun { .. }
+        )
+    })
+}
+
 pub(crate) async fn ws_handler<R>(
     State(state): State<Arc<ServerState<R>>>,
     Extension(credential): Extension<AuthenticatedCredential>,
@@ -102,7 +145,8 @@ async fn handle_socket<R>(
         .filter(|s| s.active_e2ee)
         .map(|s| s.key);
     let mut subscriptions = HashMap::<SubscriptionId, ActiveSubscription>::new();
-    let mut live_ticker = tokio::time::interval(LIVE_POLL_INTERVAL);
+    let mut patch_streams = PatchStreamRegistry::new(&state.events);
+    let mut live_ticker = tokio::time::interval(LIVE_RECONCILE_INTERVAL);
     live_ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     let mut revocation_ticker = tokio::time::interval(REVOCATION_POLL_INTERVAL);
     revocation_ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
@@ -183,6 +227,7 @@ async fn handle_socket<R>(
                     &principal,
                     message,
                     &mut subscriptions,
+                    &mut patch_streams,
                     &mut sender,
                     ws_e2ee_key.as_ref(),
                 )
@@ -216,7 +261,27 @@ async fn handle_socket<R>(
                 }
             }
             host_event = host_events.recv() => {
-                let Ok(event) = host_event else { continue };
+                let event = match host_event {
+                    Ok(event) => event,
+                    Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {
+                        if has_durable_subscriptions(&subscriptions)
+                            && reconcile_durable_subscriptions(
+                                state.as_ref(),
+                                &principal,
+                                &mut subscriptions,
+                                None,
+                                &mut sender,
+                                ws_e2ee_key.as_ref(),
+                            )
+                            .await
+                            .is_err()
+                        {
+                            break;
+                        }
+                        continue;
+                    }
+                    Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
+                };
                 let matches = subscriptions
                     .iter()
                     .filter(|(_, subscription)| match subscription {
@@ -254,74 +319,136 @@ async fn handle_socket<R>(
                         return;
                     }
                 }
+                if let Some(target_conv) = conversation_wake_target(&event.channel)
+                    && subscriptions.values().any(|sub| match sub {
+                        ActiveSubscription::Conversation { conversation_id, .. } => {
+                            target_conv.is_none_or(|cid| cid == conversation_id.as_uuid())
+                        }
+                        _ => false,
+                    })
+                    && reconcile_durable_subscriptions(
+                        state.as_ref(),
+                        &principal,
+                        &mut subscriptions,
+                        Some(target_conv),
+                        &mut sender,
+                        ws_e2ee_key.as_ref(),
+                    )
+                    .await
+                    .is_err()
+                {
+                    break;
+                }
             }
             _ = keepalive_ticker.tick() => {
                 if sender.send(Message::Ping(Default::default())).await.is_err() {
                     break;
                 }
             }
-            _ = live_ticker.tick(), if !subscriptions.is_empty() => {
-                let active = subscriptions
-                    .iter()
-                    .map(|(id, subscription)| (*id, subscription.clone()))
-                    .collect::<Vec<_>>();
-                for (subscription_id, subscription) in active {
-                    let bootstrap = match subscription {
-                        ActiveSubscription::HostEvent { .. } => continue,
-                        ActiveSubscription::Conversation {
-                            conversation_id,
-                            after_sequence,
-                        } => state
-                            .core
-                            .attach_conversation(
-                                &principal,
-                                subscription_id,
-                                conversation_id,
-                                after_sequence,
-                                &DurablePollingRegistration,
-                            )
-                            .await,
-                        ActiveSubscription::WorkflowRun {
-                            run_id,
-                            after_sequence,
-                        } => state
-                            .core
-                            .attach_workflow_run(
-                                &principal,
-                                subscription_id,
-                                run_id,
-                                after_sequence,
-                            )
-                            .await,
-                    };
-                    let Ok(bootstrap) = bootstrap else {
-                        continue;
-                    };
-                    let high_water_mark = bootstrap.high_water_mark;
-                    let mut cursor = subscription.after_sequence();
-                    for event in live_events(bootstrap) {
-                        cursor = cursor.max(event.sequence);
-                        if send_message(
-                            &mut sender,
-                            SubscriptionServerMessage::Event {
-                                subscription_id,
-                                event,
-                            },
-                            ws_e2ee_key.as_ref(),
-                        )
-                        .await
-                        .is_err()
-                        {
-                            return;
-                        }
-                    }
-                    if let Some(active) = subscriptions.get_mut(&subscription_id) {
-                        active.advance(cursor.max(high_water_mark));
-                    }
+            _ = live_ticker.tick(), if has_durable_subscriptions(&subscriptions) => {
+                if reconcile_durable_subscriptions(
+                    state.as_ref(),
+                    &principal,
+                    &mut subscriptions,
+                    None,
+                    &mut sender,
+                    ws_e2ee_key.as_ref(),
+                )
+                .await
+                .is_err()
+                {
+                    break;
                 }
             }
         }
     }
+}
+
+fn conversation_wake_target(channel: &str) -> Option<Option<uuid::Uuid>> {
+    if channel == "conversation-events" {
+        return Some(None);
+    }
+    channel
+        .strip_prefix("conversation-events:")
+        .and_then(|raw| uuid::Uuid::parse_str(raw).ok())
+        .map(Some)
+}
+
+async fn reconcile_durable_subscriptions<R, S>(
+    state: &ServerState<R>,
+    principal: &Principal,
+    subscriptions: &mut HashMap<SubscriptionId, ActiveSubscription>,
+    conversation_filter: Option<Option<uuid::Uuid>>,
+    sender: &mut S,
+    e2ee_key: Option<&[u8; 32]>,
+) -> Result<(), ()>
+where
+    R: ConversationRepository + Send + Sync + 'static,
+    S: futures::Sink<Message> + Unpin,
+{
+    let active = subscriptions
+        .iter()
+        .filter(|(_, subscription)| match (subscription, conversation_filter) {
+            (ActiveSubscription::HostEvent { .. }, _) => false,
+            (ActiveSubscription::Conversation { conversation_id, .. }, Some(Some(target))) => {
+                conversation_id.as_uuid() == target
+            }
+            (ActiveSubscription::Conversation { .. }, Some(None)) => true,
+            (ActiveSubscription::WorkflowRun { .. }, Some(_)) => false,
+            (_, None) => true,
+        })
+        .map(|(id, subscription)| (*id, subscription.clone()))
+        .collect::<Vec<_>>();
+    for (subscription_id, subscription) in active {
+        let bootstrap = match subscription {
+            ActiveSubscription::HostEvent { .. } => continue,
+            ActiveSubscription::Conversation {
+                conversation_id,
+                after_sequence,
+            } => {
+                state
+                    .core
+                    .attach_conversation(
+                        principal,
+                        subscription_id,
+                        conversation_id,
+                        after_sequence,
+                        &DurablePollingRegistration,
+                    )
+                    .await
+            }
+            ActiveSubscription::WorkflowRun {
+                run_id,
+                after_sequence,
+            } => {
+                state
+                    .core
+                    .attach_workflow_run(principal, subscription_id, run_id, after_sequence)
+                    .await
+            }
+        };
+        let Ok(bootstrap) = bootstrap else {
+            continue;
+        };
+        let high_water_mark = bootstrap.high_water_mark;
+        let mut cursor = subscription.after_sequence();
+        for event in live_events(bootstrap) {
+            cursor = cursor.max(event.sequence);
+            send_message(
+                sender,
+                SubscriptionServerMessage::Event {
+                    subscription_id,
+                    event,
+                },
+                e2ee_key,
+            )
+            .await?;
+        }
+        if let Some(active) = subscriptions.get_mut(&subscription_id) {
+            active.advance(cursor.max(high_water_mark));
+        }
+    }
+    Ok(())
 }
 
 async fn handle_client_message<R, S>(
@@ -329,6 +456,7 @@ async fn handle_client_message<R, S>(
     principal: &Principal,
     message: SubscriptionClientMessage,
     subscriptions: &mut HashMap<SubscriptionId, ActiveSubscription>,
+    patch_streams: &mut PatchStreamRegistry<'_>,
     sender: &mut S,
     e2ee_key: Option<&[u8; 32]>,
 ) -> Result<(), ()>
@@ -339,7 +467,15 @@ where
     match message {
         SubscriptionClientMessage::Attach { request } => {
             let subscription_id = request.subscription_id;
-            let attached = attach_resource(state, principal, request, subscriptions).await;
+            patch_streams.release(&subscription_id);
+            let attached = attach_resource(
+                state,
+                principal,
+                request,
+                subscriptions,
+                patch_streams,
+            )
+            .await;
             let (bootstrap, active) = match attached {
                 Ok(attached) => attached,
                 Err(error) => {
@@ -403,6 +539,7 @@ where
         }
         SubscriptionClientMessage::Detach { subscription_id } => {
             subscriptions.remove(&subscription_id);
+            patch_streams.release(&subscription_id);
         }
         SubscriptionClientMessage::Ping => {
             send_message(sender, SubscriptionServerMessage::Pong, e2ee_key).await?;
@@ -416,6 +553,7 @@ async fn attach_resource<R>(
     principal: &Principal,
     request: remote_protocol::SubscriptionRequest,
     subscriptions: &mut HashMap<SubscriptionId, ActiveSubscription>,
+    patch_streams: &mut PatchStreamRegistry<'_>,
 ) -> Result<(SubscriptionBootstrap, ActiveSubscription), ErrorEnvelope>
 where
     R: ConversationRepository + Send + Sync + 'static,
@@ -508,6 +646,8 @@ where
                     after_sequence,
                 },
             );
+            let task_key = crate::patch_stream_task_key(&stream, &args)
+                .unwrap_or_else(|_| channel.clone());
             if let Err(error) = state
                 .commands
                 .execute_name(principal, command, OperationId::new(), args)
@@ -516,6 +656,7 @@ where
                 subscriptions.remove(&request.subscription_id);
                 return Err(error);
             }
+            patch_streams.track(request.subscription_id, task_key);
             Ok((
                 bootstrap,
                 ActiveSubscription::HostEvent {

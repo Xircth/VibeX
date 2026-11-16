@@ -26,10 +26,10 @@ use uuid::Uuid;
 use super::{
     CONVERSATION_PROJECTION_VERSION, ConversationProjector, ParsedEvent,
     cache::{
-        self, WriteSideProjectorState, apply_and_persist_incremental_on_conn,
-        commit_write_projector_states, evict_write_projector,
-        flush_write_projector_snapshot_on_conn, get_or_load_write_projector_on_conn,
-        json_decode_error,
+        self, DirtyRowMap, WriteSideProjectorState, apply_and_persist_incremental_on_conn,
+        apply_and_persist_incremental_with_dirty_on_conn, commit_write_projector_states,
+        evict_write_projector, flush_dirty_rows_on_conn, flush_write_projector_snapshot_on_conn,
+        get_or_load_write_projector_on_conn, json_decode_error, merge_dirty_rows,
     },
     conversation_event_from_record, conversation_input_event_id,
 };
@@ -242,6 +242,7 @@ impl ConversationEventAppender {
                 let mut failed = Vec::new();
                 let mut touched_states: HashMap<Uuid, WriteSideProjectorState> = HashMap::new();
                 let mut dirty_conversations: HashSet<Uuid> = HashSet::new();
+                let mut batch_dirty_rows: DirtyRowMap = HashMap::new();
 
                 for idx in range {
                     let item = &events[idx];
@@ -256,7 +257,11 @@ impl ConversationEventAppender {
 
                     enum StepDone {
                         Duplicate(ConversationEventRecord),
-                        Applied(ConversationEventRecord, Box<WriteSideProjectorState>),
+                        Applied(
+                            ConversationEventRecord,
+                            Box<WriteSideProjectorState>,
+                            DirtyRowMap,
+                        ),
                     }
 
                     let step_res: Result<StepDone, sqlx::Error> = async {
@@ -293,10 +298,16 @@ impl ConversationEventAppender {
                                 .await?
                             }
                         };
+                        let mut step_dirty = DirtyRowMap::new();
                         ConversationStateApplier::apply_record(&mut conn, &record).await?;
-                        apply_and_persist_incremental_on_conn(&mut conn, &mut candidate, &record)
-                            .await?;
-                        Ok(StepDone::Applied(record, Box::new(candidate)))
+                        apply_and_persist_incremental_with_dirty_on_conn(
+                            &mut conn,
+                            &mut candidate,
+                            &record,
+                            Some(&mut step_dirty),
+                        )
+                        .await?;
+                        Ok(StepDone::Applied(record, Box::new(candidate), step_dirty))
                     }
                     .await;
 
@@ -319,7 +330,7 @@ impl ConversationEventAppender {
                                 duplicate: true,
                             });
                         }
-                        Ok(StepDone::Applied(record, candidate)) => {
+                        Ok(StepDone::Applied(record, candidate, step_dirty)) => {
                             if let Err(err) = sqlx::query("RELEASE SAVEPOINT sp_item")
                                 .execute(&mut *conn)
                                 .await
@@ -333,6 +344,7 @@ impl ConversationEventAppender {
                             }
                             dirty_conversations.insert(record.conversation_id);
                             touched_states.insert(record.conversation_id, *candidate);
+                            merge_dirty_rows(&mut batch_dirty_rows, step_dirty);
                             committed.push(CommittedConversationEvent {
                                 index: idx,
                                 record,
@@ -367,6 +379,20 @@ impl ConversationEventAppender {
                             }
                         }
                     }
+                }
+
+                if let Err(err) =
+                    flush_dirty_rows_on_conn(&mut conn, &mut touched_states, batch_dirty_rows).await
+                {
+                    let rollback_ids: Vec<Uuid> = touched_states
+                        .keys()
+                        .chain(dirty_conversations.iter())
+                        .copied()
+                        .collect();
+                    return Err((err, rollback_ids));
+                }
+
+                for cid in &dirty_conversations {
                     if let Some(state) = touched_states.get(cid)
                         && let Err(err) =
                             flush_write_projector_snapshot_on_conn(&mut conn, *cid, state).await

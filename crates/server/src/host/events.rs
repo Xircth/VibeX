@@ -256,6 +256,7 @@ pub struct HostEventBus {
     sequence: Arc<AtomicI64>,
     last_invalidation: Arc<RwLock<HashMap<String, HostEvent>>>,
     stream_tasks: Arc<Mutex<HashMap<String, JoinHandle<()>>>>,
+    stream_task_refs: Arc<Mutex<HashMap<String, usize>>>,
 }
 
 impl Default for HostEventBus {
@@ -272,6 +273,7 @@ impl HostEventBus {
             sequence: Arc::new(AtomicI64::new(0)),
             last_invalidation: Arc::new(RwLock::new(HashMap::new())),
             stream_tasks: Arc::new(Mutex::new(HashMap::new())),
+            stream_task_refs: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
@@ -300,6 +302,40 @@ impl HostEventBus {
                 return;
             }
             tasks.insert(key, spawn_fn());
+        }
+    }
+
+    /// Increment the subscriber refcount for an active stream producer task key.
+    pub fn retain_stream_task(&self, key: &str) {
+        if let Ok(mut refs) = self.stream_task_refs.lock() {
+            let count = refs.entry(key.to_string()).or_insert(0);
+            *count = count.saturating_add(1);
+        }
+    }
+
+    /// Decrement the subscriber refcount for a stream producer task key and abort
+    /// + remove the background task once the final subscriber detaches.
+    pub fn release_stream_task(&self, key: &str) {
+        let should_abort = if let Ok(mut refs) = self.stream_task_refs.lock() {
+            match refs.get_mut(key) {
+                Some(count) if *count > 1 => {
+                    *count -= 1;
+                    false
+                }
+                Some(_) => {
+                    refs.remove(key);
+                    true
+                }
+                None => false,
+            }
+        } else {
+            false
+        };
+        if should_abort && let Ok(mut tasks) = self.stream_tasks.lock() {
+            if let Some(handle) = tasks.remove(key) {
+                handle.abort();
+            }
+            tasks.retain(|_, handle| !handle.is_finished());
         }
     }
 
@@ -603,6 +639,22 @@ pub fn patch_stream_subscribe_command(stream: &str) -> Option<&'static str> {
     }
 }
 
+/// Map a `patch_stream` resource name and args to the task key used in
+/// `HostEventBus::stream_tasks`.
+pub fn patch_stream_task_key(stream: &str, args: &serde_json::Value) -> Result<String, String> {
+    if stream == "file_tree" {
+        let root_path = args
+            .get("rootPath")
+            .or_else(|| args.get("root_path"))
+            .and_then(serde_json::Value::as_str)
+            .ok_or_else(|| "rootPath is required".to_string())?;
+        let canonical = std::fs::canonicalize(root_path)
+            .map_err(|error| format!("Invalid file tree root '{root_path}': {error}"))?;
+        return Ok(format!("file-tree:{}", canonical.to_string_lossy()));
+    }
+    patch_stream_channel(stream, args)
+}
+
 #[cfg(test)]
 mod tests {
     use remote_protocol::EventDurability;
@@ -848,5 +900,39 @@ mod tests {
         bus.replace_stream_task("projects-stream", handle2);
         tokio::task::yield_now().await;
         assert!(tx1.is_closed());
+    }
+
+    #[tokio::test]
+    async fn stream_task_refcounting_aborts_only_when_last_subscriber_releases() {
+        let bus = HostEventBus::new();
+        let (tx, rx) = tokio::sync::oneshot::channel::<()>();
+        let handle = tokio::spawn(async move {
+            let _ = rx.await;
+        });
+        bus.replace_stream_task("diff-stream:ws-1", handle);
+        bus.retain_stream_task("diff-stream:ws-1");
+        bus.retain_stream_task("diff-stream:ws-1");
+
+        // First release keeps the producer task alive for the second subscriber.
+        bus.release_stream_task("diff-stream:ws-1");
+        tokio::task::yield_now().await;
+        assert!(!tx.is_closed());
+
+        // Final release aborts and removes the producer task.
+        bus.release_stream_task("diff-stream:ws-1");
+        tokio::task::yield_now().await;
+        assert!(tx.is_closed());
+
+        // Unretained direct RPC task is unaffected by release calls on unknown keys.
+        let (rpc_tx, rpc_rx) = tokio::sync::oneshot::channel::<()>();
+        bus.replace_stream_task(
+            "projects-stream",
+            tokio::spawn(async move {
+                let _ = rpc_rx.await;
+            }),
+        );
+        bus.release_stream_task("projects-stream");
+        tokio::task::yield_now().await;
+        assert!(!rpc_tx.is_closed());
     }
 }

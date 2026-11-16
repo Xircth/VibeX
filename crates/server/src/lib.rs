@@ -65,7 +65,7 @@ pub use host::{
         current_host_events,
     },
     local_history::assemble_local_history_scan_page,
-    native, patch_stream_channel, patch_stream_subscribe_command,
+    native, patch_stream_channel, patch_stream_subscribe_command, patch_stream_task_key,
     plugin_conversation::HostPluginConversationHost,
     provider_bind::HostProviderPresetHost,
     remote_profiles::FileRemoteProfileHost,
